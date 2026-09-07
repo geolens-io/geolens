@@ -1,8 +1,8 @@
-"""LLM provider runtime helpers (Phase 226 surviving surface).
+"""LLM provider runtime helpers.
 
-The tool-calling loop bodies (``_loop_anthropic`` / ``_loop_openai``) were moved
-to ``DefaultAnthropicProvider.complete`` and ``DefaultOpenAICompatibleProvider.complete``
-in ``app.platform.extensions.defaults`` (Phase 226 D-17/D-18). What remains here:
+The tool-calling loop bodies (``_loop_anthropic`` / ``_loop_openai``) live in
+``DefaultAnthropicProvider.complete`` and ``DefaultOpenAICompatibleProvider.complete``
+in ``app.platform.extensions.defaults``. What remains here:
 
   - SDK client cache helpers (``get_anthropic_client``, ``get_openai_client``) —
     kept as module-level utilities so streaming.py / sql_generator.py /
@@ -10,9 +10,9 @@ in ``app.platform.extensions.defaults`` (Phase 226 D-17/D-18). What remains here
   - ``add_tool_cache_control`` — pure Anthropic-format helper used by streaming.py.
   - ``ToolLoopResult`` / ``ToolLoopExhaustedError`` / ``ToolExecutor`` / ``ActionCollector``
     — type machinery forward-referenced from ``platform/extensions/protocols.py``.
-  - ``resolve_provider(db)`` — returns ``(name, model, runtime_config)`` tuple
-    (Phase 226 D-21) by delegating ``runtime_config`` resolution to the named
-    provider's ``resolve_runtime_config(db)`` method.
+  - ``resolve_provider(db)`` — returns ``(name, model, runtime_config)`` by
+    delegating ``runtime_config`` resolution to the named provider's
+    ``resolve_runtime_config(db)`` method.
   - ``build_history_messages(history)`` — provider-agnostic role filter.
 """
 
@@ -40,24 +40,20 @@ _LLM_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Phase 226 D-25: module-level _cached_anthropic_client / _cached_openai_clients
-# singletons removed — cache state now lives on DefaultAnthropicProvider._client
-# and DefaultOpenAICompatibleProvider._clients class attributes (Plan 01).
-# These functions remain as module-level utilities so streaming.py /
-# metadata_service.py keep their existing import path (RESEARCH.md Pitfall 4).
+# Cache state lives on DefaultAnthropicProvider._client and
+# DefaultOpenAICompatibleProvider._clients class attributes; these functions
+# remain as module-level utilities so streaming.py / metadata_service.py
+# keep their existing import path.
 
 
 def get_anthropic_client() -> AsyncAnthropic:
     """Return the cached Anthropic SDK client.
 
-    Cache lives on DefaultAnthropicProvider._client (Phase 226 D-25).
-    Used by streaming.py and metadata_service.py, which import this function
-    directly rather than going through the provider Protocol because their
-    dispatch paths are deferred-scope (RESEARCH.md Open Questions 1 & 2).
-
-    Surfaces the missing-key failure here (REVIEW.md WR-01) so callers see a
-    clear ValueError instead of an opaque AuthenticationError on the first
-    request. Mirrors the guard at DefaultAnthropicProvider.complete().
+    Cache lives on DefaultAnthropicProvider._client; used by streaming.py
+    and metadata_service.py directly (deferred-scope dispatch, not through
+    the provider Protocol). Surfaces the missing-key failure as a clear
+    ValueError rather than an opaque AuthenticationError, mirroring the
+    guard at DefaultAnthropicProvider.complete().
     """
     if not settings.anthropic_api_key:
         raise ValueError("Anthropic API key not configured")
@@ -67,7 +63,6 @@ def get_anthropic_client() -> AsyncAnthropic:
     #     (llm_loop -> defaults -> imports _LLM_TIMEOUT etc. from llm_loop)
     #   - AsyncAnthropic — keeps the SDK out of module-import scope so
     #     `processing/` carries zero top-level provider-SDK imports
-    #     (oc-audit 2026-05-02 §5; lifts Phase 226 follow-up)
     from anthropic import AsyncAnthropic
     from app.platform.extensions.defaults import DefaultAnthropicProvider
 
@@ -83,13 +78,11 @@ def get_anthropic_client() -> AsyncAnthropic:
 def get_openai_client(base_url: str) -> AsyncOpenAI:
     """Return the cached OpenAI-compatible SDK client for ``base_url``.
 
-    Cache lives on DefaultOpenAICompatibleProvider._clients dict (Phase 226 D-25).
-    Used by streaming.py, which imports this function directly (deferred-scope
-    per RESEARCH.md Open Question 1).
-
-    Surfaces the missing-key failure here (REVIEW.md WR-01) so callers see a
-    clear ValueError instead of an opaque AuthenticationError on the first
-    request. Mirrors the guard at DefaultOpenAICompatibleProvider.complete().
+    Cache lives on DefaultOpenAICompatibleProvider._clients; used by
+    streaming.py directly (deferred-scope). Surfaces the missing-key
+    failure as a clear ValueError rather than an opaque
+    AuthenticationError, mirroring the guard at
+    DefaultOpenAICompatibleProvider.complete().
     """
     if not settings.openai_api_key:
         raise ValueError("OpenAI-compatible API key not configured")
@@ -123,14 +116,11 @@ ActionCollector = Callable[[str, dict, dict], dict | None]
 async def noop_tool_executor(name: str, args: dict) -> dict:
     """Shared ToolExecutor for no-tools calls (``tools=[]`` + ``max_rounds=1``).
 
-    The tool loop only reaches a tool_use/tool_calls branch when the model was
-    offered tools, so with ``tools=[]`` this is never actually invoked — it
-    exists to satisfy AIProviderExtension.complete()/stream(), which requires
-    a real callable. A registered provider (community default or overlay) is
-    entitled to treat ``tool_executor`` as an always-callable value, so the
-    no-tools call sites (sql_generator.generate_sql, the admin AI probe,
-    service's map-spec retry/repair rounds) share this one definition instead
-    of each constructing their own throwaway closure.
+    Never actually invoked (``tools=[]`` means the loop never reaches a
+    tool_use branch) but AIProviderExtension.complete()/stream() requires
+    a real callable. Shared by every no-tools call site
+    (sql_generator.generate_sql, the admin AI probe, service's map-spec
+    retry/repair rounds) instead of each building its own throwaway closure.
     """
     return {}
 
@@ -139,20 +129,16 @@ class ToolLoopExhaustedError(Exception):
     """Raised when the tool-calling loop exceeds the maximum number of rounds.
 
     fix(#1778): carries the tokens the loop had already spent. The blocking
-    loop accumulated per-round counts and threw them away on every failure
-    exit, so its most expensive requests -- the ones that ran all eight rounds,
-    blew MAX_REQUEST_TOKEN_BUDGET, or hit the wall clock -- were billed by the
-    provider and contributed nothing to ``catalog.ai_token_usage``.
-    MAX_AI_TOKENS_PER_USER_PER_DAY is enforced by SUMming that table, so a
-    caller who could reliably drive the loop to exhaustion kept a recorded
-    balance of zero while spending real money. fix(#402) closed the same class
-    for the streaming path by recording each round as it completed; the
-    blocking loop took #448's budget guards and never the accounting.
+    loop discarded per-round counts on every failure exit, so its most
+    expensive requests (all eight rounds, budget-blown, or wall-clock hit)
+    were billed by the provider but recorded zero in
+    ``catalog.ai_token_usage`` — and MAX_AI_TOKENS_PER_USER_PER_DAY sums
+    that table, so a caller who reliably exhausted the loop spent real
+    money at a recorded balance of zero.
 
-    The counts ride here rather than on a new ``complete()`` parameter because
-    that signature is an extension Protocol: adding a keyword to it forces an
-    EXTENSION_API_VERSION bump on every overlay, which is a far larger change
-    than the accounting it would carry.
+    The counts ride here rather than on a new ``complete()`` parameter
+    because that signature is an extension Protocol — adding a keyword
+    forces an EXTENSION_API_VERSION bump on every overlay.
     """
 
     def __init__(
@@ -170,16 +156,14 @@ class ToolLoopExhaustedError(Exception):
 class UserFacingAIError(ValueError):
     """A message deliberately written for the end user.
 
-    fix(#1778 round 1): the SSE generators used to pass every ``ValueError``
-    through to the browser on the reasoning that this pipeline raises one for
-    its own user-facing refusals. That is an open set, not a closed one:
-    ``OpenAICredentialDestinationError`` is a ``ValueError`` too, and it names
-    the configured provider endpoint. Only a message raised as THIS type
-    reaches a viewer; every other ``ValueError`` gets the generic text and
-    keeps its detail in the log.
+    fix(#1778): a plain "pass every ValueError through" reasoning is an
+    open set, not closed — ``OpenAICredentialDestinationError`` is a
+    ValueError too, and names the configured provider endpoint. Only a
+    message raised as THIS type reaches a viewer; every other ValueError
+    gets generic text and keeps its detail in the log.
 
-    Subclassing ``ValueError`` keeps every existing ``except ValueError``
-    handler on these paths working unchanged.
+    Subclasses ``ValueError`` so existing ``except ValueError`` handlers
+    keep working unchanged.
     """
 
 
@@ -195,21 +179,18 @@ def attach_token_usage(
 ) -> None:
     """Stamp the tokens a tool loop had already spent onto the error it raised.
 
-    fix(#1778 round 1): attaching them only to ``ToolLoopExhaustedError`` left
-    every other exit from the loop unaccounted. A provider that answers one
-    round and then fails, or a tool executor that raises after a successful
-    round, has already been billed for that round; without a stamp the caller's
-    recorder no-ops and repeated induced failures spend real money while the
-    daily quota stays where it was. This is the one place that decides, and
-    every exit from both provider loops routes through it.
+    fix(#1778): attaching only to ``ToolLoopExhaustedError`` left every
+    other exit unaccounted — a provider that fails after one billed round,
+    or a tool executor that raises after one, otherwise spends real money
+    with the daily quota unchanged. Every exit from both provider loops
+    routes through here.
 
-    Cancellation is stamped too. ``asyncio.wait_for`` raises ``TimeoutError``
-    ``from`` the ``CancelledError`` it delivered to the coroutine, so the
-    counts survive on ``__cause__`` (verified on the pinned CPython) and
+    Cancellation is stamped too: ``asyncio.wait_for`` raises ``TimeoutError``
+    ``from`` the ``CancelledError``, so counts survive on ``__cause__`` and
     :func:`token_usage_from_error` walks that chain.
 
-    Best-effort by design: an exception type with ``__slots__`` cannot take the
-    attributes, and losing the accounting must never replace the real error.
+    Best-effort: an exception with ``__slots__`` can't take the attributes,
+    and losing the accounting must never replace the real error.
     """
     try:
         exc.input_tokens = input_tokens  # type: ignore[attr-defined]
@@ -262,16 +243,11 @@ class ToolLoopResult:
 async def resolve_provider(db) -> tuple[str, str, dict[str, object]]:
     """Resolve (provider_name, model, runtime_config) from PersistentConfig.
 
-    Phase 226 D-10/D-21: returns ``runtime_config`` dict (was ``base_url``).
-    ``runtime_config["base_url"]`` is None for Anthropic, the OpenAI-compatible
-    endpoint URL for ``"openai_compatible"``. Each provider class supplies its
-    own ``resolve_runtime_config(db)`` so the if/elif on the provider name
-    moves out of llm_loop and into the provider classes.
-
-    Callers update tuple unpacking from ``(provider, model, base_url)`` to
-    ``(provider, model, runtime_config)`` and read ``runtime_config["base_url"]``
-    where needed (RESEARCH.md Pitfall 3 — closed-set: 4 callers in
-    service.py:660,741, chat_service.py:934, streaming.py:509).
+    Returns a ``runtime_config`` dict, not just ``base_url``:
+    ``runtime_config["base_url"]`` is None for Anthropic, the endpoint URL
+    for ``"openai_compatible"``. Each provider class supplies its own
+    ``resolve_runtime_config(db)``, so the provider if/elif lives in the
+    provider classes, not here.
     """
     from app.platform.extensions import get_ai_provider
 

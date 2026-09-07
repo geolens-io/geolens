@@ -95,18 +95,18 @@ async def lock_catalog_rows(
     lock_timeout: str | None = _USE_REQUEST_DEFAULT,
     raster_asset_cls: Any = None,
 ) -> None:
-    """Lock the catalog rows for a write: ``raster_assets`` (when given), then
-    ``datasets``, then ``records``.
+    """Lock the catalog rows for a write, in order: ``raster_assets`` (when
+    given), then ``datasets``, then ``records``.
 
-    Call it before the transaction's first write to either row, and after any
-    network I/O or data-table work. A writer that touches "only" one row still
-    needs it: stamping ``record.updated_by`` and rolling ``tile_cache_version``
-    is both, and the ORM flushes ``records`` before ``datasets`` on its own.
+    Call before the transaction's first write to either row, after any
+    network I/O or data-table work. Even a "single-row" writer often needs
+    it: stamping ``record.updated_by`` while rolling ``tile_cache_version``
+    touches both, and the ORM flushes ``records`` before ``datasets`` on its
+    own.
 
-    ``raster_asset_cls`` puts the raster child at the front of the order, for a
-    transaction that will also reach ``raster_assets``.
-
-    Raises ``CatalogLockConflict`` on 55P03 or 40P01, having rolled back.
+    ``raster_asset_cls`` puts the raster child first, for callers that also
+    reach ``raster_assets``. Raises ``CatalogLockConflict`` on 55P03 or
+    40P01, having rolled back.
     """
     await _install_lock_timeout(session, lock_timeout)
 
@@ -148,9 +148,8 @@ async def lock_ingest_jobs(
 ) -> None:
     """Take a dataset's ingest-job rows, ahead of :func:`lock_catalog_rows`.
 
-    For a transaction whose delete cascades into ``ingest_jobs``: a worker
-    holds its job row before any data-table or catalog lock, so the deleter
-    takes those rows before either. Same timeout and exception contract.
+    For a delete cascading into ``ingest_jobs``: hold the job row before any
+    data-table or catalog lock. Same timeout and exception contract.
     """
     await _install_lock_timeout(session, lock_timeout)
     try:

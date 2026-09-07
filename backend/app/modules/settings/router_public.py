@@ -77,13 +77,11 @@ async def get_feature_flags(
 
 @router.get("/branding", response_model=BrandingResponse, include_in_schema=False)
 # PRIV-1: privacy_url rides this endpoint even though its PersistentConfig
-# lives on the "general" tab, not "branding". GET /settings/branding/ is
-# already the one public, unauthenticated config bundle fetched pre-auth
-# (login/register need it before a session exists), so reusing it avoids a
-# second endpoint for one optional string. Read the shape check again here
-# (not just trust the admin-write validator or the boot validator on the env
-# value): a row written before either check existed, or by any other path,
-# must not reach the login page as an unvalidated <a href>.
+# lives on the "general" tab — GET /settings/branding/ is already the one
+# public, pre-auth config bundle (login/register need it before a session
+# exists). Re-checks the shape here rather than trusting the admin-write or
+# boot validator: a row written before either existed must not reach the
+# login page as an unvalidated <a href>.
 @router.get("/branding/", response_model=BrandingResponse)
 async def get_branding(
     db: AsyncSession = Depends(get_db),

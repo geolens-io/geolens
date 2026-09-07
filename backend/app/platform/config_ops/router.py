@@ -66,8 +66,8 @@ async def export_configuration(
     headers (TYPE-N3). Using ``response_class=JSONResponse`` is the correct way to
     document a download endpoint in OpenAPI.
     """
-    # Deferred by design: platform must not depend upward on product domains
-    # at module load time (D-17). The audit module owns persistence of its DTO.
+    # Deferred (D-17): platform must not import product domains at module
+    # load time.
     from app.modules.audit.service import AuditEvent, audit_emit
 
     data = await export_config(db)
@@ -84,18 +84,13 @@ async def export_configuration(
             ip_address=get_client_ip(request),
         ),
     )
-    # Commit before the payload leaves, so the audit record is durable rather
-    # than merely staged when the export is released.
+    # Commit here so the audit record is durable before the payload ships.
     #
-    # fix(#1491): this is no longer fail-closed, and the change is deliberate.
-    # audit_emit() now isolates each sink in a SAVEPOINT and suppresses its
-    # failure, so a rejected audit row no longer fails this commit and the
-    # export ships anyway. NIST SP 800-53 AU-5 — every baseline — asks for an
-    # alert on an audit-logging failure, which audit_emit() raises with the
-    # full event; fail-closed is AU-5(4), which is in no baseline and is waived
-    # where an alternate audit logging capability exists. This is the only
-    # audit_emit() call site in the app that commits for durability, so the
-    # semantics changed here and nowhere else.
+    # fix(#1491): deliberately not fail-closed — audit_emit() isolates each
+    # sink in a SAVEPOINT and suppresses failure, so a rejected audit row does
+    # not block the export (NIST AU-5(4) fail-closed is waived here; AU-5's
+    # alert requirement is still met by audit_emit()'s raise). The only
+    # audit_emit() call site that commits for durability.
     await db.commit()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")

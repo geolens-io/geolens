@@ -243,8 +243,8 @@ def _reject_inline_connector_secrets(config: dict[str, object]) -> None:
 def _validate_connector_resources(resources: object) -> list[ConnectorResourceResponse]:
     """Turn overlay DTOs into the public contract before audit or commit.
 
-    Overlay identifiers are untrusted provider output.  Only an API-safe opaque
-    handle crosses the core boundary; provider URLs (especially signed URLs)
+    Overlay identifiers are untrusted provider output; only an opaque handle
+    crosses the core boundary, and provider URLs (especially signed ones)
     must stay inside the overlay.
     """
     try:
@@ -460,9 +460,8 @@ async def dispatch_connector_ingest_endpoint(
             resource_type="connector",
             details={
                 "connector": connector_name,
-                # Resource handles are validated as API-safe and opaque. Keep a
-                # deterministic correlation value without persisting even that
-                # provider-controlled handle in the audit log.
+                # Hash, not raw handle: keeps a correlation value without
+                # persisting the provider-controlled handle in the audit log.
                 "resource_id_sha256": hashlib.sha256(
                     body.resource_id.encode("utf-8")
                 ).hexdigest(),
@@ -485,10 +484,9 @@ async def _probe_audit_fail(
 ) -> None:
     """Audit-log a probe failure and raise HTTPException.
 
-    ``detail`` is a plain string for every refusal this door has always made,
-    and a coded object for the credential-policy one (fix(#1746 B2b review
-    r7)), which reuses the shape and the code the preview and commit doors
-    return so a client maps one thing rather than two.
+    fix(#1746): ``detail`` is a plain string except for the credential-policy
+    refusal, which uses the same coded-object shape as preview/commit so a
+    client maps one thing, not two.
     """
     safe_url = redact_url_credentials(url)
     await audit_emit(
@@ -509,20 +507,14 @@ def _probe_credential_line(
 ) -> str | None:
     """The header line the endpoint check sends, or None for a public probe.
 
-    fix(#1746 B2b review r14): the probe holds a credential bound to whichever
-    transport its URL looked like, and the check needs it bound to the format
-    detection just established. Composed by the one builder.
+    fix(#1746): binds the credential to the just-detected format, not the
+    URL's apparent transport.
 
-    fix(#1840 audit round 1): gated on ``requires_header_token_policy`` rather
-    than on the builder answering None. The two stopped being equivalent when
-    lane C2 taught the builder to compose an ``X-Esri-Authorization`` header
-    for ArcGIS's own httpx requests, and this function feeds
-    ``assert_endpoints_stay_on_origin``, which is about a service DESCRIBING a
-    foreign operation endpoint that GDAL then follows with a header file
-    attached -- a WFS/OAPIF question only. It was inert either way, because
-    that check early-returns on the same predicate, but a line composed here
-    for a format that never becomes a header file is a claim about the wrong
-    transport waiting for its consumer's guard to be relaxed.
+    fix(#1840): gated on ``requires_header_token_policy``, not on the builder
+    answering None — those diverged once ArcGIS gained its own
+    ``X-Esri-Authorization`` header. This feeds
+    ``assert_endpoints_stay_on_origin``, a WFS/OAPIF-only check about GDAL
+    following a header file to a foreign endpoint.
     """
     if credential is None or not requires_header_token_policy(service_format):
         return None
@@ -533,11 +525,9 @@ def _probe_credential_line(
 def _preview_service_format(service_type: str) -> str | None:
     """The canonical format a preview's human service label resolves to.
 
-    fix(#1746): the credential policy is chosen by the format, not the label,
-    because that is what says whether the credential becomes a header or a
-    query parameter. An unrecognized label answers None, which composes no
-    header and leaves the "Unsupported service type" refusal where it already
-    lives, in ``build_gdal_source``.
+    fix(#1746): credential policy is keyed by format, not label — that's
+    what decides header vs. query param. An unrecognized label returns None,
+    leaving the "Unsupported service type" refusal to ``build_gdal_source``.
     """
     try:
         _, source_format = get_catalog_port().resolve_service_type(service_type)
@@ -551,39 +541,24 @@ async def _fetch_ogcapi_collection_srid(
 ) -> int | None:
     """Fetch OGC API collection metadata and parse URI-form CRS to EPSG.
 
-    SMOKE-v1013-F2: ogrinfo on an OGC API collection often returns no
-    coordinateSystem because GeoJSON feature responses don't carry a CRS
-    (assumed CRS84). The collection metadata DOES expose URI-form CRS via
-    its ``crs`` array (e.g. ``http://www.opengis.net/def/crs/OGC/1.3/CRS84``).
-    Parse the first entry through ``parse_crs_uri`` so preview displays
-    ``EPSG:4326`` rather than ``Unknown``.
+    SMOKE-v1013-F2: ogrinfo often reports no CRS for an OGC API collection
+    (GeoJSON responses don't carry one, assumed CRS84); collection metadata
+    exposes URI-form CRS via ``crs``, parsed through ``parse_crs_uri``.
+    Returns None on any failure — the preview falls back to the CRS
+    Override field.
 
-    Returns None on any failure — the preview will fall back to the user
-    seeing the CRS Override field (existing UX).
+    SSRF: base_url is already validated upstream; the collection URL only
+    appends ``/collections/{layer_name}``, drawn from the probe's
+    known_layer_names allowlist.
 
-    SSRF: base_url has already been validated upstream as the probe URL.
-    The collection URL is constructed by appending ``/collections/{name}``
-    (no user-controlled path components other than layer_name from the
-    probe's known_layer_names allowlist).
+    fix(#1756): carries the same service credential as the probe adapters,
+    composed through the shared builder, with a service-chosen header name
+    so a cross-origin redirect cannot forward it.
 
-    fix(#1756 codex round 8): this carries the same service credential the two
-    probe adapters carry and so composes it the same way, through the shared
-    builder, and declares a service-chosen header name to the client so a
-    cross-origin redirect cannot forward it.
-
-    fix(#1770 round 43): this used a plain ``client.get`` -- the same
-    unbounded-buffering shape round 41 closed for the four service-type
-    probes, missed here because round 41's sweep was scoped to
-    ``adapters/`` and ``platform/service_*.py``, and this is neither. With
-    a Basic or header-key credential attached, a hostile or compromised
-    authenticated endpoint could exhaust the process during THIS read, the
-    same as it could have during a probe's own. Reads through
-    ``bounded_probe_read`` now, and the whole function runs under
-    ``DEFAULT_CHECK_TIMEOUT`` -- the same clock the probe adapters and
-    ``assert_endpoints_stay_on_origin`` already run their own reads under --
-    since this fetch has no deadline of its own to inherit: it runs AFTER
-    ``run_service_preview`` has already returned, with only the client's own
-    per-inactivity timeout bounding it before this round.
+    fix(#1770): reads through ``bounded_probe_read`` under
+    ``DEFAULT_CHECK_TIMEOUT``, like the probe adapters and
+    ``assert_endpoints_stay_on_origin`` — this fetch has no deadline of its
+    own to inherit since it runs after preview has already returned.
     """
     collection_url = urljoin(
         base_url if base_url.endswith("/") else base_url + "/",
@@ -614,18 +589,13 @@ async def _fetch_ogcapi_collection_srid(
         EndpointCheckFailedError,
         TimeoutError,
     ) as exc:
-        # SSRFError joins the others on the same reasoning as the rest of this
-        # helper: the CRS fallback is best effort and its failure costs the
-        # user the CRS Override field, not the preview. A refused redirect hop
-        # — blocked address, or a cross-origin one that would have forwarded a
-        # service-chosen credential header — is one more way not to answer,
-        # same as a body over the byte/decoded-size cap (EndpointCheckFailedError)
-        # or a deadline that ran out (TimeoutError, from asyncio.timeout above).
-        # fix(#1770 round 44 P2): RecursionError joins them too -- a JSON
-        # depth bomb (900,000 nested `[`) is under every byte/token cap this
-        # module checks and raises RecursionError, not ValueError. See
-        # `service_endpoints.py::_parsed_json`'s docstring for the class this
-        # closes.
+        # Best-effort fallback: any of these just costs the CRS Override
+        # field, not the preview. SSRFError covers a refused redirect
+        # (blocked address, or cross-origin credential-header leak);
+        # EndpointCheckFailedError covers the byte/decoded-size cap.
+        # fix(#1770): RecursionError joins them — a JSON depth bomb (900k
+        # nested `[`) evades the byte/token caps and raises RecursionError,
+        # not ValueError. See ``service_endpoints.py::_parsed_json``.
         logger.debug(
             "OGC API collection CRS fallback fetch failed",
             url=collection_url,
@@ -674,72 +644,53 @@ async def _fail_preview(
     )
 
 
-# fix(#1755 item 9): every typed refusal `run_service_preview` and its
-# callees can raise, mapped to a coded 4xx here rather than at the bottom of
-# `preview_service_layer`'s broad `except Exception`. The preview pipeline
-# (`preview.py`, `service_endpoints.py::assert_endpoints_stay_on_origin`,
-# `service_items.py::materialise_oapif_items`) already converts every one of
-# these into an `HTTPException` at its own raise site, and both of those
-# functions' docstrings commit to raising nothing else — so in the code as it
-# stands today, this map is never consulted. It exists for the day one of
-# those internal contracts is broken by a future edit: without it, the only
-# thing standing between a typed refusal and a 500 would be that a callee
-# happened to keep its promise. `tests/test_services_endpoints.py`'s
+# fix(#1755): every typed refusal `run_service_preview` and its callees can
+# raise is mapped to a coded 4xx here. The preview pipeline already converts
+# each one to an `HTTPException` at its own raise site, so today this map is
+# never consulted — it exists so a future edit that breaks one of those
+# internal contracts still gets a coded 4xx instead of a 500.
 # `TestPreviewEndpoint` pins each branch by mocking `run_service_preview`
-# directly, bypassing the internal wrapping the same way a regression would.
+# directly, bypassing that internal wrapping.
 #
-# Ordered specific-to-general because `SSRFError` and `HrefTooLongError` are
-# both `ValueError` subclasses (`platform/security.py`,
-# `platform/service_endpoints.py`): an `isinstance(exc, ValueError)` branch
-# placed first would swallow both under the generic message and lose their
-# more specific one.
+# Ordered specific-to-general: `SSRFError` and `HrefTooLongError` are both
+# `ValueError` subclasses, so a generic `ValueError` branch first would
+# swallow both under the wrong message.
 def _preview_refusal_response(exc: Exception) -> HTTPException | None:
     """Map a typed preview refusal to its coded 4xx, or None if unrecognized.
 
-    Returns None for anything this does not recognize, so the caller's own
-    `except Exception` remains the last resort for a genuine bug rather than
-    this function guessing at a status code for it.
+    None means the caller's own `except Exception` is the last resort for a
+    genuine bug, not a guessed status code.
 
-    No branch here echoes `str(exc)`: `CrossOriginEndpointError.policy` and
-    `EndpointCheckFailedError.policy` (which `ItemFetchFailedError` inherits)
-    are themselves fixed per-class strings — the same ones `/probe` already
-    returns for the identical classes — never the httpx error text a
-    provider's response could shape (kept off `.policy` and off `.reason`
-    instead, per those classes' own docstrings). The other three branches use
-    a message composed here, for the same reason.
+    No branch echoes `str(exc)`: policy strings are fixed per-class (the
+    same ones `/probe` already returns), never httpx error text a
+    provider's response could shape.
     """
     if isinstance(exc, (CrossOriginEndpointError, EndpointCheckFailedError)):
-        # Covers `ItemFetchFailedError` too: it subclasses
-        # `EndpointCheckFailedError` (`platform/service_items.py`) so every
-        # door that already answers the description-check refusal answers
-        # the items-page one the same way.
+        # Covers `ItemFetchFailedError` too, a subclass of
+        # `EndpointCheckFailedError`.
         return HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": exc.code, "message": exc.policy, "field": exc.field},
         )
     if isinstance(exc, SSRFError):
-        # fix(#1770 round 49 P3) reasoning mirrored here: `str(exc)` can carry
-        # a redirect-chosen hostname (`SSRFResolutionError`), so the client
-        # gets the fixed policy phrase `/probe` already uses instead.
+        # fix(#1770): `str(exc)` can carry a redirect-chosen hostname
+        # (`SSRFResolutionError`), so use the fixed policy phrase instead.
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="redirect target refused by SSRF policy",
         )
     if isinstance(exc, HrefTooLongError):
-        # A malformed-but-safe class of the same "provider named an address
-        # this cannot act on" refusal as the two above; the href itself is
-        # never in this exception's own message either
-        # (`bounded_service_url`'s docstring).
+        # Same "provider named an address this cannot act on" family; the
+        # href itself is never in this exception's own message either.
         return HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A service-advertised link exceeded the length limit.",
         )
     if isinstance(exc, ValueError):
-        # The remaining source is `build_credential_header`
-        # (`core/service_tokens.py`), which raises `ValueError` with one of a
-        # handful of fixed policy strings when a credential reaches it in a
-        # shape the door in front of it should have already refused — never
-        # a value the caller submitted or a provider chose.
+        # Remaining source: `build_credential_header` raises `ValueError`
+        # with a fixed policy string when a credential reaches it in a shape
+        # the door in front should already have refused — never a
+        # caller-submitted or provider-chosen value.
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The request could not be processed with the given credential.",
@@ -756,17 +707,14 @@ async def _refuse_preview(
 ) -> None:
     """Audit a typed preview refusal and raise its coded 4xx, or return.
 
-    fix(#1858 audit P2-1): extracted from ``_run_service_preview_or_refuse``
-    so the ArcGIS preview branch, which does not go through that function at
-    all, answers a refusal the same way the WFS and OGC API branches of the
-    same door do. Returning rather than re-raising for an unrecognized class
-    leaves the bare ``raise`` with the caller, where the traceback is.
+    fix(#1858): extracted so the ArcGIS preview branch (which skips
+    ``_run_service_preview_or_refuse``) refuses the same way WFS/OGC API do.
+    Returning for an unrecognized class leaves the bare ``raise`` with the
+    caller.
 
-    Nothing here echoes ``str(exc)``: the message comes from
-    ``_preview_refusal_response``, and the audit row records the exception's
-    CLASS NAME, which is a GeoLens fact rather than anything a provider
-    chose. That matters most for ``SSRFResolutionError``, whose own message
-    carries the redirect-chosen hostname.
+    Nothing echoes ``str(exc)``; the audit row records the exception's
+    CLASS NAME instead, since ``SSRFResolutionError``'s own message carries
+    the redirect-chosen hostname.
     """
     http_exc = _preview_refusal_response(exc)
     if http_exc is None:
@@ -808,21 +756,19 @@ async def _run_service_preview_or_refuse(
 ) -> dict:
     """`run_service_preview`, with every typed refusal mapped before it escapes.
 
-    `IngestionError` and `HTTPException` pass through unchanged: the caller
-    uses `IngestionError` to trigger the WFS namespace retry, and an
-    `HTTPException` — the header-token-charset refusal `run_service_preview`
-    itself already raises as one (#1746) — is already a finished answer.
-    Anything else is checked against `_preview_refusal_response`; a match is
-    audited and raised as the coded HTTPException, and anything that map does
-    not recognize is re-raised untouched for the caller's broad
-    `except Exception` to turn into a logged 500, same as before this
-    function existed.
+    `IngestionError` and `HTTPException` pass through unchanged:
+    `IngestionError` triggers the WFS namespace retry, and `HTTPException`
+    (the header-token charset refusal `run_service_preview` itself raises,
+    #1746) is already a finished answer. Anything else matched by
+    `_preview_refusal_response` is audited and raised as the coded
+    HTTPException; an unmatched exception is re-raised for the caller's
+    broad `except Exception` to turn into a 500.
     """
     try:
         return await run_service_preview(gdal_source, layer_arg, credential=credential)
     except (IngestionError, HTTPException):
         raise
-    except Exception as exc:  # broad: classifying every typed refusal `run_service_preview` and its callees can raise, so none of them falls through to the 500 below
+    except Exception as exc:  # broad: classifies every refusal so none falls through
         await _refuse_preview(db, user_id, url, layer, exc)
         raise
 
@@ -838,16 +784,14 @@ async def _create_preview_job(
 ) -> IngestJob:
     """Create the pending IngestJob for a successful preview, audit, and commit.
 
-    Stores source_columns and geometry_type from preview so that ingest_service
-    can (a) skip geometry flags for non-spatial tables, and (b) use them as a
-    column_info fallback when the data table has no attribute columns.
+    Stores source_columns/geometry_type so ingest_service can skip geometry
+    flags for non-spatial tables and fall back to column_info when needed.
 
-    ``source_url``/``layer_id`` override the request values so the commit step
-    ingests the exact resource that was previewed. This matters for ArcGIS:
-    the preview normalizes an embedded-layer URL (".../FeatureServer/0") into a
-    base URL + effective layer id, so persisting the original request would make
-    the ingest worker rebuild a wrong ".../FeatureServer/0/0/query" (or a None
-    layer when the id came only from the URL) — a preview that imports cleanly.
+    ``source_url``/``layer_id`` override the request values so commit ingests
+    the exact previewed resource — matters for ArcGIS, where preview
+    normalizes an embedded-layer URL into base URL + layer id; persisting
+    the raw request would make the worker rebuild a wrong
+    ".../FeatureServer/0/0/query".
     """
     effective_url = source_url if source_url is not None else request.url
     effective_layer_id = layer_id if layer_id is not None else request.layer_id
@@ -896,7 +840,6 @@ async def _create_preview_job(
 def _build_preview_response(
     request: ServicePreviewRequest, preview_data: dict, job: IngestJob
 ) -> ServicePreviewResponse:
-    """Assemble the ServicePreviewResponse from preview data and the job."""
     return ServicePreviewResponse(
         job_id=job.id,
         source_filename=request.layer_title or request.layer_name,
@@ -911,10 +854,10 @@ def _build_preview_response(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
-# no-trailing-slash variants register against the same handler. Slash form
-# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
-# the 404 regression introduced by redirect_slashes=False (api/main.py).
+# ROUTE-01: dual-shape decorator — both trailing-slash and no-trailing-slash
+# variants register against the same handler. Slash form stays canonical
+# (already in OpenAPI); no-slash is a hidden alias closing the 404
+# regression from redirect_slashes=False (api/main.py).
 @router.post("/probe", response_model=ProbeResponse, include_in_schema=False)
 @router.post("/probe/", response_model=ProbeResponse)
 async def probe_service_url(
@@ -927,47 +870,25 @@ async def probe_service_url(
     Validates the URL against SSRF, detects whether it is a WFS or ArcGIS
     service, and returns a unified layer list. All attempts are audit-logged.
     """
-    # feat(#1746): the structured credential is what the layers below take;
-    # the flat `token` is its deprecated bearer spelling. Judged first, so a
-    # method this service cannot carry, or a value that cannot become a
-    # header, never reaches the network or the audit log.
-    #
-    # fix(#1755 item 2): the probe used to judge nothing, so a WFS token
-    # outside the header-token charset probed cleanly and was refused at
-    # preview.
-    #
-    # fix(#1746 B2b review r7): but only what is true whatever gets detected.
-    # The first cut selected the policy from the URL shape, and that regressed
-    # a working import: `detect_service_type`'s slow path deliberately probes
-    # ArcGIS for a URL naming neither FeatureServer nor MapServer, and
-    # `probe_arcgis_service` classifies such an endpoint by what its response
-    # contains, so a vanity or rewritten ArcGIS URL is ordinary. Its token is
-    # percent-encoded into a query and legitimately holds `+` or `/`, which
-    # the header charset refuses.
-    #
-    # So a bearer token is bound to the query-parameter transport here and
-    # keeps that wider vocabulary; the header-line policy is applied once an
-    # adapter has said the service is a header-auth one, and reaches the
-    # caller as the same 422 through `ServiceCredentialUnusable` below. The
-    # two methods that exist only as a header are judged now, because no
-    # detection outcome makes them sendable to ArcGIS and their inputs must be
-    # usable whatever is found.
+    # fix(#1746): the structured credential (`request.auth`, `token` is its
+    # deprecated bearer spelling) is judged first, ahead of detection, so an
+    # unusable method or a header-incompatible value never reaches the
+    # network or the audit log. A bearer token stays bound to the wider
+    # query-parameter charset (ArcGIS tokens legitimately hold `+`/`/`)
+    # because ArcGIS is classified by response content, not URL shape, so a
+    # vanity/rewritten ArcGIS URL looks ordinary and its token must still
+    # work; the header-line policy applies only once an adapter says the
+    # service is header-auth, surfacing as the same 422 via
+    # `ServiceCredentialUnusable`.
     credential = service_credential_from_request(request.auth, request.token)
     sends_a_header = (
         credential is not None and credential.method != CredentialMethod.BEARER
     )
-    # fix(#1746 B2b review r27): bound by the METHOD alone. This used to read
-    # `_looks_like_arcgis(request.url)`, which matches `FeatureServer` or
-    # `MapServer` anywhere in the URL, so a WFS at `/FeatureServer/wfs` had its
-    # basic or named-key credential refused before `detect_service_type` was
-    # given the chance to say what the service actually is -- the exact case
-    # its fast-path-then-fallback design exists to handle.
-    #
-    # A header-only method is bound to the header transport so its SHAPE is
-    # validated here, at the door, where the caller can act on the answer. The
-    # question of whether the service found can carry that method at all is a
-    # different one, and it is answered after detection by
-    # `service_carries_method`, which is where every other caller answers it.
+    # fix(#1746): bound by METHOD alone, not URL shape — matching
+    # `FeatureServer`/`MapServer` anywhere in the URL wrongly refused a WFS
+    # at `/FeatureServer/wfs` before detection ran. A header-only method's
+    # SHAPE is validated here; whether the detected service can carry that
+    # method is answered later by `service_carries_method`.
     service_credential = credential_or_422(
         credential,
         service_format=(
@@ -977,9 +898,9 @@ async def probe_service_url(
     safe_url = redact_url_credentials(request.url)
     # fix(#1848): read off `user` before the release below expires it.
     user_id = user.id
-    # fix(#1848 codex r1): released ABOVE the SSRF check, not below it.
-    # `validate_url_for_ssrf` awaits `getaddrinfo` in a thread, so an
-    # unresponsive resolver pinned the connection before any probe ran.
+    # fix(#1848): released ABOVE the SSRF check, not below — it awaits
+    # `getaddrinfo` in a thread, so an unresponsive resolver would otherwise
+    # pin the connection before any probe ran.
     await db.rollback()
 
     # Step 1: SSRF validation
@@ -997,10 +918,9 @@ async def probe_service_url(
             reason=str(exc),
         )
 
-    # Step 2: Probe with httpx client
-    # NOTE: No default Authorization header on the client. Each probe function
-    # handles auth its own way (ArcGIS via &token= query param, WFS via
-    # per-request header). Sending Bearer headers to ArcGIS breaks auth.
+    # No default Authorization header on the client: each probe function
+    # handles auth its own way (ArcGIS via &token=, WFS via per-request
+    # header); a default Bearer header would break ArcGIS auth.
     try:
         async with make_safe_client(
             timeout=PROBE_TIMEOUT,
@@ -1009,37 +929,31 @@ async def probe_service_url(
             response = await detect_service_type(
                 request.url, client, credential=service_credential
             )
-            # After detection, because the check is per service type and the
-            # probe is what determines it (the round-7 rule).
+            # Checked per service type, after detection determines it.
             detected_format = _preview_service_format(response.service_type)
             await assert_endpoints_stay_on_origin(
                 request.url,
                 service_format=detected_format,
-                # fix(#1746 B2b review r14): the description is read WITH the
-                # credential, because a protected service answers an anonymous
-                # read with a 401 and the check would learn nothing about the
-                # document GDAL will actually act on. Composed by the one
-                # builder, against the format detection just established.
+                # fix(#1746): read WITH the credential — a protected service
+                # answers an anonymous read with a 401, telling us nothing
+                # about the document GDAL will actually act on.
                 credential_line=_probe_credential_line(
                     service_credential, detected_format
                 ),
-                # fix(#1746 B2b review r24): the probe has no budget of its
-                # own, so it takes the shared one. Without it this ran under
-                # `asyncio.timeout(None)`, and the client bounds inactivity
-                # rather than the operation, so a description delivered slowly
-                # but steadily across up to twenty listing pages held the
-                # request open indefinitely.
+                # fix(#1746): the probe has no deadline of its own, so it
+                # takes the shared one — otherwise the client only bounds
+                # inactivity, and a description delivered slowly but steadily
+                # across up to 20 listing pages holds the request open
+                # indefinitely.
                 deadline=time.monotonic() + DEFAULT_CHECK_TIMEOUT,
             )
 
     except (CrossOriginEndpointError, EndpointCheckFailedError) as exc:
-        # fix(#1746 B2b review r13): the service describes its own operation
-        # endpoints, GDAL follows that description with the credential
-        # attached, and no redirect rule can see those requests. Refused here
-        # so the caller learns at the step they are on rather than at preview,
-        # and refused again in the worker because the document can change.
-        # `origin` only exists on the cross-origin half, and neither message
-        # nor either attribute carries any part of the credential.
+        # fix(#1746): the service describes its own operation endpoints,
+        # GDAL follows that description with the credential attached, and no
+        # redirect rule can see those requests — refused here, and again in
+        # the worker since the document can change. Neither the message nor
+        # `origin` (cross-origin half only) carries any part of the credential.
         logger.warning(
             "Probe endpoint check refused",
             url=safe_url,
@@ -1056,11 +970,9 @@ async def probe_service_url(
         )
 
     except ServiceCredentialUnusable as exc:
-        # fix(#1746 B2b review r7): every adapter has had its turn and none
-        # claimed the URL, so the credential policy is now the answer rather
-        # than a guess made before detection. Same code and same policy-only
-        # message the preview and commit doors return, which the client
-        # already maps.
+        # fix(#1746): raised only once every adapter has had its turn and
+        # none claimed the URL. Same code/policy-only message the preview
+        # and commit doors return, which the client already maps.
         logger.warning("Probe credential unusable", url=safe_url, code=exc.code)
         await _probe_audit_fail(
             db,
@@ -1072,25 +984,17 @@ async def probe_service_url(
         )
 
     except SSRFError as exc:
-        # fix(#1746): raised mid-probe rather than at the door — either a
-        # redirect hop resolving to a blocked address, or a cross-origin hop
-        # that would have forwarded a service-chosen credential header. Both
-        # are the same answer the pre-flight check gives. Without this
-        # clause the broad handler below would rewrite it into a 500.
+        # fix(#1746): raised mid-probe — a redirect hop resolving to a
+        # blocked address, or a cross-origin hop that would forward a
+        # service-chosen credential header. Without this the broad handler
+        # below would rewrite it into a 500.
         #
-        # fix(#1770 round 49 P3): `str(exc)` is a fixed policy string for
-        # every `SSRFError` EXCEPT one subclass -- `SSRFResolutionError`
-        # (`platform/security.py`) interpolates the raw, unresolved hostname
-        # into its message, and that hostname is chosen by the SERVICE, via
-        # its own mid-probe redirect `Location` header, not by the caller.
-        # The `#1746` comment this replaces claimed "carries no part of the
-        # credential", which is true but was never the whole question: a
-        # provider-chosen hostname reflected into the 400 body and the
-        # persisted audit reason is the same class of thing this codebase
-        # refuses everywhere else an href/hostname a document chose could
-        # reach a response. A fixed message for both; the raw text stays
-        # only in the log line below, which is server-side and already
-        # subject to `_redact_sensitive_fields`.
+        # fix(#1770): use a fixed message, never `str(exc)`: its
+        # `SSRFResolutionError` subclass interpolates the raw, unresolved
+        # hostname (provider-chosen, via a mid-probe redirect `Location`
+        # header) into the message, and that must not reach the 400 body or
+        # the persisted audit reason. The raw text stays only in the log
+        # line below, which `_redact_sensitive_fields` already covers.
         ssrf_policy_message = "redirect target refused by SSRF policy"
         logger.warning("SSRF blocked mid-probe", url=safe_url, reason=str(exc))
         await _probe_audit_fail(
@@ -1213,25 +1117,24 @@ async def preview_service_layer(
     runs ogrinfo to extract metadata and sample rows, then creates an IngestJob
     ready for the existing commit flow.
     """
-    # feat(#1746): see `probe_service_url`. One conversion, before anything
-    # else, so an unsupported method is answered without a preview job or an
-    # audit row. Here the service type IS known, so the credential is judged
-    # against the transport it is actually about to take: a header for WFS and
-    # OGC API Features, a URL query parameter for ArcGIS.
+    # fix(#1746): converted before anything else, so an unsupported method is
+    # answered without a preview job or audit row. Service type is already
+    # known here, so judged against the actual transport: a header for
+    # WFS/OGC API Features, a URL query parameter for ArcGIS.
     service_credential = credential_or_422(
         service_credential_from_request(request.auth, request.token),
         service_format=_preview_service_format(request.service_type),
     )
-    # ArcGIS is the only branch that reads a bare token: `build_gdal_source`
-    # percent-encodes it into the ESRIJSON query. For the header-auth formats
-    # this is None and the credential travels as a header instead.
+    # ArcGIS is the only branch reading a bare token (`build_gdal_source`
+    # percent-encodes it into the ESRIJSON query); header-auth formats get
+    # None here and travel as a header instead.
     service_token = url_query_token(service_credential)
     safe_url = redact_url_credentials(request.url)
     # fix(#1848): read off `user` before either release below expires it.
     user_id = user.id
-    # fix(#1848 codex r1): released ABOVE the SSRF check, not below it.
-    # `validate_url_for_ssrf` awaits `getaddrinfo` in a thread, so an
-    # unresponsive resolver pinned the connection before any preview work.
+    # fix(#1848): released ABOVE the SSRF check, not below — it awaits
+    # `getaddrinfo` in a thread, so an unresponsive resolver would otherwise
+    # pin the connection before any preview work.
     await db.rollback()
 
     # Step 1: SSRF validation
@@ -1256,17 +1159,14 @@ async def preview_service_layer(
         await db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    # Step 1b: Duplicate source detection (ArcGIS and WFS only)
-    # Detect if (source_url, source_format, created_by) already exists.
-    # The stored URL includes the layer suffix (via enrich_source_url), so
-    # we reconstruct the enriched form before querying.
+    # Duplicate source detection (ArcGIS and WFS only): the stored URL
+    # includes the layer suffix (via enrich_source_url), so reconstruct the
+    # enriched form before querying (source_url, source_format, created_by).
     try:
         _, source_format = get_catalog_port().resolve_service_type(request.service_type)
-        # Normalize then re-enrich to match the stored URL form.
-        # normalize_arcgis_url extracts the layer_id from the URL if already embedded.
         try:
             base_url, url_layer_id = normalize_arcgis_url(request.url)
-        except Exception:  # broad: ArcGIS URL parser can throw varied errors on malformed input; degrade to raw URL
+        except Exception:  # broad: malformed input; degrade to raw URL
             base_url, url_layer_id = request.url, None
         effective_layer_id = (
             request.layer_id if request.layer_id is not None else url_layer_id
@@ -1276,28 +1176,16 @@ async def preview_service_layer(
             if effective_layer_id is not None
             else base_url
         )
-        # fix(#1286): keyed on the canonical structured identity in
-        # `origin_ref` — the same (service_type, base url, layer identity)
-        # triple that `service_layer_identity` folds a refresh's arguments
-        # back into (router_refresh.py `_resolve_service_origin`) — rather
-        # than on `origin_uri`'s string spelling. PR #1277's round-11 review
-        # found that a writer producing a different spelling of the same
-        # origin (a bare base URL instead of `base_url/typename`) silently
-        # stopped an origin_uri-keyed guard from catching a duplicate.
-        # `origin_ref` round-trips through the same helper on every writer,
-        # so it cannot drift the way a hand-composed string can.
-        # `source_url` is kept only as the fallback for rows whose structured
-        # identity migration 0036 could not backfill. That is NOT simply
-        # `origin_uri IS NULL`: for a WFS/OGC row with no surviving ingest
-        # job, 0036's service backfill populates `origin_uri` from the old
-        # enriched `source_url` while leaving `origin_ref` without `url` or
-        # `layer_id` (it had no way to recover the typename). Gating the
-        # fallback on origin_uri alone would leave such a row caught by
-        # neither branch (codex review, PR #1320) — the fallback fires
-        # whenever the structured identity itself is incomplete instead.
-        # `source_url` is reachable through the metadata PATCH, so keying the
-        # guard on it alone (rather than as this narrow fallback) let an
-        # owner edit their way past it.
+        # fix(#1286): keyed on the structured `origin_ref` (service_type,
+        # base_url, layer identity), not `origin_uri`'s string spelling,
+        # which can drift across writers and miss a duplicate. `source_url`
+        # is kept only as a narrow fallback for rows whose structured
+        # identity migration 0036 could not backfill (a WFS/OGC row whose
+        # service backfill populated `origin_uri` but left `origin_ref`
+        # without url/layer_id, having no typename to recover) — gated on
+        # the structured identity being incomplete, not on `origin_uri IS
+        # NULL` alone. `source_url` is reachable through the metadata PATCH,
+        # so keying the guard on it alone would let an owner edit past it.
         canonical_layer_id = service_layer_identity(
             source_format, layer_id=effective_layer_id, layer_name=request.layer_name
         )
@@ -1352,12 +1240,10 @@ async def preview_service_layer(
     # re-acquired. Every gate has run and nothing is written yet.
     await db.rollback()
 
-    # Step 2 (ArcGIS): derive the preview from FeatureServer/MapServer REST
-    # metadata instead of running ogrinfo through GDAL's ESRIJSON driver. That
-    # driver ignores resultRecordCount and paginates the ENTIRE layer (millions
-    # of rows on big services), blowing past the subprocess timeout and
-    # silently returning an empty preview. The native ?f=json metadata returns
-    # all fields + CRS in a single fast call. (preview-fix / demo-bugbash)
+    # ArcGIS: derive the preview from FeatureServer/MapServer REST metadata
+    # instead of GDAL's ESRIJSON driver, which ignores resultRecordCount and
+    # paginates the ENTIRE layer (millions of rows on big services), blowing
+    # past the subprocess timeout and silently returning an empty preview.
     if request.service_type.startswith("ArcGIS"):
         try:
             arcgis_base, url_arcgis_layer_id = normalize_arcgis_url(request.url)
@@ -1404,18 +1290,11 @@ async def preview_service_layer(
                 ),
             )
         except SSRFError as exc:
-            # fix(#1858 audit P2-1): FIRST, because `SSRFError` subclasses
-            # `ValueError` (`platform/security.py`) and the tuple below reads
-            # a `ValueError` as "this layer could not be previewed".
-            # `fetch_arcgis_layer_preview`'s metadata read has no local
-            # `except`, so a hop refused by `_revalidate_redirect` or by the
-            # guard transport reached that tuple and became
-            # `_fail_preview`'s 502 `ogrinfo_failed` -- naming a tool that
-            # never ran, on a door whose WFS and OGC API branches answer the
-            # same event as a 400 through `_preview_refusal_response`. Same
-            # split this PR closed on `/probe` in `sources/probe.py`, left
-            # standing on this door: one event, one classification, whichever
-            # adapter met it.
+            # fix(#1858): caught FIRST — `SSRFError` subclasses `ValueError`,
+            # and the tuple below would otherwise misreport a refused
+            # redirect hop as `_fail_preview`'s 502 `ogrinfo_failed` (naming
+            # a tool that never ran) instead of the correct 400 via
+            # `_preview_refusal_response`, matching WFS/OGC API branches.
             await _refuse_preview(db, user_id, request.url, request.layer_name, exc)
             raise  # unreachable: `_preview_refusal_response` maps every `SSRFError`
         except (
@@ -1424,13 +1303,10 @@ async def preview_service_layer(
             EndpointCheckFailedError,
             TimeoutError,
         ) as exc:
-            # fix(#1770 round 44 P1): fetch_arcgis_layer_preview's metadata
-            # read now goes through bounded_probe_read (see that function's
-            # own fix note), which can raise EndpointCheckFailedError for a
-            # bound violation, and the function's own asyncio.timeout can
-            # raise TimeoutError -- both join the pre-existing
-            # httpx.HTTPError/ValueError this preview path already degrades
-            # on rather than surfacing a 500.
+            # fix(#1770): `bounded_probe_read` can raise
+            # EndpointCheckFailedError (bound violation) and TimeoutError
+            # (its own asyncio.timeout); both join the pre-existing
+            # httpx.HTTPError/ValueError this path already degrades on.
             logger.warning(
                 "ArcGIS preview failed",
                 url=safe_url,
@@ -1540,12 +1416,12 @@ async def preview_service_layer(
             )
             await _fail_preview(db, user_id, request.url, request.layer_name)
     except HTTPException:
-        # fix(#1746): run_service_preview now refuses a header-auth token that
-        # is outside the base64url charset with a 422, which is an answer and
-        # not a pipeline failure. Without this clause the broad handler below
-        # would rewrite it into a 500 and lose the policy message.
+        # fix(#1746): run_service_preview refuses a header-auth token
+        # outside the base64url charset with a 422 — an answer, not a
+        # failure. Without this the broad handler below would rewrite it
+        # into a 500 and lose the policy message.
         raise
-    except Exception:  # broad: preview pipeline involves GDAL/OGR/HTTP probes; record failure without aborting the request
+    except Exception:  # broad: GDAL/OGR/HTTP pipeline; record failure, don't abort
         logger.exception(
             "Unexpected error during service preview",
             url=safe_url,
@@ -1570,11 +1446,8 @@ async def preview_service_layer(
             detail="An unexpected error occurred while previewing the layer.",
         )
 
-    # SMOKE-v1013-F2: OGC API URI-form CRS fallback. ogrinfo against an
-    # OGC API collection often returns no coordinateSystem (GeoJSON features
-    # don't carry CRS; CRS84 assumed). The COLLECTION METADATA does expose
-    # the URI-form CRS — fetch and parse it so preview displays the right
-    # EPSG code instead of "Unknown + required override".
+    # SMOKE-v1013-F2: OGC API URI-form CRS fallback — see
+    # _fetch_ogcapi_collection_srid's docstring for why.
     if preview_data.get("srid") is None and request.service_type == "OGC API Features":
         fallback_srid = await _fetch_ogcapi_collection_srid(
             request.url, request.layer_name, service_credential
@@ -1596,70 +1469,47 @@ async def preview_service_layer(
 # --------------------------------------------------------------------------
 # ArcGIS sign in
 # --------------------------------------------------------------------------
+# This endpoint sends a password to a third party on a user's say-so: a
+# lockout amplifier and a username oracle. Esri locks an account after 5
+# failed sign-ins in 15 minutes, so without a limit a GeoLens user who knows
+# a colleague's ArcGIS username could lock that colleague out from inside
+# GeoLens.
 #
-# This endpoint sends a password to a third party on an authenticated user's
-# say-so, which makes it a lockout amplifier and a username oracle before it
-# is anything else. ArcGIS locks a built-in account after five failed
-# sign-ins in fifteen minutes, so without a limit a GeoLens user who knows a
-# colleague's ArcGIS username can lock that colleague out of ArcGIS from
-# inside GeoLens, with GeoLens as the proximate cause.
+# Five controls, in order:
+# 1. `create_layers` permission (same as `probe_service_url`).
+# 2. Two slowapi limits, 3/15min keyed on user and on (user, portal host).
+#    PER PROCESS only — slowapi's storage is in-memory per uvicorn worker
+#    and prod runs two — so this is a cheap first layer, not enforcement.
+#    fix(#1778): a dual-shape route needs key_style="endpoint" or the path
+#    joins the key; `/signin` vs `/signin/` drew separate buckets before
+#    this fix, doubling the effective rate to 6/worker.
+# 3. Two PostgreSQL advisory locks (user+token-service, and ArcGIS account)
+#    so the count below can't be read by two workers at once.
+# 4. The same 3/15min, counted from the ledger rows this endpoint writes —
+#    real, shared enforcement. Not Valkey: `REDIS_URL` is unset by default,
+#    so a Valkey-backed limiter would enforce nothing on most installs.
+#    Strictly below Esri's 5/15min so GeoLens never causes the lockout.
+# 5. One POST per attempt, never a retry (arcgis_signin.py).
 #
-# Five controls, in the order they apply:
+# fix(#1775): controls 3 and 4 run in ONE short transaction that commits
+# before the credential POST, not across it — see `_signin_reserve`.
+# fix(#1758): controls 3 and 4 replaced process-local counters that a
+# two-worker install multiplied by two.
 #
-# 1. `create_layers`, the same permission `probe_service_url` requires. A
-#    read-only account has no reason to reach this.
-# 2. Two slowapi limits, three attempts per fifteen minutes keyed on the user
-#    and on (user, portal host). PER PROCESS, and that is the whole reason
-#    they are not the enforcement: slowapi's storage is in-memory per uvicorn
-#    worker and `docker-compose.prod.yml:294` starts two, so on a stock
-#    install these three are three per worker. They are the cheap first layer
-#    that keeps a flood off the database.
-#
-#    fix(#1778): three per worker is now the real number. slowapi scopes a
-#    limit by the request PATH unless the limiter is built with
-#    key_style="endpoint", and this route is dual-shape, so before that a
-#    caller alternating `/signin` with `/signin/` drew on two buckets and put
-#    six requests per worker onto control 4 instead of three. Measured, with
-#    control 4 raised out of the way: six 200s under the old keying, three
-#    200s then three 429s under the new. The key functions below were never
-#    the leak; they carry the user id in both.
-# 3. Two PostgreSQL advisory locks, per (user, token service) and per ArcGIS
-#    account, so the count below cannot be read by two workers at once.
-# 4. The same three attempts per fifteen minutes, counted from the ledger rows
-#    this endpoint writes, which is shared state on a stock install. Valkey is
-#    not: `REDIS_URL` is unset by default, so a Valkey-backed limiter would be
-#    no enforcement at all on the installs that most need it. Strictly below
-#    Esri's five failed sign-ins in fifteen minutes, so GeoLens can never be
-#    what locks an account and the user keeps two attempts of their own.
-# 5. One POST per attempt and never a retry, in `arcgis_signin.py`.
-#
-# fix(#1775): controls 3 and 4 apply in ONE short transaction that commits
-# before the credential POST, rather than across it. See `_signin_reserve`.
-#
-# fix(#1758 codex r1): controls 3 and 4 replaced a process-local set and a
-# pair of process-local counters that a two-worker install multiplied by two.
-#
-# Two names for one slowapi number, because they are two limits rather than
-# one. Both keys carry the user id, so while the numbers are equal the
-# per-user limit is always the one that binds; the per-portal limit is what
-# still holds if the per-user number is ever raised, and naming them apart is
-# also what lets each be exercised on its own.
+# Two names for one slowapi number: both keys carry the user id, so the
+# per-user limit always binds first; the per-portal limit still holds if
+# the per-user number is later raised.
 _ARCGIS_SIGNIN_USER_LIMIT = "3/15minutes"
 _ARCGIS_SIGNIN_PORTAL_LIMIT = "3/15minutes"
 
 
-# fix(#1775): the worker-wide `asyncio.Semaphore(4)` that used to stand here
-# is GONE, and its removal is the point of this change rather than a
-# side-effect. It existed (fix(#1758 codex r17)) because a sign-in held its
-# pooled connection across discovery and the mint for up to the 45-second
-# network budget, so 13 concurrent sign-ins for distinct scopes could occupy a
-# 10+3 pool and time out unrelated API requests; four was a bound on that
-# saturation, honestly documented as a bound rather than a fix. The handler
-# below now holds no connection across any network phase, so there is nothing
-# left for the ceiling to protect, and keeping it would refuse a fifth
-# concurrent caller per worker for no remaining reason. What still bounds
-# outbound credential POSTs is what always did the work: three attempts per
-# ArcGIS account and three per caller and token service, both committed before
+# fix(#1775): the worker-wide `asyncio.Semaphore(4)` here is GONE, on
+# purpose. It existed (#1758) because a sign-in held its pooled connection
+# across discovery and the mint for up to 45s, so 13 concurrent sign-ins
+# could occupy a 10+3 pool and time out unrelated requests. The handler
+# below now holds no connection across any network phase, so nothing is
+# left to protect. What still bounds outbound credential POSTs: 3 attempts
+# per ArcGIS account and 3 per caller+token-service, both committed before
 # the POST goes out.
 
 _require_create_layers = require_permission("create_layers")
@@ -1680,10 +1530,10 @@ async def _rate_limit_scoped_signin(
 ) -> Identity:
     """Resolve the caller and stash what the two rate-limit keys need.
 
-    FastAPI resolves dependencies before invoking the (slowapi-wrapped)
-    endpoint, so both key functions below always see these values for an
-    authenticated request. The body is parsed once per request and shared
-    with the handler, so reading the portal URL here costs nothing.
+    FastAPI resolves dependencies before invoking the slowapi-wrapped
+    endpoint, so both key functions always see these values. The body is
+    parsed once and shared with the handler, so reading the portal URL here
+    costs nothing.
     """
     request.state.arcgis_signin_user_id = str(user.id)
     request.state.arcgis_signin_portal_host = portal_host(body.portal_url)
@@ -1705,7 +1555,7 @@ def _signin_portal_key(request: Request) -> str:
     return get_remote_address(request)
 
 
-# fix(#1758 codex r3): the router-level ERROR_RESPONSES_WRITE covers 4xx and
+# fix(#1758): the router-level ERROR_RESPONSES_WRITE covers 4xx and
 # 500 only, so the 429 this route raises and the 502/504 mint_portal_token
 # returns were undocumented. That is not cosmetic: the generated Python SDK
 # returns None or raises UnexpectedStatus for a status the spec does not
@@ -1757,61 +1607,51 @@ async def arcgis_signin(
     an API key instead. A portal on a private network is unreachable either
     way.
     """
-    # fix(#1775): the scalars this handler needs, taken off the ORM instance
-    # BEFORE the rollback below. `Identity` is the concrete `User` row, and
-    # `AsyncSession.rollback()` expires every instance it loaded, so the next
-    # attribute read would raise MissingGreenlet rather than reload.
+    # fix(#1775): scalars read off the ORM instance BEFORE the rollback
+    # below — `AsyncSession.rollback()` expires every loaded instance, so a
+    # later attribute read would raise MissingGreenlet.
     user_id = user.id
-    # fix(#1775): return the pooled connection before any network I/O. The
-    # `create_layers` check above left this session in an open transaction,
-    # which used to stay checked out through discovery, both advisory locks
-    # and the mint — up to the 45-second budget — so 13 concurrent sign-ins
-    # for distinct scopes could occupy a 10+3 pool and time out unrelated API
-    # requests. Nothing of ours is uncommitted here, so the rollback discards
-    # nothing; the later phases reuse this same session object and each checks
-    # out a fresh connection for as long as its own short transaction lasts.
+    # fix(#1775): return the pooled connection before any network I/O.
+    # Previously this stayed checked out through discovery, both advisory
+    # locks, and the mint (up to 45s), so 13 concurrent sign-ins could
+    # occupy a 10+3 pool and time out unrelated requests. Nothing here is
+    # uncommitted, so the rollback discards nothing; later phases each
+    # check out a fresh connection for their own short transaction.
     await db.rollback()
 
-    # fix(#1758 codex r7): phase one resolves WHERE the password would go, and
-    # every limit below is keyed on that rather than on the address the caller
-    # typed. fix(#1758 codex r11): "where" is the installation, not just the
-    # hostname, so the scope is host:port/webadaptor: two Enterprise portals
-    # can share a name and differ only by port or adaptor path, and they are
-    # separate account stores. `authInfo.tokenServicesUrl` may legitimately name another host,
-    # so a caller who owns a wildcard domain could otherwise point a hundred
-    # portal hostnames at one victim's token service and collect a hundred
-    # fresh three-attempt buckets against a single ArcGIS account. Discovery
-    # is a credential-free GET under the same deadline, and it runs before any
-    # lock is taken so a portal that cannot be resolved costs nobody a lock.
-    # It is also why the reservation cannot simply precede discovery: the
-    # account scope IS the token-service destination, and only discovery knows
-    # it.
+    # fix(#1758): every limit below is keyed on WHERE the password would go
+    # (host:port/webadaptor — two Enterprise portals can share a name and
+    # differ only by port/adaptor path, and are separate account stores),
+    # not on the address the caller typed. `authInfo.tokenServicesUrl` may
+    # legitimately name another host, so without this a caller who owns a
+    # wildcard domain could point a hundred portal hostnames at one
+    # victim's token service and collect a hundred fresh three-attempt
+    # buckets against a single ArcGIS account. Discovery is a
+    # credential-free GET, run before any lock is taken (a portal that
+    # can't be resolved costs nobody a lock) — also why the reservation
+    # can't precede discovery: only discovery knows the scope.
     #
-    # fix(#1758 codex r8): the resolved identity is held OUTSIDE the block, so
-    # the handler below can charge a failure to it. A cancellation is the case
-    # that makes this necessary: the deadline converts it at the context
-    # boundary rather than where it fired, so a POST cut short by a
-    # slow-dripping portal unwinds past the inner handler and lands there.
-    # Charged to `unknown` that outcome spent nothing, and a caller could
-    # repeat credential POSTs against a real account forever without the
-    # ledger ever moving.
+    # The resolved identity is held OUTSIDE the block so a cancellation
+    # (converted to a failure at the context boundary, not where it fired)
+    # still charges the right account instead of `unknown` — otherwise a
+    # caller could repeat credential POSTs against a real account forever
+    # without the ledger moving.
     target = signin_target(user_id, "unknown", body.username)
     note: str | None = None
     reserved = False
     try:
         async with open_portal_signin(body.portal_url) as portal:
-            # fix(#1758 codex r3): the account lock and both budgets are keyed
-            # on the ARCGIS account, not on the GeoLens caller. The username
-            # reaches this line and goes no further: what is stored, locked on
-            # and counted is the digest.
+            # fix(#1758): keyed on the ARCGIS account, not the GeoLens
+            # caller — the username goes no further than this line; what's
+            # stored, locked on, and counted is the digest.
             target = signin_target(user_id, portal.scope, body.username)
             note = portal.discovery_note
 
-            # fix(#1775): RESERVE. One short transaction takes both locks,
-            # reads both budgets, commits the counted attempt and gives the
-            # connection back. Everything after this line runs with no session
-            # held, and the attempt is already spent, so a cancellation cannot
-            # hand ArcGIS a failed password that GeoLens does not count.
+            # fix(#1775): RESERVE — one short transaction takes both locks,
+            # reads both budgets, commits the counted attempt, and releases
+            # the connection. Everything after runs with no session held;
+            # the attempt is already spent, so a cancellation can't hand
+            # ArcGIS a failed password GeoLens doesn't count.
             reservation_id = await _signin_reserve(db, user_id, target, note)
             reserved = True
 
@@ -1829,9 +1669,9 @@ async def arcgis_signin(
                         attempt_id=reservation_id,
                     )
                 except asyncio.CancelledError:
-                    # fix(#1825): the refusal's audit write is settlement too,
-                    # and it is not an `Exception`, so the rollback-and-retry
-                    # clause inside the helper never saw it.
+                    # fix(#1825): the refusal's audit write is settlement
+                    # too; CancelledError isn't an Exception, so the
+                    # helper's rollback-and-retry clause never saw it.
                     await _signin_settle_shielded(
                         user_id,
                         target,
@@ -1843,15 +1683,12 @@ async def arcgis_signin(
                     raise
             except asyncio.CancelledError:
                 # fix(#1775): a cancelled task bypasses `mint`'s `except
-                # Exception` and the clause above. fix(#1775 audit): on the
-                # pinned Starlette the source is a WORKER SHUTDOWN and nothing
-                # else — a client hanging up arrives as an `http.disconnect`
-                # message a non-streaming route never reads, not as a
-                # cancellation. The reservation is what keeps this path safe
-                # regardless: the attempt was counted before the POST, so it
-                # stands whatever cancelled the request. What this clause
-                # recovers is the operator-facing row saying a password went
-                # out. It takes a session of its own, is best effort, and
+                # Exception`. On the pinned Starlette the source is WORKER
+                # SHUTDOWN only — a client hangup arrives as
+                # `http.disconnect`, never a cancellation. The reservation
+                # already counted the attempt, so this path is safe
+                # regardless; this clause only recovers the operator-facing
+                # row saying a password went out. Best effort, and
                 # re-raises either way — see the helper.
                 await _signin_settle_shielded(
                     user_id,
@@ -1891,11 +1728,9 @@ async def arcgis_signin(
                 )
                 raise
     except ArcGISSignInError as exc:
-        # A mint failure was already turned into an HTTPException above, so
-        # what reaches here is a phase-one failure. `unknown` is only ever
-        # correct for that: once discovery has named a destination, every
-        # outcome after it is charged to that account. `reserved` is carried
-        # rather than assumed, so a counted outcome that a later change adds
-        # between the reservation and the mint cannot count itself twice.
+        # A mint failure already became an HTTPException above, so this is a
+        # phase-one failure — `unknown` is only ever correct here.
+        # `reserved` is carried, not assumed, so a later-added counted
+        # outcome between reservation and mint can't count itself twice.
         await _signin_refusal(db, user_id, target, exc, note, reserved=reserved)
     return ArcGISSignInResponse(token=minted.token, expires_at=minted.expires_at)

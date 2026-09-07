@@ -27,10 +27,9 @@ def _get_signing_key() -> bytes:
     for two purposes (JWT signing + tile URL signing).
     """
     global _warned_fallback
-    # SecretStr implements __bool__ against the inner value, so the `or`
-    # fallthrough yields jwt_secret_key when tile_signing_secret is None or
-    # an empty SecretStr (the latter is already coerced to None by
-    # empty_str_to_none in config.py, but the check is defensive either way).
+    # SecretStr implements __bool__ against the inner value, so `or` yields
+    # jwt_secret_key when tile_signing_secret is None or an empty SecretStr
+    # (already coerced to None by empty_str_to_none, checked defensively).
     if settings.tile_signing_secret is None and not _warned_fallback:
         logger.warning(
             "tile_signing_secret_fallback",
@@ -61,16 +60,15 @@ bursts every 15 minutes.
 def round_expiry(
     ttl_seconds: int = 900, min_validity: int = _MIN_VALIDITY_SECONDS
 ) -> int:
-    """Round expiry to the next 15-minute boundary that is at least min_validity seconds away.
+    """Round expiry to the next 15-min boundary at least min_validity away.
 
-    Returns a Unix timestamp that is always a multiple of 900 and at least
-    min_validity seconds greater than the current time (BUG-012).
+    Returns a Unix timestamp that is always a multiple of ``ttl_seconds`` and
+    at least ``min_validity`` seconds ahead of now (BUG-012).
 
     Args:
         ttl_seconds: Boundary interval in seconds (default 900 = 15 min).
-        min_validity: Minimum seconds of validity the returned timestamp must
-            provide.  When the next boundary is closer than this value, the
-            FOLLOWING boundary is returned instead.
+        min_validity: Minimum seconds of validity required; if the next
+            boundary is closer than this, the FOLLOWING boundary is used.
     """
     now = int(time.time())
     nxt = ((now // ttl_seconds) + 1) * ttl_seconds

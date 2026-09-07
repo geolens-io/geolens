@@ -1,9 +1,9 @@
 """Community-edition OpenAI-compatible AI provider defaults.
 
 Split from the former single-module ``defaults.py`` (#836): this sub-module
-owns ``DefaultOpenAICompatibleProvider`` (Phase 226 D-17) and
-``DefaultOpenAIEmbeddingProvider`` (Phase 231 D-08). Import them via the
-``app.platform.extensions.defaults`` facade, never from this sub-module.
+owns ``DefaultOpenAICompatibleProvider`` and ``DefaultOpenAIEmbeddingProvider``.
+Import them via the ``app.platform.extensions.defaults`` facade, never from
+this sub-module.
 """
 
 from __future__ import annotations
@@ -12,20 +12,18 @@ from app.platform.ai_tool_payloads import tool_result_content
 
 
 class DefaultOpenAICompatibleProvider:
-    """Community-edition default: OpenAI-compatible tool-calling loop (Phase 226 D-17).
+    """Community-edition default: OpenAI-compatible tool-calling loop.
 
-    ``complete()`` body is ``_loop_openai`` from
-    ``app.processing.ai.llm_loop`` (lines 280-404) moved verbatim, with
-    Anthropic→OpenAI tool format conversion applied INTERNALLY at the top
-    of the method (D-08 — callers pass canonical Anthropic shape; the
-    provider converts on the way in).
+    ``complete()`` is ``_loop_openai`` from ``app.processing.ai.llm_loop``
+    moved verbatim, with Anthropic→OpenAI tool format conversion applied
+    INTERNALLY at the top of the method — callers pass canonical Anthropic
+    shape; the provider converts on the way in.
 
-    Class-level ``_clients`` dict cache keyed by ``base_url`` matches
-    today's module-level singleton at llm_loop.py:29.
+    Class-level ``_clients`` dict cache keyed by ``base_url`` matches the
+    old module-level singleton.
 
-    Deferred imports (Phase 214 / Phase 222 / Phase 225 discipline): all
-    SDK and modules-level imports happen INSIDE ``complete()``, never at
-    defaults.py module load.
+    All SDK and app-module imports happen INSIDE ``complete()``, never at
+    module load — deferred-import discipline.
     """
 
     _clients: dict = {}  # class-level cache: base_url -> AsyncOpenAI
@@ -76,8 +74,8 @@ class DefaultOpenAICompatibleProvider:
         if not settings.openai_api_key:
             raise ValueError("OpenAI-compatible API key not configured")
 
-        # D-08: Anthropic-shape tools -> OpenAI function-format tools.
-        # Mirrors tools.py:313-323 algorithmic conversion.
+        # Anthropic-shape tools -> OpenAI function-format tools, mirroring
+        # tools.py's conversion.
         tools_openai = [
             {
                 "type": "function",
@@ -112,15 +110,13 @@ class DefaultOpenAICompatibleProvider:
         collected_actions: list[dict] = []
         total_input = 0
         total_output = 0
-        # fix(#448): same PERF-009 runaway guards as the Anthropic complete()
-        # loop above — see that comment.
+        # fix(#448): same runaway guards as the Anthropic complete() loop.
         deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
-        # fix(#1778 round 1): EVERY exit from this loop carries the tokens it
-        # has already spent, not just the exhaustion raises. After round one
-        # the provider has been billed, so a later request failure, a tool
-        # executor that raises, or a cancellation must still reach the daily
-        # quota. One helper decides; nothing here enumerates exception types.
+        # fix(#1778): EVERY exit from this loop carries the tokens already
+        # spent, not just the exhaustion raises — after round one the
+        # provider has been billed, so a later failure must still reach the
+        # daily quota.
         try:
             for round_num in range(max_rounds):
                 if time.monotonic() > deadline:
@@ -135,9 +131,8 @@ class DefaultOpenAICompatibleProvider:
                         input_tokens=total_input,
                         output_tokens=total_output,
                     )
-                # OpenAI API rejects `tools=[]` similarly. Omit when empty so
-                # no-tools paths (sql_generator.generate_sql, _retry_parse_map_spec)
-                # work for OpenAI-compatible providers too. REVIEW.md CR-01.
+                # OpenAI API rejects `tools=[]` similarly; omit when empty so
+                # no-tools paths work for OpenAI-compatible providers too.
                 create_kwargs: dict[str, object] = {
                     "model": model,
                     "max_tokens": max_tokens,
@@ -228,7 +223,7 @@ class DefaultOpenAICompatibleProvider:
                             {
                                 "role": "tool",
                                 "tool_call_id": tool_call.id,
-                                # fix(#1778 round 2): fenced, not bare JSON.
+                                # fix(#1778): fenced, not bare JSON.
                                 "content": tool_result_content(result),
                             }
                         )
@@ -248,15 +243,15 @@ class DefaultOpenAICompatibleProvider:
                 output_tokens=total_output,
             )
         except BaseException as exc:
-            # BaseException, not Exception: asyncio.CancelledError is the shape
-            # a client disconnect and the caller's wait_for timeout both take,
+            # BaseException, not Exception: a client disconnect and the
+            # caller's wait_for timeout both surface as asyncio.CancelledError,
             # and wait_for re-raises TimeoutError *from* it, so the stamp
             # survives on __cause__ for token_usage_from_error to find.
             attach_token_usage(exc, total_input, total_output)
             raise
 
-    # fix(#1590): explicit keyword-only signature instead of a bare
-    # **kwargs shim, matching AIProviderExtension.stream exactly.
+    # fix(#1590): explicit keyword-only signature, matching
+    # AIProviderExtension.stream exactly, instead of a bare **kwargs shim.
     async def stream(  # type: ignore[no-untyped-def]
         self,
         *,
@@ -277,9 +272,8 @@ class DefaultOpenAICompatibleProvider:
             "community edition; use complete() (Phase 226 D-03)."
         )
 
-    # fix(#1590): explicit keyword-only signature instead of a bare
-    # **kwargs shim, matching AIProviderExtension.stream_chat_events
-    # exactly.
+    # fix(#1590): explicit keyword-only signature, matching
+    # AIProviderExtension.stream_chat_events exactly.
     async def stream_chat_events(  # type: ignore[no-untyped-def]
         self,
         *,
@@ -387,27 +381,22 @@ class DefaultOpenAICompatibleProvider:
 
 
 class DefaultOpenAIEmbeddingProvider:
-    """Community-edition default: OpenAI-compatible embeddings (Phase 231 D-08).
+    """Community-edition default: OpenAI-compatible embeddings.
 
-    Replaces helpers.py:8 (``from openai import OpenAI``) with a Protocol-typed
-    provider class. ``embed()`` body absorbs:
-      - helpers.py:100-109 ``build_openai_client()`` — AsyncOpenAI client + httpx.Timeout
-      - helpers.py:90-97 ``resolve_embedding_base_url()`` — folded into ``resolve_runtime_config()``
-      - service.py:70-110 retry/backoff loop (D-22, max_attempts=2, backoff=2.0+jitter)
+    A Protocol-typed provider class, absorbing the former sync
+    ``build_openai_client()`` / ``resolve_embedding_base_url()`` helpers and
+    ``service.py``'s retry/backoff loop (max 2 attempts, 2.0s backoff+jitter).
 
     Class-level ``_clients`` dict cache keyed by ``base_url`` mirrors
-    ``DefaultOpenAICompatibleProvider._clients`` (defaults.py:625) verbatim.
-    Lifetime is process-scoped (provider instance is registered as a
-    singleton in ``_extensions["embedding_providers"]["openai_compatible"]``).
+    ``DefaultOpenAICompatibleProvider._clients``. Lifetime is process-scoped
+    (registered as a singleton in
+    ``_extensions["embedding_providers"]["openai_compatible"]``).
 
-    ``AsyncOpenAI`` replaces today's sync ``OpenAI`` + ``asyncio.to_thread``
-    (D-25). The eliminated to_thread overhead matches Phase 226's
-    ``DefaultOpenAICompatibleProvider`` which already uses AsyncOpenAI for
-    the chat-completions path.
+    ``AsyncOpenAI`` replaces the former sync ``OpenAI`` + ``asyncio.to_thread``,
+    matching ``DefaultOpenAICompatibleProvider``'s chat-completions path.
 
-    Deferred imports (Phase 214 / Phase 222 / Phase 225 / Phase 226 discipline):
-    all SDK and modules-level imports happen INSIDE ``embed()`` /
-    ``resolve_runtime_config()``, never at defaults.py module load.
+    All SDK and app-module imports happen INSIDE ``embed()`` /
+    ``resolve_runtime_config()``, never at module load.
     """
 
     _clients: dict = {}  # class-level cache: base_url -> AsyncOpenAI
@@ -455,15 +444,15 @@ class DefaultOpenAIEmbeddingProvider:
             )
         client = DefaultOpenAIEmbeddingProvider._clients[effective_base_url]
 
-        # Retry loop moved from service.py:70-110 (D-22) — max 2 attempts,
-        # 2.0s backoff with up to 30% jitter, asyncio.wait_for per call.
+        # Retry loop: max 2 attempts, 2.0s backoff with up to 30% jitter,
+        # asyncio.wait_for per call.
         max_attempts = 2
         backoff = 2.0
         last_exc: Exception | None = None
         for attempt in range(1, max_attempts + 1):
             try:
-                # RESEARCH.md Pitfall 3: dimensions=None must NOT be passed
-                # to the SDK — build kwargs conditionally.
+                # dimensions=None must NOT be passed to the SDK — build
+                # kwargs conditionally.
                 kwargs: dict[str, object] = {"model": model, "input": texts}
                 if dimensions is not None:
                     kwargs["dimensions"] = dimensions
@@ -504,8 +493,7 @@ class DefaultOpenAIEmbeddingProvider:
             OPENAI_BASE_URL,
         )
 
-        # Fallback chain mirrors helpers.py:90-97 byte-for-byte (D-04 / D-24):
-        # EMBEDDING_BASE_URL -> OPENAI_BASE_URL -> hardcoded default
+        # Fallback chain: EMBEDDING_BASE_URL -> OPENAI_BASE_URL -> default.
         embedding_url = await EMBEDDING_BASE_URL.get(db)
         base_url = bind_openai_credential_base_url(
             embedding_url or await OPENAI_BASE_URL.get(db) or None,

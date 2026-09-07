@@ -29,8 +29,8 @@ async def get_facet_counts(
     (fix(#1855)), minus the result-only filters: record_type is never applied,
     so the type counts cover every type.
     """
-    # One CTE of the candidate (dataset_id, record_id) pairs; every facet query
-    # joins it instead of re-evaluating the filter stack.
+    # One CTE of candidate (dataset_id, record_id) pairs; every facet query
+    # below joins it instead of re-evaluating the filter stack.
     candidates = await select_candidates(
         session,
         select(Dataset.id.label("dataset_id"), Record.id.label("record_id"))
@@ -45,7 +45,6 @@ async def get_facet_counts(
     )
     filtered_cte = candidates.stmt.cte("filtered_ids")
 
-    # Record-type counts from the CTE (replaces duplicate filter stack)
     type_stmt = (
         select(Record.record_type, func.count().label("count"))
         .select_from(filtered_cte)
@@ -55,17 +54,13 @@ async def get_facet_counts(
     result = await session.execute(type_stmt)
     counts = {row.record_type: row.count for row in result.all()}
 
-    # fix(#315 follow-up, A4): do NOT inject a "collection" record_type facet.
-    # Collections live in the separate Collection table, not as Record rows with
-    # record_type='collection', so ?record_type=collection filters Record.record_type
-    # and always returns 0 -- a dead facet value (advertises N, filter yields 0).
-    # Collections are surfaced via the dedicated "collections" facet below instead.
+    # fix(#315): do NOT inject a "collection" record_type facet —
+    # Collections live in the separate Collection table, not as record_type
+    # rows, so it would advertise a value that always filters to 0. Collections
+    # are surfaced via the dedicated "collections" facet below instead.
 
-    # Facet queries are intentionally sequential -- SQLAlchemy AsyncSession
-    # is not safe for concurrent execute() on a shared connection.
-    # Each query joins the CTE instead of re-applying all filters.
-
-    # --- Keyword facets (top 20) ---
+    # Sequential: SQLAlchemy AsyncSession is not safe for concurrent execute()
+    # on a shared connection. Each query joins the CTE below.
     kw_stmt = (
         select(RecordKeyword.keyword, func.count().label("count"))
         .select_from(filtered_cte)
@@ -79,7 +74,6 @@ async def get_facet_counts(
         {"value": row.keyword, "count": row.count} for row in kw_result.all()
     ]
 
-    # --- Source organization facets ---
     org_stmt = (
         select(Record.source_organization, func.count().label("count"))
         .select_from(filtered_cte)
@@ -95,7 +89,6 @@ async def get_facet_counts(
         for row in org_result.all()
     ]
 
-    # --- SRID facets ---
     srid_stmt = (
         select(
             func.cast(Dataset.srid, SAString).label("srid_str"),
@@ -113,7 +106,6 @@ async def get_facet_counts(
         {"value": row.srid_str, "count": row.count} for row in srid_result.all()
     ]
 
-    # --- Collections facet (lightweight: id, name, visible member count) ---
     coll_facet_stmt = (
         select(
             Collection.id,

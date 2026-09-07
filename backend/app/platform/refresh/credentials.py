@@ -1,79 +1,69 @@
 """One-time handoff of a service credential from the API to the worker.
 
-feat(#1220) / ADR-002 Amendment A7. A refresh of a protected service needs a
-token in the worker, and the worker is a different process. Every existing way
-of getting one there is durable: Procrastinate task arguments are rows in
-``catalog.procrastinate_jobs``, ``ingest_jobs.user_metadata`` is a column, and
-a failed job keeps both until the retention purge. ADR-002 invariant 4 says
-the credential never lands in a committed row, so the handoff needs a channel
-that is neither PostgreSQL nor the request.
+A refresh of a protected service needs a token in the worker, a different
+process. Every existing way of getting one there is durable: Procrastinate
+task arguments are rows in ``catalog.procrastinate_jobs``,
+``ingest_jobs.user_metadata`` is a column, and a failed job keeps both until
+the retention purge. The credential must never land in a committed row, so
+the handoff needs a channel that is neither PostgreSQL nor the request.
 
 This module is that channel: the API writes the secret once under an
-unguessable reference with a short TTL, passes only the REFERENCE through the
-task arguments, and the worker consumes it with an atomic read-and-delete. The
-three properties that matter, and where each comes from:
+unguessable reference with a short TTL, passes only the REFERENCE through
+task arguments, and the worker consumes it with an atomic read-and-delete.
+Three properties matter:
 
 - **Single use.** ``GETDEL`` reads and deletes in one server-side operation,
-  so two claimants cannot both succeed. A ``GET`` followed by a ``DELETE``
-  would leave a window; that window is the whole point of using ``GETDEL``.
+  so two claimants cannot both succeed — a ``GET`` followed by a ``DELETE``
+  would leave exactly the window ``GETDEL`` exists to close.
 - **Bounded lifetime.** ``SET ... EX`` expires the key whether or not anyone
   claims it, so a dispatch that never reaches a worker leaves no credential
-  behind for anyone to find later. The TTL is short and stays short: rather
-  than sizing it for the worst queue anybody might have,
-  :func:`renew_queued_refresh_credentials` re-arms it while the dispatch is
-  provably still waiting, so the lifetime IS the queue wait rather than an
-  estimate of it. See :data:`CREDENTIAL_TTL_SECONDS`.
+  behind. The TTL stays short: rather than sizing it for the worst-case
+  queue, :func:`renew_queued_refresh_credentials` re-arms it while the
+  dispatch is provably still waiting, so the lifetime IS the queue wait, not
+  an estimate of it. See :data:`CREDENTIAL_TTL_SECONDS`.
 - **Nothing durable.** The reference is a random string that means nothing
-  once claimed or expired. It is the only thing that reaches a task argument
-  or a log line.
+  once claimed or expired — the only thing that reaches a task argument or
+  a log line.
 
-### Why this needs a real shared cache, and what happens without one
+### Why this needs a real shared cache
 
-``REDIS_URL`` is unset by default — the compose ``valkey`` service is opt-in
-behind the ``cloud-dev`` profile — and the ordinary cache provider degrades to
-an in-memory dict when it is missing. That degradation is right for a cache
-and wrong for this: the API and the worker are separate processes, so an
-in-memory write would be invisible to the claimant and every credentialed
-refresh would fail as ``credential_expired`` with nothing in the logs saying
-why. So this module talks to Valkey directly rather than through
-``get_cache()``, and :func:`credential_store_available` reports honestly when
-there is no store. The refresh endpoint refuses a token-bearing request up
-front in that case, which is a clear error at the door instead of a confusing
-failure an hour later in a worker.
+``REDIS_URL`` is unset by default (the compose ``valkey`` service is opt-in
+behind ``cloud-dev``), and the ordinary cache provider degrades to an
+in-memory dict when missing. That's right for a cache and wrong for this:
+API and worker are separate processes, so an in-memory write is invisible to
+the claimant, and every credentialed refresh would fail as
+``credential_expired`` with nothing in the logs saying why. So this module
+talks to Valkey directly rather than through ``get_cache()``, and
+:func:`credential_store_available` reports honestly when there is no store —
+the refresh endpoint refuses a token-bearing request up front in that case,
+a clear error at the door instead of a confusing failure an hour later.
 
 ### Three doors, one mechanism, three states
 
-#1220 wired the refresh door only. The first-import and re-upload-commit
+#1220 wired the refresh door only; the first-import and re-upload-commit
 doors kept passing their token as a task argument, because refusing a
-credentialed request without Valkey would have stopped protected imports
-working on every stock install — a live regression traded for a latent one.
-
-feat(#1676) closes the gap without paying that regression, by keying the
-decision on what the install HAS rather than on which door the request came
-through:
+credentialed request without Valkey would have broken protected imports on
+every stock install. feat(#1676) closes the gap by keying the decision on
+what the install HAS, not which door the request came through:
 
 - **state 1, store configured and reachable** — stash, dispatch the
   reference, claim once in the worker. Nothing durable, at every door.
 - **state 2, store configured but the stash fails** — 503
-  ``credential_store_unavailable``, identical at every door. An operator who
-  opted into a store is told it is broken rather than silently downgraded to
-  the durable argument they thought they had stopped using.
+  ``credential_store_unavailable``, identical at every door: an operator who
+  opted into a store is told it is broken rather than silently downgraded.
 - **state 3, no store configured at all** — the token rides in the task
-  argument, as it always has at the two pre-existing doors. The refresh door
-  refuses here instead, and keeps refusing: token-bearing refresh has never
-  worked without a store, so nothing regresses by leaving it that way.
+  argument, as always at the two pre-existing doors. The refresh door
+  refuses here and keeps refusing: token-bearing refresh has never worked
+  without a store.
 
-State 3 is the one asymmetry and it is deliberate. The alternative — one
-uniform refusal — reads tidier and breaks protected import on the default
-install, which is the trade #1220 already declined once.
+State 3 is the one deliberate asymmetry — a uniform refusal would break
+protected import on the default install, the trade #1220 already declined.
 
 :func:`resolve_dispatch_credential` decides all three for the two doors that
-can reach state 3, so neither of them can drift from the other or from this
-text. The refresh door does not call it: it answers state 3 with an explicit
-refusal in its own handler, before it writes anything, and then reaches
-states 1 and 2 through :func:`stash_service_credential` — which is the only
-other call this helper makes. Two spellings of the same two calls, because
-the third state genuinely differs there.
+can reach state 3, so they can't drift from each other or from this text.
+The refresh door does not call it: it refuses state 3 explicitly in its own
+handler before writing anything, then reaches states 1 and 2 through
+:func:`stash_service_credential`, the only other call this helper makes.
 """
 
 from __future__ import annotations
@@ -90,45 +80,40 @@ from app.platform.service_auth import wire_credential
 
 logger = structlog.get_logger(__name__)
 
-# fix(#1277 review round 2): the TTL is bounded by RENEWAL, not by a constant.
+# fix(#1277): the TTL is bounded by RENEWAL, not by a constant.
 #
-# Round 1 derived it from JOB_TIMEOUT_SECONDS on the reasoning that the job at
-# the head of a concurrency-1 queue is bounded by the stale sweep. That premise
-# was wrong: `maintain_ingest_job_heartbeat` refreshes `heartbeat_at` every 30
-# seconds and the sweep only fails rows whose heartbeat has gone stale, so
-# JOB_TIMEOUT_SECONDS bounds a DEAD worker's lease, not a healthy long import.
-# A legitimate multi-hour ingest at the queue head outlives any constant, and
-# raising the constant until it does not is walking toward durable storage —
-# which is the one thing A7 exists to prevent.
+# Deriving it from JOB_TIMEOUT_SECONDS was tried and is wrong:
+# `maintain_ingest_job_heartbeat` refreshes `heartbeat_at` every 30s and the
+# sweep only fails rows whose heartbeat has gone stale, so that constant
+# bounds a DEAD worker's lease, not a healthy long import — a legitimate
+# multi-hour ingest at the queue head would outlive any fixed constant, and
+# raising it is a step toward durable storage, which ADR-002 Amendment A7 forbids.
 #
-# So the lifetime tracks the real queue wait instead. The TTL stays short, and
-# `renew_queued_refresh_credentials` re-arms it every sweep cycle for exactly
-# those credentials whose dispatch is still waiting to be picked up. The bound
-# is then the actual wait by construction, and renewal stops on its own at
-# two points, both of them the abandonment sweep's own definition of a run
-# that is still alive — see that function.
+# So the lifetime tracks the real queue wait instead: the TTL stays short,
+# and `renew_queued_refresh_credentials` re-arms it every sweep cycle for
+# credentials whose dispatch is still waiting. Renewal stops on its own at
+# the abandonment sweep's own definition of a run still being alive.
 #
-# The arithmetic, against the real interval: renewal runs once per
-# CREDENTIAL_RENEWAL_INTERVAL_SECONDS (300s), so the TTL must survive at least
-# two cycles or a single skipped pass — a slow sweep, a GC pause, a restart
-# between cycles — expires a credential whose task is still queued. Two cycles
-# is 600s; the remaining 300s is margin for scheduling jitter, giving 900.
+# Arithmetic: renewal runs once per CREDENTIAL_RENEWAL_INTERVAL_SECONDS
+# (300s), so the TTL must survive at least two cycles, or a single skipped
+# pass (slow sweep, GC pause, restart between cycles) expires a credential
+# whose task is still queued. Two cycles is 600s; the remaining 300s is
+# jitter margin, giving 900.
 #
-# If the API dies, renewal stops and the credential expires within one TTL.
-# That is the correct outcome rather than a gap: nothing is left to dispatch
-# the work, and the run fails `credential_expired`, whose message already says
-# to start again with a fresh token.
+# If the API dies, renewal stops and the credential expires within one TTL —
+# the correct outcome, not a gap: nothing is left to dispatch the work, and
+# the run fails `credential_expired`, whose message says to start again.
 CREDENTIAL_RENEWAL_INTERVAL_SECONDS = 300
 
 CREDENTIAL_TTL_SECONDS = 3 * CREDENTIAL_RENEWAL_INTERVAL_SECONDS
 
 _KEY_PREFIX = "geolens:refresh-cred:"
 
-# The reference is generated by :func:`stash_service_credential` and travels
-# through task arguments, so it is ours end to end — but it is also the only
-# thing between a task argument and a key lookup, and task arguments are rows
-# a future migration or backfill could touch. Constraining the shape means a
-# malformed reference can never be composed into a lookup for some other key.
+# The reference is generated by :func:`stash_service_credential`, but it's
+# also the only thing between a task argument and a key lookup, and task
+# arguments are rows a future migration or backfill could touch.
+# Constraining the shape means a malformed reference can never be composed
+# into a lookup for some other key.
 _REF_PATTERN = re.compile(r"\A[A-Za-z0-9_-]{22,64}\Z")
 
 
@@ -144,13 +129,12 @@ class CredentialStoreUnavailable(RuntimeError):
 class CredentialExpiredError(RuntimeError):
     """The reference names nothing: already claimed, or past its TTL.
 
-    Both cases are the same fact from the worker's side — there is no
-    credential to fetch — and both are permanent for this attempt, because a
-    single-use secret is gone the moment it is read. The refresh worker turns
-    this into the ``credential_expired`` run error code so the history row
-    says "supply a token and try again" rather than blaming the origin; the
-    import worker has no run row and carries the same sentence as its
-    ``error_message``.
+    Both are the same fact from the worker's side — no credential to fetch —
+    and both are permanent for this attempt, since a single-use secret is
+    gone the moment it's read. The refresh worker turns this into the
+    ``credential_expired`` run error code ("supply a token and try again"
+    rather than blaming the origin); the import worker has no run row and
+    carries the same sentence as its ``error_message``.
     """
 
 
@@ -182,19 +166,18 @@ class RedisCredentialBackend:
     ``RedisCacheProvider``: a fallback here would accept a credential the
     worker can never read. Failing the write is the honest outcome.
 
-    fix(#1277 review): both operations translate transport failures into
-    ``CredentialStoreUnavailable`` at this boundary, rather than letting
-    redis-py's own exceptions escape. Untranslated they broke both callers in
-    different ways — a connection error during stash left the endpoint
-    returning 500 instead of its 503, and one during claim was swallowed by
-    the caller's broad handler and reported as ``credential_expired``, which
-    blames a spent token for what is actually an outage. Reaching the store is
-    an availability question and answering it is the store's job; only the
-    store SAYING the key is absent is evidence about the credential.
+    fix(#1277): both operations translate transport failures into
+    ``CredentialStoreUnavailable`` at this boundary rather than letting
+    redis-py's own exceptions escape. Untranslated, they broke both callers
+    differently — a connection error during stash returned 500 instead of
+    503, and one during claim was swallowed and reported as
+    ``credential_expired``, blaming a spent token for what was actually an
+    outage. Reaching the store is an availability question the store
+    answers; only the store SAYING the key is absent is evidence about the
+    credential.
 
     The exception is never rendered into the message either: redis-py bakes
-    the command it was running into its error text, and that command carries
-    the key.
+    the command it was running — including the key — into its error text.
     """
 
     def __init__(self, url: str) -> None:
@@ -238,8 +221,8 @@ class RedisCredentialBackend:
         ``EXPIRE`` only ever moves the deadline of a key that still exists.
         Redis reports that as 0, and this returns False.
 
-        Failures are swallowed rather than raised. A missed renewal costs at
-        most one cycle — the TTL is sized to survive two — and this runs in a
+        Failures are swallowed, not raised: a missed renewal costs at most
+        one cycle (the TTL is sized to survive two), and this runs in a
         background sweep with nobody to report to.
         """
         try:
@@ -323,19 +306,18 @@ async def stash_service_credential(
 async def claim_service_credential(ref: str) -> str:
     """Consume the credential *ref* names. Raises once it is gone.
 
-    Called exactly once per attempt, at the top of the worker task. A retry of
-    the same dispatch necessarily fails here, which is the intended shape:
-    ADR-002 Decision 3 says a credential is request-scoped, so a run that
-    outlives its credential must ask a human for a new one rather than
-    silently retrying unauthenticated and reporting the origin's 401.
+    Called exactly once per attempt, at the top of the worker task. A retry
+    of the same dispatch necessarily fails here, by design: a credential is
+    request-scoped, so a run that outlives its credential must ask a human
+    for a new one rather than silently retrying unauthenticated and
+    reporting the origin's 401.
 
-    fix(#1277 review): "gone" and "could not tell" are two answers, and only
-    one of them is about the credential. A store that ANSWERS and reports no
-    such key is evidence the secret was claimed or expired; a store that
-    cannot be reached is evidence of nothing except an outage. This fallback
-    used to report the second as the first, so a Valkey blip surfaced as
-    `credential_expired` and sent the reader to re-issue a token that was
-    never the problem.
+    fix(#1277): "gone" and "could not tell" are two answers, and only one is
+    about the credential. A store that ANSWERS with no such key is evidence
+    the secret was claimed or expired; a store that cannot be reached is
+    evidence of nothing but an outage. This used to conflate the two, so a
+    Valkey blip surfaced as `credential_expired` and sent the reader to
+    re-issue a token that was never the problem.
     """
     if not _REF_PATTERN.match(ref or ""):
         raise CredentialExpiredError(
@@ -367,25 +349,25 @@ async def resolve_worker_credential(
 ) -> str | None:
     """The credential this attempt will fetch with, redeeming a ref if given.
 
-    feat(#1220), shared with the import door by feat(#1676). Called inside the
-    task's handled region and after the attempt check, so a single-use
-    credential is only ever consumed for an attempt that is actually going to
-    run. A ref that names nothing raises :class:`CredentialExpiredError` —
-    deliberately NOT a fall-through to an unauthenticated fetch, which would
-    reach the origin, collect a 401, and report a protected service as broken.
+    Called inside the task's handled region and after the attempt check, so
+    a single-use credential is only ever consumed for an attempt that is
+    actually going to run. A ref that names nothing raises
+    :class:`CredentialExpiredError` — deliberately NOT a fall-through to an
+    unauthenticated fetch, which would reach the origin, collect a 401, and
+    report a protected service as broken.
 
     The ref wins over a directly-passed token when both are somehow set: the
     door that sends a ref is the door that promised nothing durable, and
     honouring the durable value instead would quietly undo that promise. In
-    practice the pair is mutually exclusive by construction — see
-    :func:`resolve_dispatch_credential`, which is the only thing that fills
-    either — so this is the tie-break for a rolling deploy, not a routine
-    branch.
+    practice the pair is mutually exclusive by construction (only
+    :func:`resolve_dispatch_credential` fills either), so this is the
+    tie-break for a rolling deploy, not a routine branch.
 
     Lives here rather than in either task module because both
-    ``reupload_service`` and ``ingest_service`` need it and neither may import
-    the other: ``tasks_reupload`` already reaches into ``tasks_vector`` at
-    call time, so a top-level edge back would close a cycle.
+    ``reupload_service`` and ``ingest_service`` need it and neither may
+    import the other: ``tasks_reupload`` already reaches into
+    ``tasks_vector`` at call time, so a top-level edge back would close a
+    cycle.
     """
     if credential_ref:
         return await claim_service_credential(credential_ref)
@@ -400,46 +382,40 @@ async def resolve_dispatch_credential(
 ) -> tuple[str | None, str | None]:
     """Decide how the caller's credential reaches the worker. Returns ``(token, ref)``.
 
-    feat(#1676). The single decision point for the three states in this
-    module's docstring, so the three doors cannot answer it three ways:
+    The single decision point for the three states in this module's
+    docstring, so the three doors cannot answer it three ways:
 
-    - no token at all           -> ``(None, None)``; nothing to protect.
-    - store configured          -> ``(None, ref)``; the secret is stashed and
-                                   only the reference is returned, so nothing
-                                   durable can carry it. A store that is
-                                   configured but unreachable raises
-                                   :class:`CredentialStoreUnavailable` from
-                                   the stash, which every caller turns into
-                                   the same 503.
-    - no store configured       -> ``(token, None)``; the pre-existing durable
-                                   argument, unchanged.
+    - no token at all      -> ``(None, None)``; nothing to protect.
+    - store configured     -> ``(None, ref)``; the secret is stashed and
+                              only the reference returned, so nothing
+                              durable can carry it. Configured-but-
+                              unreachable raises
+                              :class:`CredentialStoreUnavailable` from the
+                              stash, which every caller turns into 503.
+    - no store configured  -> ``(token, None)``; the pre-existing durable
+                              argument, unchanged.
 
     Exactly one element of the pair is ever set, which is what lets
-    :func:`resolve_worker_credential` treat "both" as an impossibility rather
-    than a case.
+    :func:`resolve_worker_credential` treat "both" as impossible.
 
-    The fallback is logged rather than silent. It is the one branch where the
-    stored shape of a request differs from what the UI copy leads with, and an
-    operator asking "is this install actually leasing?" should be able to
-    answer it from logs instead of from settings archaeology. The log line
-    carries the DOOR, never the token and never the reference — a reference is
+    The fallback is logged, not silent, so an operator asking "is this
+    install actually leasing?" can answer it from logs. The log line
+    carries the DOOR, never the token or the reference — a reference is
     harmless after its claim but not before it, and log sinks outlive TTLs.
 
-    feat(#1746) D2: ``credential`` is the structured spelling and the one an
-    in-process caller uses. A scheduler that has resolved a stored credential
-    calls this with a :class:`ServiceCredential` rather than assembling an HTTP
-    request for a door to take apart again, which is the seam Phase 1 owes the
-    overlay. ``token`` stays as the positional form the existing callers pass,
-    already converted to the wire value by their own door; supplying both would
-    be describing the same thing twice, so the structured one wins and the flat
-    one is ignored.
+    feat(#1746) D2: ``credential`` is the structured spelling an in-process
+    caller uses (e.g. a scheduler with a resolved stored credential) instead
+    of assembling an HTTP request for a door to take apart again. ``token``
+    stays the positional form existing callers pass, already converted to
+    the wire value by their own door; supplying both is redundant, so the
+    structured one wins.
 
-    A structured credential is converted here by ``wire_credential``, which for
-    a header-auth service format composes the finished header line (plan D9)
-    and for every other one yields the bare token. That means the in-process
-    caller sets ``service_format`` on the credential it builds; without it the
-    credential degrades to its bare-token form, which a WFS origin answers with
-    a 401 rather than silently mis-sending.
+    A structured credential is converted here by ``wire_credential``, which
+    for a header-auth service format composes the finished header line
+    (plan D9) and for every other one yields the bare token. The in-process
+    caller must set ``service_format`` on the credential it builds; without
+    it, the credential degrades to its bare-token form, which a WFS origin
+    answers with a 401 rather than silently mis-sending.
     """
     if credential is not None:
         token = wire_credential(credential)
@@ -469,70 +445,47 @@ async def discard_service_credential(ref: str | None) -> None:
 
 # The credentials whose dispatch is still genuinely waiting to be picked up.
 #
-# TWO stops, and both are the abandonment sweep's own definition of "still
-# alive" rather than a second opinion about it. Round 5 made the RUN side
-# defer to the sweep; round 7 finished the job on the TASK side, which had
-# been narrower than the sweep's all along:
+# Two liveness stops, both deferring to the abandonment sweep's own
+# definition of "still alive" rather than a second opinion:
 #
-# 1. the task is still LIVE — 'todo' or 'doing', which is the abandonment
-#    sweep's own liveness test, character for character.
+# 1. the task is still LIVE — 'todo' or 'doing', the abandonment sweep's own
+#    liveness test, character for character.
 #
-#    fix(#1277 review round 7): this said 'todo' alone, on the belief that a
-#    worker moving the row to 'doing' and GETDELing the key were the same
-#    event. They are not. Procrastinate flips the status BEFORE invoking the
-#    task, and the task revalidates its URL for SSRF — an unbounded DNS
-#    resolution — before it claims. A stalled resolver longer than the TTL
-#    therefore expired a credential belonging to a refresh that was actively
-#    being worked on.
+#    fix(#1277): 'todo' alone was wrong. Procrastinate flips the status to
+#    'doing' BEFORE invoking the task, and the task revalidates its URL for
+#    SSRF (unbounded DNS resolution) before it claims — a stalled resolver
+#    longer than the TTL expired a credential for a refresh actively being
+#    worked on. Including 'doing' is safe for the same reason GETDEL is the
+#    right primitive: EXPIRE cannot resurrect, so once the claim removes the
+#    key every later renewal is a no-op — this self-terminates at the true
+#    claim event, not at a status flip that merely precedes it.
+# 2. the run is still active — a terminal run cannot use a credential.
 #
-#    'doing' is safe to include for the reason that made GETDEL the right
-#    primitive in the first place: EXPIRE cannot resurrect. Once the claim has
-#    removed the key, every later renewal is a no-op on a key that does not
-#    exist, so this self-terminates at the true claim event rather than at a
-#    status flip that merely precedes it. No new constant, no new coordination.
-# 2. the run is still active — a terminal run cannot use a credential, so
-#    there is nothing left to keep alive.
+# fix(#1277): a third stop, an age bound on the run, was tried and
+# CONTRADICTED the sweep. `_ABANDONED_RUN_SQL` deliberately never cancels a
+# run whose task is live 'todo' (#1274), so a protected refresh queued
+# behind a healthy long ingest kept its run while renewal dropped its
+# credential at the cutoff, failing the eventual claim `credential_expired`.
+# Two modules disagreeing about the same run's abandonment is worse than
+# either answer, so this defers to the sweep instead. A task no worker
+# subscribes to sits 'todo' forever (docker-compose.yml, #695) and would be
+# renewed forever — but while a claimant-reachable task exists the
+# credential IS legitimately in flight (the ADR-002 A7 window, not durable
+# storage), and it still dies the instant either the task or the run leaves
+# its state, since renewal keys on both.
 #
-# fix(#1277 review round 5): there was a third, an age bound on the run, and
-# it CONTRADICTED the sweep. `_ABANDONED_RUN_SQL` deliberately never cancels a
-# run whose task is live 'todo' (#1274), so a protected refresh queued behind
-# a healthy long ingest kept its run — while renewal dropped its credential at
-# the cutoff and the eventual claim failed `credential_expired`. Two modules
-# disagreeing about whether the same run is abandoned is worse than either
-# answer; the sweep owns that question, so this defers to it.
+# Correlated on `args->>'job_id'`, the correlation every task in this
+# codebase passes and both refresh sweeps already use.
 #
-# What the age bound was guarding is answered here instead of by a constant. A
-# task no worker subscribes to sits 'todo' forever (documented on the `worker`
-# service in docker-compose.yml, fix #695) and would be renewed forever — but
-# while a claimant-reachable task exists the credential is legitimately in
-# flight, which IS the A7 window rather than durable storage. In that
-# misconfiguration the whole run, job and task are stuck and visible as queue
-# depth; the credential is the least of what is wrong, and it still dies the
-# instant either the task or the run leaves its state, because renewal keys on
-# both. Any constant here would just reproduce the finding it was meant to
-# prevent one level up: "healthy but longer than the number" is unbounded by
-# construction, which is exactly what rounds 2 and 5 already established.
-#
-# Correlated on `args->>'job_id'`, the correlation every task in this codebase
-# passes and the one both refresh sweeps already use.
-#
-# feat(#1676): the run join is a LEFT join, and the run-liveness stop has a
-# fallback. The INNER join was correct while only the refresh door leased,
-# because that door writes a `dataset_refresh_runs` row on the way in — and so
-# does the re-upload commit door, which is why that one inherits renewal for
-# free. The FIRST-IMPORT door writes no run at all. Left as an inner join it
-# would have matched nothing for an import, silently dropping renewal for the
-# one door with no run row: a protected import queued behind a long ingest
-# would have expired at the TTL and failed `credential_expired` where today it
-# simply waits. That is a regression the lease itself would have introduced,
-# and no test of the refresh path could have seen it.
-#
-# The fallback stop is `ingest_jobs.status`, which is the same question the
-# run's status answers on the other branch — is this dispatch still going to
-# be worked? — asked of the row that exists for a run-less job. It keeps the
-# self-terminating property intact for the same reason the run branch has it:
-# `EXPIRE` cannot resurrect, so once the worker's GETDEL has removed the key
-# every later renewal is a no-op regardless of what any status column says.
+# feat(#1676): the run join is LEFT, with a fallback stop, because the
+# FIRST-IMPORT door writes no `dataset_refresh_runs` row at all (unlike the
+# refresh and re-upload-commit doors). An INNER join would silently drop
+# renewal for that door: a protected import queued behind a long ingest
+# would expire at the TTL and fail `credential_expired` where today it
+# simply waits — a regression no refresh-path test could have caught. The
+# fallback stop is `ingest_jobs.status`, asking the same "still being
+# worked?" question of the row that exists for a run-less job, with the
+# same self-terminating property: EXPIRE cannot resurrect a claimed key.
 _RENEWABLE_CREDENTIALS_SQL = text(
     """
     SELECT DISTINCT pj.args->>'credential_ref' AS credential_ref
@@ -561,33 +514,28 @@ async def renew_queued_refresh_credentials(
     Returns how many were renewed. Driven by the API's existing stale-job
     sweeper, once per :data:`CREDENTIAL_RENEWAL_INTERVAL_SECONDS`.
 
-    feat(#1676): the ``refresh`` in the name is historical. Since the import
-    and re-upload-commit doors lease too, this covers every leased dispatch —
-    see the query's own note on why a run-less import needed the join
-    widened. The name is kept because it is the spelling
-    ``test_service_refresh_1220`` and the lifespan structural assertions
-    already pin, and renaming it would churn a dozen call sites to say the
-    same thing the docstring says.
+    The ``refresh`` in the name is historical: since the import and
+    re-upload-commit doors lease too, this covers every leased dispatch (see
+    the query's own note on the widened join). Kept because it's the
+    spelling structural tests already pin.
 
     This is what makes a short TTL correct rather than optimistic: the
-    credential's lifetime becomes the real queue wait instead of a number
-    somebody guessed, and it shortens itself the moment the wait ends.
+    credential's lifetime becomes the real queue wait, and shortens itself
+    the moment the wait ends.
 
-    fix(#1277 review round 4): ``tenant_id`` filters the query EXPLICITLY
-    rather than leaning on RLS to do it. Pre-#998 ``tenant_job_context`` only
-    sets a GUC that nothing reads, so without this every tenant's iteration
-    renewed every OTHER tenant's credentials too — N tenants meant N passes of
-    fleet-wide EXPIRE, an inflated count, and a boundary crossed in a loop
-    written specifically to respect it. Filtering on ``ingest_jobs.tenant_id``
-    rather than joining out to ``datasets``: it is already in the join, it
-    carries ``trg_stamp_current_tenant_on_insert`` like ``datasets`` does, and
-    ``trg_validate_ingest_job_parent_tenant`` keeps it equal to its parent
-    dataset's, so the two cannot disagree. Single-tenant passes None and the
-    predicate folds away.
+    fix(#1277): ``tenant_id`` filters the query EXPLICITLY rather than
+    leaning on RLS: pre-#998 ``tenant_job_context`` only sets a GUC nothing
+    reads, so without this every tenant's iteration renewed every OTHER
+    tenant's credentials too — N tenants meant N passes of fleet-wide
+    EXPIRE, and a boundary crossed in a loop written specifically to respect
+    it. Filters on ``ingest_jobs.tenant_id`` (already in the join, kept
+    equal to its parent dataset's by `trg_validate_ingest_job_parent_tenant`)
+    rather than joining out to ``datasets``. Single-tenant passes None and
+    the predicate folds away.
 
-    Never raises. It runs inside a background loop whose other work must not
-    be lost to a credential-store blip, and a missed cycle is survivable by
-    construction — the TTL covers two.
+    Never raises: it runs inside a background loop whose other work must
+    not be lost to a credential-store blip, and a missed cycle is
+    survivable by construction (the TTL covers two).
     """
     if not credential_store_available():
         return 0
@@ -598,14 +546,11 @@ async def renew_queued_refresh_credentials(
         )
         refs = [row.credential_ref for row in rows]
     except Exception as exc:  # broad: the sweep's other work must survive this
-        # fix(#1277 review round 3): named, not swallowed. The never-raises
-        # contract is what lets the sweeper call this without a guard of its
-        # own, and it is also what would hide a misconfiguration forever —
-        # a query rejected because it ran outside a tenant context looks
-        # exactly like "nothing to renew" from the return value. The
-        # exception TYPE is enough to tell those apart in ops; the query text
-        # is deliberately not logged, because it is the one string here that
-        # carries credential references.
+        # fix(#1277): named, not swallowed. A query rejected because it
+        # ran outside a tenant context looks exactly like "nothing to
+        # renew" from the return value, so the exception TYPE (logged) is
+        # what tells those apart in ops. The query text is deliberately
+        # not logged — it's the one string here carrying credential refs.
         logger.warning(
             "refresh_credential_renewal_query_failed",
             error_type=type(exc).__name__,
@@ -630,21 +575,21 @@ async def renew_queued_refresh_credentials(
 async def renew_queued_credentials_once() -> int:
     """Re-arm queued refresh credentials across the whole deployment.
 
-    fix(#1277 review round 3): iterates tenants the way the stale-job sweep
-    does — one plain call in single-tenant mode, one scoped transaction per
-    tenant otherwise, each inside ``tenant_job_context`` so the GUC is set
-    before the query runs. Per-tenant recovery is best-effort: one broken
-    tenant must not cost the others their renewals.
+    fix(#1277): iterates tenants the way the stale-job sweep does — one
+    plain call in single-tenant mode, one scoped transaction per tenant
+    otherwise, each inside ``tenant_job_context`` so the GUC is set before
+    the query runs. Per-tenant recovery is best-effort: one broken tenant
+    must not cost the others their renewals.
 
-    fix(#1277 review round 4): lives here rather than in ``api/main.py`` so the
-    worker can host it too — see :func:`renew_credentials_periodically`. A
-    module under ``platform/`` is importable from both processes; the API app
+    fix(#1277): lives here rather than in ``api/main.py`` so the worker
+    can host it too (see :func:`renew_credentials_periodically`) — a module
+    under ``platform/`` is importable from both processes; the API app
     module is not.
 
     Returns before touching the database at all when no credential store is
-    configured, which is the default deployment. There is nothing to renew
-    without a store, and the alternative is a registry query plus a session
-    per tenant every cycle, forever, to find that out.
+    configured (the default deployment): nothing to renew without a store,
+    and the alternative is a registry query plus a session per tenant every
+    cycle, forever, to find that out.
     """
     from app.core.db import async_session  # fix(#909): late-bind for tests
     from app.core.db.tenant_session import tenant_job_context
@@ -686,30 +631,26 @@ async def renew_queued_credentials_once() -> int:
 async def renew_credentials_periodically() -> None:
     """Worker-side renewal loop. The second host, and the important one.
 
-    fix(#1277 review round 4): the API sweeper alone was not enough, because
-    API liveness does not bound the lifetime of an already-committed task. The
-    API could be down for longer than the TTL while the dispatch sat queued
-    behind a long ingest, and the worker — healthy the whole time, and the only
-    process that could ever claim it — would find the credential gone.
+    fix(#1277): the API sweeper alone was not enough, because API
+    liveness does not bound the lifetime of an already-committed task. The
+    API could be down longer than the TTL while the dispatch sat queued
+    behind a long ingest, and the worker — healthy the whole time, and the
+    only process that could ever claim it — would find the credential gone.
 
-    The coupling that makes two hosts the right answer: the process whose
-    liveness gates the CLAIM is the WORKER, so worker-hosted renewal keeps the
-    handoff alive exactly while a claim is still possible. API-hosted renewal
-    covers the converse, a worker briefly down with the API up. Both call the
-    same tenant-aware helper and ``EXPIRE`` is idempotent, so a cycle where
-    both run costs one extra round trip and nothing else.
+    Two hosts is right because the process whose liveness gates the CLAIM
+    is the WORKER, so worker-hosted renewal keeps the handoff alive exactly
+    while a claim is still possible; API-hosted renewal covers the
+    converse, a worker briefly down with the API up. Both call the same
+    tenant-aware helper and ``EXPIRE`` is idempotent, so a cycle where both
+    run costs one extra round trip and nothing else.
 
-    If BOTH are down past the TTL the credential expires, and that is the
-    accepted floor rather than a gap: no claimant existed at any point during
-    the credential's life, so there was never a refresh to keep alive. The run
-    fails ``credential_expired``, whose message already says to retry with a
-    fresh token.
+    If BOTH are down past the TTL the credential expires — the accepted
+    floor, not a gap: no claimant existed at any point, so there was never
+    a refresh to keep alive. The run fails ``credential_expired``.
 
     An asyncio loop rather than a Procrastinate periodic task, deliberately:
-    the codebase registers no periodic tasks at all (``procrastinate_periodic_
-    defers`` is stock schema, not evidence of use), while this worker already
-    runs ``update_job_metrics`` exactly this way. Matching the pattern that is
-    here beats introducing the machinery that is not.
+    the codebase registers no periodic tasks at all, while this worker
+    already runs ``update_job_metrics`` exactly this way.
     """
     import asyncio
 

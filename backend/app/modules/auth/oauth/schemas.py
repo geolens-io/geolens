@@ -13,10 +13,9 @@ from app.core.edition import is_enterprise
 def _validate_optional_http_url(value: str | None) -> str | None:
     """Validate an optional HTTP(S) URL (TYPE-N4).
 
-    Returns the value unchanged if None or a parseable HTTP/HTTPS URL.
-    Raises ValueError otherwise. Prefer this over Pydantic's HttpUrl so the
-    DB column type can stay ``str`` (avoids an Alembic migration) while still
-    rejecting obvious garbage like "not a url" or schemeless strings.
+    Returns the value unchanged if None or a parseable HTTP/HTTPS URL, else
+    raises ValueError. Prefer this over Pydantic's HttpUrl so the DB column
+    can stay ``str`` (avoids a migration) while still rejecting garbage.
     """
     if value is None or value == "":
         return value
@@ -155,9 +154,9 @@ class OAuthProviderCreate(BaseModel):
     def _validate_per_type(self):
         """Enforce per-type field requirements (RESEARCH §6, D-12).
 
-        SAML providers require all 4 SAML fields and don't need OAuth credentials.
-        OAuth providers require client_id + client_secret and must NOT have SAML
-        fields populated (mixed config is rejected to prevent ambiguity).
+        SAML providers require all 4 SAML fields, no OAuth credentials.
+        OAuth providers require client_id + client_secret and must NOT set
+        SAML fields (mixed config rejected to prevent ambiguity).
         """
         if self.provider_type == "saml":
             if not is_enterprise():
@@ -193,11 +192,10 @@ class OAuthProviderCreate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_idp_mapping_gate(self):
-        """Gate group-based role mapping behind the enterprise edition (D-01, D-02, D-03).
+        """Gate group-based role mapping behind the enterprise edition (D-01/02/03).
 
-        Empty dict ({}) and None are allowed in community — they represent
-        "no mapping" / "clear mapping" (D-02 carve-out). Only non-empty
-        group_role_mapping or a non-None group_claim triggers the gate.
+        Empty dict/None allowed in community (D-02 carve-out — "no mapping").
+        Only a non-empty mapping or non-None group_claim triggers the gate.
         """
         if not is_enterprise():
             if self.group_claim is not None:
@@ -321,11 +319,10 @@ class OAuthProviderUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_idp_mapping_gate(self):
-        """Gate group-based role mapping behind the enterprise edition (D-01, D-02, D-03).
+        """Gate group-based role mapping behind the enterprise edition (D-01/02/03).
 
-        Empty dict ({}) and None are allowed in community — they represent
-        "no mapping" / "clear mapping" (D-02 carve-out). Only non-empty
-        group_role_mapping or a non-None group_claim triggers the gate.
+        Empty dict/None allowed in community (D-02 carve-out — "no mapping").
+        Only a non-empty mapping or non-None group_claim triggers the gate.
         """
         if not is_enterprise():
             if self.group_claim is not None:
@@ -365,21 +362,16 @@ class OAuthProviderResponse(BaseModel):
     def _safe_read_deferred_saml_fields(cls, data):
         """Read SAML fields from __dict__ to skip deferred lazy-load.
 
-        Returning a plain dict bypasses ``from_attributes`` for SAML fields
-        only — community OAuth queries (which never load SAML columns) get
-        ``None`` for the 3 non-secret SAML fields rather than triggering a
-        deferred SELECT against a non-existent column.
+        Bypasses ``from_attributes`` for SAML fields only — community OAuth
+        queries (which never load SAML columns) get ``None`` for the 3
+        non-secret SAML fields instead of triggering a deferred SELECT.
         """
-        # Pydantic passes either a dict (already-projected) or an ORM instance.
-        # Only intercept the ORM-instance case.
         if isinstance(data, dict):
             return data
-        # Build a dict from the ORM instance's loaded attributes; deferred
-        # SAML columns appear as None unless explicitly loaded.
+        # ORM instance: read loaded attributes; deferred SAML columns appear
+        # as None unless explicitly loaded.
         loaded = dict(getattr(data, "__dict__", {}))
-        # Drop SQLAlchemy internal state.
         loaded.pop("_sa_instance_state", None)
-        # Ensure the 3 non-secret SAML fields exist as keys (None if not loaded).
         for f in ("idp_entity_id", "idp_sso_url", "sp_entity_id"):
             loaded.setdefault(f, None)
         return loaded

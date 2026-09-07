@@ -1,23 +1,18 @@
-"""SMTP email channel for GeoLens outbound notifications (Phase 1229 NOTIF-02).
+"""SMTP email channel for GeoLens outbound notifications (NOTIF-02).
 
 Sends an ``email.message.EmailMessage`` via stdlib ``smtplib``.
 
-Connection strategy:
-- Port 465 → ``smtplib.SMTP_SSL`` (implicit TLS).
-- Other ports + ``smtp_use_tls=True`` → ``smtplib.SMTP`` + ``starttls()`` (explicit TLS / STARTTLS).
-- Other ports + ``smtp_use_tls=False`` → ``smtplib.SMTP`` plain (dev/test only).
+Connection: port 465 uses ``SMTP_SSL`` (implicit TLS); other ports with
+``smtp_use_tls=True`` use ``SMTP`` + ``starttls()``; other ports with it
+False use plain ``SMTP`` (dev/test only).
 
-Credentials are read from ``app_settings`` and revealed **only** at the
-``login()`` call boundary via ``reveal()`` so the raw password never
-appears in any log line, exception message, or traceback
-(T-1229-04 mitigated).
+Credentials are revealed only at the ``login()`` call boundary via
+``reveal()`` so the raw password never appears in a log line, exception,
+or traceback (T-1229-04). The blocking smtplib sequence runs inside
+``asyncio.to_thread()``.
 
-The blocking smtplib sequence runs inside ``asyncio.to_thread()`` so it
-does not block the async event loop (T-1229-05 partial mitigation).
-
-On any smtplib exception the function re-raises — the caller
-(``EnvConfiguredNotificationSink``) is responsible for per-channel
-isolation (T-1229-07).
+Re-raises on any smtplib exception — the caller
+(``EnvConfiguredNotificationSink``) owns per-channel isolation (T-1229-07).
 """
 
 from __future__ import annotations
@@ -26,12 +21,12 @@ from __future__ import annotations
 async def send_email(notification: "Notification") -> None:  # type: ignore[name-defined]  # noqa: F821
     """Send *notification* as an email via stdlib smtplib.
 
-    Imports are deferred (Phase 214 deferred-import discipline) so this
-    module does not pay import cost for deployments that never call it.
+    Imports are deferred (Phase 214) so this module pays no import cost
+    for deployments that never call it.
 
     Raises:
-        smtplib.SMTPException: on SMTP-level failures (auth, server error, …).
-        OSError: on connection failures (host unreachable, timeout, …).
+        smtplib.SMTPException: on SMTP-level failures.
+        OSError: on connection failures (host unreachable, timeout, ...).
     """
     import asyncio
     import smtplib
@@ -51,11 +46,8 @@ async def send_email(notification: "Notification") -> None:  # type: ignore[name
 
     msg = EmailMessage()
     msg["From"] = from_address
-    # Phase 1229 baseline: send to the operator's own from-address (self-send).
-    # Phase 1230 will supply per-event recipients via Notification.data["to"]
-    # or a dedicated field; for now the channel accepts the from-address as
-    # the default recipient so the admin test-send (Plan 03) works without
-    # a recipient seam.
+    # Self-send fallback: without a per-event recipient in
+    # Notification.data["to"], mail goes to the from-address (admin test-send).
     to_address = (
         notification.data.get("to") if notification.data else None
     ) or from_address
@@ -66,12 +58,10 @@ async def send_email(notification: "Notification") -> None:  # type: ignore[name
     def _blocking_send() -> None:
         """Blocking smtplib sequence — runs in a thread via asyncio.to_thread."""
         use_ssl = port == 465
-        # Verify the server certificate against the system trust store
-        # (WR-01): the stdlib smtplib default omits a context and falls back
-        # to an unverified one, exposing the SMTP password to a MITM.
+        # WR-01: verify the server cert against the system trust store —
+        # smtplib's default omits a context, exposing the password to a MITM.
         ssl_context = ssl.create_default_context()
-        # Bound the connect/socket time (WR-02) so an unreachable host cannot
-        # pin a thread-pool thread indefinitely.
+        # WR-02: bound connect/socket time so an unreachable host can't pin a thread.
         timeout = 15.0
 
         if use_ssl:
@@ -85,8 +75,7 @@ async def send_email(notification: "Notification") -> None:  # type: ignore[name
             if not use_ssl and use_tls:
                 conn.starttls(context=ssl_context)
             if username:
-                # Reveal the password ONLY at the login() boundary.
-                # The raw string is never stored in a local variable or logged.
+                # Reveal the password only at the login() boundary; never stored/logged.
                 conn.login(username, reveal(password) or "")
             conn.send_message(msg)
         finally:

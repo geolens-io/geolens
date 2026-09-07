@@ -159,8 +159,8 @@ async def compute_quality_score(
         schema=schema,
     )
 
-    # For table records, geometry_validity and crs_defined are not applicable.
-    # Re-normalize weights: metadata (30) + attribute (25) = 55 total.
+    # Table records have no geometry_validity/crs_defined; re-normalize
+    # weights to metadata (30) + attribute (25) = 55 total.
     is_table = getattr(record, "record_type", None) == "table"
     if is_table:
         overall = round(metadata_score * (30 / 55) + attribute_score * (25 / 55))

@@ -49,23 +49,20 @@ def _redact_terrain_config(
 ) -> dict | None:
     """SEC-024: strip terrain_config if its DEM is not among the visible datasets.
 
-    Returns the original terrain_config when the source_dataset_id is present in
-    visible_dataset_ids (i.e., the DEM is an authorized, visible layer).  Returns
-    None otherwise — this prevents leaking private DEM dataset ids through the
-    shared/public map response.
+    Returns terrain_config unchanged when source_dataset_id is in
+    visible_dataset_ids; returns None otherwise, so a private DEM id can't
+    leak through the shared/public map response.
     """
     if terrain_config is None:
         return None
     source_id = terrain_config.get("source_dataset_id")
     if source_id is None:
-        # No source referenced — nothing to redact.
         return terrain_config
     if str(source_id) in visible_dataset_ids:
         return terrain_config
-    # DEM is private / not a visible layer — suppress the whole block so the id
-    # is not disclosed.  style_json.py:896 already guards terrain binding on the
-    # emitted source list, so no pixels would have leaked; this closes the id
-    # disclosure in the raw shared-map JSON response.
+    # DEM is private — suppress the block so the id isn't disclosed.
+    # style_json.py:896 already guards terrain binding (no pixels leak);
+    # this closes the id disclosure in the raw JSON response.
     return None
 
 
@@ -85,10 +82,9 @@ async def validate_public_visibility(
     return [row[0] for row in result.all()]
 
 
-# fix(#931): the two shared map audiences. A private map has no audience beyond
-# its owner and grantees, so a dataset visibility change can never strand it.
-# Who a MAP reaches is core's own rule (`_apply_map_visibility_filter`), not the
-# permission seam's, so this pair is not something an overlay narrows.
+# fix(#931): the two shared audiences — a private map has no audience
+# beyond owner/grantees, so it can never be stranded. Who a MAP reaches
+# is core's own rule, not the permission seam's, so an overlay can't narrow this.
 _SHARED_MAP_AUDIENCES = ("public", "internal")
 
 
@@ -96,26 +92,18 @@ def _answers_audience_questions(permission: object) -> bool:
     """Can this permission authority say who a record's audience is?
 
     feat(#1068): the guard used to rebuild the audience from the community
-    ladder — a rank over the four visibility rungs — and #1111 had to refuse
-    outright under ANY registered overlay, because that reconstruction is only
-    true while the community ladder IS the policy. Every overlay deployment
-    therefore got a blanket 422 on visibility changes touching a shared map.
-    ``record_audience`` lets the authority answer for itself, so the refusal
-    narrows to the authorities that still cannot:
+    ladder, so #1111 refused under ANY overlay — true only while the
+    ladder IS the policy. ``record_audience`` lets the authority answer
+    for itself, narrowing the refusal to two cases: no ``record_audience``
+    at all (only a legacy overlay with no EXTENSION_API_VERSION), or one
+    that inherits the community answer while overriding a read-deciding
+    method (so the reported audience and what viewers get can silently
+    disagree). Keys on the read methods rather than #1111's
+    ``type(...) is DefaultPermissionExtension``, so a no-op wrapper
+    subclass still passes.
 
-    - No ``record_audience`` at all. Only a legacy overlay declaring no
-      EXTENSION_API_VERSION reaches this; a declared-but-stale version is a hard
-      boot failure, so anything loading against v4 has been updated.
-    - It inherits the community answer while overriding one of the two methods
-      that decide reads. Then the audience it reports and the rows its viewers
-      actually get are two policies, and the disagreement is invisible from
-      here. #1111 gated this with ``type(...) is DefaultPermissionExtension``,
-      which also refused a subclass that changes nothing about reads; keying on
-      the read methods themselves keeps a wrap cheap and still catches the case
-      the identity check was really aimed at.
-
-    ``check_permission`` is deliberately not in the set: capabilities do not
-    decide which records a viewer can read.
+    ``check_permission`` is deliberately not in the set: capabilities
+    don't decide which records a viewer can read.
     """
     default = DefaultPermissionExtension
     own = getattr(type(permission), "record_audience", None)
@@ -136,37 +124,20 @@ async def _stranded_viewer_exists(
 ) -> bool:
     """Does a real account sit in the audience this change removes?
 
-    fix(#931 codex r5): a narrower audience is not the same as someone losing
-    access, so this asks whether anyone is actually standing in the part being
-    cut. Both directions were wrong without it: `internal -> restricted` was
-    refused even when every active user is in a granted role, and
-    `internal -> private` was refused on an instance whose only other accounts
-    are admins.
+    fix(#931): a narrower audience isn't someone losing access —
+    asks whether anyone stands in the cut part (both narrowing directions
+    were wrongly refused without this).
 
-    feat(#1068): the cut used to be a named slice (granted / ungranted / any)
-    with the owner and every admin excluded by hand, because the community
-    ladder was the only thing the guard could reason about. All of that falls
-    out of the difference now — an account the AUTHORITY puts in both audiences
-    is not stranded, and the community authority puts the owner and the admins
-    in every one of them. One less restatement of the ladder, and the
-    exclusions follow the policy instead of assuming "admin" is what bypasses
-    it.
+    feat(#1068): the before/after difference, not a hand-excluded named
+    slice, makes exclusions follow the authority's policy, not a
+    hardcoded "admin" bypass.
 
-    The account must also be able to authenticate at all. That is the MAP's
-    audience rather than the dataset's, which is why it stays here and not in
-    the seam: `get_optional_user` rejects a non-active user before they can
-    render a layer, so pending, suspended and deactivated accounts are not an
-    audience. Both columns are tested, mirroring `auth/dependencies.py`'s
-    `not user.is_active or user.status != "active"` — the
-    `chk_users_status_active_consistency` CHECK keeps them equal, so this is one
-    test written the way the gate writes it rather than two, and the mirror
-    cannot drift.
+    Authentication checked here (the MAP's audience, not the dataset's):
+    pending/suspended/deactivated accounts aren't one, mirroring
+    `auth/dependencies.py`'s check on both columns.
 
-    ``IS NOT false`` / ``IS NOT true`` rather than the predicate and its
-    negation: an overlay predicate reading a nullable column yields NULL for a
-    row, `NOT NULL` is NULL, and a NULL in a WHERE drops the row — answering
-    "nobody is stranded" for precisely the accounts the authority could not
-    classify. Both spellings send NULL to the refusing side instead.
+    ``IS NOT false``/``IS NOT true``: NULL in a WHERE would silently
+    drop accounts the authority can't classify.
     """
     stmt = (
         select(User.id)
@@ -191,54 +162,23 @@ async def find_maps_broken_by_dataset_visibility(
 ) -> list[str]:
     """Names of shared maps that work at ``old_visibility`` and would not at ``new``.
 
-    fix(#931): this was ``find_public_maps_using_dataset``, which matched
-    ``Map.visibility == "public"`` only. An **internal** map using the dataset
-    was not matched, so the flip succeeded and every signed-in viewer of that
-    map silently lost the layer's tiles and features, with no signal to anyone.
+    fix(#931): this was ``find_public_maps_using_dataset``, matching
+    ``visibility == "public"`` only — an internal map's viewers silently
+    lost the layer on a flip that went unchecked.
 
-    feat(#1068): the question is now asked of the permission authority instead
-    of reconstructed from the community ladder. "Who could read this before, and
-    who can read it after" is a set difference over real accounts, which is why
-    the rank table and its per-move slices are gone: a rank drop was only ever a
-    proxy for the difference being non-empty, and the proxy was community math
-    the authority is free to contradict. Both directions did contradict it, and
-    they failed in opposite ways, which is what made the old comment here wrong
-    for the widening half:
+    feat(#1068): asked of the permission authority, not reconstructed
+    from the community ladder — a NARROWING overlay over-refuses safely,
+    but a WIDENING one (SLOT-02) under-refuses silently, the break this
+    guard exists to prevent.
 
-      NARROWING overlay (ABAC excluding some active non-owner users from a rung)
-      — the community query found a user the overlay would have excluded, the
-      guard refused, and nobody was stranded. A refusal that lies: annoying,
-      visible, safe.
-
-      WIDENING overlay (extra visible rows OR'd in — the additive shape SLOT-02
-      is written for) — the community query found nobody stranded, the guard
-      returned [], the change applied, and a viewer the overlay HAD admitted
-      lost the layer in silence. That is the break this guard exists to prevent,
-      reappearing one level up, and it is why #1111 shipped a stopgap rather
-      than trusting the direction argument.
-
-    An authority that cannot answer (see :func:`_answers_audience_questions`)
-    still gets the conservative refusal, now naming every shared map that uses
-    the dataset rather than the ones a rank comparison happened to reach: an
-    unanswerable question is not evidence that the move is safe.
-
-    An unpublished record needs no special case either — the status gate lives
-    inside the audience, so a draft reaches only its owner and the admins both
-    before and after, and the difference is empty.
-
-    Empty = safe to apply.
+    An unanswerable authority (:func:`_answers_audience_questions`) gets
+    the conservative refusal. An unpublished record needs no special
+    case: a draft's audience is owner+admins both before and after, so
+    the difference (= safe to apply) is empty.
     """
-    # fix(#1126 codex P2): a change that changes nothing strands nobody, and
-    # that is true of every authority, which is why it is settled before asking
-    # one. `_apply_visibility_change` runs for any non-null `visibility` in the
-    # body without comparing it to the stored value, so a client that round
-    # trips the whole record resubmits the current one — and both branches
-    # below got that wrong. The fallback named every shared map using the
-    # dataset. The seam-answering branch was subtler: `before` and `after` are
-    # the same predicate for a no-op, and NULL passes `IS NOT false` and
-    # `IS NOT true` alike, so an overlay that cannot classify an account
-    # reported it as stranded by a move that did not happen. Until #1068 the
-    # rank comparison absorbed both, since `X < X` is false.
+    # fix(#1126): a no-op change strands nobody for any authority,
+    # so it's settled before asking one — a round-tripped record resubmits
+    # the same visibility, and both branches below mishandled that pre-fix.
     if old_visibility == new_visibility:
         return []
     permission = get_permission_extension()
@@ -254,12 +194,9 @@ async def find_maps_broken_by_dataset_visibility(
         after = await permission.record_audience(
             replace(query, visibility=new_visibility), User, grant_cls=DatasetGrant
         )
-        # fix(#931 codex r6): asked PER AUDIENCE. A public map losing a public
-        # dataset strands its anonymous visitors — they see nothing else, always
-        # exist, and are never a row in `users` — but that says nothing about
-        # the internal map beside it, whose viewers may all hold grants.
-        # Answering once for both listed maps that were not stranded, sending
-        # the operator to remove a layer from a map that renders fine.
+        # fix(#931): asked PER AUDIENCE — a public map losing a
+        # public dataset strands anonymous visitors independent of an
+        # internal map beside it whose viewers may all hold grants.
         signed_in_stranded = await _stranded_viewer_exists(session, before, after)
         anonymous_stranded = before.includes_anonymous and not after.includes_anonymous
         audiences = [
@@ -428,15 +365,9 @@ def _build_shared_layer_dict(
         if ds_tile_version:
             tile_url = f"{tile_url}?v={ds_tile_version}"
     else:
-        # Phase 273 SEC-16 / L-62: previous public-vs-private branch produced
-        # `/tiles/public/data.{table_name}/...`, but no such route is mounted
-        # — `app.processing.tiles.router` only registers the prefix `/tiles`
-        # with a catch-all `{table_path:path}/{z}/{x}/{y}.pbf` whose handler
-        # rejects anything not starting with literal `data.`. The auth path
-        # for public datasets is handled inside that single endpoint
-        # (visibility check + HMAC-or-anonymous), so all consumers (raster
-        # excluded) can use one URL. The `is_public` flag is still returned
-        # alongside the dict (`not is_public` below) — leaving it bound here.
+        # No `/tiles/public/...` route exists
+        # — the single `/tiles` catch-all does its own auth check
+        # (visibility + HMAC-or-anonymous), so every consumer uses one URL.
         tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
     return {
         "id": str(layer.id),
@@ -465,10 +396,9 @@ def _build_shared_layer_dict(
         "feature_count": ds_feature_count,
         # fix(#394) VT-02: `_v=` cache-buster input (viewer parity).
         "tile_version": ds_tile_version,
-        # feat(#1472): the credit line the viewer renders in the attribution
-        # control. Not gated on `is_public` — a layer that reached this builder
-        # is already authorized to the caller, and a display obligation the
-        # source imposes applies most to the audience a share link reaches.
+        # feat(#1472): credit line for attribution control. Not gated on
+        # `is_public` — a layer reaching this builder is already
+        # authorized, and the source's display obligation applies regardless.
         "dataset_attribution": ds_attribution,
     }, not is_public
 
@@ -483,38 +413,20 @@ async def get_shared_map(
 ) -> tuple[dict, list[dict], list[str] | None, bool] | str | None:
     """Fetch a shared map by token.
 
-    Returns:
-        tuple: (map_dict, layers, allowed_origins, embed_authorized) on success.
-            ``embed_authorized`` is True when the supplied ``embed_token``
-            resolved to a NON-EMPTY scope for this map — i.e. the capability
-            actually authorized something. The router needs it to sequence the
-            #1518 fail-closed rule: a capability that authorized nothing was not
-            load-bearing, so an unresolvable user credential sent alongside it
-            still earns a 401. Reported from here rather than re-derived in the
-            router because this is where the scope is resolved; a second lookup
-            there could disagree with this one.
-            ``allowed_origins`` is the active EmbedToken.allowed_origins for the
-            map (``None`` when no active EmbedToken exists; ``[]`` when the
-            token exists but no origins are configured). Callers use this to
-            emit a ``Content-Security-Policy: frame-ancestors`` header on the
-            API response (SEC-S08 / Phase 1062-05).
-        "expired": token found but expired or revoked
-        None: token not found
+    Returns (map_dict, layers, allowed_origins, embed_authorized) on
+    success; "expired" if expired/revoked; None if not found.
+    ``embed_authorized`` is True only when ``embed_token`` resolved to a
+    non-empty scope (#1518 fail-closed rule). ``allowed_origins`` is the
+    active EmbedToken.allowed_origins (None/[] distinguish no-token vs
+    no-origins); callers emit a CSP frame-ancestors header from it (SEC-S08).
 
-    Applies visibility filtering based on the optional user/roles:
-    - Anonymous: only public datasets
-    - Authenticated: datasets visible per apply_visibility_filter()
-    - fix(#394) SH-01/B-023: a valid ``embed_token`` for this map ADDITIONALLY
-      includes layers whose dataset is in the token's scoped snapshot — embed
-      tokens are a private-dataset capability (SEC-022) and the tile path has
-      always honored them; without this the embed metadata payload dropped
-      those layers so a scoped private dataset could never render in an embed
-      despite the SharePanel promising exactly that.
-    Tile URLs: vector datasets use /tiles/data.{table_name}/... — the tile
-    endpoint internally distinguishes public (anonymous-allowed) vs
-    private (HMAC-signature-required) at request time. Raster datasets
-    use /raster-tiles/{dataset_id}/tiles/... (separate router). See
-    Phase 273 SEC-16 for prior `/tiles/public/...` URL hint cleanup.
+    Visibility: anonymous sees public datasets only; authenticated sees
+    what ``apply_visibility_filter()`` allows. fix(#394) SH-01/B-023: a
+    valid ``embed_token`` ADDITIONALLY includes layers in its scoped
+    snapshot — embed tokens are a private-dataset capability (SEC-022).
+
+    Tile URLs: vector uses /tiles/data.{table_name}/...; raster uses
+    /raster-tiles/{dataset_id}/tiles/... (separate router).
     """
     if user_roles is None:
         user_roles = set()
@@ -555,7 +467,7 @@ async def get_shared_map(
             Dataset.feature_count,
             RasterAsset.is_dem,
             RasterAsset.band_info,
-            # fix(#525 B-038): tile_version reads the dedicated URL cache-buster —
+            # fix(#525): tile_version reads the dedicated URL cache-buster —
             # current_version only changes on reupload, so feature edits and
             # column DDL never rolled the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
@@ -568,18 +480,16 @@ async def get_shared_map(
         .where(MapLayer.map_id == token_obj.map_id, Map.visibility == "public")
         .order_by(
             MapLayer.sort_order, MapLayer.id
-        )  # fix(#430 BA-21): deterministic tie-break
+        )  # fix(#430): deterministic tie-break
     )
     stmt = apply_visibility_filter(base_stmt, user, user_roles, Record, DatasetGrant)
     layer_result = await session.execute(stmt)
     layer_rows = list(layer_result.all())
 
     if embed_scope:
-        # fix(#394) SH-01/B-023: union in the embed-token-scoped layers the
-        # visibility filter excluded. The join above still requires CURRENT
-        # map membership and map publicity, so a dataset dropped from the map
-        # (or a de-published map) stays excluded even with a valid token —
-        # same fail-closed posture as the tile path's live-membership re-check.
+        # fix(#394) SH-01/B-023: union in embed-scoped layers the
+        # visibility filter excluded — the join above still requires
+        # current map membership/publicity (fail-closed even with a valid token).
         seen_layer_ids = {row[1].id for row in layer_rows}
         embed_stmt = base_stmt.where(Dataset.id.in_(embed_scope))
         embed_rows = (await session.execute(embed_stmt)).all()
@@ -651,12 +561,9 @@ async def get_shared_map(
         )
         if is_non_public:
             has_non_public = True
-        # SEC-024: every layer_row passed apply_visibility_filter OR the
-        # embed-token scope union (fix(#394) B-023) — both are authorization,
-        # so all rows here are authorized to the caller regardless of
-        # public/non-public status. Track their dataset ids so terrain_config
-        # is only stripped when the DEM is genuinely absent from the caller's
-        # authorized layer set.
+        # SEC-024: every layer_row already passed authorization (filter
+        # or embed scope), so this only tracks dataset ids to know when
+        # terrain_config should be stripped (DEM absent from the set).
         visible_dataset_ids.add(str(layer.dataset_id))
         layers.append(layer_dict)
 
@@ -682,11 +589,9 @@ async def get_shared_map(
     return map_data, layers, allowed_origins, bool(embed_scope)
 
 
-# Nullable members of the published-maps sort allowlist. `creator` is null for
-# a map whose owner was deleted (created_by is ON DELETE SET NULL) and
-# `expires_at` for a never-expiring link AND for every map with no link at all,
-# since the share join is an outer one. Postgres puts NULLs first on DESC,
-# which would fill the top of a descending "Expires" view with linkless maps.
+# Nullable sort fields: `creator` is null on a deleted owner (SET NULL),
+# `expires_at` for a missing/never-expiring link (outer join). Postgres
+# puts NULLs first on DESC, which would top a descending "Expires" view.
 _NULLABLE_SHARE_TOKEN_SORT_FIELDS = frozenset({"creator", "expires_at"})
 
 
@@ -696,27 +601,22 @@ def _share_token_ordering(
     """Resolve a published-maps sort key/direction pair to ORDER BY clauses.
 
     Inner half of a two-layer allowlist; the outer half is the
-    ShareTokenSortField Literal in admin/schemas.py, which FastAPI enforces at
-    the boundary. Resolution is a dict lookup, so a caller-supplied string
-    never reaches SQL as text, and an unmapped key raises rather than
-    degrading to the default order.
+    ShareTokenSortField Literal in admin/schemas.py, enforced by FastAPI at
+    the boundary. A dict lookup, so a caller-supplied string never reaches
+    SQL as text, and an unmapped key raises rather than silently degrading.
 
-    `share` and `embed_count` are passed in because both are per-call
-    constructs — an alias over a DISTINCT ON subquery and a COALESCE over an
-    aggregate — so the mapping cannot be a module constant.
+    `share`/`embed_count` are passed in because both are per-call
+    constructs (an alias over a DISTINCT ON subquery, a COALESCE over an
+    aggregate), so the mapping can't be a module constant.
     """
     columns = {
         "map_name": Map.name,
         "created_at": Map.created_at,
         "creator": User.username,
         "expires_at": share.expires_at,
-        # The COALESCE'd count, i.e. the number the cell actually renders. The
-        # raw aggregate is NULL for a map with no ACTIVE embed token; ordering
-        # by that would sort those maps at an end of their own rather than
-        # among the zeroes. Note the range is only ever 0 or 1 —
-        # uq_embed_tokens_one_active_per_map is a partial unique index on
-        # map_id WHERE is_active — so this separates "has a live embed" from
-        # "does not" rather than ranking volumes.
+        # The COALESCE'd count the cell renders — raw aggregate is NULL
+        # with no ACTIVE token, which would sort those maps at an end.
+        # Range is only 0 or 1 (uq_embed_tokens_one_active_per_map).
         "embed_token_count": embed_count,
     }
     column = columns.get(sort)
@@ -729,10 +629,9 @@ def _share_token_ordering(
     if sort in _NULLABLE_SHARE_TOKEN_SORT_FIELDS:
         clause = nulls_last(clause)
 
-    # The listing is one row per map, so Map.id is the unique tiebreak. Every
-    # sortable column here admits duplicates (two maps can share a name, a
-    # creator, an expiry, or a count), and OFFSET paging over a non-unique key
-    # lets Postgres return a row on two consecutive pages.
+    # One row per map, so Map.id is the unique tiebreak — every sortable
+    # column admits duplicates, and OFFSET paging over a non-unique key
+    # can return a row on two consecutive pages.
     return [clause, Map.id]
 
 
@@ -745,22 +644,19 @@ async def list_share_tokens(
     sort: str = "created_at",
     order: str = "desc",
 ) -> tuple[list[dict], int]:
-    """List published (``visibility='public'``) maps with their latest share-link
-    status and active embed-token count for the admin "Published Maps" view.
+    """List published (``visibility='public'``) maps with their latest
+    share-link status and active embed-token count, for the admin
+    "Published Maps" view.
 
-    #347 (ADM-01): every public map appears whether or not it has a share link — the
-    listing is keyed on ``Map`` (not ``MapShareToken``), LEFT JOINed to the most
-    recent share token per map (preferring an active one). Maps without a link
-    carry null ``id``/``token``/``is_active``. ``created_at``/``created_by`` are
-    the map's, so the column is meaningful for unshared maps too. The optional
-    status filter narrows to maps whose latest link is active/expired/revoked.
+    #347 (ADM-01): every public map appears even without a share link —
+    keyed on ``Map``, LEFT JOINed to the latest share token per map. Maps
+    without a link carry null ``id``/``token``/``is_active``, but
+    ``created_at``/``created_by`` are still the map's.
 
-    ``sort`` must be a key of the _share_token_ordering allowlist and ``order``
-    one of asc/desc; anything else raises ValueError. The default ordering
-    (the map's created_at descending) is the historical one and is unchanged.
-    Link status is NOT sortable: it is derived in Python from is_active plus
-    expires_at against now(), and ordering by it would need a CASE the listing
-    does not build.
+    ``sort`` must be a key of the _share_token_ordering allowlist,
+    ``order`` asc/desc; anything else raises ValueError. Link status is
+    NOT sortable: it's derived in Python from is_active/expires_at
+    against now(), which the listing has no CASE for.
     """
     from sqlalchemy.orm import aliased
     from sqlalchemy.sql import ColumnElement

@@ -99,9 +99,8 @@ def bind_openai_credential_base_url(
         )
     canonical_candidate = canonicalize_openai_base_url(effective)
     if not settings.openai_api_key:
-        # Destination binding protects the environment credential.  Retain the
-        # existing ability to stage an endpoint before an operator supplies a
-        # key; once a key appears, this same persisted row is checked below.
+        # No key yet, so nothing to protect; keeps the ability to stage an
+        # endpoint before a key exists (checked once one appears).
         return canonical_candidate
     approved = operator_openai_base_url(purpose=purpose)
     if canonical_candidate != approved:
@@ -115,8 +114,8 @@ def bind_openai_credential_base_url(
             f"the operator-approved {env_name}; change the endpoint in deployment "
             "configuration and reset any database override"
         )
-    # Always hand the SDK the operator-owned value, not a merely equivalent DB
-    # representation.  This keeps the credential/destination tuple atomic.
+    # Hand the SDK the operator-owned value, not a merely equivalent DB
+    # representation, to keep the credential/destination tuple atomic.
     return approved
 
 
@@ -132,9 +131,9 @@ def validate_persistent_openai_base_url(
         )
     stripped = value.strip()
 
-    # Blank remains the historical "use fallback" representation.  Validate
-    # the effective operator fallback when a credential is present, but keep
-    # the blank value so persistent configuration continues to inherit it.
+    # Blank is the historical "use fallback" value. Validate the effective
+    # fallback when a credential is present, but keep the blank so persistent
+    # configuration keeps inheriting it.
     if settings.openai_api_key:
         if not stripped:
             operator_openai_base_url(purpose=purpose)

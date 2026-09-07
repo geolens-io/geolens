@@ -7,10 +7,7 @@ from __future__ import annotations
 
 from app.standards.ogc.utils import normalize_language_tag
 
-# ---------------------------------------------------------------------------
 # Conformance class URIs for the GeoLens STAC API
-# ---------------------------------------------------------------------------
-
 STAC_CONFORMANCE: list[str] = [
     "https://api.stacspec.org/v1.0.0/core",
     "https://api.stacspec.org/v1.0.0/collections",
@@ -37,11 +34,6 @@ _STAC_EXTENSION_PROPS = (
 )
 
 _RTL_LANGS = {"ar", "fa", "he", "ur"}
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 
 def _build_stac_links(
@@ -253,26 +245,11 @@ def ogc_collection_to_stac_collection(
 ) -> dict:
     """Build a STAC Collection dict from GeoLens collection metadata.
 
-    Parameters
-    ----------
-    collection_id:
-        Unique identifier for the collection.
-    name:
-        Human-readable collection title.
-    description:
-        Collection description (falls back to empty string).
-    spatial_extent:
-        ``[west, south, east, north]`` bounding box. Defaults to global —
-        a schema-validity backstop only (STAC requires a bbox); the router
-        hides collections with no visible items, so in practice this is
-        reached only when every member record has a NULL spatial extent.
-    temporal_extent:
-        ``[start, end]`` ISO-8601 strings (either can be ``None``).
-    stac_api_url:
-        Base URL for the STAC API.
-    license:
-        SPDX identifier, ``"various"``, or ``None`` (emitted as STAC 1.0's
-        ``"proprietary"`` placeholder — record licenses are unknown).
+    ``spatial_extent`` defaults to global — a schema-validity backstop
+    only, reached in practice only when every member record has a NULL
+    spatial extent. ``license`` is an SPDX identifier, ``"various"``, or
+    ``None`` (emitted as STAC 1.0's ``"proprietary"`` placeholder for
+    unknown licenses).
     """
     result: dict = {
         "type": "Collection",

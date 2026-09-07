@@ -85,7 +85,6 @@ _EXPORT_OUTCOME_TIMEOUT_SECONDS = 5
 
 
 def _user_response(user: User) -> UserResponse:
-    """Convert a User ORM object to a UserResponse schema."""
     return UserResponse(
         id=user.id,
         username=user.username,
@@ -107,16 +106,9 @@ def _refuse_backfill_in_flight(
 ) -> NoReturn:
     """Refuse a backfill because one is already in flight.
 
-    Shared by the two halves of the guard so they cannot drift into telling an
-    operator two different stories about the same state: the pre-flight query,
-    which answers the ordinary retry, and the partial unique index, which is
-    what actually holds when two requests arrive together. ``detected_by`` is
-    logged, not returned — which half caught it is an operational detail, and
-    the caller's situation is identical either way.
-
-    ``active_job_id`` can be None only on the index path, when the winning run
-    finished between the violation and the re-read. Say less rather than
-    guessing an id.
+    Shared by both guard paths (pre-flight query and partial unique index) so
+    they report the same conflict consistently. ``active_job_id`` is None only
+    when the index path's winning run finished before the re-read.
     """
     logger.info(
         "embedding_backfill_refused_run_in_flight",
@@ -150,10 +142,8 @@ def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
     raise HTTPException(status_code=default_status, detail=detail)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
-# no-trailing-slash variants register against the same handler. Slash form
-# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
-# the 404 regression introduced by redirect_slashes=False (api/main.py).
+# ROUTE-01: dual-shape decorator — trailing-slash form is canonical (in OpenAPI);
+# no-slash is a hidden alias closing the redirect_slashes=False 404 regression.
 @router.post(
     "/users",
     response_model=UserResponse,
@@ -325,10 +315,9 @@ async def export_users_csv(
         }
         if outcome == "failed":
             details["error_code"] = "stream_failed"
-        # AnyIO cancellation is level-triggered: after a client disconnect,
-        # an unshielded await is cancelled immediately and cannot persist the
-        # promised terminal event. Bound the shield so disconnect cleanup can
-        # never hold a response task indefinitely.
+        # AnyIO cancellation is level-triggered: an unshielded await after a
+        # client disconnect is cancelled immediately, so bound the shield —
+        # otherwise disconnect cleanup could hold a response task indefinitely.
         with tenant_job_context(tenant_id):
             with anyio.move_on_after(_EXPORT_OUTCOME_TIMEOUT_SECONDS, shield=True):
                 try:
@@ -872,11 +861,6 @@ async def list_admin_jobs(
     return AdminJobListResponse(jobs=jobs, total=total)
 
 
-# ---------------------------------------------------------------------------
-# AI Status endpoints
-# ---------------------------------------------------------------------------
-
-
 def _ai_status(
     enabled: bool,
     provider: str,
@@ -885,13 +869,9 @@ def _ai_status(
 ) -> AIStatusResponse:
     """Build AIStatusResponse from the SELECTED provider + DB toggle.
 
-    builder-audit #338 P1-12: ``configured`` reports readiness of the SELECTED
-    ``LLM_PROVIDER`` only — not "any key exists". The chat route
-    (``_check_ai_available``) gates on the selected provider's key, so admin
-    status and chat readiness must agree: if the operator selects ``anthropic``
-    but only an OpenAI key is set, ``configured`` is False even though a key
-    exists. The presence of the OTHER provider's key is treated as metadata
-    only (it never flips ``configured``/``provider``, which gate chat).
+    ``configured`` reflects only the SELECTED ``LLM_PROVIDER``'s key, matching
+    what ``_check_ai_available`` gates chat on — the other provider's key is
+    metadata only and never flips ``configured``/``provider`` (#338).
     """
     keys = {
         "anthropic": app_settings.anthropic_api_key,
@@ -901,8 +881,6 @@ def _ai_status(
         "anthropic": app_settings.llm_model,
         "openai_compatible": app_settings.openai_model,
     }
-    # Normalize the internal provider id ("openai_compatible") to the public
-    # display name ("openai") the AIStatusResponse contract already uses.
     display_names = {"anthropic": "anthropic", "openai_compatible": "openai"}
 
     selected_key = keys.get(provider)
@@ -934,10 +912,9 @@ def _ai_status(
     response_model_exclude_unset=True,
     dependencies=[Depends(require_ai_status_reader)],
 )
-# fix(#627, codex P2): probe=true spends real provider quota and can hold a
-# worker for up to the probe timeouts — same 30/minute cap as the PATCH
-# sibling. The plain status read shares the limit; dashboards fetch it once
-# per view, nowhere near 30/minute.
+# fix(#627): probe=true spends real provider quota and can hold a worker for
+# the probe timeout — same 30/minute cap as the PATCH sibling; plain status
+# reads share it too, but dashboards fetch far less than 30/minute.
 @limiter.limit("30/minute")
 async def get_ai_status(
     request: Request,
@@ -1077,20 +1054,11 @@ async def trigger_backfill(
     current_user_id = current_user.id
     ip_address = get_client_ip(request)
 
-    # The guard that makes the retry safe. Before #1542 a 504'd operator
-    # retried and started a second full regenerate alongside the first, which
-    # on the force path meant a second DELETE — #1519's pre-flight guards do
-    # not see it, because each run passes its own pre-flight independently.
-    # This refusal happens before the job row exists, so nothing destructive
-    # has been queued, let alone run.
-    #
-    # fix(#1542 review P1): the SELECT is the FRIENDLY half, not the guard. It
-    # answers the common case (an operator retrying seconds later) with a
-    # message naming the run to poll. The guard itself is the partial unique
-    # index from migration 0050 — a check followed by an insert is a TOCTOU,
-    # and two requests arriving together would both pass this and both create a
-    # job. Nothing in the application layer can serialize two transactions in
-    # two API processes; the database can, so it does.
+    # fix(#1542): retrying after a 504 could start a second regenerate (a
+    # second DELETE on the force path); #1519's pre-flight guards don't see
+    # concurrent runs. This SELECT is the FRIENDLY half — the real guard is
+    # the partial unique index from migration 0050, since a check-then-insert
+    # is a TOCTOU the database must serialize, not the application.
     active = await find_active_embedding_backfill(db)
     if active is not None:
         _refuse_backfill_in_flight(
@@ -1100,11 +1068,9 @@ async def trigger_backfill(
             detected_by="preflight_query",
         )
 
-    # The whole insert is inside the guard, not just the commit: the row goes in
-    # with a null `user_metadata` and only becomes a backfill row when the marker
-    # is set, so the index rejects it at the UPDATE that flushes that marker —
-    # which happens as soon as anything else on this session flushes, well before
-    # the commit.
+    # The insert lands with null user_metadata; only the later UPDATE that sets
+    # the backfill marker makes the partial unique index reject a duplicate —
+    # and that UPDATE flushes on this session's first flush, well before commit.
     try:
         job = await get_catalog_port().create_ingest_job(
             db, "embedding-backfill", "", current_user_id
@@ -1145,10 +1111,8 @@ async def trigger_backfill(
             # has already been corrected for once.
             raise
         # The index refused it: another request won the race between the SELECT
-        # above and this write. The whole transaction rolled back — job row and
-        # `requested` audit entry together — so the loser leaves no trace of a
-        # run that never started, which is the same state the friendly refusal
-        # produces.
+        # above and this write. The transaction rolled back job row and audit
+        # entry together, so the loser leaves no trace of a run that never started.
         winner = await find_active_embedding_backfill(db)
         _refuse_backfill_in_flight(
             active_job_id=str(winner.id) if winner is not None else None,
@@ -1179,22 +1143,12 @@ async def trigger_backfill(
             job=job,
         )
     except DeferFailed as dispatch_exc:
-        # fix(#1550 review P2, round 1): the orphan guard has already marked the
-        # job failed and committed, then raised 503. No worker will ever pick
-        # this run up, so nothing else can close the trail — without this, the
-        # already-committed "requested" entry is the last word and the
-        # operation reads as perpetually in flight. The job row and the audit
-        # trail are two records of one state, and every path that terminates a
-        # run has to write both.
-        #
-        # fix(#1550 review P2, round 2): condition on whether the rollback
-        # actually landed. When the queue AND the rollback both fail, the row is
-        # still `pending` — recording "failed" there would be the same lie in a
-        # nastier place, because `audit_emit_durable` uses its own session and
-        # can succeed after the request's has gone. A pending row keeps
-        # blocking later backfills through the guard above, so an operator
-        # chasing "why is every backfill refused" would be reading an audit
-        # trail that says this one is over.
+        # fix(#1550): the orphan guard already failed+committed the job before
+        # raising 503, so nothing else closes the audit trail — this must write
+        # the terminal state too. Condition on rolled_back: if the rollback
+        # didn't land, the row is still `pending` (blocking later backfills) and
+        # audit_emit_durable's own session could still succeed later, so
+        # recording "failed" here would misrepresent it.
         if dispatch_exc.rolled_back:
             details: dict[str, Any] = {
                 "force": force,
@@ -1237,11 +1191,9 @@ async def trigger_backfill(
             )
         raise
     except asyncio.CancelledError:
-        # fix(#1550 review): the orphan guard catches `Exception`, so a
-        # cancellation here bypasses it and the `DeferFailed` handler above.
-        # The job row is already committed and the queue hop may or may not
-        # have landed, so the cleanup is fenced on `pending` and shielded, and
-        # the cancellation is re-raised so shutdown still works.
+        # fix(#1550): the orphan guard catches `Exception`, so cancellation here
+        # bypasses it and `DeferFailed` above. Cleanup is fenced on `pending`
+        # and shielded, and the cancellation is re-raised so shutdown still works.
         try:
             await asyncio.shield(
                 asyncio.wait_for(

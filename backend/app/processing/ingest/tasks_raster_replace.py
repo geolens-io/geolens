@@ -1,29 +1,24 @@
 """Procrastinate task: replace the COG behind an existing raster dataset.
 
-feat(#1221). Before this, a raster dataset could only be "refreshed" by
-deleting it and importing again, which threw away the dataset id and with it
-the metadata, the grants, and every map layer pointing at it. This task is the
-raster peer of ``tasks_reupload.reupload_file``: same door, same admission
-gate, same refresh-run bookkeeping — a different swap, because a raster
-dataset has no staging table to rename. What it swaps is the ``RasterAsset``
-pointer.
+feat(#1221): replaces a raster's ``RasterAsset`` pointer in place rather
+than deleting and re-importing (which loses the dataset id, grants, and
+every map layer pointing at it). Raster peer of
+``tasks_reupload.reupload_file`` — same door, same admission gate, same
+refresh-run bookkeeping, but no staging table to rename.
 
-**Invariant 10, last-known-good is sacred.** The previous COG is not deleted or
-overwritten until the replacement has been written to storage AND read back
-successfully. The new asset lands under keys derived from this attempt's id and
-its own content hash, so it can collide neither with the live asset's nor with
-another attempt's (fix(#1778 codex r3) added the first half of that; see
-``attempt_scoped_raster_base_key``); the pointer moves in a single
-transaction alongside the tile-cache bump; and only after that transaction
-commits are the superseded objects reaped. Every failure before the commit
-leaves the old COG serving tiles, which is what the dataset's map layers keep
-rendering.
+**Invariant 10, last-known-good is sacred.** The previous COG is not
+deleted or overwritten until the replacement is written to storage AND
+read back successfully. The new asset lands under keys derived from this
+attempt's id and content hash (collides with neither the live asset's nor
+another attempt's — see ``attempt_scoped_raster_base_key``); the pointer
+moves in one transaction alongside the tile-cache bump; superseded
+objects are reaped only after that commit. Every failure before the
+commit leaves the old COG serving tiles.
 
-**ADR-002 Decision 7** governs the *incoming* file rather than the outgoing
-asset: the pre-conversion upload is deleted once conversion succeeds, and
-retained (bounded by the retention purge) when it fails, because a failed
-conversion makes those bytes the operator's only diagnostic copy. The tail
-below states which is which; ``RUNBOOK.md`` section 9 states it for operators.
+**ADR-002 Decision 7** governs the *incoming* file: the pre-conversion
+upload is deleted once conversion succeeds, retained (bounded by the
+retention purge) when it fails — a failed conversion makes those bytes
+the operator's only diagnostic copy. See ``RUNBOOK.md`` section 9.
 """
 
 import asyncio
@@ -158,33 +153,24 @@ async def _read_published_cog(cog_path: str) -> dict:
 
     Two jobs, one rasterio open pass, on purpose.
 
-    The first is the "verified readable" half of invariant 10. Conversion
-    reporting success is not the same fact as the output being openable: a
-    truncated write, an out-of-space overview pass, or a driver quirk all
-    produce a file on disk that ``gdal_translate`` exited 0 for. Since the very
-    next steps discard the last-known-good asset, the check has to be explicit
-    here rather than left as a side effect of quicklook generation, which is a
-    step someone could reasonably make non-fatal later.
+    First is the "verified readable" half of invariant 10 — conversion
+    exiting 0 isn't the same fact as the output being openable (truncated
+    write, out-of-space overview pass, driver quirk), and the next steps
+    discard the last-known-good asset, so this must be an explicit check.
 
-    The second (fix(#1290 review)) is the catalog's metadata. It used to be
-    extracted from the pre-conversion source, so every field conversion can
-    change — ``compression`` always, ``nodata`` under an override, the CRS and
-    the footprint under ``srid_override`` — described a file the dataset does
-    not serve. Reading the artifact that WILL serve, once, means there is no
-    second seam that can drift from the first and no question about which read
-    is authoritative.
+    Second (fix(#1290)) is the catalog's metadata: reading it from
+    the artifact that WILL serve, once, means no second seam that can
+    drift from the first — the pre-conversion source describes a file the
+    dataset no longer serves (compression always changes, nodata/CRS/
+    footprint change under an override).
 
-    fix(#1291): the footprint is still on that list after ``srid_override``
-    became an assignment, and for a sharper reason. The conversion no longer
-    moves the corner coordinates at all — it changes what they MEAN. The same
-    numbers read in the assigned CRS land somewhere else on earth than they do
-    in the CRS the caller just told us was wrong, so the source read would
-    place the dataset at the wrong spot on the map with no field visibly
-    disagreeing. ``extract_raster_metadata`` here reads them off the COG,
-    under the CRS that COG now declares.
+    fix(#1291): footprint stays on that list even though ``srid_override``
+    no longer moves the corner coordinates — it changes what they MEAN, so
+    reading them off the source would place the dataset at the wrong spot
+    with no field visibly disagreeing.
 
-    Goes through ``extract_raster_metadata`` — already the reader every other
-    raster path uses, so this adds no new GDAL seam for Rule 2 to police.
+    Goes through ``extract_raster_metadata`` — the reader every other
+    raster path uses, so no new GDAL seam for Rule 2 to police.
     """
     try:
         return await asyncio.to_thread(extract_raster_metadata, cog_path)
@@ -232,17 +218,14 @@ async def _convert_and_verify_cog(
 ) -> tuple[str, str, dict]:
     """Convert to COG and read the result back.
 
-    Returns ``(path, cog_status, metadata_of_the_converted_file)`` — that third
-    element is what the catalog persists (fix(#1290 review)); see
-    ``_read_published_cog`` for why it comes from here and not from the source.
+    Returns ``(path, cog_status, metadata_of_the_converted_file)`` — that
+    third element is what the catalog persists (fix(#1290)); see
+    ``_read_published_cog`` for why it comes from here, not the source.
 
-    The disk-space precheck is here rather than at the call site because it
-    guards this conversion specifically: COG output can reach ~3x the source
-    (decompressed, tiled, plus overviews), and a stretched volume otherwise
-    fails inside GDAL with an opaque IOError.
-
-    fix(#448): the scratch directory must already live on the staging volume,
-    not the container's RAM-backed /tmp, or this measures the wrong filesystem.
+    Disk-space precheck lives here because it guards this conversion
+    specifically: COG output can reach ~3x the source. fix(#448): the
+    scratch directory must already be on the staging volume, not the
+    container's RAM-backed /tmp, or this measures the wrong filesystem.
     """
     source_bytes = os.path.getsize(file_path)
     free_bytes = shutil.disk_usage(tmp_dir).free
@@ -330,17 +313,17 @@ async def reupload_raster(
     # reaped by neither the failure path nor the success path.
     written_storage_keys: list[str] = []
     prior_physical_keys: list[str] = []
-    # fix(#1290 review): "the replacement is published", set at the commit and
+    # fix(#1290): "the replacement is published", set at the commit and
     # nowhere else. The failure cleanup keys off THIS rather than off
     # `final_status`, because once the swap is committed the newly written
     # objects are the dataset's live raster and nothing that happens afterwards
     # can make them reapable.
     swap_committed: bool = False
-    # fix(#1290 review): whether the COG carries everything the upload did.
+    # fix(#1290): whether the COG carries everything the upload did.
     # False until a conversion proves otherwise — Decision 7's delete is
     # licensed by that fact and the default has to be the one that retains.
     source_preserved_in_cog: bool = False
-    # fix(#1290 review): set when a lossy conversion's original has been copied
+    # fix(#1290): set when a lossy conversion's original has been copied
     # to the durable `originals/` prefix. Until it is true the staged upload is
     # the only faithful copy and nothing may delete it.
     lossy_original_archived: bool = False
@@ -382,7 +365,7 @@ async def reupload_raster(
                 quicklook_256_uri=raster_asset.quicklook_256_uri,
                 quicklook_512_uri=raster_asset.quicklook_512_uri,
             )
-            # fix(#1778 codex r1): the same three objects in LOGICAL form. The
+            # fix(#1778): the same three objects in LOGICAL form. The
             # durable reaper works in logical keys (it resolves them in its own
             # tenant context), so comparing against the physical list above
             # would silently match nothing on a hosted deployment and leave the
@@ -402,16 +385,12 @@ async def reupload_raster(
             # door already reserved. Raster reuses that admission gate rather
             # than opening a second one, so there is nothing to create here.
             await claim_run_for_job(session, job_uuid)
-            # fix(#1778): committed HERE rather than at the end of the block.
-            # `claim_run_for_job` -> `transition_run` issues an UPDATE ...
-            # RETURNING on `dataset_refresh_runs`, so the run row stays
-            # exclusively locked until this transaction ends. The download
-            # below is the multi-GB phase a user is most likely to abandon, and
-            # `cancel_job` runs its own run transition under a 2s lock_timeout:
-            # holding the row across the download turned every cancel in that
-            # window into a 409 `job_finishing` whose rollback also discarded
-            # the job cancellation it had already written. One extra round trip
-            # buys a cancellable download.
+            # fix(#1778): committed HERE, not at the end of the block — the
+            # run row stays locked until this transaction ends, and
+            # `cancel_job` transitions that row under a 2s lock_timeout, so
+            # holding it across the (multi-GB, abandon-prone) download
+            # turned every cancel into a 409 that rolled back its own
+            # already-written cancellation.
             await session.commit()
 
             from app.processing.ingest.service import resolve_file_path
@@ -446,18 +425,11 @@ async def reupload_raster(
                     contacted_origin=False,
                 )
                 await session.commit()
-                # fix(#1290 review): NO unlink here. This exit used to delete
-                # the local file unconditionally, which on a local-storage
-                # install is the durable original — so a worker-side validation
-                # failure (canonically: UPLOAD_MAX_SIZE_MB lowered while the job
-                # sat queued) destroyed the only copy of a file the job then
-                # recorded as failed, with nothing to diagnose from. The
-                # object-storage shape was already right because the thing it
-                # deletes is a downloaded scratch copy.
-                #
-                # The terminal `finally` already knows that distinction, and it
-                # runs on this return, so the correct fix is to have ONE exit
-                # decide rather than teach a second one the same rule.
+                # fix(#1290): NO unlink here — unconditional delete
+                # destroyed a local-storage install's only copy of a file
+                # that then failed validation. The terminal `finally`
+                # already knows the right distinction and runs on this
+                # return; let ONE exit decide.
                 final_status = "failed"
                 return
 
@@ -477,7 +449,7 @@ async def reupload_raster(
         source_sha256 = await asyncio.to_thread(sha256_file, file_path)
         # The SOURCE read, and its only remaining job: decide whether the
         # conversion needs a CRS assignment. Nothing here is persisted —
-        # fix(#1290 review) moved every stored field onto the converted COG's
+        # fix(#1290) moved every stored field onto the converted COG's
         # own metadata, which is the file the dataset will actually serve.
         # fix(#1661): extract_source_raster_metadata (not extract_raster_metadata
         # directly) so an unopenable upload raises a friendly message built from
@@ -491,7 +463,7 @@ async def reupload_raster(
         user_compression = um.get("compression") or "DEFLATE"
         user_resampling = um.get("resampling") or None
         user_nodata = um.get("nodata_override")
-        # fix(#1290 review): shared with the first-ingest tail, and it applies a
+        # fix(#1290): shared with the first-ingest tail, and it applies a
         # supplied override even when the source declares a CRS. Raises when the
         # source has none and no override was given.
         assign_crs = resolve_crs_assignment(
@@ -523,7 +495,7 @@ async def reupload_raster(
             nodata=user_nodata,
             assign_crs=assign_crs,
         )
-        # fix(#1290 review): resolved state, not the request field. Decided here
+        # fix(#1290): resolved state, not the request field. Decided here
         # rather than in the tail because this is where the conversion that
         # actually ran is known — a `verified` COG loses nothing whatever codec
         # it carries, and the request field cannot tell you which happened.
@@ -536,28 +508,21 @@ async def reupload_raster(
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
         cog_size = os.path.getsize(local_cog_path)
 
-        # fix(#1778): name the three objects phase 2 is about to write on the
-        # durable job row, before phase 2 takes the `ingest_jobs` row lock. A
-        # SIGKILL between the puts and the terminal `finally` leaves them with
-        # no reference anywhere: the swap rolled back, so the live asset still
-        # names the OLD keys and `delete_dataset`'s prefix reap only runs when
-        # the dataset is deleted.
+        # fix(#1778): name the three objects phase 2 is about to write on
+        # the durable job row before phase 2 takes the `ingest_jobs` lock.
+        # A SIGKILL between the puts and the terminal `finally` would
+        # otherwise leave them with no reference anywhere.
         #
-        # fix(#1778 codex r3): the prefix is attempt-scoped, so these three keys
-        # are this attempt's alone: not the live asset's (which an identical
-        # re-upload would otherwise reproduce exactly, since it converts to the
-        # same COG and hashes the same), and not a later attempt's (which the
-        # reaper would otherwise be able to delete after its survivor snapshot
-        # and before its delete, once this pass's commit released the run
-        # reservation). `already_published` and the reaper's survivor check
-        # both stay, as defence in depth behind the key layout.
+        # fix(#1778): the prefix is attempt-scoped, so these keys
+        # are this attempt's alone — not the live asset's (an identical
+        # re-upload would otherwise reproduce the same keys) and not a
+        # later attempt's (which the reaper could otherwise delete after
+        # its survivor snapshot).
         #
-        # The kept original is deliberately NOT registered here. Its key is
-        # derived from the SOURCE hash, so re-uploading bytes this dataset has
-        # already archived resolves to an object an earlier replace wrote and a
-        # live `dataset_assets` row still points at. `archive_lossy_original`
-        # registers it only when its own pre-write probe proves absence, and
-        # that probe result is not available this early.
+        # The kept original is deliberately NOT registered here — its key
+        # is derived from the SOURCE hash, so `archive_lossy_original`
+        # registers it only after its own pre-write probe proves absence,
+        # which isn't available this early.
         _replace_base_key = attempt_scoped_raster_base_key(
             dataset_uuid, attempt_uuid, asset_sha256
         )
@@ -574,7 +539,7 @@ async def reupload_raster(
             job_id=job_id,
             task="reupload_raster",
         ):
-            # fix(#1778 audit): a confirmed fence miss. Phase 2's own
+            # fix(#1778): a confirmed fence miss. Phase 2's own
             # attempt-fenced load below would catch this too, but stopping
             # here is what actually keeps the recorder's contract ("do not
             # write what nothing records") rather than depending on a second
@@ -597,7 +562,7 @@ async def reupload_raster(
         # Phase 2 (short-lived session): write the new objects, then swap the
         # pointer and all its dependent rows in ONE transaction.
         #
-        # fix(#1778 audit r11): require_status="running", same reason as the
+        # fix(#1778): require_status="running", same reason as the
         # sibling in tasks_raster.py -- an (job, attempt)-only fence still
         # matches a row the stale sweep already failed without a retry
         # rotating the attempt, and this phase puts objects to storage.
@@ -636,7 +601,7 @@ async def reupload_raster(
             from app.platform.storage import get_storage
 
             storage = get_storage()
-            # fix(#1778 codex r3): the same derivation the durable record used,
+            # fix(#1778): the same derivation the durable record used,
             # through the one helper, so the two cannot drift into recording
             # one prefix and writing another.
             base_key = attempt_scoped_raster_base_key(
@@ -667,20 +632,12 @@ async def reupload_raster(
             written_storage_keys.append(_storage_ql512_key)
             await storage.put(_storage_ql512_key, io.BytesIO(ql512))
 
-            # fix(#1290 review): every field below reads the CONVERTED COG's
-            # own metadata. Persisting the source's described a file the
-            # dataset does not serve — `compression` was wrong on every
-            # converted replace, `nodata` wrong under an override, and the CRS
-            # and footprint wrong under `srid_override`, which is exactly the
-            # case a caller reaches for when the source's CRS is the problem.
-            # fix(#1291): the footprint stays wrong from the source read now
-            # that the override assigns rather than warps — the corner numbers
-            # are identical either side of the conversion, so the ONLY thing
-            # that decides where this dataset lands on the map is which CRS
-            # they are read under. `original_srid` is the one field still taken
-            # from `source_meta`, and it wants the upload's answer by design.
-            # fix(#1847): assigns in memory and issues no SQL, so the pair is
-            # taken further down, before the first statement that flushes it.
+            # fix(#1290): every field below reads the CONVERTED COG's
+            # own metadata, not the source's — see `_read_published_cog`'s
+            # docstring. `original_srid` is the one field still taken from
+            # `source_meta`, by design.
+            # fix(#1847): assigns in memory and issues no SQL, so the pair
+            # is taken further down, before the first flushing statement.
             new_version = _write_swapped_fields(
                 raster_asset,
                 dataset,
@@ -698,21 +655,16 @@ async def reupload_raster(
             )
 
             # Keep the download and STAC surfaces pointing at what is live.
-            # fix(#1290 review): upserts, not UPDATEs. A STAC-imported raster
-            # has neither of these rows — the import creates the dataset and
-            # the asset and stops — so the UPDATEs matched nothing, succeeded,
-            # and left the replaced dataset advertising no COG and no
-            # quicklooks to search, STAC and the download endpoint. A zero-row
-            # UPDATE reporting success is the same requested-vs-happened trap
-            # as round 1, one level down.
-            # fix(#1290 review): ADR-002 Decision 7's retained original lives
-            # under `originals/<dataset_id>/`, the prefix the vector tails have
-            # archived to since #430 and which `delete_dataset` already reaps.
-            # It runs HERE — before the reservation — because its bytes are
-            # part of the total being admitted and because a genuinely new
-            # object has to join the written set before anything can fail.
-            # fix(#1847): the catalog rows are dirty in memory and must not be
-            # flushed out ahead of the acquisition below.
+            # fix(#1290): upserts, not UPDATEs — a STAC-imported
+            # raster has neither row (import creates dataset+asset and
+            # stops), so a plain UPDATE matched nothing, succeeded, and
+            # left the replaced dataset advertising no COG or quicklooks.
+            # fix(#1290): the retained original lives under
+            # `originals/<dataset_id>/`, the prefix `delete_dataset`
+            # already reaps. Runs HERE, before the reservation, since its
+            # bytes are part of the total being admitted.
+            # fix(#1847): the catalog rows are dirty in memory and must
+            # not be flushed out ahead of the acquisition below.
             with session.no_autoflush:
                 (
                     lossy_original_archived,
@@ -737,11 +689,11 @@ async def reupload_raster(
             # archive that already existed belongs to an earlier successful
             # replace, and reaping it on failure would destroy the original of
             # the raster that is still live.
-            # fix(#1290 review): the helper registers the key itself, BEFORE
+            # fix(#1290): the helper registers the key itself, BEFORE
             # the cancellable write — appending here as well would double-add,
             # and appending here INSTEAD would restore the cancellation hole.
 
-            # fix(#1290 review): BEFORE the upsert — see the helper's docstring
+            # fix(#1290): BEFORE the upsert — see the helper's docstring
             # for why the ordering is load-bearing. Raises
             # StorageQuotaExceededError, which the task's broad handler records
             # as a failed run, leaving the previous raster serving.
@@ -882,14 +834,14 @@ async def reupload_raster(
                     job_uuid, attempt_uuid, job_id=job_id, task="reupload_raster"
                 ):
                     raise
-                # fix(#1778 codex r1): stand down rather than re-raise, the
+                # fix(#1778): stand down rather than re-raise, the
                 # same decision the other three tails make. `final_status`
                 # deliberately stays non-complete: it also licenses deleting
                 # the uploader's staged original, and a probe answer must
                 # never reach that decision.
                 swap_committed = True
                 absorb_cancellation(exc)
-                # fix(#1778 codex r2): standing down from the FAILURE handler
+                # fix(#1778): standing down from the FAILURE handler
                 # is not standing down from the success work. This call is the
                 # only deletion of the superseded COG and quicklooks, and the
                 # committed pointer already names the new keys, so returning
@@ -906,7 +858,7 @@ async def reupload_raster(
                     dataset_id=dataset_id,
                 )
                 return
-            # fix(#1290 review): set in the same breath as the commit, and read
+            # fix(#1290): set in the same breath as the commit, and read
             # by the terminal cleanup instead of `final_status`. These are two
             # different facts and the cleanup needs this one: "the replacement
             # is published" is what makes the newly written objects
@@ -918,11 +870,11 @@ async def reupload_raster(
             swap_committed = True
             final_status = "complete"
 
-        # fix(#1290 review): everything from here is optional post-commit work,
+        # fix(#1290): everything from here is optional post-commit work,
         # fenced so it cannot be mistaken for a failed replace. The
         # `swap_committed` guard in the `finally` is the structural half of
         # this: the fence keeps today's code from raising, and the guard keeps
-        # tomorrow's from destroying anything if it does. fix(#1778 codex r2):
+        # tomorrow's from destroying anything if it does. fix(#1778):
         # the fence itself lives in the helper now, because the stand-down
         # path below needs the same one.
         await run_post_swap_followups_best_effort(
@@ -935,7 +887,7 @@ async def reupload_raster(
         )
 
     except Exception as exc:  # broad: spans GDAL/COG/storage — any step can fail
-        # fix(#1778 codex r1): the other three tails guard this handler on
+        # fix(#1778): the other three tails guard this handler on
         # their published flag, because each of them can reach it with a
         # durable publish behind it and then write something untrue about it.
         # This one carries no such write: `_run_post_swap_followups` has its
@@ -988,7 +940,7 @@ async def reupload_raster(
         # Deleting the intersection would take out the raster the dataset is
         # still serving — the precise failure invariant 10 forbids.
         #
-        # fix(#1290 review): gated on `swap_committed`, not `final_status`.
+        # fix(#1290): gated on `swap_committed`, not `final_status`.
         # Those diverge in exactly one place and it is the dangerous one: after
         # the swap commits, the written keys ARE the live asset, so a later
         # error must never bring the task through here to delete them.
@@ -1005,22 +957,14 @@ async def reupload_raster(
         async with cleanup_step("reupload_raster temp dir", job_id=job_id):
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
-        # fix(#1290 review): the local file is one of two different things and
-        # only one of them is Decision 7's business. When it differs from
-        # `original_file_path` it is a scratch copy this task downloaded from
-        # object storage, and the durable copy is the object — always safe to
-        # remove. When they are equal this IS the durable original: local-mode
-        # uploads land in `settings.upload_staging_dir`, which is the named
-        # `upload_staging` volume (not tmpfs), survives restarts and is what the
-        # backup container archives. So on a local install it is the only
-        # lossless copy, and it gets the same gate as the object-store reaper —
-        # otherwise the RUNBOOK's retention promise held on S3 and quietly
-        # failed on every local deployment.
+        # fix(#1290): when `file_path != original_file_path` this is
+        # a scratch copy downloaded from object storage — always safe to
+        # remove. When equal, this IS the durable original (local-mode
+        # uploads land in the persistent `upload_staging` volume), so it
+        # gets the same retention gate as the object-store reaper.
         #
         # One condition rather than an `if`/`elif` that repeated the same
-        # statement: the two branches always did the same thing, and merging
-        # them is what pays for the stand-down branch above without loosening
-        # the McCabe gate this function sits under.
+        # statement — the two branches always did the same thing.
         async with cleanup_step("reupload_raster local file", job_id=job_id):
             if file_path != original_file_path or (
                 final_status == "complete"
@@ -1035,17 +979,14 @@ async def reupload_raster(
             await reap_presigned_staging_object(
                 job_id, owned_staging_key, final_status=final_status
             )
-        # fix(#1210), ADR-002 Decision 7: the pre-conversion upload, deleted on
-        # success and retained on failure as the operator's only diagnostic
-        # copy — bounded by the retention purge, which reaps a failed job's
-        # staged file because a failed job is not its dataset's latest-complete
-        # row. RUNBOOK.md section 9 states that window.
+        # fix(#1210), ADR-002 Decision 7: the pre-conversion upload, deleted
+        # on success and retained on failure as the operator's only
+        # diagnostic copy — bounded by the retention purge.
         #
-        # fix(#1290 review): and retained on SUCCESS too when the conversion
-        # was lossy, because Decision 7's licence to delete rests on the COG
-        # carrying everything the upload did — true of DEFLATE, false of the
-        # JPEG and WEBP profiles the import UI also offers. Same gate as the
-        # first-ingest tail, same shared predicate, so the two cannot drift.
+        # fix(#1290): also retained on SUCCESS when the conversion
+        # was lossy (JPEG/WEBP), since Decision 7's licence to delete rests
+        # on the COG carrying everything the upload did. Same shared gate
+        # as the first-ingest tail, so the two can't drift.
         async with cleanup_step("reupload_raster downloaded source", job_id=job_id):
             if source_preserved_in_cog or lossy_original_archived:
                 await reap_downloaded_staging_source(

@@ -158,11 +158,9 @@ async def generate_vector_quicklook(
     # used only to decimate vertices on large, detailed polygons. The third
     # ST_Simplify argument (preserveCollapsed=true) keeps sub-tolerance features —
     # building footprints, parcels, POIs — as minimal geometry instead of letting
-    # them collapse to empty. Previously a fixed 0.01-degree tolerance (without
-    # preserveCollapsed) wiped such features out, so those datasets rendered a blank
-    # thumbnail. With preserveCollapsed the tolerance can scale freely with the extent
-    # without ever dropping small features — including small features scattered across
-    # a continental extent, where the tolerance is large.
+    # them collapse to empty, so the tolerance can scale freely with the extent
+    # without ever dropping small features scattered across a continental extent,
+    # where the tolerance is large.
     extent = max(maxx - minx, maxy - miny, 1e-9)
     simplify_tol = extent / (size * 2)
 
@@ -207,7 +205,7 @@ async def generate_vector_quicklook(
         min(maxy + margin_y, 90),
     )
 
-    # PERF-007: the parse → make_valid → draw → encode work below is CPU-bound
+    # The parse → make_valid → draw → encode work below is CPU-bound
     # Python with no suspension points. Running it inline on the worker event
     # loop means asyncio.wait_for in the timeout wrapper cannot interrupt a
     # pathological geometry (up to `max_features` features incl. large
@@ -228,7 +226,7 @@ def _render_quicklook_png(
     """Parse GeoJSON rows, validate, draw, and encode a PNG. CPU-bound, sync.
 
     Extracted from ``generate_vector_quicklook`` so the timeout wrapper can run
-    it via ``asyncio.to_thread`` (PERF-007). Output bytes are identical to the
+    it via ``asyncio.to_thread``. Output bytes are identical to the
     prior inline implementation.
     """
     # Parse geometries

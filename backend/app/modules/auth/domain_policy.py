@@ -1,14 +1,10 @@
 """HTTP-surface enforcement of the ``allowed_email_domains`` allowlist.
 
-fix(#836): the fetch-check-break-glass-403 block was pasted at four HTTP
-endpoints (password login DOMAIN-04, refresh CR-01, self-serve signup
-DOMAIN-02, admin-create DOMAIN-04). This helper is that block, once. The two
-OAuth-service sites keep their own flow on purpose — they raise
-``OAuthDomainNotAllowedError`` into the SSO redirect path and add
-verified-claim trust rules (WR-02 / FIX-A) that have no HTTP analogue.
-
-Kept separate from ``domain_validation.py`` so that module stays pure
-(pattern matching only, no DB or HTTP concerns).
+fix(#836): consolidates a fetch-check-403 block duplicated across four HTTP
+endpoints. OAuth-service call sites keep their own flow — they raise
+``OAuthDomainNotAllowedError`` into the SSO redirect and add verified-claim
+trust rules with no HTTP analogue. Kept separate from ``domain_validation.py``
+so that module stays pure pattern matching, no DB/HTTP concerns.
 """
 
 from __future__ import annotations
@@ -31,16 +27,11 @@ async def enforce_email_domain_gate(
 ) -> None:
     """Raise 403 unless *email* satisfies the allowlist.
 
-    Semantics (the reconciled superset of the four historical copies):
-
-    - A null/absent email is permitted — no address to gate on (DOMAIN-02).
-    - Cache-bypass (``get_uncached``): security enforcement must observe the
-      committed setting, not a value a concurrent reader repopulated into the
-      cache during a writer's invalidate->commit window.
-    - Break-glass: when ``break_glass_user`` holds ``manage_settings``, the
-      gate is waived (T-1236-02: server-side capability, never a client
-      header). Signup passes no user — a new identity has no principal to
-      exempt.
+    Null/absent email is permitted (no address to gate). Uses
+    ``get_uncached`` so enforcement observes the committed setting, not a
+    value a concurrent reader repopulated during a writer's invalidate->commit
+    window. ``break_glass_user`` waives the gate only via server-side
+    ``manage_settings`` capability, never a client header.
     """
     if not email:
         return
@@ -48,7 +39,6 @@ async def enforce_email_domain_gate(
     if is_email_allowed(email, domains):
         return
     if break_glass_user is not None:
-        # Lazy import to avoid adding a DB dep at module top; follows D-17.
         from app.modules.auth.permissions import (  # LAZY — per D-17
             MANAGE_SETTINGS,
             user_has_capability,

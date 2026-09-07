@@ -26,13 +26,12 @@ from app.platform.extensions import get_catalog_port
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import Dataset
 
-# Column name validation for SQL identifier safety
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 
 def _parse_int(raw: str) -> int:
-    # The per-type bound is applied by check_pg_value_range, which knows
-    # whether the column is int2, int4 or int8 (fix(#1778 review r2)).
+    # fix(#1778): the per-type bound is applied by check_pg_value_range,
+    # which knows whether the column is int2, int4 or int8.
     return int(raw)
 
 
@@ -84,21 +83,9 @@ def _parse_naive_timestamp(raw: str) -> datetime:
     return value
 
 
-# fix(#1778): property filters bound the raw query-string value, so SQLAlchemy
-# typed every bind VARCHAR and PostgreSQL had no `bigint = character varying`
-# operator: EVERY non-text property filter failed with 42883, which the OGC
-# items handler then reported as a retryable 503. The queryables document
-# (Part 3) advertises these columns as integer/number/boolean/date, so a
-# conformant client was led straight into it. Each pg type here therefore
-# carries the parser that turns the query-string value into a Python value and
-# the database type the bind is compiled with. The families and their database
-# types mirror `sa_type_for_pg` in standards/ogc/filtering.py, for the reason
-# recorded there: a float8-cast bind against a REAL column promotes the stored
-# float4 and stops comparing equal.
-#
-# The set is exactly the set the queryables document advertises as filterable.
-# A column of any other type keeps the raw string bind, and the routers now
-# classify the resulting type-shaped sqlstate as the caller's 400.
+# fix(#1778): binding raw left SQLAlchemy typing every bind VARCHAR, causing
+# 42883 on non-text filters. Each entry pairs a parser with the bind's DB
+# type — matches exactly what the queryables document (Part 3) advertises.
 _PROPERTY_FILTER_BINDS: dict[str, tuple[Callable[[str], Any], Any]] = {
     "text": (str, sa_types.Text()),
     "character varying": (str, sa_types.Text()),
@@ -133,11 +120,10 @@ def _property_filter_bind(param_name: str, column: str, pg_type: str | None, raw
     parse, sa_type = mapping
     try:
         value = parse(raw)
-        # fix(#1778 review r2): in range for the COLUMN, not merely parseable
-        # as a Python value. 1e100 against a real column and 2147483648 against
-        # an integer column are both legal comparisons that no stored value can
-        # satisfy, so they used to answer 200 with zero features -- a silently
-        # wrong answer to a question the caller did not ask.
+        # fix(#1778): in range for the COLUMN, not merely parseable as a
+        # Python value — 1e100 against a real column or 2147483648 against
+        # an integer column is a legal comparison no stored value can
+        # satisfy, silently answering 200 with zero features otherwise.
         check_pg_value_range(pg_type or "", value)
     except (ValueError, TypeError) as exc:
         raise ValueError(
@@ -155,11 +141,10 @@ GEOJSON_TYPE_MAP: dict[str, set[str]] = {
     "MultiLineString": {"MultiLineString"},
     "Polygon": {"Polygon", "MultiPolygon"},
     "MultiPolygon": {"MultiPolygon"},
-    # fix(#430 codex r9/r20): a GeometryCollection is storable in a generic
-    # GEOMETRY column (the generic branch only requires map presence) and in
-    # a typed GEOMETRYCOLLECTION column (ingested GC data — the dataset check
-    # constraint allows the type). Every OTHER typed dataset reports a type
-    # mismatch. Nested collections are rejected earlier at the schema guard.
+    # fix(#430): storable in a generic GEOMETRY column (map presence is
+    # enough) and in a typed GEOMETRYCOLLECTION column (the dataset check
+    # constraint allows it); every other typed dataset reports a mismatch.
+    # Nested collections are rejected earlier at the schema guard.
     "GeometryCollection": {"GeometryCollection"},
 }
 
@@ -170,23 +155,10 @@ _MULTI_TYPES = {"MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON"}
 class UnwritablePropertyError(ValueError):
     """A column that exists but that the feature write path cannot address.
 
-    fix(#1778): two guards disagreed about what a legal column is.
-    ``_reject_unknown_properties`` admitted any key present in column_info,
-    and the write loops then silently skipped whatever ``_COLUMN_NAME_RE``
-    rejected — a strictly narrower pattern than every producer of column_info.
-    ``create_empty_dataset`` validated against SAFE_COLUMN_NAME_RE (leading
-    underscore allowed, no length bound), ``get_column_info`` copies
-    information_schema verbatim, and the READ projection deliberately supports
-    names this regex rejects (``live_property_columns`` escapes colons because
-    registered Socrata exports ship columns literally named ``:id``).
-
-    So a dataset with a ``_notes`` or ``:id`` column returned that key from GET
-    but could not write it: POST and PUT answered 201/200 with the value never
-    stored, and on PUT the column was not even NULLed, contradicting the
-    documented "Columns not present in properties are set to NULL". Silent
-    write loss behind a success response is the worst shape for a data-editing
-    API, and it is exactly what an editing UI's read-modify-write round trip
-    hits. Refusing names the write path cannot address turns it into a 422.
+    fix(#1778): ``_COLUMN_NAME_RE`` is stricter than the read path's regexes,
+    so a real ``_notes``/``:id`` column (e.g. Socrata) that GET returns could
+    silently fail to write — POST/PUT answered 201/200 with nothing stored.
+    Refusing the name up front turns that silent data loss into a 422.
     """
 
 
@@ -208,18 +180,11 @@ def _reject_unknown_properties(
 ) -> None:
     """Raise if a property key names no real attribute column, or an unwritable one.
 
-    fix(#458 E-25): writers used to silently drop unknown keys. On PUT that is a
-    footgun — a misspelled key isn't written AND the intended column is nulled
-    (replace sets every known column to `properties.get(name)`), all with a 200.
-    Rejecting unknown keys up front surfaces the typo as a 400 instead. Reserved
-    system columns (gid/geom/…) are absent from column_info, so a write attempt
-    against them is correctly reported here too.
+    fix(#458): a silently dropped unknown key is a PUT footgun (not
+    written, and replace nulls the column) — reject as a 400 instead.
 
-    fix(#1778): a key naming a real column the write loop would then skip is
-    refused as well (see UnwritablePropertyError). ``replaces_all`` is the PUT
-    spelling: replace writes EVERY known column, so one unwritable column in
-    column_info makes the whole documented replacement impossible, whether or
-    not the request mentions it.
+    fix(#1778): a real but unwritable column is refused too. ``replaces_all``
+    writes EVERY known column, so one unwritable column blocks the whole PUT.
     """
     allowed = {c["name"] for c in column_info}
     if properties:
@@ -254,12 +219,10 @@ def _geom_write_exprs(
 ) -> tuple[str, str]:
     """SQL expressions for the (geom, geom_4326) write pair.
 
-    GeoJSON is WGS84 by spec, so ST_GeomFromGeoJSON yields SRID 4326 — correct
-    for geom_4326, but file-ingested layers keep their source CRS in `geom`
-    (the file path runs ogr2ogr without -t_srs), so writing 4326 into a
-    projected-SRID column violates the typmod and 500s. Transform when the
-    dataset SRID differs; dataset.srid mirrors Find_SRID on the live column
-    (refresh_dataset_metadata), so it is the column's actual SRID.
+    GeoJSON is WGS84, so ST_GeomFromGeoJSON yields SRID 4326 — correct for
+    geom_4326, but file-ingested layers keep their source CRS in `geom`, so
+    writing 4326 there would violate the typmod. Transform when the
+    dataset's actual SRID differs.
     """
     base = _geometry_sql(dataset_geometry_type)
     if dataset_srid and dataset_srid != 4326:
@@ -270,21 +233,11 @@ def _geom_write_exprs(
 def parse_bbox(bbox: str | Sequence[float]) -> list[float]:
     """Parse a bbox into a 4-element ``[minx, miny, maxx, maxy]`` list.
 
-    Accepts either a comma-separated string (the query-parameter spelling) or
-    an already-split sequence of numbers (the JSON request-body spelling, e.g.
-    STAC Item Search POST), so every GeoLens surface answers a given bbox the
-    same way.
-
-    Accepts:
-      - 4 values: minx, miny, maxx, maxy (2D)
-      - 6 values: minx, miny, minz, maxx, maxy, maxz (3D — Z values are
-        accepted but ignored for spatial queries)
-
-    Allows antimeridian-crossing bboxes where minx > maxx (e.g. 170,-45,-170,-30).
-    Allows degenerate boxes where miny == maxy: OGC API Features and STAC both
-    define bbox bounds as lower <= upper, so a zero-height (line) or zero-area
-    (point) box is a legal filter.
-    Raises ValueError if not 4 or 6 values, or latitude bounds are invalid.
+    Accepts a comma-separated string or an already-split sequence (e.g. STAC
+    POST bodies), 4 values (2D) or 6 (3D, Z ignored). Allows
+    antimeridian-crossing boxes (minx > maxx) and degenerate ones
+    (miny == maxy), per OGC/STAC's lower <= upper bbox convention. Raises
+    ValueError on a bad value count or invalid latitude bounds.
     """
     if isinstance(bbox, str):
         parts = bbox.split(",")
@@ -295,12 +248,10 @@ def parse_bbox(bbox: str | Sequence[float]) -> list[float]:
         values = [float(v) for v in bbox]
         if len(values) not in (4, 6):
             raise ValueError("bbox must have 4 or 6 values")
-    # SEC-FU-06 (sec-audit-20260519.md): reject NaN/Inf coordinates. Python's float() accepts
-    # "nan", "inf", "-inf" (and JSON 1e400 parses to +Inf) — PostGIS handles these
-    # inconsistently and they can produce malformed geometries with downstream
-    # null-pointer or sequential-scan amplification. This is the single home for the
-    # guard: STAC once carried its own copy and the guard had to be re-applied there
-    # (#430 BA-12) because the copy existed.
+    # SEC-FU-06: reject NaN/Inf coordinates. Python's float() accepts "nan",
+    # "inf", "-inf" (and JSON 1e400 parses to +Inf) — PostGIS handles these
+    # inconsistently, risking malformed geometries. This is the single home
+    # for the guard; do not let another copy grow elsewhere (#430 BA-12).
     for i, v in enumerate(values):
         if not math.isfinite(v):
             raise ValueError(
@@ -320,26 +271,12 @@ def parse_bbox(bbox: str | Sequence[float]) -> list[float]:
 async def live_property_columns(db: AsyncSession, table_name: str) -> str:
     """Quoted select-list of the table's live columns minus gid/geom/geom_4326.
 
-    fix(#1104): feature properties used to be rendered as ``to_jsonb(t.*) -
-    'gid' - 'geom' - 'geom_4326'``, which serializes EVERY column before the
-    subtraction — and PostGIS's geometry→jsonb cast raises on curved input
-    (``lwgeom_to_geojson: 'MultiSurface' geometry type not supported``). The
-    original ``geom`` column deliberately preserves the curved source even
-    after ingest linearizes ``geom_4326``, so a curved dataset 500'd every
-    feature read through a column the response then discarded. Readers now
-    project the row to this list first, so the cast never sees ``geom``.
-
-    The live schema is authoritative here on purpose: ``Dataset.column_info``
-    can drift from the table on re-upload, and a projected list must match
-    the table or the whole query fails. Names are double-quote escaped, and —
-    fix(#1113 review), same rule as _sql_quote_ident's fix(#640) — colons are
-    backslash-escaped because SQLAlchemy ``text()`` parses ``:name`` as a bind
-    parameter even inside double-quoted identifiers, and registered Socrata
-    exports ship columns literally named ``:id``. The output is therefore
-    only valid inside ``text()``.
-
-    Returns a comma-separated quoted list, or "" when the table has no
-    property columns.
+    fix(#1104): to_jsonb serializes EVERY column first, and the
+    geometry→jsonb cast raises on curved input in `geom` — projecting here
+    keeps the cast from ever seeing it. Queries live schema, not
+    `Dataset.column_info`, which can drift on re-upload. fix(#1113): colons
+    are backslash-escaped too (`text()` parses `:name` as a bind param even
+    quoted; Socrata ships columns named `:id`). Valid only inside `text()`.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
@@ -362,11 +299,9 @@ async def live_property_columns(db: AsyncSession, table_name: str) -> str:
 async def feature_table_exists(db: AsyncSession, table_name: str) -> bool:
     """Whether the tenant-schema data table currently exists.
 
-    fix(#1614 codex r2): ``get_column_info`` returns [] both for a table with
-    zero attribute columns and for a MISSING table (partial ingest, eviction).
-    Queryables/filter callers must distinguish the two — an empty schema is
-    authoritative only when the table is really there; a missing table is the
-    same retryable 503 the feature query paths report.
+    fix(#1614): ``get_column_info`` returns [] both for zero attribute
+    columns and a MISSING table — callers need to tell those apart, since a
+    missing table is the same retryable 503 the feature query paths report.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
@@ -422,10 +357,8 @@ async def _property_filter_predicates(
     """Compose the `"col" = :prop_col` predicates for the property filters.
 
     Returns (where_clauses, raw_string_binds, typed_binds). fix(#1778): the
-    live schema decides how each value is typed, so the read costs one
-    information_schema round trip, and only when a property filter is present.
-    A column whose type has no mapping keeps the raw string bind it has always
-    had.
+    live schema decides how each value is typed, costing one
+    information_schema round trip only when a filter is present.
     """
     live_types = {
         col["name"]: col.get("type")
@@ -448,36 +381,18 @@ async def _property_filter_predicates(
     return clauses, raw_binds, typed_binds
 
 
-# fix(#1778): rows a filtered count will visit before it stops being exact.
-#
-# The cached feature_count fast path applies only to a COMPLETELY unfiltered
-# request, so one bbox, property filter or CQL2 filter put a full filtered
-# COUNT(*) on EVERY page — including keyset pages, whose whole point is
-# constant-time access. Paging 50 pages of a multi-million-row layer cost 50
-# full GiST scans with ST_Intersects rechecks, so the caller saw constant-time
-# row fetch and O(N) latency per page.
-#
-# Counting inside a LIMIT bounds that: the scan stops once the cap is reached,
-# so the per-page cost has a ceiling instead of scaling with the match set. The
-# count stays EXACT up to the cap, which covers any result set a client would
-# actually page through (100 pages at the OGC max page size); past it the
-# planner's own row estimate answers, and the response says so with an
-# X-GeoLens-Number-Matched: estimated header. The estimate is never reported
-# below the rows already counted, so a `next` link driven by
-# `offset + limit < total` cannot truncate pagination at the cap.
+# fix(#1778): counting inside a LIMIT caps filtered-count cost instead of
+# scaling O(N) per page. Exact up to this cap (100 OGC max-size pages);
+# past it the planner's estimate answers (X-GeoLens-Number-Matched header).
 _FILTERED_COUNT_CAP = 20_000
 
 
 class FeaturePage(NamedTuple):
     """One page of features plus what the caller needs to paginate it.
 
-    fix(#1778 review r1): ``has_more`` exists because ``total`` may be the
-    planner's estimate. A router that decided its `next` link from
-    ``offset + limit < total`` would drop the link mid-result-set whenever the
-    estimate came back at or below the rows already served, stranding the
-    caller with a full page and nowhere to go. Whether another row exists is a
-    fact about the rows, so it is answered by over-fetching one and never by
-    the count.
+    fix(#1778): ``has_more`` exists because ``total`` may be the planner's
+    estimate — a `next` link decided from ``offset + limit < total`` could
+    drop mid-result-set. Answered by over-fetching one row, never the count.
     """
 
     rows: list[dict]
@@ -492,11 +407,8 @@ NUMBER_MATCHED_HEADER = "X-GeoLens-Number-Matched"
 def number_matched_headers(total_is_estimate: bool) -> dict[str, str]:
     """Response headers saying how ``numberMatched`` was produced.
 
-    OGC API Features defines no response member for "this count is
-    approximate", and the field is not optional in GeoLens's own schemas, so
-    the distinction rides on a header. Callers that display the number, or
-    compare it against the rows they received, need to know which they got.
-    The header is in the CORS expose list, so a browser client can read it.
+    OGC API Features has no response member for "this count is approximate",
+    so the distinction rides on a header (in the CORS expose list).
     """
     return {NUMBER_MATCHED_HEADER: "estimated"} if total_is_estimate else {}
 
@@ -506,12 +418,10 @@ async def _planner_row_estimate(
 ) -> int:
     """The planner's row estimate for the filtered predicate, or 0.
 
-    EXPLAIN without ANALYZE plans the statement and does not run it, so this
-    costs planning time rather than a scan. It is deliberately NOT wrapped in a
-    try/except: it plans the exact predicate the data query just executed
-    successfully, so a failure here is the same class the routers already
-    classify, and swallowing it would leave the session in a failed
-    transaction with the real cause hidden.
+    EXPLAIN without ANALYZE plans but does not run the statement, so this
+    costs planning time, not a scan. Deliberately not wrapped in try/except:
+    it plans the same predicate the data query just ran successfully, so a
+    failure here belongs to the routers' existing error classes.
     """
     result = await db.execute(
         apply_binds(
@@ -559,22 +469,11 @@ def _floor_estimated_total(
 ) -> int:
     """Raise an estimated total to the rows the page can prove exist.
 
-    fix(#1778 review r1): an estimate below the rows a page is about to show
-    makes numberMatched contradict the features beside it in the same response.
-
-    fix(#1778 review r3): it may only count rows that exist, and only when the
-    total is an estimate to begin with.
-
-      - An EXACT count is never raised. It already counted the whole match set,
-        so anything above it is fiction.
-      - An empty page proves nothing. The r1 form floored by `offset +
-        len(rows)` unconditionally, which invented matches out of the offset:
-        five features asked for at offset 100 returned an empty page and
-        reported numberMatched 100.
-      - A keyset page passes `offset=0`, because the query ignores `offset`
-        when `after_gid` is set. The rows in hand are all such a page can
-        prove, and borrowing an offset the query never applied would invent
-        matches the same way.
+    fix(#1778): only when the total started as an estimate, and only to
+    rows proven to exist — an EXACT count is never raised, an empty page
+    proves nothing (flooring by offset + len(rows) would invent matches out
+    of the offset alone), and a keyset page passes offset=0 since the query
+    ignores it when after_gid is set.
     """
     if not total_is_estimate or served == 0:
         return total
@@ -600,47 +499,17 @@ async def get_features(
 ) -> FeaturePage:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
-    Returns a ``FeaturePage`` whose rows each have gid, geometry and
-    properties. ``total_is_estimate`` is True when the filtered match set is
-    larger than ``_FILTERED_COUNT_CAP`` and ``total`` is the planner's row
-    estimate rather than an exact count (fix(#1778)). ``has_more`` says whether
-    a further row exists after this page, measured by fetching one more row
-    than asked for; pagination links must be built from it and never from
-    ``total`` (fix(#1778 review r1)).
-
-    Phase 269 H-24: when ``after_gid`` is provided, uses keyset pagination
-    (``WHERE gid > :after_gid``) instead of OFFSET. This avoids the
-    ``OFFSET 999000`` deep-paging cost. The ``offset`` parameter remains
-    supported as a legacy fallback for clients that have not migrated to
-    cursor pagination.
-
-    fix(#1614): ``cql2_where``/``cql2_binds`` carry a pre-compiled CQL2
-    fragment from ``app.standards.ogc.filtering`` — the only sanctioned
-    producer: it restricts identifiers to live-schema columns and passes
-    every value as a typed ``:cql2_N`` BindParameter (collision-free with
-    the binds built here, and typed so the asyncpg cast matches the column —
-    codex r3). It joins ``where_clauses`` so the data query, count query,
-    and cached-count bypass all compose exactly like ``bbox``.
-
-    fix(#1778): ``property_filters`` values arrive as query-string text and are
-    bound with the database type of the column they name, read from the live
-    schema. A value that does not parse for that type raises ValueError naming
-    the property; routers report it as a 400.
-
-    Raises
-    ------
-    ValueError
-        If a property-filter value cannot be parsed for its column's type or
-        falls outside that type's range, or if a pagination integer falls
-        outside int8 (fix(#1778 review r2)). Routers report all of these as
-        400s naming the property or parameter and the bound it broke.
+    fix(#1778): ``total_is_estimate`` is True past ``_FILTERED_COUNT_CAP``,
+    and ``has_more`` (not ``total``) must drive pagination links.
+    ``cql2_where``/``cql2_binds`` must come from
+    ``app.standards.ogc.filtering`` (fix(#1614)), the only sanctioned
+    producer of typed CQL2 binds. Raises ValueError (400) on a bad property
+    filter or an out-of-int8 pagination integer.
     """
-    # fix(#1778 review r2): the pagination integers are caller values that reach
-    # the driver untyped, and FastAPI's `int` has no upper bound. A value
-    # outside int8 cannot be encoded at all: asyncpg raises a bare
-    # sqlalchemy.exc.DBAPIError with SQLSTATE 22000 from inside its encode
-    # path, which neither router caught, so `?offset=10**23` was a 500. Refuse
-    # it here, where the message can name the parameter.
+    # fix(#1778): pagination integers reach the driver untyped, and FastAPI's
+    # `int` has no upper bound. A value outside int8 can't be encoded at all
+    # — asyncpg raises a bare DBAPIError (SQLSTATE 22000) from its encode
+    # path — so refuse it here, where the message can name the parameter.
     check_int8_range("limit", limit)
     check_int8_range("offset", offset)
     if after_gid is not None:
@@ -662,7 +531,6 @@ async def get_features(
         select_cols = "gid, NULL::json AS geometry, to_jsonb(t.*) - 'gid' AS properties"
     row_source = await _projected_row_source(db, table_name, with_geometry=has_geometry)
 
-    # Build WHERE clauses
     where_clauses: list[str] = []
     bind_values: dict = {}
 
@@ -696,10 +564,8 @@ async def get_features(
     if cql2_where:
         where_clauses.append(cql2_where)
 
-    # H-24: keyset cursor pagination — `gid > :after_gid` short-circuits the
-    # OFFSET cost path entirely. Both pagination styles use the same `gid`
-    # column, so the existing PRIMARY KEY index on `gid` handles the cursor
-    # without any new index.
+    # `gid > :after_gid` short-circuits the OFFSET cost path entirely, and
+    # reuses the existing PRIMARY KEY index on `gid` — no new index needed.
     use_keyset = after_gid is not None
     if use_keyset:
         where_clauses.append("gid > :after_gid")
@@ -709,7 +575,6 @@ async def get_features(
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
 
-    # Data query — keyset uses LIMIT only (no OFFSET); legacy uses LIMIT + OFFSET.
     if use_keyset:
         data_sql = (
             f"SELECT {select_cols} FROM {row_source} t "
@@ -721,14 +586,13 @@ async def get_features(
             f"{where_sql} ORDER BY gid LIMIT :limit OFFSET :offset"
         )
         bind_values["offset"] = offset
-    # One row past the page, so `has_more` is a fact about the rows rather than
-    # a comparison against a count that may be estimated (fix(#1778 review r1)).
+    # fix(#1778): one row past the page, so `has_more` is a fact about the
+    # rows rather than a comparison against a count that may be estimated.
     bind_values["limit"] = limit + 1
 
-    # Typed BindParameters (codex r3) — see the cql2_binds docstring note — plus
-    # the property-filter binds typed from the live schema (fix(#1778)). Both
-    # sets name parameters that appear in the data query AND in the count query,
-    # so one list serves both.
+    # cql2_binds plus the property-filter binds typed from the live schema
+    # (fix(#1778)); both name parameters in the data query AND the count
+    # query, so one list serves both.
     extra_binds = [*(cql2_binds or ()), *typed_binds]
 
     def _with_extra_binds(stmt):
@@ -742,15 +606,13 @@ async def get_features(
     if has_more:
         rows = rows[:limit]
 
-    # Count query (same WHERE *minus* the after_gid cursor, no LIMIT/OFFSET).
-    # The keyset cursor must be excluded from the count so total reflects the
-    # full result set, not "rows remaining after cursor".
+    # The keyset cursor is excluded from the count (no LIMIT/OFFSET either),
+    # so total reflects the full result set, not "rows remaining after cursor".
     count_where_clauses = [c for c in where_clauses if c != "gid > :after_gid"]
     count_where_sql = ""
     if count_where_clauses:
         count_where_sql = "WHERE " + " AND ".join(count_where_clauses)
 
-    # Use cached feature_count when no filters are active
     if not count_where_clauses and cached_feature_count is not None:
         total, total_is_estimate = cached_feature_count, False
     else:
@@ -887,12 +749,12 @@ async def _geom_column_is_generic(session: AsyncSession, table_name: str) -> boo
 async def effective_geometry_type(session: AsyncSession, dataset) -> str:
     """Geometry type for feature-write validation and insert SQL.
 
-    fix(#430 codex r7): generic-column created datasets must accept ANY
-    subtype forever — even after refresh_dataset_metadata derives a concrete
-    DISPLAY type from the rows (done so the builder renders the layer instead
-    of an invisible fill). Validation therefore keys on the actual column
-    genericity, never on the derived type. Typed 'created' tables (layers
-    module) keep typed validation.
+    fix(#430): generic-column created datasets must accept ANY subtype
+    forever, even after refresh_dataset_metadata derives a concrete DISPLAY
+    type from the rows (so the builder renders the layer instead of an
+    invisible fill). Validation keys on the actual column genericity, never
+    on the derived type. Typed 'created' tables (layers module) keep typed
+    validation.
     """
     if dataset.source_format == "created" and await _geom_column_is_generic(
         session, dataset.table_name
@@ -904,20 +766,12 @@ async def effective_geometry_type(session: AsyncSession, dataset) -> str:
 def _validate_geometry_structure(geometry: dict) -> BaseGeometry:
     """Reject degenerate or topologically invalid geometry before PostGIS.
 
-    fix(#458 E-02): degenerate-but-schema-valid input (2-point polygon rings,
-    1-vertex LineStrings, empty coordinate arrays) crashed ST_GeomFromGeoJSON
-    into a 500, and well-formed self-intersecting polygons persisted and later
-    raised GEOS TopologyException on bbox queries and tile renders — read-path
-    500s that hit anonymous viewers of public datasets. Raises ValueError
-    (routers map it to 400).
+    fix(#458): degenerate-but-valid input (2-point rings, empty arrays)
+    crashed ST_GeomFromGeoJSON into a 500; raises ValueError instead (400).
 
-    fix(#1778): return the shapely geometry itself rather than a bare None.
-    Shapely repairs some structurally-invalid input it accepts (an unclosed
-    polygon ring is auto-closed by `shape()`), but ST_GeomFromGeoJSON does not
-    repair the equivalent GeoJSON — it stores the ring open, which later
-    crashes any ST_Intersects bbox read with a GEOS "not closed" error.
-    Callers must write the returned, shapely-normalized geometry instead of
-    re-serializing the client's original dict.
+    fix(#1778): returns the shapely geometry itself, not None — Shapely
+    auto-closes an unclosed ring but ST_GeomFromGeoJSON does not, so callers
+    must write the returned, normalized geometry, not the client's dict.
     """
     try:
         geom = shapely_shape(geometry)
@@ -942,7 +796,7 @@ def _validate_geometry_type(geojson_type: str, dataset_geometry_type: str) -> No
     # Normalize dataset type (stored UPPERCASE in DB) to GeoJSON mixed case.
     # str.title() fails for compound words: "LINESTRING" -> "Linestring" not "LineString".
     # Use a direct mapping instead.
-    # fix(#430 BA-32): a generic-typed dataset (GEOMETRY column) accepts any subtype;
+    # fix(#430): a generic-typed dataset (GEOMETRY column) accepts any subtype;
     # only reject genuinely non-geometry GeoJSON.
     if dataset_geometry_type.strip().upper() == "GEOMETRY":
         if GEOJSON_TYPE_MAP.get(geojson_type.strip()) is None:
@@ -955,8 +809,8 @@ def _validate_geometry_type(geojson_type: str, dataset_geometry_type: str) -> No
         "MULTILINESTRING": "MultiLineString",
         "POLYGON": "Polygon",
         "MULTIPOLYGON": "MultiPolygon",
-        # fix(#430 codex r20): without this entry a GEOMETRYCOLLECTION-typed
-        # dataset normalized to its raw uppercase name and never matched the
+        # fix(#430): without this entry a GEOMETRYCOLLECTION-typed dataset
+        # normalizes to its raw uppercase name and never matches the
         # mixed-case compatibility set above.
         "GEOMETRYCOLLECTION": "GeometryCollection",
     }
@@ -1165,14 +1019,12 @@ async def _refresh_count_and_extent(
     Returns (feature_count, extent_wkt) in a single query instead of the
     5 queries that extract_metadata() runs.
     """
-    # fix(#430 BA-18): records.spatial_extent admits only POLYGON or MULTIPOLYGON
-    # (fix(#892) widened the typmod to geometry(Geometry, 4326) and moved the type
-    # guard into chk_records_spatial_extent_type), but ST_Extent of a single point /
-    # axis-collinear points casts to POINT / LINESTRING, which is still rejected
-    # (previously the caller silently skipped storing it, leaving a stale/NULL
-    # extent). ST_Expand always returns the bounding-box POLYGON, so we pad ONLY the
-    # degenerate (non-polygon) cases into a valid sub-mm-padded polygon; genuine
-    # polygon extents are returned byte-identical (no epsilon).
+    # fix(#430): records.spatial_extent admits only POLYGON or
+    # MULTIPOLYGON (chk_records_spatial_extent_type, fix(#892)), but
+    # ST_Extent of a single point / axis-collinear points casts to POINT /
+    # LINESTRING and would be rejected. ST_Expand always returns the
+    # bounding-box POLYGON, so only the degenerate cases get padded;
+    # genuine polygon extents come back byte-identical (no epsilon).
     quoted = get_catalog_port().quote_table(table_name)
     result = await session.execute(
         text(
@@ -1191,14 +1043,12 @@ async def _refresh_count_and_extent(
     row = result.one()
     count, extent_wkt, xmin, xmax = int(row[0]), row[1], row[2], row[3]
     # fix(#934): a table honestly crossing ±180 must not store the naive
-    # near-global fold on refresh; emit the two-ring MULTIPOLYGON instead.
-    # A crossing dataset's naive width always exceeds 180 degrees (the shifted
-    # domain spans 360 - width, so it can only win past 180), which lets the
-    # ordinary case skip the second aggregate and stay byte-identical —
-    # including the degenerate POINT/LINESTRING padding above.
+    # near-global fold on refresh; emit the two-ring MULTIPOLYGON instead. A
+    # crossing dataset's naive width always exceeds 180 degrees, so the
+    # ordinary case skips the second aggregate and stays byte-identical.
     if xmin is not None and xmax is not None and float(xmax) - float(xmin) > 180.0:
-        # Same tenant data schema the quoted reference above resolves to; the
-        # helper quotes identifiers itself (fix(#934 codeql)).
+        # Same tenant data schema the quoted reference above resolves to;
+        # the helper quotes identifiers itself (fix(#934)).
         from app.core.db.tenant_schema import tenant_data_schema
         from app.core.db.tenant_session import current_tenant_var
 
@@ -1224,8 +1074,8 @@ _CONCRETE_GEOMETRY_TYPES = {
 async def _derive_created_geometry_type(session: AsyncSession, table_name: str) -> str:
     """Concrete display geometry_type for a created (generic-column) dataset.
 
-    fix(#430 codex r7): the 'GEOMETRY' sentinel renders as an invisible fill
-    layer in the builder (classifyGeometry -> 'other'). Derive from the rows:
+    fix(#430): the 'GEOMETRY' sentinel renders as an invisible fill layer in
+    the builder (classifyGeometry -> 'other'). Derive from the rows:
     a homogeneous layer gets its real type, a single-family mix gets the
     MULTI variant, a cross-family mix (or anything unexpected) stays generic —
     the honest fallback, matching how GEOMETRYCOLLECTION datasets render.
@@ -1278,13 +1128,11 @@ def geojson_bounds(geometry: dict | None) -> Bounds | None:
 
 # The envelope of the row version a write is about to overwrite or remove.
 #
-# fix(#1778 review r1): this used to be a separate unlocked SELECT taken before
-# the mutation, which is a read-then-write race: a concurrent edit could move
-# the feature out of the stored extent and commit in the gap, leaving the first
-# writer holding envelope values that were true when it looked and false when
-# it wrote. It would then take the incremental fast path and leave the expanded
-# extent behind. The capture is now part of the mutating statement, so the
-# envelope is always the version that statement actually replaced or deleted.
+# fix(#1778): captured as part of the mutating statement, not a separate
+# unlocked SELECT before it — a concurrent edit could otherwise move the
+# feature out of the stored extent and commit in the gap, leaving envelope
+# values that were true when read but false by the time of the write, and
+# the incremental fast path leaving the expanded extent behind.
 _PRIOR_BOUNDS_COLS = (
     "ST_XMin(geom_4326) AS prior_minx, ST_YMin(geom_4326) AS prior_miny, "
     "ST_XMax(geom_4326) AS prior_maxx, ST_YMax(geom_4326) AS prior_maxy"
@@ -1334,21 +1182,14 @@ async def lock_catalog_rows_for_write(
 ) -> Bounds | None:
     """Take this dataset's catalog rows in the house order, then read its extent.
 
-    The catalog-side entry point to `platform.catalog_locks.lock_catalog_rows`,
-    which states the order. Call it from ANY request path that will dirty
-    either row, not only from the metadata refresh.
-
-    `with_raster_asset` extends the order to the raster child, for a
-    transaction whose records delete cascades to it.
-
-    Returns None unless the stored extent is a simple POLYGON: an
-    antimeridian-crossing dataset stores a two-ring MULTIPOLYGON (#934)
-    whose ST_XMin/ST_XMax are -180/180, so a longitude in the gap would test as
-    inside a box the geometry never occupies.
-
-    Both metadata paths take the lock before either reads the extent, or two
-    writers interleave read-decide-write and one shrinks the extent from an
-    aggregate taken before the other's row landed (#1778).
+    Entry point to `platform.catalog_locks.lock_catalog_rows` — call from
+    ANY request path that dirties either row. Returns None unless the extent
+    is a simple POLYGON (#934): an antimeridian-crossing dataset stores a
+    two-ring MULTIPOLYGON whose ST_XMin/ST_XMax are -180/180, so a longitude
+    in the gap would test inside a box the geometry never occupies.
+    fix(#1778): the lock must be taken before either metadata path reads the
+    extent, or interleaved read-decide-write could shrink it from a stale
+    aggregate.
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
     from app.modules.catalog.datasets.domain.models import Record
@@ -1404,13 +1245,9 @@ def _strictly_inside(inner: Bounds, outer: Bounds) -> bool:
 def _merged_created_geometry_type(current: str | None, added: str | None) -> str | None:
     """The display geometry_type after ONE geometry of `added` type is inserted.
 
-    Mirrors `_derive_created_geometry_type`'s rules over the row types it would
-    see, without the DISTINCT scan. None when the answer is not decidable from
-    the stored value alone, which sends the caller back to the scan.
-
-    Insert only. A delete or a moved geometry can NARROW the derived type (the
-    last polygon leaving a mixed layer), and no merge of the stored value can
-    see that.
+    Mirrors `_derive_created_geometry_type`'s rules without the DISTINCT
+    scan; None sends the caller back to the scan. Insert only — a delete or
+    moved geometry can NARROW the derived type, which no merge can see.
     """
     if not current or not added:
         return None
@@ -1445,16 +1282,10 @@ async def _apply_incremental_metadata(
 ) -> bool:
     """Update feature_count alone when the write provably left the extent alone.
 
-    Returns False when the fast path does not apply, and the caller falls back
-    to the full recompute.
-
-    fix(#1778): `_refresh_count_and_extent` runs one unqualified
-    COUNT(*) + ST_Extent over the whole table, so every single-feature edit
-    seq-scanned the layer inside the request transaction, with a second scan
-    over `ST_ShiftLongitude(geom_4326)` whenever the naive extent is wider than
-    180 degrees and a third `SELECT DISTINCT GeometryType(...)` for created
-    datasets. There is no bulk feature endpoint, so a client digitizing 200
-    points issued 200 requests and paid it 200 times.
+    Returns False when the fast path does not apply, falling back to a full
+    recompute. fix(#1778): `_refresh_count_and_extent` runs a full-table
+    COUNT + ST_Extent on every write, so a client digitizing 200 points
+    paid that cost 200 times with no bulk feature endpoint.
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
 
@@ -1505,17 +1336,14 @@ async def refresh_dataset_metadata(
 ) -> None:
     """Refresh feature_count and extent on a Dataset after write operations.
 
-    Uses a single COUNT(*) + ST_Extent query instead of the full
-    extract_metadata pipeline (which runs 5 queries).
-
-    fix(#1778): when the caller can say how many rows the write added or
-    removed and where the geometry it touched sits, and every touched envelope
-    is strictly inside the stored extent, the extent provably did not change
-    and no scan runs at all. Called with no keywords, the full recompute
-    behaviour is unchanged.
+    Uses one COUNT(*) + ST_Extent query instead of the 5-query
+    extract_metadata pipeline. fix(#1778): when every touched envelope is
+    strictly inside the stored extent, it provably did not change and no
+    scan runs at all; called with no keywords, the full recompute is
+    unchanged.
     """
-    # fix(#1778 review r1): taken before EITHER branch reads the extent, so a
-    # skip decision cannot be invalidated by a concurrent recompute.
+    # fix(#1778): taken before EITHER branch reads the extent, so a skip
+    # decision cannot be invalidated by a concurrent recompute.
     stored_box = await lock_catalog_rows_for_write(session, dataset)
 
     if count_delta is not None and await _apply_incremental_metadata(
@@ -1536,14 +1364,14 @@ async def refresh_dataset_metadata(
     )
     dataset.feature_count = feature_count
 
-    # fix(#430 BA-18): ST_Extent of a single point is a POINT and of axis-collinear
+    # fix(#430): ST_Extent of a single point is a POINT and of axis-collinear
     # points a LINESTRING, not always a POLYGON -- store any non-null extent.
     if extent_wkt:
         dataset.record.spatial_extent = func.ST_GeomFromText(extent_wkt, 4326)
     elif feature_count == 0:
         dataset.record.spatial_extent = None
 
-    # fix(#430 codex r7): keep generic-column created datasets' DISPLAY
+    # fix(#430): keep generic-column created datasets' DISPLAY
     # geometry_type in sync with their rows so the builder renders them (see
     # _derive_created_geometry_type). Validation stays generic via
     # effective_geometry_type(), so this never re-restricts what subtypes the

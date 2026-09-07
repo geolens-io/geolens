@@ -1,41 +1,20 @@
 """Prometheus series for the dataset-refresh lifecycle.
 
-feat(#1268) / ADR-002 Amendment A10. Before this, nothing about refresh runs
-was observable: an operator could see that ingest jobs existed and nothing
-about whether refreshes were queueing, failing, or silently being swept.
+feat(#1268)/ADR-002 Amendment A10. Gauges, not counters at the event:
+the worker is a different process with no scrape endpoint and shares no
+PROMETHEUS_MULTIPROC_DIR, so a counter incremented there is written to a
+file nothing reads; and every API worker would count the same run, since
+MultiProcessCollector SUMS counters across processes under
+UVICORN_WORKERS>=2 (the #1240 class of bug).
 
-### Why these are gauges polled from the table, not counters at the event
+State lives in ``catalog.dataset_refresh_runs`` (durable, outlives both
+processes); every worker publishes the same computed answer as a
+``livemostrecent`` gauge, correct at any worker count. Distribution
+series are SQL percentiles, not histogram buckets, for the same reason
+(a histogram is cumulative state, unshareable across processes too).
 
-The obvious design — increment a counter where a run finishes — cannot work
-here, and both reasons are structural rather than stylistic:
-
-- **The worker is a different process with no scrape endpoint.** Terminal
-  transitions happen in the ingest worker, which serves no ``/metrics`` and
-  does not share ``PROMETHEUS_MULTIPROC_DIR`` with the API container. A
-  counter incremented there is written to a file nothing ever reads.
-- **Every API worker would count the same run.** Under ``UVICORN_WORKERS>=2``
-  each worker runs its own background loop, and ``MultiProcessCollector`` SUMS
-  counters across processes — so a poll-and-increment design reports N times
-  the truth, which is the same class of fabricated number #1240 existed to
-  remove.
-
-So the state lives where it already is (``catalog.dataset_refresh_runs``, a
-durable table that outlives both processes) and every worker publishes the
-same computed answer as a gauge in ``livemostrecent`` mode. The collector
-reports one worker's value rather than a sum, so the series is correct at
-``UVICORN_WORKERS=1`` and at 8, and a worker that dies mid-cycle costs one
-scrape's freshness rather than corrupting a running total.
-
-The distribution series are SQL percentiles rather than histogram buckets for
-the same reason: a histogram is cumulative state, and cumulative state is
-exactly what cannot be shared across these processes. ``percentile_cont`` over
-a trailing window gives the two numbers an operator actually pages on, and the
-window makes them recover on their own after an incident instead of being
-diluted by history forever.
-
-Counters DO appear in this module, but only for events an API request
-observes directly — one request is handled by exactly one worker, so there is
-no double count to avoid.
+Counters DO appear here, but only for events one API request observes
+directly — no double count to avoid.
 """
 
 from __future__ import annotations

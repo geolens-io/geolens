@@ -34,7 +34,6 @@ from app.standards.ogc.utils import build_url
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Media types for each download format
 _FORMAT_MEDIA = {
     "gpkg": "application/geopackage+sqlite3",
     "geojson": "application/geo+json",
@@ -70,13 +69,9 @@ def build_assets(
 ) -> dict:
     """Build a modality-aware unified assets dict for a dataset.
 
-    fix(#315 follow-up): the raster/VRT ``raster_tiles`` asset is served at the
-    public APP origin (``/raster-tiles/...``, nginx-rewritten to the tile proxy),
-    NOT the ``/api`` origin (which has no such route). Callers thread
-    ``public_app_url`` so that one href uses the app origin; every other
-    asset/link (vector_tiles at ``/tiles/...``, downloads, ogc_features) stays on
-    ``public_api_url``. The ``or public_api_url`` fallback preserves prior
-    behavior when a caller omits it.
+    fix(#315): the raster/VRT ``raster_tiles`` asset uses ``public_app_url``
+    (nginx-rewritten to the tile proxy), not ``/api``; every other
+    asset/link stays on ``public_api_url``.
     """
     record_type = (
         getattr(dataset.record, "record_type", "vector_dataset") or "vector_dataset"
@@ -88,7 +83,6 @@ def build_assets(
     assets: dict = {}
 
     if record_type == "vector_dataset":
-        # Vector download links
         for fmt, media_type in _FORMAT_MEDIA.items():
             assets[f"download_{fmt}"] = {
                 "href": build_url(
@@ -121,10 +115,8 @@ def build_assets(
             }
 
     elif record_type in RASTER_FAMILY_RECORD_TYPES:
-        # Raster tile endpoint -- served at the public APP origin, not /api.
-        # fix(#1372 codex r2): versioned like every rendered template — these
-        # documents are generated per request, so a refetching STAC/OGC client
-        # gets a fresh v and stops sharing the unversioned cache entry.
+        # Public APP origin, not /api. fix(#1372): versioned so a refetching
+        # STAC/OGC client stops sharing the unversioned cache entry.
         raster_tiles_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
         tile_version = getattr(dataset, "tile_cache_version", None)
         if tile_version:
@@ -160,7 +152,6 @@ def _build_stac_assets(
     public_api_url: str = "",
     storage_provider: "StorageProvider | None" = None,
 ) -> dict:
-    """Build STAC assets dict from pre-fetched DatasetAsset row dicts."""
     if not asset_rows:
         return {}
 
@@ -170,9 +161,8 @@ def _build_stac_assets(
 
     result = {}
     for row in asset_rows:
-        # fix(#1290 review): the one shared boundary — see
-        # app/platform/assets/keys.py for why it is an allowlist and which
-        # paths cross it.
+        # fix(#1290): shared boundary — see app/platform/assets/keys.py for
+        # why it is an allowlist.
         if not is_public_asset_key(row["key"]):
             continue
         resolved_href = resolve_asset_url(
@@ -214,16 +204,10 @@ def dataset_to_ogc_record(
 ) -> dict:
     """Convert a Dataset ORM object to an OGC Record GeoJSON Feature dict.
 
-    ``public_app_url`` is threaded to :func:`build_assets` so the raster/VRT
-    ``raster_tiles`` asset href uses the app origin (see that function's
-    docstring); all other assets/links remain on ``public_api_url``.
-
-    fix(#1103): ``lineage_summary`` arrives access-checked from the caller
-    (``visible_lineage_summary``) rather than being read off the record, because
-    an analysis output's lineage names the titles of the datasets it was derived
-    from and this function has no requester to check them against. Omitted when
-    the caller does not supply it: a missing sentence is recoverable, a leaked
-    one is not.
+    fix(#1103): ``lineage_summary`` must arrive already access-checked
+    (``visible_lineage_summary``) — this function has no requester to check
+    the derived-from titles against. Omitted when the caller doesn't supply
+    it: missing is recoverable, leaked is not.
     """
     record = dataset.record
     localized = select_localized_record_text(record, preferred_languages)
@@ -235,9 +219,8 @@ def dataset_to_ogc_record(
         updated_user=updated_user,
     )
 
-    # Convert spatial_extent geometry to GeoJSON. When the caller pre-computes
-    # ST_AsGeoJSON in the query (PostGIS-side, fast), that string is parsed
-    # directly. Otherwise fall back to Python-side WKB deserialization.
+    # A caller-precomputed ST_AsGeoJSON string (PostGIS-side, fast) is parsed
+    # directly; otherwise fall back to Python-side WKB deserialization.
     geometry = None
     if spatial_extent_geojson is not None:
         try:
@@ -256,7 +239,7 @@ def dataset_to_ogc_record(
             from geoalchemy2.shape import to_shape
             from shapely.geometry import mapping
 
-            # fix(#430 BA-16): mapping() emits valid GeoJSON for any geometry type;
+            # fix(#430): mapping() emits valid GeoJSON for any geometry type;
             # the old .exterior path built {"coordinates": []} for Point extents.
             geometry = mapping(to_shape(record.spatial_extent))
         except Exception:  # broad: WKB deserialize — geoalchemy/shapely errors fall back to None geometry
@@ -281,7 +264,6 @@ def dataset_to_ogc_record(
         stac_start_datetime = f"{_ts.isoformat()}T00:00:00Z"
         stac_end_datetime = f"{_te.isoformat()}T00:00:00Z"
     else:
-        # No temporal extent -- use created_at as fallback
         stac_datetime = (
             record.created_at.isoformat().replace("+00:00", "Z")
             if record.created_at
@@ -303,8 +285,7 @@ def dataset_to_ogc_record(
         keywords = list(record.theme_category or [])
     license_value = record.license or "proprietary"
 
-    # Resolve record_type once; used both for has_quicklook dispatch (below)
-    # and for the STAC raster properties block at the end of this function.
+    # Used both for has_quicklook dispatch below and the STAC raster block.
     record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
 
     ogc_record: dict = {
@@ -343,17 +324,14 @@ def dataset_to_ogc_record(
             "quality_detail": dataset.quality_detail,
             "quality_statement": dataset.quality_statement,
             "record_status": record.record_status,
-            # has_quicklook source depends on record_type:
-            # - vector_dataset / table: Dataset.quicklook_256_uri (set by vector ingest)
-            # - raster_dataset / vrt_dataset: RasterAsset.quicklook_256_uri, surfaced via
-            #   raster_meta (internal-only storage key — never forwarded to response properties)
+            # vector_dataset/table reads Dataset.quicklook_256_uri; raster
+            # types read it off raster_meta (RasterAsset.quicklook_256_uri).
             "has_quicklook": (
                 raster_meta is not None
                 and raster_meta.get("quicklook_256_uri") is not None
             )
             if record_type in RASTER_FAMILY_RECORD_TYPES
             else (dataset.quicklook_256_uri is not None),
-            # Enriched OGC properties (Phase 10-02)
             "formats": (
                 list(_RASTER_FORMAT_MEDIA.values())
                 if (
@@ -379,15 +357,13 @@ def dataset_to_ogc_record(
                 else {}
             ),
             "time": record_time,
-            # ISO governance fields (API-01)
             "lineage": lineage_summary,
             "update_frequency": record.update_frequency,
-            # feat(#1224): the same read-time computation dataset_to_response
-            # serves, so a catalog card and a dataset detail page cannot
-            # disagree about how late a dataset is. Search responses cache for
-            # SEARCH_CACHE_TTL (30s), which is far below the shortest declared
-            # period (one day), so a cached value can only lag a transition by
-            # that window. Named source_freshness, not freshness: the frontend's
+            # feat(#1224): same read-time computation as dataset_to_response, so
+            # a catalog card and detail page can't disagree. SEARCH_CACHE_TTL
+            # (30s) is far below the shortest declared period, so a cached
+            # value only lags a transition by that window. Named
+            # source_freshness, not freshness: the frontend's
             # quality-freshness.ts answers a different question under that word.
             "source_freshness": compute_source_freshness(
                 dataset.last_refreshed_at,
@@ -395,14 +371,12 @@ def dataset_to_ogc_record(
                 datetime.now(timezone.utc),
                 origin=classify_origin(dataset.source_format, record_type),
             ),
-            # These values are projected only after search_datasets applies
-            # the caller's visibility filter to the Dataset query. Keep the
-            # wire spelling of an unprobed health state aligned with dataset
-            # detail responses while preserving nullable timestamps.
+            # Projected only after search_datasets applies the caller's
+            # visibility filter; keeps the unprobed-health wire spelling
+            # aligned with dataset detail responses.
             "source_health": project_unknown(dataset.source_health),
-            # ``dataset_to_ogc_record`` also feeds JSONResponse-backed OGC
-            # item and STAC routes, so these must be wire values rather than
-            # raw ORM datetimes (Pydantic does not encode this plain dict).
+            # Wire values, not raw ORM datetimes: this also feeds
+            # JSONResponse-backed OGC item/STAC routes that skip Pydantic.
             "last_checked_at": (
                 dataset.last_checked_at.isoformat() if dataset.last_checked_at else None
             ),
@@ -416,12 +390,10 @@ def dataset_to_ogc_record(
                 if record.usage_constraints or record.access_constraints
                 else None
             ),
-            # Distributions from record_distributions table (API-01).
-            # fix(#1469): the raster/VRT ingest tails write a row whose url is
-            # the COG's object-storage KEY — unresolvable by a consumer, and it
-            # exposes the storage layout. Dropped rather than replaced: this
-            # profile already publishes the raster access surface above, as
-            # build_assets' raster_tiles asset.
+            # From record_distributions. fix(#1469): a raster/VRT ingest tail
+            # writes a row whose url is the COG's object-storage key —
+            # unresolvable and layout-exposing — so is_publishable_url drops
+            # it; build_assets' raster_tiles asset covers that access surface.
             "distributions": [
                 {
                     "type": d.distribution_type,
@@ -485,13 +457,10 @@ def dataset_to_ogc_record(
             ogc_record["properties"]["gsd"] = min(
                 abs(raster_meta["res_x"]), abs(raster_meta["res_y"])
             )
-            # fix(#1805 review round 5): gsd is a lossy min(abs(res_x),
-            # abs(res_y)) -- two band-stack sources at (res_x=10, res_y=20)
-            # and (res_x=10, res_y=30) collapse to the identical gsd=10, so
-            # the client's gsd-only comparison silently passed a pair the
-            # backend's _check_grid_alignment (which compares res_x and
-            # res_y independently) rejects. Expose both axes so the client
-            # can compare them the same way the backend does.
+            # fix(#1805): gsd is a lossy min(abs(res_x), abs(res_y)) that can
+            # collapse two misaligned sources to the same value, silently
+            # passing a client gsd-only check that _check_grid_alignment
+            # (res_x and res_y independently) would reject. Expose both axes.
             ogc_record["properties"]["res_x"] = raster_meta["res_x"]
             ogc_record["properties"]["res_y"] = raster_meta["res_y"]
             # fix(#569): gsd is in CRS units — geographic CRSs deliver degrees,
@@ -504,13 +473,9 @@ def dataset_to_ogc_record(
         if raster_meta.get("band_count"):
             ogc_record["properties"]["band_count"] = raster_meta["band_count"]
 
-        # Build bands array from band_info.
-        # fix(#1778): through the same two normalisers the STAC serializer
-        # uses (`app.core.raster_bands`), so one dataset cannot report a band
-        # one way here and another way there. `name` used to be read directly, a key no producer writes,
-        # so the colour interpretation of every locally ingested raster was
-        # dropped from this representation alone. Empty entries are skipped for
-        # the reason given in `to_stac_properties`.
+        # fix(#1778): band_name/nodata go through the same normalisers as the
+        # STAC serializer (`app.core.raster_bands`), so one dataset can't
+        # report a band one way here and another way there.
         bands = []
         band_info = raster_meta.get("band_info")
         if band_info and isinstance(band_info, list):
@@ -527,17 +492,11 @@ def dataset_to_ogc_record(
                 if nodata is not None:
                     band_entry["nodata"] = nodata
                 elif raster_meta.get("nodata") is None:
-                    # fix(#1805 review round 4 P2): kept across the move to
-                    # the shared normaliser. This band's own stats don't
-                    # carry a value `stac_band_nodata` can parse, but the
-                    # asset WAS probed (band_info exists) and its
-                    # authoritative RasterAsset.nodata column is None --
-                    # NoData is confirmed absent, not merely unrecorded for
-                    # this band. Emit the key explicitly so the client can
-                    # tell "absent" from "unavailable" (nodata omitted below
-                    # means the latter -- e.g. a remote COG whose band-level
-                    # stats carry only min/max/mean even though the
-                    # asset-level column IS set).
+                    # fix(#1805): the asset WAS probed and its authoritative
+                    # RasterAsset.nodata column is None, so absence is
+                    # confirmed, not merely unrecorded — emit the key
+                    # explicitly so the client can tell "absent" from
+                    # "unavailable" (an omitted key means the latter).
                     band_entry["nodata"] = None
                 if bi.get("description"):
                     band_entry["description"] = bi["description"]

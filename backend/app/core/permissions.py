@@ -10,10 +10,9 @@ MANAGE_COLLECTIONS = "manage_collections"
 USE_AI_CHAT = "use_ai_chat"
 MANAGE_USERS = "manage_users"
 MANAGE_SETTINGS = "manage_settings"
-# CLOUD-02 (Phase 1211): fleet-superadmin capability for the tenant control plane.
-# NOT granted to the default "admin" role — a per-tenant admin must never be able
-# to list/read/update/delete tenants across the fleet (IDOR).
-# Granted out-of-band to a dedicated fleet-operator account by ops.
+# CLOUD-02 (Phase 1211): fleet-superadmin capability. Never grant to the
+# default "admin" role — a per-tenant admin must not gain cross-tenant
+# tenant CRUD (IDOR). Granted out-of-band by ops.
 MANAGE_TENANTS = "manage_tenants"
 
 ALL_CAPABILITIES: list[str] = [
@@ -60,9 +59,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, dict[str, bool]] = {
         USE_AI_CHAT: True,
         MANAGE_USERS: True,
         MANAGE_SETTINGS: True,
-        # CLOUD-02 (Phase 1211): fleet-superadmin only; NOT granted to per-tenant admins.
-        # A signup-created org-admin must never have cross-tenant control-plane access.
-        # Grant this capability out-of-band to a dedicated fleet-operator account.
+        # CLOUD-02: fleet-superadmin only, never a per-tenant admin (IDOR risk).
         MANAGE_TENANTS: False,
     },
 }

@@ -1,28 +1,21 @@
 """MIG-02 — startup schema-head skew guard.
 
 Refuse to boot when the database's applied migration heads do not match the
-heads the running image's migration scripts declare. Booting the API/worker on
-a schema-skewed DB silently serves a broken or out-of-date schema; this guard
-converts that into a loud, fail-closed ``RuntimeError`` at startup.
+heads the running image's migration scripts declare. Booting the API/worker
+on a schema-skewed DB silently serves a broken or out-of-date schema; this
+guard converts that into a loud, fail-closed ``RuntimeError`` at startup.
 
-Two skew directions are both fatal:
-
-* **DB behind** — the image declares revisions the DB has not applied (the
-  migrate service did not run, or ran an older image). On a fresh/empty DB the
-  ``alembic_version`` table is empty (``db_heads == set()``) while the scripts
-  declare one or more heads, which is the extreme "behind" case and is
-  correctly refused (the migrate service is supposed to run first).
-* **DB ahead** — the DB has revisions the image's scripts do not contain (the
-  classic image-rollback case: a new schema was migrated, then the image was
-  reverted to an older build whose scripts predate those revisions).
+Two skew directions are both fatal: DB behind (the image declares revisions
+the DB has not applied — the migrate service did not run, or ran an older
+image; on a fresh/empty DB ``db_heads == set()`` is the extreme case) and DB
+ahead (the DB has revisions the image's scripts lack — the classic
+image-rollback case, reverted to a build whose scripts predate them).
 
 Script-head discovery mirrors ``alembic/env.py``: the base
-``alembic/versions`` directory plus any extra version directories contributed
-by ``geolens.migrations`` entry points (the enterprise overlay), so the guard
-is correct for BOTH OSS single-head and enterprise two-head graphs without
+``alembic/versions`` directory plus any extra version directories from
+``geolens.migrations`` entry points (the enterprise overlay), so the guard is
+correct for both OSS single-head and enterprise two-head graphs without
 duplicating env.py's connection/migration logic.
-
-References: MIG-02.
 """
 
 from __future__ import annotations
@@ -39,16 +32,14 @@ from app.core.config import settings
 
 logger = structlog.stdlib.get_logger(__name__)
 
-#: Schema the alembic version table lives in — matches env.py's
-#: ``version_table_schema="catalog"``. The skew read MUST target the same
-#: schema or it will see an empty/absent version table and wrongly report
-#: "DB behind".
+#: Matches env.py's ``version_table_schema="catalog"``. The skew read MUST
+#: target the same schema or it sees an empty/absent version table and
+#: wrongly reports "DB behind".
 _VERSION_TABLE_SCHEMA = "catalog"
 _VERSION_TABLE = "alembic_version"
 
-#: Directory holding this file: backend/app/core/db/ — used to resolve the
-#: backend root and the alembic config / versions dir relative to it, so the
-#: guard does not depend on the process CWD.
+#: Resolves the backend root and alembic config/versions dir relative to this
+#: file, so the guard does not depend on the process CWD.
 _THIS_DIR = pathlib.Path(__file__).resolve().parent
 #: backend/ root (…/app/core/db -> up 3).
 _BACKEND_DIR = _THIS_DIR.parents[2]
@@ -60,11 +51,11 @@ def _discover_extra_migration_paths() -> list[str]:
     """Discover overlay migration version dirs from ``geolens.migrations``.
 
     Mirrors ``alembic/env.py``'s ``_discover_migration_paths`` (the enterprise
-    e-chain lives in the overlay package and is contributed via this entry
-    point group). Kept deliberately tolerant: a missing/uninstallable overlay
-    is the normal OSS case and yields no extra paths. We do NOT import env.py
-    here because importing it executes ``run_migrations_online()`` at module
-    top level.
+    e-chain lives in the overlay package, contributed via this entry point
+    group). Deliberately tolerant: a missing/uninstallable overlay is the
+    normal OSS case and yields no extra paths. env.py itself is never
+    imported here, since importing it executes ``run_migrations_online()`` at
+    module top level.
     """
     paths: list[str] = []
     for ep in iter_entry_points(group="geolens.migrations"):
@@ -117,8 +108,8 @@ def _build_alembic_config() -> Config:
 
 
 def build_alembic_config() -> Config:
-    """Supported external entry point for overlay tooling to build the merged
-    alembic ``Config`` (OSS base + installed overlay version dirs)."""
+    """Supported external entry point building the merged alembic ``Config``
+    (OSS base + installed overlay version dirs)."""
     return _build_alembic_config()
 
 
@@ -156,11 +147,9 @@ async def get_current_heads() -> set[str]:
 async def assert_schema_in_sync() -> None:
     """Fail closed unless DB heads exactly equal the image's script heads.
 
-    Raises ``RuntimeError`` on ANY mismatch (set inequality covers both the
+    Raises ``RuntimeError`` on any mismatch (set inequality covers both the
     DB-behind and DB-ahead directions, plural-head enterprise graphs, and the
     fresh-empty-DB case). On match, logs the agreed heads at INFO and returns.
-
-    References: MIG-02.
     """
     script_heads = get_script_heads()
     db_heads = await get_current_heads()

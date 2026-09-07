@@ -40,7 +40,7 @@ class DatasetMeta(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
-    # fix(#430 V-17): dataset visibility/status so the builder can flag layers hidden
+    # fix(#430): dataset visibility/status so the builder can flag layers hidden
     # from a public map's anonymous audience.
     visibility: str | None
     record_status: str | None
@@ -71,9 +71,7 @@ class LayerRow(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
-    visibility: str | None = (
-        None  # fix(#430 V-17): dataset visibility for audience-badge
-    )
+    visibility: str | None = None  # fix(#430): dataset visibility for audience-badge
     record_status: str | None = None
     attribution: str | None = None  # feat(#1472): required credit line
 
@@ -111,7 +109,7 @@ async def get_dataset_meta(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
-            # fix(#525 B-038): tile_version reads the dedicated URL cache-buster —
+            # fix(#525): tile_version reads the dedicated URL cache-buster —
             # current_version only changes on reupload, so feature edits and
             # column DDL never rolled the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
@@ -245,7 +243,7 @@ async def _fetch_layer_rows_ordered(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
-            # fix(#525 B-038): tile_version reads the dedicated URL cache-buster —
+            # fix(#525): tile_version reads the dedicated URL cache-buster —
             # current_version only changes on reupload, so feature edits and
             # column DDL never rolled the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
@@ -257,7 +255,7 @@ async def _fetch_layer_rows_ordered(
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_id)
-        # fix(#430 BA-21): concurrent adds can collide on sort_order (non-atomic RMW);
+        # fix(#430): concurrent adds can collide on sort_order (non-atomic RMW);
         # break ties by id so stacking order is at least deterministic.
         .order_by(MapLayer.sort_order, MapLayer.id)
     )
@@ -293,14 +291,14 @@ async def filter_layer_rows_by_dataset_visibility(
 ) -> list[LayerRow]:
     """Drop layer rows whose backing dataset is not visible to ``user``.
 
-    SEC-A: ``GET /maps/{id}`` and ``/style.json`` gate only the MAP, so a public
-    map referencing a private dataset would otherwise leak that dataset's metadata
-    (and, via the signed tile URL in style.json, its actual tiles) to anonymous
-    callers. This mirrors ``get_shared_map`` (service_public.py), which filters each
-    layer's dataset through ``apply_visibility_filter``. Layer order is preserved.
+    SEC-A: ``GET /maps/{id}`` and ``/style.json`` gate only the MAP, so a
+    public map referencing a private dataset would otherwise leak its
+    metadata (and, via the signed tile URL, its tiles) to anonymous callers.
+    Mirrors ``get_shared_map``'s per-layer filtering. Layer order is preserved.
 
-    Do NOT swap this for ``bulk_check_dataset_access``: that dereferences ``user.id``
-    (crashes on anonymous ``user is None``) and lacks the published-status nuance.
+    Do NOT swap for ``bulk_check_dataset_access``: it dereferences ``user.id``
+    (crashes on anonymous ``user is None``) and lacks the published-status
+    nuance.
     """
     if not layer_rows:
         return layer_rows
@@ -321,14 +319,10 @@ async def _resolve_save_response_metadata(
 ) -> tuple[str | None, str | None, datetime | None]:
     """Resolve forked_from_name + owner_username + DB-side updated_at via one LEFT JOIN.
 
-    One atomic query (matches the pre-PERF-6 get_map_with_layers semantics
-    under READ COMMITTED). Used by update_map / duplicate_map where map_obj
-    is already in-session — get_map_with_layers issues its own combined
-    query inline to keep the read path at 2 queries total.
-
-    ``Map.updated_at`` is included so callers don't need a separate
-    ``session.refresh(map_obj)`` round-trip to read the DB-side
-    ``onupdate=func.now()`` value (PERF: saves one round-trip per save).
+    One atomic query; used by update_map/duplicate_map where map_obj is
+    already in-session (get_map_with_layers keeps its own inline query for a
+    2-query read path). Including ``Map.updated_at`` avoids a separate
+    ``session.refresh(map_obj)`` round-trip for the DB-side onupdate value.
     """
     ForkedMap = aliased(Map)
     stmt = (
@@ -368,7 +362,6 @@ def _apply_map_visibility_filter(
 
 
 def _infer_layer_type(record_type: str | None) -> str:
-    """Infer layer_type from record_type."""
     return (
         "raster_geolens"
         if record_type in RASTER_FAMILY_RECORD_TYPES

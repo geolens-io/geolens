@@ -125,9 +125,8 @@ async def bind_reservation_to_staged_source(
     from staging rather than from a creation that predates the download.
     """
     now = now or datetime.now(timezone.utc)
-    # Snapshotted before the statement: a values() clause carrying a SQL
-    # expression cannot be evaluated in Python, so the ORM would otherwise
-    # expire this attribute and the mirror below would lazy-load it.
+    # Snapshotted before the statement: a SQL-expression values() clause
+    # would otherwise expire this attribute and lazy-load it in the mirror below.
     metadata = {
         name: value
         for name, value in (job.user_metadata or {}).items()
@@ -158,9 +157,8 @@ async def bind_reservation_to_staged_source(
     )
     if not result.rowcount:
         return False
-    # fix(#1814): `set_committed_value`, not assignment. The instance has
-    # to describe the row, but a dirty attribute would have the caller's own
-    # commit flush a second, unfenced ORM update over the fenced one above.
+    # fix(#1814): `set_committed_value`, not assignment — a dirty attribute
+    # would have the caller's own commit flush a second, unfenced update.
     set_committed_value(job, "status", "pending")
     set_committed_value(job, "file_path", file_path)
     set_committed_value(job, "user_metadata", metadata)

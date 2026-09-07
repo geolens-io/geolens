@@ -1,12 +1,9 @@
 """Helpers for rejecting and redacting credential-bearing URLs and secrets.
 
-Two kinds of redaction live here, and they are complementary rather than
-alternatives. The URL helpers scrub by PATTERN — anything shaped like a
-credential query parameter or userinfo — and so cover strings nobody knew the
-secret for, including a token that only ever existed inside a subprocess's
-argv. :func:`scrub_secret_from_exception` scrubs by exact VALUE, for the
-callers that do hold the secret, and so covers echoes the pattern cannot
-recognise as a URL at all.
+Two complementary mechanisms: the URL helpers scrub by PATTERN (a credential
+query parameter or userinfo shape), covering secrets nobody holds directly.
+:func:`scrub_secret_from_exception` scrubs by exact VALUE, for callers that
+do hold the secret, covering echoes the pattern can't recognise as a URL.
 """
 
 from __future__ import annotations
@@ -36,13 +33,9 @@ REDACTED_USERINFO = "redacted"
 # appears rather than a name=value pair, so it needs to read as a redaction
 # even with no surrounding context.
 REDACTED_SECRET = "***"
-# fix(#1116): the optional scheme prefix is bounded to 64 characters, which is
-# longer than any registered URI scheme. An unbounded `+` here is ambiguous
-# against the `https?` that follows, so a long run of prefix-class characters
-# that never completes a match made the engine retry every prefix length at
-# every start position — O(n²) on a fallback that is fed GDAL stderr and
-# uploaded-VRT paths. A longer prefix still redacts: the match simply starts
-# later in the string and still spans the whole URL.
+# fix(#1116): scheme prefix bounded to 64 chars (longer than any real URI
+# scheme) — an unbounded `+` here is ReDoS-ambiguous against `https?` and was
+# O(n²) on GDAL stderr/VRT paths. A longer prefix still redacts correctly.
 URL_LIKE_RE = re.compile(r"(?:(?:[A-Za-z0-9_+.-]{1,64}:)?https?://)[^\s\"'<>]+")
 
 SENSITIVE_QUERY_PARAMS = frozenset(
@@ -51,15 +44,13 @@ SENSITIVE_QUERY_PARAMS = frozenset(
         "api-key",
         "api_key",
         "apikey",
-        # fix(#1755 item 7 lane B3): ArcGIS's own query-parameter name for a
-        # token, distinct from the generic "api_key"/"token" already here —
-        # a stored ArcGIS pointer or a GDAL-composed query can carry it and
-        # it needs the same redaction the others already get.
+        # fix(#1755): ArcGIS's own token query param, distinct
+        # from the generic "api_key"/"token" already here.
         "authkey",
         "client_secret",
         "code",
         "key",
-        # fix(#1755 item 7 lane B3): Maxar's named API key query parameter,
+        # fix(#1755): Maxar's named API key query parameter,
         # for the same reason as "authkey" above.
         "maxar_api_key",
         "password",
@@ -86,12 +77,9 @@ def query_has_credentials(query: str) -> bool:
     """Return True if a raw query string contains known credential parameters."""
     if query.startswith("?"):
         query = query[1:]
-    # fix(#1770 round 47 P1 class): a redactor must never raise on the string
-    # it is asked to scrub -- `max_num_fields` turns an oversized query in an
-    # exception message into a crash INSIDE exception handling, worse than
-    # the field count this already tolerates. See
-    # `service_endpoints.bounded_parse_qsl`'s docstring for the sites that DO
-    # need the bound.
+    # fix(#1770): a redactor must never raise on its own input —
+    # `max_num_fields` would crash INSIDE exception handling. See
+    # `service_endpoints.bounded_parse_qsl` for sites that DO need the bound.
     pairs = parse_qsl(query, keep_blank_values=True)  # parse_qs: unbounded
     return any(_is_sensitive_query_param(key) for key, _ in pairs)
 
@@ -102,7 +90,7 @@ def has_url_credentials(url: str) -> bool:
     Also True when the authority is unparsable: callers use this to admit or
     refuse a string, so "cannot tell" has to resolve to refusal, not to "no".
     """
-    # fix(#430 BA-04): strip GDAL-style prefixes (ESRIJSON:, WFS:, ...) before
+    # fix(#430): strip GDAL-style prefixes (ESRIJSON:, WFS:, ...) before
     # inspecting userinfo — otherwise urlsplit sees no netloc and misses
     # `user:pass@` behind the prefix, mirroring redact_url_credentials.
     prefixed = _split_prefixed_url(url)
@@ -111,18 +99,9 @@ def has_url_credentials(url: str) -> bool:
     try:
         parts = urlsplit(url)
     except ValueError:
-        # fix(#1132): the same malformed-authority raise #1119 fixed in
-        # redact_url_credentials — the mirror stopped at the happy path. The
-        # caller that makes it a bug is _metadata_contains_secret in
-        # modules/catalog/sources/router.py, which asks this question of every
-        # string in a connector config from OUTSIDE the handler's try block, so
-        # a raise there is an unhandled 500 instead of the gate's 400.
-        #
-        # True, not False, and the asymmetry is the whole point: this is a
-        # detector, so refusing an authority nobody can parse costs a rejected
-        # config that fails loudly and gets fixed, while admitting it makes the
-        # gate silently permissive on exactly the input an attacker controls.
-        # No credential is reported as absent because the parser gave up.
+        # fix(#1132): mirrors #1119. Caller (_metadata_contains_secret) calls
+        # this outside its try block, so a raise is an unhandled 500. Return
+        # True, not False: "can't parse" must refuse, never silently admit.
         return True
     return bool(parts.username or parts.password) or query_has_credentials(parts.query)
 
@@ -159,7 +138,7 @@ def redact_query_credentials(query: str) -> str:
         return query
     prefix = "?" if query.startswith("?") else ""
     raw_query = query[1:] if prefix else query
-    # fix(#1770 round 47 P1 class): same reasoning as `query_has_credentials`
+    # fix(#1770): same reasoning as `query_has_credentials`
     # above -- a redactor must never raise on its own input.
     pairs = parse_qsl(raw_query, keep_blank_values=True)  # parse_qs: unbounded
     if not any(_is_sensitive_query_param(key) for key, _ in pairs):
@@ -173,60 +152,23 @@ def redact_query_credentials(query: str) -> str:
 
 
 # fix(#1119): urlsplit raises ValueError on a malformed bracketed authority
-# ("https://.[::1]", "https://[::1"), and redact_url_credentials let it escape —
-# so a call whose whole contract is "return something safe to log" raised
-# instead. sources/preview.py and the three processing/ingest/validation.py sites
-# interpolate the result into an IngestionError, so a malformed authority in GDAL
-# stderr or in an uploaded VRT's <SourceFilename> became an unhandled 500.
+# (e.g. "https://[::1"); redact_url_credentials must return a safe string to
+# log, never raise. Two patterns suffice: urlsplit only reaches its bracket
+# and NFKC checks inside `if url[:2] == '//'`, so a string that raised always
+# has a `//` authority for the userinfo pattern to anchor on.
 #
-# These two patterns are enough to cover the fallback, because urlsplit reaches
-# its bracket and NFKC checks only inside `if url[:2] == '//'`: a string that
-# raised always has a `//` authority for the userinfo pattern to anchor on.
-#
-# fix(#1119 review 2): they delimit on URL syntax — `/?#` for the authority,
-# `&#` for a query value — and NOT on whitespace. An earlier `\s` in these
-# classes made the fallback stop at a space that the parser keeps, so it leaked
-# strictly MORE than the parsed path, breaking this module's own invariant that
-# the fallback only ever keeps what the parsed path would have kept:
-#
-#   https://user:hunter 2@[::1        returned verbatim; urlsplit ends a netloc
-#                                     at `/?#`, never at a space, so the parsed
-#                                     path would have redacted the whole userinfo
-#   https://[::1?token=prefix hunter2  became `token=<redacted> hunter2`; parse_qsl
-#                                     takes the value to the next `&`/`#`, so the
-#                                     parsed path would have redacted all of it
-#
-# Widening is the safe direction for a redactor and the reason is asymmetric:
-# over-redaction costs a less informative log line, under-redaction leaks a
-# credential and does it silently. Greedy is also correct here rather than
-# incidental — urlsplit takes userinfo to the LAST `@` in the authority.
+# fix(#1119): both patterns delimit on URL syntax (`/?#` for the
+# authority, `&#` for a query value), never on whitespace — a `\s` class
+# stops early and leaks MORE than the parsed path would have redacted.
+# Widening is always the safe direction here: under-redaction leaks silently.
 _UNPARSED_USERINFO_RE = re.compile(r"//[^/?#]*@")
 _UNPARSED_QUERY_PAIR_RE = re.compile(r"([?&])([^?&=#]+)=([^&#]*)")
 
-# fix(#1119 review): urlsplit DELETES these three characters from anywhere in the
-# string before it parses (CPython's `_UNSAFE_URL_BYTES_TO_REMOVE`). Every reader
-# in this module has to delete them too, or it is redacting a different string
-# from the one the parser saw — and that gap leaked a credential in THREE
-# positions, only one of which was reported:
-#
-#   https://user:hunter2\n@[::1      the fallback's `\s` stopped the userinfo
-#                                    match at the control character
-#   https://[::1?to\nken=hunter2     the same `\s` hid a sensitive parameter NAME
-#   ogrinfo failed: https://user:hunter2\n@[::1 bad
-#                                    URL_LIKE_RE stopped at the control character
-#                                    and handed the recursion `https://user:hunter2`,
-#                                    which has no `@` and so parses as host:port
-#                                    with no credential in it at all
-#
-# The third is the one that matters most (it is the GDAL-stderr path) and it is
-# not reachable from the fallback at all, so patching the fallback alone would
-# have left the widest hole open. Stripping once at the entry point is what
-# collapses the class: the direct parse, URL_LIKE_RE and the unparsable fallback
-# then all read the identical string.
-#
-# The cost, accepted deliberately: a multi-line stderr blob comes back as one
-# line. Replacing with a space instead would read better and would NOT fix this —
-# a space re-breaks the token for URL_LIKE_RE and the credential survives again.
+# fix(#1119): urlsplit deletes \t\r\n from anywhere in the string
+# before parsing (CPython's `_UNSAFE_URL_BYTES_TO_REMOVE`); every reader here
+# must strip them too or it scrubs a different string than urlsplit saw —
+# this gap let a credential through past a stray control char in the GDAL-
+# stderr path. Cost accepted: a multi-line blob collapses to one line.
 _URLSPLIT_STRIPS = ("\t", "\r", "\n")
 
 
@@ -248,40 +190,19 @@ def _redact_unparsed_query_pair(match: re.Match[str]) -> str:
 def _redact_without_parsing(value: str) -> str:
     """Redact a string ``urlsplit`` rejects, lexically and without recursing.
 
-    Deletes credentials in place instead of reconstructing the URL: the caller is
-    about to put this in a log line or an error message, and a string the parser
-    refused is most useful to whoever reads it unchanged apart from the secrets.
-    Handing it back to the URL_LIKE_RE fallback instead would recurse forever,
-    because the match would be the same substring that just failed to parse.
+    Deletes credentials in place rather than reconstructing the URL, and never
+    hands the result back to the URL_LIKE_RE fallback — the same substring
+    just failed to parse, so that would recurse forever.
 
-    Reusing ``_is_sensitive_query_param`` is what keeps this honest: the fallback
-    leaks a credential only in a parameter the parsed path would also have kept,
-    so it adds no leak class of its own.
+    fix(#1119): scrubs both the raw string and its NFKC-normalised
+    form. Normalisation cuts both ways: it can REVEAL a delimiter ``urlsplit``
+    would have rejected (e.g. a fullwidth ``＠``), or INTRODUCE one mid-
+    credential that truncates an otherwise-intact match. Either view showing a
+    boundary is enough to redact, so evading both needs an ASCII delimiter at
+    the same position in both — which the parsed path would also catch.
 
-    fix(#1119 reviews 3+4): scrub BOTH lexical views, raw first and NFKC second,
-    because normalisation cuts both ways and one pass is blind in one direction:
-
-    - normalising REVEALS a delimiter, which is why the fallback is reached at
-      all. ``urlsplit``'s ``_checknetloc`` (CPython ``urllib/parse.py:441``)
-      refuses a netloc precisely because NFKC would introduce one of ``/?#@:``.
-      The raw view cannot see it, so ``https://user:hunter2＠example.com/path``
-      shows no ASCII ``@`` and comes back whole.
-    - normalising also INTRODUCES a delimiter mid-credential, which truncates a
-      match that was intact before. ``https://user:hunter2／@[::1`` normalises to
-      ``…hunter2/@…``, and the userinfo pattern then stops at the new ``/``.
-      Same for ``?token=prefix＃hunter2``, where only ``prefix`` gets redacted.
-
-    Two passes, so a credential is redacted when EITHER view shows its bounds.
-    Evading both needs a delimiter at the same position in both views — and a
-    delimiter present in the RAW view is ASCII, so urlsplit draws that same
-    boundary and the parsed path (the reference this fallback is measured
-    against) treats it identically. The invariant therefore still holds: the
-    fallback never keeps more than the parsed path would.
-
-    The returned string is the normalised one — a fullwidth character reads as
-    its ASCII form in the log. That only affects strings that already failed to
-    parse, and mapping offsets back through a length-changing normalisation to
-    preserve them would be a far better way to introduce a bug than to avoid one.
+    Returns the normalised string, so a fullwidth character reads as ASCII in
+    the log; only affects strings that already failed to parse.
     """
     # Pass 2 normalises the OUTPUT of pass 1, not the original: chaining is what
     # keeps pass 1's redactions: `//redacted@` survives NFKC unchanged, so the
@@ -300,7 +221,7 @@ def _scrub_one_view(value: str) -> str:
 
 def redact_url_credentials(url: str) -> str:
     """Redact known credential query values and userinfo in a URL-like string."""
-    # fix(#1119 review): normalise to urlsplit's own view FIRST, so every reader
+    # fix(#1119): normalise to urlsplit's own view FIRST, so every reader
     # below judges the same string the parser does. See _URLSPLIT_STRIPS.
     url = _strip_urlsplit_removals(url)
     prefixed = _split_prefixed_url(url)
@@ -318,7 +239,7 @@ def redact_url_credentials(url: str) -> str:
     # Only a scheme-less string (free text, GDAL stderr) goes to the regex
     # fallback. An http(s) URL with an EMPTY host (e.g. "https://?token=x") must
     # still be reconstructed below — routing it to the fallback would match the
-    # whole string and recurse forever. fix(#429 review): guard empty-host URLs
+    # whole string and recurse forever. fix(#429): guard empty-host URLs
     # against unbounded recursion; the reconstruct path terminates and redacts.
     if parts.scheme.lower() not in {"http", "https"}:
         return URL_LIKE_RE.sub(
@@ -344,26 +265,16 @@ def scrub_registered_credentials(text: str) -> str:
     """Exact-scrub every credential secret registered so far in this
     request/job's context.
 
-    fix(#1770 round 43 P2). The pattern-based helpers in this module
-    (``redact_url_credentials`` and, in ``core/logging_config.py``,
-    ``_scrub_text``) only ever redact a KNOWN shape: a query parameter whose
-    NAME is in ``SENSITIVE_QUERY_PARAMS``, or userinfo. A same-origin
-    redirect that reflects the credential into the URL PATH, or into an
-    arbitrary query key not on that list (``?echo=<value>``, say), carries
-    the secret straight through either pattern untouched, and each new
-    reflection SHAPE used to cost its own review round rather than closing
-    as a class.
+    fix(#1770): the pattern-based helpers (``redact_url_credentials``,
+    ``logging_config._scrub_text``) only catch a KNOWN shape — a listed query
+    param name or userinfo. A reflected credential in the URL path or an
+    unlisted query key slips through untouched.
 
-    ``app.core.service_tokens.register_credential_secret`` is called at the
-    one place a credential header is ever composed
-    (``build_credential_header``) and -- fix(#1840 audit round 1) -- at the one
-    place a credential is deliberately put in a URL instead
-    (``adapters/arcgis.py::_query_form_credential``, the pre-10.5.1 ArcGIS
-    fallback), so by the time anything downstream calls
-    this, every secret in play for this request/job is already registered --
-    exact-value redaction (``scrub_secret_value``, which also expands to the
-    Basic cleartext and every URL-encoded form) then finds it wherever it
-    was reflected, independent of shape.
+    ``register_credential_secret`` is called wherever a credential header or
+    URL is composed (``build_credential_header``; fix(#1840): also
+    ``adapters/arcgis.py::_query_form_credential``), so by the time this runs
+    every secret in play is registered and ``scrub_secret_value`` finds it
+    regardless of shape.
     """
     for secret in registered_credential_secrets():
         text = scrub_secret_value(text, secret)
@@ -373,28 +284,16 @@ def scrub_registered_credentials(text: str) -> str:
 def redact_exception_text(exc: BaseException) -> str:
     """``str(exc)``, with any URL-shaped substring redacted.
 
-    fix(#1770 round 39): ``httpx.HTTPStatusError`` -- what ``raise_for_status``
-    raises -- puts the WHOLE request URL, query string included, into its own
-    message: ``"Client error '401 Unauthorized' for url '<url>'"``. A caller
-    that reads a response chosen by an untrusted service and logs the caught
-    exception's text was logging that URL verbatim, so a service that
-    reflects a query parameter shaped like a credential into its own error
-    page gets it echoed straight into the log -- the free-text sibling of the
-    ``href=`` leak `redact_url_credentials` already closes for a value read
-    directly off a link.
+    fix(#1770): ``httpx.HTTPStatusError`` embeds the WHOLE request
+    URL, query string included, in its message — an untrusted service that
+    reflects a credential-shaped query param into its own error page gets it
+    logged verbatim. Reuses ``redact_url_credentials``'s ``URL_LIKE_RE``
+    fallback for text that isn't, as a whole, a bare URL. Safe on exceptions
+    with no URL in their message (e.g. ``httpx.RequestError``, whose address
+    lives on ``exc.request.url`` and is never read here).
 
-    ``redact_url_credentials`` already redacts a URL embedded in arbitrary
-    text (its ``URL_LIKE_RE`` fallback for anything that is not, as a WHOLE
-    string, a bare ``http``/``https`` URL), so this is that function applied
-    to the one shape an exception's text actually has. Safe to call
-    unconditionally: an exception whose message carries no URL at all --
-    ``httpx.RequestError`` and its connection-level subclasses generally
-    don't, the address lives on ``exc.request.url`` instead and is never read
-    here -- passes through unchanged.
-
-    fix(#1770 round 43 P2): ``scrub_registered_credentials`` runs second, so a
-    reflection the pattern-based pass above cannot see by shape (an arbitrary
-    query key, or the URL path) is still caught by exact value.
+    fix(#1770): ``scrub_registered_credentials`` runs second, to
+    catch reflections the pattern pass above can't see by shape.
     """
     return scrub_registered_credentials(redact_url_credentials(str(exc)))
 
@@ -402,21 +301,11 @@ def redact_exception_text(exc: BaseException) -> str:
 def _basic_cleartext(blob: str) -> set[str]:
     """The username and password inside a base64 basic credential.
 
-    fix(#1746 B2b review r11). Empty on anything it cannot read, and it never
-    raises: the value reaching here is whatever a worker was handed, so a blob
-    that is truncated, re-encoded, not base64 at all, or not a colon-separated
-    pair must degrade to "nothing extra to scrub" rather than replacing a
-    failure message with a decoder traceback.
-
-    Padding is restored before decoding because a caller that stripped it is
-    the ordinary case for base64 carried in text, and ``validate=True`` so a
-    blob with characters outside the alphabet is refused here rather than
-    silently decoding to something that is not the credential.
-
-    Nothing is logged, here or by the caller. The whole point of the return
-    value is that it is a secret; a decode failure that named the blob would
-    put a credential in a log line to explain why it could not be kept out of
-    one.
+    fix(#1746): never raises — a blob that's truncated, not
+    base64, or not a colon-separated pair degrades to an empty set rather than
+    surfacing a decoder traceback. Padding is restored before decoding;
+    ``validate=True`` refuses out-of-alphabet input. Nothing is logged here: a
+    decode-failure message naming the blob would itself leak the credential.
     """
     try:
         decoded = base64.b64decode(blob + "=" * (-len(blob) % 4), validate=True).decode(
@@ -437,54 +326,24 @@ def _basic_cleartext(blob: str) -> set[str]:
 def _secret_variants(secret: str) -> list[str]:
     """Every spelling of *secret* that could appear in a captured string.
 
-    A credential does not necessarily reach stderr in the form the caller
-    holds. ``build_gdal_source`` composes the ArcGIS query with ``urlencode``,
-    which percent-encodes the value, so a token containing ``/`` or ``+``
-    appears encoded in the subprocess argv and therefore in anything GDAL
-    echoes back. Scrubbing only the raw form would leave exactly those tokens
-    exposed, and they are the ones an operator is least likely to notice.
+    Percent-encoded forms too: ``build_gdal_source`` composes the ArcGIS
+    query with ``urlencode``, so a token with ``/`` or ``+`` shows up encoded
+    in subprocess argv and GDAL's echo of it. Longest first, so a variant
+    containing another can't leave a partial match after the first
+    replacement.
 
-    Longest first, so a variant that contains another (``a%2Fb`` and its raw
-    ``a/b`` share no prefix, but ``quote`` and ``quote_plus`` often agree)
-    cannot leave a partial match behind after the first replacement.
+    fix(#1746) plan D9: a worker holds a finished header line
+    (``Authorization: Bearer abc``), not the bare secret, so an origin that
+    echoes it back echoes the line's tail after ``": "``, and after the auth
+    scheme — both added as variants alongside the bare token.
 
-    fix(#1746) plan D9: what a worker holds for a header-auth service is a
-    finished header line, so the exact value it would scrub is
-    ``Authorization: Bearer abc``. An origin that echoes the credential back
-    echoes the credential, not the line GeoLens wrapped it in, so the halves
-    are scrubbed too: everything after the first ``": "``, and then everything
-    after the authentication scheme. The second one restores exactly what this
-    function scrubbed before the wire format changed, which is the bare token.
-    A secret containing ``": "`` is a line by construction — a username,
-    password, header value and bearer token may none of them contain
-    whitespace — so this cannot mistake a bare credential for one.
-
-    fix(#1746 B2b review r11): and for basic authentication the encoded blob is
-    not the only spelling that can come back. The credential the ORIGIN knows
-    is a username and a password, so its own error text says so: "authentication
-    failed for user alice", "bad password for alice". GDAL propagates that body
-    to stderr, the preview path logs it and the worker paths carry it into
-    ``IngestJob.error_message`` and the queue's recorded exception, and base64
-    of the pair matches none of it. So the pair is decoded and both halves join
-    the variants, alongside every encoded form.
+    fix(#1746): basic-auth failures can also come back as
+    cleartext prose ("bad password for alice") rather than the base64 blob,
+    so the decoded username/password join the variants too.
     """
-    # fix(#1844 codex r2): there is NO length floor here, on the derived forms
-    # or on the secret itself. Round 1 added one and it was wrong: a floor
-    # decides which VALID credentials stop being scrubbed.
-    # `credential_input_rejection_reason` (`core/service_tokens.py`) accepts any
-    # nonempty printable username, password or header value with no minimum, so
-    # a Basic password of `admin` and a six-character named API key are both
-    # well-formed credentials a user can really configure -- and a floor of 8
-    # silently stopped redacting them from worker logs and from the persisted
-    # exception text. The malformed-short-bearer case the floor was reaching
-    # for is closed at the other end instead, by
-    # `_sanitize_authorization_token` validating before it registers; a VALID
-    # bearer is already at least `HEADER_TOKEN_MIN_LENGTH`, so a bearer-derived
-    # bare token can never be short in the first place.
-    #
-    # Over-scrubbing a short secret stays the deliberate trade-off documented
-    # on `scrub_secret_value` below. Under-scrubbing a valid one is not a trade
-    # this module gets to make.
+    # fix(#1844): no length floor here or on the secret — round 1
+    # added one and it silently stopped scrubbing short-but-valid credentials
+    # (e.g. an 8-char API key). Under-scrubbing a valid secret is not a trade.
     forms = {secret}
     _, separator, tail = secret.partition(HEADER_LINE_SEPARATOR)
     if separator and tail:
@@ -503,16 +362,12 @@ def _secret_variants(secret: str) -> list[str]:
 def scrub_secret_value(text: str, secret: str | None) -> str:
     """Replace every spelling of *secret* in *text* with :data:`REDACTED_SECRET`.
 
-    Exact-value redaction, for callers that hold the credential. It is the
-    stronger of the two mechanisms in this module precisely because it needs
-    no theory about the shape of what it is scrubbing: an echo is caught
-    whether it arrives in a query string, a header dump, a driver diagnostic,
-    or prose.
+    Exact-value redaction: catches an echo in a query string, header dump,
+    driver diagnostic, or prose, with no theory needed about its shape.
 
-    A pathologically short secret over-scrubs the surrounding text. That is
-    the safe direction and is left deliberate rather than floored: refusing to
-    scrub a four-character token to keep a log tidy is the wrong trade, and the
-    pattern-based helpers above still cover it as a query parameter.
+    A short secret over-scrubs surrounding text — the safe direction, left
+    unfloored deliberately; the pattern-based helpers above still cover it as
+    a query parameter.
     """
     if not secret or not text:
         return text
@@ -525,41 +380,21 @@ def scrub_secret_value(text: str, secret: str | None) -> str:
 def scrub_secret_from_exception(exc: BaseException, secret: str | None) -> None:
     """Scrub *secret* out of an exception's message, in place.
 
-    Rewrites ``args`` rather than raising a replacement, which keeps the
-    exception's type, traceback and ``__cause__`` intact — all three matter to
-    the callers here: ``_run_service_import_with_wfs_fallback`` dispatches on
-    ``IngestionError`` for its namespace retry, and the failure handlers key
-    error codes off the class. Constructing a new exception would also fail for
-    any class whose ``__init__`` takes more than a message.
+    Mutates ``args`` rather than raising a replacement, keeping type,
+    traceback and ``__cause__`` intact — callers dispatch on exception class
+    (``_run_service_import_with_wfs_fallback``'s namespace retry) and key
+    error codes off it. A single mutation site means every downstream reader
+    (persisted ``error_message``, log record, re-raise) sees scrubbed text.
 
-    Mutating in place is what makes this reliable at a single call site: every
-    downstream reader of that exception — the persisted ``error_message``, the
-    log record, the notification reason, and the re-raise the queue records —
-    sees the scrubbed text, without each of them having to remember to scrub.
-
-    Covers the whole chain (fix(#1746 B2b review r32)): ``__context__``,
-    ``__cause__``, the members of a ``BaseExceptionGroup``, and ``__notes__``
-    on each. A traceback renders all of them, so scrubbing only the outermost
-    ``args`` left the secret visible in exactly the case that produces a chain
-    here — a WFS import that fails, retries unqualified, and fails again.
+    fix(#1746): walks the whole chain — ``__context__``,
+    ``__cause__``, ``BaseExceptionGroup`` members, and their ``__notes__`` —
+    since a traceback renders all of them and a retried WFS import chains.
     """
     if not secret:
         return
-    # fix(#1746 B2b review r32): the WHOLE chain, not just the top. A
-    # namespace-qualified WFS import that fails twice leaves the first
-    # attempt's `IngestionError` as the retry's `__context__`, and the retry's
-    # `__cause__` when the auth hint replaces it. Scrubbing only the outermost
-    # `args` left a username or password the first GDAL attempt echoed sitting
-    # in the chained traceback that exception logging renders and the queue's
-    # bare re-raise records. Every reader of the outer exception is a reader of
-    # its chain.
-    #
-    # `id()` rather than the exception itself: `__eq__` is not defined for most
-    # exception types, and a set of them would compare by identity anyway, but
-    # saying so removes the question. A cycle is not hypothetical -- assigning
-    # `e.__context__ = e` is legal and `raise X from Y` inside a handler for Y
-    # builds a two-node one -- so the visited set is what terminates this, and
-    # the depth bound is a second floor under a chain that is merely long.
+    # fix(#1746): `id()` not equality — most exception types
+    # don't define `__eq__`. A cycle is real (`e.__context__ = e` is legal),
+    # so `seen` plus a depth bound terminate the walk.
     seen: set[int] = set()
     pending: list[tuple[BaseException, int]] = [(exc, 0)]
     while pending:
@@ -572,10 +407,8 @@ def scrub_secret_from_exception(exc: BaseException, secret: str | None) -> None:
             current.__context__,
             current.__cause__,
             *(
-                # A group carries its members beside the chain rather than in
-                # it, so following only `__context__`/`__cause__` walks past
-                # them. `anyio` and `asyncio.TaskGroup` raise these, and this
-                # module's callers run under both.
+                # A group carries members beside the chain, not in it —
+                # __context__/__cause__ alone misses them (anyio, TaskGroup).
                 getattr(current, "exceptions", None) or ()
                 if isinstance(current, BaseExceptionGroup)
                 else ()
@@ -589,34 +422,19 @@ def scrub_registered_credentials_from_exception(exc: BaseException) -> None:
     """Scrub every credential secret registered so far in this request/job's
     context out of *exc*, in place, over its whole chain.
 
-    fix(#1770 round 44 P2). ``scrub_registered_credentials`` (the string
-    form, used by ``redact_exception_text`` and the structlog processor)
-    reads ``registered_credential_secrets()`` from a plain ``ContextVar`` --
-    which only ever answers correctly for a caller in the SAME async task
-    that registered a secret via ``register_credential_secret``. Starlette's
-    ``BaseHTTPMiddleware.dispatch`` runs ``call_next`` (and everything it
-    calls, including the route handler) in a SEPARATE spawned task, so an
-    unhandled exception that escapes the handler is read back by
-    ``RequestLoggingMiddleware``'s own ``except`` clause, and by any
-    ``@app.exception_handler(Exception)``, in the ORIGINAL parent task --
-    where the registry is always the empty default, no matter what the
-    handler registered. Measured directly (a contextvar set inside a
-    ``BaseHTTPMiddleware``-wrapped route handler that raises reads back as
-    unset in both the middleware's own except clause and an app-level
-    ``Exception`` handler, which Starlette routes through
-    ``ServerErrorMiddleware`` -- outside even the user middleware stack).
+    fix(#1770): the string form's ``registered_credential_secrets()``
+    reads a plain ``ContextVar``, which only answers correctly inside the SAME
+    async task that registered it. Starlette's ``BaseHTTPMiddleware.dispatch``
+    runs the route handler in a separate spawned task, so an exception handler
+    or middleware ``except`` clause outside that task always reads the
+    registry as empty — measured directly, this fails silently.
 
-    This is what closes it instead: called from
-    ``CredentialScrubASGIMiddleware`` (``api/middleware/credential_scrub.py``),
-    a plain ASGI callable rather than a ``BaseHTTPMiddleware`` -- it spawns no
-    task of its own, so as long as it is registered as the INNERMOST
-    middleware (added first; see that module's own docstring), it shares the
-    route handler's exact task and can read the registry the handler
-    populated. Exact-value mutation, same as ``scrub_secret_from_exception``,
-    so the SAME exception object -- unwound normally up through every outer
-    context afterward -- already carries the scrubbed text by the time
-    anything outside this task reads it, independent of which context does
-    the reading.
+    Closed by calling this from ``CredentialScrubASGIMiddleware``
+    (``api/middleware/credential_scrub.py``), a plain ASGI callable that spawns
+    no task of its own, so as long as it's the INNERMOST middleware it shares
+    the handler's task and can read what it registered. Exact-value mutation,
+    same as ``scrub_secret_from_exception``, so the object already carries
+    scrubbed text by the time anything outside this task reads it.
     """
     for secret in registered_credential_secrets():
         scrub_secret_from_exception(exc, secret)

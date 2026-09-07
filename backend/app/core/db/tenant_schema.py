@@ -1,30 +1,23 @@
 """Per-tenant data-schema naming and least-privilege lifecycle calls.
 
 Dynamic tenant DDL is owned by the migration-installed SECURITY DEFINER
-functions in ``catalog``.  API and worker processes call those functions; they
-never need CREATE SCHEMA or CREATEROLE themselves.
+functions in ``catalog``; API/worker processes call those and never need
+CREATE SCHEMA or CREATEROLE themselves.
 
-Design invariants
------------------
-- **single_tenant**: hard no-op — returns immediately, touches NO SQL.
-  The shared ``data`` schema + global ``geolens_reader`` stay unchanged.
-- **multi_tenant**: idempotent and transaction-bound — callers can provision in
-  the same transaction that inserts ``catalog.tenants``.
-- Tenant id is ALWAYS passed as a validated UUID string (never f-string
-  interpolated directly from user input).
+single_tenant: hard no-op, touches no SQL, shared ``data`` schema and global
+``geolens_reader`` unchanged. multi_tenant: idempotent and transaction-bound,
+so callers can provision in the same transaction that inserts
+``catalog.tenants``. Tenant id is always a validated UUID string, never
+f-string interpolated from user input.
 
-Call from tenant provisioning
------------------------------
-``apply_tenant_data_schema_from_engine(tenant_id)`` is retained for background
-jobs operating on an already-committed tenant.  Tenant creation must pass its
-request session to ``provision_tenant_data_schema`` so row + substrate commit or
-roll back together.
-At boot, ``bootstrap()`` does NOT call this per-tenant — schemas are
-created on demand at tenant-provision time.
+``apply_tenant_data_schema_from_engine(tenant_id)`` is for background jobs on
+an already-committed tenant; tenant creation must instead pass its request
+session to ``provision_tenant_data_schema`` so row + substrate commit or
+roll back together. ``bootstrap()`` does not call this per-tenant — schemas
+are created on demand at tenant-provision time.
 
-Schema naming convention: ``data_t_{tenant_id with hyphens→underscores}``
-Role naming convention:   ``geolens_reader_t_{tenant_id with hyphens→underscores}``
-Writer naming convention: ``geolens_writer_t_{tenant_id with hyphens→underscores}``
+Naming: schema ``data_t_{id}``, reader role ``geolens_reader_t_{id}``, writer
+role ``geolens_writer_t_{id}``, with ``id`` = tenant_id, hyphens→underscores.
 """
 
 from __future__ import annotations
@@ -46,29 +39,14 @@ _TENANT_ID_RE = re.compile(
 def tenant_data_schema(tenant_id: str | None) -> str:
     """Return the data schema name for a tenant.
 
-    In ``single_tenant``: returns ``"data"`` (the global shared data schema —
-    byte-identical to pre-1209 behavior). Multi-tenant callers must supply a
-    tenant id; missing context fails closed instead of falling back to shared
-    storage.
+    single_tenant: ``"data"`` (the shared schema); ``tenant_id`` may be
+    ``None``. multi_tenant: requires a tenant id (fails closed, no fallback to
+    shared storage) and returns ``data_t_{id}``. IN-02: normalized to
+    lowercase first, since quoted identifiers are case-sensitive and the
+    provisioned schema is always lowercase.
 
-    In ``multi_tenant`` with a non-None tenant_id: returns
-    ``"data_t_{tenant_id with hyphens replaced by underscores}"``.
-
-    IN-02 (Phase 1209-CR): ``tenant_id`` is normalized to lowercase before
-    building the schema name so mixed-case UUIDs cannot produce
-    ``data_t_ABCDEF…`` (case-sensitive in quoted identifiers) while the
-    provisioned schema is ``data_t_abcdef…``.
-
-    Parameters
-    ----------
-    tenant_id:
-        UUID string for the tenant. ``None`` is accepted only in single-tenant
-        mode.
-
-    Raises
-    ------
-    ValueError
-        If ``tenant_id`` is not a valid UUID string in ``multi_tenant`` mode.
+    Raises ``ValueError`` if ``tenant_id`` is not a valid UUID in
+    multi_tenant mode.
     """
     from app.core.tenancy import is_multi_tenant
 
@@ -90,26 +68,10 @@ def tenant_data_schema(tenant_id: str | None) -> str:
 def tenant_reader_role(tenant_id: str | None) -> str:
     """Return the per-tenant reader role name.
 
-    In ``single_tenant``: returns ``"geolens_reader"`` (the global reader
-    role). Missing tenant context fails closed in multi-tenant mode.
-
-    In ``multi_tenant`` with a non-None tenant_id: returns
-    ``"geolens_reader_t_{tenant_id with hyphens replaced by underscores}"``.
-
-    IN-02 (Phase 1209-CR): ``tenant_id`` is normalized to lowercase before
-    building the role name so mixed-case UUIDs cannot produce a role name
-    that diverges from the provisioned role.
-
-    Parameters
-    ----------
-    tenant_id:
-        UUID string for the tenant. ``None`` is accepted only in single-tenant
-        mode.
-
-    Raises
-    ------
-    ValueError
-        If ``tenant_id`` is not a valid UUID string in ``multi_tenant`` mode.
+    single_tenant: ``"geolens_reader"``, ``tenant_id`` may be ``None``.
+    multi_tenant: requires a valid UUID tenant id (fails closed) and returns
+    ``geolens_reader_t_{id}``; IN-02: normalized to lowercase first so a
+    mixed-case UUID can't diverge from the provisioned role name.
     """
     from app.core.tenancy import is_multi_tenant
 
@@ -131,9 +93,9 @@ def tenant_reader_role(tenant_id: str | None) -> str:
 def tenant_writer_role(tenant_id: str | None) -> str:
     """Return the SET-only per-tenant writer target role.
 
-    Single-tenant deployments keep using the configured database login and
-    therefore return ``"geolens_writer"`` only as an inert naming fallback.
-    Multi-tenant callers must supply a UUID.
+    single_tenant deployments keep using the configured database login, so
+    ``"geolens_writer"`` is an inert naming fallback only. multi_tenant
+    callers must supply a UUID.
     """
     from app.core.tenancy import is_multi_tenant
 
@@ -159,23 +121,15 @@ def _validated_tenant_id(tenant_id: str, *, operation: str) -> str:
 async def provision_tenant_data_schema(conn, tenant_id: str) -> None:
     """Provision a tenant through the migration-owned database boundary.
 
-    ``conn`` may be an ``AsyncConnection`` or ``AsyncSession``.  The function
-    call participates in the caller's transaction, which is required for Cloud
-    create/signup atomicity.  PostgreSQL performs identifier construction,
-    locking, role validation, and grants inside the SECURITY DEFINER function.
-
-    Parameters
-    ----------
-    conn:
-        Open async SQLAlchemy connection or session.  Do not use AUTOCOMMIT for
-        tenant creation.
-    tenant_id:
-        UUID string for the tenant. Validated — raises ValueError if not UUID.
+    ``conn`` (``AsyncConnection`` or ``AsyncSession``, not AUTOCOMMIT)
+    participates in the caller's transaction, required for Cloud
+    create/signup atomicity. PostgreSQL does identifier construction,
+    locking, role validation, and grants inside the SECURITY DEFINER
+    function. Raises ``ValueError`` if ``tenant_id`` is not a UUID.
     """
     from app.core.tenancy import is_multi_tenant
 
     if not is_multi_tenant():
-        # single_tenant → unconditional no-op: zero SQL, zero cost.
         logger.debug("provision_tenant_data_schema: single_tenant — skipping (no-op)")
         return
 
@@ -224,11 +178,9 @@ async def deprovision_tenant_data_schema(conn, tenant_id: str) -> None:
 async def apply_tenant_data_schema_from_engine(tenant_id: str) -> None:
     """Provision an already-committed tenant using the global engine.
 
-    In ``single_tenant``: delegates to ``apply_tenant_data_schema()`` which returns
-    immediately (zero SQL).
-
-    The SECURITY DEFINER function runs in one ordinary transaction.  Tenant
-    creation paths must instead pass their existing session directly.
+    single_tenant: delegates to ``apply_tenant_data_schema()``, an immediate
+    no-op. The SECURITY DEFINER function runs in one ordinary transaction;
+    tenant creation paths must instead pass their existing session directly.
     """
     # fix(#909): façade import — see the note in rls.py.
     from app.core.db import engine
@@ -240,22 +192,14 @@ async def apply_tenant_data_schema_from_engine(tenant_id: str) -> None:
 def tenant_shard_id(tenant_id: str | None) -> str | None:
     """Look up the shard routing key for a tenant (Phase-1214 routing primitive).
 
-    This is a routing PRIMITIVE reserved for Phase 1214's promote/rebalance.
-    It is INTENTIONALLY NOT wired into the read/write hot paths in Plans 02/03:
-    at one shard there is nothing to route; hot paths use ``tenant_data_schema``
-    / ``tenant_reader_role`` directly. Non-use in Plans 02/03 is by design.
+    Reserved for Phase 1214's promote/rebalance; intentionally NOT wired into
+    the Plans 02/03 read/write hot paths, which use ``tenant_data_schema`` /
+    ``tenant_reader_role`` directly since there is nothing to route at one
+    shard.
 
-    In ``single_tenant`` or when ``tenant_id`` is None: returns ``None``
-    (routing primitive inactive — caller falls back to the single shard).
-
-    In ``multi_tenant``: queries ``catalog.tenants.shard_id`` for the given
-    tenant, returning ``'shard-0'`` as the fallback if the column is NULL or
-    the tenant row is absent.
-
-    Parameters
-    ----------
-    tenant_id:
-        UUID string for the tenant, or ``None``.
+    single_tenant or ``tenant_id is None``: returns ``None``. multi_tenant:
+    queries ``catalog.tenants.shard_id``, falling back to ``'shard-0'`` if the
+    column is NULL or the tenant row is absent.
     """
     from app.core.tenancy import is_multi_tenant
 
@@ -273,8 +217,8 @@ def tenant_shard_id(tenant_id: str | None) -> str | None:
     async def _fetch() -> str:
         from sqlalchemy.ext.asyncio import create_async_engine
 
-        # Use NullPool to avoid borrowing a connection from the shared pool
-        # for this infrequent lookup.
+        # NullPool: don't borrow a connection from the shared pool for this
+        # infrequent lookup.
         url = _engine.url
         tmp_engine = create_async_engine(str(url), poolclass=NullPool)
         try:
@@ -294,10 +238,8 @@ def tenant_shard_id(tenant_id: str | None) -> str | None:
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            # Inside an async context — caller should use await; return the
-            # coroutine so callers that need to await can do so.
-            # For the synchronous shim used by test-only code, we fall through
-            # to asyncio.run() below.
+            # Already in an async context: run the fetch on a separate thread
+            # since asyncio.run() cannot nest inside a running loop.
             import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -317,15 +259,14 @@ def tenant_shard_id(tenant_id: str | None) -> str | None:
 async def schema_exists(session, schema: str) -> bool:
     """True when *schema* exists in the current database.
 
-    fix(#435 codex r1): Postgres answers `SELECT * FROM missing_schema.t` with
-    `42P01` (undefined_table), the same code a raster dataset's synthetic table
-    produces in a schema that does exist. Read-side callers that degrade `42P01`
-    to an empty page must probe first, or a tenant data schema that was never
-    provisioned (or was lost in a restore) is silently reported as a dataset with
-    zero rows.
+    fix(#435): `42P01` (undefined_table) is ambiguous — Postgres returns it
+    both for a missing schema and for a raster dataset's synthetic table in a
+    schema that exists. Read-side callers degrading `42P01` to an empty page
+    must probe first, or a never-provisioned (or restore-lost) tenant schema
+    is silently reported as a zero-row dataset.
 
-    Run this only on an error path: it costs a catalog lookup, and it must follow
-    a rollback because the failed statement aborted the transaction.
+    Error path only: costs a catalog lookup, and must follow a rollback since
+    the failed statement aborted the transaction.
     """
     result = await session.execute(
         text("SELECT to_regnamespace(:schema) IS NOT NULL"), {"schema": schema}

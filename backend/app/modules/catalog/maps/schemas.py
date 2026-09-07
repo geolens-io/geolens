@@ -38,44 +38,29 @@ LEGACY_BUILDER_PAINT_KEYS = {
     "_heatmap-reversed": "heatmap_reversed",
     "_heatmap-weight-column": "heatmap_weight_column",
     "_height_column": "height_column",
-    # Raster colormap/stretch builder-private keys (v1031/v1032/v1034). The
-    # frontend authors them as `_`-prefixed paint keys that drive the raster
-    # tile URL (buildColormapTileUrl); they are moved here into
-    # style_config.builder so the MapLibre `paint` storage boundary stays clean
-    # and the round-trip persists across save/reload.
+    # Raster colormap/stretch builder-private keys (buildColormapTileUrl),
+    # moved into style_config.builder so the paint storage boundary stays
+    # clean and the round-trip persists across save/reload.
     "_colormap": "colormap",
     "_stretch": "stretch",
     "_pmin": "pmin",
     "_pmax": "pmax",
     "_sigma": "sigma",
-    # DEM hypsometric (color-relief) builder-private keys. The DEM editor
-    # authors them as `_`-prefixed paint keys (DEMEditorScene); they are moved
-    # here into style_config.builder so the MapLibre `paint` storage boundary
-    # stays clean and the round-trip persists across save/reload.
+    # DEM hypsometric (color-relief) builder-private keys (DEMEditorScene),
+    # moved into style_config.builder for the same reason as above.
     "_hypso-enabled": "hypso_enabled",
     "_hypso-ramp": "hypso_ramp",
     "_hypso-reversed": "hypso_reversed",
 }
 _STYLE_CONFIG_BUILDER_KEY = "builder"
 
-# Phase 1060 close-gate (G-x e2e fix): the frontend normalizes builder keys
-# from snake_case (storage canonical) to camelCase on layer load via
-# `frontend/src/lib/normalize-style-config.ts:normalizeBuilderStyleConfig`.
-# When a layer is duplicated, the React state's camelCase keys are POSTed
-# back, and without server-side normalization the new layer would persist
-# camelCase while the original (created via default style) stays snake_case.
-# `canonicalize_builder_style_config` uses this map to rewrite incoming
-# style_config.builder keys to snake_case before storage — keeping the DB
-# schema consistent regardless of which client wrote the row.
+# fix(Phase 1060 G-x): the frontend normalizes builder keys to camelCase
+# on layer load, so a duplicated layer's POST would persist camelCase
+# while the original stays snake_case without this rewrite.
 #
-# builder-audit #338 STYLE-01 / SPEC-08: this table is the AUTHORITATIVE backend
-# builder camelCase->snake_case alias map. The snake_case->camelCase direction
-# used on style export is derived programmatically below as
-# `BUILDER_SNAKE_TO_CAMEL_KEYS`; `style_json.py` imports that inverse instead
-# of hand-maintaining its own `_BUILDER_KEY_ALIASES` (which previously drifted —
-# it lacked the folder_group_* keys, so they leaked snake_case into exported
-# style.json metadata). Add a new builder key here ONCE and both directions stay
-# in sync.
+# builder-audit #338 STYLE-01/SPEC-08: the AUTHORITATIVE alias map — the
+# inverse (below) is what style_json.py imports, so a hand-written copy
+# can't drift and leak snake_case keys into exported style.json.
 _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "fillDisabled": "fill_disabled",
     "strokeDisabled": "stroke_disabled",
@@ -106,11 +91,9 @@ _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "folderGroupExpanded": "folder_group_expanded",
 }
 
-# builder-audit #338 STYLE-01 / SPEC-08: derived snake_case->camelCase inverse of the
-# authoritative table above. `style_json.py` imports THIS instead of redefining
-# its own `_BUILDER_KEY_ALIASES`, so the export direction can never drift from
-# the storage-canonicalization direction (the inverse is exhaustive — it
-# includes the folder_group_* keys the old hand-written table was missing).
+# builder-audit #338 STYLE-01/SPEC-08: derived inverse of the table
+# above, imported by `style_json.py` instead of a hand-written copy, so
+# export can't drift (exhaustive — includes prior-missed folder_group_* keys).
 BUILDER_SNAKE_TO_CAMEL_KEYS = {
     snake: camel for camel, snake in _BUILDER_CAMEL_TO_SNAKE_KEYS.items()
 }
@@ -158,19 +141,9 @@ _MAX_LAYERS_PER_MAP = 200
 # How many style-import warnings the summary reports individually before it
 # starts counting instead (fix(#1778)).
 _MAX_IMPORT_WARNINGS = 100
-# The raw `layers` array of an imported style document is NOT the logical layer
-# count, and the two must not share a bound (fix(#1778 round 1)). A GeoLens
-# export emits companions beside every primary: a polygon emits an outline
-# always, a 3D polygon adds an extrusion, and any layer with a label column adds
-# a label symbol, which is four style layers for one logical layer (measured on
-# build_maplibre_style, and it is the worst case: the line arrow and the DEM
-# color relief are alternatives to those branches, not additions to them). So
-# 200 logical layers can legitimately arrive as 800 style layers, and a 101
-# polygon export was 303. This bound is 4 * _MAX_LAYERS_PER_MAP plus 200 of
-# headroom for the layers an import skips entirely, since a document pasted from
-# another tool carries that tool's basemap layers along with the GeoLens ones.
-# It is a resource bound on the document, not the per-map layer limit: that one
-# is enforced on the logical list after companion classification.
+# fix(#1778): the raw `layers` array isn't the logical layer
+# count — a GeoLens export emits up to 4 style layers per logical one
+# (companions), so this bound is 4 * _MAX_LAYERS_PER_MAP + 200 headroom.
 _MAX_STYLE_DOCUMENT_LAYERS = 4 * _MAX_LAYERS_PER_MAP + 200
 
 
@@ -194,16 +167,13 @@ def _validate_style_dict(v: dict | None) -> dict | None:
 def _validate_filter_field(v: list | None) -> list | None:
     """Bound a layer filter's nesting and size, then normalize its grammar.
 
-    fix(#1778): ``filter`` was the one open JSONB layer column with no size
-    cap. The cap above enumerates the open containers by name, and every one it
-    names is a dict, so the single open column that is a list was missed. A
-    20000-clause filter was accepted and stored 2.5 MB of JSONB per layer,
-    which every later style export and every builder load re-serialized.
+    fix(#1778): `filter` was the one open JSONB column missing the size
+    cap (the cap above only covers dicts) — a 20000-clause filter stored
+    2.5 MB of JSONB, re-serialized on every export and builder load.
 
-    ``validate_filter`` runs first because it carries the nesting bound and
-    ``json.dumps`` recurses: size-checking an unbounded filter first would
-    raise RecursionError, which is not a ValueError, so Pydantic would not turn
-    it into a 422.
+    `validate_filter` runs first since it carries the nesting bound;
+    size-checking an unbounded filter first would RecursionError instead
+    of a Pydantic-catchable ValueError.
     """
     normalized = validate_filter(v)
     _reject_oversize_json(normalized, "Filter expression")
@@ -213,37 +183,17 @@ def _validate_filter_field(v: list | None) -> list | None:
 def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
     """Size-cap a paint/layout dict, then shape-check any legacy ``stops``.
 
-    fix(#1069): ``paint`` and ``layout`` are open dicts because MapLibre's
-    property surface is large and dynamic, and until this issue the only bound
-    on them was the serialized size above. That let structurally nonsense values
-    persist — ``{"fill-pattern": {"stops": 1}}`` and
-    ``{"fill-pattern": {"stops": "a-string"}}`` were both accepted — and wait to
-    raise inside whatever serializer next descends into them, which turns stored
-    data into a 500 on the shared ``GET /maps/{id}/style.json`` for every
-    consumer of that map. A string is the nastiest of the two, because iterating
-    it yields one character at a time instead of raising.
+    fix(#1069): paint/layout were bounded only by serialized size, so a
+    structurally nonsense value (``{"fill-pattern": {"stops": 1}}``)
+    persisted and later 500'd whatever serializer descended into it.
 
-    ``stops`` only, deliberately. Validating every paint value against the
-    property it sits on is the raster paint-key-allowlist problem and is out of
-    scope here; ``stops`` is checkable without a per-property table because the
-    legacy MapLibre function shape is the same everywhere: a list of
-    ``[input, output]`` pairs. An empty list is left alone — nothing can iterate
-    its way into a failure.
+    ``stops`` only, and only as a direct property value (not inside an
+    expression operand, fix(#1109)) — the legacy shape (a list of
+    ``[input, output]`` pairs) needs no per-property allowlist to check.
 
-    Direct property values only — fix(#1109 review): a ``stops`` key can also
-    appear as plain DATA inside an expression operand, e.g.
-    ``["get", "stops", ["literal", {"stops": 5}]]``, which MapLibre accepts.
-    The legacy-function shape has meaning only as the property's own value,
-    and that is also the only position the style.json serializer descends
-    into, so nested dicts are none of this check's business.
-
-    Paint and layout only. ``style_config`` keeps the size cap alone, because
-    the builder writes its own ``stops`` there with a different shape
-    (``style_config.builder.lineGradient.stops`` is a list of
-    ``{position, color}`` objects), and it is never handed to MapLibre.
-
-    Rows written before this check are unaffected — the read side bounds them
-    instead, in ``build_maplibre_style``.
+    ``style_config`` keeps just the size cap: its own ``stops`` shape
+    differs and is never handed to MapLibre. Pre-check rows are bounded
+    on read instead, in ``build_maplibre_style``.
     """
     _validate_style_dict(v)
     if v is None:
@@ -286,11 +236,10 @@ def split_legacy_builder_paint(
 ) -> tuple[dict | None, dict | None]:
     """Move bounded legacy builder metadata from paint into style_config.
 
-    ``paint`` is the MapLibre storage/output boundary. During the rollout, old
-    clients may still submit the known legacy keys listed in
-    ``LEGACY_BUILDER_PAINT_KEYS``; those keys are stripped from paint and merged
-    into ``style_config.builder``. Unknown underscore-prefixed paint keys remain
-    invalid so private client state cannot keep leaking into stored paint JSON.
+    Old clients may still submit keys in ``LEGACY_BUILDER_PAINT_KEYS``;
+    those are stripped from paint and merged into ``style_config.builder``.
+    Unknown underscore-prefixed paint keys stay invalid so private client
+    state can't leak into stored paint JSON.
     """
     if paint is None:
         return paint, style_config
@@ -355,22 +304,18 @@ class MapVisibility(str, Enum):
 class TerrainConfig(BaseModel):
     enabled: bool = Field(default=False)
     source_dataset_id: uuid.UUID | None = Field(default=None)
-    # Upper bound matches the frontend TERRAIN_EXAGGERATION_MAX (map-sync.ts) and the
-    # DEM editor slider cap. The frontend clamps the rendered value to [0, 3], so a
-    # stored value > 3 silently rendered as 3 — accept only what the client can
-    # actually render to keep the stored value and the mesh in agreement.
+    # Upper bound matches frontend TERRAIN_EXAGGERATION_MAX (map-sync.ts):
+    # the client clamps rendered values to [0, 3], so a stored value > 3
+    # would silently render as 3 — accept only what the client can render.
     exaggeration: float = Field(default=1.0, ge=0.0, le=3.0)
 
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def _enabled_requires_source(self) -> "TerrainConfig":
-        # fix(HT-15): an enabled terrain mesh with no source is internally
-        # inconsistent — it can only produce dangling status text and resolver
-        # no-ops. Coerce it to disabled rather than raise: this model also
-        # validates stored JSONB on the read path (MapResponse), so a raise
-        # would 500 any legacy/corrupt row instead of self-healing it, and the
-        # coerced value is the same "no mesh" the resolvers already render.
+        # fix(HT-15): an enabled mesh with no source produces dangling
+        # status text; coerce to disabled rather than raise, since this
+        # model also validates stored JSONB on read (MapResponse).
         if self.enabled and self.source_dataset_id is None:
             self.enabled = False
         return self
@@ -415,10 +360,9 @@ class BasemapProjection(str, Enum):
     globe = "globe"
 
 
-# Regex for #RRGGBB color field validation.
-# Accepts exactly #RRGGBB (6 hex digits, case-insensitive).
-# Rejects raw names ("red"), short hex ("#abc"), long hex ("#1234567"),
-# and URI schemes ("javascript:", "data:") — security: T-1059A-01.
+# Regex for #RRGGBB validation: exact 6 hex digits, case-insensitive.
+# Rejects raw names, short/long hex, and URI schemes ("javascript:",
+# "data:") — security: T-1059A-01.
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -504,10 +448,9 @@ class SublayerOverride(BaseModel):
     def _validate_zoom_order(self) -> "SublayerOverride":
         """WR-02: Ensure min_zoom <= max_zoom when both are specified.
 
-        MapLibre's behavior with an inverted zoom range (min > max) is undefined
-        and version-dependent; in practice the layer becomes permanently invisible
-        until the user corrects the values and resaves. Rejecting the payload at
-        validation time surfaces the error at the API boundary.
+        MapLibre's behavior with an inverted range is undefined and
+        version-dependent — in practice the layer becomes permanently
+        invisible until corrected. Reject at validation time to surface it.
         """
         if self.min_zoom is not None and self.max_zoom is not None:
             if self.min_zoom > self.max_zoom:
@@ -677,12 +620,11 @@ class LabelConfig(BaseModel):
 def _validate_label_config_dict(v: dict | None) -> dict | None:
     """Validate label_config bounds/enums through LabelConfig, return a dict.
 
-    builder-audit #338 P2-05: the field stays a plain ``dict`` on the wire/storage
-    boundary (downstream code assigns it straight to a JSONB column), but every
-    write is now validated against ``LabelConfig`` — out-of-range haloWidth,
-    bad placement/textAnchor enums, etc. are rejected with a 422. ``extra=
-    "allow"`` plus the None-dropping serializer keep unknown/forward-compat keys
-    and the minimal stored shape, so existing rows round-trip unchanged.
+    builder-audit #338 P2-05: stays a plain ``dict`` on the wire/storage
+    boundary, but every write is validated against ``LabelConfig`` (422 on
+    out-of-range/bad-enum values). ``extra="allow"`` plus the None-dropping
+    serializer keep unknown keys and the minimal shape, so old rows
+    round-trip unchanged.
     """
     if v is None:
         return None
@@ -691,10 +633,9 @@ def _validate_label_config_dict(v: dict | None) -> dict | None:
 
 
 class MapLayerInput(BaseModel):
-    # fix(#430 codex): without an id here, _replace_layers' by-id reconcile (V-14)
-    # never matched on real PUTs — every full save still regenerated layer UUIDs.
-    # Optional: absent/unknown ids create fresh rows; ids are only matched against
-    # THIS map's existing layers, so a foreign id cannot hijack another map's row.
+    # fix(#430): without an id here, _replace_layers' by-id reconcile
+    # (V-14) never matched on real PUTs. Optional: ids match only against
+    # THIS map's existing layers, so a foreign id can't hijack another map's row.
     id: uuid.UUID | None = Field(
         default=None,
         description="Existing layer id to update in place (full-save reconcile)",
@@ -816,12 +757,9 @@ class MapLayerPatch(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize_paint_boundary(cls, data: Any) -> Any:
-        # fix(HT-14): this MUST run in before-mode. The previous after-validator
-        # assigned self.paint/self.style_config unconditionally, which added
-        # both names to model_fields_set and defeated the router's
-        # exclude_unset=True — a partial patch such as {id, visible} then
-        # carried explicit style_config=None and erased stored DEM/builder
-        # style metadata (and falsified history changed_fields).
+        # fix(HT-14): MUST run in before-mode — an after-validator adding
+        # self.paint/style_config unconditionally defeats exclude_unset=True,
+        # so a partial patch like {id, visible} erases stored DEM/builder metadata.
         if not isinstance(data, dict):
             return data
         if "paint" not in data and "style_config" not in data:
@@ -973,11 +911,9 @@ class MapUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_unique_layer_ids(self) -> "MapUpdate":
-        # fix(#430 codex r12): a full-replace payload repeating an existing
-        # layer id would silently collapse those entries in _replace_layers'
-        # by-id reconcile (second overwrites first). PATCH already rejects
-        # duplicate ids (MapLayerDiffRequest); mirror that here. Null ids are
-        # exempt — each absent id creates its own fresh row.
+        # fix(#430): a full-replace repeating an id would
+        # silently collapse entries in the by-id reconcile (second
+        # overwrites first); mirrors PATCH's duplicate-id rejection.
         if self.layers is not None:
             ids = [layer.id for layer in self.layers if layer.id is not None]
             if len(set(ids)) != len(ids):
@@ -1035,11 +971,11 @@ class MapLayerResponse(BaseModel):
     band_count: int | None = None
     # fix(#394) VT-02: dataset content version. Feeds the client `_v=` tile-URL
     # cache-buster (map-sync.ts); the server-side Valkey purge is B-019.
-    # fix(#525 B-038): now reads Dataset.tile_cache_version (bumped by feature
+    # fix(#525): now reads Dataset.tile_cache_version (bumped by feature
     # edits, column DDL, tile_columns changes, AND reupload) instead of
     # current_version (reupload-only), so every content mutation rolls the URL.
     tile_version: int | None = None
-    # fix(#430 V-17): dataset visibility/status so the builder can badge a layer whose
+    # fix(#430): dataset visibility/status so the builder can badge a layer whose
     # dataset is hidden from a public/shared map's anonymous audience.
     dataset_visibility: str | None = None
     dataset_status: str | None = None
@@ -1096,12 +1032,9 @@ class MapStyleImportSummary(BaseModel):
     layers_imported: int = 0
     layers_skipped: int = 0
     warnings: list[MapStyleImportWarning] = Field(default_factory=list)
-    # fix(#1778): one warning per unmatched source, and `sources` carries no
-    # count bound of its own, so the list was as long as the document made it.
-    # Every entry is serialized into the 201 response and rendered as a DOM node
-    # by the import dialog. Keep the first _MAX_IMPORT_WARNINGS and count the
-    # rest: a reader who has seen 100 of these knows what is wrong with the
-    # document, and the count says how much was not listed.
+    # fix(#1778): a document can carry an unbounded number of unmatched
+    # sources, each serialized into the 201 response as a DOM node. Keep
+    # the first _MAX_IMPORT_WARNINGS and count the rest.
     warnings_truncated: int = Field(
         default=0,
         ge=0,
@@ -1166,10 +1099,9 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="MapLibre sources object keyed by source id",
     )
-    # fix(#1672): the MapLibre spec allows both the base-URL string and the
-    # array form, and GET /maps/{map_id}/style.json always EMITS the array
-    # form — a string-only field made exported styles fail import with 422,
-    # so export output could not round-trip through import.
+    # fix(#1672): the spec allows both the base-URL string and array form,
+    # but GET .../style.json always emits array — a string-only field made
+    # exported styles fail import with 422 (couldn't round-trip).
     sprite: (
         Annotated[str, StringConstraints(max_length=2000)] | list[MapSpriteEntry] | None
     ) = Field(
@@ -1184,11 +1116,9 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="MapLibre terrain config (source + exaggeration)",
     )
-    # fix(#1778): a bound on the raw document, so a body of unbounded length is
-    # refused before anything walks it. The per-map layer limit this door was
-    # missing is enforced separately, on the logical layers that survive
-    # companion classification, because _MAX_LAYERS_PER_MAP here would have
-    # refused any GeoLens export of more than ~50 polygons (fix(#1778 round 1)).
+    # fix(#1778): bounds the raw document before anything walks it —
+    # _MAX_LAYERS_PER_MAP here would wrongly refuse a >50-polygon export
+    # (the logical limit applies after companion classification instead).
     layers: list[dict] | None = Field(
         default=None,
         max_length=_MAX_STYLE_DOCUMENT_LAYERS,
@@ -1317,10 +1247,9 @@ class SharedMapResponse(BaseModel):
 
 
 class ShareTokenRequest(BaseModel):
-    # fix(#435): `AwareDatetime`, not bare `datetime`. Pydantic accepts a naive ISO
-    # string for a plain `datetime`, and comparing it to `datetime.now(timezone.utc)`
-    # below raised `TypeError: can't compare offset-naive and offset-aware datetimes`
-    # — a 500 for what is a malformed payload. `AwareDatetime` rejects it with a 422.
+    # fix(#435): `AwareDatetime`, not bare `datetime` — Pydantic accepts a
+    # naive ISO string, and comparing it to an aware datetime below raised
+    # TypeError (500) instead of AwareDatetime's clean 422.
     expires_at: AwareDatetime | None = Field(
         default=None,
         description=(
@@ -1345,11 +1274,10 @@ class ShareTokenRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_enterprise_controls(self):
-        # fix(#435): the edition boundary was enforced only by the two route handlers,
-        # so any internal caller reaching the service directly could persist an
-        # Custom dates remain an Enterprise control. Guard at the schema too,
-        # mirroring `EmbedTokenCreate`. `None` stays valid because Community can
-        # still clear an existing expiration.
+        # fix(#435): the edition boundary was enforced only by the two
+        # route handlers, so a direct service caller could bypass it.
+        # Guard at the schema too, mirroring `EmbedTokenCreate`. ``None`` stays
+        # valid: Community can still clear an existing expiration.
         if self.expires_at is not None and self.expires_in_days is not None:
             raise ValueError(SHARE_EXPIRATION_SELECTION_ERROR)
         if self.expires_at is not None and not is_enterprise():
@@ -1423,11 +1351,9 @@ class VisibilityCheckResponse(BaseModel):
     )
 
 
-# ---------------------------------------------------------------------------
-# Bulk-delete layers (Phase 1047, milestone exception — PB-03 / PERF-03)
-# One additive endpoint permitted per REQUIREMENTS.md Out-of-Scope to reduce
-# N sequential DELETEs to one batched call for bulk-delete UX.
-# ---------------------------------------------------------------------------
+# fix(Phase 1047, milestone exception PB-03/PERF-03): one additive
+# endpoint permitted per REQUIREMENTS.md Out-of-Scope, to reduce N
+# sequential DELETEs to one batched bulk-delete call.
 
 
 class BulkDeleteLayersRequest(BaseModel):

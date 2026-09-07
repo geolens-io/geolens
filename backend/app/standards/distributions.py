@@ -1,32 +1,20 @@
 """The access surfaces a catalog feed publishes for a dataset.
 
-fix(#1469): the DCAT-family serializers used to map ``record.distributions``
-straight onto ``dcat:Distribution`` nodes. That works for vector datasets,
-whose rows are written by ``generate_distributions`` and hold root-relative
-API paths, but the raster and VRT ingest tails write a row whose ``url`` is
-the object-storage KEY of the COG (``rasters/<id>/<hash>/source.cog.tif``).
-A storage key is not an access URL: it has no scheme and no host, so no
-consumer can resolve it, and publishing it exposes the internal storage
-layout. STAC-imported rasters have no distribution row at all, so they
-appeared in the feeds as datasets with no access method whatsoever.
+fix(#1469): the DCAT-family serializers used to map
+``record.distributions`` straight onto ``dcat:Distribution`` nodes,
+which breaks for raster/VRT rows whose ``url`` is an object-storage KEY
+— unresolvable and leaking internal storage layout. STAC-imported
+rasters had no distribution row at all, so they appeared with no access
+method whatsoever.
 
-This module is the one place that decides what a feed may publish:
-
-- ``is_publishable_url`` rejects the internal pointers. Everything a user
-  can author goes through ``DistributionCreate``, whose validator requires
-  an http(s) URL, and everything ``generate_distributions`` writes is a
-  root-relative API path — so the rule drops storage keys and nothing else.
-- ``published_distributions`` adds, for the raster family, the tile template
-  the product actually serves anonymously. It is derived per request rather
-  than stored, because it depends on values a row cannot hold: it lives at
-  the APP origin (``/raster-tiles/...`` is nginx-rewritten to the tile proxy;
-  the API origin has no such route) and carries the dataset's current
-  ``tile_cache_version``.
-
-The raster entry deliberately mirrors ``build_assets`` in
-``modules/catalog/search/service_records.py``, which is what STAC advertises
-for the same datasets. The two surfaces describing one dataset differently
-is the discrepancy #1469 reported.
+This module decides what a feed may publish: ``is_publishable_url``
+rejects internal pointers (only http(s) or root-relative API paths
+pass); ``published_distributions`` adds, for the raster family, the
+tile template the product serves anonymously — derived per request
+since it lives at the APP origin, nginx-rewritten to the tile proxy, and
+carries ``tile_cache_version``, values a stored row can't hold. Mirrors
+``build_assets`` in ``modules/catalog/search/service_records.py`` (what
+STAC advertises for the same datasets) — the discrepancy #1469 reported.
 """
 
 from __future__ import annotations
@@ -104,18 +92,16 @@ def _raster_tiles_distribution(
     """The one raster access surface these feeds can honestly advertise.
 
     Deliberately NOT joined by a ``/datasets/{id}/download/cog`` entry
-    (#1469, review round 1). That route exists, but ``_resolve_download_user``
-    401s a caller carrying neither credentials nor a download-scoped
-    ``?token=``, and minting one is a separate POST to
-    ``/auth/download-token/{id}`` that no generic DCAT client will make. These
-    feeds are served to anonymous harvesters, so publishing it — as
-    ``dcat:downloadURL``, no less — would advertise a link that fails for the
-    audience it is written for. The tile template has no such gate: a public,
-    published raster serves tiles to an anonymous caller (see
+    (#1469): ``_resolve_download_user`` 401s a caller with neither
+    credentials nor a download-scoped ``?token=``, and minting one needs
+    a separate POST no generic DCAT client will make — publishing it as
+    ``dcat:downloadURL`` would advertise a link that fails anonymous
+    harvesters. The tile template has no such gate (see
     ``TestRasterAuthCheck::test_auth_check_returns_open_path_for_public_raster``).
 
-    This also keeps the surface exactly equal to ``build_assets``, which
-    advertises ``raster_tiles`` and no COG download for the same datasets.
+    Keeps the surface exactly equal to ``build_assets``, which
+    advertises ``raster_tiles`` and no COG download for the same
+    datasets.
     """
     return PublishedDistribution(
         distribution_type=RASTER_TILES_DISTRIBUTION_TYPE,

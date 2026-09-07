@@ -1,11 +1,9 @@
 """CSS-color shape validation for AI-produced style values.
 
-fix(#394) CH-02 (codex round 2): the first-pass regex accepted any 3-30
-letter word ("notacolor") and any parenthesized junk ("rgb(foo)"), so
-unparseable values still reached MapLibre paint validation — exactly what
-the sanitizer exists to prevent. Named colors now validate against the real
-CSS keyword set and functional args are restricted to numeric/separator
-characters. MapLibre remains the final validator; this is the cheap junk
+fix(#394): named colors validate against the real CSS keyword set and
+functional args are restricted to numeric/separator characters, so an
+unparseable value ("notacolor", "rgb(foo)") never reaches MapLibre paint
+validation. MapLibre remains the final validator; this is the cheap junk
 gate, byte-parity with the frontend mirror in ChatPanel.tsx.
 """
 
@@ -56,11 +54,9 @@ def is_css_colorish(value: object) -> bool:
     return candidate.lower() in CSS_NAMED_COLORS
 
 
-# --- AI label halo derivation ---------------------------------------------
-# #394 shipped a fixed "#ffffff" halo. When the model picks a light text color
-# (it does whenever it assumes a "dark" basemap), light-text + white-halo washes
-# out on relief / imagery / any pale area. Derive the halo from the text
-# luminance instead so AI labels stay legible on any basemap.
+# fix(#394): derive the label halo from text luminance rather than a fixed
+# "#ffffff" halo -- light text (the model picks it whenever it assumes a
+# "dark" basemap) plus a white halo washes out on relief/imagery/pale areas.
 _DARK_HALO = "#1a1a1a"
 _LIGHT_HALO = "#ffffff"
 _LIGHT_NAMED_COLORS = frozenset(

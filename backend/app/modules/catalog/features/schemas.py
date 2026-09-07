@@ -15,13 +15,9 @@ MAX_POSITION_DIMENSIONS = 4
 def inline_json_schema(model: type[BaseModel]) -> dict:
     """``model_json_schema()`` with local ``$defs`` inlined.
 
-    Schemas passed raw through route ``responses=`` are embedded verbatim in
-    the exported OpenAPI document, where pydantic's ``#/$defs/...`` pointers
-    resolve against the document root and dangle — strict consumers (docs
-    generators, ref bundlers) reject the whole document. Only safe for
-    non-recursive models; a recursive model raises instead of looping
-    (fix(#569): cycle guard so a future self-referential model fails fast
-    with a clear error at import time rather than hanging).
+    Route ``responses=`` embed schemas verbatim in the exported OpenAPI doc,
+    where pydantic's ``#/$defs/...`` pointers dangle. fix(#569): only safe
+    for non-recursive models; a recursive one raises instead of looping.
     """
     schema = model.model_json_schema()
     defs = schema.pop("$defs", {})
@@ -206,25 +202,13 @@ class GeoJSONFeatureCollection(BaseModel):
     links: list[Link]
 
 
-# ---------------------------------------------------------------------------
-# Write operation schemas
-# ---------------------------------------------------------------------------
-
-
 def _reject_nested_collections(data: object) -> object:
-    """Raw-payload guard for GeometryCollection writes (codex r13/r14).
+    """Raw-payload guard for GeometryCollection writes, runs mode='before'.
 
-    Runs mode='before' so it fires ahead of union parsing:
-
-    - r13: nested collections get a clear 422 — the non-recursive
-      GeoJSONGeometryCollection would otherwise reject the nested child with
-      a misleading 'coordinates: Field required'. Nesting is unsupported by
-      PostGIS on both sides of the GeoJSON boundary (see the model docstring).
-    - r14: a collection WITHOUT a 'geometries' array (e.g. carrying
-      'coordinates' instead) would otherwise sneak through the union's broad
-      GeoJSONGeometry member (type is plain str), pass the generic-dataset
-      type check by map presence, and blow up inside ST_GeomFromGeoJSON as a
-      raw database error.
+    A nested collection gets a clear 422 instead of a misleading
+    'coordinates: Field required'; a collection missing 'geometries' would
+    otherwise sneak through the union's broad GeoJSONGeometry member and
+    blow up inside ST_GeomFromGeoJSON as a raw database error.
     """
     if isinstance(data, dict):
         geometry = data.get("geometry")

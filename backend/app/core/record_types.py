@@ -1,14 +1,11 @@
 """Catalog record-type vocabulary shared across layers.
 
-fix(#836): the raster-family membership check (``record_type in
-("raster_dataset", "vrt_dataset")``) was pasted as a tuple/set literal across
-modules/, processing/, and standards/. One divergent copy is where the next
-"forgot vrt_dataset" bug hides, so the family is defined once here. ``core``
-is the only layer every other layer may import, which is why the vocabulary
-lives here rather than in the catalog domain.
+fix(#836): the raster-family membership check was pasted as a tuple/set
+literal across modules/, processing/, and standards/ — one divergent copy is
+where the next "forgot vrt_dataset" bug hides, so it's defined once here in
+``core``, the only layer every other layer may import.
 
-A tuple (not a frozenset) so SQLAlchemy ``.in_()`` renders deterministically
-and iteration order is stable.
+A tuple (not a frozenset) so SQLAlchemy ``.in_()`` renders deterministically.
 """
 
 from __future__ import annotations

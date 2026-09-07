@@ -28,11 +28,11 @@ class SandboxError(Exception):
 class ValidatedQuery:
     """Result of successful SQL validation.
 
-    ``max_table_fanout`` is the largest number of times any single base table
-    is multiplied into the statement's worst-case cardinality, computed through
-    the CTE dependency graph (a plain pairwise self-join is 2). feat(#565): the
-    raw-SQL endpoint bounds it to reject cross-join cost amplification; see
-    ``validate_and_execute(max_table_repeats=...)``.
+    ``max_table_fanout`` is the largest number of times any single base
+    table is multiplied into the statement's worst-case cardinality,
+    computed through the CTE dependency graph (a plain pairwise self-join
+    is 2). Bounded by ``validate_and_execute(max_table_repeats=...)`` to
+    reject cross-join cost amplification.
     """
 
     sql: str

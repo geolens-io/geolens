@@ -14,11 +14,9 @@ from app.core.config import settings
 from app.processing.raster.vrt import gdal_vector_safe_env
 from app.core.csv_safety import escape_csv_formula
 
-# fix(#909): build_pg_conn_str is deliberately NOT imported at module scope.
-# The test fixture redirects app.processing.ingest.ogr.build_pg_conn_str at
-# the origin; a module-scope `from ... import` here snapshots the dev-DB
-# helper past that patch, which once sent a test's ogr2ogr export at the dev
-# database (#898). Late-bind at call scope (test_layering.py enforces this).
+# fix(#909): build_pg_conn_str is NOT imported at module scope — a
+# module-scope import snapshots it past the test fixture's patch, which once
+# sent a test export at the dev database (#898). Late-bind at call scope.
 from app.processing.ingest.ogr import (
     IngestionError,
     _communicate_with_timeout,
@@ -33,73 +31,34 @@ class ExportError(Exception):
     """Raised when an ogr2ogr export subprocess fails."""
 
 
-# ---------------------------------------------------------------------------
-# The in-request export deadline
-# ---------------------------------------------------------------------------
-# fix(#1778): a synchronous export ran on a 3600s subprocess deadline behind a
-# 600s edge read timeout. This conversion runs inside the request, so the
-# deadline that governs it is the edge proxy's, not the worker's. The module
-# used to import the offline-ingest constant ``OGR2OGR_FILE_TIMEOUT_SECONDS``
-# (3600s) and use it for both the subprocess wall clock and the libpq
-# ``statement_timeout``, six times the edge's own read timeout: past 600s
-# nginx severed the upstream read and answered 504 while this handler kept
-# converting for up to another 50 minutes, holding a pooled connection, an
-# ogr2ogr child, a PostgreSQL backend and a multi-gigabyte staging directory
-# with nobody left to read the output.
-#
-# ``EDGE_PROXY_READ_TIMEOUT_SECONDS`` is imported rather than restated: the
-# URL importer derives its own synchronous budget from that constant, and
-# there is one edge read timeout (``proxy_read_timeout`` in frontend/
-# nginx.conf's ``location /api/``).
-#
-# fix(#1778 codex r1): measured against the request's own clock rather than
-# against an allowance for work that may or may not have happened. The route
-# stamps a monotonic deadline on entry and this module subtracts the time
-# actually consumed, so a fast pre-conversion phase hands its unused time to
-# the conversion and a slow one (an unindexed feature count, a parquet plan
-# over a wide table) takes it away. An allowance-based figure was wrong in
-# both directions: it killed a 430s conversion that would have fitted, and it
-# let a request whose pre-work overran run past the edge.
+# fix(#1778): this conversion runs inside the request, so its deadline is the
+# edge proxy's read timeout, not the offline worker's. Measured against the
+# request's own monotonic clock (deadline minus elapsed), not a fixed
+# allowance, so a slow pre-conversion step can't overrun the edge; a fast one
+# hands its unused time to the conversion. EDGE_PROXY_READ_TIMEOUT_SECONDS is
+# imported rather than restated — one edge read timeout, one source of truth
+# (frontend/nginx.conf's `proxy_read_timeout` on `location /api/`).
 
-# Reserved out of the remaining time for what is still outstanding when the
-# subprocess starts, and only that:
-#
-#   - the format-specific finish inside ``export_dataset`` (the shapefile ZIP,
-#     the GeoPackage timestamp normalization),
-#   - hashing the built file and publishing it to object storage,
-#   - the audit row's commit.
-#
-# Sized for a multi-gigabyte artifact against same-network object storage
-# (reading 5 GB to hash it plus a ~1 Gbps push is well under two minutes). A
-# reservation, not a measurement: those steps have no deadline of their own,
-# so a slow one can still overrun, and the cost of overrunning is the severed
-# response this budget exists to make rare rather than a corrupted export.
+# Reserved for post-subprocess work: format finish (zip/gpkg normalize),
+# hash+publish, audit commit. A reservation, not a measurement, sized for a
+# multi-GB artifact on same-network storage — a slow step can still overrun.
 EXPORT_POST_WORK_MARGIN_SECONDS = 120
 
 
 def export_post_work_reserve_seconds() -> int:
     """Everything the request still owes after the subprocess exits.
 
-    The margin above plus one ``db_pool_timeout``. That pool wait is the one
-    the elapsed clock cannot already contain: the audit row's checkout has not
-    happened yet when the conversion starts, and under an exhausted pool it
-    can block for the full timeout before the commit runs. Every earlier
-    checkout is behind us and is already priced into the elapsed time.
-
-    Derived from the live setting rather than fixed, for the reason
-    ``url_fetch.stage_total_budget_seconds`` gives: ``db_pool_timeout`` is
-    operator-settable, so a hardcoded figure silently breaks the arithmetic
-    the moment it is raised, and a test that reads the live setting cannot
-    catch that because CI only ever runs the default.
+    The margin above plus one ``db_pool_timeout`` (the audit row's checkout
+    hasn't happened yet, and an exhausted pool can block the full timeout).
+    Reads the live setting since a hardcoded value would silently break the
+    arithmetic once raised.
     """
     return EXPORT_POST_WORK_MARGIN_SECONDS + settings.db_pool_timeout
 
 
-# A conversion cannot be given zero or negative time: that is not a deadline,
-# it is a crash or a child killed before it starts. When the pre-conversion
-# work has already eaten the whole window the request is going to fail either
-# way, and it fails through the ordinary timeout path with the ordinary error
-# rather than through an arithmetic edge case.
+# A conversion can't be given zero or negative time — that's a crash, not a
+# deadline. When pre-conversion work already ate the window, the request
+# fails through the ordinary timeout path instead of an arithmetic edge case.
 EXPORT_BUDGET_FLOOR_SECONDS = 1
 
 _export_reserve_warned = False
@@ -110,32 +69,19 @@ def export_subprocess_timeout_seconds(deadline: float | None) -> float:
 
         deadline - time.monotonic() - export_post_work_reserve_seconds()
 
-    floored at ``EXPORT_BUDGET_FLOOR_SECONDS``.
+    floored at ``EXPORT_BUDGET_FLOOR_SECONDS``. ``deadline`` is a
+    ``time.monotonic()`` stamp from ``RequestLoggingMiddleware``, offset by
+    ``EDGE_PROXY_READ_TIMEOUT_SECONDS``; None means no request context.
 
-    ``deadline`` is a ``time.monotonic()`` stamp taken when the request
-    entered the app (``RequestLoggingMiddleware``), offset by
-    ``EDGE_PROXY_READ_TIMEOUT_SECONDS``. ``None`` means the caller is not
-    serving a request (the direct-call tests, and any future offline caller):
-    the full edge window is assumed to start now, which is the same
-    arithmetic with an elapsed time of zero.
-
-    Anchoring it at the middleware rather than at the route body is what puts
-    dependency resolution inside the clock. ``Depends(get_optional_user)``
-    runs before the body and can block on a pool checkout for as long as
-    ``db_pool_timeout``; a clock started in the body would not see that, and
-    an export that spent its whole calculated budget could still answer after
-    the proxy had given up. What remains outside is the handful of outer
-    middlewares that wrap the logging one (CORS, security headers, the
-    compression opt-out, the rate limiter, tenant context). None of them
-    touches the database, so the interval is header work, and the reserve
-    above absorbs it.
+    Anchored at the middleware, not the route body, so a slow
+    ``Depends(get_optional_user)`` pool checkout is inside the clock.
     """
     global _export_reserve_warned
 
     reserve = export_post_work_reserve_seconds()
     if reserve >= EDGE_PROXY_READ_TIMEOUT_SECONDS and not _export_reserve_warned:
-        # A configuration problem rather than a slow request: no export can
-        # ever get time on this deployment. Said once, with the cause.
+        # Configuration problem, not a slow request — no export can ever get
+        # time on this deployment. Logged once, with the cause.
         _export_reserve_warned = True
         logger.warning(
             "export_post_work_reserve_exceeds_edge_timeout",
@@ -156,12 +102,9 @@ def export_subprocess_timeout_seconds(deadline: float | None) -> float:
     return max(remaining, float(EXPORT_BUDGET_FLOOR_SECONDS))
 
 
-# fix(#1532 review r9): the parquet media type lives HERE rather than in
-# `parquet.py`, which imports pyarrow at module scope, so the format table can
-# be read without pulling pyarrow into the importer's graph for a string.
-# `parquet.py` re-exports it, so its own callers are unchanged. (r9 also
-# derived the full media-type set here for a GZipMiddleware exclusion; r11
-# scoped that opt-out to the export PATH instead, and the set went with it.)
+# fix(#1532): lives HERE, not in `parquet.py` (which imports
+# pyarrow at module scope), so the format table can be read without pulling
+# pyarrow into the importer's graph. `parquet.py` re-exports it.
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
 
 FORMAT_MAP: dict[str, dict[str, str]] = {
@@ -185,22 +128,18 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
         "ext": ".csv",
         "media": "text/csv",
     },
-    # FlatGeobuf has no IANA registration. `application/vnd.flatgeobuf` is the
-    # vendor-prefixed type the format's own maintainers proposed
-    # (flatgeobuf/flatgeobuf#112) after an OGC standardization attempt stalled,
-    # and it is the same vendor-prefix pattern this table already uses for
-    # GeoParquet (PARQUET_MEDIA_TYPE below) for the identical reason. It is a
-    # single file like GeoJSON/GPKG/CSV, not multi-file like Shapefile, so it
-    # must NOT be added to the `format_key == "shp"` zip special-casing in
-    # service.py.
+    # FlatGeobuf has no IANA registration; `application/vnd.flatgeobuf` is the
+    # vendor-prefixed type its maintainers proposed after an OGC
+    # standardization attempt stalled (flatgeobuf/flatgeobuf#112), matching
+    # the PARQUET_MEDIA_TYPE pattern below. Single-file like GeoJSON/GPKG/CSV
+    # — must NOT be added to service.py's `format_key == "shp"` zip case.
     "fgb": {
         "driver": "FlatGeobuf",
         "ext": ".fgb",
         "media": "application/vnd.flatgeobuf",
     },
     # PMTiles has no IANA registration either; `application/vnd.pmtiles` is
-    # the vendor-prefixed type the protomaps tooling itself uses. Single
-    # file, like fgb/gpkg/geojson/csv — no zip special-casing.
+    # the vendor type protomaps tooling uses. Single file — no zip case.
     "pmtiles": {
         "driver": "PMTiles",
         "ext": ".pmtiles",
@@ -208,21 +147,18 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
     },
 }
 
-# The PMTiles driver's dataset creation options default to
-# MAXZOOM=5, far too coarse for anything but a world overview. MINZOOM is
-# fixed at 0; MAXZOOM is capped per export by extent — see
-# pmtiles_maxzoom_for_extent. The ceiling of 14 matches the vector-tile
-# pyramid's own top zoom (catalog/records/service.py's vector_tiles
-# distribution and the map builder's default source config).
+# PMTiles' MAXZOOM defaults to 5, too coarse for anything but a world
+# overview; MINZOOM is fixed at 0, MAXZOOM capped per export by extent (see
+# pmtiles_maxzoom_for_extent). Ceiling of 14 matches the vector-tile
+# pyramid's own top zoom (catalog/records/service.py, map builder default).
 _PMTILES_MINZOOM = "0"
 _PMTILES_MAXZOOM_CEILING = 14
-# fix(#1686 codex r1): unlike the live tile endpoint, which renders tiles on
-# demand, the PMTiles writer materializes EVERY tile in MINZOOM..MAXZOOM that
-# intersects the data, so tile count is extent-driven and a wide-extent
-# polygon layer at a fixed z14 could demand up to 4**14 tiles — staging-disk
-# exhaustion the feature-count cap cannot see. Budget the deepest zoom's
-# tile count instead: 4**8 caps a world-extent layer at z8 while a
-# city-extent layer still reaches z14.
+# fix(#1686): unlike the live tile endpoint (renders on demand), the
+# PMTiles writer materializes EVERY tile in MINZOOM..MAXZOOM intersecting the
+# data — a wide-extent polygon at fixed z14 could demand up to 4**14 tiles,
+# staging-disk exhaustion the feature-count cap can't see. Budget the
+# deepest zoom's tile count instead: 4**8 caps a world layer at z8, a city
+# layer still reaches z14.
 _PMTILES_TILE_BUDGET = 65_536
 
 
@@ -262,22 +198,13 @@ def pmtiles_maxzoom_for_extent(
 def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:
     """Build the ``geom_4326`` bbox predicate for a raw-SQL WHERE fragment.
 
-    Each envelope carries a ``&&`` index prefilter plus an exact
-    ``ST_Intersects``, mirroring the features read path
-    (``catalog/features/service.py``).
+    fix(#885): a west>east bbox crosses the antimeridian and is emitted as
+    ``[minx..180] OR [-180..maxx]`` — one predicate, so a seam-straddling
+    feature matches once. Shared with the GeoParquet writer so the two
+    export paths can't drift.
 
-    fix(#885): a west>east bbox crosses the antimeridian — ``parse_bbox``
-    documents it as valid input — and is emitted as ``[minx..180]`` OR
-    ``[-180..maxx]``. It stays a single predicate, so a feature whose own
-    geometry straddles the seam matches the OR once and is selected exactly
-    once. Shared with the GeoParquet writer (``export/parquet.py``) so the two
-    export paths cannot drift.
-
-    ``literal=True`` renders float literals instead of ``:minx``-style bind
-    parameters, for the ogr2ogr ``-where`` argument — a subprocess argv element
-    that cannot carry binds. Every bound goes through ``float()``, so the
-    rendered text is always a numeric literal (``parse_bbox`` has already
-    rejected NaN/Inf).
+    ``literal=True`` renders float literals for the ogr2ogr ``-where`` argv
+    element, which can't carry binds.
     """
     if literal:
         minx, miny, maxx, maxy = (repr(float(v)) for v in bbox)
@@ -293,25 +220,14 @@ def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:
     return envelope(minx, maxx)
 
 
-# fix(#1778): ogr2ogr writes every attribute value verbatim and there is no
-# validation on the writer side either -- features/service.py regex-checks the
-# column NAME and binds the value straight through. The export route is
-# anonymous-reachable for a public dataset and records/service.py publishes
-# `?format=csv` as a first-class DCAT distribution ("CSV Download"), so an
-# editor on one public dataset writes a cell and any visitor who opens the
-# advertised download executes it. The two sibling CSV writers in this
-# repository have carried the escape for a long time; this one is the exposed
-# CSV in the product and had none.
-#
-# A post-pass rather than a driver option: ogr2ogr has no layer-creation option
-# for this, and the export already writes to a temp file it hashes for the
-# artifact cache, so a rewrite fits where the hash is not yet taken.
+# fix(#1778): ogr2ogr writes CSV cells verbatim with no escaping; the
+# anonymous-reachable export route lets an editor's cell execute for any
+# visitor who opens it. Post-pass, since ogr2ogr has no layer-creation option.
 _CSV_FIELD_SIZE_LIMIT = 2**31 - 1
 
-# fix(#1778 codex r1): how often the pass looks at the clock. A row at a time
-# would put a monotonic() read against every cell batch; 512 rows is small
-# enough that a deadline is honoured within milliseconds on any row width and
-# large enough that the check is noise next to the csv parse.
+# fix(#1778): how often the pass checks the clock. A row at a time
+# would monotonic()-read every batch; 512 rows honors a deadline within
+# milliseconds while staying noise next to the csv parse.
 _CSV_DEADLINE_CHECK_ROWS = 512
 
 
@@ -322,47 +238,20 @@ def _harden_csv_formulas(
 ) -> None:
     """Rewrite a just-written CSV with every formula-triggering cell escaped.
 
-    Blocking. Call it through ``run_in_thread_draining`` -- fix(#1778 codex
-    r1): read-and-rewrite of a multi-million-row artifact is not something to
-    run inline on the event loop, where it would stall every concurrent
-    request in the process for the whole pass. The draining helper is the one
-    the sibling post-processing steps already use (the shapefile ZIP, the
-    GeoPackage timestamp normalization, the artifact hash), and it matters for
-    the same reason here: a cancellation must not free the paths out from
-    under a thread that still holds them open.
-
-    Row at a time, so memory is bounded by the widest row rather than by the
-    file. The rewrite costs one extra read and write of the artifact and a
-    transient second copy on disk.
-
-    ``hard_deadline`` is a ``time.monotonic()`` stamp. Passing it means the
-    pass shares the request's budget rather than running unbounded after the
-    subprocess that budget used to be the only thing bounding: an export that
-    would finish after the edge proxy has hung up fails here with an
-    ExportError instead of spending the bytes. The check is cooperative
-    because a thread cannot be killed; the partial rewrite is removed on the
-    way out so the artifact the caller sees is either fully hardened or
-    untouched.
-
-    The reader's field-size limit is raised and never lowered: a WKT geometry
-    for a detailed polygon passes csv's 128 KiB default easily, and lowering it
-    again would be a process-global change racing any concurrent export.
-
-    fix(#1778 codex r2): ``numeric_columns`` names the columns whose declared
-    SQL type is numeric, and only those get the number exemption. In an
-    ``integer`` or ``double precision`` column ``-12`` is a measurement and the
-    tab would turn it into text for pandas and QGIS as much as for Excel; in a
-    text column the same characters are a string a user typed, and it keeps the
-    tab. The decision is by column type, never by the shape of the value, and
-    the header row is always escaped strictly. A name ogr2ogr did not emit --
-    the geometry column it writes as ``WKT``, or a column the driver renamed --
-    simply does not match, which fails toward escaping.
+    Blocking — call via ``run_in_thread_draining``. Row at a time, so
+    memory is bounded by the widest row. ``hard_deadline`` shares the
+    request's budget: an export past the edge proxy's window raises
+    ``ExportError`` instead of spending the bytes. ``numeric_columns``
+    exempts only columns whose declared SQL type is numeric, so a text
+    column's digits stay escaped; an unmatched name (WKT, a rename) fails
+    toward escaping. Field-size limit is raised and never lowered
+    (process-global state).
     """
     if csv.field_size_limit() < _CSV_FIELD_SIZE_LIMIT:
         csv.field_size_limit(_CSV_FIELD_SIZE_LIMIT)
 
-    # Preserve the line ending GDAL chose rather than imposing csv's CRLF
-    # default on a file a client may diff or checksum.
+    # Preserve GDAL's line ending rather than csv's CRLF default — a client
+    # may diff or checksum this file.
     with open(output_path, "rb") as probe:
         head = probe.read(8192)
     terminator = "\r\n" if b"\r\n" in head else "\n"
@@ -385,8 +274,8 @@ def _harden_csv_formulas(
                         "spreadsheet-formula hardening"
                     )
                 if index == 0:
-                    # The header names the columns; escape it strictly and use
-                    # it to place the exemption by position for every row after.
+                    # Header names the columns; escape strictly and place the
+                    # exemption by position for every row after.
                     numeric_at = frozenset(
                         position
                         for position, name in enumerate(row)
@@ -401,9 +290,8 @@ def _harden_csv_formulas(
                     ]
                 )
     except BaseException:
-        # Never leave a half-rewritten sibling next to the artifact: the export
-        # temp dir is swept by age, and a partial file here would outlive the
-        # request that made it.
+        # Never leave a half-rewritten sibling: the temp dir sweeps by age,
+        # so a partial file here would outlive the request.
         with contextlib.suppress(OSError):
             os.unlink(hardened_path)
         raise
@@ -430,23 +318,17 @@ async def run_ogr2ogr_export(
         table_name: Source table name (without schema prefix).
         output_path: Destination file path.
         driver: OGR driver name (e.g. "GPKG", "GeoJSON").
-        schema: Source PostgreSQL schema. Required so exports cannot silently
-            read a same-named table from the shared ``data`` schema.
+        schema: Source PostgreSQL schema; required so exports can't
+            silently read a same-named table from the shared ``data`` schema.
         target_srs: Optional target CRS (e.g. "EPSG:3857").
-        bbox: Optional bounding box [minx, miny, maxx, maxy] in WGS84. A
-            west>east box crosses the antimeridian and is filtered server-side
-            against ``geom_4326``, so callers must not pass a bbox for a layer
-            without geometry (the router drops it for non-spatial datasets).
+        bbox: [minx, miny, maxx, maxy] in WGS84; a west>east box crosses
+            the antimeridian and only applies to spatial layers.
         where: Optional SQL WHERE clause for attribute filtering.
         format_key: Format key from FORMAT_MAP for format-specific options.
-        deadline: ``time.monotonic()`` stamp by which the whole request must
-            be answered, from the route's entry. Bounds both this subprocess
-            and its server-side query. ``None`` for a caller outside a
-            request; see ``export_subprocess_timeout_seconds``.
-        numeric_columns: names of the columns whose declared SQL type is
-            numeric, from ``numeric_column_names(column_info)``. CSV only, and
-            only to decide which cells may keep a leading sign unescaped; see
-            ``_harden_csv_formulas``. An empty set escapes every one.
+        deadline: ``time.monotonic()`` stamp for the whole request; None
+            outside a request (see ``export_subprocess_timeout_seconds``).
+        numeric_columns: Numeric-type columns; CSV only, decides which
+            cells keep a leading sign unescaped.
 
     Raises:
         ExportError: If ogr2ogr exits with non-zero code.
@@ -471,13 +353,9 @@ async def run_ogr2ogr_export(
         cmd.extend(["-t_srs", target_srs])
 
     if bbox and bbox[0] > bbox[2]:
-        # fix(#885): -spat takes ONE rectangle and GDAL reads its corners as an
-        # envelope, so an antimeridian-crossing `-spat 170 -20 -170 -15` silently
-        # became the complement band (lon -170..170) and dropped every feature the
-        # caller asked for. Push the two-envelope split into the server-side WHERE
-        # instead — one pass, so a seam-straddling feature is still emitted once
-        # (two -spat runs would emit it twice). Still select-not-clip: whole
-        # intersecting features with untouched geometry, unlike -clipsrc.
+        # fix(#885): -spat takes ONE rectangle; an antimeridian-crossing box
+        # became the complement band and dropped every feature. Split into
+        # the server-side WHERE instead, in one pass (not two -spat runs).
         spatial_where = bbox_where_sql(bbox, literal=True)
         where = f"{spatial_where} AND ({where})" if where else spatial_where
     elif bbox:
@@ -500,12 +378,9 @@ async def run_ogr2ogr_export(
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])
 
     if format_key == "pmtiles":
-        # The driver defaults MAXZOOM to 5; every attribute
-        # column already comes through by default (no -select), and the
-        # layer name is left to ogr2ogr's own default (the source table
-        # name) rather than an explicit -nln, matching every other format
-        # here. A caller that computed no extent-aware cap gets the
-        # world-extent one — the conservative direction (fix(#1686 codex r1)).
+        # Driver defaults MAXZOOM to 5; every column and the default layer
+        # name pass through. No computed cap falls back to world-extent,
+        # the conservative direction (fix(#1686)).
         maxzoom = (
             pmtiles_maxzoom
             if pmtiles_maxzoom is not None
@@ -520,28 +395,17 @@ async def run_ogr2ogr_export(
             ]
         )
 
-    # fix(#430 BA-06): bound the export subprocess wall-clock with a kill-on-timeout
-    # (mirrors the ingest path) so a slow/large table can't hold an API worker;
-    # also cap the server-side query via libpq statement_timeout so the DB query
-    # stops when the child is killed.
+    # fix(#430): kill-on-timeout bounds the subprocess wall-clock
+    # (mirrors ingest); libpq statement_timeout caps the query so it stops
+    # when the child is killed.
     #
-    # fix(#1778): the bound is the request's, taken from what is left of the
-    # edge proxy's window at this moment. See export_subprocess_timeout_seconds.
-    # Read once, as late as possible (every earlier step has already spent its
-    # share), so the wall clock and the statement_timeout cannot disagree.
-    #
-    # The note that used to sit here also said `_communicate_with_timeout`
-    # kills the child on a client disconnect. It does kill on cancellation,
-    # and the ingest caller gets that from Procrastinate's shutdown, but
-    # nothing cancels THIS task: uvicorn's `connection_lost` only marks the
-    # cycle disconnected and wakes `receive()`, and a GET handler never awaits
-    # `receive()`. A departed client is therefore invisible here, and the
-    # deadline below is what bounds the orphan.
+    # fix(#1778): the bound is the request's, read once as late as possible.
+    # `_communicate_with_timeout` kills on cancellation, but nothing cancels
+    # a GET handler on client disconnect — this deadline bounds an orphan.
     export_timeout = export_subprocess_timeout_seconds(deadline)
-    # fix(#1846, GHSA-hrf5-v3cq-frx5): the input here is a PG connection, not
-    # a caller-supplied document, so this site was never the finding. It takes
-    # the clamp anyway so the whole vector CLI surface answers the same way and
-    # the structural gate has no site to make an exception for.
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): input here is a PG connection, not a
+    # caller document, so this wasn't the finding — clamped anyway so the
+    # structural gate has no exception site.
     export_env = gdal_vector_safe_env()
     # Milliseconds, and libpq wants an integer.
     export_env["PGOPTIONS"] = f"-c statement_timeout={int(export_timeout * 1000)}"
@@ -565,14 +429,9 @@ async def run_ogr2ogr_export(
             f"ogr2ogr export failed (exit {proc.returncode}): {stderr.decode().strip()}"
         )
 
-    # fix(#1778): see _harden_csv_formulas. Only after a clean exit -- there is
-    # nothing to harden on a failed run, and a partial file is discarded.
-    #
-    # fix(#1778 codex r1): off the event loop, and under the request's clock.
-    # The budget is re-read here rather than reused from above, so the pass
-    # gets what the subprocess left rather than what the subprocess was
-    # offered, and the post-work reserve stays intact for the hash and the
-    # upload that follow.
+    # fix(#1778): see _harden_csv_formulas — only after a clean exit, off
+    # the event loop, under the request's clock; the budget is re-read here
+    # (not reused) so it gets what the subprocess left.
     if format_key == "csv":
         await run_in_thread_draining(
             _harden_csv_formulas,

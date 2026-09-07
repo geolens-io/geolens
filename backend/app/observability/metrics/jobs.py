@@ -13,7 +13,6 @@ from sqlalchemy import text
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# --- Gauges (current state) ---
 jobs_queue_depth = Gauge(
     "geolens_jobs_queue_depth",
     "Number of jobs waiting in queue (status=todo)",
@@ -25,7 +24,6 @@ jobs_active = Gauge(
     ["queue"],
 )
 
-# --- Counters (monotonically increasing) ---
 jobs_completed_total = Counter(
     "geolens_jobs_completed_total",
     "Total number of successfully completed jobs",
@@ -37,27 +35,22 @@ jobs_failed_total = Counter(
     ["queue"],
 )
 
-# fix(#1249): staging objects deleted because no ingest_jobs row tracks them.
-# A true counter rather than a polled gauge, and safe as one for a reason
-# worth stating (the concern refresh.py's module docstring raises): the
-# reconciliation pass runs under a `pg_try_advisory_xact_lock`, so at most one
-# process per interval deletes — and therefore counts — any given object,
-# where a poll-and-increment design would report N times the truth under
-# UVICORN_WORKERS>1. Incremented only after the provider delete returns, so
-# the number counts completed deletions, not intentions.
-#
-# The series matters most when it is non-zero and STAYS non-zero: a steady
-# trickle means something is leaking staging objects faster than one-off
-# incidents explain.
+# fix(#1249): staging objects deleted because no ingest_jobs row tracks
+# them. A true counter, not a polled gauge: the reconciliation pass runs
+# under pg_try_advisory_xact_lock, so at most one process per interval
+# deletes (and counts) any given object, incremented only after the
+# provider delete returns. Matters most when non-zero and STAYS
+# non-zero: a steady trickle means something is leaking objects faster
+# than one-off incidents explain.
 staging_orphans_deleted_total = Counter(
     "geolens_staging_orphans_deleted_total",
     "Staging objects deleted for having no ingest-job row tracking them",
 )
 
-# fix(#1778 codex r1): the delta snapshot this module used to keep is gone with
-# the last counter branch that read it. NOTE(#655) recorded that the first cycle
-# after boot seeded the counters with historical row counts; nothing seeds them
-# now, because neither counter is derived from a row count any more.
+# fix(#1778): the delta snapshot this module used to keep is gone with
+# the last counter branch that read it. NOTE(#655): the first cycle
+# after boot seeded the counters with historical row counts; nothing
+# seeds them now, since neither counter derives from a row count.
 
 # Queues whose gauge children have been set at least once — zeroed (not
 # removed) when their todo/doing rows disappear from a cycle. fix(#655)
@@ -67,8 +60,8 @@ _known_queues: set[str] = set()
 async def _refresh_job_metrics() -> None:
     """Run one metrics collection cycle (no loop, no sleep).
 
-    Queries procrastinate_jobs for status counts grouped by queue and updates
-    the two gauges. fix(#1778 codex r1): gauges only. Both counters are
+    Queries procrastinate_jobs for status counts grouped by queue and
+    updates the two gauges. fix(#1778): gauges only — both counters are
     incremented at the terminal transition, in platform/jobs/worker.py.
     """
     from app.core.db import engine
@@ -98,26 +91,17 @@ async def _refresh_job_metrics() -> None:
             elif status == "doing":
                 jobs_active.labels(queue=q).set(count)
                 seen_doing.add(q)
-            # fix(#1778): there is deliberately no `succeeded` branch. The
-            # worker runs with delete_jobs="successful", which makes
-            # procrastinate_finish_job_v1 DELETE the row while it is still
-            # `doing`, so status='succeeded' is never written and this 15s poll
-            # could never observe it. geolens_jobs_completed_total read a flat
-            # zero from the day it was added, and the RUNBOOK entry and the
-            # "Job throughput" Grafana panel read zero with it -- a healthy
-            # ingest burst looked identical to a dead worker.
-            #
-            # fix(#1778 codex r1): and no `failed` branch either. That one was
-            # a delta against a snapshot of a row count, which stops working
-            # the moment rows can disappear. purge_expired_terminal_jobs ages
-            # terminal rows out, so a queue's failed group shrinks while
-            # _prev_counts held the pre-purge figure, and the next burst
-            # produced a non-positive delta the counter never saw --
-            # GeoLensJobFailures with it.
-            #
-            # Both counters are incremented at the terminal transition now, by
-            # the worker middleware and the stalled-job sweep in
-            # platform/jobs/worker.py, where there is no snapshot to go stale.
+            # fix(#1778): deliberately no `succeeded`/`failed` branch here.
+            # The worker runs with delete_jobs="successful", so
+            # procrastinate_finish_job_v1 DELETEs the row while still
+            # `doing` — status='succeeded' is never written, so this 15s
+            # poll could never observe it (geolens_jobs_completed_total
+            # read a flat zero from day one). A `failed` branch would need
+            # a delta against a row-count snapshot, which breaks once
+            # purge_expired_terminal_jobs ages rows out mid-window. Both
+            # counters are instead incremented at the terminal transition
+            # by the worker middleware and stalled-job sweep in
+            # platform/jobs/worker.py, where nothing goes stale.
 
         # fix(#655): zero gauges for previously seen queues with no todo/doing
         # rows this cycle — they used to freeze at their last non-zero value
@@ -127,7 +111,7 @@ async def _refresh_job_metrics() -> None:
             jobs_active.labels(queue=q).set(0)
         _known_queues.update(seen_todo, seen_doing)
 
-    except Exception:  # broad: metrics refresh is non-fatal; DB/aggregation errors should not crash background loop
+    except Exception:  # broad: metrics refresh is non-fatal; must not crash the loop
         logger.warning("Failed to refresh job metrics", exc_info=True)
 
 

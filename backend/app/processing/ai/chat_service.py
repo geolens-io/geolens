@@ -1,34 +1,15 @@
 """Chat-based map editing service: facade re-exporting from chat_* sub-modules.
 
-Phase 276 CODE-02 — Phase-226 facade pattern. This module preserves the stable
-public import path used by router.py, streaming.py, metadata_service.py,
-service.py, and tests:
+Preserves the stable public import path used by router.py, streaming.py,
+metadata_service.py, service.py, and tests — both the public orchestrator
+(``chat_edit_map``, ``build_chat_system_prompt``) and the private helpers
+pulled from sibling modules for patching (see ``__all__`` below).
 
-    from app.processing.ai.chat_service import chat_edit_map
-    from app.processing.ai.chat_service import build_chat_system_prompt
-    from app.processing.ai.chat_service import (
-        _validate_actions,
-        _execute_chat_tool,
-        _handle_query_data,
-        _collect_chat_action,
-        _is_geom_value,
-        _detect_geom_column,
-        _safe_value,
-        safe_rows,
-        _extract_geojson,
-        ERROR_MESSAGES,
-        lang_name,
-    )
-
-The body of this file is split between (a) the orchestrator ``chat_edit_map``
-and the system-prompt builder ``build_chat_system_prompt`` that own the public
-chat-edit contract, and (b) a re-export wall pulling private helpers out of
-sibling modules. ``generate_sql`` and ``validate_and_execute`` are imported
-here AT module level so existing tests can patch
-``app.processing.ai.chat_service.generate_sql`` /
-``app.processing.ai.chat_service.validate_and_execute`` and the patch is
-honored at every call site (chat_actions._handle_query_data does its lookup
-via this module — see chat_actions.py for the rationale).
+``generate_sql`` and ``validate_and_execute`` are imported here AT module
+level so existing tests can patch
+``app.processing.ai.chat_service.generate_sql``/``.validate_and_execute``
+and the patch is honored at every call site (chat_actions._handle_query_data
+looks them up via this module — see chat_actions.py for the rationale).
 """
 
 import json
@@ -261,18 +242,13 @@ def build_chat_system_prompt(
         )
     )
 
-    # feat(#1242): companion to the query_data/set_filter split above, not a
-    # rewrite of it — this fires AFTER query_data has already answered a
-    # QUESTION, so it never decides which tool a request reaches. A persisted
-    # set_filter beats an ephemeral query_data result for the shape it covers
-    # (a plain row predicate), so the model is told to name that option, once,
-    # as an offer the user can decline. It must stay an offer: #549 is the
-    # record of "show me the ..." silently landing on a persistent filter, and
-    # that was reverted specifically because a read-shaped question must never
-    # mutate saved map state on its own. Gated on can_edit — a read-only
-    # caller never has set_filter in its tool set (select_chat_tools), so
-    # promising it here would be a broken offer the readonly_note above
-    # already tells the model to avoid making.
+    # feat(#1242): companion to query_data/set_filter, not a rewrite — this
+    # fires AFTER query_data answers a QUESTION, so it never decides which
+    # tool a request reaches. It must stay an OFFER, once: #549 is the
+    # regression where "show me the..." silently landed on a persistent
+    # filter, reverted because a read-shaped question must never mutate
+    # saved map state on its own. Gated on can_edit — a read-only caller
+    # has no set_filter tool, so offering it here would be broken.
     filter_offer_note = (
         (
             "\n- If the question was a simple row predicate on a layer "
@@ -289,7 +265,7 @@ def build_chat_system_prompt(
         else ""
     )
 
-    # fix(#1778 round 1): the fence is assembled by one helper that also strips
+    # fix(#1778): the fence is assembled by one helper that also strips
     # any forged marker out of the block. Interpolating the tags here would
     # have left the id, the serialized filter and the paint dict able to close
     # the region early, since none of those pass through a sanitizer.
@@ -418,7 +394,7 @@ async def chat_edit_map(
     Returns ChatResponse with explanation and validated actions.
 
     map_id is forwarded to query_data so the schema-context cache partitions
-    per-map (PERF-04 / Phase 274).
+    per-map.
 
     can_edit gates the tool set: an owner gets the full editing toolbox; a
     view-only caller gets read-only tools (query_data) so the AI can answer
@@ -465,7 +441,7 @@ async def chat_edit_map(
             return None
         return _collect_chat_action(tool_name, tool_input, tool_result)
 
-    # fix(#1778 round 2): one accounting shape at every provider call site.
+    # fix(#1778): one accounting shape at every provider call site.
     # The tokens are spent the moment the provider answers, so any way out of
     # the loop must still bill the daily cap: an exhaustion, a later request
     # failure, a tool executor that raises, or a client that disconnects.
@@ -500,7 +476,7 @@ async def chat_edit_map(
     )
 
     # Parse actions into ChatAction models (per-item; invalid ones drop with a
-    # note instead of failing the whole turn — fix(#525 B-037))
+    # note instead of failing the whole turn — fix(#525))
     actions, invalid = _build_chat_actions(result.actions)
 
     # Validate layer_id references + add_layer dataset RBAC

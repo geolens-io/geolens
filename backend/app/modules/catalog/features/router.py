@@ -88,18 +88,10 @@ _NON_FEATURE_RECORD_TYPES = RASTER_FAMILY_RECORD_TYPES
 def _require_feature_table(dataset) -> None:
     """Reject feature writes to datasets with no writable feature geometry.
 
-    fix(#458 E-08): the read handlers 404 raster/VRT datasets, but the write
-    handlers didn't — a write hit a missing `data.<table>` (42P01) and surfaced
-    as a 500. Mirror the read side.
-
-    Also reject non-spatial (tabular) datasets, where `geometry_type is None`
-    (the same signal the read path uses for `has_geometry`). Their table has no
-    `geom`/`geom_4326` column, so an insert/replace 42703s, and a delete — which
-    touches no geometry — succeeds but then 500s in `refresh_dataset_metadata`'s
-    unconditional `geom_4326` read, *outside* the DBAPIError handler below
-    (PR #463 review). Created layers always carry a concrete `geometry_type`
-    (generic ones resolve via `effective_geometry_type`), so this never blocks a
-    spatial layer.
+    fix(#458): mirrors the read handlers' 404 on raster/VRT datasets
+    (else 500 on a missing `data.<table>`). Also rejects tabular datasets
+    (`geometry_type is None`), whose table has no `geom`/`geom_4326` column
+    (#463).
     """
     if dataset.record.record_type in _NON_FEATURE_RECORD_TYPES:
         raise HTTPException(
@@ -117,19 +109,10 @@ def _require_feature_table(dataset) -> None:
 def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     """Classify a DB error raised by a feature write.
 
-    fix(#458 E-09/E-26): feature values bind raw, so a type mismatch (22P02), a
-    NOT NULL violation (23502), or a write to a table with no such column (42703,
-    tabular datasets) used to surface as an unhandled 500. Classify by SQLSTATE:
-    a request the table cannot answer is the caller's fault (400); a database
-    outage stays a 503.
-
-    fix(#458 E-41): don't collapse every non-operational state to 400 — a
-    missing backing table (42P01, schema-provisioning drift) is a 503 like the
-    read path reports it, and an unrecognized state (our own bad SQL, 42601) is
-    an honest 500, not the caller's fault.
-
-    fix(#1847): a lock conflict raises ``CatalogLockConflict``; the one
-    mapping in ``app/api/main.py`` answers it.
+    fix(#458): feature values bind raw, so classify by SQLSTATE instead of
+    an unhandled 500 (400 caller fault, missing table 503, unrecognized
+    state a real 500). fix(#1847): a lock conflict raises
+    ``CatalogLockConflict``, mapped in ``app/api/main.py``.
     """
     if is_lock_conflict(exc):
         raise CatalogLockConflict(
@@ -190,11 +173,6 @@ async def _lock_catalog_rows_guarded(db: AsyncSession, dataset) -> None:
     await _guard(db, lock_catalog_rows_for_write(db, dataset))
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-
 @features_router.get(
     "/{dataset_id}/features.geojson",
     response_class=JSONResponse,
@@ -234,17 +212,13 @@ async def get_features_geojson_z_endpoint(
     permanently failing as "not found". Truly credentialless requests keep the
     anonymous public path.
     """
-    # fix(#1518): CAPABILITY category. This handler takes the deferring
-    # dependency, so the 401 for a dead credential is NOT raised before the
-    # body runs — the embed token is an independent capability and has to be
-    # evaluated first. `reject_unresolvable_credentials` below re-applies the
-    # rule on the path where the embed token did not authorize the request.
-    # fix(#1518 codex P2 round 3): the capability is evaluated FIRST, above the
-    # dataset lookup, so the rule covers every later exit rather than one. The
-    # token is validated against the path's dataset_id and needs no lookup, so
-    # nothing is lost by asking here. Previously the "dataset not found" 404
-    # below ran before this check, and a caller with a dead credential got that
-    # 404 with the rule never applied.
+    # fix(#1518): evaluated FIRST, above the dataset lookup, so the
+    # capability rule covers every later exit rather than just one — the
+    # token validates against the path's dataset_id, so nothing is lost by
+    # asking before the lookup. This handler's deferring dependency means
+    # the dead-credential 401 is not raised before the body runs, so
+    # `reject_unresolvable_credentials` below re-applies the rule on the
+    # path where the embed token did not authorize the request.
     embed_ok = bool(embed_token) and await validate_embed_token_access(
         embed_token,  # type: ignore[arg-type]  # bool() guard above
         dataset_id,
@@ -252,10 +226,9 @@ async def get_features_geojson_z_endpoint(
         request,
     )
     if not embed_ok:
-        # No capability authorized this request, so the caller's credential was
-        # load-bearing after all — a supplied one that failed to resolve gets
-        # 401 rather than the anonymous path's 404 (fix(#390) codex P2,
-        # resequenced by fix(#1518)).
+        # fix(#390, resequenced by #1518): no capability authorized this
+        # request, so a supplied credential that failed to resolve gets 401
+        # rather than the anonymous path's 404.
         reject_unresolvable_credentials(request, user)
 
     dataset = await get_dataset(db, dataset_id)
@@ -268,9 +241,9 @@ async def get_features_geojson_z_endpoint(
     if not embed_ok:
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
-    # query would raise UndefinedTableError -> 500 (and hold a DB connection).
-    # Return a fast 404 before any feature query is attempted (mirrors OGC contract).
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table —
+    # a feature query would raise UndefinedTableError -> 500 (and hold a DB
+    # connection). Fast 404 before any feature query is attempted.
     if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -353,7 +326,6 @@ async def list_features(
     cursoring should use the OGC API Features endpoint, which supports keyset
     pagination via ``after_gid``.
     """
-    # Fetch dataset
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -361,13 +333,11 @@ async def list_features(
             detail="Dataset not found",
         )
 
-    # RBAC check
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
-    # query would raise UndefinedTableError. Return a fast 404 before any query
-    # (mirrors OGC contract). The ProgrammingError->503 catch below remains a
-    # backstop for genuinely-missing tables on non-raster datasets.
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table —
+    # fast 404 before any query. The ProgrammingError->503 catch below stays
+    # a backstop for genuinely-missing tables on non-raster datasets.
     if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -377,7 +347,6 @@ async def list_features(
             ),
         )
 
-    # Parse bbox
     parsed_bbox: list[float] | None = None
     if bbox is not None:
         try:
@@ -388,7 +357,6 @@ async def list_features(
                 detail=f"Invalid bbox: {e}",
             )
 
-    # Extract property filters from query params
     reserved_params = {"limit", "offset", "bbox", "include_geometry", "api_key"}
     column_names = {col["name"] for col in (dataset.column_info or [])}
     property_filters: dict[str, str] = {}
@@ -398,7 +366,6 @@ async def list_features(
 
     has_geometry = dataset.geometry_type is not None
 
-    # Query features
     try:
         page = await get_features(
             db,
@@ -421,18 +388,12 @@ async def list_features(
         )
     except DBAPIError as exc:
         # fix(#1778): a type-shaped sqlstate with a property filter active is
-        # the filter value, not an outage. Reporting it as a retryable 503 sent
-        # clients into a pointless retry loop and polluted availability
-        # monitoring with what is a query-shape bug.
-        #
-        # fix(#1778 review r2): catch DBAPIError, not just its ProgrammingError
-        # and OperationalError subclasses, and classify with the same helper the
-        # OGC items handler uses. asyncpg reports a value it cannot encode as a
-        # bare DBAPIError with SQLSTATE 22000, which was neither, so it escaped
-        # as a 500 here while the sibling endpoint answered 400 for the same
-        # request. The 503 and 500 branches below keep their existing shape: an
-        # unrecognized state stays an honest 500 rather than being reported as
-        # an outage.
+        # the filter value, not an outage — reporting it as a retryable 503
+        # sent clients into a pointless retry loop. Catches DBAPIError, not
+        # just ProgrammingError/OperationalError: asyncpg reports a value it
+        # can't encode as a bare DBAPIError with SQLSTATE 22000, which is
+        # neither. The 503/500 branches below keep their shape: an
+        # unrecognized state stays an honest 500, not an outage.
         if property_filters and is_caller_type_fault(exc):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -448,7 +409,6 @@ async def list_features(
             )
         raise
 
-    # Build GeoJSON features
     features = [
         GeoJSONFeature(
             id=row["gid"],
@@ -458,11 +418,9 @@ async def list_features(
         for row in page.rows
     ]
 
-    # Build pagination links
     base_path = f"/datasets/{dataset_id}/features/"
     public_api_url = await get_public_api_url(db, request=request)
 
-    # Collect active query params for pagination link continuity
     active_params: dict[str, str] = {}
     if bbox is not None:
         active_params["bbox"] = bbox
@@ -477,9 +435,9 @@ async def list_features(
         },
     ]
 
-    # fix(#1778 review r1): `next` follows the over-fetched row, not the count.
-    # numberMatched may be the planner's estimate, and an estimate at or below
-    # `offset + limit` used to drop the link with a full page on screen.
+    # fix(#1778): `next` follows the over-fetched row, not the count —
+    # numberMatched may be the planner's estimate, and an estimate at or
+    # below `offset + limit` would otherwise drop the link on a full page.
     if page.has_more:
         next_params = {"offset": str(offset + limit), "limit": str(limit)}
         next_params.update(active_params)
@@ -539,7 +497,6 @@ async def get_single_feature(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Get a single GeoJSON feature by gid."""
-    # Fetch dataset
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -547,13 +504,11 @@ async def get_single_feature(
             detail="Dataset not found",
         )
 
-    # RBAC check
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so
-    # get_feature_by_id would raise UndefinedTableError -> unhandled 500 (a DoS
-    # reachable by any authenticated user). Return a fast 404 before any query
-    # (mirrors OGC contract).
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table —
+    # get_feature_by_id would raise UndefinedTableError -> unhandled 500 (a
+    # DoS reachable by any authenticated user). Fast 404 before any query.
     if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -584,11 +539,6 @@ async def get_single_feature(
         content=feature.model_dump(mode="json"),
         media_type="application/geo+json",
     )
-
-
-# ---------------------------------------------------------------------------
-# Write endpoints
-# ---------------------------------------------------------------------------
 
 
 @features_router.post(
@@ -629,7 +579,7 @@ async def create_feature(
             body.geometry.model_dump(),
             body.properties,
             dataset.column_info or [],
-            # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
+            # fix(#430): generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
@@ -739,7 +689,7 @@ async def replace_single_feature(
             body.geometry.model_dump(),
             body.properties,
             dataset.column_info or [],
-            # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
+            # fix(#430): generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
@@ -765,8 +715,8 @@ async def replace_single_feature(
     row = written.feature
 
     # fix(#1778): row count unchanged; the extent is unchanged too when both
-    # the old and the new envelope sit strictly inside it. The old envelope
-    # comes back from the UPDATE that overwrote it (fix(#1778 review r1)).
+    # the old and new envelope sit strictly inside it. The old envelope comes
+    # back from the UPDATE that overwrote it.
     await _refresh_metadata_guarded(
         db,
         dataset,
@@ -850,7 +800,7 @@ async def patch_single_feature(
             body.geometry.model_dump() if body.geometry else None,
             body.properties,
             dataset.column_info or [],
-            # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
+            # fix(#430): generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
@@ -951,8 +901,8 @@ async def delete_single_feature(
     _require_feature_table(dataset)
 
     try:
-        # fix(#1778 review r1): the DELETE returns the envelope it removed, so
-        # the metadata refresh reasons about the version actually deleted.
+        # fix(#1778): the DELETE returns the envelope it removed, so the
+        # metadata refresh reasons about the version actually deleted.
         prior_bounds = await delete_feature(db, dataset.table_name, gid)
     except ValueError as e:
         if "not found" in str(e).lower():

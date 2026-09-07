@@ -45,53 +45,37 @@ from app.processing.ingest.validation import validate_content_directives
 from app.processing.raster.vrt import gdal_service_safe_env, gdal_vector_safe_env
 
 
-# SEED-04 (Phase 1054): compiled once at module scope to avoid repeated re.compile().
-# Matches GDAL driver-list lines like "  -> 'FITS' (read-only)" or " -> 'PCIDSK' (rw+v)".
-# The trailing mode group (...) is optional — some GDAL builds emit bare driver names
-# without a mode suffix, so the regex accepts " -> 'NAME'" with optional "(...)" after.
+# Matches GDAL driver-list lines like "  -> 'FITS' (read-only)". The mode
+# group is optional since some GDAL builds emit bare driver names.
 _OGR_DRIVER_LIST_LINE_RE = re.compile(r"^\s*->\s*'[^']+'\s*(\([^)]*\))?\s*$")
 
-# When ogr2ogr/ogrinfo can find no driver willing to open the source, they
-# print this one line followed by GDAL's full driver enumeration (100+
-# lines) — the raw text a demo visitor saw verbatim in the job UI for an
-# invalid march.gpkg upload. Anchored tightly to that exact phrase so no
-# other failure class (bad SRS, permission denied, disk full, ...) matches.
+# When no driver can open the source, ogr2ogr/ogrinfo print this line
+# followed by GDAL's full driver enumeration (100+ lines) — raw text a demo
+# visitor once saw verbatim in the job UI. Anchored tightly so no other
+# failure class (bad SRS, permission denied, disk full) matches.
 _OGR_UNABLE_TO_OPEN_RE = re.compile(
     r"Unable to open datasource `[^']*' with the following drivers\."
 )
 
-# A second shape of the same user-facing problem: a driver DOES claim the
-# source (by extension/header — e.g. GPKG is SQLite) but the content
-# underneath is corrupt, which surfaces as SQLite's own error instead of a
-# GDAL driver-enumeration failure. GDAL prints a "bad application_id=0x..."
-# warning above this for GPKG specifically, but the "file is not a
-# database" line is the one that's common to the class and safe to anchor
-# on — it's SQLite's own open-failure text, not phrasing GDAL reuses for
-# anything else. This fires when the SQLite header itself doesn't parse
-# (e.g. the magic string is present but the page-size/header fields are
-# garbage).
+# A second shape: a driver DOES claim the source (e.g. GPKG is SQLite) but
+# the content is corrupt, surfacing as SQLite's own "file is not a
+# database" error instead of GDAL's enumeration. Fires when the SQLite
+# header itself doesn't parse (magic present, page-size/header garbage).
 _SQLITE_NOT_A_DATABASE_RE = re.compile(r"file is not a database")
 
-# fix(codex review, #1640): a THIRD shape of the same problem — the SQLite
-# header parses fine (magic, page size, application_id all valid) but an
-# interior b-tree page is corrupt, which SQLite reports as "database disk
-# image is malformed" instead of "file is not a database". Empirically
-# reproduced: a real GPKG (via ogr2ogr) with the first 100 header bytes
-# untouched and ~1KB flipped inside a near-full leaf page of the sqlite
-# schema b-tree (found via `dbstat`) makes `sqlite3` itself report exactly
-# this string, and both ogrinfo and ogr2ogr surface it verbatim in stderr —
-# ogrinfo's failure text does NOT also contain "with the following drivers"
-# or "file is not a database", so without this pattern it fell through to
-# the raw stderr (and the leaked staging path) unmodified.
+# fix(#1640): a THIRD shape — the SQLite header parses fine but an interior
+# b-tree page is corrupt, reported as "database disk image is malformed"
+# instead. Neither of the other two patterns matches this text, so without
+# it the raw stderr — including the leaked staging path — passed through unmodified.
 _SQLITE_DISK_IMAGE_MALFORMED_RE = re.compile(r"database disk image is malformed")
 
 
 def _is_unopenable_source_stderr(stderr_text: str) -> bool:
     """True when ``stderr_text`` matches a known "can't open this source" shape.
 
-    All three patterns below mean the same thing to the person who uploaded
-    the file — GDAL could not read it as a spatial dataset — so all three
-    map to the same friendly message; see ``_friendly_open_failure_message``.
+    The three patterns all mean the same thing to the uploader — GDAL
+    couldn't read it as a spatial dataset — so they map to one friendly
+    message; see ``_friendly_open_failure_message``.
     """
     return bool(
         _OGR_UNABLE_TO_OPEN_RE.search(stderr_text)
@@ -140,10 +124,8 @@ def _friendly_open_failure_message(original_filename: "str | None") -> str:
 
 
 # fix(#1746): the worker's own refusals, as constants rather than composed
-# strings. Each one becomes `IngestJob.error_message`, a log record, a
-# notification reason and the exception the queue records, so none of them may
-# name any part of the credential being judged. No brace in any of them, so
-# none can grow an interpolation later.
+# strings, so none may name any part of the credential being judged. No
+# brace in any, so none can grow an interpolation later.
 HEADER_LINE_SHAPE_POLICY = (
     "SEC-FU-04: the service credential did not arrive as one header line "
     "(a header name, a colon and a space, then a value). Nothing was sent."
@@ -166,18 +148,15 @@ HEADER_LINE_VALUE_POLICY = (
 def _legacy_bearer_line(token: str, service_format: str) -> str:
     """The line a pre-#1770 queued job's bare bearer token would have become.
 
-    Composed by ``build_credential_header``, not here: this module writes the
-    header file and validates what it is given, and the single-producer rule
-    (``tests/test_credential_producer_structural.py``) exists so no second
-    place in the tree can grow a prefix of its own. The builder applies the
-    same base64url charset and length floor the previous version enforced on
-    this exact value, so a token it refuses was never dispatchable anyway and
-    the answer is the shape policy rather than a bearer-specific message: from
-    here the two cases are indistinguishable, and the value is not named.
+    Composed by ``build_credential_header``, not here — the single-producer
+    rule (``tests/test_credential_producer_structural.py``) exists so no
+    second place in the tree can grow a prefix of its own. The builder
+    applies the same base64url charset/length floor the previous version
+    enforced, so a refused token gets the shape policy, not a bearer-specific
+    message; the value is not named.
     """
-    # fix(#1840 audit round 2): the format gate moved UP, to
-    # `_sanitize_authorization_token`'s own entry, so it covers a finished
-    # line as well as this bare-token branch. See the comment there.
+    # fix(#1840): the format gate moved UP to
+    # `_sanitize_authorization_token`'s entry; see the comment there.
     try:
         pair = build_credential_header(
             ServiceCredential(
@@ -189,9 +168,8 @@ def _legacy_bearer_line(token: str, service_format: str) -> str:
     except ValueError:
         raise ValueError(HEADER_LINE_SHAPE_POLICY) from None
     if pair is None:
-        # A service format that carries no header at all. The gate at the
-        # entry and the callers' own both cover this; it exists because a
-        # silent empty line would be worse than a refusal.
+        # A service format that carries no header at all — a silent empty
+        # line would be worse than a refusal.
         raise ValueError(HEADER_LINE_SHAPE_POLICY)
     return credential_header_line(pair)
 
@@ -202,69 +180,48 @@ def _sanitize_authorization_token(
     """SEC-FU-04: pin the credential header line to the shared policy.
 
     What crosses from the door to this worker is one finished header line
-    (plan D9), not a bare token, so this judges a LINE: printable ASCII, no CR
-    or LF, exactly one ``": "`` separator, and a name that passes
-    ``header_name_rejection_reason``. A character outside that shape could let
-    an attacker inject additional HTTP headers through the
-    GDAL_HTTP_HEADER_FILE to libcurl pipeline, so this is a security boundary
-    rather than a formatting preference.
+    (plan D9), not a bare token, so this judges a LINE: printable ASCII, no
+    CR or LF, exactly one ``": "`` separator, and a name that passes
+    ``header_name_rejection_reason``. A character outside that shape could
+    let an attacker inject additional HTTP headers through the
+    GDAL_HTTP_HEADER_FILE-to-libcurl pipeline — a security boundary, not a
+    formatting preference. fix(#1277): these rules mirror
+    ``app.core.service_tokens``, which every door also applies, but this
+    check stays regardless since the guarantee is about what reaches libcurl
+    and can't rest on a validator running in another process.
 
-    fix(#1277 review round 6): the rules come from ``app.core.service_tokens``,
-    which every door applies as well — a caller learns immediately instead of
-    after their single-use credential has been spent. This check stays
-    regardless: the guarantee is about what reaches libcurl, and it must not
-    come to rest on a validator running in another process.
-
-    The bearer branch keeps the base64url charset and the length floor, so
-    nothing about today's bearer guarantee weakens. It also keeps NAMING the
-    offending character, because a bearer token is the one credential shape
-    whose every character is already constrained to a set that carries no
-    secret structure, and a worker-side ValueError is read by whoever is
-    debugging a failed job.
-
-    fix(#1746): every OTHER branch is policy-only. This exception becomes
+    The bearer branch keeps the base64url charset/length floor and NAMES the
+    offending character — safe because every character of a bearer token is
+    already constrained to a set with no secret structure. Every OTHER
+    branch (fix(#1746)) is policy-only: the exception becomes
     ``IngestJob.error_message``, a log record, a notification reason and the
-    re-raise the queue records — ``scrub_secret_from_exception`` mutates it in
-    place precisely so all four see the same text. Under basic authentication
-    the value being judged is an encoded username and password, and naming a
-    character of a password across all four sinks is not a debugging aid worth
-    having.
+    queue's re-raise (``scrub_secret_from_exception`` keeps all four in
+    sync), and under basic auth the judged value is an encoded
+    username:password — naming a character of a password there isn't worth it.
 
-    fix(#1746 B2b review r3): a value with no separator is the PRE-#1770 wire
-    format, and it has to keep working. A worker that starts while
-    authenticated WFS or OGC API jobs are already queued reads a bare bearer
-    token out of ``procrastinate_jobs.args``, or out of the credential store
-    behind a reference the old door stashed. Refusing it would fail every one
-    of those deterministically at the next deploy or restart, which is worse
-    than the skew #1689 accepted at this door: that one degraded to a 401 the
-    operator could retry, and this would spend the single-use credential and
-    fail before ogr2ogr started. So a bare value that satisfies the charset the
-    previous version enforced is composed into the line it would have produced,
-    through the same builder every other caller uses rather than by a second
-    prefix in this module. Anything that is neither a valid line nor a valid
-    bare token still raises the shape policy.
+    fix(#1746): a value with no separator is the pre-#1770 wire format and
+    must keep working — a worker started while old jobs are queued reads a
+    bare bearer token out of ``procrastinate_jobs.args`` or the credential
+    store. Refusing it would fail those deterministically at the next
+    deploy, worse than the skew #1689 already accepted at this door. So a
+    bare value satisfying the old charset is composed into the line it would
+    have produced, through the same builder every other caller uses.
+    Anything neither a valid line nor a valid bare token raises the shape policy.
 
-    ``service_format`` selects the builder's allowlist branch. Both header-auth
-    formats compose an identical bearer line, so it changes no output; passing
-    the caller's real value rather than a constant is what keeps the builder
-    the authority on which formats may carry a header at all.
+    ``service_format`` selects the builder's allowlist branch — passing the
+    caller's real value (not a constant) keeps the builder the sole
+    authority on which formats may carry a header.
 
     Returns the line the file should hold, raises ValueError with a
     SEC-FU-04-prefixed message otherwise. None passes through.
     """
     if header_line is None:
         return None
-    # fix(#1840 audit round 2): the format gate belongs HERE, at the entry to
-    # the only function this module sanitizes a header-file line through, not
-    # inside `_legacy_bearer_line`. Round 1 put it there, which covered a bare
-    # token arriving for an ArcGIS job and not a FINISHED line arriving for
-    # one -- so `_sanitize_authorization_token("Authorization: Bearer <tok>",
-    # service_format="arcgis_featureserver")` returned the line, and the claim
-    # that this keeps an ArcGIS credential out of GDAL_HTTP_HEADER_FILE if a
-    # caller's gate is relaxed was only half true. Both shapes are refused
-    # now. Both call sites still gate on the same two formats before reaching
-    # here; this is the trust-boundary copy of that rule, which is where
-    # AGENTS.md says the worker's own check belongs.
+    # fix(#1840): the format gate belongs HERE, at this module's only
+    # sanitization entry, not inside `_legacy_bearer_line` — which covered a
+    # bare token but let a FINISHED line for a gated service_format (e.g.
+    # ArcGIS) through unrefused. Both shapes are refused now; this is the
+    # trust-boundary copy of the door's gate.
     if not requires_header_token_policy(service_format):
         raise ValueError(HEADER_LINE_SHAPE_POLICY)
     name, separator, value = header_line.partition(HEADER_LINE_SEPARATOR)
@@ -273,45 +230,31 @@ def _sanitize_authorization_token(
     if not value or HEADER_LINE_SEPARATOR in value:
         raise ValueError(HEADER_LINE_SHAPE_POLICY)
     if not name or any(character not in HEADER_NAME_CHARSET for character in name):
-        # The field-name GRAMMAR, and deliberately not the door's denylist of
-        # reserved names: that one refuses a name a CALLER chose, and the
-        # builder's own output for bearer and basic is `Authorization`, which
-        # the denylist exists to keep a caller from claiming. Applying it here
-        # would refuse every line this codebase composes.
+        # Field-name GRAMMAR, deliberately not the door's reserved-name
+        # denylist: the builder's own bearer/basic output is `Authorization`,
+        # which that denylist exists to keep a CALLER from claiming.
+        # Applying it here would refuse every line this codebase composes.
         raise ValueError(HEADER_LINE_NAME_POLICY)
     if any(character not in HEADER_LINE_VALUE_CHARSET for character in value):
         raise ValueError(HEADER_LINE_VALUE_POLICY)
-    # fix(#1770 round 49 P3): the D9 line -- what actually crosses the queue
-    # for a modern job -- never touches `build_credential_header`, the
-    # registry's only other producer (`_legacy_bearer_line` above calls it
-    # for the pre-#1770 bare-token shape, which is why that path was already
-    # covered). Without this, the whole worker service-import path relied on
-    # the two explicit `scrub_secret_from_exception` calls and nothing else
-    # -- no log line this function's own caller emits was scrubbed by exact
-    # value.
+    # fix(#1770): the D9 line — what crosses the queue for a modern job —
+    # never touches `build_credential_header`, so without this the worker
+    # service-import path relied only on the two explicit
+    # `scrub_secret_from_exception` calls; no log line here was scrubbed.
     #
-    # fix(#1844): registers the LINE, not the value. Round 49 registered
-    # `value` to keep the header NAME out of the registry, on the reasoning
-    # that "Authorization" is a word worth leaving visible in a log. That goal
-    # was right and the mechanism was the wrong half: `_secret_variants`
-    # (`core/url_redaction.py`) derives the bare token, the basic blob and the
-    # decoded `user:pass` cleartext only from a secret that CONTAINS `": "`,
-    # so registering `Bearer <tok>` expanded to nothing and the worker -- the
-    # one process that spends the credential against a hostile origin -- could
-    # not scrub the bare token an origin echoes back, nor the username an
-    # origin names in "authentication failed for user alice". Registering the
-    # line expands to every shape and still never yields the bare word
-    # `Authorization`, because the tail always starts after the `": "`.
+    # fix(#1844): registers the LINE, not the value. `_secret_variants`
+    # (`core/url_redaction.py`) derives the bare token/basic blob/decoded
+    # user:pass only from a secret CONTAINING `": "`, so registering
+    # `Bearer <tok>` alone expanded to nothing — the worker couldn't scrub a
+    # bare token an origin echoed back. Registering the line expands to
+    # every shape and never yields the bare word `Authorization` (the tail
+    # always starts after `": "`).
     #
-    # fix(#1844 codex r1): and it registers only AFTER the bearer grammar below
-    # has been checked. The registration used to sit here, above those checks,
-    # so a line this function goes on to REFUSE still seeded the registry --
-    # and `Authorization: Bearer e` seeds the one-character variant `e`, after
-    # which every `_scrub_text` for the rest of the job replaces every "e" in
-    # every log line with the redaction marker. That destroys the diagnostic
-    # exactly when something upstream has let a malformed credential through,
-    # which is when it is most needed. A refused line is not a secret in play,
-    # so nothing is registered for it.
+    # fix(#1844): registers only AFTER the bearer grammar below is checked —
+    # registering earlier let a line this function goes on to REFUSE seed
+    # the registry (e.g. `Authorization: Bearer e` seeding the one-character
+    # variant `e`, which then redacts every "e" in every log line for the rest
+    # of the job). A refused line is not a secret in play.
     if value.startswith(BEARER_SCHEME):
         token = value[len(BEARER_SCHEME) :]
         if len(token) < HEADER_TOKEN_MIN_LENGTH:
@@ -337,18 +280,13 @@ def _sanitize_authorization_token(
 def _strip_ogr_driver_list(stderr_text: str) -> str:
     """Remove GDAL driver-list lines from ogr2ogr stderr output.
 
-    ogr2ogr emits a 150+ line enumeration of supported drivers before printing
-    the actual error when it cannot open a source. These lines match the pattern
-    "  -> 'DRIVER_NAME' (modes)" and are noise for the caller. This helper
-    strips them so IngestionError messages contain only the actionable line(s).
+    ogr2ogr emits a 150+ line driver enumeration before the actual error
+    when it can't open a source; this strips those "  -> 'NAME' (modes)"
+    lines so IngestionError messages carry only the actionable line(s).
+    Runs of blank lines left behind collapse to one; result is stripped.
 
-    Blank lines that result from stripping (i.e., runs of consecutive blank
-    lines) are collapsed to a single blank line. The result is stripped of
-    leading/trailing whitespace.
-
-    Safety: the regex only matches lines with the specific "-> 'NAME' (...)"
-    shape. If GDAL changes its driver-list format in a future version, the worst
-    case is that nothing gets stripped — never that real error content is removed.
+    Safety: the regex only matches that exact shape, so a future GDAL
+    format change means nothing gets stripped, never that real content is removed.
     """
     if not stderr_text:
         return stderr_text
@@ -414,17 +352,13 @@ def validate_layer_name_argv(layer_name: str) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# Subprocess timeouts (R-5, R-9)
-# ---------------------------------------------------------------------------
-# Wall-clock limits protect the Procrastinate worker from hanging on a bad
-# file or a slow/hung upstream service. Tune via settings if your datasets
-# are routinely large.
+# Subprocess timeouts (R-5, R-9): wall-clock limits protect the
+# Procrastinate worker from hanging on a bad file or a slow/hung upstream
+# service. Tune via settings if your datasets are routinely large.
 
-# fix(#1746 B2b review r17): what is left for ogr2ogr when the in-process
-# materialisation used the whole clock. A second rather than zero, so the
-# conversion fails through the ordinary timeout path with the ordinary
-# message rather than through an arithmetic edge; the same floor
+# fix(#1746): what's left for ogr2ogr when in-process materialisation used
+# the whole clock. A second, not zero, so it fails through the ordinary
+# timeout path/message rather than an arithmetic edge — same floor
 # `export_subprocess_timeout_seconds` keeps, for the same reason.
 _SUBPROCESS_FLOOR_SECONDS = 1.0
 
@@ -434,9 +368,9 @@ OGR2OGR_SERVICE_TIMEOUT_SECONDS = 1800  # 30 min — existing value, now a named
 
 
 async def _kill_and_reap_subprocess(proc: asyncio.subprocess.Process) -> None:
-    """Best-effort kill + reap for a subprocess whose ``communicate()`` ended
-    abnormally. Shared by both ``_communicate_with_timeout`` branches below
-    so the kill/terminate/wait sequence has one implementation.
+    """Best-effort kill + reap for a subprocess whose ``communicate()`` ended abnormally.
+
+    Shared by both ``_communicate_with_timeout`` branches below.
     """
     try:
         proc.kill()
@@ -467,15 +401,12 @@ async def _communicate_with_timeout(
     gives up — in all cases raises IngestionError so the caller surfaces a
     meaningful error instead of hanging the worker.
 
-    On cancellation — a client disconnect cancels the request task, or
-    Procrastinate cancels a worker job during graceful shutdown —
-    ``asyncio.wait_for`` re-raises ``CancelledError`` from the outer task
-    without touching the child process. Without the branch below, the
-    ogr2ogr child is left running with nothing left to await it: a caller
-    that then deletes its output directory (export cleanup) races a process
-    that may still hold the file open. Runs the same kill/terminate/wait
-    sequence as the timeout branch, then re-raises so cancellation still
-    propagates.
+    On cancellation (client disconnect, or Procrastinate shutdown),
+    ``asyncio.wait_for`` re-raises ``CancelledError`` without touching the
+    child process — without the branch below, a caller that then deletes
+    its output directory (export cleanup) would race a process that may
+    still hold the file open. Runs the same kill/terminate/wait sequence,
+    then re-raises so cancellation still propagates.
     """
     try:
         return await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -537,10 +468,9 @@ def _tenant_subprocess_env(
 ) -> dict[str, str] | None:
     """Bind a libpq/GDAL connection to the active tenant's SET-only role.
 
-    ogr2ogr opens its own PostgreSQL connection, outside SQLAlchemy's statement
-    hooks. ``PGOPTIONS`` is therefore the equivalent connection-time binder.
-    In single-tenant mode this returns ``base_env`` unchanged so the legacy
-    subprocess environment remains byte-for-byte compatible.
+    ogr2ogr opens its own PostgreSQL connection, outside SQLAlchemy's
+    statement hooks, so ``PGOPTIONS`` is the connection-time equivalent.
+    Single-tenant mode returns ``base_env`` unchanged.
     """
     from app.core.db.tenant_schema import (
         tenant_data_schema,
@@ -688,10 +618,9 @@ def _extract_common_layer_metadata(
         for f in target_layer.get("fields", [])
     ]
 
-    # GPKG-01 Phase 1058: always expose all_layers when source has >1 layers,
-    # regardless of whether a specific layer_name was requested.  Callers that
-    # do not need the full list can ignore the key; callers that show layer-select
-    # UX (ReuploadDialog) need the list even after a targeted preview.
+    # Always expose all_layers when source has >1 layers, regardless of
+    # whether a specific layer_name was requested — layer-select UX
+    # (ReuploadDialog) needs the list even after a targeted preview.
     all_layers = None
     if len(layers) > 1:
         all_layers = [
@@ -773,8 +702,7 @@ async def run_ogrinfo(
 
     source = _resolve_source_path(file_path)
     # fix(#1846, GHSA-hrf5-v3cq-frx5): all three layers, on every staged-file
-    # argv. The schema check is here rather than only at the upload doors
-    # because this is the last point before GDAL sees the file, and the preview
+    # argv — this is the last point before GDAL sees the file, and preview
     # runs before the door that validates a presigned upload's whole body.
     await run_in_thread_draining(
         validate_content_directives, file_path, original_filename
@@ -836,11 +764,8 @@ async def run_ogrinfo(
     if proc.returncode != 0:
         stderr_text = stderr.decode().strip()
         if _is_unopenable_source_stderr(stderr_text):
-            # The full stderr (driver enumeration, or SQLite's own corrupt-
-            # database diagnostics) is diagnostic gold for us and unreadable
-            # noise — plus a leaked staging path — for the job UI. Log the
-            # raw text at error level here, the one place that still sees
-            # it, then raise a short, human-readable IngestionError.
+            # Full stderr is diagnostic gold for us but noise (plus a leaked
+            # staging path) for the job UI — log it here, raise a friendly message.
             structlog.get_logger().error(
                 "ogrinfo could not open source file",
                 exit_code=proc.returncode,
@@ -878,10 +803,9 @@ async def run_ogrinfo_preview(
         return await parquet_info(file_path, sample_limit=sample_limit)
 
     source = _resolve_source_path(file_path)
-    # fix(#1846, GHSA-hrf5-v3cq-frx5): the preview is the entry point that
-    # returns rows to the caller, so it is the one that must not be asking an
-    # unrestricted driver set what the file is, and the one a database whose
-    # schema reads from outside the file must not reach.
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): preview returns rows to the caller, so
+    # it must not ask an unrestricted driver set what the file is, and a
+    # database whose schema reads from outside the file must not reach it.
     await run_in_thread_draining(validate_content_directives, file_path)
     driver_args = local_input_driver_args(file_path)
 
@@ -977,10 +901,9 @@ async def run_ogr2ogr(
     if _is_parquet(file_path):
         from app.processing.ingest.parquet import load_parquet_to_postgis
 
-        # fix(#541 review): stamp with effective_srid, not detected-or-4326.
-        # For a file with unknown CRS (explicit crs:null / unresolvable
-        # PROJJSON) the user proceeds via srid_override; tagging those
-        # geometries 4326 would make the downstream ST_Transform a no-op.
+        # fix(#541): stamp with effective_srid, not detected-or-4326. A file
+        # with unknown CRS proceeds via srid_override; tagging it 4326
+        # would make the downstream ST_Transform a no-op.
         srid = effective_srid if effective_srid is not None else source_srid
         await load_parquet_to_postgis(
             file_path,
@@ -991,9 +914,8 @@ async def run_ogr2ogr(
         )
         return
 
-    # fix(#1846, GHSA-hrf5-v3cq-frx5): re-checked at the commit rather than
-    # trusted from the preview. The two calls read the staged file at different
-    # moments, and the one that persists rows is the one that has to be sure.
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): re-checked at commit, not trusted from
+    # preview — the two calls read the staged file at different moments.
     await run_in_thread_draining(
         validate_content_directives, file_path, original_filename
     )
@@ -1003,9 +925,8 @@ async def run_ogr2ogr(
 
     cmd = [
         "ogr2ogr",
-        # fix(#1846, GHSA-hrf5-v3cq-frx5): the same driver allowlist the
-        # preview used. The commit must not be able to select a driver the
-        # preview refused, or the two answers describe different files.
+        # fix(#1846, GHSA-hrf5-v3cq-frx5): same driver allowlist the preview
+        # used — the commit must not select a driver the preview refused.
         *local_input_driver_args(file_path),
         "-f",
         "PostgreSQL",
@@ -1016,16 +937,12 @@ async def run_ogr2ogr(
         f"{schema}.{table_name}",
         "-lco",
         "FID=gid",
-        # -lco PRECISION=NO:
-        #   GDAL's PostgreSQL driver defaults to PRECISION=YES, which honors source
-        #   numeric(precision, scale) declarations and writes columns as PG NUMERIC.
-        #   We set NO to force all numeric-family fields to FLOAT8 / INTEGER / VARCHAR.
-        #   Tradeoff: we lose declared precision/scale but gain predictable query
-        #   performance and simpler downstream type inference
-        #   (metadata_attributes.py _infer_domain_type). Values above 2^53 may
-        #   lose integer precision.
-        #   Locked via .planning/quick/260410-d7k-.../260410-d7k-CONTEXT.md decision
-        #   ("PRECISION=NO: leave it, document why"). Do not change without review.
+        # -lco PRECISION=NO: forces numeric-family fields to FLOAT8/INTEGER/
+        # VARCHAR instead of GDAL's default PG NUMERIC. Trades declared
+        # precision/scale (values above 2^53 may lose integer precision) for
+        # predictable query performance and simpler type inference
+        # (metadata_attributes.py _infer_domain_type). Locked decision — do
+        # not change without review.
         "-lco",
         "PRECISION=NO",
         "--config",
@@ -1071,19 +988,16 @@ async def run_ogr2ogr(
     if layer_name:
         cmd.append(layer_name)
 
-    # HYG-03 (Phase 1070, v1014 IN-02): `run_ogr2ogr` processes LOCAL FILE
-    # PATHS only, so it issues no HTTP fetches; the service-URL sibling
-    # `run_ogr2ogr_service` (below) is the one with an HTTP surface — see the
-    # fix(#937) note there for what actually bounds it.
-    # In multi-tenant mode PGOPTIONS also selects the active tenant's writer
-    # role for this independently opened libpq connection.
+    # `run_ogr2ogr` processes LOCAL FILE PATHS only, so it issues no HTTP
+    # fetches — `run_ogr2ogr_service` below is the one with an HTTP surface
+    # (see its fix(#937) note). In multi-tenant mode PGOPTIONS also selects
+    # the active tenant's writer role for this independent libpq connection.
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         # fix(#1846, GHSA-hrf5-v3cq-frx5): the clamp is the BASE the tenant
-        # role option is layered onto, so single-tenant (which returns
-        # base_env unchanged) and multi-tenant both carry it.
+        # role is layered onto, so both single- and multi-tenant carry it.
         env=_tenant_writer_subprocess_env(schema, base_env=gdal_vector_safe_env()),
     )
     stdout, stderr = await _communicate_with_timeout(
@@ -1093,8 +1007,7 @@ async def run_ogr2ogr(
     if proc.returncode != 0:
         stderr_text = stderr.decode().strip()
         if _is_unopenable_source_stderr(stderr_text):
-            # Same rationale as the matching branch in run_ogrinfo above:
-            # log the full diagnostic once, raise a short user-facing one.
+            # Same rationale as run_ogrinfo above.
             structlog.get_logger().error(
                 "ogr2ogr could not open source file",
                 exit_code=proc.returncode,
@@ -1137,38 +1050,31 @@ async def run_ogr2ogr_service(
             silently write into the shared ``data`` schema.
         on_spawn: Invoked once, immediately after the subprocess exists —
             the first moment an outbound attempt can truthfully be said to
-            have begun. Callers that date origin contacts key off this
-            rather than guessing from exception types, because every local
-            preflight (argv validation, token sanitization, tempfile setup,
-            spawn itself) happens before it fires (fix #1271 review).
+            have begun. fix(#1271): callers date origin contacts off this
+            rather than guessing from exception types, since every local
+            preflight happens before it fires.
     """
     from app.processing.ingest.metadata import _validate_table_name
 
     _validate_table_name(table_name)
     _validate_table_name(schema)
 
-    # fix(#1746 B2b review r16): a protected OGC API collection is read HERE
-    # rather than by GDAL, and the credential never becomes a header file at
-    # all. Its pages choose the next one, GDAL follows that link, and the
-    # header file applies to every request the process makes, so a collection
-    # whose first page is same-origin can hand the credential to any origin it
-    # names on page two. GDAL 3.10.3 offers no way to scope the header to one
-    # origin; that was measured, and `platform/service_items` carries the
-    # result and the command. WFS is untouched: its driver pages by startIndex
-    # against the endpoint the capabilities advertise, and ignores a `next`
-    # attribute outright, which was measured the same way.
+    # fix(#1746): a protected OGC API collection is read HERE, not by GDAL,
+    # so the credential never becomes a header file — GDAL applies a header
+    # file to every request the process makes, and a collection whose page 2
+    # names a different origin would otherwise hand it the credential too.
+    # GDAL 3.10.3 has no way to scope a header to one origin (measured; see
+    # `platform/service_items`). WFS is untouched: its driver pages by
+    # startIndex against the capabilities endpoint and ignores `next`.
     items_path: str | None = None
-    # fix(#1746 B2b review r17): one clock over the materialisation AND the
-    # subprocess. The page walk used to run before `timeout` began, so a
-    # service trickling pages inside the client's per-read timeout could hold a
-    # worker for hours and then still be handed the full half-hour to convert.
+    # fix(#1746): one clock over the materialisation AND the subprocess —
+    # otherwise a service trickling pages inside the per-read timeout could
+    # hold a worker for hours and still get the full timeout to convert.
     deadline = time.monotonic() + timeout
-    # fix(#1746 B2b review r23): ONE callback, wrapped so it fires at most
-    # once, handed to every site that might reach the origin first: the
-    # in-process page walk, the endpoint-check preflight, and the spawn.
-    # Nulling it out after whichever one is expected to fire it would be an
-    # assumption about a callee, and a callee that returns early (or is
-    # stubbed) would silently lose the contact date.
+    # fix(#1746): ONE callback, wrapped to fire at most once, handed to every
+    # site that might reach the origin first (page walk, preflight, spawn) —
+    # nulling it after one "expected" caller would assume a callee that
+    # returns early or is stubbed still fires it, silently losing the contact date.
     arm_origin_contact = fire_once(on_spawn)
     if token and service_type == "ogcapi_features":
         items_path = (
@@ -1181,11 +1087,10 @@ async def run_ogr2ogr_service(
                 or "",
                 staging_dir=ensure_staging_ready(settings.upload_staging_dir),
                 deadline=deadline,
-                # fix(#1746 B2b review r17): the origin is contacted by the walk
-                # now rather than by the subprocess, so a materialisation that
-                # fails on its first page has still reached the service and the
-                # caller that dates contacts has to hear about it. Fired at most
-                # once: the spawn below skips it when the walk already did.
+                # fix(#1746): the origin is contacted by the walk now, not
+                # the subprocess — a materialisation failing on its first
+                # page still reached the service. Fires at most once; spawn
+                # below skips it if the walk already fired.
                 on_first_request=arm_origin_contact,
             )
         ).path
@@ -1204,9 +1109,7 @@ async def run_ogr2ogr_service(
         f"{schema}.{table_name}",
         "-lco",
         "FID=gid",
-        # -lco PRECISION=NO: same tradeoff as run_ogr2ogr — forces all
-        # numeric-family fields to FLOAT8/INTEGER/VARCHAR for predictable type
-        # inference. See run_ogr2ogr comment and CONTEXT.md decision for details.
+        # -lco PRECISION=NO: same tradeoff as run_ogr2ogr — see its comment.
         "-lco",
         "PRECISION=NO",
         "--config",
@@ -1214,41 +1117,28 @@ async def run_ogr2ogr_service(
         "YES",
         "--config",
         "GDAL_HTTP_TIMEOUT",
-        str(settings.ingest_http_timeout_seconds),  # SEED-02: configurable, default 300
+        str(settings.ingest_http_timeout_seconds),  # configurable, default 300
     ]
 
     if not is_non_spatial:
-        # Spatial layers: reproject to WGS84 and emit a constraint-free
-        # geometry column.
+        # WHY -nlt GEOMETRY, not PROMOTE_TO_MULTI: some OGC/WFS services
+        # (e.g. GeoServer) declare abstract geometry types (MultiSurface,
+        # MultiCurve) in their schema; ogr2ogr honours that, but when
+        # concrete features (MultiPolygon) arrive, the post-ingest
+        # bounds-clip UPDATE in clip_to_mercator_bounds
+        # (metadata_mercator.py) fails with "Geometry type (MultiPolygon)
+        # does not match column type (MultiSurface)". -nlt GEOMETRY
+        # emits a constraint-free `geometry(Geometry, 4326)` column instead,
+        # so any concrete subtype is accepted. The concrete
+        # Dataset.geometry_type is derived post-ingest via
+        # get_geometry_type() (metadata_extent.py). run_ogr2ogr() (file
+        # ingest) keeps PROMOTE_TO_MULTI since local files always report
+        # concrete types.
         #
-        # D-01 / Phase 1057 — WHY -nlt GEOMETRY (not PROMOTE_TO_MULTI):
-        # Some OGC/WFS services (e.g. GeoServer) declare abstract geometry
-        # types in their schema (MultiSurface, MultiCurve, CompoundSurface).
-        # ogr2ogr honours that declaration and creates the PostGIS column with
-        # the same abstract subtype.  When the actual features arrive as
-        # concrete geometries (MultiPolygon), the post-ingest bounds-clip
-        # UPDATE in clip_to_mercator_bounds (metadata_mercator.py) fails with:
-        #   asyncpg.exceptions.InvalidParameterValueError:
-        #     Geometry type (MultiPolygon) does not match column type (MultiSurface)
-        #
-        # -nlt GEOMETRY instructs ogr2ogr to emit a generic `geometry(Geometry,
-        # 4326)` column with no subtype constraint, so any concrete subtype
-        # stored by the service's features is accepted by PostGIS transparently.
-        #
-        # The concrete subtype for Dataset.geometry_type is derived post-ingest
-        # via get_geometry_type() (metadata_extent.py) which inspects the first
-        # feature with `SELECT GeometryType(geom) … LIMIT 1`.  This keeps the
-        # downstream record_type classification, icons, and UX unchanged.
-        #
-        # The file-ingest sibling run_ogr2ogr() continues to use
-        # PROMOTE_TO_MULTI because local files always report concrete types;
-        # the abstract-type problem only arises on the service-ingest path.
-        #
-        # GEOMETRY_NAME=_geolens_geom avoids a CREATE TABLE collision when the
-        # remote service publishes an attribute named `geom`/`geometry`. The
-        # post-ingest `ensure_geom_column` step renames the placeholder to
-        # `geom` after `rename_reserved_columns` has moved any source
-        # attribute to `src_<name>`.
+        # GEOMETRY_NAME=_geolens_geom avoids a CREATE TABLE collision when
+        # the service publishes a `geom`/`geometry` attribute;
+        # `ensure_geom_column` renames the placeholder after
+        # `rename_reserved_columns` moves any source attribute to `src_<name>`.
         cmd += [
             "-nlt",
             "GEOMETRY",
@@ -1266,50 +1156,42 @@ async def run_ogr2ogr_service(
     if service_type == "wfs":
         cmd.extend(["--config", "OGR_WFS_PAGE_SIZE", "1000"])
 
-    # fix(#937): Phase 1061 SEC-S04 set GDAL_HTTP_FOLLOWLOCATION=NO here,
-    # believing it disabled libcurl redirect-following inside ogr2ogr. It is
-    # not a GDAL configuration option and never did anything; measured on GDAL
-    # 3.10.3 (the worker image) and 3.12.1, a 302 is followed identically with
-    # and without it, and GDAL exposes no option that stops it. Do not re-add
-    # it. The defenses this path actually has: validate_url_for_ssrf rejects
-    # private/link-local hosts at submission time, and the subprocess runs
-    # under a wall-clock timeout.
+    # fix(#937): GDAL_HTTP_FOLLOWLOCATION is NOT a real GDAL option and never
+    # did anything — measured on GDAL 3.10.3 (worker image) and 3.12.1, a
+    # 302 is followed identically with or without it, and GDAL exposes no
+    # option that stops it. Never re-add it. Actual defenses on this path:
+    # validate_url_for_ssrf rejects private/link-local hosts at submission
+    # time, and the subprocess runs under a wall-clock timeout.
     #
-    # SEC-008 (re-derived for #937): unlike the httpx path (make_safe_client
-    # pins the validated IP via _SSRFGuardTransport and re-validates every 3xx
-    # Location), libcurl under GDAL resolves DNS itself with no per-request pin
-    # hook and follows redirects unconditionally. So BOTH a connect-time
-    # DNS-rebinding TOCTOU and a post-validation 302 to an internal IP
-    # (169.254.169.254 / 10.x / 127.x) remain open on this path — the previous
-    # sign-off recorded the redirect half as bounded, which was wrong. Both
-    # must be mitigated operationally: egress firewalling of the worker and
-    # blocking link-local/metadata IPs at the network layer.
+    # Unlike the httpx path (make_safe_client pins the validated IP and
+    # re-validates every 3xx Location), libcurl under GDAL resolves DNS
+    # itself with no per-request pin and follows redirects unconditionally.
+    # So both a connect-time DNS-rebinding TOCTOU and a post-validation 302
+    # to an internal/metadata IP remain open here, mitigated only
+    # operationally: worker egress firewalling and blocking link-local/
+    # metadata IPs at the network layer.
     #
-    # IA-P1-06 (Phase 1068): Authorization headers MUST NOT pass through the
-    # subprocess env (visible via /proc/<pid>/environ for the lifetime of the
-    # process). Switch to GDAL_HTTP_HEADER_FILE pointed at a 0600 tempfile
-    # that holds the header line — the env var is the file PATH, not the
-    # token. The tempfile is unlinked in the finally block below.
+    # Authorization headers MUST NOT pass through the subprocess env
+    # (visible via /proc/<pid>/environ for the process lifetime) — use
+    # GDAL_HTTP_HEADER_FILE pointed at a 0600 tempfile holding the header
+    # line instead; the env var is the file PATH, not the token. Unlinked in
+    # the finally block below.
     header_file_path: str | None = None
     try:
         env = _tenant_writer_subprocess_env(
             schema,
-            # fix(#1846, GHSA-hrf5-v3cq-frx5): the service variant keeps WFS
-            # and OAPIF, which are the point of this call, and refuses the
-            # rest -- a service response has no business selecting the VRT
-            # driver or shelling out to a helper program.
+            # fix(#1846, GHSA-hrf5-v3cq-frx5): keeps WFS/OAPIF, the point of
+            # this call, and refuses the rest — a service response has no
+            # business selecting the VRT driver or shelling out to a helper.
             base_env=gdal_service_safe_env(),
         )
         assert env is not None  # base_env is always returned in single-tenant mode
         if token and service_type in ("wfs", "ogcapi_features"):
-            # fix(#1746) plan D9: for these two formats `token` IS the finished
-            # header line the door composed, so this validates a line and
-            # writes it verbatim. It used to compose `Authorization: Bearer `
-            # here, and keeping that while being handed a finished line would
-            # have produced `Authorization: Bearer Authorization: Basic <blob>`
-            # — a working-looking string that 401s at the origin and reads in a
-            # log like a credential problem rather than a bug. The one composer
-            # is `build_credential_header`, and it ran at the door.
+            # fix(#1746) plan D9: for these two formats `token` IS the
+            # finished header line the door composed, so this validates and
+            # writes it verbatim — composing `Authorization: Bearer ` here
+            # too would have produced `Authorization: Bearer Authorization:
+            # Basic <blob>`, a working-looking string that just 401s.
             header_line = _sanitize_authorization_token(
                 token, service_format=service_type
             )  # SEC-FU-04: raises ValueError before subprocess
@@ -1319,50 +1201,41 @@ async def run_ogr2ogr_service(
             require_wfs_layer(
                 layer_name, service_format=service_type, credential_line=header_line
             )
-            # fix(#1746 B2b review r13): GDAL applies the header file to the
-            # operation endpoints the service's own description advertises,
-            # and those are fresh requests no redirect rule can see. Checked
-            # here as well as at the door because the document can change
-            # between a preview and the import it leads to, and this is the
-            # side that actually spends the credential.
+            # fix(#1746): GDAL applies the header file to the operation
+            # endpoints the service's own description advertises — fresh
+            # requests no redirect rule can see. Checked here as well as at
+            # the door because the document can change between a preview
+            # and the import, and this is the side that spends the credential.
             await assert_endpoints_stay_on_origin(
                 gdal_source.split(":", 1)[1],
                 service_format=service_type,
-                # fix(#1746 B2b review r14): sent WITH the credential, so a
-                # protected service answers with the document this import will
-                # act on rather than a 401 that told the check nothing. And
-                # scoped to the layer being imported, which is the collection
-                # whose own document names the endpoint that gets the header.
+                # fix(#1746): sent WITH the credential, so a protected
+                # service answers with the document this import will act on
+                # rather than a 401. Scoped to the layer being imported —
+                # the collection whose document names the endpoint that
+                # gets the header.
                 credential_line=header_line,
                 collection=layer_name or None,
-                # fix(#1746 B2b review r23): under the same clock as the
-                # subprocess it precedes, and arming the origin-contact
-                # callback. The preflight authenticates against the origin, so
-                # a 401, malformed XML or cross-origin endpoint has reached the
-                # service; firing only at the spawn below left
-                # `origin_contact_attempted` false and `last_checked_at` stale
-                # for exactly the failures this check exists to produce.
+                # fix(#1746): same clock as the subprocess it precedes, and
+                # arms the origin-contact callback — firing only at spawn
+                # would leave `origin_contact_attempted`/`last_checked_at`
+                # stale for exactly the failures this preflight produces.
                 deadline=deadline,
                 on_first_request=arm_origin_contact,
             )
-            # Write the header to a 0600 tempfile under the staging dir
-            # (predictable owner, ephemeral). Using tempfile + os.chmod 0o600
-            # (NamedTemporaryFile already creates owner-only on POSIX, but
-            # set explicitly for clarity).
+            # Header written to a 0600 tempfile under the staging dir.
             import tempfile
 
             # fix(#1746): mkstemp had no dir=, so it landed wherever
-            # `tempfile.tempdir` happened to point — a SIGKILL/OOM before the
-            # finally block below then leaks the bearer-header tempfile outside
-            # anything a sweep can reach.
+            # `tempfile.tempdir` pointed — a SIGKILL/OOM before the finally
+            # block below then leaked the bearer-header tempfile.
             #
-            # fix(#1746 codex r2): the directory is the container tmpfs, not
-            # the staging volume. Staging is persistent and
-            # `scripts/backup-entrypoint.sh` tars it every cycle, so an
-            # orphaned header could be archived into a backup.
-            # `gdal_header_dir()` is 0700 under /tmp, which the worker mounts
-            # as its own 512m tmpfs: private to this container, gone on
-            # restart, and swept at boot for anything that leaks in between.
+            # fix(#1746): the directory is the container tmpfs, not the
+            # staging volume — staging is persistent and gets tarred into
+            # backups (`scripts/backup-entrypoint.sh`), so an orphaned
+            # header could be archived. `gdal_header_dir()` is 0700 under
+            # /tmp, the worker's own 512m tmpfs: private to this container,
+            # gone on restart, swept at boot.
             fd, header_file_path = tempfile.mkstemp(
                 prefix="gdal_auth_", suffix=".hdr", dir=gdal_header_dir()
             )
@@ -1374,21 +1247,18 @@ async def run_ogr2ogr_service(
             env["GDAL_HTTP_HEADER_FILE"] = header_file_path
             env.update(gdal_transport_env(service_type))
             # Plan rule A: GDAL forwards `Authorization` only to the host it
-            # was given to, and forwards every other header name verbatim even
-            # across hosts, so a service-chosen API key is redirect-exposed on
-            # this path and cannot be protected from inside (bounded
-            # operationally, AGENTS.md Rule 2). The value is stated rather than
-            # inherited, and it is IF_SAME_HOST rather than NO: a same-host
-            # canonical redirect, such as one adding a trailing slash, must
+            # was given to, but forwards every other header name verbatim
+            # across hosts, so a service-chosen API key is redirect-exposed
+            # here and can't be protected from inside (bounded
+            # operationally, AGENTS.md Rule 2). IF_SAME_HOST, not NO: a
+            # same-host canonical redirect (e.g. a trailing slash) must
             # keep the credential or a protected service answers 401.
             env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
-        # fix(#1746 B2b review r23): computed HERE rather than at each place
-        # that spends the budget, so it accounts for all of them: the
-        # in-process page walk for a protected OGC API collection, and the
-        # endpoint-check preflight. Floored so a preflight that used the whole
-        # budget still fails through the ordinary subprocess timeout rather
-        # than through an arithmetic edge.
+        # fix(#1746): computed HERE, not at each spender, so it accounts for
+        # all of them (page walk, preflight). Floored so a preflight that
+        # used the whole budget still fails through the ordinary subprocess
+        # timeout rather than an arithmetic edge.
         timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -1397,8 +1267,7 @@ async def run_ogr2ogr_service(
             env=env,
         )
         if arm_origin_contact is not None:
-            # A no-op when the walk or the preflight already reached the
-            # origin, which is the point of wrapping it.
+            # No-op when the walk or preflight already reached the origin.
             arm_origin_contact()
 
         # Use the shared helper for graceful kill-on-timeout (R-9).
@@ -1426,15 +1295,12 @@ async def run_ogr2ogr_service(
         stripped = _strip_ogr_driver_list(
             stderr.decode()
         )  # SEED-04: strip driver list noise
-        # fix(#1277 review): redact BEFORE the text becomes an exception, not
-        # after. For ArcGIS the credential rides in the ESRIJSON source URL
-        # (build_gdal_source puts it in the query string — only the WFS and
-        # OGC API branches get the header-file treatment above), and GDAL
-        # echoes the source it failed on. Every consumer of this exception is
-        # a sink: the persisted IngestJob.error_message, the log record, the
-        # notification reason, and the re-raise the queue records. Scrubbing
-        # at each of those is four chances to forget; scrubbing here is the
-        # boundary where the credential stops existing in error text at all.
+        # fix(#1277): redact BEFORE the text becomes an exception. For
+        # ArcGIS the credential rides in the ESRIJSON source URL query
+        # string (only WFS/OGC API get the header-file treatment above),
+        # and GDAL echoes the failed source. Every consumer of this
+        # exception is a sink (error_message, log, notification, re-raise);
+        # scrubbing here is the one boundary rather than four chances to forget.
         raise IngestionError(
             f"ogr2ogr failed (exit {proc.returncode}): "
             f"{redact_url_credentials(stripped.strip())}"

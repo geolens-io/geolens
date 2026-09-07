@@ -177,7 +177,6 @@ _DEFAULT_BASEMAP_INSTRUCTION = (
 
 
 def _build_basemap_instruction(basemap_ids: list[str] | None) -> str:
-    """Build basemap instruction from available basemap IDs."""
     if basemap_ids:
         choices = ", ".join(basemap_ids)
         return f"Choose from: {choices}. Use 'positron' if unsure."
@@ -223,7 +222,7 @@ def _build_map_system_prompt(
     prompt = SYSTEM_PROMPT.format(basemap_instruction=basemap_instruction)
 
     # This path has no layer block, so a catalog tool result is the only
-    # untrusted text it ever sees. fix(#1778 round 2).
+    # untrusted text it ever sees. fix(#1778).
     prompt += "\n" + TOOL_RESULT_PROTOCOL
 
     lang = lang_name(language)
@@ -289,11 +288,9 @@ async def _execute_search_tool(
                 sample[k] = v[:5] if isinstance(v, list) else v
             sample = sample or None
 
-        # fix(#1778): search is visibility-filtered but includes other users'
-        # PUBLIC datasets, so this is the cross-user path — text an attacker
-        # publishes lands in a victim's model context, where the model holds
-        # query_data over the victim's own allowlist and every editing tool.
-        # Titles and summaries go through the same scrubbing as the content.
+        # fix(#1778): search includes other users' PUBLIC datasets, so an
+        # attacker's text here lands in a victim's model context, where the
+        # model holds query_data and every editing tool. Scrub like content.
         results.append(
             {
                 "id": str(ds.id),
@@ -404,11 +401,11 @@ async def _retry_parse_map_spec(
         f"{raw_text}"
     )
 
-    # Phase 226 D-19: dispatch via extension lookup; tools=[] + max_rounds=1
-    # covers the no-tools single-round retry case naturally.
+    # Dispatch via extension lookup; tools=[] + max_rounds=1 covers the
+    # no-tools single-round retry case naturally.
     provider_ext = get_ai_provider(provider)
 
-    # fix(#1778 round 2): a single-round call still spends a round. Same
+    # fix(#1778): a single-round call still spends a round. Same
     # accounting shape as the tool loops, so the structural gate does not
     # have to carve out an exception it would then have to justify.
     async with usage_accounting(
@@ -425,8 +422,8 @@ async def _retry_parse_map_spec(
             max_tokens=1024,
             base_url=runtime_config.get("base_url"),
         )
-    # codex P2 on #646/#648: retry/repair rounds spend real provider tokens —
-    # record them or they bypass the daily AI budget.
+    # fix(#646, #648): retry/repair rounds spend real tokens -- record them
+    # or they bypass the daily AI budget.
     await record_token_usage(
         session,
         user_id=user_id,
@@ -450,7 +447,7 @@ async def _repair_map_spec(
     session: AsyncSession,
     user_id: uuid.UUID | None,
 ) -> LLMMapSpec:
-    """One repair round for schema-invalid specs (fix #642).
+    """One repair round for schema-invalid specs (fix(#642)).
 
     Parse failures already get _retry_parse_map_spec; this is the sibling
     for valid-JSON-wrong-shape output. Feed the pydantic errors back to the
@@ -472,7 +469,7 @@ async def _repair_map_spec(
     )
     provider_ext = get_ai_provider(provider)
 
-    # fix(#1778 round 2): a single-round call still spends a round. Same
+    # fix(#1778): a single-round call still spends a round. Same
     # accounting shape as the tool loops, so the structural gate does not
     # have to carve out an exception it would then have to justify.
     async with usage_accounting(
@@ -489,7 +486,7 @@ async def _repair_map_spec(
             max_tokens=1024,
             base_url=runtime_config.get("base_url"),
         )
-    # codex P2 on #648: repair-round tokens must count toward the daily cap.
+    # fix(#648): repair-round tokens must count toward the daily cap.
     await record_token_usage(
         session,
         user_id=user_id,
@@ -509,15 +506,11 @@ async def _repair_map_spec(
 def _snap_viewport_to_extent(spec: LLMMapSpec, extents: list[object]) -> None:
     """Pull an LLM viewport back to the layer data when it points elsewhere.
 
-    fix(#886): the union used to be a naive min/max fold over
-    ``to_shape(ext).bounds``, so a map over Fiji datasets at lon 179 and -179
-    unioned to -180..180 and "snapped" the centre to lon 0 --- the Gulf of
-    Guinea, a quarter of the planet from the data. ``merge_bboxes`` folds the
-    per-dataset bboxes on the circle instead.
-
-    The margin and centroid arithmetic needs a monotonic width, so a crossing
-    east is lifted past +180 and the spec's longitude is brought into the same
-    unwrapped domain before comparison. Mutates ``spec`` in place.
+    fix(#886): ``merge_bboxes`` folds per-dataset bboxes on the circle, so
+    datasets split across the antimeridian (e.g. Fiji at lon 179/-179) don't
+    union to -180..180 and snap the centre to lon 0, a quarter of the planet
+    from the data. The margin/centroid arithmetic needs a monotonic width, so
+    a crossing east is lifted past +180 before comparison. Mutates ``spec``.
     """
     merged = merge_bboxes(extent_to_bbox(ext) for ext in extents)
     if merged is None:
@@ -721,8 +714,6 @@ def _build_tool_executor(
     send_sample_values: bool,
     port: "ProcessingPort",
 ) -> "Callable[[str, dict], Awaitable[dict]]":
-    """Build a tool executor closure bound to the given session/user."""
-
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
         """Dispatch an AI tool call to the appropriate handler and return the result."""
         if tool_name == "search_datasets":
@@ -827,7 +818,7 @@ async def generate_map_from_prompt(
     if "error" in spec_dict:
         raise UserFacingAIError(spec_dict["error"])
 
-    # Validate with pydantic, with one LLM repair round (fix #642)
+    # Validate with pydantic, with one LLM repair round (fix(#642))
     try:
         spec = LLMMapSpec(**spec_dict)
     except ValidationError as ve:
@@ -897,14 +888,11 @@ async def stream_generate_map(
             )
             return result
 
-        # fix(#1778 round 2): this generator's own handlers below turn an
-        # exhaustion or a timeout into an SSE error event and return, and a
-        # browser that goes away cancels the whole task, so without the
-        # context manager the provider had already billed the round and
-        # nothing reached catalog.ai_token_usage. It covers all three: the
-        # wait_for timeout arrives with its counts on __cause__, and the
-        # disconnect arrives as a CancelledError that an `except Exception`
-        # would have missed entirely.
+        # fix(#1778): without this, an exhaustion, a timeout or a client
+        # disconnect (which cancels the task) bills the provider round but
+        # never reaches catalog.ai_token_usage. Covers all three: timeout
+        # counts arrive on __cause__; disconnect arrives as CancelledError,
+        # which `except Exception` would miss.
         async with usage_accounting(
             session, user_id=user.id, subsystem="map_generation", model=model
         ):
@@ -929,12 +917,9 @@ async def stream_generate_map(
             output_tokens=result.output_tokens,
         )
 
-        # fix(#402) codex P1: the streaming map path (the primary map-create UI
-        # entrypoint) previously recorded no usage, so it was invisible to the
-        # per-user token budget. Record it like generate_map_from_prompt does —
-        # and BEFORE any post-LLM yield, so a client disconnect during the
-        # tool-event replay below can't skip accounting (the tokens are already
-        # spent once provider_ext.complete returns).
+        # fix(#402): record BEFORE any post-LLM yield, so a client disconnect
+        # during the tool-event replay below can't skip accounting -- the
+        # tokens are already spent once provider_ext.complete returns.
         await record_token_usage(
             session,
             user_id=user.id,
@@ -1003,17 +988,12 @@ async def stream_generate_map(
             "message": "Map generation timed out. Try a simpler prompt.",
         }
     except Exception as e:  # broad: SSE generator must yield error event for any unhandled SDK/runtime exception
-        # fix(#1778): `str(e)` used to go straight to the browser. A SQLAlchemy
-        # ProgrammingError carries the statement and its bound parameters, an
-        # anthropic/openai APIStatusError carries the provider response body and
-        # request URL, and OpenAICredentialDestinationError names the configured
-        # endpoint. This generator catches before the router's own sanitized
-        # event, so all of that reached any holder of use_ai_chat.
-        #
-        # fix(#1778 round 1): the passthrough is a positive allowlist of ONE
-        # explicitly constructed type, not "any ValueError". That set is open,
-        # and OpenAICredentialDestinationError is in it: a ValueError that names
-        # the configured provider endpoint, so the round-0 shape emitted
-        # verbatim the deployment detail it meant to hide.
+        # fix(#1778): a SQLAlchemy ProgrammingError carries the statement and
+        # bound params, an APIStatusError carries the provider response body
+        # and URL, and OpenAICredentialDestinationError names the configured
+        # endpoint -- str(e) must never reach the browser. The passthrough is
+        # a positive allowlist of ONE explicit type, not "any ValueError":
+        # that class is open, and a ValueError naming the endpoint belongs to
+        # it too.
         logger.exception("Streaming map generation failed")
         yield {"type": "error", "message": safe_stream_error_message(e)}

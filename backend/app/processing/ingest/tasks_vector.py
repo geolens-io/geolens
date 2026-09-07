@@ -54,16 +54,13 @@ _SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
 _SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS = 5.0
 _SERVICE_IMPORT_HEARTBEAT_INCREMENT = 0.05
 _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
-# fix(#1778 codex r3): the PRIMARY bound on one heartbeat tick's own database
-# wait. Set as `SET LOCAL lock_timeout` / `SET LOCAL statement_timeout` on the
-# tick's own transaction (see _service_import_heartbeat_tick), so a commit
-# blocked on another transaction's row lock fails on its own, INSIDE the
-# database, and releases the connection -- rather than depending on the
-# caller merely giving up on WAITING for it, which left the connection itself
-# still checked out and blocked, exhausting the worker's pool under repeated
-# stalled imports even though their parent tasks continued.
+# fix(#1778): the PRIMARY bound on one heartbeat tick's own DB wait, set as
+# `SET LOCAL lock_timeout`/`statement_timeout` on the tick's own transaction
+# (see _service_import_heartbeat_tick) so a blocked commit fails inside the
+# database and releases the connection, instead of leaving it checked out
+# and exhausting the pool under repeated stalls.
 _SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS = 3.0
-# fix(#1778 codex r2, revised r3): a SAFETY NET above the DB timeout above,
+# fix(#1778): a SAFETY NET above the DB timeout above,
 # not the primary mechanism -- see _heartbeat_service_import_progress. Covers
 # only what a DB-side timeout cannot: a connection stuck before it ever
 # reaches Postgres (e.g. a network partition), where `SET LOCAL` never runs.
@@ -127,55 +124,32 @@ async def _service_import_heartbeat_tick(
 ) -> bool:
     """One heartbeat write: open a session, advance progress, commit, close.
 
-    Returns ``False`` when the caller's loop must stop (the job vanished or
-    left the step this heartbeat belongs to), ``True`` otherwise. Split out of
-    ``_heartbeat_service_import_progress`` so that function can ``shield`` the
-    whole tick from cancellation (fix(#1778)) — see that function's docstring.
+    Returns ``False`` when the caller's loop must stop (job vanished, or
+    moved off the step this heartbeat belongs to), ``True`` otherwise. Split
+    out of ``_heartbeat_service_import_progress`` so that function can
+    ``shield`` the whole tick from cancellation (fix(#1778)) — see its
+    docstring.
 
-    fix(#1778 codex r3): sets ``lock_timeout``/``statement_timeout`` on this
-    transaction before touching the job row, so a commit blocked on another
-    transaction's row lock raises INSIDE Postgres within a few seconds
-    instead of waiting on whatever holds the lock. ``_job_phase_session``'s
-    own exception handling rolls back and re-raises on that error, which
-    releases this tick's connection back to the pool the ordinary way --
-    the caller no longer has to choose between waiting on a stuck connection
-    forever and abandoning one it can never reclaim.
-
-    fix(#1778 codex r6): those timeouts are now passed INTO
+    fix(#1778): passes ``lock_timeout``/``statement_timeout`` INTO
     ``_job_phase_session`` (``lock_and_statement_timeout_ms``) rather than
-    set after entering it, so they cover the SELECT the helper runs
-    internally too -- issuing them after the ``async with`` line left that
-    initial SELECT unprotected, and a SELECT can itself stall behind a lock
-    the later UPDATE would never even see (e.g. another session's ACCESS
-    EXCLUSIVE on the table).
+    setting them after entering it, so they also cover the SELECT the
+    helper runs internally — a SELECT can itself stall behind a lock the
+    later UPDATE would never see. A blocked commit then raises inside
+    Postgres within seconds; ``_job_phase_session``'s rollback-and-reraise
+    releases the connection normally rather than leaving the caller to
+    choose between waiting forever or abandoning it.
 
-    fix(#1778 codex r11): the SELECT above (run inside ``_job_phase_session``)
-    is a snapshot, not a lock. If THIS tick's own connection then stalls --
-    for whatever reason the DB timeout above does not itself close, e.g. a
-    connection stuck before it ever reaches Postgres -- long enough for the
-    caller's cancellation drain (the safety net two paragraphs up) to expire,
-    the caller moves on while this ``asyncio.shield``ed tick is still alive
-    in the background. ``_finalize_ingest`` can commit
-    ``status="complete"``/``progress=1.0`` in the meantime, or a retry can
-    rotate ``attempt_id`` -- and an unconditional ORM commit here would then
-    overwrite that finalized row BY PRIMARY KEY with this tick's stale
-    progress (never above ``_SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS``),
-    resurrecting a "still running" progress bar on a job that already
-    finished, or writing into a job attempt this worker no longer owns.
-
-    The write below re-checks every fact the SELECT read, atomically, in the
-    UPDATE's own WHERE clause, rather than trusting that earlier read: the
-    same attempt must still own the row, it must still be "running" on
-    "ogr2ogr", and the row's CURRENT progress -- not the value this tick
-    read minutes ago -- must still be below what it is about to write.
-    Matches the attempt-fenced UPDATE shape ``_finalize_ingest`` already uses
-    via ``require_ingest_job_update``/``update_ingest_job_for_attempt``, just
-    inlined here because this call site also needs the extra
-    ``current_step``/``progress`` guards those helpers do not take. Zero rows
-    affected means the job moved on since the SELECT: log and do nothing --
-    the same "abandon this write, it costs nothing the caller depends on"
-    posture the rest of this tick's timeout handling already takes for a
-    write that never lands.
+    fix(#1778): the earlier SELECT is a snapshot, not a lock. If this
+    tick's own connection then stalls for a reason the DB timeout doesn't
+    catch (e.g. before it reaches Postgres) past the caller's cancellation
+    drain, the caller moves on while this shielded tick keeps running in
+    the background — meanwhile ``_finalize_ingest`` could commit
+    ``status="complete"`` or a retry could rotate ``attempt_id``. So the
+    UPDATE below re-checks every fact atomically in its own WHERE clause
+    (same attempt still owns the row, still "running"/"ogr2ogr", and
+    CURRENT progress still below what's about to be written) instead of
+    trusting the earlier read. Zero rows affected means the job moved on:
+    log and do nothing.
     """
     from app.platform.jobs.models import IngestJob
 
@@ -232,41 +206,24 @@ async def _heartbeat_service_import_progress(
 ) -> None:
     """Advance service-ingest progress while GDAL loads remote features.
 
-    fix(#1778): each tick is run under ``asyncio.shield`` so the caller's
-    ``.cancel()`` (``ingest_service``'s ``finally: service_progress_task.
-    cancel(); await service_progress_task``) can only ever land at the
-    ``asyncio.sleep`` above, never while a tick's session is mid-connect,
-    mid-write, or mid-close. Without this, a cancel landing inside
-    ``_job_phase_session``'s ``async with async_session()`` left that
-    connection's setup or teardown interrupted, and asyncpg does not always
-    finish tearing itself down in that state — the connection outlived the
-    coroutine that owned it, and its eventual, asynchronous close surfaced
-    later, against unrelated work, as ``ConnectionError: unexpected
-    connection_lost() call``. Shielding costs at most one in-flight tick's
-    worth of extra shutdown latency (a single SELECT + UPDATE + COMMIT), the
-    same trade a clean subprocess kill/reap already makes elsewhere in this
-    package.
+    fix(#1778): each tick runs under ``asyncio.shield`` so the caller's
+    ``.cancel()`` can only land at the ``asyncio.sleep`` below, never
+    mid-connect/write/close on the tick's own session. Without this, a
+    cancel landing inside asyncpg's connection teardown left the
+    connection outliving its coroutine, surfacing later against unrelated
+    work as ``ConnectionError: unexpected connection_lost() call``.
+    Shielding costs at most one tick's worth of extra shutdown latency.
 
-    fix(#1778 codex r2, revised r3): the drain that lets a shielded tick
-    finish is bounded by ``_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS``,
-    a SAFETY NET, not the primary mechanism. The shield bounds WHERE a cancel
-    can land, not HOW LONG draining one can take, and round 2 covered that
-    gap by giving up on WAITING here -- which left the tick's connection
-    itself still checked out and blocked if it was stuck on a row lock,
-    exhausting the pool under repeated stalls even though this function
-    itself moved on. Round 3 bounds the tick's OWN database wait instead
-    (``_service_import_heartbeat_tick`` sets ``lock_timeout``/
-    ``statement_timeout`` on its transaction), so in the common case the
-    tick resolves -- successfully or by raising -- well inside this drain
-    window on its own, connection released either way. What survives here is
-    a last-resort bound for what a DB-side timeout cannot cover: a
-    connection stuck before it ever reaches Postgres. ``asyncio.shield``
-    still keeps the tick itself running in the background rather than
-    cancelling it on that rarer timeout, so a connection that DOES eventually
-    hear back from Postgres still gets to close cleanly. The heartbeat's
-    write is best-effort progress UI sugar the import's own result never
-    reads back, so abandoning one late tick, on the rare path where even the
-    DB timeout does not save it, costs nothing the caller depends on.
+    fix(#1778): the ``_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS``
+    drain that lets a shielded tick finish is a SAFETY NET, not the
+    primary bound — that's the tick's own DB-side ``lock_timeout``/
+    ``statement_timeout`` (see ``_service_import_heartbeat_tick``), which
+    resolves the common case well inside this window. The drain timeout
+    only covers what a DB-side timeout can't: a connection stuck before it
+    ever reaches Postgres. The tick still isn't cancelled on that rarer
+    timeout — the caller just moves on while it finishes in the
+    background — since the heartbeat write is best-effort progress UI
+    sugar the import's own result never reads back.
     """
     while True:
         await asyncio.sleep(_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS)
@@ -291,7 +248,7 @@ async def _heartbeat_service_import_progress(
                             timeout=_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS,
                         )
                     except asyncio.TimeoutError:
-                        # Expected to be rare after fix(#1778 codex r3): the
+                        # Expected to be rare after fix(#1778): the
                         # tick's own DB-level timeout should have already
                         # resolved it well within this window. Reaching this
                         # means something OUTSIDE the database's own timeout
@@ -534,20 +491,14 @@ async def ingest_file(
                     },
                 )
                 await session.commit()
-                # fix(#1778): NO unlink here — fix(#1290 review)'s correction,
-                # which reached the two raster tails and not this copy of the
-                # same block. This exit deleted the local file unconditionally,
-                # which on a local-storage install is the durable original: a
-                # worker-side validation failure (canonically: UPLOAD_MAX_SIZE_MB
-                # lowered while the job sat queued) destroyed the only copy of a
-                # file the job then recorded as failed, with nothing to diagnose
-                # from and no way to retry. The object-storage shape was already
-                # right because the thing it deletes is a downloaded scratch copy.
-                #
+                # fix(#1778): NO unlink here (fix(#1290)'s raster-tail
+                # correction hadn't reached this copy). Unconditional delete
+                # destroyed a local-storage install's only copy of a file
+                # that then failed validation, leaving nothing to retry.
                 # `_should_unlink_staging` in the terminal `finally` already
-                # knows that distinction, and it runs on this return, so the
-                # correct fix is to have ONE exit decide rather than teach a
-                # second one the same rule.
+                # knows the right distinction and runs on this return, so
+                # let ONE exit decide rather than teach a second one the
+                # same rule.
                 final_status = "failed"
                 return
 
@@ -671,24 +622,16 @@ async def ingest_file(
         # right after its own file hash for the same reason.
         source_format = await asyncio.to_thread(derive_source_format, file_path)
 
-        # ----------------------------------------------------------------- #
-        # Phase 2 (short-lived session via _job_phase_session — REMED-03 /
-        # P2-05): post-ogr2ogr finalization. Re-load the job in a fresh
-        # session — its attributes were already snapshotted into
-        # ``um`` / ``source_filename`` / ``layer_name`` above.
+        # Phase 2 (short-lived session via _job_phase_session — REMED-03/
+        # P2-05): post-ogr2ogr finalization, reloading the job fresh (its
+        # attributes were already snapshotted into ``um``/``source_filename``/
+        # ``layer_name`` above).
         #
-        # fix(#1778 audit r11): require_status="running". _finalize_ingest's
-        # own terminal write already fences on status via
-        # require_ingest_job_update (default expected_status="running"), so a
-        # fenced-out attempt cannot resurrect a row the sweep failed -- the
-        # transaction rolls back and no row is left wrong. But nothing here
-        # keeps a paused, not-dead worker from wastefully running the whole
-        # finalize pipeline (grant_reader_access, dataset creation, quality
-        # scoring) against a doomed row first; this stops it at the door,
-        # for the same reason the raster tails' phase 2 does now, even
-        # though vector ingest writes no untracked storage object that a
-        # rollback cannot undo.
-        # ----------------------------------------------------------------- #
+        # fix(#1778): require_status="running" stops a paused (not dead)
+        # worker at the door before it wastefully runs the whole finalize
+        # pipeline against a row the sweep already failed — even though
+        # vector ingest writes no untracked storage a rollback can't undo,
+        # unlike the raster tails' phase 2 this mirrors.
         async with _job_phase_session(
             job_uuid,
             phase="phase2",
@@ -698,17 +641,14 @@ async def ingest_file(
             if job is None:
                 return
 
-            # REMED-02 / ingest-audit P2-07: progress signal for phase-2 work.
-            # Intentionally NOT committed here — participates in the same
-            # transaction as _finalize_ingest's terminal commit so a rollback
-            # cleans this up too. The brief-session "ogr2ogr" write above
-            # is the durable mid-flight checkpoint.
+            # REMED-02/P2-07: progress signal, intentionally NOT committed
+            # here — it rides the same transaction as _finalize_ingest's
+            # terminal commit, so a rollback cleans it up too. The
+            # brief-session "ogr2ogr" write above is the durable checkpoint.
             #
-            # REMED-03 / P2-05: _job_phase_session owns the rollback-on-exception
-            # shape that used to live here as a manual try/except. If any
-            # statement below raises, the helper rolls the session back and
-            # re-raises; the outer `except Exception as exc` handler then
-            # writes the failure record via a fresh session.
+            # REMED-03/P2-05: _job_phase_session owns rollback-on-exception;
+            # a raise here rolls back and re-raises for the outer
+            # `except Exception` handler to record via a fresh session.
             job.current_step = "finalize"
             job.progress = 0.7
 
@@ -823,29 +763,18 @@ async def ingest_file(
 
             final_status = "complete"
 
-    except Exception as exc:  # broad: ingest pipeline spans GDAL/PostGIS/S3/FS — any step can fail; record failure status
+    except (
+        Exception
+    ) as exc:  # broad: pipeline spans GDAL/PostGIS/S3/FS — any step can fail
         # Write failure status via a fresh session — phase 1/2 sessions are
-        # already closed (or rolled back) by the time we get here.
-        # REMED-03 / P2-05: route through _job_phase_session so the helper
-        # owns the session-lifecycle boilerplate.
+        # already closed (or rolled back) by now. fix(#1778): routes through
+        # the shared `_cleanup_staging_on_failure` (see its docstring),
+        # which this tail previously pasted a narrower copy of, silently
+        # missing the `ingest_failed` notification.
         #
-        # fix(#1778): the terminal write itself goes through the shared
-        # `_cleanup_staging_on_failure`, which is what `reupload_file` has
-        # always used. This tail pasted a narrower copy of its UPDATE, and the
-        # three things the copy left out are the three that matter to somebody:
-        # the `redact_url_credentials` backstop on the stored message, the
-        # `pending`-inclusive attempt fence, and the `ingest_failed`
-        # notification — so an operator who had switched failure mail on was
-        # told about raster imports and re-uploads and heard nothing when a
-        # vector file import failed.
-        #
-        # The helper owns the failure log too, and like the re-upload doors it
-        # stays silent when the attempt fence matches nothing: a superseded
-        # attempt's exception is not this job's outcome to report.
-        #
-        # It mutates the ORM row it is given, so a NULL job (race with a row
-        # delete) skips it: there is no row left to fail, and the re-raise
-        # below still records the failure on the queue row.
+        # Mutates the ORM row it is given, so a NULL job (race with a row
+        # delete) skips it — no row left to fail — and the re-raise below
+        # still records the failure on the queue row.
         try:
             async with _job_phase_session(
                 job_uuid,
@@ -872,14 +801,14 @@ async def ingest_file(
                         task="ingest_file",
                     )
         except DBAPIError as write_failure:
-            # fix(#1950 codex r2): the budget covers the helper's own load, so
+            # fix(#1950): the budget covers the helper's own load, so
             # an expiry there arrives here. Swallowed for the reason the helper
             # swallows its UPDATE's: the cause below is the task's outcome.
             log_job_error_write_failure(
                 write_failure, job_id=job_id, task="ingest_file"
             )
         finally:
-            # fix(#1213 review r1, #1950): the `finally` reapers gate on THIS
+            # fix(#1213): the `finally` reapers gate on THIS
             # variable, so every exit from this handler sets it — the bounded
             # error write above can raise past a positional assignment.
             final_status = "failed"
@@ -889,31 +818,15 @@ async def ingest_file(
             await stop_ingest_job_heartbeat(heartbeat_task)
         async with cleanup_step("ingest_file staging table", job_id=job_id):
             await _drop_attempt_staging_table(staging_table_name)
-        # Clean up local file on success always; on failure only if it was
-        # a resolve_file_path download (source of truth is S3, not the
-        # local copy). Local-only uploads are kept for retry.
+        # Local-file cleanup decision: see `_should_unlink_staging`'s
+        # docstring for the three cases.
         #
-        # Phase 1060 close-gate fix (GPKG-03 fan-out): multiple fan-out
-        # sibling jobs that read from the SHARED LOCAL staging file
-        # (file_path == original_file_path) must not unlink it — when one
-        # sibling completes and unlinks, the next sibling fails with
-        # FileNotFoundError. So the shared-local-staging file is preserved
-        # for fan-out children and reaped later by the staging retention
-        # policy.
-        #
-        # GAP-018 (Tier-2): in S3 mode each child resolves its OWN per-child
-        # download (resolve_file_path -> "{child_job_id}_{name}", so
-        # file_path != original_file_path). That copy is PRIVATE to this
-        # child — no sibling shares it — so it is always safe to unlink even
-        # for fan-out children. Previously the is_fan_out_child guard skipped
-        # cleanup unconditionally, leaking every child's S3 download on disk.
-        # fix(#430 review): default TRUE (treat unknown as fan-out child) so a
-        # failed/absent lookup SKIPS destructive cleanup — deleting the shared
-        # S3 staging original on a misdetected child would break every sibling
-        # (retry=0). Cost of the fail-safe: an orphaned staging object the
-        # retention policy reaps later.
+        # fix(#430): default TRUE (treat unknown as fan-out child) so a
+        # failed/absent lookup SKIPS destructive cleanup — deleting the
+        # shared S3 staging original on a misdetected child would break
+        # every sibling (retry=0). Cost: an orphan the retention policy reaps.
         is_fan_out_child = True
-        # fix(#1202 review r5): the presigned staging key, swept below.
+        # fix(#1202): the presigned staging key, swept below.
         owned_staging_key: str | None = None
         try:
             # REMED-03 / P2-05: route through _job_phase_session. The helper
@@ -945,7 +858,7 @@ async def ingest_file(
             ):
                 Path(file_path).unlink(missing_ok=True)
 
-        # fix(#1213 review r2): shared with the reupload tail — after a
+        # fix(#1213): shared with the reupload tail — after a
         # presigned completion this reaps the FROZEN copy the job is bound to.
         async with cleanup_step("ingest_file downloaded source", job_id=job_id):
             await reap_downloaded_staging_source(
@@ -959,7 +872,7 @@ async def ingest_file(
                 is_fan_out_child=is_fan_out_child,
             )
 
-        # fix(#1202 review r5): sweep the presigned staging key too. The block
+        # fix(#1202): sweep the presigned staging key too. The block
         # above only reaps `original_file_path`, which after a presigned
         # completion is the FROZEN copy — so the key the client still holds a
         # PUT URL for was never touched. Shared with the raster tail so the
@@ -992,27 +905,20 @@ async def ingest_service(
 ) -> None:
     """Background task: import a remote service layer via ogr2ogr.
 
-    feat(#1676): the import door hands its service credential over the same
-    one-use channel the refresh door has used since #1220. ``credential_ref``
-    is a reference redeemed exactly once below; ``token`` is the durable task
-    argument, which after #1676 only an install with no shared credential
-    store configured still produces. At most one is ever set — see
-    ``resolve_worker_credential`` for the tie-break and
-    ``resolve_dispatch_credential`` for which state produces which.
+    feat(#1676): ``credential_ref`` is a one-use reference redeemed exactly
+    once below (same channel the refresh door has used since #1220);
+    ``token`` is the durable task argument, produced only when no shared
+    credential store is configured. At most one is ever set — see
+    ``resolve_worker_credential``/``resolve_dispatch_credential``.
 
-    Full pipeline:
-    1. Update job status to running
-    2. Determine service type from job metadata
-    3. Build GDAL source string and run ogr2ogr
-    4. Post-process (clip, geom_4326, grants, metadata, samples)
-    5. Create Dataset record with source_format and source_url
-    6. Compute quality score
-    7. Update job status to complete
+    Pipeline: update job to running; determine service type; build GDAL
+    source and run ogr2ogr; post-process (clip, geom_4326, grants,
+    metadata, samples); create Dataset record; compute quality score;
+    update job to complete.
 
     Session lifecycle (gh #100): same two-phase split as ``ingest_file`` —
-    the session is closed before the ogr2ogr subprocess runs and reopened
-    for finalization, so the SQLAlchemy greenlet bridge is never asked to
-    survive across a long asyncio subprocess.
+    closed before the ogr2ogr subprocess runs, reopened for finalization,
+    so the SQLAlchemy greenlet bridge never has to survive across it.
     """
     _bind_task_log_context(task_name="ingest_service", job_id=job_id)
     from app.platform.security import (
@@ -1098,24 +1004,18 @@ async def ingest_service(
                 }
                 await session.commit()
 
-        # feat(#1676): redeem the one-use credential, AFTER phase 1 rather
-        # than before it. Two reasons, and the second is the load-bearing one:
-        # a single-use secret must only be spent on an attempt that is really
-        # going to run, and phase 1 is where `claim_job_attempt_and_start_
-        # heartbeat` decides that (it returns None for a superseded attempt,
-        # and this task returns without ever touching the credential). The
-        # second: the failure write at the bottom of this task is fenced on
-        # `status == 'running'`, and phase 1 is what sets that — claiming
-        # before it would leave a `credential_expired` failure unrecorded and
-        # the job pending until the stale sweep. Placed outside the phase-1
-        # session so the store round trip does not run with a DB session held
-        # open.
+        # feat(#1676): redeem the one-use credential AFTER phase 1, not
+        # before — a single-use secret must only be spent on an attempt
+        # that's really going to run (phase 1's `claim_job_attempt_and_
+        # start_heartbeat` returns None for a superseded one), and the
+        # failure write below is fenced on `status == 'running'`, which
+        # phase 1 sets; claiming before it would leave a
+        # `credential_expired` failure unrecorded until the stale sweep.
+        # Placed outside the phase-1 session so the store round trip
+        # doesn't hold a DB session open.
         token = await resolve_worker_credential(token, credential_ref)
 
-        # ----------------------------------------------------------------- #
-        # ogr2ogr subprocess — NO session open. Holding a session open
-        # across this subprocess is what triggers the MissingGreenlet bug.
-        # ----------------------------------------------------------------- #
+        # ogr2ogr subprocess — NO session open (would trigger MissingGreenlet).
         db_conn_str = build_pg_conn_str()
 
         # REMED-02 / ingest-audit P2-07: stamp current_step="ogr2ogr" before
@@ -1222,14 +1122,9 @@ async def ingest_service(
                 with suppress(asyncio.CancelledError):
                     await service_progress_task
 
-        # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): post-ogr2ogr finalization.
-        #
-        # fix(#1778 audit r11): require_status="running", same reasoning as
-        # the sibling in ingest_file above -- this phase's own terminal write
-        # is already fenced by status through require_ingest_job_update, this
-        # closes the door earlier rather than wasting the finalize work.
-        # ----------------------------------------------------------------- #
+        # fix(#1778): require_status="running", same reasoning as the
+        # sibling in ingest_file above.
         async with _job_phase_session(
             job_uuid,
             phase="phase2",
@@ -1286,20 +1181,16 @@ async def ingest_service(
                     user_metadata=um,
                     source_url=dataset_source_url,
                     attempt_id=attempt_uuid,
-                    # feat(#1218): the base URL and layer identifier stay
-                    # separate here so a refresh can re-address the layer
-                    # without re-parsing the enriched URI. No token: it is
-                    # per-call and transient.
+                    # feat(#1218): base URL and layer identifier stay
+                    # separate so a refresh can re-address the layer without
+                    # re-parsing the URI (no token: per-call, transient).
                     #
-                    # fix(#1218 review r3): layer_id carries the SERVICE-NATIVE
-                    # identifier, which is a different field per service type.
-                    # build_gdal_source is the authority: its ArcGIS branch
-                    # requires layer_id and ignores the layer name, while its
-                    # WFS and OGC API branches pass the layer NAME through and
-                    # ignore layer_id. So exactly one of the two identifies the
-                    # layer for any given service, and they cannot disagree.
-                    # Storing only the numeric id left WFS/OGC refs with no way
-                    # to name the layer at all once the ingest job aged out.
+                    # fix(#1218): `layer_id` here is whichever field
+                    # `build_gdal_source` treats as authoritative per service
+                    # type — layer_id for ArcGIS, layer NAME for WFS/OGC API
+                    # (the other is ignored). Storing only the numeric id
+                    # left WFS/OGC refs unable to name the layer once the
+                    # ingest job aged out.
                     origin_ref={
                         "service_type": source_format,
                         "url": source_url,
@@ -1308,22 +1199,14 @@ async def ingest_service(
                             layer_id=layer_id,
                             layer_name=source_layer,
                         ),
-                        # fix(#1746): the last successful pull of this origin
-                        # was MADE with a token. Not "the origin demanded one":
-                        # the worker never sees a challenge on the happy path,
-                        # so this cannot be that claim, and a public service
-                        # imported while holding a token is marked too.
-                        #
-                        # fix(#1746 codex r1): which is why the refresh door
-                        # treats the marker as a GATE and not a verdict — it
-                        # runs one token-less probe before refusing, so a false
-                        # marker costs a probe and never a refusal.
-                        #
-                        # True or absent, never False — build_origin_ref drops
-                        # None, so an unauthenticated pull stores the ref shape
-                        # it stored before this key existed, no backfill is
-                        # owed, and a later token-less success clears it. The
-                        # value is a boolean; the token itself is never stored.
+                        # fix(#1746): means "the last pull was MADE with a
+                        # token", not "the origin demanded one" — a public
+                        # service imported while holding a token is marked
+                        # too. So the refresh door treats it as a GATE, not
+                        # a verdict: it runs one token-less probe before
+                        # refusing. True or absent, never False —
+                        # `build_origin_ref` drops None, so an
+                        # unauthenticated pull needs no backfill.
                         "auth_required": True if token else None,
                     },
                 )
@@ -1340,20 +1223,17 @@ async def ingest_service(
 
     except Exception as exc:  # broad: PostGIS/DB ingest can fail at any step; mark job failed and re-raise
         # feat(#1676): this task now HOLDS the claimed secret as a value, so it
-        # gets the same exact-value scrub `reupload_service` does. The pattern
-        # layers (run_ogr2ogr_service, redact_url_credentials) cover the token
-        # nobody holds by matching URL shapes; this covers the one this attempt
-        # holds, in whatever shape an origin echoes it back. Mutated in place
-        # so the class survives for the bare re-raise the queue records.
+        # gets the same exact-value scrub `reupload_service` does, covering
+        # the token this attempt holds in whatever shape an origin echoes it
+        # back (the pattern-based layers only catch a token nobody holds).
+        # Mutated in place so the class survives the bare re-raise.
         scrub_secret_from_exception(exc, token)
         # Write failure status via a fresh session — phase 1/2 sessions are
-        # already closed (or rolled back) by the time we get here.
-        # REMED-03 / P2-05: route through _job_phase_session. fix(#1778): the
-        # terminal write goes through the same shared helper
-        # `reupload_service` uses, for the reasons the sibling handler in
-        # `ingest_file` records. The exact-value scrub above still runs FIRST,
-        # so the helper's pattern-based redaction is layered on an exception
-        # that no longer carries this attempt's token in any shape.
+        # already closed (or rolled back) by now. fix(#1778): routes through
+        # the same shared helper `reupload_service` uses (see `ingest_file`'s
+        # handler); the exact-value scrub above runs FIRST, so the helper's
+        # pattern-based redaction layers onto an exception that no longer
+        # carries this attempt's token in any shape.
         try:
             async with _job_phase_session(
                 job_uuid,
@@ -1380,7 +1260,7 @@ async def ingest_service(
                         task="ingest_service",
                     )
         except DBAPIError as write_failure:
-            # fix(#1950 codex r2): the budget covers the helper's own load, so
+            # fix(#1950): the budget covers the helper's own load, so
             # an expiry there arrives here. Swallowed for the reason the helper
             # swallows its UPDATE's: the cause below is the task's outcome.
             log_job_error_write_failure(
@@ -1388,7 +1268,7 @@ async def ingest_service(
             )
         raise
     finally:
-        # fix(#1755 item 11): `purge_token_on_failure` (`tasks_common.py`), the
+        # fix(#1755): `purge_token_on_failure` (`tasks_common.py`), the
         # decorator around this task, must still see whatever exception
         # `ingest_service` itself raised, not one from a cleanup step.
         async with cleanup_step("ingest_service heartbeat", job_id=job_id):

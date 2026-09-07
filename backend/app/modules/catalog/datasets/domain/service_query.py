@@ -68,7 +68,6 @@ async def list_datasets(
 
     Returns a tuple of (datasets, total_count).
     """
-    # Build base query joining Record for visibility filtering
     base_stmt = (
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
@@ -78,13 +77,11 @@ async def list_datasets(
         base_stmt, user, user_roles, Record, DatasetGrant
     )
 
-    # Get total count
     count_stmt = select(func.count()).select_from(filtered_stmt.subquery())
     total = await session.execute(count_stmt)
     total_count = total.scalar_one()
 
-    # Get paginated results
-    # fix(#430 BA-19): Record.created_at is a non-unique server-default; add a
+    # fix(#430): Record.created_at is a non-unique server-default; add a
     # unique tiebreaker so pagination over batch-seeded rows is stable.
     paginated_stmt = (
         filtered_stmt.offset(skip)
@@ -127,7 +124,6 @@ async def get_datasets_list(
         ],
     )
 
-    # Batch-fetch RasterAssets for all raster and VRT datasets in the page
     raster_ids = [
         d.id
         for d in datasets
@@ -137,7 +133,6 @@ async def get_datasets_list(
         db, raster_ids
     )
 
-    # Batch source_count query for VRT datasets
     vrt_ids = [
         d.id
         for d in datasets
@@ -217,18 +212,12 @@ async def get_dataset_detail(
     # sequentially on the caller's own session through CatalogPort so catalog
     # does not import processing-owned raster ORM classes directly.
     #
-    # This used to asyncio.gather the three fetches, with a comment claiming
-    # they ran "in parallel" — false (AsyncSession is not safe for concurrent
-    # use, so asyncpg's per-connection execute lock silently serialized them
-    # anyway) and latently unsafe. Giving each branch its own async_session(),
-    # the fix used at every other gather site in this codebase
-    # (search/router.py, stac/router.py), trades that for a NESTED pool
-    # checkout while the caller's own connection is held for the rest of this
-    # request: under the default (non-external-pooler) pool of 10 + 3
-    # connections, ~13 concurrent raster/VRT detail requests exhaust it
-    # (fix(#1436) codex review). These are three fast, single-row/point
-    # lookups, so the wall-clock cost of running them in sequence on the
-    # connection this request already holds is negligible next to that risk.
+    # fix(#1436): NOT asyncio.gather'd -- AsyncSession isn't safe for
+    # concurrent use (asyncpg serializes per-connection anyway), and giving
+    # each branch its own async_session() (the fix used elsewhere) would
+    # nest a pool checkout on top of the caller's held connection, exhausting
+    # the default 10+3 pool at ~13 concurrent detail requests. These are
+    # three fast point lookups, so sequential cost is negligible by comparison.
     record_type = getattr(dataset.record, "record_type", None)
     needs_raster = record_type in RASTER_FAMILY_RECORD_TYPES
     needs_vrt_count = record_type == "vrt_dataset"
@@ -250,10 +239,9 @@ async def get_dataset_detail(
     dataset_asset_rows = await get_catalog_port().get_dataset_assets(db, dataset.id)
     stac_assets_dict = {}
     for da in dataset_asset_rows:
-        # fix(#1290 review): this path built its assets straight off the ORM
-        # rows and never consulted the allowlist, so an internal key leaked
-        # its href, filename and size to every viewer of a public dataset.
-        # Same boundary the STAC/search builder crosses.
+        # fix(#1290): this path built its assets straight off the ORM rows
+        # and never consulted the allowlist, so an internal key leaked its
+        # href, filename and size to every viewer of a public dataset.
         if not is_public_asset_key(da.key):
             continue
         stac_assets_dict[da.key] = StacAsset(
@@ -300,7 +288,7 @@ async def get_dataset_detail(
             dataset.record, user, user_roles
         ),
     )
-    # fix(#430 codex r18): genericity probe (helpers.py) keeps all draw modes.
+    # fix(#430): genericity probe (helpers.py) keeps all draw modes.
     if response is not None and dataset.source_format == "created":
         response.has_generic_geometry = await dataset_geom_is_generic(
             db, dataset.table_name
@@ -406,7 +394,6 @@ async def get_dataset_rows(
         )
         rows = [dict(row._mapping) for row in result.all()]
 
-        # Approximate count via pg_class.reltuples (O(1), no table scan)
         count_result = await db.execute(
             text(
                 "SELECT reltuples::bigint FROM pg_class"
@@ -420,16 +407,15 @@ async def get_dataset_rows(
         next_cursor = rows[-1]["gid"] if rows and len(rows) == limit else None
     except DBAPIError as exc:
         # fix(#435): was `except Exception`, so connection loss, timeouts, and
-        # permission failures all rendered as a valid dataset with zero rows. Only an
-        # absent table still degrades to an empty page — normal for raster/VRT datasets,
-        # whose synthetic table_name has no PostGIS table. The rest reach the 503 path.
+        # permission failures all rendered as a valid dataset with zero rows.
+        # Only an absent table still degrades to an empty page (normal for
+        # raster/VRT's synthetic table_name); the rest reach the 503 path.
         if sqlstate(exc) not in TABLE_ABSENT:
             raise
-        # Postgres aborted the transaction; read-only here, so rollback is safe.
-        await db.rollback()
-        # fix(#435 codex r1): a missing schema reports 42P01 too, so the code alone
-        # cannot tell a synthetic raster table from a tenant schema that was never
-        # provisioned. Only the second is drift, and it must not read as empty data.
+        await db.rollback()  # transaction aborted; read-only, so safe
+        # fix(#435): a missing schema reports 42P01 too, so the code alone
+        # can't tell a synthetic raster table from a never-provisioned
+        # tenant schema. Only the second is drift and must not read as empty.
         if not await schema_exists(db, _schema):
             logger.error("Data schema %s does not exist", _schema)
             raise

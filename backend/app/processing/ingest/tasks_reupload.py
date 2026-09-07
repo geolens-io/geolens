@@ -97,14 +97,12 @@ async def _detect_reupload_crs(
 ) -> tuple[dict, int]:
     """Detect CRS/geometry for a reupload file and resolve the effective SRID.
 
-    GPKG-01 Phase 1058: layer_name targets the user-chosen layer in
-    multi-layer GPKG files rather than defaulting to layers[0].
+    GPKG-01 Phase 1058: ``layer_name`` targets the user-chosen layer in a
+    multi-layer GPKG rather than defaulting to ``layers[0]``.
 
-    fix(#541 review): applies the same missing-CRS gate as ``ingest_file``.
-    Without it an unknown-CRS reupload (GeoParquet with explicit crs:null, or
-    a shapefile missing its .prj) silently fell through to the 4326 default
-    and could corrupt the replacement dataset. Raises IngestionError — the
-    task's outer exception handler records the message on the failed job.
+    fix(#541): applies the same missing-CRS gate as ``ingest_file``,
+    raising ``IngestionError`` rather than silently falling through to the
+    4326 default and corrupting the replacement dataset.
 
     Returns (ogrinfo result dict, effective_srid).
     """
@@ -184,11 +182,9 @@ async def reupload_file(
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
-        # ----------------------------------------------------------------- #
         # Phase 1 (short-lived session): load job + dataset, mark running,
         # resolve, validate, drop stale staging table. Snapshot the values
         # needed for the long async work into local variables.
-        # ----------------------------------------------------------------- #
         async with async_session() as session:
             job_result = await session.execute(
                 select(IngestJob).where(
@@ -203,13 +199,11 @@ async def reupload_file(
                 )
                 return
 
-            # fix(#1207): captured HERE, first thing after the row is in hand,
-            # so no exit from this block can precede it. Below are a
-            # dataset-missing return, a heartbeat-claim bail, a
-            # resolve_file_path download failure and a validation failure —
-            # each reaches the terminal `finally` and each would sweep nothing
-            # if the capture sat with the phase-2 snapshot. Reads the DB
-            # column, not the local `file_path` that resolve_file_path rebinds.
+            # fix(#1207): captured HERE, first thing after the row is in
+            # hand, so every early exit below (dataset-missing, heartbeat
+            # bail, download/validation failure) still reaches the
+            # terminal `finally` with it set. Reads the DB column, not the
+            # local `file_path` that resolve_file_path rebinds.
             owned_staging_key = owned_presigned_staging_key(
                 job.id, job.user_metadata, job.file_path
             )
@@ -235,18 +229,16 @@ async def reupload_file(
                 return
 
             # feat(#1219): pending -> running, keyed on the job rather than a
-            # run id threaded through the task arguments — those are durable
-            # rows, and a new argument breaks every in-flight job on deploy.
-            # `started_at` deliberately stays at dispatch time, so the gap to
-            # this write IS the queue wait.
+            # run id threaded through task arguments (those are durable rows;
+            # a new argument would break every in-flight job on deploy).
+            # `started_at` stays at dispatch time, so the gap to this write
+            # IS the queue wait.
             await claim_run_for_job(session, job_uuid)
-            # fix(#1778): committed before the download, not after it. The
-            # transition holds a row lock on `dataset_refresh_runs` until this
-            # transaction ends, and `cancel_job` transitions that same row under
-            # a 2s lock_timeout, so holding it across `resolve_file_path` made
-            # every cancel during the staging download return 409
-            # `job_finishing` and roll back the job cancellation it had already
-            # committed. The raster peer commits at the same point.
+            # fix(#1778): committed before the download, not after — this
+            # holds a row lock on `dataset_refresh_runs` until commit, and
+            # `cancel_job` transitions that row under a 2s lock_timeout, so
+            # holding it across `resolve_file_path` made a cancel during
+            # download 409 and roll back its own already-committed cancel.
             await session.commit()
 
             # Resolve S3 key to local file for ogr2ogr
@@ -272,11 +264,10 @@ async def reupload_file(
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
-                # feat(#1219): this branch RETURNS rather than raising, so the
-                # broad handler below never sees it. Without a terminal write
-                # here the run would sit `running` until the sweep cancelled
-                # it an hour later — abandoned, when what happened was a plain
-                # content rejection the user should read.
+                # feat(#1219): RETURNS rather than raising, so the broad
+                # handler below never sees it — without a terminal write
+                # here the run would sit `running` until the sweep, instead
+                # of the plain content rejection the user should read.
                 await record_refresh_failure(
                     session,
                     ingest_job_id=job_uuid,
@@ -307,11 +298,9 @@ async def reupload_file(
             )
             await session.commit()
 
-        # ----------------------------------------------------------------- #
         # Phase 1.5 (no session): ogrinfo, ogr2ogr subprocess, sha256.
         # Holding an AsyncSession across these would corrupt the greenlet
         # bridge state — same root cause as gh #100.
-        # ----------------------------------------------------------------- #
 
         # 2-3. Detect CRS from the new file, enforce the missing-CRS gate,
         # and resolve the effective SRID (override > detected > 4326).
@@ -448,20 +437,16 @@ async def reupload_file(
                 source_format=source_format,
                 original_srid=srid,
                 file_hash=file_hash,
-                # fix(#1218 review): the new bytes came from a file, so the
+                # fix(#1218): the new bytes came from a file, so the
                 # binding says upload — even when the dataset was originally
                 # a registered table or a service import.
                 origin_ref={"filename": source_filename, "file_hash": file_hash},
             )
-            # fix(#1472 review): a manifest re-apply whose fingerprint changed
-            # classifies as "update" and lands on THIS path (manifest updates
-            # are vector-file reuploads — _validate_existing_dataset_update
-            # rejects every other shape), carrying the manifest's current
-            # metadata.attribution in the reupload job's ledger. Without this
-            # the swap installs the new data and leaves the old credit on it,
-            # which is worse than a missing one: it names a source the bytes no
-            # longer came from. `dataset.record` is joinedloaded on this path,
-            # so no lazy load runs here, and this is the swap's own transaction.
+            # fix(#1472): a manifest re-apply whose fingerprint
+            # changed lands on THIS path carrying the manifest's current
+            # metadata.attribution — without this the swap installs new
+            # data but leaves the old (now wrong) credit on it.
+            # `dataset.record` is joinedloaded here, so no lazy load runs.
             apply_manifest_record_metadata(dataset.record, user_metadata)
 
             # Captured pre-commit: the ORM attribute may be expired after commit.
@@ -544,7 +529,7 @@ async def reupload_file(
         # shared cleanup helper.
         try:
             async with async_session() as err_session:
-                # fix(#1950 codex r2): arms the budget, loads the row, and
+                # fix(#1950): arms the budget, loads the row, and
                 # swallows an expiry — the failure below is the task's outcome.
                 err_job = await load_job_for_error_write(
                     err_session, job_uuid, attempt_uuid, task_name="reupload_file"
@@ -570,7 +555,7 @@ async def reupload_file(
                 )
                 await err_session.commit()
         finally:
-            # fix(#1213 review r1, #1950): the `finally` reapers gate on THIS
+            # fix(#1213): the `finally` reapers gate on THIS
             # variable, so every exit from this handler sets it — the bounded
             # error write above can raise past a positional assignment.
             final_status = "failed"
@@ -587,7 +572,7 @@ async def reupload_file(
                 Path(file_path).unlink(missing_ok=True)
             elif file_path != original_file_path:
                 Path(file_path).unlink(missing_ok=True)
-        # fix(#1213 review r2): reap the object the task downloaded FROM, which
+        # fix(#1213): reap the object the task downloaded FROM, which
         # after a presigned completion is the frozen copy the job is bound to —
         # the unlinks above are local files only, so it was never deleted and a
         # successful reupload job is its dataset's latest-complete row, exempt
@@ -602,12 +587,10 @@ async def reupload_file(
                 # else will ever reap this; reap on failure too.
                 failed_source_replayable=False,
             )
-        # fix(#1207): sweep the presigned staging key. This surface had NO
-        # storage reaper at all — the unlinks above are local files only — and
-        # the stale purge is not a backstop here, because a successful reupload
-        # job is the per-dataset latest-complete row it exempts forever. So
-        # every reupload staging object lived forever, recreatable through the
-        # client's unexpired PUT URL. Shared helper, same as the ingest tails.
+        # fix(#1207): sweep the presigned staging key — this surface had NO
+        # storage reaper (the unlinks above are local files only), and the
+        # stale purge isn't a backstop since a successful reupload job is
+        # the per-dataset latest-complete row it exempts forever.
         async with cleanup_step(
             "reupload_file presigned staging object", job_id=job_id
         ):
@@ -626,22 +609,18 @@ async def _record_failed_origin_contact(
 ) -> None:
     """Date the contact a failed service reupload made before it died.
 
-    fix(#1271 review): a failed attempt that reached the outbound fetch still
-    CONTACTED the origin, and the column's contract is "last time GeoLens
-    contacted the origin at all" — the probe already dates its failures for
-    the same reason. The dataset keeps its old data (the swap never ran), so
-    only the timestamp moves; the health verdict stays with the probe's
-    classifier. ``contacted`` is False for failures before the fetch began,
-    which never touched the origin and must not claim they did.
+    fix(#1271): a failed attempt that reached the outbound fetch
+    still CONTACTED the origin (the column's contract is "last time
+    GeoLens contacted the origin at all"), so only the timestamp moves —
+    the dataset keeps its old data and the health verdict stays with the
+    probe's classifier. ``contacted`` is False for failures before the
+    fetch began.
 
     ``bound`` is the (origin_uri, origin_ref, source_format) snapshot taken
-    when this task loaded the dataset: a concurrent reupload can rebind the
-    origin while the doomed fetch is still running, and an ID-only write
-    would stamp the OLD origin's contact onto the NEW binding — for a file
-    reupload that leaves an upload with a contact time it cannot have, and
-    uploads 409 the probe so nothing corrects it. Same conditional-update
-    discipline as the source-health probe; losing the race is a silent skip,
-    because there is nobody to tell from a failed background task.
+    at load time: guards against a concurrent reupload rebinding the origin
+    mid-fetch, which would otherwise stamp the OLD origin's contact onto
+    the NEW binding. Losing that race is a silent skip — same discipline
+    as the source-health probe.
     """
     if not contacted or bound is None:
         return
@@ -657,9 +636,8 @@ async def _record_failed_origin_contact(
         .values(last_checked_at=datetime.now(timezone.utc))
     )
     await err_session.commit()
-    # fix(#1271 review): GET /datasets/ serves last_checked_at from a 60s
-    # cache, and every other writer of the field invalidates it. Only when
-    # the guarded write actually landed — a lost rebind race changed nothing.
+    # fix(#1271): GET /datasets/ caches last_checked_at for 60s;
+    # invalidate only when the guarded write actually landed.
     if outcome.rowcount:
         await invalidate_catalog_cache()
 
@@ -697,12 +675,10 @@ async def _resolve_service_token(
 ) -> str | None:
     """The credential this attempt will fetch with, redeeming a ref if given.
 
-    feat(#1220). fix(#1676) moved the body to
+    feat(#1220); fix(#1676) moved the body to
     ``platform.refresh.credentials.resolve_worker_credential`` so
     ``ingest_service`` redeems the same way without either task module
-    importing the other. The rules and the reasoning live there; this stays as
-    the name this task and its tests already reach for, and as the anchor for
-    the ``credential_expired`` mapping above.
+    importing the other. Kept as the name this task and its tests reach for.
     """
     return await resolve_worker_credential(token, credential_ref)
 
@@ -740,14 +716,10 @@ async def _fetch_service_layer_with_paging_guard(
     supports_pagination = False
     pagination_order_field = None
     if service_type == "arcgis_featureserver":
-        # fix(#1675 codex r1): the page-info probe is now the FIRST outbound
-        # contact of a refresh, and it can fail (498/499 token errors raise
-        # IngestionError) before any subprocess exists to fire on_spawn. The
-        # last_checked_at contract is "last time GeoLens contacted the origin
-        # at all", so arm the contact stamp when the probe's request begins,
-        # not only at subprocess spawn. Arming is a monotonic OR gated on the
-        # attempted binding matching the stored one, so the later per-page
-        # spawns re-arming is harmless.
+        # fix(#1675): the page-info probe is the FIRST outbound
+        # contact of a refresh and can fail before any subprocess exists to
+        # fire on_spawn, so arm the contact stamp here too (monotonic OR —
+        # later per-page spawns re-arming is harmless).
         if on_spawn is not None:
             on_spawn()
         (
@@ -825,24 +797,18 @@ async def reupload_service(
 ) -> None:
     """Background task: replace dataset data from a remote service source.
 
-    Two doors dispatch this task, and since feat(#1676) they hand a credential
-    over the same way: ``credential_ref``, a single-use reference redeemed
-    once here for a secret that never touched a committed row — the
-    one-request refresh door since #1220, the re-upload commit door since
-    #1676. ``token`` is the surviving durable argument, and after #1676 only
-    an install with no shared credential store configured at all still
-    produces one (state 3 in ``platform/refresh/credentials``). Both are
-    optional and at most one is ever set — the reference wins if both somehow
-    are, because the door that sends one is the door that promised nothing
-    durable. Neither is required: a public service needs no credential at all.
+    Two dispatching doors since feat(#1676) hand a credential the same
+    way: ``credential_ref``, a single-use reference redeemed once here for
+    a secret that never touched a committed row. ``token`` is the
+    surviving durable argument, produced only when no shared credential
+    store is configured (state 3 in ``platform/refresh/credentials``).
+    Both optional, at most one ever set — the reference wins if both
+    somehow are. Neither required: a public service needs no credential.
 
-    Session lifecycle (gh #100 followup): the AsyncSession is split into two
-    short-lived blocks so it is NOT held open across ``run_ogr2ogr_service``
-    (an asyncio subprocess that can take 30s+ for large remote layers).
-    Holding a session across that subprocess in
-    Python 3.14 + SQLAlchemy 2.0 + greenlet 3.3 corrupts the greenlet bridge
-    state and the next ``session.execute()`` raises ``MissingGreenlet``
-    (same root cause as gh #100 in ``ingest_service`` / ``reupload_file``).
+    Session lifecycle (gh #100 followup): the AsyncSession is split into
+    two short-lived blocks so it is NOT held open across
+    ``run_ogr2ogr_service`` (can take 30s+) — see ``ingest_service``'s
+    docstring for the ``MissingGreenlet`` root cause this avoids.
     """
     _bind_task_log_context(
         task_name="reupload_service", job_id=job_id, dataset_id=dataset_id
@@ -873,7 +839,7 @@ async def reupload_service(
     port = get_processing_port()
     Dataset = port.get_dataset_orm_class()
 
-    # fix(#1271 review): tracks whether the outbound fetch was reached, so the
+    # fix(#1271): tracks whether the outbound fetch was reached, so the
     # failure handler can date the contact. A failure before this point never
     # touched the origin and must not claim it did.
     origin_contact_attempted = False
@@ -893,11 +859,10 @@ async def reupload_service(
         # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
         # The route-level check at commit_import covers the preview→commit
         # TOCTOU, but manifest-path reuploads skip that route entirely.
-        # fix(#1274 review): INSIDE the handled region — this task now owns a
-        # pending run row, and a worker-time refusal that skips the failure
-        # handler leaves it active, which the admission index then honors by
-        # refusing every further refresh until the stale sweep. The refusal
-        # must fail the job and finalize the run like any other failure.
+        # fix(#1274): INSIDE the handled region — this task owns a
+        # pending run row, and a refusal that skips the failure handler
+        # leaves it active, so the admission index refuses every further
+        # refresh until the stale sweep. Must fail the job like any other.
         try:
             await validate_url_for_ssrf(source_url)
         except SSRFError as exc:
@@ -906,10 +871,8 @@ async def reupload_service(
             ) from exc
 
         token = await _resolve_service_token(token, credential_ref)
-        # ----------------------------------------------------------------- #
         # Phase 1 (short-lived session): load job + dataset, mark running,
         # snapshot service-import config, drop stale staging table.
-        # ----------------------------------------------------------------- #
         async with async_session() as session:
             job_result = await session.execute(
                 select(IngestJob).where(
@@ -936,7 +899,7 @@ async def reupload_service(
                 )
                 return
 
-            # fix(#1271 review): binding snapshot for the failure handler —
+            # fix(#1271): binding snapshot for the failure handler —
             # its contact stamp must be conditional on the dataset still
             # having the origin this task actually fetched from.
             reupload_bound = (
@@ -984,21 +947,15 @@ async def reupload_service(
             )
             await session.commit()
 
-        # ----------------------------------------------------------------- #
         # Phase 1.5 (no session): run_ogr2ogr_service subprocess with WFS
         # fallback. Holding an AsyncSession across this would corrupt the
         # greenlet bridge state — same root cause as gh #100.
-        # ----------------------------------------------------------------- #
 
-        # fix(#1271 review): the failure stamp may only describe the STORED
-        # origin, and a reupload is allowed to target a different source — a
-        # replacement for an upload dataset, a new service base, or the same
-        # base with a different layer or protocol. Contacting the candidate
-        # says nothing about the binding the row keeps if the swap never
-        # runs, so the stamp arms only when the COMPLETE attempted binding
-        # (type, base URL, and the same service-native layer identity the
-        # swap would write) equals the stored one. A successful swap
-        # re-stamps through set_dataset_origin regardless.
+        # fix(#1271): the failure stamp may only describe the STORED
+        # origin — a reupload can target a different source — so it arms
+        # only when the COMPLETE attempted binding (type, base URL, layer
+        # identity) equals the stored one. A successful swap re-stamps via
+        # set_dataset_origin regardless.
         _stored_ref = reupload_bound[1] or {}
         attempt_matches_binding = (
             classify_origin(reupload_bound[2]) == "service"
@@ -1011,7 +968,7 @@ async def reupload_service(
         )
 
         def _arm_contact() -> None:
-            # fix(#1271 review): fired by run_ogr2ogr_service the instant the
+            # fix(#1271): fired by run_ogr2ogr_service the instant the
             # subprocess exists, which is the first moment an outbound
             # attempt truthfully began — every local preflight (argv checks,
             # token sanitization, spawn itself) happens before it. Monotonic
@@ -1042,20 +999,15 @@ async def reupload_service(
                 _run_service_import,
                 source_layer_value,
                 token=token,
-                # fix(#1746): the old copy said "Retry commit", which names a
-                # door neither caller came through — this task serves the
-                # refresh endpoint and the re-upload commit, never a first
-                # import (ingest_service passes no auth_error_message at all).
-                # Two literals rather than one f-string over a noun: the
-                # message reaches record_refresh_failure through
-                # redact_run_error, and a composed string is one more thing a
-                # redactor has to be right about.
+                # fix(#1746): serves only the refresh endpoint and the
+                # re-upload commit (never a first import), so the message
+                # names "the refresh" rather than "Retry commit". Literal
+                # string, not an f-string, since this reaches
+                # record_refresh_failure through redact_run_error.
                 #
-                # fix(#1746 B2b review r1): "credential" and the `auth` object,
-                # not "token", for the same reason the refresh door's 422
-                # changed: the deprecated field always means a bearer token, so
-                # a basic or named-key origin cannot be authenticated by
-                # following this advice.
+                # fix(#1746): says "credential"/`auth` object,
+                # not "token" — the deprecated field always means a bearer
+                # token, which can't authenticate a basic or named-key origin.
                 auth_error_message=(
                     "Remote service authentication failed. Retry the refresh "
                     "with the credential in the request body's `auth` object; "
@@ -1159,14 +1111,11 @@ async def reupload_service(
                 source_format=source_format,
                 original_srid=metadata.get("srid"),
                 source_url=reupload_source_url,
-                # fix(#1218 review): base URL and layer identifier stay
-                # separate, as on the first-ingest path, so a refresh can
-                # re-address the layer without re-parsing the enriched pointer.
-                # fix(#1218 review r3): layer_id is the SERVICE-NATIVE
-                # identifier — the numeric id for ArcGIS, the typename or
-                # collection id otherwise. See the matching comment in
-                # tasks_vector.ingest_service for why build_gdal_source makes
-                # these mutually exclusive per service type.
+                # fix(#1218): base URL and layer_id (the
+                # SERVICE-NATIVE identifier) stay separate, same as first
+                # ingest — see the matching comment in
+                # tasks_vector.ingest_service for why build_gdal_source
+                # makes them mutually exclusive per service type.
                 origin_ref={
                     "service_type": source_format,
                     "url": source_url_value,
@@ -1175,20 +1124,11 @@ async def reupload_service(
                         layer_id=layer_id,
                         layer_name=source_layer_value,
                     ),
-                    # fix(#1746): the last successful pull of this origin was
-                    # MADE with a token. Not "the origin demanded one" — the
-                    # worker never sees a challenge on the happy path. See the
-                    # matching comment in tasks_vector.ingest_service; the
-                    # refresh door turns this gate into a verdict by probing.
-                    #
-                    # True or absent, never False — build_origin_ref drops
-                    # None, so an unauthenticated pull stores the ref shape it
-                    # stored before this key existed, and no backfill is owed.
-                    # Written on the SUCCESS path only: a failed authenticated
-                    # attempt tells you nothing new, and a successful
-                    # token-less pull clearing the key is how a service that
-                    # went public gets un-marked. The value is a boolean; the
-                    # token itself is never stored on the dataset.
+                    # fix(#1746): means "made WITH a token", not "origin
+                    # demanded one" — see tasks_vector.ingest_service.
+                    # Written on the SUCCESS path only: a failed attempt
+                    # tells you nothing new, and a token-less success
+                    # un-marks a service that went public.
                     "auth_required": True if token else None,
                 },
             )
@@ -1242,22 +1182,16 @@ async def reupload_service(
     except (
         Exception
     ) as exc:  # broad: reupload service-path spans GDAL/PostGIS — any step can fail
-        # fix(#1277 review): exact-value scrub, first thing, before `exc` is
-        # read by anything. This task is the only place that knows the
-        # credential's literal value — it claimed it — and that makes this the
-        # one redaction that cannot be evaded by an echo the pattern matcher
-        # does not recognise as a URL. The pattern layers (run_ogr2ogr_service
-        # and _cleanup_staging_on_failure) cover the tokens nobody holds; this
-        # covers the token this run holds, in whatever shape it comes back.
-        #
-        # Mutates the exception in place rather than raising a replacement, so
-        # the class survives for the handlers below that key error codes off
-        # it, and the scrub reaches every reader at once: the staging-failure
-        # sinks, the run row, and the bare re-raise the queue records.
+        # fix(#1277): exact-value scrub, first thing, before `exc` is
+        # read by anything — this task is the only place that knows the
+        # credential's literal value, covering an echo the pattern matchers
+        # (run_ogr2ogr_service, _cleanup_staging_on_failure) wouldn't
+        # recognise as a URL. Mutated in place so the class survives for
+        # the error-code handlers below and every reader sees the scrub.
         scrub_secret_from_exception(exc, token)
         # Phase 1/2 sessions are already closed by the time we get here.
         async with async_session() as err_session:
-            # fix(#1950 codex r2): arms the budget, loads the row, and
+            # fix(#1950): arms the budget, loads the row, and
             # swallows an expiry — the failure below is the task's outcome.
             err_job = await load_job_for_error_write(
                 err_session, job_uuid, attempt_uuid, task_name="reupload_service"
@@ -1271,13 +1205,11 @@ async def reupload_service(
                     task_name="reupload_service",
                     attempt_id=attempt_uuid,
                 )
-            # Two records, one writer each (#1219 x #1222 merge): the
-            # dataset-side contact stamp is owned by
-            # _record_failed_origin_contact — spawn-armed, binding-matched,
-            # and guarded against a concurrent rebind — while
-            # record_refresh_failure owns the run row. contacted_origin=False
-            # here so the run finalizer does not repeat the dataset write a
-            # second, weaker way; two writers would be two answers.
+            # Two records, one writer each (#1219 x #1222 merge):
+            # _record_failed_origin_contact owns the dataset-side contact
+            # stamp, record_refresh_failure owns the run row.
+            # contacted_origin=False below so the run finalizer doesn't
+            # repeat the dataset write a second, weaker way.
             await _record_failed_origin_contact(
                 err_session,
                 Dataset,
@@ -1285,19 +1217,15 @@ async def reupload_service(
                 contacted=origin_contact_attempted,
                 bound=reupload_bound,
             )
-            # feat(#1219): last_refreshed_at is untouched by construction —
-            # nothing on this path writes it — so a failed refresh leaves the
-            # live table and its freshness exactly as they were (invariant 10).
+            # feat(#1219): last_refreshed_at is untouched by construction,
+            # so a failed refresh leaves the live table's freshness exactly
+            # as it was (invariant 10).
             #
-            # feat(#1220): the two credential failures get their own codes.
-            # Neither is the origin's fault, and collapsing either into
-            # service_refresh_failed sends the reader to investigate a service
-            # that is working fine. They are also fixed differently: an
-            # expired credential means "start again with a fresh token", while
-            # an unreachable store is an operator's split-brain config — the
-            # API accepted the token because IT can reach the store and this
-            # worker cannot. The API refuses at the door under the same code
-            # when it can see the problem from there.
+            # feat(#1220): the two credential failures get their own error
+            # codes rather than collapsing into service_refresh_failed
+            # (which would send the reader to investigate a working
+            # service) — expired means retry with a fresh token, unreachable
+            # store means an operator config split-brain.
             await record_refresh_failure(
                 err_session,
                 ingest_job_id=job_uuid,
@@ -1308,7 +1236,7 @@ async def reupload_service(
             await err_session.commit()
         raise
     finally:
-        # fix(#1755 item 11): `purge_token_on_failure` (`tasks_common.py`), the
+        # fix(#1755): `purge_token_on_failure` (`tasks_common.py`), the
         # decorator around this task, must still see whatever exception
         # `reupload_service` itself raised, not one from a cleanup step.
         async with cleanup_step("reupload_service heartbeat", job_id=job_id):

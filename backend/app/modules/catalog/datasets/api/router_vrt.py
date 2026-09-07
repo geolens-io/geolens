@@ -49,7 +49,6 @@ VrtMutationResponse = get_catalog_port().vrt_mutation_response_model()
 
 
 def _advisory_lock_key(dataset_id: uuid.UUID) -> int:
-    """Derive a PostgreSQL advisory lock key from a UUID."""
     return dataset_id.int % (2**63)
 
 
@@ -58,12 +57,10 @@ async def _load_source_datasets(
 ) -> dict[uuid.UUID, object]:
     """Load VRT source datasets by id in one query, records eager-loaded.
 
-    fix(#435): both VRT source endpoints called `get_dataset()` once per member row,
-    so a 200-source VRT cost 200 round trips before it could return a page. The
-    per-row `can_access_dataset()` call stays — it is the permission seam's decision
-    to make, and only `restricted` rows reach the database from there. Batching that
-    too needs a seam-level operation, because an overlay wrapping
-    `DefaultPermissionExtension` must not have its policy skipped.
+    fix(#435): both VRT source endpoints called `get_dataset()` once per
+    member row, so a 200-source VRT cost 200 round trips. The per-row
+    `can_access_dataset()` call stays -- it's the permission seam's
+    decision, and batching it too would risk skipping an overlay's policy.
     """
     if not dataset_ids:
         return {}
@@ -106,12 +103,11 @@ async def list_vrt_sources(
         """),
         {"vrt_id": str(dataset_id)},
     )
-    # SEC-E: SEC-C authorizes sources only at link time and there is no
-    # migration re-authorizing pre-existing vrt_source_links, so a VRT may hold
-    # member rows the caller cannot access (created before the fix, or a source
-    # later flipped private / lost a grant). Drop those members here so their
-    # title/CRS/resolution/extent never leak. Non-raising (can_access_dataset)
-    # — a 404 would abort the whole listing.
+    # SEC-E: SEC-C authorizes sources only at link time with no migration
+    # re-authorizing pre-existing links, so a VRT may hold member rows the
+    # caller can't access. Drop those here so title/CRS/resolution/extent
+    # never leak; non-raising (can_access_dataset) since a 404 would abort
+    # the whole listing.
     ext = get_permission_extension()
     source_rows = rows.all()
     datasets_by_id = await _load_source_datasets(
@@ -195,10 +191,9 @@ async def get_vrt_status(
     last_gen = gen_result.scalar_one_or_none()
     last_generation_at = last_gen.completed_at if last_gen else None
 
-    # Source count — raw total link count. This intentionally reflects ALL
-    # links, while source_health below reflects only members the caller can
-    # access (SEC-E). Recomputing the count from the filtered set would leak
-    # the size of the unauthorized delta, so the totals are allowed to diverge.
+    # Raw total link count, intentionally including ALL links, while
+    # source_health below reflects only accessible members (SEC-E).
+    # Recomputing from the filtered set would leak the unauthorized delta.
     count_result = await db.execute(
         text(
             "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
@@ -251,11 +246,10 @@ async def get_vrt_status(
     )
     source_health_list = []
     storage = get_storage()
-    # SEC-E: drop members the caller cannot access (legacy links / authz drift)
-    # before probing storage, so their existence/health never leaks.
+    # SEC-E: drop members the caller cannot access (legacy links / authz
+    # drift) before probing storage, so their existence/health never leaks.
     ext = get_permission_extension()
 
-    # Collect sources and their URIs for parallel checks
     health_rows = source_rows.all()
     datasets_by_id = await _load_source_datasets(
         db, [row.source_dataset_id for row in health_rows if row.ds_id is not None]
@@ -263,9 +257,8 @@ async def get_vrt_status(
     sources_to_check = []
     for row in health_rows:
         if row.ds_id is None:
-            # Source dataset was deleted. Keep this "missing" health branch and
-            # the None-guard below so can_access_dataset never deref's
-            # None.record for a source whose dataset row no longer exists.
+            # Source dataset was deleted; this branch and the None-guard
+            # below keep can_access_dataset from deref'ing None.record.
             source_health_list.append(
                 VrtSourceHealth(
                     dataset_id=row.source_dataset_id,
@@ -282,9 +275,8 @@ async def get_vrt_status(
             continue
         sources_to_check.append(row)
 
-    # Parallel backend-aware checks for non-missing sources. Remote STAC
-    # assets are HTTP(S) URLs and cannot be meaningfully checked by local/S3
-    # storage providers.
+    # Remote STAC assets are HTTP(S) URLs and can't be meaningfully checked
+    # by local/S3 storage providers.
     if sources_to_check:
         tenant_id = current_tenant_var.get()
         exists_results = await asyncio.gather(
@@ -297,24 +289,14 @@ async def get_vrt_status(
                 for row in sources_to_check
             )
         )
-        # feat(#1221): a member whose own raster was replaced (#1221's replace
-        # path restamps `ingested_at` when it swaps the pointer) leaves this
-        # parent's stored VRT naming a COG that no longer exists. The member
-        # itself probes healthy — it is the parent that needs regenerating —
-        # so surface that as its own state rather than letting a working
-        # source read as fine while the mosaic is broken.
-        # fix(#1290 review): staleness is a STATE comparison now — what the
-        # member IS versus what the published VRT was built FROM. Timestamps
-        # could not answer it: a replacement assigns `ingested_at` inside its
-        # transaction and commits later, so a rebuild snapshotting in between
-        # reads the OLD uri (read committed) and afterwards finds the member's
-        # stamp EARLIER than its own. Healthy, and wrong. Postgres exposes no
-        # commit-time stamp from inside the transaction, so no clock scheme
-        # could have closed it.
-        #
-        # `built_from` is NULL for VRTs built before it existed; those fall
-        # back to the legacy timestamp comparison, which is the best available
-        # answer for a row that never recorded its inputs.
+        # feat(#1221): a replaced member probes healthy on its own, but the
+        # parent's stored VRT still names the old COG -- surface that as
+        # the member's own "stale" state instead of "fine".
+        # fix(#1290): compares STATE (what the member IS vs what the VRT
+        # was built FROM), not timestamps -- a replacement's `ingested_at`
+        # commits after a concurrent rebuild's read, so a timestamp
+        # comparison can read a healthy member as stale. `built_from` NULL
+        # means pre-#1290 VRTs, which fall back to the timestamp comparison.
         built_from = vrt_asset.built_from or None
         built_at = vrt_asset.last_regenerated_at or vrt_asset.ingested_at
         for row, file_exists in zip(sources_to_check, exists_results):
@@ -351,32 +333,16 @@ async def get_vrt_status(
 def _vrt_generation_item(generation: Any, *, include_detail: bool) -> VrtGenerationItem:
     """One row of a VRT dataset's regeneration history.
 
-    fix(#1860): the listing gated on ``check_dataset_access``, which is a
-    VISIBILITY check by its own contract, admitting any signed-in caller on a
-    published public or internal dataset. It then returned every row's
-    ``error_message`` and ``triggered_by``: failure text plus who edits the
-    dataset, behind visibility alone. That is the same door this change closes
-    on ``GET /jobs/by-dataset/{dataset_id}``, and the one
-    ``list_dataset_refresh_runs`` had already closed on its own identical
-    fields.
+    fix(#1860): visibility alone used to gate this list, leaking every
+    row's ``error_message`` (GDAL/VRT failure text naming server paths)
+    and ``triggered_by`` (a raw user id) to any signed-in reader of a
+    public/internal dataset. ``include_detail`` is the
+    ``can_view_dataset_provenance`` answer; both fields null otherwise,
+    matching what ``DatasetRefreshRunResponse`` redacts for the same reader.
 
-    ``include_detail`` is the ``can_view_dataset_provenance`` answer, and there
-    is deliberately no per-row "you triggered this one" arm. Every writer of a
-    ``VrtGeneration`` row goes through ``check_dataset_write_access``
-    (``regenerate_vrt_endpoint`` here, ``add_vrt_source`` and
-    ``remove_vrt_source`` in the ingest router), which is owner-or-admin, so
-    every actor who can appear in ``triggered_by`` already passes the
-    predicate. Such an arm would select nobody.
-
-    Kept for a reader who fails the predicate, because ``get_vrt_status`` on
-    the same dataset already publishes the same facts to the same audience:
-    ``id`` (no route reads a generation by id), ``status``, ``started_at``,
-    ``completed_at``, ``duration_seconds`` and ``source_count``.
-
-    Redacted: ``error_message``, which is GDAL and VRT failure text naming
-    server paths and member assets, and ``triggered_by``, which is a raw user
-    id. Those are the two fields ``DatasetRefreshRunResponse`` nulls for this
-    same reader.
+    No per-row "you triggered this one" arm: every ``VrtGeneration``
+    writer goes through ``check_dataset_write_access`` (owner-or-admin),
+    so it would select nobody.
     """
     return VrtGenerationItem(
         id=generation.id,
@@ -428,12 +394,10 @@ async def list_vrt_generations(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
     user_roles = await check_dataset_access(db, dataset, dataset_id, user)
-    # fix(#1860): visibility and disclosure are two questions. The check above
-    # settles the first and admits any signed-in reader of a published public
-    # or internal dataset; this settles the second.
+    # fix(#1860): visibility and disclosure are two questions. The check
+    # above settles the first; this settles the second.
     can_view_detail = can_view_dataset_provenance(dataset.record, user, user_roles)
 
-    # Total count
     count_result = await db.execute(
         select(func.count())
         .select_from(VrtGeneration)
@@ -481,8 +445,8 @@ async def regenerate_vrt_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    # Owner-or-admin: regenerating the VRT mutates asset status and enqueues
-    # work; previously any authenticated user could trigger it on a peer's raster.
+    # Owner-or-admin: regenerating mutates asset status and enqueues work;
+    # any authenticated user could otherwise trigger it on a peer's raster.
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
     # Load VRT RasterAsset
@@ -535,28 +499,22 @@ async def regenerate_vrt_endpoint(
     db.add(generation)
     await db.flush()
 
-    # Update RasterAsset — capture pre-mutation values so the orphan
-    # guard rollback (Theme H) can restore them if Procrastinate is
-    # unreachable.
+    # Capture pre-mutation values so the orphan guard rollback can restore
+    # them if Procrastinate is unreachable.
     previous_status = vrt_asset.status
     previous_generation_id = vrt_asset.current_generation_id
     vrt_asset.status = "regenerating"
     vrt_asset.current_generation_id = generation.id
 
-    # Create IngestJob
     job = await get_catalog_port().create_ingest_job(db, "vrt_regenerate", "", user.id)
     job.dataset_id = dataset_id
 
     await db.commit()
 
-    # Dispatch task with orphan guard. This closes the SYNCHRONOUS failure —
-    # Procrastinate unreachable at enqueue time — by reverting the mutation
-    # below before it is ever visible. A worker that dies AFTER a successful
-    # dispatch is a different failure and is not this guard's job: fix(#1267)
-    # gives ``sweep_stale_vrt_assets`` (GAP-002) a periodic + startup pass
-    # that reconciles it — restoring the asset to ``'ready'`` and failing the
-    # orphaned ``VrtGeneration`` row — so neither state is stuck on manual
-    # operator intervention.
+    # Dispatch with orphan guard: closes the SYNCHRONOUS failure
+    # (Procrastinate unreachable at enqueue time) by reverting the mutation
+    # before it's ever visible. A worker dying AFTER a successful dispatch
+    # is fix(#1267)'s ``sweep_stale_vrt_assets`` job to reconcile instead.
     async def _defer() -> None:
         await defer_async_with_tenant(
             get_catalog_port().regenerate_vrt_task(),

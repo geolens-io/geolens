@@ -30,23 +30,22 @@ DEFAULT_TIMEOUT_MS = 10_000
 # the legacy best-effort fallback and the feat(#565) fail-closed binding.
 _SINGLE_TENANT_READER_ROLE = "geolens_reader"
 
-# fix(#557): sqlglot's postgres dialect mis-parses the pgvector cosine operator
-# `<=>` as NullSafeEQ, so re-serializing the AST rewrites it to
-# `IS NOT DISTINCT FROM` — silently turning nearest-neighbor ranking into a
+# fix(#557): sqlglot's postgres dialect mis-parses the pgvector cosine
+# operator `<=>` as NullSafeEQ, so re-serializing the AST silently rewrites
+# it to `IS NOT DISTINCT FROM` — turning nearest-neighbor ranking into a
 # boolean equality test. The multi-tenant schema rewrite MUST re-render (the
-# logical `data.` schema has no physical table), so unlike the optional
-# geometry-append guard (#556) it cannot bail to the original SQL. Instead we
-# swap the `<=>` OPERATOR for a sentinel that DOES round-trip (`&&`, which the
-# validator rejects as array_overlaps so it never appears as a real operator in
-# validated SQL), rewrite the schema on the parsed AST, then restore the
-# operator. The swap is driven by sqlglot's own tokenizer, so `<=>` / `&&`
-# appearing inside a string literal of ANY quoting form — `'...'`, `E'...'`,
-# `$$...$$` — tokenizes as a string and is left untouched (fix(#559) review: a
-# naive substring / single-quote-only swap corrupted dollar-quoted and
-# sentinel-lookalike literals). `IS NOT DISTINCT FROM` tokenizes as keywords, not
-# NULLSAFE_EQ, so a legitimate null-safe comparison is never rewritten. `<->`
-# (L2) already round-trips and `<#>` fails parse upstream, so `<=>` is the only
-# operator that reaches here valid-but-corrupted.
+# logical `data.` schema has no physical table), so it can't bail to the
+# original SQL like the optional guard (#556) does. Instead we swap the
+# `<=>` operator for a sentinel that round-trips (`&&`, rejected by the
+# validator as array_overlaps so it never appears in real validated SQL),
+# rewrite the schema on the parsed AST, then restore the operator. The swap
+# uses sqlglot's own tokenizer, so `<=>`/`&&` inside a string literal of ANY
+# quoting form (`'...'`, `E'...'`, `$$...$$`) tokenizes as a string and is
+# left untouched (fix(#559): a naive substring swap corrupted dollar-quoted
+# literals). `IS NOT DISTINCT FROM` tokenizes as keywords, not NULLSAFE_EQ,
+# so a legitimate null-safe comparison is never rewritten. `<->` (L2)
+# already round-trips and `<#>` fails parse upstream, so `<=>` is the only
+# operator vulnerable here.
 _COSINE_OP = "<=>"
 _COSINE_SENTINEL = "&&"
 
@@ -54,9 +53,9 @@ _COSINE_SENTINEL = "&&"
 def _swap_operator_tokens(sql: str, token_type: TokenType, replacement: str) -> str:
     """Replace every operator token of ``token_type`` with ``replacement``.
 
-    Uses sqlglot's tokenizer so only genuine operator tokens are rewritten — the
-    same characters inside a string literal (any quoting form) tokenize as a
-    string and pass through untouched. Replacements run back-to-front so earlier
+    Uses sqlglot's tokenizer so only genuine operator tokens are rewritten —
+    the same characters inside a string literal (any quoting form) tokenize
+    as a string and pass through untouched. Runs back-to-front so earlier
     source offsets stay valid.
     """
     spans = [
@@ -82,14 +81,14 @@ def _is_logical_data_schema(identifier: exp.Expression | None) -> bool:
 def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     """Rewrite validated ``data.*`` references to one physical tenant schema.
 
-    The validator intentionally exposes a stable logical ``data`` schema to the
-    LLM and rejects every other real-table schema.  Multi-tenant storage uses a
-    per-tenant physical schema, so execution must translate that logical name
-    after validation.  Rewriting the parsed AST avoids string-replacement bugs
-    in literals, comments, aliases, and identifiers that merely contain the word
-    ``data``.
+    The validator exposes a stable logical ``data`` schema to the LLM and
+    rejects every other real-table schema; multi-tenant storage uses a
+    per-tenant physical schema, so execution translates the logical name
+    after validation. Rewriting the parsed AST (not a string replace) avoids
+    corrupting literals, comments, aliases, or identifiers that merely
+    contain the word ``data``.
 
-    ``physical_schema`` is produced by :func:`tenant_data_schema`, which accepts
+    ``physical_schema`` comes from :func:`tenant_data_schema`, which accepts
     only a normalized UUID-derived identifier in multi-tenant mode.
     """
     try:
@@ -143,13 +142,12 @@ async def execute_safe(
         row_limit: Maximum rows to return (default 1000).
         timeout_ms: Statement timeout in milliseconds (default 10000).
         concurrency_key: Stable caller key for a cross-worker, fail-fast query lock.
-        require_reader_role: feat(#565): when True, the single-tenant
-            ``SET LOCAL ROLE`` binding fails CLOSED — a query that cannot be
-            bound to the restricted reader role raises a sanitized
-            SandboxError instead of running with the application login's
-            (superuser) privileges. Default False preserves the legacy
-            best-effort fallback for AI chat. Multi-tenant binding is
-            unconditionally fail-closed either way.
+        require_reader_role: when True, the single-tenant ``SET LOCAL ROLE``
+            binding fails CLOSED — a query that cannot be bound to the
+            restricted reader role raises a sanitized SandboxError instead
+            of running with the application login's (superuser) privileges.
+            Default False preserves the legacy best-effort fallback for AI
+            chat. Multi-tenant binding is unconditionally fail-closed.
 
     Returns:
         SandboxResult with rows, columns, row_count, and truncated flag.
@@ -161,9 +159,9 @@ async def execute_safe(
     tenant_id = current_tenant_var.get() if multi_tenant else None
     if multi_tenant:
         if tenant_id is None:
-            # An unscoped query must never fall back to the global reader or the
-            # legacy shared data schema.  RLS is the final backstop, but fail
-            # before acquiring a connection so the error is deterministic.
+            # An unscoped query must never fall back to the global reader or
+            # the legacy shared data schema. RLS is the final backstop, but
+            # fail before acquiring a connection so the error is deterministic.
             raise SandboxError("query_failed", "Query failed")
         sql = _rewrite_logical_data_schema(sql, tenant_data_schema(tenant_id))
 
@@ -194,25 +192,23 @@ async def execute_safe(
                             "Another data query is already running for this user",
                         )
                 # Defense-in-depth: use the restricted reader role if available.
-                # DP-02 (Phase 1209-03): in multi_tenant, use the per-tenant reader
-                # role so the sandbox SQL runs with only per-tenant schema access.
-                # CR-04 (Phase 1209): single_tenant uses "geolens_reader"
-                # (guaranteed by migration 0007 and init-db.sh) rather than
-                # "geolens_readonly" (only in migration 0001_baseline, which may
-                # be squashed). Multi-tenant never falls back to a global role.
-                # Role name derives from validated-UUID current_tenant_var — safe
-                # to interpolate (T-1209-14).
+                # Multi-tenant uses the per-tenant reader role (per-tenant
+                # schema access only); single-tenant uses "geolens_reader"
+                # (guaranteed by migration 0007 + init-db.sh, unlike
+                # "geolens_readonly" which lives only in a migration that may
+                # be squashed). Multi-tenant never falls back to a global
+                # role. Role name derives from validated-UUID
+                # current_tenant_var, so it's safe to interpolate.
                 if multi_tenant:
-                    # tenant_id was required above and tenant_reader_role validates
-                    # the UUID before constructing this identifier.
+                    # tenant_reader_role validates the UUID before building
+                    # the identifier.
                     _role = tenant_reader_role(tenant_id)
                     try:
                         await conn.execute(text(f"SET LOCAL ROLE {_role}"))
                     except Exception as exc:  # broad: role binding must fail closed
-                        # Falling back to the application role here can expose the
-                        # shared legacy schema or any other tenant schema reachable
-                        # by that broader login.  Multi-tenant role binding is a
-                        # mandatory isolation control, not best effort.
+                        # Falling back to the app role could expose the
+                        # shared legacy schema or another tenant's schema;
+                        # this binding is mandatory, not best effort.
                         logger.error(
                             "sandbox.tenant_role_bind_failed",
                             tenant_id=tenant_id,
@@ -222,10 +218,10 @@ async def execute_safe(
                         raise SandboxError("query_failed", "Query failed") from exc
                 else:
                     _role = _SINGLE_TENANT_READER_ROLE
-                    # Preserve the legacy single-tenant compatibility fallback for
-                    # deployments upgraded from versions that predate this role —
-                    # unless the caller required the reader role (feat(#565):
-                    # the raw-SQL endpoint must never fall back to superuser).
+                    # Legacy compatibility fallback for deployments upgraded
+                    # from before this role existed, unless the caller
+                    # requires it (the raw-SQL endpoint must never fall
+                    # back to superuser).
                     try:
                         await conn.execute(text("SAVEPOINT _role_check"))
                         await conn.execute(text(f"SET LOCAL ROLE {_role}"))
@@ -253,7 +249,7 @@ async def execute_safe(
                 all_rows = result.fetchall()
     except SandboxError:
         raise
-    except Exception as exc:  # broad: SQL execution can throw asyncpg/sqlalchemy errors of varied types; classify in handler
+    except Exception as exc:  # broad: varied DB errors; classify in handler
         _handle_execution_error(exc, sql)
 
     # Convert rows to list-of-lists
@@ -298,10 +294,9 @@ def _handle_execution_error(exc: Exception, sql: str) -> None:
         raise SandboxError("query_failed", "Query failed") from exc
 
     # Data-driven failures: SQLAlchemy maps SQLSTATE class 22 (data
-    # exception) to DataError and XX-class (how GEOS/PostGIS topology errors
-    # surface) to InternalError. A distinct category lets server-built-SQL
-    # callers (analysis) report these as 4xx without also reclassifying
-    # infrastructure failures (connection loss, role binding) as user error.
+    # exception) to DataError and XX-class (GEOS/PostGIS topology errors) to
+    # InternalError. Distinct category lets analysis callers report these
+    # as 4xx without reclassifying infra failures as user error.
     if isinstance(exc, (DataError, InternalError)):
         raise SandboxError(
             "query_data_error", "The query failed while processing this data"

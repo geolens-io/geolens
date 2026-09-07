@@ -78,11 +78,10 @@ async def list_related_datasets(
     db: AsyncSession = Depends(get_db),
 ) -> RelatedDatasetsResponse:
     """Return top-5 datasets similar to this one by embedding cosine similarity."""
-    # Phase 1061 SEC-S05: visibility-gate the SEED before reading its embedding.
-    # Before this fix, anonymous attackers could probe any UUID — neighbor-similarity
-    # scores leaked content about the private seed via cosine-distance oracle.
-    # The neighbor query (inside get_related_datasets) already applies
-    # apply_visibility_filter, so neighbors stay correctly gated.
+    # SEC-S05: visibility-gate the SEED before reading its embedding -- an
+    # anonymous attacker could otherwise probe any UUID via a
+    # cosine-distance oracle leaking content about the private seed. The
+    # neighbor query already applies apply_visibility_filter separately.
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -140,11 +139,9 @@ async def get_dataset_rows_endpoint(
             filters=filters if filters else None,
         )
     except DBAPIError as exc:
-        # fix(#435): this used to swallow every DBAPIError as a 400. The service
-        # swallowed them first anyway, so the handler was unreachable for failures
-        # inside the query. Now only a caller-caused error is a 400; connection loss,
-        # statement timeout, and permission failures fall through to the central
-        # 503 handler rather than being reported as the caller's fault.
+        # fix(#435): only a caller-caused error is a 400; connection loss,
+        # statement timeout, and permission failures fall through to the
+        # central 503 handler rather than being reported as the caller's fault.
         if sqlstate(exc) in BAD_QUERY_INPUT:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -191,8 +188,8 @@ async def validate_dataset(
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # The explicit ?refresh=true path recomputes and PERSISTS a fresh quality
-    # score (an expensive write) — restrict it to the dataset owner or an admin.
-    # The implicit first-read populate (quality_detail is None) stays open so
+    # score (an expensive write), restricted to owner/admin. The implicit
+    # first-read populate (quality_detail is None) stays open so
     # ordinary/anonymous readers still get a score lazily.
     if refresh:
         if user is None:
@@ -227,11 +224,6 @@ async def validate_dataset(
     )
 
 
-# ---------------------------------------------------------------------------
-# Maps containing dataset
-# ---------------------------------------------------------------------------
-
-
 @router.get(
     "/{dataset_id}/maps/",
     response_model=MapListResponse,
@@ -247,10 +239,9 @@ async def dataset_maps(
     """Return maps that contain this dataset, filtered by caller's RBAC visibility."""
     from app.modules.catalog.maps.service import get_maps_for_dataset
 
-    # Phase 1061 WR-02: gate on dataset visibility before listing maps.
-    # Without this check, anonymous callers can probe any dataset_id UUID to
-    # confirm it exists (dataset-existence oracle analogous to SEC-S05).
-    # check_dataset_access_or_anonymous raises 404 for inaccessible datasets.
+    # WR-02: gate on dataset visibility before listing maps -- without this,
+    # anonymous callers could probe any dataset_id UUID to confirm it
+    # exists (an existence oracle, analogous to SEC-S05).
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -271,12 +262,8 @@ async def dataset_maps(
     return MapListResponse(maps=maps, total=total)
 
 
-# ---------------------------------------------------------------------------
-# Publication status transitions
-# ---------------------------------------------------------------------------
-
-# Compatibility export for legacy tests/docs. Runtime status changes below use
-# WorkflowExtension directly so overlays can replace the transition policy.
+# Compatibility export for legacy tests/docs. Runtime status changes below
+# use WorkflowExtension directly so overlays can replace the transition policy.
 ALLOWED_TRANSITIONS = {
     status: set(targets)
     for status, targets in DefaultWorkflowExtension.DEFAULT_ALLOWED_TRANSITIONS.items()
@@ -334,9 +321,9 @@ async def update_publication_status(
 
     dataset.record.record_status = target
     await workflow.on_transition(context)
-    # fix(#1178 review): this endpoint writes record_status without going
-    # through update_user_metadata, so it must run the same resolved-state
-    # inherited-keyword check or the ordinary publish flow warns nobody.
+    # fix(#1178): writes record_status without going through
+    # update_user_metadata, so it must run the same inherited-keyword
+    # check or the ordinary publish flow warns nobody.
     warning = await inherited_keyword_disclosure_warning(
         db, dataset.record, dataset_id, actor=user
     )
@@ -374,9 +361,8 @@ async def set_target_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    # Owner-or-admin: walking the publication chain is a mutation. The role
-    # gate + visibility check let any editor publish/unpublish a peer's public
-    # dataset through the full draft→ready→internal→published chain.
+    # Owner-or-admin: the role gate + visibility check alone let any editor
+    # publish/unpublish a peer's public dataset through the full chain.
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
     current = dataset.record.record_status
@@ -422,9 +408,9 @@ async def set_target_status(
         await workflow.on_transition(context)
         idx = next_idx
 
-    # fix(#1178 review): the ordinary publish flow (DatasetPage's publish
-    # toggle) lands here, not in update_user_metadata — the resolved-state
-    # inherited-keyword check has to run after the chain completes.
+    # fix(#1178): the ordinary publish flow (DatasetPage's publish toggle)
+    # lands here, not in update_user_metadata -- the inherited-keyword
+    # check has to run after the chain completes.
     warning = await inherited_keyword_disclosure_warning(
         db, dataset.record, dataset_id, actor=user
     )

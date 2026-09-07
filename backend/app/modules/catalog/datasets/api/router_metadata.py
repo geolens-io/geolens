@@ -53,16 +53,11 @@ router = APIRouter(
 )
 
 
-# ---------------------------------------------------------------------------
-# Versions endpoint
-# ---------------------------------------------------------------------------
-
-
 @router.get(
     "/{dataset_id}/versions/",
     response_model=DatasetVersionListResponse,
-    # fix(getgeolens.com#86 review): read-gated (check_dataset_access_or_anonymous
-    # below), not write-gated — see datasets/api/router.py:get_single_dataset.
+    # fix(getgeolens.com#86): read-gated (check_dataset_access_or_anonymous
+    # below), not write-gated -- see datasets/api/router.py:get_single_dataset.
     responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_dataset_versions_endpoint(
@@ -113,11 +108,6 @@ async def get_dataset_versions_endpoint(
         ],
         total=total,
     )
-
-
-# ---------------------------------------------------------------------------
-# Attribute metadata endpoints
-# ---------------------------------------------------------------------------
 
 
 @router.get(
@@ -204,7 +194,7 @@ async def update_attribute_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="Attribute not found"
         )
     try:
-        # Use exclude_unset (not exclude_none) so explicit null clears the field
+        # exclude_unset, not exclude_none, so an explicit null clears the field
         updates = body.model_dump(exclude_unset=True)
         if updates:
             # fix(#1847): the pair before the attribute row, the order every
@@ -308,11 +298,6 @@ async def reset_attribute_endpoint(
     return AttributeMetadataResponse.model_validate(attr)
 
 
-# ---------------------------------------------------------------------------
-# Column values & stats endpoints
-# ---------------------------------------------------------------------------
-
-
 @router.get(
     "/{dataset_id}/columns/{column_name}/values/",
     response_model=ColumnValuesResponse,
@@ -338,10 +323,9 @@ async def get_column_values(
     # Visibility check
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # fix(#315): raster/VRT datasets have a synthetic table_name (raster_<hex>)
-    # with NO backing data.<table>, so get_distinct_values would run SELECT ...
-    # FROM a missing table -> UndefinedTableError -> 500 (holding a DB
-    # connection). Return a fast 404 before any column query is attempted.
+    # fix(#315): raster/VRT datasets have a synthetic table_name with no
+    # backing data.<table>, so a column query would raise
+    # UndefinedTableError -> 500. Return a fast 404 first instead.
     if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -403,11 +387,6 @@ async def get_column_stats_endpoint(
         )
 
     return ColumnStatsResponse(**stats)
-
-
-# ---------------------------------------------------------------------------
-# Dataset FK relationships
-# ---------------------------------------------------------------------------
 
 
 @router.get(
@@ -475,15 +454,14 @@ async def create_dataset_relationship(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    # Owner-or-admin of the SOURCE dataset: the relationship is attached to it.
-    # The target only needs to be readable (visibility check below).
+    # Owner-or-admin of the SOURCE dataset: the relationship is attached to
+    # it. The target only needs to be readable (visibility check below).
     user_roles = await check_dataset_write_access(db, dataset, dataset_id, current_user)
 
     from app.modules.catalog.datasets.domain.models import Dataset
 
-    # Accept either a Dataset.id (what list/create responses return) or the
-    # underlying record_id (the original input contract) so a relationship id
-    # round-trips back into a create call. fix(#315)
+    # fix(#315): accept either a Dataset.id (list/create responses) or the
+    # underlying record_id (the original input contract).
     target_result = await db.execute(
         select(Dataset).where(Dataset.id == body.target_dataset_id)
     )
@@ -506,9 +484,9 @@ async def create_dataset_relationship(
     body = body.model_copy(update={"target_dataset_id": target_dataset.record_id})
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
-    # The relationship FK columns store catalog.records.id, but the response
-    # carries dereferenceable Dataset.id values so /collections/{id} resolves
-    # them, matching the LIST path (_visible_relationships). fix(#315)
+    # fix(#315): FK columns store catalog.records.id, but the response
+    # carries dereferenceable Dataset.id so /collections/{id} resolves
+    # them, matching the LIST path (_visible_relationships).
     return DatasetRelationshipResponse(
         id=rel.id,
         source_dataset_id=dataset.id,

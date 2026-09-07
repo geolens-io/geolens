@@ -1,17 +1,15 @@
 """``catalog.dataset_refresh_runs`` — one row per refresh attempt.
 
-feat(#1219) / ADR-002 Decision 4a. A sibling table rather than extra columns
-on ``DatasetVersion``: that table is a SUCCESS ledger whose identity is
-``UNIQUE (dataset_id, version_number)``, and ``version_number`` means "the Nth
-good state of this data". A failed refresh has no Nth good state, so making
-the counter nullable would not add a column — it would destroy the meaning of
-the uniqueness constraint. Two tables joined by one nullable FK is cheaper
-than one table with a nullable identity.
+feat(#1219), ADR-002 Decision 4.
 
-No ``tenant_id`` column and no RLS policy, matching ``dataset_versions`` and
-every other per-dataset child table: a run is reachable only through
-``dataset_id``, and ``catalog.datasets`` carries the tenant boundary. The
-nine tenant-scoped tables are enumerated in ``tests/test_rls_drift_gate.py``.
+A sibling table rather than extra columns on ``DatasetVersion``: that table
+is a SUCCESS ledger with ``UNIQUE (dataset_id, version_number)``, and a
+failed refresh has no Nth good state, so a nullable counter would destroy
+the uniqueness constraint's meaning.
+
+No ``tenant_id``/RLS, matching ``dataset_versions``: a run is reachable only
+through ``dataset_id``, which carries the tenant boundary (see the
+tenant-scoped table list in ``tests/test_rls_drift_gate.py``).
 """
 
 import uuid
@@ -38,65 +36,40 @@ from app.core.db import Base
 class DatasetRefreshRun(Base):
     __tablename__ = "dataset_refresh_runs"
     __table_args__ = (
-        # `blocked` is deliberately absent (ADR-002 Decision 4d): v1 has no
-        # schema policy, so the state is unreachable and shipping it would
-        # invite dead handling code. It is the reserved spelling for whoever
-        # adds an enforced policy; widening a VARCHAR CHECK is a two-line
-        # migration.
+        # `blocked` is deliberately absent: v1 has no schema policy so the
+        # state is unreachable. Reserved spelling for whoever adds one;
+        # widening the VARCHAR CHECK is a two-line migration.
         CheckConstraint(
             "status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')",
             name="chk_refresh_runs_status",
         ),
-        # `scheduled` is excluded on purpose (gate 4, no scheduler in
-        # Community). Handoff invariant 8 rides on that exclusion: the
-        # migration that adds `scheduled` here must, in the SAME migration,
-        # add `scheduled_for` and its UNIQUE (dataset_id, scheduled_for)
-        # partial index, or a scheduled occurrence loses its durable identity.
+        # `scheduled` excluded on purpose (no scheduler in Community). The
+        # migration that adds it must, in the SAME migration, add
+        # `scheduled_for` and its UNIQUE (dataset_id, scheduled_for) partial
+        # index, or a scheduled occurrence loses its durable identity.
         CheckConstraint(
             "trigger IN ('manual', 'api', 'cli')",
             name="chk_refresh_runs_trigger",
         ),
-        # fix(#1325): origin_kind here is the run's execution DOOR, written
-        # once by create_pending_run at commit time and never updated
-        # afterward: record_refresh_success/failure and the stale-run sweep
-        # (platform/refresh/service.py) only ever touch status, finished_at,
-        # and error fields. It is NOT the dataset's origin — see
-        # ORIGIN_KINDS in platform/dataset_origin.py, which classify_origin()
-        # recomputes fresh from the dataset's CURRENT source_format on every
-        # response build. It changes only when a mutation crosses one of
-        # classify_origin()'s category boundaries (e.g. a successful raster
-        # replace reclassifying 'stac' to 'upload'); a same-category
-        # reupload such as GeoJSON to CSV leaves it 'upload' both times. The
-        # ledger row is the immutable side of that comparison; the dataset's
-        # origin is not. Never read this column as "the dataset's origin,
-        # restated at the run level," even for a value that happens to spell
-        # the same as an ORIGIN_KINDS member: the two can visibly disagree
-        # while a run is in flight, because the door was fixed once and the
-        # origin keeps answering live. Concretely, a STAC-imported raster
-        # (dataset.origin == 'stac') stamps its replace run 'upload' at
-        # commit time (router_reupload.py), and the dataset's origin only
-        # moves to 'upload' once a SUCCESSFUL swap rebinds source_format
-        # (tasks_raster_swap.py:_write_swapped_fields) — so a pending or
-        # failed replace leaves the run at 'upload' against a dataset still
-        # reporting 'stac'. 'raster' is a different kind of gap: it has no
-        # ORIGIN_KINDS counterpart at all, and it is RESERVED for the
-        # raster-replace door (#1290) rather than actively used.
-        # reupload_commit (router_reupload.py) stamps every raster-replace
-        # run 'upload' today, never 'raster', so no row has ever actually
-        # carried it. Decision (a) on #1325 is to document this split, not
-        # close it by renaming a value or migrating a column.
+        # fix(#1325): origin_kind is the run's execution DOOR, written once
+        # by create_pending_run at commit time and never updated afterward.
+        # It is NOT the dataset's current origin — ORIGIN_KINDS/classify_origin()
+        # in platform/dataset_origin.py recompute that live from the
+        # dataset's current source_format, so a pending/failed run can
+        # visibly disagree with the dataset it belongs to (e.g. a STAC
+        # raster's replace run stamps 'upload' immediately, while the
+        # dataset stays 'stac' until a successful swap rebinds it). 'raster'
+        # is RESERVED for the raster-replace door (#1290) and unused today;
+        # reupload_commit always stamps raster replaces 'upload'.
         CheckConstraint(
             "origin_kind IN ('upload', 'postgis', 'service', 'stac', 'raster')",
             name="chk_refresh_runs_origin_kind",
         ),
-        # Admission control in the schema. ADR-002 Decision 5b: at most one
-        # mutation per dataset at a time, and v1 REJECTS rather than queues.
-        # A partial unique index makes that atomic at request time — the loser
-        # of a race gets an IntegrityError the dispatch handler turns into 409
-        # dataset_busy, instead of two runs reaching the worker and finding
-        # each other at the advisory lock. A check-then-insert could not:
-        # between the SELECT and the INSERT there is a window, and this is
-        # exactly the window two humans clicking commit occupy.
+        # Admission control in the schema: at most one mutation per dataset
+        # at a time, v1 REJECTS rather than queues. The partial unique index
+        # makes that atomic at request time — the loser of a race gets an
+        # IntegrityError turned into 409 dataset_busy; a check-then-insert
+        # would leave a window between the SELECT and the INSERT.
         Index(
             "uq_refresh_runs_one_active",
             "dataset_id",
@@ -106,10 +79,9 @@ class DatasetRefreshRun(Base):
         # The history query: newest-first for one dataset.
         Index("ix_dataset_refresh_runs_dataset_started", "dataset_id", "started_at"),
         # The three remaining FKs need their own leading index or a parent
-        # delete degrades to a full child scan —
-        # `test_every_catalog_fk_has_a_valid_leading_index` enforces it.
-        # Partial on IS NOT NULL, matching ix_dataset_versions_uploaded_by:
-        # a NULL references nothing, so indexing it buys nothing.
+        # delete degrades to a full child scan
+        # (`test_every_catalog_fk_has_a_valid_leading_index`). Partial on
+        # IS NOT NULL: a NULL references nothing, so indexing it buys nothing.
         Index(
             "ix_dataset_refresh_runs_version",
             "dataset_version_id",
@@ -134,13 +106,10 @@ class DatasetRefreshRun(Base):
     dataset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.datasets.id", ondelete="CASCADE"), nullable=False
     )
-    # TSEAM-01 dormant tenant_id — nullable, no FK enforcement, matching the
-    # column on `datasets`. This table is NOT in migration 0018's
-    # stamping-trigger set, so `create_pending_run` writes it explicitly from
-    # the parent dataset's STORED value rather than from the ORM attribute:
-    # in multi-tenant mode the trigger fills the parent's column in the
-    # database and the ORM attribute stays None, so copying the attribute
-    # would silently write NULL (the #1218 finding, one table over).
+    # TSEAM-01 dormant tenant_id. Not in migration 0018's stamping-trigger
+    # set, so `create_pending_run` writes it explicitly from the parent
+    # dataset's STORED value, not the ORM attribute — the trigger fills the
+    # DB column but leaves the ORM attribute None (#1218 finding).
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
@@ -149,10 +118,8 @@ class DatasetRefreshRun(Base):
     dataset_version_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.dataset_versions.id", ondelete="SET NULL"), nullable=True
     )
-    # SET NULL, not CASCADE: #1219's acceptance criterion is that history
-    # survives the ingest_jobs retention purge. The run row outlives the job
-    # and the link simply nulls out — strictly better than an unconstrained
-    # UUID, which would leave a dangling pointer.
+    # SET NULL, not CASCADE: history must survive the ingest_jobs retention
+    # purge, so the run row outlives the job and the link nulls out.
     ingest_job_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.ingest_jobs.id", ondelete="SET NULL"), nullable=True
     )

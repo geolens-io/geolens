@@ -70,20 +70,10 @@ require_settings_admin = require_mode_permission(
 router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
 
-# ---------------------------------------------------------------------------
-# Setting-update helpers (extracted from route handler)
-# ---------------------------------------------------------------------------
-
-
-# Phase 279 ADMIN-09 (L-01): The PUT/RESET handlers below intentionally end with
-# `return await get_all_settings(...)` to capture side-effects from
-# rebuild_embedding_column rollback, validator coercion, and
-# request-derived URL computation (public_app_url / public_api_url, computed
-# from `request` in get_all_settings — NOT stored in AppSetting). An inline
-# response construction would have to duplicate get_all_settings's body
-# (registry iteration + value-source resolution + env-only handling). The
-# second SELECT is cheaper to maintain than two parallel response builders.
-# See the inline comment blocks at each return site for the full rationale.
+# Phase 279 (L-01): PUT/RESET handlers below end with
+# `return await get_all_settings(...)` to capture side-effects (rebuild
+# rollback, validator coercion, request-derived public_app_url/public_api_url
+# — NOT stored in AppSetting) without duplicating get_all_settings's body.
 
 
 def _validate_setting(key: str, value: object) -> object:
@@ -148,10 +138,9 @@ def _get_registry_map() -> dict[str, object]:
 def _require_enterprise_for_key(key: str) -> None:
     """Raise 404 if a setting key belongs to an enterprise-only tab.
 
-    Returns 404 (not 403, no detail body) to match the ``require_enterprise()``
-    guard contract — community callers cannot distinguish between "key does
-    not exist" and "key requires enterprise edition", which prevents both
-    feature leakage and trivial enumeration of paid keys.
+    Returns 404 (not 403, no detail body) to match ``require_enterprise()`` —
+    community callers can't distinguish "key does not exist" from "key
+    requires enterprise", preventing both feature leakage and enumeration.
     """
     from app.core.edition import is_enterprise
 
@@ -167,18 +156,15 @@ async def _probe_base_url(
 ) -> object:
     """Endpoint the probe should call, honoring a URL this request publishes.
 
-    When the request names neither URL key this is exactly
-    ``resolve_runtime_config(db)["base_url"]``. When it names either, the
-    provider's own chain is reproduced with each half taken from the request
-    where present: EMBEDDING_BASE_URL -> OPENAI_BASE_URL -> None, then bound to
-    the operator-approved destination. Clearing ``embedding_base_url`` in the
-    same PUT therefore falls through to the ``openai_base_url`` that PUT sets,
-    exactly as it will once the batch commits.
+    With neither URL key in the request, this is
+    ``resolve_runtime_config(db)["base_url"]``. With either present, the
+    provider's chain (EMBEDDING_BASE_URL -> OPENAI_BASE_URL -> None) is
+    reproduced from the request where set, so clearing one falls through to
+    the other exactly as it will once the batch commits.
 
-    ``resolve_runtime_config`` is deliberately not called on that branch. It
-    reads COMMITTED configuration, which is the value the request is replacing,
-    and it *raises* when that value is a stale row bound to a different
-    destination than the environment credential.
+    ``resolve_runtime_config`` is deliberately skipped on that branch: it
+    reads COMMITTED configuration (the value being replaced) and raises when
+    that value is a stale row bound to a different destination.
     """
     if not ({"embedding_base_url", "openai_base_url"} & requested.keys()):
         runtime_config = await provider_ext.resolve_runtime_config(db)  # type: ignore[attr-defined]
@@ -208,14 +194,13 @@ async def _probe_embedding_dims_for_model(
     """Ask the provider for the natural output width of an explicitly named model.
 
     fix(#1529): ``probe_embedding_dimensions`` resolves the model from
-    PersistentConfig, so it can only probe a model that is ALREADY published —
-    which is the publish-then-probe ordering the issue is about. ``update_settings``
-    needs the width of the model it is about to publish, at a point where nothing
-    has been committed, so the model name is passed in rather than read back out.
+    PersistentConfig, so it can only probe an ALREADY-published model.
+    ``update_settings`` needs the width of the model it's about to publish,
+    before anything commits, so the name is passed in rather than read back.
 
-    fix(#1538 review): the endpoint comes from ``requested`` too. Everything the
-    probe resolves has to describe the configuration being published, not the
-    one being replaced — the model was only half of that.
+    fix(#1538): the endpoint comes from ``requested`` too — everything the
+    probe resolves must describe the configuration being published, not the
+    one being replaced.
 
     Raises:
         EmbeddingUnavailableError: no embedding provider is configured, or the
@@ -231,11 +216,11 @@ async def _probe_embedding_dims_for_model(
         )
 
     provider_ext = get_embedding_provider("openai_compatible")
-    # dimensions=None means "discover the model's natural width" (Phase 231 D-02).
-    # `model` carries no fallback to the runtime default on purpose: this path is
-    # only reached when the request names embedding_model, and the community
-    # provider's default_model IS the committed EMBEDDING_MODEL, so falling back
-    # to it would probe the very model being replaced.
+    # dimensions=None discovers the model's natural width (Phase 231 D-02).
+    # `model` has no fallback to the runtime default on purpose: this path is
+    # only reached when the request names embedding_model, and the default IS
+    # the committed EMBEDDING_MODEL — falling back would probe the model
+    # being replaced.
     vectors = await provider_ext.embed(
         texts=["dimension probe"],
         model=model,
@@ -282,11 +267,6 @@ async def _detect_dims_for_requested_model(
                 "embedding_model nor embedding_dims was changed."
             ),
         ) from exc
-
-
-# ---------------------------------------------------------------------------
-# Unified admin endpoints
-# ---------------------------------------------------------------------------
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
@@ -390,15 +370,12 @@ async def update_settings(
     """Update one or more settings (admin only). Returns updated settings."""
     registry_map = _get_registry_map()
 
-    # BUG-009 (Phase 1181): Validate ALL keys BEFORE applying any side effect.
-    # Previously, the loop applied each key inline — if key N was invalid, keys
-    # 0..N-1 were already persisted (or their side effects fired), producing
-    # partial/corrupt state.  The two-pass approach below:
+    # BUG-009: validate ALL keys before applying any side effect, so an
+    # invalid key raises 400/422 with nothing persisted.
     #   Pass 1 — validate every key (unknown-key check, enterprise gate,
-    #             custom validators, TypeAdapter type-level validation).
-    #             On any error, raise 400/422 immediately with NOTHING applied.
+    #            custom validators, TypeAdapter validation).
     #   Pass 2 — apply all validated values (commit=False per key, single
-    #             commit at the end — no change from before).
+    #            commit at the end).
     validated_settings: dict[str, object] = {}
     for key, value in body.settings.items():
         cfg = registry_map.get(key)
@@ -412,25 +389,20 @@ async def update_settings(
 
         validated_settings[key] = _canonicalize_setting_value(key, value, cfg)
 
-    # fix(#1529): publish embedding_model and its detected width ATOMICALLY.
-    # The probe runs HERE — before the provider row locks below, before any
-    # value is staged, and before the batch commit — and its result joins the
-    # same batch, so the pair lands in one transaction. A reader therefore sees
-    # the old pair or the new pair and never the new model beside the old
-    # model's dimension count, and a failed probe leaves both values untouched.
+    # fix(#1529): publish embedding_model and its detected width ATOMICALLY —
+    # the probe runs HERE, before the provider row locks and the batch commit,
+    # so its result joins the same batch and a reader never sees the new model
+    # beside the old dimension count (or a failed probe leaves both untouched).
     #
-    # Folding the detected width into validated_settings also puts auto-detect
-    # on the SAME commit-and-rebuild path as an explicitly named embedding_dims.
-    # The two used to be mutually exclusive branches, which is how a detected
-    # width could be persisted while the vector column kept the old one.
+    # Folding the width into validated_settings puts auto-detect on the SAME
+    # commit-and-rebuild path as an explicit embedding_dims, avoiding a
+    # detected width persisting while the vector column keeps the old one.
     #
-    # Probing ahead of the SSO guard is deliberate: that guard row-locks the
-    # enabled OAuth providers, and holding those locks across a provider
-    # network call would serialize unrelated provider mutations behind it.
-    #
-    # The whole validated batch is handed to the probe, not just the model:
-    # a PUT can change the endpoint in the same request, and the probe has to
-    # describe the configuration being published (see _probe_base_url).
+    # Probed ahead of the SSO guard (which row-locks OAuth providers) so a
+    # provider network call doesn't serialize unrelated provider mutations
+    # behind those locks. The whole validated batch is handed to the probe,
+    # not just the model, since a PUT can change the endpoint too (see
+    # _probe_base_url).
     if (
         "embedding_model" in validated_settings
         and "embedding_dims" not in validated_settings
@@ -450,17 +422,14 @@ async def update_settings(
                 registry_map["embedding_dims"],
             )
 
-    # SSO-04 (Phase 1236 Plan 02): lockout guard — refuse to disable password
-    # login when zero enabled OAuth providers exist.  This runs AFTER Pass-1
-    # validation but BEFORE the apply loop so nothing is persisted on rejection.
-    # An admin with manage_settings retains break-glass password-login regardless,
-    # but we still prevent the foot-gun of locking out the entire org.
+    # SSO-04: lockout guard — refuse to disable password login when zero
+    # enabled OAuth providers exist. Runs AFTER Pass-1 validation but BEFORE
+    # the apply loop so nothing persists on rejection.
     #
-    # Codex P2 (concurrency): row-lock the enabled providers (FOR UPDATE) so a
-    # concurrent provider-disable/delete (which locks the same rows) is serialized
-    # against this check — the two can no longer both pass and together remove the
-    # last provider while disabling password login. Replaces the reverted global
-    # advisory lock (898048b2); see oauth_service.lock_enabled_providers.
+    # Row-locks the enabled providers (FOR UPDATE) so a concurrent
+    # provider-disable/delete is serialized against this check — the two can
+    # no longer both pass and together remove the last provider. See
+    # oauth_service.lock_enabled_providers.
     if validated_settings.get("password_login_enabled") is False:
         locked_provider_ids = await oauth_service.lock_enabled_providers(db)
         if len(locked_provider_ids) == 0:
@@ -496,21 +465,18 @@ async def update_settings(
     # Single commit for all setting writes
     await db.commit()
 
-    # fix(#430 codex r3): set(commit=False) defers its side effects (cache
-    # invalidation, _on_change runtime hooks, sync rate-limit warm) so a
-    # rollback can't leave process-local state diverged from the DB. Apply
-    # them now that the batch is durable.
-    # fix(#1543): as ONE step, not a per-key loop — the loop left a window in
-    # which a reader saw the already-evicted keys at their new values and the
-    # rest at their cached old ones.
+    # fix(#430): set(commit=False) defers side effects (cache invalidation,
+    # _on_change hooks, rate-limit warm) so a rollback can't leave
+    # process-local state diverged from the DB; apply them now the batch is
+    # durable. fix(#1543): as ONE step — a per-key loop let a reader see
+    # already-evicted keys at their new values and the rest still cached old.
     await apply_side_effects_batch(
         [(registry_map[key], value) for key, value in validated_settings.items()]
     )
 
-    # Rebuild column + index when embedding dimensions change. An auto-detected
-    # width reaches this branch too (#1529): it was added to validated_settings
-    # above, so the column follows every published width, not only the ones an
-    # admin typed.
+    # Rebuild column + index when embedding dimensions change. An
+    # auto-detected width reaches this branch too (#1529), added to
+    # validated_settings above, so the column follows every published width.
     if "embedding_dims" in validated_settings:
         from app.processing.embeddings.service import rebuild_embedding_column
 
@@ -518,11 +484,10 @@ async def update_settings(
         try:
             await rebuild_embedding_column(db, new_dims)
         except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
-            # Roll the published pair back to its previous value(s) in ONE
-            # transaction — same reason the forward publish is one transaction.
-            # Side effects follow the commit, never precede it (fix #430 codex
-            # r3): invalidating the cache first lets a concurrent reader
-            # repopulate it with the value being rolled back.
+            # Roll the published pair back in ONE transaction, same reason as
+            # the forward publish. Side effects follow the commit, never
+            # precede it (fix(#430)): invalidating the cache first would let a
+            # concurrent reader repopulate it with the value being rolled back.
             await EMBEDDING_DIMS.set(
                 db, old_dims_value, user_id=user.id, ip_address=ip, commit=False
             )
@@ -531,10 +496,9 @@ async def update_settings(
                     db, old_model_value, user_id=user.id, ip_address=ip, commit=False
                 )
             await db.commit()
-            # fix(#1543): and in ONE step, for the same reason the rollback is
-            # one transaction. Evicting the two keys in sequence would put the
-            # mismatched pair back into readable state on the way out of a
-            # rollback whose whole purpose is to prevent it.
+            # fix(#1543): in ONE step, same reason the rollback is one
+            # transaction — evicting the two keys in sequence would put the
+            # mismatched pair back into readable state on the way out.
             rolled_back: list[tuple] = [(EMBEDDING_DIMS, old_dims_value)]
             if rollback_model:
                 rolled_back.append((EMBEDDING_MODEL, old_model_value))
@@ -554,18 +518,10 @@ async def update_settings(
                 ),
             ) from exc
 
-    # Phase 279 ADMIN-09 (L-01): The second get_all_settings() call is INTENTIONAL.
-    # update_settings can persist values the request body does not name:
-    #   1. an auto-detected embedding_dims (#1529) joins validated_settings
-    #      before the apply loop when embedding_model changes on its own.
-    #   2. rebuild_embedding_column failure (above) -- rolls the published
-    #      embedding pair back to its previous value(s) if the DDL fails.
-    #   3. .set() with commit=False above batches the writes; the final commit
-    #      may differ from the request body if a validator coerced the value.
-    # Additionally, get_all_settings computes public_app_url / public_api_url from
-    # the request object, which the request-body iteration does not. An inline
-    # construction would have to duplicate ALL of that logic; the second SELECT
-    # is cheaper to maintain than two parallel response builders.
+    # Phase 279 (L-01): second get_all_settings() call is INTENTIONAL — this
+    # handler can persist values the request body doesn't name: auto-detected
+    # embedding_dims (#1529), a rebuild rollback (above), and validator
+    # coercion from .set(). See the module comment near the top of the file.
     return await get_all_settings(request=request, _user=user, db=db)
 
 
@@ -625,15 +581,14 @@ async def reset_settings(
 
     # The setting deletes and their audit rows form one transaction. Runtime
     # caches/hooks are changed only after that transaction is durable, and in
-    # one step so no reader sees a half-reset batch (fix #1543).
+    # one step so no reader sees a half-reset batch (fix(#1543)).
     await db.commit()
     await apply_side_effects_batch([(cfg, cfg.env_default) for cfg in configs_to_reset])
 
-    # Phase 279 ADMIN-09 (L-01): Intentional second SELECT. cfg.reset() writes
-    # the env_default value back to AppSetting; we re-read to capture the
-    # post-reset state (which may differ from the env_default if a derivation
-    # function -- see public_app_url / public_api_url computation in
-    # get_all_settings -- runs at response-build time).
+    # Phase 279 (L-01): intentional second SELECT — cfg.reset() writes
+    # env_default to AppSetting; re-read captures the post-reset state, which
+    # may differ if a derivation (public_app_url/public_api_url) runs at
+    # response-build time in get_all_settings.
     return await get_all_settings(request=request, _user=user, db=db)
 
 
@@ -737,10 +692,6 @@ async def send_test_notification(
     """
     from app.platform.extensions.protocols import Notification
 
-    # send_email / post_webhook are module-level imports (see top of function
-    # module section) so tests can monkeypatch at
-    # app.modules.settings.router.send_email / .post_webhook — same discipline
-    # as app.platform.notifications.env_sink (Plan 02 decision).
     # Canned test payload — generic enough for both SMTP and webhook channels.
     test_notification = Notification(
         event_type="test",
@@ -811,8 +762,8 @@ async def send_test_notification(
             ip_address=get_client_ip(request),
         ),
     )
-    # Persist the audit row (M2 — Codex review): this endpoint's session is not
-    # auto-committed, so without an explicit commit the test-send audit is lost.
+    # Persist the audit row (M2): this endpoint's session isn't auto-committed,
+    # so without an explicit commit the test-send audit is lost.
     await db.commit()
 
     return NotificationTestResponse(sent=any_ok, channels=results, message=message)
@@ -826,18 +777,11 @@ async def get_config_mode() -> ConfigModeResponse:
     return ConfigModeResponse(env_only=_is_env_only())
 
 
-# ---------------------------------------------------------------------------
-# OAuth provider CRUD (admin only)
-# ---------------------------------------------------------------------------
-
-
-# Audit-log redaction allowlist. SECRET_FIELDS is the authoritative set used
-# when diffing old_values snapshots (which contain the internal encrypted
-# column ``client_secret_encrypted``). SECRET_BODY_FIELDS is the user-input
-# subset — body fields a caller can submit; ``client_secret_encrypted`` is
-# excluded because it's an internal column name and would never appear in
-# request bodies (per checker WARNING #3 — iterating it in the body-detection
-# loop is dead code). Pitfall 9 mitigation (HIGH severity, T-217-03-AUDIT-LEAK).
+# Audit-log redaction allowlist (Pitfall 9, T-217-03-AUDIT-LEAK). SECRET_FIELDS
+# is authoritative for diffing old_values (includes the internal
+# ``client_secret_encrypted`` column); SECRET_BODY_FIELDS is the user-input
+# subset a request body can submit — ``client_secret_encrypted`` is excluded
+# since it can never appear there.
 SECRET_FIELDS = {"idp_certificate", "client_secret_encrypted", "client_secret"}
 SECRET_BODY_FIELDS = {"idp_certificate", "client_secret"}
 
@@ -845,25 +789,21 @@ SECRET_BODY_FIELDS = {"idp_certificate", "client_secret"}
 def _snapshot_provider(provider) -> dict:
     """Snapshot non-secret OAuth/SAML provider fields for audit-log diffing.
 
-    Only includes fields whose old/new values are safe to log verbatim. Secret
-    fields are NEVER included here — they are flagged as "<redacted>" by the
-    body-detection loop in ``update_oauth_provider`` if the request body
-    submitted a new value, OR by the SECRET_FIELDS membership check when
-    comparing old_values to new state. Avoiding them here also dodges the
-    deferred-load trap on community DBs where SAML columns may not exist
-    (Pitfall 11) — we read attributes that are loaded by the default SELECT.
+    Secret fields are NEVER included — they're flagged "<redacted>" by
+    ``update_oauth_provider``'s body-detection loop or the SECRET_FIELDS
+    check. Also avoids the deferred-load trap on community DBs lacking SAML
+    columns (Pitfall 11): only attributes loaded by the default SELECT are read.
     """
     return {
         "group_claim": provider.group_claim,
         "group_role_mapping": provider.group_role_mapping,
         "default_role": provider.default_role,
         "enabled": provider.enabled,
-        # SAML fields (deferred=True on the ORM); these have already been
-        # loaded by the SAML admin path's undefer_group("saml") call OR by
-        # the previous get_provider_by_id() that the update endpoint did.
-        # Reading from __dict__ avoids triggering an implicit deferred load
-        # (which would fail with MissingGreenlet on community DBs that lack
-        # the columns).
+        # SAML fields (deferred=True on the ORM), already loaded by the SAML
+        # admin path's undefer_group("saml") or update endpoint's prior
+        # get_provider_by_id(). Read from __dict__ to avoid an implicit
+        # deferred load, which would raise MissingGreenlet on community DBs
+        # lacking these columns.
         "idp_entity_id": provider.__dict__.get("idp_entity_id"),
         "idp_sso_url": provider.__dict__.get("idp_sso_url"),
         "sp_entity_id": provider.__dict__.get("sp_entity_id"),
@@ -929,9 +869,8 @@ async def create_oauth_provider(
         "group_role_mapping": provider.group_role_mapping,
         "enabled": provider.enabled,
         # SAML fields — read body (input) values directly to avoid deferred
-        # load on the just-created ORM instance. body.idp_entity_id is the
-        # value the admin submitted; for OAuth providers it's None (filtered
-        # out of the snapshot).
+        # load on the just-created ORM instance; for OAuth providers this is
+        # None (filtered out of the snapshot).
         "idp_entity_id": body.idp_entity_id,
         "idp_sso_url": body.idp_sso_url,
         "sp_entity_id": body.sp_entity_id,
@@ -987,18 +926,15 @@ async def update_oauth_provider(
     if not is_enterprise() and provider.provider_type == "saml":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    # CR-02 (Phase 1236 Plan 03): lockout guard — mirror the update_settings
-    # guard but applied to the provider PATCH side.  When password_login_enabled
-    # is False AND this update would disable the last enabled OAuth provider,
-    # refuse the operation.  We count enabled providers EXCLUDING the target so
-    # that disabling a provider when >=2 others are enabled is still allowed.
-    # The guard fires BEFORE any persist so nothing is written on rejection.
+    # CR-02: lockout guard mirroring update_settings, applied to the provider
+    # PATCH side — when password_login_enabled is False and this update would
+    # disable the last enabled provider (excluding the target), refuse before
+    # any persist.
     #
-    # Codex P2 (concurrency): row-lock the enabled providers FIRST — before
-    # reading password_login_enabled — so a concurrent password-disable cannot
-    # flip the flag between our read and our write. Counting from the locked set
-    # (rather than a fresh COUNT) keeps the decision consistent with the rows we
-    # hold. See oauth_service.lock_enabled_providers.
+    # Row-locks the enabled providers FIRST, before reading
+    # password_login_enabled, so a concurrent password-disable can't flip the
+    # flag between read and write; counting from the locked set keeps the
+    # decision consistent. See oauth_service.lock_enabled_providers.
     update_data = body.model_dump(exclude_unset=True)
     if update_data.get("enabled") is False:
         locked_provider_ids = await oauth_service.lock_enabled_providers(db)
@@ -1028,11 +964,10 @@ async def update_oauth_provider(
         ) from exc
 
     # Build the changes diff. SECRET_FIELDS membership flips any matching
-    # field's diff to <redacted>/<redacted> — protects against future
-    # additions to old_values that accidentally include a secret field.
-    # Read NEW values via __dict__ directly (NOT getattr) to avoid triggering
-    # a deferred lazy-load on community DBs where SAML columns may not exist
-    # (Pitfall 11). Non-deferred fields are populated by the ORM on refresh.
+    # field to <redacted>/<redacted>, protecting against a future old_values
+    # addition that accidentally includes a secret. New values come from
+    # __dict__ (not getattr) to avoid a deferred lazy-load on community DBs
+    # missing SAML columns (Pitfall 11).
     changes: dict[str, dict] = {}
     new_snapshot = _snapshot_provider(provider)
     for field, old in old_values.items():
@@ -1043,10 +978,10 @@ async def update_oauth_provider(
             else:
                 changes[field] = {"old": old, "new": new}
 
-    # Detect secret-field changes via the body (since they're not in old_values
-    # snapshot — we never log secret old values, even pre-redaction). Iterate
-    # ONLY over user-input field names: client_secret_encrypted is internal-only
-    # and would never appear in body.model_dump() (per checker WARNING #3).
+    # Detect secret-field changes via the body (they're not in old_values —
+    # we never log secret old values, even pre-redaction). Iterate ONLY over
+    # user-input names: client_secret_encrypted never appears in
+    # body.model_dump().
     body_dict = body.model_dump(exclude_unset=True)
     for secret_field in SECRET_BODY_FIELDS:
         if body_dict.get(secret_field) is not None:
@@ -1092,15 +1027,14 @@ async def delete_oauth_provider(
             status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
         )
 
-    # CR-02 (Phase 1236 Plan 03): lockout guard for delete — same policy as
-    # the update guard above.  Deleting the last enabled SSO provider when
-    # password_login_enabled is False would lock everyone out.  Count enabled
-    # providers EXCLUDING the target; if zero remain, refuse.
-    # Only applies when the provider being deleted is currently enabled.
+    # CR-02: lockout guard for delete, same policy as the update guard above
+    # — deleting the last enabled SSO provider while password login is
+    # disabled would lock everyone out. Only applies when the target is
+    # currently enabled.
     #
-    # Codex P2 (concurrency): row-lock the enabled providers FIRST (before the
-    # password_login_enabled read) and count from the locked set — same
-    # serialization as the update guard. See oauth_service.lock_enabled_providers.
+    # Row-locks the enabled providers FIRST and counts from the locked set,
+    # same serialization as the update guard. See
+    # oauth_service.lock_enabled_providers.
     if provider.enabled:
         locked_provider_ids = await oauth_service.lock_enabled_providers(db)
         # Cache-bypass read (see update_oauth_provider): observe the committed
@@ -1153,11 +1087,6 @@ async def delete_oauth_provider(
     await db.commit()
 
 
-# ---------------------------------------------------------------------------
-# Public endpoints (no auth required)
-# ---------------------------------------------------------------------------
-
-
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
 @public_router.get(
     "/tile-config", response_model=TileConfigResponse, include_in_schema=False
@@ -1168,17 +1097,14 @@ async def get_tile_config(
     db: AsyncSession = Depends(get_db),
 ) -> TileConfigResponse:
     """Return tile delivery configuration (public, no auth required)."""
-    # fix(#1548 review r9/r10): not the resolver. This field's only consumer is
-    # share-URL generation (frontend/src/lib/public-urls.ts), and a resolver
-    # INFERRED value is not the origin a browser presents when it loads the
-    # embed shell: it can be an ``/api``-stripped PUBLIC_API_URL for a split
-    # app/API deployment, or the caller's own request headers. Handing either to
-    # the share builder produces /m/ and /card links pointing at a host that does
-    # not serve them. A hosted tenant's ``tenant_public_origin`` is a different
-    # thing — middleware-validated against the tenant registry, and the only
-    # origin that is right there — so get_shareable_app_url returns it and falls
-    # back to the explicit fleet setting otherwise. Null when neither exists,
-    # which that module treats as unconfigured.
+    # fix(#1548): not the resolver. This field's only consumer is share-URL
+    # generation (frontend/src/lib/public-urls.ts), and a resolver-INFERRED
+    # value (an ``/api``-stripped PUBLIC_API_URL, or request headers) is not
+    # the origin a browser presents when it loads the embed shell — handing
+    # either to the share builder produces /m/ and /card links pointing at a
+    # host that doesn't serve them. get_shareable_app_url instead returns the
+    # middleware-validated ``tenant_public_origin`` for a hosted tenant, or
+    # falls back to the explicit fleet setting; null when neither exists.
     public_app_url = await get_shareable_app_url(db, request=request)
     public_api_url = await get_public_api_url(db, request=request)
     tenant_id = getattr(getattr(request, "state", None), "tenant_id", None)

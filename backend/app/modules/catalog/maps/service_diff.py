@@ -1,9 +1,8 @@
-"""Map layer-diff and full-replace helpers extracted from service_crud (Phase 252 LAYERING-03).
+"""Map layer-diff and full-replace helpers, private to service_crud.
 
 Internal-helper-only: not re-exported by the maps service facade
-(``service.py``). External callers must use the facade's public API; direct
-imports of this module are blocked by the BOUND-01 architecture guard
-(see ``test_layering.py::test_no_external_imports_of_maps_private_service_modules``).
+(``service.py``). Direct imports of this module are blocked by the BOUND-01
+architecture guard (``test_layering.py``).
 """
 
 from __future__ import annotations
@@ -46,20 +45,12 @@ def _prepare_layer_storage(
 ) -> dict:
     """Normalize one *added* layer's storage shape before it is persisted.
 
-    builder-audit #338 STYLE-08: this is the single normalization boundary on the
-    add / full-replace write path — it resolves the layer_type, fills default
-    paint/layout/style_config for vector geometries, runs
-    ``split_legacy_builder_paint`` (the MapLibre paint storage boundary), and
-    normalizes DEM style_config. Both ``apply_layer_diff`` (added) and
-    ``_replace_layers`` route every new layer through here.
-
-    The ``split_legacy_builder_paint`` call below is idempotent: ``layer_data``
-    has already been split once by ``MapLayerInput._normalize_paint_boundary``
-    at the API boundary (which is also where unknown private paint keys are
-    rejected and where the PATCH/updated path — which does NOT pass through this
-    function — gets normalized). Re-running it here keeps this function correct
-    for any caller and covers the default styles synthesized just above. Do not
-    remove it without making this the only write path.
+    builder-audit #338 STYLE-08: the single normalization boundary on the
+    add/full-replace write path — resolves layer_type, fills default
+    paint/layout/style_config, runs ``split_legacy_builder_paint`` (idempotent;
+    already split once at the API boundary), and normalizes DEM style_config.
+    Both ``apply_layer_diff`` and ``_replace_layers`` route new layers here;
+    do not remove the split call without making this the only write path.
     """
     dataset_id = layer_data["dataset_id"]
     record_type, geometry_type, is_dem = ds_meta.get(dataset_id, (None, None, None))
@@ -123,7 +114,7 @@ async def apply_layer_diff(
         .where(MapLayer.map_id == map_id)
         .order_by(
             MapLayer.sort_order, MapLayer.id
-        )  # fix(#430 BA-21): deterministic tie-break
+        )  # fix(#430): deterministic tie-break
     )
     existing_layers = list(layers_result.scalars().all())
     existing_by_id = {layer.id: layer for layer in existing_layers}
@@ -272,12 +263,9 @@ async def _replace_layers(
 ) -> None:
     """Reconcile a map's layers against ``layers`` by id.
 
-    fix(#430 V-14): match incoming layers to existing rows by ``id`` and update them
-    in place, creating only for unknown/absent ids and deleting rows no longer
-    present. The old implementation deleted every row and inserted fresh ones,
-    regenerating every layer UUID (breaking embed configs, bookmarks, in-flight
-    clients) and re-serializing numeric fields on an otherwise-unchanged PUT.
-
+    fix(#430): update existing rows in place by id (create only for
+    unknown ids, delete rows no longer present) instead of delete-all-insert,
+    which regenerated every layer UUID and broke embed configs/bookmarks.
     Applies default styles if paint/layout is None. Flushes but does NOT commit.
     """
     existing_result = await session.execute(
@@ -285,7 +273,6 @@ async def _replace_layers(
     )
     existing_by_id = {layer.id: layer for layer in existing_result.scalars().all()}
 
-    # Bulk-fetch record_type + geometry_type for all datasets in one query
     dataset_ids = [ld["dataset_id"] for ld in layers]
     RasterAsset = get_catalog_port().raster_asset_orm_class()
     ds_meta_result = await session.execute(

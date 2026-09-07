@@ -1,4 +1,4 @@
-"""Extension API version contract for GeoLens overlay compatibility (OCG-04).
+"""Extension API version contract for GeoLens overlay compatibility.
 
 ``EXTENSION_API_VERSION`` is an **integer** that increments whenever a Protocol
 signature or registry contract changes in a way that requires overlay updates.
@@ -12,27 +12,22 @@ Bump this constant (and update overlay packages before re-releasing core) when:
 - The ``register_extensions(registry)`` calling convention changes.
 - A single-slot vs. additive-slot classification changes for an existing key.
 
-**Do NOT bump** for:
-- New optional methods (Protocol evolution with default no-ops).
-- New registry keys that overlays may optionally populate.
-- Internal implementation changes with no contract impact.
+**Do NOT bump** for new optional methods, new registry keys overlays may
+optionally populate, or internal implementation changes with no contract
+impact.
 
 Overlay declaration
 -------------------
-Each overlay **should** declare (recommended — opts the overlay into skew
-detection)::
+Each overlay **should** declare, as a module-level attribute in its
+``register_extensions`` module::
 
     from app.platform.extensions.version import EXTENSION_API_VERSION
 
-as a module-level attribute in its ``register_extensions`` module (e.g. the
-callable returned by the ``geolens.extensions`` entry point). The loader reads
-this attribute via ``getattr(loader, "EXTENSION_API_VERSION", None)`` and calls
-``check_extension_api_version()`` before invoking the overlay. An overlay that
-does not declare a version is treated as legacy/version-0 and loads with a
-WARNING (backward compatibility — see ``check_extension_api_version``); only a
-declared-but-mismatched version is a hard failure.
-
-References: OCG-04
+The loader reads it via ``getattr(loader, "EXTENSION_API_VERSION", None)``
+and calls ``check_extension_api_version()`` before invoking the overlay. An
+overlay that doesn't declare a version is treated as legacy/version-0 and
+loads with a WARNING; only a declared-but-mismatched version is a hard
+failure.
 """
 
 from __future__ import annotations
@@ -41,123 +36,73 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-#: v2 adds required ConnectorExtension discovery/dispatch methods and makes the
-#: existing ``connectors`` registry key conflict-guarded as a single slot.
-# 2 -> 3 (feat(#683)): ProcessingPort.run_analysis_preview gained a
-# ``mask_dataset`` keyword so chat can clip a layer by another layer. It is
-# optional with a default, so an overlay that never implements the method is
-# unaffected — but one that DOES implement it must accept the keyword, which
-# is a signature change to a Protocol method and therefore a bump. The caller
-# also omits the keyword entirely when it is None, so a legacy overlay that
-# declares no version keeps working for buffer and centroid.
-# 3 -> 4 (feat(#1068)): PermissionExtension gained a required
-# ``record_audience`` method — the audience-shaped reading of the same policy
-# ``filter_visible`` and ``can_access_dataset`` already express per user. An
-# overlay that replaces the ``permission`` slot must implement it, and must
-# implement it whenever it changes either of those two: core cannot tell a
-# missing answer from a wrong one, so an authority that overrides reads while
-# inheriting the community audience is treated as unable to answer and gets the
-# conservative refusal (see find_maps_broken_by_dataset_visibility).
-# 4 -> 5 (fix(#1314)): ProcessingPort gained a required
-# ``reconcile_distributions`` method. An overlay that replaces the
-# ``processing_port`` slot must implement it: the registered-PostGIS refresh
-# and the reupload swap both call it whenever the modality of the dataset they
-# just measured differs from the stored one, so without this bump a
-# version-4 overlay loads cleanly and then raises AttributeError inside the
-# write transaction of the first refresh that matters. Skew that the loader
-# refuses at boot is the whole point of this constant.
+#: v2 adds required ConnectorExtension discovery/dispatch methods and makes
+#: the existing ``connectors`` registry key conflict-guarded as a single slot.
 #
-# This bump carries the required-method addition ONLY. The deprecated
-# import-compatibility aliases in protocols.py and defaults.py that their own
-# comments defer "until the next EXTENSION_API_VERSION bump" are NOT removed
-# here — that removal is a separate change with its own review, and a bump
-# forced by an unrelated Protocol addition is not the occasion for it.
+# 2 -> 3 (feat(#683)): ProcessingPort.run_analysis_preview gained an optional
+# ``mask_dataset`` keyword (chat clips a layer by another layer). Optional
+# with a default, so unimplementing overlays are unaffected, but any overlay
+# that DOES implement the method must accept the new keyword.
+#
+# 3 -> 4 (feat(#1068)): PermissionExtension gained a required
+# ``record_audience`` method — the audience-shaped reading of the same
+# policy ``filter_visible``/``can_access_dataset`` already express. An
+# overlay replacing the ``permission`` slot must implement it, and must keep
+# it in sync whenever it changes either of those two: core can't tell a
+# missing answer from a wrong one, so it takes the conservative refusal.
+#
+# 4 -> 5 (fix(#1314)): ProcessingPort gained a required
+# ``reconcile_distributions`` method, called by the registered-PostGIS
+# refresh and the reupload swap whenever dataset modality changes. An
+# overlay missing it loads cleanly, then raises AttributeError inside the
+# write transaction of the first refresh that matters.
 #
 # 5 -> 6 (refactor(stac)): CatalogPort gained a required
-# ``fetch_raster_meta_bulk_without_vrt`` method — the raster-meta read narrowed
-# to what a STAC Item may carry, now that the STAC router reads through the
-# port instead of importing processing ORM. Every item and item-page response
-# calls it, including an empty page, so an overlay that replaces the
-# ``catalog_port`` slot without it would load cleanly at version 5 and then
-# raise AttributeError on the first STAC request. The additive shape is not an
-# exemption here: the "do NOT bump for new optional methods" carve-out above
-# means methods with a default no-op, and a Protocol method a structural
-# implementer must supply is required by definition.
+# ``fetch_raster_meta_bulk_without_vrt`` method (the STAC router reads
+# raster meta through the port instead of importing processing ORM). Called
+# on every STAC item/item-page response, including empty pages; an overlay
+# missing it raises AttributeError on the first STAC request.
 #
 # 6 -> 7 (fix(GH-1443)): ProcessingPort gained a required
-# ``get_retired_table_name_orm_class`` method. ``generate_table_name`` lives in
-# processing/ and so cannot import the catalog model it now has to probe; the
-# accessor is how it reaches one. Every ingest, analysis output, and layer
-# materialization calls that function, so an overlay replacing the
-# ``processing_port`` slot without the accessor would load cleanly at version 6
-# and then raise AttributeError on the first upload — and the probe it skips is
-# the one keeping a freed table name from being handed to a successor that
-# inherits its predecessor's cached authorization. Same reasoning as 4 -> 5 and
-# 5 -> 6: a Protocol method a structural implementer must supply is required,
-# whatever else the addition is shaped like.
+# ``get_retired_table_name_orm_class`` method — ``generate_table_name``
+# lives in processing/ and needs this accessor to probe a catalog model it
+# can't import directly. Called on every ingest/analysis-output/layer
+# materialization; an overlay missing it raises AttributeError on the first
+# upload, and the probe it skips is what stops a freed table name from
+# inheriting its predecessor's cached authorization.
 #
-# 7 -> 8 (fix(#1546)): TWO CatalogPort changes, one bump.
+# 7 -> 8 (fix(#1546)): TWO CatalogPort changes, one bump. A required
+# ``resolve_embedding_config`` method — semantic search filters stored
+# embeddings on the configuration that produced them, and ``modules/catalog/``
+# may not import ``app.processing.*``, so the answer crosses the port.
+# Called on every hybrid search; an overlay missing it raises AttributeError
+# on the first vector-arm query. And a widened ``generate_embedding``,
+# taking a keyword-only ``pinned`` triple (model, dimensions, endpoint) —
+# without it, the query vector can come from a different configuration than
+# the rows it's ranked against within one request. An overlay on the old
+# two-argument signature raises TypeError on the first semantic search.
 #
-# A required ``resolve_embedding_config`` method. Stored embeddings now carry
-# the identity of the configuration that produced them, and semantic search
-# filters on it, so the search path has to be able to ask what the live
-# configuration is; ``modules/catalog/`` may not import ``app.processing.*``,
-# which is why the answer crosses the port. Every hybrid search calls it, so an
-# overlay replacing the ``catalog_port`` slot without it would load cleanly at
-# version 7 and then raise AttributeError on the first query long enough to
-# reach the vector arm. Same reasoning as 5 -> 6: a Protocol method a
-# structural implementer must supply is required, whatever else it is shaped
-# like.
-#
-# And a widened ``generate_embedding``, which takes a keyword-only ``pinned``
-# triple (model, dimensions, endpoint). Filtering rows by a configuration while
-# letting the provider re-resolve its own leaves a window inside ONE request
-# where the query vector comes from a different configuration than the rows it
-# is ranked against, which is the whole defect #1546 exists to close. An
-# overlay that implements the old two-argument signature raises TypeError on
-# the first semantic search, so this is as required as the addition above.
-# Riding the same bump because both land in the same change; an overlay
-# updating to 8 has to do both.
-#
-# 8 -> 9 (fix(#1580)): TWO CatalogPort shape changes on the related-items path,
-# one bump, for the same reason 7 -> 8 carried two.
-#
-# ``get_record_embedding`` now returns ``(embedding, model_name,
-# config_fingerprint)`` instead of a bare vector. Related-items compares two
-# STORED rows, so the caller has to name the vector space the anchor is in and
-# hold every later read to it, and a list of floats cannot say which model or
-# endpoint produced it. An overlay still returning a bare list is unpacked into
-# three names by ``service_relationships._compute_neighbor_distances`` and
-# raises on the first related-items request.
-#
+# 8 -> 9 (fix(#1580)): THREE CatalogPort shape changes on the related-items
+# path, one bump. ``get_record_embedding`` now returns ``(embedding,
+# model_name, config_fingerprint)`` instead of a bare vector, since
+# related-items compares two STORED rows and a list of floats can't say
+# which model/endpoint produced it; an overlay returning a bare list raises
+# when unpacked by ``service_relationships._compute_neighbor_distances``.
 # ``get_embedding_distances`` gains required keyword-only ``model_name`` and
-# ``config_fingerprint``. Required rather than optional on purpose: defaulting
-# them to "no filter" would let an overlay keep the defect silently, and the
-# defect is a similarity percentage computed in the wrong space. An overlay
-# implementing the old signature raises TypeError on the same request.
+# ``config_fingerprint`` — required, not optional, so an overlay can't
+# silently keep computing a similarity percentage in the wrong space.
+# ``get_nearest_record_ids`` widens to take the caller's already-read anchor
+# as a required keyword instead of reading its own, closing a READ COMMITTED
+# race where two reads of the same record could anchor ranking and scoring
+# on different rows.
 #
-# And, from fix(#1580 review r2), a widened ``get_nearest_record_ids``: it takes
-# the caller's already-read anchor as a required keyword instead of reading one
-# for itself. Two reads of the same record under READ COMMITTED can straddle a
-# worker committing a newer row, which leaves the ranking anchored on one vector
-# and the scoring on another; an overlay that kept the old signature would read
-# its own and reintroduce exactly that. Required rather than optional for the
-# same reason ``get_embedding_distances``'s pair is.
-#
-# Same test as every bump before it: a Protocol method a structural implementer
-# must supply, in a shape the core caller depends on.
-#
-# These three were briefly folded INTO 7 -> 8, on the reasoning that #1546 and
-# #1580 ship in one release with no core release between them, so an overlay
-# author performs one migration. That was wrong and the history says so rather
-# than hiding it. The constant pins the contract at a COMMIT, not at a release:
-# main has been a v8 contract since #1546 merged, so an overlay built and
-# declared against it boots cleanly against post-#1580 core and then meets a
-# ``get_record_embedding`` of a different shape and a ``get_embedding_distances``
-# wanting two new keywords, with ``get_nearest_record_ids`` wanting a third. The first related-items request fails inside the
-# broad handler and returns an empty list — silent skew, which is the exact
-# thing this check exists to refuse. Release boundaries are not what the number
-# is about.
+# These three briefly rode INTO 7 -> 8 on the reasoning that #1546 and
+# #1580 shipped in one release with no core release between them. That was
+# wrong: the constant pins the contract at a COMMIT, not a release — main
+# was a v8 contract from the moment #1546 merged, so an overlay declared
+# against that commit boots cleanly against post-#1580 core and then hits
+# AttributeError/TypeError on the first related-items request. Silent skew
+# is exactly what this check exists to refuse.
 EXTENSION_API_VERSION: int = 9
 
 
@@ -165,37 +110,16 @@ def check_extension_api_version(name: str, declared_version: int | None) -> None
     """Raise ``RuntimeError`` if ``declared_version`` is not compatible with core.
 
     Called by ``load_extensions()`` BEFORE invoking each overlay's
-    ``register_extensions`` callback. A version mismatch is a hard error that
-    escapes the broad-except in the loader — the operator must fix the overlay
-    or pin the core to a compatible release before the service can boot.
+    ``register_extensions`` callback. A version mismatch is a hard error
+    that escapes the broad-except in the loader — the operator must fix
+    the overlay or pin core to a compatible release before it can boot.
 
-    Parameters
-    ----------
-    name:
-        The entry-point name of the overlay (used in the error message).
-    declared_version:
-        The value of ``EXTENSION_API_VERSION`` read from the overlay's loader
-        callable. ``None`` means the overlay does not declare a version
-        (legacy overlay — version-0 convention).
-
-    Backward compatibility
-    ----------------------
-    An overlay that does **not** declare ``EXTENSION_API_VERSION`` (``None``) is
-    treated as a legacy/version-0 overlay and is **allowed to load** with a
-    WARNING — NOT a hard failure. This is deliberate open-core hygiene: the
-    enterprise overlay is a separately-distributed package that predates this
-    constant, so hard-failing on undeclared would brick every already-released
-    overlay the moment a customer upgrades core. The skew protection OCG-04
-    targets is the *declared-but-mismatched* case, which still raises. A future
-    core MAY tighten this to require declaration once all shipped overlays
-    declare a version.
-
-    Raises
-    ------
-    RuntimeError
-        Only when ``declared_version`` is a concrete integer that does not equal
-        ``EXTENSION_API_VERSION`` (genuine version skew). Undeclared (``None``)
-        does not raise.
+    ``declared_version=None`` (the overlay doesn't declare
+    ``EXTENSION_API_VERSION``) is treated as legacy/version-0 and is
+    **allowed to load** with a WARNING, not a hard failure — deliberate,
+    since the enterprise overlay predates this constant and hard-failing on
+    undeclared would brick every already-released overlay on a core
+    upgrade. Only a concrete, mismatched integer raises.
     """
     if declared_version is None:
         logger.warning(

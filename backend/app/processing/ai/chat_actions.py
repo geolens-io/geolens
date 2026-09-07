@@ -1,13 +1,9 @@
 """Action-execution helpers for chat-edit (label, query_data, tool dispatch).
 
-Phase 276 CODE-02 — extracted from chat_service.py.
-
-Note on call-site indirection: ``validate_and_execute`` and ``generate_sql`` are
-looked up via the ``chat_service`` facade module (not imported here directly).
-This preserves the public test-patch path
-``patch("app.processing.ai.chat_service.validate_and_execute")`` /
-``patch("app.processing.ai.chat_service.generate_sql")`` so existing tests
-keep working unchanged when the patch replaces the attribute on the facade.
+``validate_and_execute`` and ``generate_sql`` are looked up via the
+``chat_service`` facade module, not imported directly here, so the public
+test-patch path (``patch("app.processing.ai.chat_service.validate_and_execute")``
+/ ``.generate_sql``) keeps working.
 """
 
 import json
@@ -51,42 +47,34 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _DEFAULT_LABEL_TEXT_COLOR = "#333333"
 
-# Overlay/table render budget: only this many rows reach the chat result table
-# and the ephemeral map overlay. fix(#556 review P2): when we append geom_4326
-# to an otherwise attribute-only query, cap the fetch to this budget so a
-# large polygon/line layer doesn't transfer up to 1000 full geometries just to
-# discard all but these.
+# Overlay/table render budget: only this many rows reach the chat result
+# table and the ephemeral map overlay. fix(#556): when geom_4326 is appended
+# to an attribute-only query, cap the fetch here so a large polygon/line
+# layer doesn't transfer up to 1000 full geometries to discard all but these.
 _OVERLAY_ROW_BUDGET = 50
 
 # fix(#1778): query_data reaches the same validator and executor as
-# POST /api/query/, behind the SAME `use_ai_chat` permission, but every bound
-# feat(#565) installed was passed only by that endpoint. Asking the chatbot
-# skipped all of them. These are the ones that protect a shared resource or
-# cost nothing in answer quality, applied at all three call sites below (the
-# first attempt, the geometry-append fallback, and the count recovery):
+# POST /api/query/, behind the SAME `use_ai_chat` permission, but every
+# bound feat(#565) installed was passed only by that endpoint — asking the
+# chatbot skipped all of them. These protect a shared resource or cost
+# nothing in answer quality, applied at all three call sites below:
 #
-#   capacity_semaphore  the ONE pool-derived slot pool, shared with the raw
-#                       endpoint. Chat had only the per-user advisory lock,
-#                       which does nothing against N distinct users.
-#   max_table_repeats   the self-join fan-out cap. `FROM data.foo a, data.foo b,
-#                       data.foo c` is a cardinality bomb the outer LIMIT does
-#                       not bound, and a model can be talked into writing one.
-#   max_values_rows     a large inline VALUES relation cross-joined a few times.
-#   max_output_columns  repeated projections widening a row without any
-#                       function involved.
-#   require_reader_role fail closed when `SET LOCAL ROLE geolens_reader` cannot
-#                       be bound. Without it, LLM-authored SQL ran under the
-#                       application login on a deployment missing the role
-#                       while operator-authored SQL failed closed, which is the
-#                       trust ordering backwards.
+#   capacity_semaphore   the ONE pool-derived slot pool shared with the raw
+#                        endpoint; chat had only a per-user advisory lock,
+#                        useless against N distinct users.
+#   max_table_repeats    self-join fan-out cap (`foo a, foo b, foo c` is a
+#                        cardinality bomb the outer LIMIT can't bound).
+#   max_values_rows      a large inline VALUES relation cross-joined.
+#   max_output_columns   repeated projections widening a row.
+#   require_reader_role  fail closed when `SET LOCAL ROLE geolens_reader`
+#                        can't bind, instead of running LLM-authored SQL
+#                        under the application login.
 #
-# Two of the raw endpoint's bounds are deliberately NOT here, and the reason is
-# quality rather than cost. Its 5 s statement timeout is half chat's, and a
-# spatial join a person would wait 8 s for is a normal chat answer. Its
-# `extra_blocked_functions` set drops `replace`/`regexp_replace`/`format`,
-# which model-written SQL uses for ordinary string cleanup. Both surfaces stay
-# bounded either way: one advisory lock per user, the shared semaphore above,
-# the row limit, and the statement timeout.
+# NOT applied: the 5 s statement timeout (half chat's — a spatial join
+# worth an 8 s wait is a normal chat answer) and `extra_blocked_functions`
+# (model-written SQL uses replace/regexp_replace/format for string
+# cleanup). Both stay bounded regardless: advisory lock, shared semaphore,
+# row limit, statement timeout.
 _SANDBOX_BOUNDS: dict = {
     "capacity_semaphore": sandbox_bounds.query_slots,
     "max_table_repeats": sandbox_bounds.MAX_TABLE_REPEATS,
@@ -95,13 +83,11 @@ _SANDBOX_BOUNDS: dict = {
     "require_reader_role": True,
 }
 
-# fix(#560): matches a Postgres undefined-column clause and captures the column
-# reference. Unqualified misses are quoted (`column "geom_4326" does not
-# exist`); qualified/aliased misses are not (`column a.geom_4326 does not
-# exist`) — the model's overlay/intersect queries use aliases, so both forms
-# must be recognised (PR #563 Codex P2). Anchoring on the "column ... does not
-# exist" clause (not a loose geom_4326 substring) keeps the SQL echoed into the
-# error from causing false positives when a *different* column is missing.
+# fix(#560, #563): matches Postgres's undefined-column clause. Unqualified
+# misses are quoted (`column "geom_4326" does not exist`); aliased misses
+# are not (`column a.geom_4326 does not exist`) -- overlay/intersect queries
+# alias, so both forms must match. Anchored on the clause, not a loose
+# geom_4326 substring, to avoid false positives on a different missing column.
 _UNDEFINED_COLUMN_RE = re.compile(
     r"column\s+([\w\".]+)\s+does not exist", re.IGNORECASE
 )
@@ -110,18 +96,15 @@ _UNDEFINED_COLUMN_RE = re.compile(
 def _geom_4326_missing_note(err: SandboxError) -> dict | None:
     """Clean degrade note when ``err`` was caused by a missing ``geom_4326`` column.
 
-    fix(#560): the SQL prompt + schema-context always name the geometry column
-    ``geom_4326`` (sql_generator.SQL_SYSTEM_PROMPT / build_sql_schema_context),
-    so the model emits it — often qualified (``a.geom_4326``). A table without
-    that column — a legacy dataset ingested before the geom_4326 convention (no
-    current ingest path produces one: the missing-CRS gate rejects unknown-CRS
-    uploads and every spatial path builds geom_4326) — fails with ``column
-    ["<alias>".]geom_4326 does not exist``. ``SandboxError.category`` is the
-    generic ``query_failed``; the Postgres text lives on ``__cause__`` (executor
-    sets it via ``raise SandboxError(...) from exc``). Compare the missing
-    column's final segment so aliased/quoted forms match while a *different*
-    missing column (whose SQL echo merely mentions geom_4326) does not — returns
-    None for any other error so it propagates unmasked.
+    fix(#560): the SQL prompt always names the geometry column
+    ``geom_4326``, so the model emits it, often qualified (``a.geom_4326``).
+    A legacy dataset ingested before the geom_4326 convention fails with
+    ``column ["<alias>".]geom_4326 does not exist`` — the Postgres text
+    lives on ``__cause__``, not ``SandboxError.category`` (generic
+    ``query_failed``). Compares the missing column's final segment so
+    aliased/quoted forms match while a *different* missing column (whose
+    SQL echo merely mentions geom_4326) does not; returns None for any
+    other error so it propagates unmasked.
     """
     m = _UNDEFINED_COLUMN_RE.search(f"{err} {err.__cause__}")
     if m is None or m.group(1).replace('"', "").split(".")[-1].lower() != "geom_4326":
@@ -137,7 +120,7 @@ def _geom_4326_missing_note(err: SandboxError) -> dict | None:
 
 
 def _safe_label_text_color(value: object) -> str:
-    # fix(#394) CH-02: hex / real CSS named color / numeric-arg functional form
+    # fix(#394): hex / real CSS named color / numeric-arg functional form
     # only (see colors.py) — anything else falls back to the default so an
     # unparseable value never reaches map.setPaintProperty.
     if isinstance(value, str) and is_css_colorish(value):
@@ -149,7 +132,7 @@ def _build_label_action(tool_input: dict) -> dict:
     """Restructure set_label tool output into the ChatAction label_config shape."""
     column = tool_input.get("column")
     if column:
-        # fix(#394) CH-02: sanitized — see _safe_label_text_color.
+        # fix(#394): sanitized — see _safe_label_text_color.
         text_color = _safe_label_text_color(
             tool_input.get("text_color", _DEFAULT_LABEL_TEXT_COLOR)
         )
@@ -184,16 +167,13 @@ async def _handle_query_data(
 ) -> dict:
     """Handle query_data tool: generate SQL, validate, execute via sandbox.
 
-    map_id is threaded through so the schema-context cache key partitions
-    per-map (PERF-04 / Phase 274), preventing cross-map prompt pollution.
-
+    map_id threads through so the schema-context cache partitions per-map.
     restrict_tables narrows the sandbox allowlist to a surface-level table
-    scope (dataset chat passes its single table — PR #531 review).
+    scope (dataset chat passes its single table — #531).
 
-    NB: ``generate_sql`` and ``validate_and_execute`` are looked up via the
-    ``chat_service`` facade module so test patches on
-    ``app.processing.ai.chat_service.generate_sql`` /
-    ``app.processing.ai.chat_service.validate_and_execute`` keep working.
+    NB: ``generate_sql``/``validate_and_execute`` are looked up via the
+    ``chat_service`` facade so test patches on those attributes keep
+    working.
     """
     # Lazy import: avoid a hard cycle (chat_service imports from this module).
     from app.processing.ai import chat_service
@@ -237,7 +217,7 @@ async def _handle_query_data(
     if stage_callback:
         stage_callback("Running query...")
 
-    # fix(#556 review P2): when we appended geometry, cap the fetch to the
+    # fix(#556): when we appended geometry, cap the fetch to the
     # overlay render budget. Only _OVERLAY_ROW_BUDGET rows reach the table and
     # overlay anyway, so fetching (and holding) up to 1000 full geometries for
     # a large polygon/line layer is a transfer/memory regression. row_count
@@ -252,7 +232,7 @@ async def _handle_query_data(
             sql, session, user, **exec_kwargs
         )
     except SandboxError as err:
-        # fix(#556 review P2): the appended geom_4326 may not exist — a
+        # fix(#556): the appended geom_4326 may not exist — a
         # SRID-less ingest keeps geometry_type but exposes only native `geom`
         # (see ensure_geom_4326_gist_index docs) — or the append otherwise
         # broke a query the model wrote validly. Fall back to the original SQL
@@ -283,7 +263,7 @@ async def _handle_query_data(
                 return note
             raise
 
-    # fix(#556 review P2): the transfer cap above bounds the sandbox row_count to
+    # fix(#556): the transfer cap above bounds the sandbox row_count to
     # the render budget, but show_query_result.row_count is the documented TOTAL
     # matched rows (the model narrates it, the UI displays it). When the cap
     # actually truncated the result, recover the true total with a geometry-free
@@ -314,7 +294,7 @@ async def _handle_query_data(
 
     # Limit rows in tool result for token economy
     # Note: raw SQL intentionally excluded to prevent info disclosure via LLM leakage
-    # fix(#1778 round 3): the rows are normalized HERE, on the way out, and not
+    # fix(#1778): the rows are normalized HERE, on the way out, and not
     # a line earlier: _extract_geojson detects the geometry column by value, so
     # stringifying a cell before it runs would hide the geometry. This is the
     # single point where a tabular result is handed to a frame; the collector
@@ -356,7 +336,7 @@ async def _execute_chat_tool(
     """Execute a chat tool and return the result.
 
     map_id is forwarded to query_data so the schema-context cache partitions
-    per-map (PERF-04 / Phase 274). restrict_tables narrows query_data's
+    per-map. restrict_tables narrows query_data's
     sandbox allowlist to the calling surface's table scope.
     """
     if tool_name == "search_datasets":
@@ -450,11 +430,10 @@ async def _execute_chat_tool(
             if warnings:
                 return {"status": "ok", "warnings": warnings, **tool_input}
 
-    # fix(#394) CH-02: validate the set_label column against the target layer's
-    # schema before the action reaches the client — a hallucinated column
-    # previously flowed straight through to a text-field ["get", col] that
-    # renders empty labels. Returning an error lets the model retry with a real
-    # column (mirrors the set_style validation feedback pattern above).
+    # fix(#394): validate the set_label column against the target layer's
+    # schema before the action reaches the client -- a hallucinated column
+    # renders empty labels via a text-field ["get", col]. Returning an error
+    # lets the model retry with a real column.
     if tool_name == "set_label" and tool_input.get("column"):
         target = next(
             (lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None
@@ -474,7 +453,7 @@ async def _execute_chat_tool(
                 }
 
     # add_layer: resolve the dataset's display title server-side so the staging
-    # chip can show a human name instead of the raw UUID (builder-audit #338 B-002).
+    # chip can show a human name instead of the raw UUID.
     # Name resolution is best-effort — a lookup miss/error must not block the
     # add, so we degrade silently to the dataset_id fallback on the frontend.
     if tool_name == "add_layer":
@@ -507,7 +486,7 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
     if tool_name not in _EDIT_TOOLS:
         # query_data emits show_query_result for both spatial (geojson+bbox) and
         # non-spatial (columns+rows) results so the frontend inline data-analysis
-        # card can render either case. Phase 1135 AI-08 carry-forward fix.
+        # card can render either case.
         if tool_name == "query_data" and "error" not in result and "columns" in result:
             action: dict = {
                 "type": "show_query_result",
@@ -534,7 +513,7 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
         return None
 
     if tool_name == "set_label":
-        # fix(#394) CH-02: a validation error from _execute_chat_tool (unknown
+        # fix(#394): a validation error from _execute_chat_tool (unknown
         # column) must not still emit a label action built from the raw input.
         if "error" in result:
             return None
@@ -544,7 +523,7 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
     # _execute_chat_tool (it lives on `result` because `tool_input` was
     # reassigned to `next_input` and returned there), not the raw fn_args. When
     # validation was skipped (no paint/clear_paint on the call), `result`
-    # equals the raw tool_input, so behavior is unchanged. (audit CH-02)
+    # equals the raw tool_input, so behavior is unchanged.
     if tool_name == "set_style":
         action = {"type": "set_style", **tool_input}
         if "paint" in result:
@@ -553,8 +532,8 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
             action["clear_paint"] = result["clear_paint"]
         return action
 
-    # add_layer: carry the server-resolved dataset_name (builder-audit #338 B-002) so
-    # the staging chip shows a human name instead of the raw UUID. The name is
+    # add_layer: carry the server-resolved dataset_name so the staging chip
+    # shows a human name instead of the raw UUID. The name is
     # resolved during _execute_chat_tool and arrives on `result`, not tool_input.
     if tool_name == "add_layer":
         action = {"type": "add_layer", **tool_input}
@@ -572,10 +551,9 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # fix(#525 B-037): clamp opacity server-side, matching the paint-clamping
+    # fix(#525): clamp opacity server-side, matching the paint-clamping
     # precedent (_PAINT_BOUNDS in set_style). Models emit percent values
-    # (opacity: 50), which previously failed ChatAction's ge=0/le=1 validation
-    # downstream instead of applying at all.
+    # (opacity: 50), which fails ChatAction's ge=0/le=1 validation otherwise.
     if tool_name == "set_opacity":
         raw_opacity = tool_input.get("opacity")
         if isinstance(raw_opacity, (int, float)) and not isinstance(raw_opacity, bool):

@@ -17,10 +17,8 @@ from app.processing.ingest.manifest_schemas import (
     ManifestSource,
 )
 
-# fix(#1201): an intent is a catalog record_status, and that set is open —
-# the values come from the workflow extension's status_order(), so an overlay
-# may define its own (#1183). `validate_publication_intent` below checks the
-# live extension at apply time; nothing here may re-freeze the set.
+# fix(#1201): a catalog record_status is an open set (an overlay may define
+# its own, #1183); validate against the live extension, never re-freeze it.
 ManifestPublicationIntent = str
 ManifestSourceKind = Literal["local", "http", "storage"]
 
@@ -44,10 +42,9 @@ class ManifestPreparedSource:
     file_type: str | None
 
 
-# fix(#1201): visibility for the four community statuses only. The status set
-# itself is open, so an extension-defined status that is not listed here gets
-# `_UNMAPPED_INTENT_VISIBILITY` — a status this backend cannot interpret must
-# never be the one that widens who can see the data.
+# fix(#1201): visibility for the four community statuses only. An unlisted
+# extension-defined status gets `_UNMAPPED_INTENT_VISIBILITY` — a status this
+# backend can't interpret must never be the one that widens visibility.
 _COMMUNITY_INTENT_VISIBILITY: dict[str, str] = {
     "draft": "private",
     "ready": "private",
@@ -62,11 +59,9 @@ def validate_publication_intent(
 ) -> str:
     """Check a manifest publication intent against the live workflow extension.
 
-    fix(#1201): the allowed set is whatever the registered WorkflowExtension
-    reports from ``status_order()`` — the same authority the catalog status
-    endpoints use — so an overlay that defines its own lifecycle can express
-    it in a manifest. Resolved per call, never cached: an overlay registers
-    after import.
+    fix(#1201): allowed set is the registered WorkflowExtension's
+    ``status_order()``, resolved per call and never cached — an overlay
+    registers after import.
     """
     from app.platform.extensions import get_workflow_extension
 
@@ -142,12 +137,9 @@ def _storage_uri_to_key(uri: str) -> str:
     key = parsed.path.lstrip("/")
     if not key:
         raise ManifestSourceError("s3:// manifest source must include an object key")
-    # fix(#1216): `staging/` is the discriminator for system-owned transient
-    # presigned-upload objects — the ingest tail reaps `staging/`-prefixed
-    # storage keys at terminal job status, and `resolve_file_path` routes
-    # them through the tenant resolver. An operator-declared manifest source
-    # under that prefix would be deleted at terminal status, so refuse it at
-    # declaration time instead of relying on the naming convention.
+    # fix(#1216): `staging/` keys are system-owned transient uploads, reaped
+    # at terminal job status. An operator-declared source there would get
+    # deleted, so refuse it at declaration time.
     if key.startswith("staging/"):
         raise ManifestSourceError(
             "s3:// manifest source keys must not use the 'staging/' prefix: "
@@ -216,17 +208,13 @@ async def classify_manifest_source(
     if parsed.scheme:
         raise ManifestSourceError(f"Unsupported manifest source URI: {source.uri}")
 
-    # Phase 268 H-29: defense-in-depth — even though the ManifestSourceUri
-    # regex now rejects `..` segments, also resolve the candidate path
-    # against the configured upload_staging_dir and refuse anything whose
-    # resolved path escapes that directory. This catches symlink chases,
-    # encoding tricks, and any future regex weakening.
+    # Defense-in-depth beyond the ManifestSourceUri regex's `..` rejection:
+    # resolve against upload_staging_dir and refuse an escape, catching
+    # symlink chases, encoding tricks, and future regex weakening.
     staging_root = Path(settings.upload_staging_dir).resolve()
     relative_source = Path(source.uri)
-    # Manifest v1 examples historically spell operator seed paths as
-    # ``staging/foo.geojson``. The configured root is itself the staging
-    # directory, so treat one matching leading directory component as an
-    # explicit root marker instead of resolving it as ``staging/staging``.
+    # `staging/foo.geojson` spellings mean the leading component IS the
+    # root, not `staging/staging`.
     if relative_source.parts and relative_source.parts[0] == staging_root.name:
         relative_source = Path(*relative_source.parts[1:])
     candidate = (staging_root / relative_source).resolve()
@@ -245,9 +233,8 @@ async def classify_manifest_source(
         source_uri=source.uri,
         source_filename=filename,
         extension=extension,
-        # Persist the exact canonical path that passed the containment check.
-        # Queueing the caller-provided relative spelling would make workers
-        # resolve it against their process cwd instead of the staging root.
+        # Canonical path, not the caller's relative spelling, so workers
+        # don't resolve it against their own cwd.
         file_path=str(candidate),
         source_url=None,
         source_layer=source.layer,

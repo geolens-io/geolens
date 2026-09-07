@@ -22,36 +22,33 @@ from app.core.runtime.staging import ensure_staging_ready
 logger = structlog.stdlib.get_logger(__name__)
 
 
-# fix(#1532 review r13): THE PROPERTY EVERY EXPORT FORMAT MUST KEEP — two
+# fix(#1532): THE PROPERTY EVERY EXPORT FORMAT MUST KEEP — two
 # conversions of unchanged data must produce identical bytes. #1532 keys its
-# cached artifact on the digest of those bytes, so a writer that stamps the
-# moment of conversion makes every rebuild look like a new representation: the
-# selection is permanently `contested`, and a contested selection refuses every
-# range. A format that loses this property does not fail loudly, it just stops
-# being rangeable. `test_export_artifact_cache_1532.py` pins it per format
-# against the real driver; a new format needs a row there.
+# cached artifact on that digest, so a writer that stamps the conversion
+# moment makes every rebuild look new: the selection stays permanently
+# `contested`, and a contested selection refuses every range.
+# `test_export_artifact_cache_1532.py` pins it per format; a new format needs
+# a row there.
 
 # The DOS epoch, the earliest a ZIP directory entry can represent. Chosen for
 # the same reason as the GeoPackage constant below: it reads as "deliberately
 # not a time" rather than as a wrong one.
 _ZIP_FIXED_DATE_TIME = (1980, 1, 1, 0, 0, 0)
 
-# Regular file, 0644. Pinned rather than copied from the member's own stat so
-# the archive cannot move with the worker's umask.
+# Regular file, 0644. Pinned rather than copied from the member's own stat
+# so the archive can't move with the worker's umask.
 #
-# The DEFLATE level is deliberately NOT pinned alongside these. zlib's default
-# already resolves to a fixed level, and naming that level would not buy what it
-# appears to: level 6 output can itself change between zlib releases, so the pin
-# would read as a guarantee against an upgrade while providing none. The honest
-# statement is the residual below.
+# DEFLATE level is deliberately NOT pinned: zlib's default already resolves
+# to a fixed level, and level 6 output can itself change between zlib
+# releases, so pinning would read as a guarantee against an upgrade while
+# providing none.
 _ZIP_FIXED_EXTERNAL_ATTR = 0o100644 << 16
 
 # dBASE III header: byte 0 is the version, bytes 1..3 are the date of last
 # update as (year-1900, month, day). ogr2ogr writes TODAY, so two shapefile
-# exports of unchanged data differ across a midnight boundary. Rewritten to
-# 1970-01-01 for the reason above. Nothing reads this field — verified with
-# `ogrinfo` against a normalized file — and it is three bytes at a fixed offset,
-# so it is patched in place rather than by reopening the layer through GDAL.
+# exports differ across a midnight boundary; rewritten to 1970-01-01.
+# Nothing reads this field (verified with ogrinfo), and it's three bytes at
+# a fixed offset, so it's patched in place rather than reopened via GDAL.
 _DBF_LAST_UPDATE_OFFSET = 1
 _DBF_FIXED_LAST_UPDATE = bytes((70, 1, 1))
 
@@ -66,15 +63,10 @@ def _normalize_dbf_date(path: str) -> None:
 def _zip_export_files(temp_dir: str, zip_path: str) -> None:
     """DEFLATE every ``export.*`` sidecar in *temp_dir* into *zip_path*.
 
-    Byte-deterministic for unchanged data, per the rule above. Three inputs had
-    to be pinned: members are added in sorted order rather than ``os.listdir``
-    order, which is the filesystem's and is not stable across filesystems; each
-    entry carries a fixed ``date_time`` instead of the member's mtime, which is
-    the moment of conversion; and the mode and compression level are stated.
-    The ``.dbf`` member's own header date is normalized first, because pinning
-    the archive metadata would not reach a timestamp inside a member.
-
-    Blocking; call via ``asyncio.to_thread``.
+    Byte-deterministic for unchanged data (see rule above): sorted member
+    order (not the filesystem's), a fixed ``date_time`` instead of mtime,
+    and stated mode/compression level. Blocking; call via
+    ``asyncio.to_thread``.
     """
     members = sorted(f for f in os.listdir(temp_dir) if f.startswith("export."))
     for fname in members:
@@ -87,20 +79,18 @@ def _zip_export_files(temp_dir: str, zip_path: str) -> None:
             info = zipfile.ZipInfo(fname, date_time=_ZIP_FIXED_DATE_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = _ZIP_FIXED_EXTERNAL_ATTR
-            # ZipFile.open() decides ZIP64 from `file_size` alone, which
-            # ZipFile.write() would have filled in from stat. Set here for the
-            # same reason: a multi-GB shapefile is exactly this route's payload
-            # (#435), and without it a >2 GiB member raises instead of writing.
+            # ZipFile.open() decides ZIP64 from `file_size` alone (normally
+            # filled by ZipFile.write() from stat). Without it, a >2 GiB
+            # member (#435's payload) raises instead of writing.
             info.file_size = os.path.getsize(member)
             with open(member, "rb") as src, zf.open(info, "w") as dest:
                 # Streamed rather than read whole, for the same size reason.
                 shutil.copyfileobj(src, dest)
 
 
-# fix(#1532 review r12): the timestamp ogr2ogr stamps into every GeoPackage, and
-# the value it is rewritten to. Any constant works; the GeoPackage epoch is
-# chosen because it reads as "deliberately not a time" rather than as a wrong
-# one.
+# fix(#1532): the timestamp ogr2ogr stamps into every GeoPackage,
+# rewritten to this. Any constant works; the GeoPackage epoch reads as
+# "deliberately not a time" rather than a wrong one.
 _GPKG_FIXED_LAST_CHANGE = "1970-01-01T00:00:00.000Z"
 
 # Tables the GeoPackage spec gives a timestamp column. `gpkg_contents` is always
@@ -111,51 +101,24 @@ _GPKG_TIMESTAMP_COLUMNS = (
     ("gpkg_metadata_reference", "timestamp"),
 )
 
-# fix(#1633): the SQLite header fields the row-level UPDATEs above cannot
-# reach. #1633 observed the gpkg byte-determinism gate flake once in a
-# merge-group run and reproduce a second time under load; the evidence
-# capture added there (#1637) proved the two builds differed in EXACTLY two
-# header bytes, both transaction-count-dependent:
+# fix(#1633): SQLite header fields the row-level UPDATEs can't reach —
+# offset 24-27 (change counter, bumped per write txn) and offset 92-95
+# ("version-valid-for") diverge between otherwise-identical builds because
+# ogr2ogr's write path commits a different transaction count under load.
 #
-#   offset 24-27 (big-endian uint32) — the file change counter, incremented
-#     once per committed write transaction.
-#   offset 92-95 (big-endian uint32) — "version-valid-for", the change
-#     counter's value at the moment the SQLite version number (offset 96-99)
-#     was last stamped.
-#
-# ogr2ogr's own write path commits a different number of transactions
-# between otherwise-identical builds under load (one extra intermediate
-# commit), so these two fields diverge even though every table's rows and
-# the timestamp columns above already match. The UPDATEs this function runs
-# cannot fix them: going through SQLite to write anything bumps the counter
-# on BOTH builds by the same amount, so the pre-existing delta survives.
-# Patching the header bytes directly, after the connection is closed, is
-# necessary: SQLite uses this pair to let one connection detect that a
-# DIFFERENT connection wrote the file since it cached a page, so it knows to
-# invalidate that cache.
-#
-# fix(#1633 review, codex P2): the first version of this patch stamped both
-# fields to a FIXED constant. That collided identically across every export
-# regardless of content — harmless for THIS process (an export artifact is
-# written once, closed, hashed, and never reopened for a write here), but a
-# client that keeps a `.gpkg` open and watches this counter to know when to
-# invalidate its own page cache could read stale pages if the file were later
-# overwritten in place with materially different data, because the counter
-# would never move. Deriving the value from the NORMALIZED content instead
-# keeps both properties: unchanged data still normalizes to the same counter
-# (see `_stamp_gpkg_header_counters`), and changed data gets a different one.
+# fix(#1633): a FIXED value here would defeat what SQLite
+# uses the pair for (detecting another connection's write) — derive it from
+# the NORMALIZED content instead so unchanged data still gets one counter.
 _GPKG_HEADER_CHANGE_COUNTER_OFFSET = 24
 _GPKG_HEADER_VERSION_VALID_FOR_OFFSET = 92
 # Never write a change counter of 0 — a brand-new SQLite file always starts
 # at 1, so 0 does not read as "a real counter value" even though the format
 # does not forbid it.
 _GPKG_HEADER_COUNTER_FALLBACK_WHEN_ZERO = 1
-# fix(#1633 review, codex P1): read/hash size for _stamp_gpkg_header_counters.
-# `export_dataset` supports multi-GB GeoPackages and the production API
-# container has a 2 GiB memory cap, so loading a whole export into a
-# bytearray — and then hashlib.sha256() making a SECOND full copy of it —
-# could OOM the process on a large export, or on a few concurrent ones. Both
-# header offsets sit inside byte 0..99, comfortably inside one chunk, so
+# fix(#1633): read/hash size for _stamp_gpkg_header_counters.
+# `export_dataset` supports multi-GB GeoPackages under a 2 GiB container
+# memory cap, so loading the whole file into a bytearray (then hashlib
+# copying it again) could OOM. Both header offsets sit inside byte 0..99, so
 # only the FIRST chunk ever needs the zero substitution.
 _GPKG_HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -163,28 +126,13 @@ _GPKG_HASH_CHUNK_SIZE = 1024 * 1024
 def _stamp_gpkg_header_counters(path: str) -> None:
     """Derive the SQLite change-counter pair from the file's own content.
 
-    fix(#1633 review, codex P2): a fixed constant here would make the pair
-    identical across every export, defeating the one thing SQLite uses it
-    for — letting a connection notice that a DIFFERENT connection wrote the
-    file since it cached a page. The value is instead the first 4 bytes of
-    the sha256 of the file with both counter fields zeroed first, so it is a
-    pure function of everything else in the file: identical normalized
-    content (the property #1633 exists for) hashes to the identical counter,
-    and different content hashes to a different one with overwhelming
-    probability — closing the stale-cache hazard a constant would leave
-    open.
+    fix(#1633): a fixed value would defeat detection of a
+    different connection's write; the digest of the file with both counter
+    fields zeroed keeps unchanged data on one counter, changed data on
+    another. Streamed in chunks (codex P1) — same digest as hashing whole.
 
-    fix(#1633 review, codex P1): streamed in `_GPKG_HASH_CHUNK_SIZE` chunks
-    rather than loaded whole — see that constant's comment. The digest is
-    kept byte-identical to "hash the whole file with both fields zeroed in
-    one shot": only HOW it is computed changed, not the derived value, so
-    the tests that pin specific counter behaviour do not need to change
-    alongside this.
-
-    Must run after the sqlite3 connection that did the row-level normalize is
-    closed: writing through that connection would immediately re-bump the
-    counter it just set, undoing the patch (and changing the content the
-    counter is derived from).
+    Must run after the sqlite3 connection that did the row-level normalize
+    is closed, or writing through it would re-bump the counter it just set.
     """
     import hashlib
     import struct
@@ -222,39 +170,22 @@ def _stamp_gpkg_header_counters(path: str) -> None:
 def normalize_gpkg_timestamps(path: str) -> None:
     """Make a GeoPackage byte-deterministic for unchanged data.
 
-    ogr2ogr stamps ``gpkg_contents.last_change`` with the moment of conversion,
-    so two exports of identical data differ — and #1532 builds its whole safety
-    model on the digest of the bytes. A per-build digest means every rebuild
-    looks like a DIFFERENT representation, which is exactly what
-    ``contested`` is designed to notice: under steady traffic each freshness
-    rollover added a distinct sibling while the previous one was retained for the
-    reclamation horizon, so the selection was permanently contested and every
-    range was answered with a whole 200. Ranges never worked for the default
-    export format.
+    ogr2ogr stamps ``gpkg_contents.last_change`` with the conversion moment,
+    so identical data produces different bytes, and #1532's cache keys the
+    artifact on that digest — every rebuild looked like a DIFFERENT
+    representation, so `contested` never cleared and ranges never worked
+    for the default format.
 
-    Fixing the digest rather than the rule, because the rule is right: distinct
-    bytes under one selection SHOULD refuse ranges, since a slice of each spliced
-    together is a corrupt file. What was wrong was the input — GeoPackage
-    reported a change that had not happened. GeoJSON already has this property
-    (#1532 measured two conversions to one sha256); this gives it to GPKG.
+    Fixes the digest rather than the rule (distinct bytes SHOULD refuse
+    ranges): GeoPackage was reporting a change that hadn't happened.
+    GeoJSON already has this property; this gives it to GPKG.
 
-    Residual, stated: a selection whose data genuinely changes faster than the
-    reclamation horizon still serves whole responses under continuous traffic.
-    That is correct — those artifacts really are different — and it is slower
-    rather than wrong.
+    Uses stdlib sqlite3, not GDAL: the columns are spec-defined, and the
+    driver would mean a second full open and rewrite.
 
-    Uses stdlib sqlite3 rather than GDAL: a GeoPackage is a SQLite database, the
-    columns are spec-defined, and going through the driver to rewrite two cells
-    would mean another full open and rewrite of the file.
-
-    fix(#1633): also derives and stamps the SQLite header's change-counter
-    pair from the file's own normalized content (see
-    `_stamp_gpkg_header_counters`) once the row-level UPDATEs below are
-    committed and this function's own connection is closed — the counter is
-    bumped by transaction COUNT, not by content, so it can (and did, under
-    CI load) diverge between two builds of identical data even after every
-    row matches. Deriving rather than hardcoding it keeps unchanged data on
-    one counter while still letting different data land on a different one.
+    fix(#1633): also derives the SQLite header's change-counter pair from
+    the normalized content (see `_stamp_gpkg_header_counters`), since that
+    counter is bumped by transaction COUNT, not content.
     """
     import sqlite3
 
@@ -273,12 +204,11 @@ def normalize_gpkg_timestamps(path: str) -> None:
         conn.commit()
         normalized = True
     except sqlite3.DatabaseError:
-        # Not a SQLite file at all ("file is not a database"). This step exists
-        # for cache determinism, not validation: a GeoPackage SQLite cannot open
-        # is served exactly as ogr2ogr wrote it, the client's failure is loud,
-        # and the cache degrades to whole responses on a contested selection
-        # rather than to a wrong one. Failing the export here would turn a
-        # normalization into a gate.
+        # Not a SQLite file at all ("file is not a database"). This step
+        # exists for cache determinism, not validation: an unopenable
+        # GeoPackage is served exactly as ogr2ogr wrote it, and the cache
+        # degrades to whole responses on a contested selection rather than a
+        # wrong one.
         logger.warning("gpkg_timestamp_normalize_skipped", path=path, exc_info=True)
     finally:
         # Closed explicitly: sqlite3's context manager commits but does NOT
@@ -287,9 +217,8 @@ def normalize_gpkg_timestamps(path: str) -> None:
         conn.close()
 
     if normalized:
-        # fix(#1633): only for a file that was genuinely opened as SQLite
-        # above — the DatabaseError branch already logged and left the
-        # invalid file untouched, so there is no valid header to patch.
+        # fix(#1633): only for a file genuinely opened as SQLite above — the
+        # DatabaseError branch already left the invalid file untouched.
         _stamp_gpkg_header_counters(path)
 
 
@@ -303,17 +232,10 @@ def safe_content_disposition(filename: str) -> str:
 def file_response_content_disposition(filename: str) -> str:
     """Restate starlette ``FileResponse``'s Content-Disposition rule.
 
-    The GET half of this route hands ``filename=`` to ``FileResponse``, which
-    derives the header itself (``starlette/responses.py``, ``FileResponse
-    .__init__``): a quoted ``filename=`` for names that survive percent-
-    encoding unchanged, and an RFC 5987 ``filename*=`` otherwise. HEAD has no
-    file to hand it, so the rule is restated here.
-
-    Not ``safe_content_disposition()`` from ``export/service.py``: that one
-    always appends ``filename*``, so HEAD would advertise a different header
-    than the GET delivers. ``test_head_export_content_disposition_matches_get``
-    pins the two byte-for-byte, over both branches, so a starlette change
-    fails a test instead of shipping the mismatch.
+    HEAD has no file to hand ``FileResponse``, so the rule (quoted
+    ``filename=``, or RFC 5987 ``filename*=`` when percent-encoding
+    changes it) is restated here — not ``safe_content_disposition()``,
+    which always appends ``filename*`` and would disagree with GET.
     """
     quoted = quote(filename)
     if quoted != filename:
@@ -366,10 +288,9 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
         raise ValueError("Cannot filter: no column info available")
 
     # IA-P1-04 (Phase 1069): explicit pre-parse rejection of meta-SQL tokens.
-    # validate_where_ast (v1014 SEC-S09) catches most of these via AST allowlist,
-    # but explicit string-level rejection gives a clearer error and provides
-    # defense-in-depth against a sqlglot parser bug that silently tolerates a
-    # statement terminator or comment in a future release.
+    # validate_where_ast (v1014 SEC-S09) catches most via AST allowlist, but
+    # string-level rejection gives a clearer error and defends against a
+    # sqlglot parser bug tolerating a terminator/comment in a future release.
     if ";" in where:
         raise ValueError("WHERE clause must not contain statement terminator ';'")
     if "--" in where:
@@ -410,11 +331,8 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
 def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
     """The download's ``(filename, media_type)``, derived WITHOUT exporting.
 
-    fix(#1513): the export route now answers HEAD, and a HEAD must advertise
-    the same Content-Type and Content-Disposition its GET would send — while
-    running none of the conversion that produces the file. Both verbs read
-    this one function so they cannot advertise different things; nothing here
-    touches the database or the filesystem.
+    fix(#1513): both HEAD and GET read this one function so they can't
+    advertise different Content-Type/Disposition.
 
     Raises:
         ValueError: If format_key is not a supported export format.
@@ -460,12 +378,12 @@ async def export_dataset(
         format_key: One of the FORMAT_MAP keys (gpkg, geojson, shp, csv).
         schema: PostgreSQL schema containing ``table_name``.
         target_srs: Optional target CRS (e.g. "EPSG:3857").
-        bbox: Optional bounding box [minx, miny, maxx, maxy] in WGS84.
+        bbox: [minx, miny, maxx, maxy] in WGS84.
         where: Optional SQL WHERE expression.
         column_info: Column metadata for where-clause validation.
         deadline: ``time.monotonic()`` stamp by which the whole request must
-            be answered. Passed straight through to the ogr2ogr subprocess,
-            which reads what is left of it at spawn time (fix #1778).
+            be answered; passed to the ogr2ogr subprocess, which reads what
+            is left of it at spawn time (fix(#1778)).
 
     Returns:
         Tuple of (file_path, download_filename, media_type).
@@ -496,9 +414,8 @@ async def export_dataset(
     temp_dir_path.mkdir(parents=False, exist_ok=False)
     temp_dir = str(temp_dir_path)
 
-    # fix(#435): own the temp directory until we hand a path back to the caller.
-    # ogr2ogr failure, an oversized ZIP, or a cancelled request used to leave the
-    # directory behind until some later process startup swept it.
+    # fix(#435): own the temp directory until a path is handed back to the
+    # caller — a failure or cancelled request otherwise left it behind.
     try:
         if format_key == "shp":
             # Shapefile: ogr2ogr outputs multiple files, then zip them
@@ -516,11 +433,11 @@ async def export_dataset(
                 deadline=deadline,
             )
 
-            # Zip all export.* files. fix(#435): DEFLATE of a multi-GB shapefile
-            # is CPU-bound and ran on the event loop, stalling every other request
-            # (and job heartbeats) for the duration. fix(#435 codex r4): drained on
-            # cancellation so the `except BaseException` rmtree below cannot delete
-            # temp_dir while the zip thread is still writing into it.
+            # Zip all export.* files. fix(#435): DEFLATE of a multi-GB
+            # shapefile is CPU-bound and ran on the event loop, stalling
+            # every other request. fix(#435): drained on
+            # cancellation so the `except BaseException` rmtree below can't
+            # delete temp_dir while the zip thread still writes into it.
             zip_path = os.path.join(temp_dir, filename)
             await run_in_thread_draining(_zip_export_files, temp_dir, zip_path)
 
@@ -537,19 +454,18 @@ async def export_dataset(
             bbox=bbox,
             where=where,
             format_key=format_key,
-            # fix(#1686 codex r2): pmtiles is a single-file format, so THIS
+            # fix(#1686): pmtiles is a single-file format, so THIS
             # call is the one that must carry the extent-budgeted cap — the
             # shp branch above can never be pmtiles.
             pmtiles_maxzoom=pmtiles_maxzoom,
             deadline=deadline,
-            # fix(#1778 codex r2): the CSV formula hardening exempts a leading
-            # sign only in a column the database calls numeric, so it needs the
-            # types, not the values. Empty for every other format, and empty
-            # when the caller had no column_info, which escapes everything.
+            # fix(#1778): CSV formula hardening exempts a leading
+            # sign only in columns the database calls numeric, so it needs
+            # types, not values. Empty for other formats or missing column_info.
             numeric_columns=numeric_column_names(column_info),
         )
         if format_key == "gpkg":
-            # fix(#1532 review r12): off the event loop, like every other
+            # fix(#1532): off the event loop, like every other
             # blocking step here — it is a SQLite write over a file that can be
             # gigabytes.
             await run_in_thread_draining(normalize_gpkg_timestamps, output_path)

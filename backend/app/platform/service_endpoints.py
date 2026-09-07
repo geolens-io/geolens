@@ -43,9 +43,8 @@ logger = structlog.stdlib.get_logger(__name__)
 CROSS_ORIGIN_ENDPOINT_CODE = "cross_origin_endpoint"
 ENDPOINT_CHECK_FAILED_CODE = "endpoint_check_failed"
 
-# Describes the policy and never a credential. The offending ORIGIN is appended
-# by the exception, which is safe: an origin is a scheme, a host and a port,
-# and the parser drops any userinfo before it gets here.
+# Names the policy, never a credential. The offending origin (scheme, host,
+# port — userinfo already dropped by the parser) is appended by the exception.
 CROSS_ORIGIN_ENDPOINT_POLICY = (
     "This service advertises an operation endpoint on a different origin, and "
     "this request carries a credential. GDAL sends the credential to whichever "
@@ -62,15 +61,13 @@ ENDPOINT_CHECK_FAILED_POLICY = (
     "again."
 )
 
-# fix(#1770): only the rels this codebase dereferences, scoped to the
-# document type each is read FROM -- `conformance` off the LANDING page,
-# `items` off the COLLECTION document. Listing pages and entries read neither.
+# fix(#1770): only rels this codebase dereferences, scoped by source
+# document: `conformance` off the landing page, `items` off the collection.
 _LANDING_RELS = frozenset({"conformance"})
 _COLLECTION_RELS = frozenset({"items"})
 
 # How far the PROBE follows a paginated collections listing. Reaching it is
-# recorded, never treated as a clean pass; the preview and worker paths know
-# which collection they are importing and read that document directly.
+# recorded, never treated as a clean pass.
 _MAX_COLLECTION_PAGES = 20
 
 
@@ -80,44 +77,42 @@ class CrossOriginEndpointError(Exception):
     def __init__(self, origin: str) -> None:
         self.origin = origin
         self.code = CROSS_ORIGIN_ENDPOINT_CODE
-        # Which half of the request the caller has to change, for a door that
-        # renders errors against the URL field rather than the credential one.
-        self.field = "url"
+        self.field = "url"  # the door renders errors against this field
         self.policy = f"{CROSS_ORIGIN_ENDPOINT_POLICY} Advertised origin: {origin}"
         super().__init__(self.policy)
 
 
-# What one description document may cost. Read into memory whole to be parsed,
+# What one description document may cost. Read whole into memory to parse,
 # so this is the real per-request bound; the service chooses the size.
 MAX_DOCUMENT_BYTES = 32 * 1024 * 1024
 
-# And what it may cost DECODED. Compact JSON expands 4x to 31x (measured), so
-# 32 MiB of landing page is ~1 GiB of objects. Half `service_items`'s items
-# figure, because a description is metadata rather than data.
+# What it may cost DECODED. Compact JSON expands 4x-31x (measured), so 32
+# MiB of landing page is ~1 GiB of objects. Half `service_items`'s figure,
+# since a description is metadata rather than data.
 MAX_DOCUMENT_TOKENS = 1_000_000
 
-# And the same bound for XML, because `structural_tokens` counts JSON
-# punctuation and answers ~0 for a capabilities document. 500,000 elements is
-# ~162 MiB at the worst measured 339 bytes each, ten times any real document.
+# Same bound for XML: `structural_tokens` counts JSON punctuation and reads
+# ~0 for a capabilities document. 500,000 elements is ~162 MiB at the worst
+# measured 339 bytes each, ten times any real document.
 MAX_DOCUMENT_ELEMENTS = 500_000
 
-# fix(#1770): a single start tag carrying hundreds of thousands of
-# attributes counts as ONE `<`, so the per-element budget never sees it while
-# expat still allocates one dict entry per attribute. Bounded directly.
+# fix(#1770): a start tag with hundreds of thousands of attributes counts
+# as ONE `<`, invisible to the per-element budget, while expat still
+# allocates one dict entry per attribute. Bounded directly.
 MAX_DOCUMENT_ATTRIBUTES = 500_000
 
-# fix(#1770): 256, well under `sys.getrecursionlimit()`'s default of
-# 1,000. A budget at that default admits a document deep enough to blow the
-# interpreter's own stack in whatever walks the parsed tree next.
+# fix(#1770): 256, well under `sys.getrecursionlimit()`'s default 1,000 —
+# that default would admit a document deep enough to blow the interpreter's
+# own stack in whatever walks the parsed tree next.
 MAX_DOCUMENT_DEPTH = 256
 
 # fix(#1770): a service-advertised href's query string is free real estate
-# no document budget prices -- its separators live inside one JSON string, so
-# `structural_tokens` answers ~0. 8192 is the conventional request-line limit.
+# no document budget prices — its separators sit inside one JSON string, so
+# `structural_tokens` reads ~0. 8192 is the conventional request-line limit.
 MAX_SERVICE_HREF_BYTES = 8192
 
-# fix(#1770): the second, independent bound -- 8192 bytes still packs over
-# a thousand `a=1&` pairs, and no real operation link carries a few dozen.
+# fix(#1770): second, independent bound — 8192 bytes still packs over a
+# thousand `a=1&` pairs; no real operation link carries a few dozen.
 MAX_QUERY_FIELDS = 256
 
 
@@ -130,9 +125,8 @@ class HrefTooLongError(ValueError):
 def bounded_service_url(href: str, *, what: str) -> str:
     """*href*, refused before any parsing if it is unusually long.
 
-    Raises :class:`HrefTooLongError`, a `ValueError`, so this length check
-    flows through each caller's EXISTING `urljoin` refusal with no new except
-    clause required.
+    Raises :class:`HrefTooLongError`, a `ValueError`, so this flows through
+    each caller's existing `urljoin` refusal with no new except clause.
     """
     if len(href.encode("utf-8", errors="surrogatepass")) > MAX_SERVICE_HREF_BYTES:
         raise HrefTooLongError(f"{what} href exceeds {MAX_SERVICE_HREF_BYTES} bytes")
@@ -143,8 +137,7 @@ def bounded_parse_qsl(query: str) -> list[tuple[str, str]]:
     """`parse_qsl` with `MAX_QUERY_FIELDS` applied.
 
     The one bounded call site every other read of a service-advertised query
-    string should share, so `test_every_parse_qsl_call_bounds_its_field_count`
-    has one place to point at instead of one exception per call site.
+    string should share, so a structural test has one place to point at.
     """
     return parse_qsl(query, max_num_fields=MAX_QUERY_FIELDS)
 
@@ -153,17 +146,16 @@ def bounded_parse_qsl(query: str) -> list[tuple[str, str]]:
 # means no caller deadline, which is the direct-call and offline case.
 DEFAULT_CHECK_TIMEOUT = 30.0
 
-# What to ask a service for. fix(#1746): content negotiation belongs to the
-# read, not to a header a caller may forget -- a service that serves HTML for
-# `*/*` answers the probe with a document and the check with a web page.
+# fix(#1746): content negotiation belongs to the read, not a header a caller
+# may forget — a service serving HTML for `*/*` answers the probe with a
+# document and the check with a web page.
 OGC_JSON_ACCEPT = "application/geo+json, application/json"
 
-# WFS negotiates by query (`service=WFS&request=GetCapabilities`) rather than
-# by header, so this states the expectation rather than driving it. No `*/*`
-# term: that is exactly what lets a server answer with HTML.
+# WFS negotiates by query, not header, so this states the expectation rather
+# than driving it. No `*/*` term: that's exactly what lets HTML back.
 WFS_XML_ACCEPT = "application/xml, text/xml"
-# fix(#1828): the check's reads and the driver's requests carry one User-Agent,
-# and for WFS one Accept and Accept-Encoding, so a server keyed on them sees one client.
+# fix(#1828): check reads and driver requests share one User-Agent (and for
+# WFS one Accept/Accept-Encoding) so a server keyed on them sees one client.
 SERVICE_CHECK_USER_AGENT = "GeoLens"
 
 
@@ -179,15 +171,15 @@ def gdal_transport_env(service_format: str) -> dict[str, str]:
 
 class EndpointCheckFailedError(Exception):
     """A credentialed source's description could not be read, so nothing is
-    known. Failing open is not conservative here: the services this protects
+    known. Failing open isn't conservative here: the services this protects
     are the ones that refuse an unauthenticated description."""
 
     def __init__(self, reason: str) -> None:
         self.code = ENDPOINT_CHECK_FAILED_CODE
         self.field = "url"
         self.policy = ENDPOINT_CHECK_FAILED_POLICY
-        # Kept off the message: `reason` is an httpx error string, which can
-        # carry the URL and therefore anything in its query.
+        # Kept off the message: reason is an httpx error string, which can
+        # carry the URL and thus anything in its query.
         self.reason = reason
         super().__init__(self.policy)
 
@@ -201,9 +193,9 @@ LAYER_REQUIRED_POLICY = (
 
 
 class LayerRequiredError(EndpointCheckFailedError):
-    """A credentialed WFS reached a GDAL spawn point without a layer name. A
-    subclass, so a door that turns `EndpointCheckFailedError` into a coded 422
-    or a job failure does the same here; code, field and policy differ."""
+    """A credentialed WFS reached a GDAL spawn point without a layer name.
+    Subclasses `EndpointCheckFailedError` so a door that converts it to a
+    coded 422 or job failure does the same here; code/field/policy differ."""
 
     def __init__(self) -> None:
         super().__init__("no layer named")
@@ -218,10 +210,9 @@ def require_wfs_layer(
 ) -> None:
     """Refuse a credentialed WFS that names no layer, before GDAL is spawned.
 
-    The schema check reads the description of the layer a door
-    opens, and GDAL opened without a layer reads every layer's. Does nothing
-    without a credential, for a format whose credential is not a header, or
-    for any other format. Raises :class:`LayerRequiredError`.
+    The schema check reads the description of the layer a door opens; GDAL
+    opened without a layer reads every layer's. No-op without a credential
+    or for a non-header-credential format. Raises :class:`LayerRequiredError`.
     """
     if not credential_line or not requires_header_token_policy(service_format):
         return
@@ -232,10 +223,10 @@ def require_wfs_layer(
 def _origin_of(url: str) -> str:
     """``scheme://host:port`` for a message, with userinfo and path dropped.
 
-    The port read is guarded. ``urlparse`` defers the port
-    until the attribute is read and raises ValueError on a malformed one, which
-    runs only while BUILDING a refusal and turns a clean 422 into a 500. The
-    raw value is dropped rather than echoed: it is provider-controlled.
+    The port read is guarded: ``urlparse`` defers parsing the port until
+    read and raises ValueError on a malformed one, which would otherwise
+    turn a clean 422 into a 500 while BUILDING the refusal message. A bad
+    raw value is dropped rather than echoed, since it's provider-controlled.
     """
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
@@ -248,8 +239,8 @@ def _origin_of(url: str) -> str:
 
 def _capabilities_url(url: str) -> str:
     """The GetCapabilities URL the driver builds from the submitted URL, byte
-    for byte: its own two keys replaced in place with its spelling, the layer
-    and query keys removed, every other parameter kept as submitted."""
+    for byte: its two keys replaced with its spelling, layer/query keys
+    removed, every other parameter kept as submitted."""
     request = _url_add_kvp(url, "SERVICE", "WFS")
     request = _url_add_kvp(request, "REQUEST", "GetCapabilities")
     for key in (
@@ -269,16 +260,16 @@ def _capabilities_url(url: str) -> str:
 # `onlineResource` attribute and no xlink (fix(#1746)). Matched by LOCAL name.
 _WFS_ENDPOINT_ATTRIBUTES = frozenset({"href", "onlineresource"})
 
-# fix(#1770): the operations the read-only ogr2ogr/OGR_WFS path can ever
-# ask for. Transaction, LockFeature and the stored-query operations are never
-# requested, so their advertised endpoint is never contacted. Matched lower-cased.
+# fix(#1770): operations the read-only ogr2ogr/OGR_WFS path can ever ask
+# for. Transaction/LockFeature/stored-query are never requested, so their
+# advertised endpoint is never contacted. Matched lower-cased.
 _WFS_READ_OPERATIONS = frozenset(
     {"getcapabilities", "describefeaturetype", "getfeature", "getpropertyvalue"}
 )
 
-# fix(#1770): WFS 1.0 has no element naming an operation the way
-# `ows:Operation name="..."` does -- the operation IS the element under
-# `<Request>`, so this closed vocabulary keeps `Request`/`DCPType`/`HTTP` out.
+# fix(#1770): WFS 1.0 has no `ows:Operation name="..."` element — the
+# operation IS the element under `<Request>` — so this closed vocabulary
+# keeps `Request`/`DCPType`/`HTTP` out.
 _WFS_1_0_OPERATION_TAGS = frozenset(
     {
         "GetCapabilities",
@@ -299,9 +290,9 @@ def _local_name(tag: str) -> str:
 def _wfs_root(xml_bytes: bytes) -> Element:
     """Parse an untrusted WFS document: bytes so an encoding declaration is
     honoured, DTD refused."""
-    # fix(#1746): `forbid_dtd=True`. defusedxml refuses entity declarations
+    # fix(#1746): forbid_dtd=True — defusedxml refuses entity declarations
     # by default but allows a DOCTYPE naming an external subset, which a WFS
-    # document has no use for and the element bound cannot see.
+    # document has no use for.
     return ET.fromstring(xml_bytes, forbid_dtd=True)
 
 
@@ -313,28 +304,26 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
 def _operation_hrefs(root: Element) -> list[str]:
     """The operation endpoints a capabilities document advertises for a read.
 
-    Filtered to :data:`_WFS_READ_OPERATIONS`, so a WFS-T
-    deployment proxying its write endpoint separately is not refused for an
-    endpoint the read-only path can never reach. An endpoint this walk cannot
-    attribute to an operation is KEPT: the set names who is excluded, not who
-    is let in. Namespace-agnostic by local name, because 1.0, 1.1 and 2.0
-    spell the namespaces differently, and parsed with defusedxml.
+    Filtered to :data:`_WFS_READ_OPERATIONS`, so a WFS-T deployment proxying
+    its write endpoint separately isn't refused for an endpoint the
+    read-only path can never reach. An endpoint this walk can't attribute
+    to an operation is KEPT — the set names who is excluded, not who is let
+    in. Namespace-agnostic by local name (1.0/1.1/2.0 spell them differently).
     """
     hrefs: list[str] = []
-    # fix(#1770): iterative, not recursive. A recursive walk is bounded by
-    # `sys.getrecursionlimit()` (default 1,000), not by `MAX_DOCUMENT_DEPTH`,
-    # so it can blow the stack on a document the preflight admits.
+    # fix(#1770): iterative, not recursive — a recursive walk is bounded by
+    # sys.getrecursionlimit() (default 1,000), not MAX_DOCUMENT_DEPTH, and
+    # can blow the stack on a document the preflight admits.
     stack: list[tuple[object, str | None]] = [(root, None)]
     while stack:
         element, operation = stack.pop()
         tag = _local_name(element.tag)
         if tag == "Operation":
-            # 1.1/2.0: a missing or blank name leaves the context unattributed
-            # rather than guessing one, which the fail-closed default checks.
+            # 1.1/2.0: missing/blank name leaves context unattributed
+            # rather than guessed; a None operation is kept below (fail closed).
             operation = (element.get("name") or "").strip().lower() or None
         elif tag in _WFS_1_0_OPERATION_TAGS:
-            # 1.0: the element itself names the operation.
-            operation = tag.lower()
+            operation = tag.lower()  # 1.0: the element itself names it
         if tag in ("Get", "Post") and (
             operation is None or operation in _WFS_READ_OPERATIONS
         ):
@@ -350,8 +339,8 @@ def _operation_hrefs(root: Element) -> list[str]:
 def _ogcapi_link_hrefs(document: object, rels: frozenset[str]) -> list[str]:
     """The operation endpoints one OGC API document advertises, among *rels*.
 
-    *rels* is the caller's to choose, not one tree-wide set --
-    see `_LANDING_RELS`/`_COLLECTION_RELS` for which document type gets which.
+    *rels* is the caller's to choose, not one tree-wide set — see
+    `_LANDING_RELS`/`_COLLECTION_RELS` for which document type gets which.
     """
     if not isinstance(document, dict):
         return []
@@ -376,9 +365,9 @@ def _next_page(document: object, base: str) -> str | None:
                     base, bounded_service_url(str(link["href"]), what="next")
                 )
             except ValueError as exc:
-                # fix(#1746, #1770): an address the parser cannot read
-                # is not one to walk to, and the stop is warned rather than
-                # silent. The href never reaches the message; it is untrusted.
+                # fix(#1746, #1770): an unparseable address is not one to
+                # walk to; stop warned, not silent. href stays out of the
+                # message since it's untrusted.
                 logger.warning(
                     "OGC API listing: `next` link could not be resolved, "
                     "stopping the walk",
@@ -392,28 +381,26 @@ def _next_page(document: object, base: str) -> str | None:
 def _assert_same_origin(url: str, hrefs: list[str], base: str | None = None) -> None:
     """Refuse the first advertised endpoint that leaves the submitted origin.
 
-    Relative hrefs resolve against the submitted URL, so a service that
-    advertises ``/wfs`` is describing itself and passes. An href that cannot be
-    parsed at all is refused: an address this cannot read is not one to send a
-    credential to.
+    Relative hrefs resolve against the submitted URL, so a service
+    advertising ``/wfs`` describes itself and passes. An unparseable href is
+    refused: an address that can't be read is not one to send a credential to.
     """
     for href in hrefs:
         try:
-            # fix(#1770): the shared length gate both the OGC API and the
-            # WFS href sinks feed into, applied before `urljoin`.
+            # fix(#1770): shared length gate both OGC API and WFS href
+            # sinks feed into, applied before `urljoin`.
             href = bounded_service_url(href, what="operation")
-            # fix(#1746): resolved against the document, which after a
-            # canonical redirect is not the URL asked for; the origin compared
-            # against is still the submitted one.
+            # fix(#1746): resolved against the document (which after a
+            # canonical redirect isn't the URL asked for); origin compared
+            # is still the submitted one.
             resolved = urljoin(base or url, href)
         except HrefTooLongError:
-            # fix(#1770): its own wording -- "unparseable" is true of a
-            # malformed address but not of one merely too long to be parsed.
+            # fix(#1770): own wording — "unparseable" is true of a malformed
+            # address, not one merely too long to parse.
             raise CrossOriginEndpointError("href exceeds the length limit") from None
         except ValueError:
             # fix(#1746): `urljoin` raises on some malformed absolute
-            # references. An address that cannot be resolved is not one to send
-            # a credential to; the raw href is never echoed.
+            # references; raw href never echoed.
             raise CrossOriginEndpointError("unparseable") from None
         if not same_origin(url, resolved):
             raise CrossOriginEndpointError(_origin_of(resolved))
@@ -422,9 +409,9 @@ def _assert_same_origin(url: str, hrefs: list[str], base: str | None = None) -> 
 def structural_tokens(body: bytes) -> int:
     """An upper bound on the values and containers ``body`` will decode to.
 
-    Every JSON value after the first in a container is preceded by a comma and
-    every container opens with a bracket, so this cannot undercount; commas and
-    brackets inside strings inflate it, which is the safe direction. Three
+    Every JSON value after the first in a container is preceded by a comma,
+    every container opens with a bracket, so this can't undercount; commas
+    and brackets inside strings inflate it, the safe direction. Three
     `bytes.count` passes over the raw body, before any decoding.
     """
     return body.count(b",") + body.count(b"[") + body.count(b"{")
@@ -433,10 +420,9 @@ def structural_tokens(body: bytes) -> int:
 def structural_elements(body: bytes) -> int:
     """An upper bound on the elements ``body`` will parse to.
 
-    Every element and processing instruction opens with ``<``, so this cannot
-    undercount; a closing tag has one too and CDATA text may contain them, both
-    the safe direction. One `bytes.count` pass over the raw body, before any
-    parsing.
+    Every element and processing instruction opens with ``<``, so this
+    can't undercount; a closing tag has one too and CDATA text may contain
+    them, both the safe direction. One `bytes.count` pass, before parsing.
     """
     return body.count(b"<")
 
@@ -446,9 +432,9 @@ def _wants_xml(accept: str) -> bool:
 
 
 class _XmlPreflightBudgetExceeded(Exception):
-    """Internal signal only: a streaming XML preflight budget tripped. Raised
-    inside an expat handler and caught by `_xml_preflight` one frame up, so
-    `require_decodable` raises `EndpointCheckFailedError`, never this."""
+    """Internal signal only: a streaming XML preflight budget tripped. Caught
+    by `_xml_preflight` one frame up, so `require_decodable` raises
+    `EndpointCheckFailedError`, never this."""
 
 
 def _xml_preflight(
@@ -459,21 +445,19 @@ def _xml_preflight(
     depth_budget: int,
     text_byte_budget: int,
 ) -> None:
-    """Count elements, attributes, text bytes and nesting depth via a streaming
-    parser, aborting the instant any ONE budget trips -- before a single
-    `ElementTree` node is built.
+    """Count elements, attributes, text bytes and nesting depth via a
+    streaming parser, aborting the instant any ONE budget trips — before a
+    single `ElementTree` node is built.
 
-    `structural_elements`'s ``body.count(b"<")`` cannot price a
-    shape that concentrates its cost: an attribute bomb (one `<`, one dict
-    entry per attribute), a deep-nesting bomb (one parser callback and one
-    object per level), or one enormous run of character data outside any
-    element or attribute count at all. expat calls back per element, per
-    attribute and per chunk without building a tree, so each cost is counted
-    directly against its own budget. This does not replace the cheap byte-scan
-    in `require_decodable`; it closes the gap that scan leaves.
+    `structural_elements`'s ``body.count(b"<")`` can't price a shape that
+    concentrates its cost: an attribute bomb (one `<`, one dict entry per
+    attribute), a deep-nesting bomb, or one huge character-data run outside
+    any element/attribute count. expat calls back per element, attribute
+    and chunk without building a tree, so each cost hits its own budget.
+    Complements, doesn't replace, `require_decodable`'s cheap byte-scan.
 
-    Malformed XML is not diagnosed here: `ExpatError` is swallowed and left for
-    `ET.fromstring`, the real parse that runs next, to raise for.
+    Malformed XML isn't diagnosed here: `ExpatError` is swallowed and left
+    for `ET.fromstring`, the real parse that runs next, to raise for.
     """
     elements = 0
     attributes = 0
@@ -503,9 +487,9 @@ def _xml_preflight(
             raise _XmlPreflightBudgetExceeded()
 
     def refuse_entity(*_args: object) -> None:
-        # Raw expat, unlike the defusedxml that wraps it, expands internal
-        # entities with no bound at all (billion laughs). Refusing at
-        # DECLARATION time means the substitution never runs.
+        # Raw expat (unlike the defusedxml wrapping it) expands internal
+        # entities unbounded (billion laughs). Refusing at DECLARATION time
+        # means the substitution never runs.
         raise _XmlPreflightBudgetExceeded()
 
     parser = xml.parsers.expat.ParserCreate()
@@ -535,14 +519,14 @@ def require_decodable(
     """Refuse a document that would cost too much to build.
 
     A byte cap bounds the wire, not the object graph, and the two document
-    kinds expand through completely different structures. The kind is not
-    guessed: it is the ``accept`` value the read already negotiated with.
-    Called from `fetch_document`, the only place either module makes a request.
+    kinds expand through different structures. The kind isn't guessed: it's
+    the ``accept`` value the read already negotiated with. Called from
+    `fetch_document`, the only place either module makes a request.
 
-    The XML branch runs two passes. The cheap
-    `structural_elements` byte-scan short-circuits millions of tiny elements
-    with no parser engaged; `_xml_preflight` then catches the shapes that scan
-    cannot see, reusing ``token_budget`` as the text-byte ceiling.
+    The XML branch runs two passes: the cheap `structural_elements`
+    byte-scan short-circuits millions of tiny elements with no parser
+    engaged, then `_xml_preflight` catches shapes that scan can't see,
+    reusing ``token_budget`` as the text-byte ceiling.
     """
     if _wants_xml(accept):
         if structural_elements(body) > element_budget:
@@ -565,8 +549,8 @@ def require_decodable(
 def fire_once(callback: "Callable[[], None] | None") -> "Callable[[], None] | None":
     """Wrap a callback so the first call fires it and later ones do not.
 
-    Moves the once-ness onto the callback, so `fetch_document`
-    can fire it unconditionally and no loop has to remember which pass it is on.
+    Moves the once-ness onto the callback, so `fetch_document` can fire it
+    unconditionally and no loop has to track which pass it's on.
     """
     if callback is None:
         return None
@@ -589,10 +573,10 @@ def deadline_budget(
     """Seconds left before ``deadline``, or a refusal if it has passed.
 
     The explicit expired check matters: `asyncio.timeout` on a past deadline
-    only fires at the first suspension, which a fast enough first response
-    never reaches. Shared because the HTTP client's timeout is per inactivity
-    on both paths, so a service that answers slowly but never stops passes it
-    forever.
+    only fires at the first suspension, which a fast-enough first response
+    never reaches. Shared, since the HTTP client's timeout is per-inactivity
+    on both paths — a service that answers slowly but never stops would
+    otherwise pass it forever.
     """
     if deadline is None:
         return None
@@ -606,14 +590,14 @@ def credential_headers(credential_line: str) -> dict[str, str]:
     """The request headers a credentialed read carries.
 
     The line is the wire format everything downstream of a door speaks (plan
-    D9) and has already been validated by the door that composed it, so this
-    splits rather than re-derives.
+    D9), already validated by the door that composed it, so this splits
+    rather than re-derives.
 
     ``Accept-Encoding: identity`` is asked for here and enforced by
-    `read_bounded_body`; both halves are needed, because refusing an encoded
-    body while httpx advertises its default `gzip, deflate` rejects a server
-    that honoured the offer. ``Accept`` is NOT set here: it belongs to the
-    read rather than to the credential.
+    `read_bounded_body`; both halves are needed, since refusing an encoded
+    body while httpx advertises its default `gzip, deflate` would reject a
+    server that honoured the offer. ``Accept`` is NOT set here — it belongs
+    to the read, not the credential.
     """
     name, _, value = credential_line.partition(HEADER_LINE_SEPARATOR)
     return {name: value, "Accept-Encoding": "identity"}
@@ -627,26 +611,25 @@ async def read_bounded_body(
 ) -> bytes:
     """The body, or a refusal once more than ``budget`` bytes have arrived.
 
-    The read stops at the bound rather than at the end of the response, so a
-    refusal costs one chunk past the budget rather than however much the
-    service felt like sending.
+    The read stops at the bound rather than the response's end, so a refusal
+    costs one chunk past the budget, not however much the service sent.
 
-    ``aiter_raw`` rather than ``aiter_bytes``: the latter
-    transparently inflates a ``Content-Encoding`` body, so a single wire chunk
-    could materialise an unbounded ``bytes`` BEFORE this check ran.
+    ``aiter_raw`` rather than ``aiter_bytes``: the latter transparently
+    inflates a ``Content-Encoding`` body, so one wire chunk could
+    materialise an unbounded ``bytes`` BEFORE this check ran.
 
-    Returns bytes, never text. ``json.loads`` and ``ET.fromstring`` both take
-    bytes, and ``ET`` needs them to honour an XML encoding declaration at all.
+    Returns bytes, never text: ``json.loads``/``ET.fromstring`` both take
+    bytes, and ``ET`` needs them to honour an XML encoding declaration.
     """
     encoding = response.headers.get("Content-Encoding", "identity").lower()
     if encoding not in ("", "identity"):
-        # Refused rather than decoded: `aiter_raw` hands back the compressed
+        # Refused rather than decoded: aiter_raw hands back compressed
         # bytes, so the parser would fail on them about the wrong thing.
         raise error("compressed document")
     declared = response.headers.get("Content-Length", "")
     if declared.isdigit() and int(declared) > budget:
-        # Free when the service is honest; no help when it is not, which is
-        # what the running count below is for.
+        # Free when the service is honest; the running count below covers
+        # the case where it isn't.
         raise error("document exceeds the cap")
     read = 0
     chunks: list[bytes] = []
@@ -672,46 +655,44 @@ async def fetch_document(
 ) -> tuple[bytes, str]:
     """One document from an untrusted service, and the URL it came from.
 
-    THE request site for BOTH this module and `service_items`, and deliberately
-    the only one: everything the contract in the module docstring lists is
-    applied here, once.
+    THE request site for BOTH this module and `service_items`, deliberately
+    the only one: every contract the module docstring lists is applied here.
 
-    Every URL is revalidated immediately before its request even though it is
-    same-origin with one already validated: a host that resolved publicly at
-    the door can resolve to a private address by the time the worker asks, and
-    same-origin says nothing about that (AGENTS.md Rule 2).
+    Every URL is revalidated immediately before its request even though
+    same-origin with one already validated: a host that resolved publicly
+    at the door can resolve to a private address by the time the worker
+    asks, and same-origin says nothing about that (AGENTS.md Rule 2).
 
-    ``on_first_request`` is fired once SSRF validation has succeeded, right
+    ``on_first_request`` fires once SSRF validation has succeeded, right
     before the request goes out; wrap it in `fire_once` for the first read
-    only. ``accept`` has no default, so every read states which representation
-    it wants -- a default would be a guess that is wrong for one of them.
+    only. ``accept`` has no default — a default would guess wrong for one
+    of the callers.
     """
-    # Resolved here rather than as default arguments: a default binds the
-    # module constant once at definition time, so a caller or test that changes
-    # the constant would be silently ignored.
+    # Resolved here, not as default arguments: a default binds the module
+    # constant once at definition time, so a caller/test that changes the
+    # constant would be silently ignored.
     budget = MAX_DOCUMENT_BYTES if budget is None else budget
     token_budget = MAX_DOCUMENT_TOKENS if token_budget is None else token_budget
     element_budget = MAX_DOCUMENT_ELEMENTS if element_budget is None else element_budget
-    # Copied rather than mutated: the caller's dict is reused across the pages
-    # of a walk, and the negotiation belongs to this read.
+    # Copied, not mutated: the caller's dict is reused across the pages of
+    # a walk, and the negotiation belongs to this read.
     headers = {**headers, "Accept": accept, "User-Agent": SERVICE_CHECK_USER_AGENT}
     try:
         await validate_url_for_ssrf(url)
         if on_first_request is not None:
             # fix(#1746): only once validation has succeeded.
             on_first_request()
-        # The client's transport pins the validated IP and revalidates every
-        # redirect hop. The marker below must stay the LAST line before the call.
-        # codeql[py/full-ssrf] fix(#1746): Rule 2 posture — validate_url_for_ssrf gates this exact URL immediately above, and make_safe_client's transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
+        # Marker must stay directly above the call (pinned by test).
+        # codeql[py/full-ssrf] fix(#1746): Rule 2 posture — validated above; make_safe_client re-resolves/pins/revalidates per hop
         async with client.stream("GET", url, headers=headers) as response:
             if response.status_code >= 400:
                 # Read nothing: an error body from a service these modules
                 # exist to distrust is not worth the bytes.
                 raise error(f"HTTP {response.status_code}")
             body = await read_bounded_body(response, budget, error=error)
-            # fix(#1746): the URL the representation actually came from. A
-            # same-origin canonical redirect changes what a relative href in
-            # the body is relative to.
+            # fix(#1746): the URL the representation actually came from — a
+            # same-origin canonical redirect changes what a relative href
+            # in the body is relative to.
             final_url = str(response.url)
         require_decodable(
             body,
@@ -735,7 +716,7 @@ async def _fetch(
 ) -> tuple[bytes, str]:
     """This module's reads, with its own caps and exception.
 
-    Defaults to the OGC value because four of the five reads here are OGC API
+    Defaults to the OGC value since four of the five reads here are OGC API
     documents; the capabilities read passes `WFS_XML_ACCEPT` explicitly.
     """
     return await fetch_document(
@@ -746,10 +727,10 @@ async def _fetch(
 def _parsed_json(body: bytes) -> object:
     """``json.loads(body)``, or a coded refusal rather than a raw crash.
 
-    A JSON depth bomb -- 900,000 nested `[` at 1.8 bytes each,
-    under every byte and token budget, since `structural_tokens` counts
-    brackets rather than nesting -- makes `json.loads` raise `RecursionError`,
-    a `RuntimeError` subclass rather than a `ValueError`, so it has to be named
+    A JSON depth bomb — 900,000 nested `[` at 1.8 bytes each, under every
+    byte and token budget since `structural_tokens` counts brackets rather
+    than nesting — makes `json.loads` raise `RecursionError`, a
+    `RuntimeError` subclass rather than a `ValueError`, so it must be named
     here or it escapes as a bare 500.
     """
     try:
@@ -758,25 +739,25 @@ def _parsed_json(body: bytes) -> object:
         raise EndpointCheckFailedError(str(exc)) from None
 
 
-# fix(#1828): the DescribeFeatureType reads GDAL's WFS driver makes before any
-# GetFeature, mirrored so an `include` naming another origin is refused before
-# the driver fetches it with the credential (GDAL 3.10.3, the worker image).
+# fix(#1828): mirrors the DescribeFeatureType reads GDAL's WFS driver makes
+# before any GetFeature, so an `include` naming another origin is refused
+# before the driver fetches it with the credential (GDAL 3.10.3, worker image).
 _WFS_SCHEMA_BATCH = 50
 _MAX_WFS_SCHEMA_READS = 50
-# fix(#1828): aggregate over every document one check parses, two maximum
-# documents each; a real schema and its includes sit an order of magnitude below.
+# fix(#1828): aggregate over every document one check parses, two documents
+# max each; a real schema and its includes sit an order of magnitude below.
 _MAX_WFS_SCHEMA_BYTES = 2 * MAX_DOCUMENT_BYTES
 _MAX_WFS_SCHEMA_ELEMENTS = 2 * MAX_DOCUMENT_ELEMENTS
 _WFS_DEFAULT_VERSION = "1.0.0"
-# The driver's HTTP branch is `http://` or `https://`; the scheme's case is not
-# part of a URI's identity, so it is folded here.
+# The driver's HTTP branch is `http://` or `https://`; scheme case isn't
+# part of a URI's identity, so it's folded here.
 _HTTP_LOCATION = re.compile(r"https?://", re.IGNORECASE)
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 _C_INT_PREFIX = re.compile(r"\s*([+-]?\d+)", re.ASCII)
 
 
 def _xml_value(element: Element, name: str) -> str | None:
-    """``CPLGetXMLValue`` as the driver reads it: the attribute, else a
+    """``CPLGetXMLValue`` as the driver reads it: attribute, else a
     text-only child element, matched by lower-cased local name."""
     for key, value in element.attrib.items():
         if _local_name(key).lower() == name:
@@ -1205,11 +1186,11 @@ async def _check_wfs_schemas(
 ) -> None:
     """Refuse the first schema include the driver would fetch off the origin.
 
-    Reads what the driver reads for the layer it is about to open: one
-    DescribeFeatureType naming the layer and then its prefix siblings, fifty at
-    most, then one naming the layer alone, which the driver issues whenever the
-    first answer does not cover it. With no layer, or one the driver would not
-    resolve, nothing is read.
+    Reads what the driver reads for the layer it's about to open: one
+    DescribeFeatureType naming the layer and its prefix siblings (fifty at
+    most), then one naming the layer alone if the first answer doesn't
+    cover it. With no layer, or one the driver wouldn't resolve, nothing
+    is read.
     """
     version, names = _wfs_feature_types(root)
     target = _wfs_layer_name(names, collection) if collection else None
@@ -1222,8 +1203,8 @@ async def _check_wfs_schemas(
     schema = await reads.batch(version, batch, output_format=output_format)
     if schema is not None:
         await reads.check(schema)
-    # fix(#1828): the driver retries the layer alone whenever the batch answer
-    # does not cover it; the check reads that request unless it is the same URL.
+    # fix(#1828): the driver retries the layer alone when the batch answer
+    # doesn't cover it; the check reads that request unless it's the same URL.
     single_url = _describe_feature_type_url(
         url, version, [target], single=True, output_format=output_format
     )
@@ -1261,14 +1242,13 @@ async def _check_wfs(
         root = _wfs_root(xml_bytes)
         hrefs = _operation_hrefs(root)
     except (ET.ParseError, DefusedXmlException) as exc:
-        # fix(#1746): `DefusedXmlException` is a `ValueError`, NOT a
-        # `ParseError`, so catching only the latter lets a document carrying an
-        # entity declaration escape as a 500.
+        # fix(#1746): DefusedXmlException is a ValueError, NOT a
+        # ParseError — catching only the latter would let an entity
+        # declaration escape as a 500.
         raise EndpointCheckFailedError(str(exc)) from None
     except RecursionError as exc:
-        # fix(#1770): last line of defense -- the walk above is iterative
-        # now, but `ET.fromstring` is not this module's code. Translated to the
-        # coded refusal every other unreadable description gets.
+        # fix(#1770): last line of defense — the walk above is iterative
+        # now, but ET.fromstring isn't this module's code.
         raise EndpointCheckFailedError(str(exc)) from None
     _assert_same_origin(url, hrefs, from_url)
     await _check_wfs_schemas(client, url, headers, root, collection)
@@ -1282,16 +1262,15 @@ async def _check_ogcapi(
     on_first_request: "Callable[[], None] | None" = None,
 ) -> None:
     body, from_url = await _fetch(client, url, headers, on_first_request)
-    # fix(#1770): the landing page, the only document type `conformance` is
-    # ever read from.
+    # fix(#1770): the landing page, the only document type `conformance`
+    # is ever read from.
     _assert_same_origin(
         url, _ogcapi_link_hrefs(_parsed_json(body), _LANDING_RELS), from_url
     )
 
     if collection is not None:
-        # fix(#1746): the collection this import will actually read,
-        # fetched directly -- a listing is paginated, so a check that reads
-        # only the first page misses a collection chosen from a later one.
+        # fix(#1746): the collection this import will actually read, fetched
+        # directly — a paginated listing's first page could miss it.
         body, from_url = await _fetch(
             client,
             f"{url.rstrip('/')}/collections/{quote(collection, safe='')}",
@@ -1305,27 +1284,25 @@ async def _check_ogcapi(
         )
         return
 
-    # The probe has no collection yet, so it walks the listing. Bounded, and
-    # reaching the bound is recorded rather than treated as a clean pass. The
-    # `collection is not None` branch above has no live caller (fix(#1770)).
+    # No collection yet, so it walks the listing. Bounded; reaching the
+    # bound is recorded, not treated as a clean pass. The `collection is
+    # not None` branch above has no live caller (fix(#1770)).
     page_url: str | None = f"{url.rstrip('/')}/collections"
     for _page in range(_MAX_COLLECTION_PAGES):
         if page_url is None:
             return
         body, from_url = await _fetch(client, page_url, headers)
         listing = _parsed_json(body)
-        # fix(#1770): the listing page dereferences neither rel, and
-        # `frozenset()` names that at a call site a structural test pins. A
-        # deliberate no-op: `_ogcapi_link_hrefs` returns `[]` for any document.
+        # fix(#1770): the listing page dereferences neither rel — a
+        # deliberate no-op call site a structural test pins.
         _assert_same_origin(url, _ogcapi_link_hrefs(listing, frozenset()), from_url)
         collections = listing.get("collections") if isinstance(listing, dict) else None
         for entry in collections or []:
-            # fix(#1770): an entry's inlined `items` href is never
-            # read either -- `_resolve_items_url` re-fetches the collection
+            # fix(#1770): an entry's inlined `items` href is never read
+            # either — `_resolve_items_url` re-fetches the collection
             # document. Kept as a call site for the same structural test.
             _assert_same_origin(url, _ogcapi_link_hrefs(entry, frozenset()), from_url)
-        # Resolved against the document's own URL as well, for the same reason.
-        page_url = _next_page(listing, from_url)
+        page_url = _next_page(listing, from_url)  # resolved against its own URL too
     if page_url is not None:
         logger.warning(
             "service endpoint check stopped at the collections page bound",
@@ -1344,30 +1321,28 @@ async def assert_endpoints_stay_on_origin(
 ) -> None:
     """Refuse a credentialed source that advertises a foreign operation endpoint.
 
-    Does nothing without a credential, and nothing for a service format whose
-    credential does not travel to GDAL as a header. Raises
-    :class:`CrossOriginEndpointError` for a description that names another
-    origin and :class:`EndpointCheckFailedError` for one that cannot be read;
-    every caller turns both into a coded refusal naming the URL field.
+    No-op without a credential, or for a service format whose credential
+    doesn't travel to GDAL as a header. Raises
+    :class:`CrossOriginEndpointError` for a description naming another
+    origin and :class:`EndpointCheckFailedError` for one that can't be
+    read; every caller turns both into a coded refusal on the URL field.
 
-    ``credential_line`` is the finished header line the worker will hand GDAL,
-    sent here to the submitted origin so a protected service answers with the
-    document GDAL will act on rather than a 401. ``collection`` is the
-    collection an OGC API import will read, which the preview and worker paths
-    know and the probe does not.
+    ``credential_line`` is sent to the submitted origin so a protected
+    service answers with the document GDAL will act on, not a 401.
+    ``collection`` is the collection an OGC API import will read, known to
+    the preview/worker paths but not the probe.
 
-    ``deadline`` is a :func:`time.monotonic` stamp covering every read, and it
-    has NO default: the client bounds only inactivity, so with
-    no clock a slow-trickling description holds an API request open
-    indefinitely. ``None`` still means no clock.
-    ``on_first_request`` fires once, before the first request.
+    ``deadline`` (a :func:`time.monotonic` stamp) has NO default: the
+    client bounds only inactivity, so with no clock a slow-trickling
+    description holds the request open indefinitely. ``on_first_request``
+    fires once, before the first request.
     """
     if not credential_line or not requires_header_token_policy(service_format):
         return
     headers = credential_headers(credential_line)
-    # The check has to fit inside the caller's clock: the client's timeout is
-    # per inactivity, so a trickled 32 MiB capabilities document would hold a
-    # preview request or an ingest worker indefinitely.
+    # Must fit inside the caller's clock: the client timeout is per
+    # inactivity, so a trickled 32 MiB document would otherwise hold a
+    # preview request or worker open indefinitely.
     try:
         async with asyncio.timeout(deadline_budget(deadline)):
             async with make_safe_client(
@@ -1380,6 +1355,6 @@ async def assert_endpoints_stay_on_origin(
                     await _check_ogcapi(client, url, headers, collection, arm)
     except TimeoutError:
         # Translated, not propagated: every caller handles
-        # `EndpointCheckFailedError`, and a bare `TimeoutError` would escape
-        # those handlers as a 500 about nothing the caller can act on.
+        # EndpointCheckFailedError; a bare TimeoutError would escape as a
+        # 500 about nothing the caller can act on.
         raise EndpointCheckFailedError("deadline exceeded") from None

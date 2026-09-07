@@ -1,10 +1,9 @@
 """Protocol interfaces for GeoLens extension points.
 
-Uses only stdlib types where possible. AsyncSession (Phase 222 / Phase 214
-precedent at ``app/core/identity.py:29``) is imported because Protocol method
-signatures need the type and SQLAlchemy does not import from ``app.modules.*``.
-``AuditEvent`` is forward-referenced via ``TYPE_CHECKING`` to avoid loading
-the audit facade at Protocol import time.
+Uses only stdlib types where possible. AsyncSession is imported because
+Protocol method signatures need the type and SQLAlchemy does not import
+from ``app.modules.*``. ``AuditEvent`` is forward-referenced via
+``TYPE_CHECKING`` to avoid loading the audit facade at Protocol import time.
 """
 
 from __future__ import annotations
@@ -19,12 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 if TYPE_CHECKING:
     from app.core.identity import Identity
 
-    # NOTE (CODE-14): Identity forward-reference quoting convention —
-    # use ``"Identity"`` for required Identity parameters and
-    # ``"Identity | None"`` for optional ones. Both are quoted because
-    # the import only resolves under TYPE_CHECKING; runtime imports
-    # would create a circular dependency with app.core.identity.
-    # Keep this convention consistent across the file.
+    # Identity forward-reference quoting convention: use ``"Identity"`` for
+    # required params and ``"Identity | None"`` for optional ones. Both are
+    # quoted because the import only resolves under TYPE_CHECKING; a
+    # runtime import would create a circular dependency with
+    # app.core.identity. Keep this convention consistent across the file.
     from app.platform.audit import AuditEvent
     from app.processing.ai.llm_loop import (
         ActionCollector,
@@ -49,15 +47,15 @@ class AuthExtension(Protocol):
 
 @runtime_checkable
 class AuditSink(Protocol):
-    """Write-side hook for audit event emission (Phase 222 D-01).
+    """Write-side hook for audit event emission.
 
-    A SIEM streamer does not change the bounded CSV and JSON export provided by
-    Core.
+    A SIEM streamer does not change the bounded CSV and JSON export
+    provided by Core.
 
     Enterprise overlays subscribe by appending instances to
-    ``_extensions["audit_sinks"]`` in their ``register_extensions(registry)``
-    callback via ``setdefault + append`` (D-09 — overwriting the slot makes
-    DefaultAuditSink disappear and breaks AUDIT-05).
+    ``_extensions["audit_sinks"]`` in ``register_extensions(registry)`` via
+    ``setdefault + append`` — overwriting the slot makes DefaultAuditSink
+    disappear and breaks AUDIT-05.
     """
 
     async def emit(self, session: AsyncSession, event: "AuditEvent") -> None: ...
@@ -65,23 +63,22 @@ class AuditSink(Protocol):
 
 @runtime_checkable
 class BillingExtension(Protocol):
-    """Startup billing hook (Phase 223 D-06 / D-08 / D-09 / BILLING-01).
+    """Startup billing hook.
 
-    Sibling to ``AuditSink`` (write-side audit emission, Phase 222). Two
-    orthogonal concerns: a marketplace metering hook doesn't subscribe to
-    audit events; an audit sink doesn't fire on lifespan startup. Future
-    overlays may implement BOTH on one class (Phase 217 D-13 dual-Protocol
-    pattern), but the contracts stay separate.
+    Sibling to ``AuditSink``. Two orthogonal concerns: a marketplace
+    metering hook doesn't subscribe to audit events; an audit sink doesn't
+    fire on lifespan startup. Future overlays may implement BOTH on one
+    class, but the contracts stay separate.
 
     Enterprise overlays subscribe by appending instances to
-    ``_extensions["billing_extensions"]`` in their ``register_extensions(registry)``
-    callback via ``setdefault + append`` (D-06 — overwriting the slot makes
-    DefaultBillingExtension disappear and breaks the iteration shape).
+    ``_extensions["billing_extensions"]`` in ``register_extensions(registry)``
+    via ``setdefault + append`` — overwriting the slot makes
+    DefaultBillingExtension disappear and breaks the iteration shape.
 
     Core dispatch (api/main.py lifespan) wraps each call with
-    ``asyncio.wait_for(timeout=10.0)`` + per-extension try/except (D-10).
-    Overlays do NOT need to defend against their own failures — the dispatch
-    loop guarantees per-extension isolation.
+    ``asyncio.wait_for(timeout=10.0)`` plus per-extension try/except.
+    Overlays do NOT need to defend against their own failures — the
+    dispatch loop guarantees per-extension isolation.
     """
 
     async def on_startup(self, app: FastAPI) -> None: ...
@@ -102,9 +99,8 @@ class ConnectorDefinition:
 class ConnectorCredentialRef:
     """Opaque reference to a stored connector credential.
 
-    The reference intentionally carries no secret material. Enterprise
-    connector overlays own the backing secret store and resolve the reference
-    internally when they run a sync.
+    Carries no secret material. Enterprise connector overlays own the
+    backing secret store and resolve the reference internally at sync time.
     """
 
     id: str
@@ -117,11 +113,10 @@ class ConnectorCredentialRef:
 class ConnectorResource:
     """Public metadata for one discoverable connector resource.
 
-    The DTO intentionally carries no credentials or provider client objects.
-    ``id`` is an API-safe opaque handle (ASCII letters/digits plus ``._~-``),
-    never a provider URL, signed locator, credential, or provider object ID that
-    itself contains secret material. ``metadata`` is non-secret discovery
-    metadata that core may return to an authorized caller.
+    Carries no credentials or provider client objects. ``id`` is an
+    API-safe opaque handle (ASCII letters/digits plus ``._~-``), never a
+    provider URL, signed locator, or credential. ``metadata`` is non-secret
+    discovery metadata that core may return to an authorized caller.
     """
 
     id: str
@@ -134,9 +129,9 @@ class ConnectorResource:
 class ConnectorExtension(Protocol):
     """Persistent connector registry seam.
 
-    Community edition returns no connectors. Enterprise overlays can replace
-    this singleton with stored-credential and scheduled-sync connectors without
-    adding connector-specific branches to core ingest/catalog code.
+    Community edition returns no connectors. Enterprise overlays can
+    replace this singleton with stored-credential and scheduled-sync
+    connectors without connector-specific branches in core ingest/catalog.
     """
 
     def list_connectors(self) -> list[ConnectorDefinition]: ...
@@ -177,10 +172,10 @@ class ConnectorExtension(Protocol):
 class TableReadinessResult:
     """Result of preparing a backing table for a read request.
 
-    ``hydrated`` means the caller may continue immediately. ``warming`` means
-    preparation continues asynchronously and the caller should return 202 with
-    the opaque job identifier. The names describe generic serving state; core
-    does not know which storage tier or provider implements the preparation.
+    ``hydrated`` means the caller may continue immediately. ``warming``
+    means preparation continues asynchronously and the caller should
+    return 202 with the opaque job identifier. Core doesn't know which
+    storage tier or provider implements the preparation.
     """
 
     status: Literal["hydrated", "warming"]
@@ -218,22 +213,21 @@ class DataServingExtension(Protocol):
 
 @runtime_checkable
 class AIProviderExtension(Protocol):
-    """LLM provider dispatch table entry (Phase 226 D-01 / AIEXT-01).
+    """LLM provider dispatch table entry.
 
     Replaces hardcoded ``if/elif provider == "anthropic"/"openai_compatible"``
-    dispatch in ``processing/ai/`` with name-keyed extension lookup. Registered
-    via the ``geolens.extensions`` entry-point group; the registry slot is
-    ``_extensions["ai_providers"]`` — a ``dict[str, AIProviderExtension]``
-    (D-04, dict-shape NOT list-shape because dispatch fans out by name at
-    request time).
+    dispatch in ``processing/ai/`` with name-keyed extension lookup. The
+    registry slot ``_extensions["ai_providers"]`` is a
+    ``dict[str, AIProviderExtension]`` — dict-shape, not list-shape, because
+    dispatch fans out by name at request time.
 
     Community defaults: ``DefaultAnthropicProvider`` (key: ``"anthropic"``),
     ``DefaultOpenAICompatibleProvider`` (key: ``"openai_compatible"``). Each
-    class is registered under its name via per-key ``setdefault`` (D-05) so
-    overlay registrations win without overwriting un-overlaid defaults.
+    is registered via per-key ``setdefault`` so overlay registrations win
+    without overwriting un-overlaid defaults.
 
-    Overlays add new providers (e.g., ``"bedrock"``, ``"vertex"``) without
-    modifying any core file (SC#5)::
+    Overlays add new providers (e.g., ``"bedrock"``) without modifying any
+    core file::
 
         def register_extensions(registry: dict) -> None:
             providers = registry.setdefault("ai_providers", {})
@@ -242,7 +236,7 @@ class AIProviderExtension(Protocol):
     Forward-referenced types (``ToolLoopResult``, ``ToolExecutor``,
     ``ActionCollector``) live in ``app.processing.ai.llm_loop``; the
     ``TYPE_CHECKING`` import keeps the typing-only edge from becoming a
-    runtime edge (mirrors the ``AuditEvent`` pattern at line 18-19).
+    runtime edge.
     """
 
     async def complete(
@@ -292,15 +286,15 @@ class AIProviderExtension(Protocol):
         port: Any,
         map_id: str | None = None,
         # The advertised tool set for this turn. None means the provider's
-        # default chat tools; a restricted list (e.g. read-only) must be honored.
-        # Implementations with an explicit signature must accept this kwarg —
-        # stream_chat_edit always passes it.
+        # default chat tools; a restricted list (e.g. read-only) must be
+        # honored. stream_chat_edit always passes it, so an explicit
+        # signature must accept this kwarg.
         tools: list[dict] | None = None,
         # Surface-level table scope for query_data's sandbox allowlist: when
         # set, generated SQL may only touch these data.* tables (intersected
-        # with the user's RBAC allowlist — narrows, never widens). None keeps
-        # the user-wide allowlist. Implementations with an explicit signature
-        # must accept this kwarg — stream_chat_edit always passes it.
+        # with the user's RBAC allowlist — narrows, never widens). None
+        # keeps the user-wide allowlist. Same accept-kwarg requirement as
+        # `tools` above.
         restrict_tables: frozenset[str] | None = None,
     ) -> AsyncIterator[dict[str, object]]: ...
 
@@ -317,7 +311,7 @@ class AIProviderExtension(Protocol):
     ) -> tuple[Any, int, int]:
         """Return ``(parsed_response_model, input_tokens, output_tokens)``.
 
-        The token counts feed per-user AI budget accounting (#402), so
+        Token counts feed per-user AI budget accounting (#402), so
         metadata-assist calls count toward the cap like map/chat do.
         """
         ...
@@ -327,31 +321,30 @@ class AIProviderExtension(Protocol):
 
 @runtime_checkable
 class EmbeddingProviderExtension(Protocol):
-    """Embedding provider dispatch table entry (Phase 231 D-01 / EMBPROV-01).
+    """Embedding provider dispatch table entry.
 
-    Sibling of AIProviderExtension (Phase 226). Replaces the direct
-    ``from openai import OpenAI`` at processing/embeddings/helpers.py:8 with
+    Sibling of AIProviderExtension. Replaces the direct
+    ``from openai import OpenAI`` in processing/embeddings/helpers.py with
     name-keyed extension lookup. Registry slot
     ``_extensions["embedding_providers"]`` is a
-    ``dict[str, EmbeddingProviderExtension]`` (D-09, dict-shape mirroring
-    Phase 226 D-04).
+    ``dict[str, EmbeddingProviderExtension]``, dict-shape mirroring
+    ``ai_providers``.
 
     Community default: ``DefaultOpenAIEmbeddingProvider`` (key:
-    ``"openai_compatible"``). Single class — Anthropic does not ship an
-    embeddings API (cf. EmbeddingUnavailableError message at
-    service.py:48-53); the AI provider has two community defaults,
-    embeddings has one (D-06).
+    ``"openai_compatible"``). Single class — Anthropic doesn't ship an
+    embeddings API, so unlike AIProviderExtension's two community
+    defaults, embeddings has one.
 
-    Overlays add new providers (e.g., ``"bedrock"``, ``"vertex"``) without
-    modifying any core file (SC#5)::
+    Overlays add new providers (e.g., ``"bedrock"``) without modifying any
+    core file::
 
         def register_extensions(registry: dict) -> None:
             providers = registry.setdefault("embedding_providers", {})
             providers["bedrock"] = BedrockEmbeddingProvider()
 
-    NO ``stream()`` method (D-03): embeddings are batch-only; streaming a
-    vector makes no sense (the API returns the whole vector at once,
-    unlike LLM completions which naturally token-stream).
+    NO ``stream()`` method: embeddings are batch-only — the API returns the
+    whole vector at once, unlike LLM completions which naturally
+    token-stream.
 
     ``resolve_runtime_config(db)`` returns a dict with three keys:
     ``base_url``, ``default_model``, ``default_dims`` — extensible for
@@ -375,17 +368,18 @@ class EmbeddingProviderExtension(Protocol):
 class RecordAudienceQuery:
     """The record a caller is asking about, at a STATED visibility.
 
-    ``visibility`` and ``record_status`` are passed as values rather than read
-    off the record, so a caller can ask the counterfactual — "who would be able
-    to read this if it were private?" — which is the question neither
-    ``filter_visible`` nor ``can_access_dataset`` can answer: both take a
-    concrete user, and the answer is a set with no representative member.
+    ``visibility`` and ``record_status`` are passed as values rather than
+    read off the record, so a caller can ask the counterfactual — "who
+    would be able to read this if it were private?" — a question neither
+    ``filter_visible`` nor ``can_access_dataset`` can answer, since both
+    take a concrete user and the answer is a set with no representative
+    member.
 
     ``dataset_id`` / ``record_id`` / ``owner_id`` stay ``Any`` for the same
-    reason ``WorkflowTransitionContext.dataset`` does — this platform-level
-    contract does not import catalog ORM classes at module load time. Both ids
-    are carried because grants key the DATASET while visibility lives on the
-    RECORD, so an overlay keying policy on either does not have to join.
+    reason ``WorkflowTransitionContext.dataset`` does — no catalog ORM
+    imports at module load time. Both ids are carried because grants key
+    the DATASET while visibility lives on the RECORD, so an overlay keying
+    policy on either doesn't have to join.
     """
 
     dataset_id: Any
@@ -399,14 +393,15 @@ class RecordAudienceQuery:
 class RecordAudience:
     """Who can read a record: the signed-in half as SQL, the anonymous half as a flag.
 
-    ``users`` is a SQLAlchemy boolean expression over the ``user_cls`` handed to
-    :meth:`PermissionExtension.record_audience` — a PREDICATE, not a result set.
-    That is what lets a caller compare two audiences inside one statement, and
-    lets an overlay widen with ``or_()`` rather than unioning queries.
+    ``users`` is a SQLAlchemy boolean expression over the ``user_cls``
+    handed to :meth:`PermissionExtension.record_audience` — a PREDICATE,
+    not a result set. That lets a caller compare two audiences inside one
+    statement, and lets an overlay widen with ``or_()`` rather than
+    unioning queries.
 
-    Anonymous visitors are rows in no table, so they cannot appear in ``users``
-    and carry their own flag. A public map's audience includes them and an
-    internal map's does not, which is the distinction it exists for.
+    Anonymous visitors are rows in no table, so they can't appear in
+    ``users`` and carry their own flag — the distinction that separates a
+    public map's audience (includes them) from an internal map's (doesn't).
     """
 
     users: Any
@@ -417,39 +412,36 @@ class RecordAudience:
 class PermissionExtension(Protocol):
     """Policy seam for permission checks and catalog visibility filtering.
 
-    Phase 232 / PERM-01 introduces a singleton extension point for two known
-    governance chokepoints: capability checks in ``require_permission()`` and
-    catalog visibility filtering in ``catalog/authorization.py``. Community
-    mode uses ``DefaultPermissionExtension`` to preserve the current role
-    matrix, admin overrides, and visibility rules. Enterprise overlays replace
-    the singleton registry entry under ``"permission"`` to implement advanced
+    A singleton extension point for two governance chokepoints: capability
+    checks in ``require_permission()`` and catalog visibility filtering in
+    ``catalog/authorization.py``. Community mode uses
+    ``DefaultPermissionExtension`` to preserve the current role matrix,
+    admin overrides, and visibility rules. Enterprise overlays replace the
+    singleton registry entry under ``"permission"`` to implement advanced
     RBAC, ABAC, or row-level filters without changing core.
 
-    **Wrap-don't-replace rule (SLOT-02):** An overlay that needs additive
-    behavior MUST wrap the prior implementation retrieved via
+    **Wrap-don't-replace (SLOT-02):** an overlay needing additive behavior
+    MUST wrap the prior implementation retrieved via
     ``get_permission_extension()`` at construction time — never bare
-    re-register the ``"permission"`` key (the slot-conflict guard rejects that).
+    re-register the ``"permission"`` key (the slot-conflict guard rejects it).
 
     **The stored matrix does not bound ``check_permission``.**
     ``validate_permission_matrix`` refuses to persist some combinations
-    (``manage_tenants`` on any role, ``manage_users`` or ``manage_settings`` on
-    a non-admin one), which reads like a statement about what a caller can hold.
-    It is not: the seam is the authority and the matrix is only what the
-    database will store. An overlay may deny a stored grant or add one
-    out-of-band, and that is how a fleet operator gets ``manage_tenants`` at
-    all (see the constant's own note in ``app/core/permissions.py``). Any
-    argument of the form "the matrix cannot store X, so no caller has X" is
-    true of the table and false of the deployment. Two of us reasoned that way
-    on #1021 and both got it wrong.
+    (e.g. ``manage_tenants`` on any role), which reads like a statement
+    about what a caller can hold. It isn't: the seam is the authority, and
+    the matrix is only what the database will store. An overlay may deny a
+    stored grant or add one out-of-band — that's how a fleet operator gets
+    ``manage_tenants`` at all. "The matrix cannot store X, so no caller has
+    X" is true of the table and false of the deployment (#1021).
 
-    **The three methods are one policy (feat(#1068), EXTENSION_API_VERSION 4).**
-    ``filter_visible`` and ``can_access_dataset`` were already a pair — the same
-    rule asked of a list and of one row (see #929/#930). ``record_audience`` is
-    the third reading of it: the same rule asked about a whole audience, for a
-    caller that has no user to pass. An overlay that changes either of the first
-    two and leaves this one on the community answer is reporting one policy and
-    serving another, and core cannot see the disagreement — so it treats such an
-    authority as unable to answer and takes the conservative refusal instead.
+    **The three methods are one policy (#1068, EXTENSION_API_VERSION 4).**
+    ``filter_visible`` and ``can_access_dataset`` are a pair — the same
+    rule asked of a list and of one row (#929/#930). ``record_audience`` is
+    the third reading: the same rule asked about a whole audience, for a
+    caller with no user to pass. An overlay that changes either of the
+    first two and leaves this one on the community answer is reporting one
+    policy and serving another; core can't see the disagreement, so it
+    takes the conservative refusal instead.
     """
 
     async def check_permission(
@@ -491,23 +483,22 @@ class PermissionExtension(Protocol):
     ) -> RecordAudience:
         """Which principals can read the record described by ``query``.
 
-        ``user_cls`` is the ORM class the returned predicate must be written
-        against (core passes its ``User``); ``grant_cls`` is the dataset-grant
-        class, absent when the caller has no grant table to offer — mirroring
-        ``filter_visible``, where a missing ``grant_cls`` makes a restricted
-        record unreachable rather than ungated.
+        ``user_cls`` is the ORM class the returned predicate must be
+        written against (core passes its ``User``); ``grant_cls`` is the
+        dataset-grant class, absent when the caller has no grant table to
+        offer — mirroring ``filter_visible``, where a missing ``grant_cls``
+        makes a restricted record unreachable rather than ungated.
 
-        Implementations must agree with ``filter_visible`` exactly: a user the
-        predicate admits must be a user whose filtered query returns the record,
-        at the visibility and status named in ``query``. Core proves that
-        equivalence for the community default account by account and expects an
-        overlay to hold itself to the same standard. An overlay whose reads
-        reach further than the audience it reports makes the shared-map guard
-        permit a change that strands somebody, and nothing on the calling side
-        can see the gap.
+        Implementations must agree with ``filter_visible`` exactly: a user
+        the predicate admits must be a user whose filtered query returns
+        the record, at the visibility and status named in ``query``. Core
+        proves that equivalence for the community default account by
+        account and expects an overlay to hold itself to the same
+        standard — an overlay whose reads reach further than the audience
+        it reports strands somebody, invisibly, behind the shared-map guard.
 
-        Async so an overlay may resolve tenant or policy state before composing
-        the predicate, for the same reason ``can_access_dataset`` is async; the
+        Async for the same reason ``can_access_dataset`` is: an overlay may
+        resolve tenant/policy state before composing the predicate. The
         community default performs no I/O.
         """
         ...
@@ -517,8 +508,8 @@ class PermissionExtension(Protocol):
 class WorkflowTransitionContext:
     """Context passed to publication workflow policy hooks.
 
-    ``dataset`` intentionally stays ``Any`` so this platform-level contract does
-    not import catalog ORM classes at module load time.
+    ``dataset`` stays ``Any`` so this platform-level contract doesn't
+    import catalog ORM classes at module load time.
     """
 
     session: AsyncSession
@@ -533,15 +524,16 @@ class WorkflowTransitionContext:
 class WorkflowExtension(Protocol):
     """Policy seam for dataset publication workflow transitions.
 
-    Community mode uses ``DefaultWorkflowExtension`` to preserve the existing
-    draft -> ready -> internal -> published lifecycle. Enterprise overlays can
-    replace the singleton ``"workflow"`` registry slot to add approval states,
-    block transitions, or observe transitions without changing catalog routes.
+    Community mode uses ``DefaultWorkflowExtension`` to preserve the
+    existing draft -> ready -> internal -> published lifecycle. Enterprise
+    overlays can replace the singleton ``"workflow"`` registry slot to add
+    approval states, block transitions, or observe transitions without
+    changing catalog routes.
 
-    **Wrap-don't-replace rule (SLOT-02):** An overlay that needs to observe
+    **Wrap-don't-replace (SLOT-02):** an overlay that needs to observe
     transitions while preserving existing behavior MUST wrap
-    ``get_workflow_extension()`` at construction time — never bare re-register
-    the ``"workflow"`` key.
+    ``get_workflow_extension()`` at construction time — never bare
+    re-register the ``"workflow"`` key.
     """
 
     def status_order(self) -> tuple[str, ...]: ...
@@ -557,11 +549,11 @@ class WorkflowExtension(Protocol):
 class Notification:
     """Immutable notification payload passed to every registered NotificationSink.
 
-    ``event_type`` identifies the event category (e.g., ``"signup"``,
-    ``"ingest_done"``, ``"health_alert"``) that phase 1230 constructs when
-    wiring real events. ``subject`` and ``body`` are human-readable channel
-    renderings (SMTP → email subject/body; webhook → JSON body text). ``data``
-    carries optional structured metadata for channel-specific rendering.
+    ``event_type`` identifies the event category (e.g. ``"signup"``,
+    ``"ingest_done"``, ``"health_alert"``). ``subject`` and ``body`` are
+    human-readable channel renderings (SMTP → email subject/body; webhook
+    → JSON body text). ``data`` carries optional structured metadata for
+    channel-specific rendering.
     """
 
     event_type: str
@@ -572,23 +564,23 @@ class Notification:
 
 @runtime_checkable
 class NotificationSink(Protocol):
-    """Write-side hook for outbound notification delivery (Phase 1229 NOTIF-01).
+    """Write-side hook for outbound notification delivery.
 
-    Sibling to ``AuditSink`` (write-side audit emission). Two orthogonal
-    concerns: an audit SIEM streamer doesn't deliver outbound notifications;
-    a notification channel doesn't subscribe to audit writes.
+    Sibling to ``AuditSink``. Two orthogonal concerns: an audit SIEM
+    streamer doesn't deliver outbound notifications; a notification
+    channel doesn't subscribe to audit writes.
 
-    Community edition ships a ``DefaultNotificationSink`` no-op that keeps
-    behavior byte-identical to today (zero outbound send, zero side effects).
-    Enterprise overlays can register richer sinks (SMTP, webhook, Slack via
-    incoming-webhook URL) by appending to ``_extensions["notification_sinks"]``
-    in their ``register_extensions(registry)`` callback via
-    ``setdefault + append`` (DO NOT overwrite the slot — overwriting removes
-    DefaultNotificationSink from the iteration, violating the additive contract).
+    Community edition ships a ``DefaultNotificationSink`` no-op — zero
+    outbound send, zero side effects. Enterprise overlays register richer
+    sinks (SMTP, webhook, Slack incoming-webhook) by appending to
+    ``_extensions["notification_sinks"]`` in ``register_extensions(registry)``
+    via ``setdefault + append``. DO NOT overwrite the slot — that removes
+    DefaultNotificationSink from the iteration, violating the additive
+    contract.
 
-    The async signature is intentional so enterprise overlays may perform
-    non-blocking I/O (SMTP STARTTLS handshake, HTTP POST to webhook URL).
-    Community and enterprise implementations — are awaited by ``notify()``.
+    The async signature lets enterprise overlays perform non-blocking I/O
+    (SMTP STARTTLS, HTTP POST to a webhook URL); all sinks are awaited by
+    ``notify()``.
     """
 
     async def deliver(self, notification: "Notification") -> None: ...
@@ -596,7 +588,7 @@ class NotificationSink(Protocol):
 
 @runtime_checkable
 class EntitlementPort(Protocol):
-    """Per-tenant capability and limit enforcement seam (Phase 1207 / ENTSEAM-01).
+    """Per-tenant capability and limit enforcement seam.
 
     Orthogonal to ``require_enterprise()`` (binary edition gate) and to
     ``PermissionExtension`` (per-user RBAC). ``EntitlementPort`` is a
@@ -604,25 +596,25 @@ class EntitlementPort(Protocol):
     feature X?" and "has this tenant exceeded limit Y?".
 
     Community and Enterprise use ``DefaultEntitlementPort`` (grant-all,
-    fail-OPEN). The cloud overlay (Phase 1213) registers a real implementation
-    backed by the ``tenant_entitlements`` table (webhook-synced from Stripe).
+    fail-OPEN). The cloud overlay registers a real implementation backed
+    by the ``tenant_entitlements`` table (webhook-synced from Stripe).
 
-    **Wrap-don't-replace rule (SLOT-02):** An overlay that needs additive
-    behavior MUST wrap the prior implementation retrieved via
-    ``get_entitlement_port()`` at construction time — never bare re-register
-    the ``"entitlement"`` key (the slot-conflict guard rejects that).
+    **Wrap-don't-replace (SLOT-02):** an overlay needing additive behavior
+    MUST wrap the prior implementation retrieved via
+    ``get_entitlement_port()`` at construction time — never bare
+    re-register the ``"entitlement"`` key (the slot-conflict guard rejects it).
 
     Method contract:
     - ``has_feature(feature)`` — return True if the current tenant's plan
       includes the named feature; False to deny.
-    - ``enforce_limit(dimension, n)`` — raise (any exception; typically
-      ``HTTPException(429)`` or a domain-specific ``LimitExceededError``)
-      if ``n`` exceeds the tenant's allowed quota for ``dimension``;
-      return ``None`` otherwise (no raise = within limits).
+    - ``enforce_limit(dimension, n)`` — raise (any exception, typically
+      ``HTTPException(429)`` or a domain ``LimitExceededError``) if ``n``
+      exceeds the tenant's quota for ``dimension``; return ``None``
+      otherwise (no raise = within limits).
 
-    Both methods are async because cloud overlay implementations may hit the
-    local ``tenant_entitlements`` table (async SQLAlchemy) or a short-TTL
-    process cache backed by an async data source.
+    Both methods are async because cloud overlay implementations may hit
+    the local ``tenant_entitlements`` table (async SQLAlchemy) or a
+    short-TTL process cache backed by an async data source.
     """
 
     async def has_feature(self, feature: str) -> bool: ...

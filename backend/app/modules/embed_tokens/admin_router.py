@@ -30,15 +30,9 @@ router = APIRouter(
 )
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
-# no-trailing-slash variants register against the same handler. Slash form
-# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
-# the 404 regression introduced by redirect_slashes=False (api/main.py).
+# ROUTE-01 (Phase 1092): dual-shape decorator -- trailing-slash is
+# canonical (in OpenAPI); no-slash is a hidden alias closing the 404
+# regression from redirect_slashes=False (api/main.py).
 @router.get("", response_model=AdminEmbedTokenListResponse, include_in_schema=False)
 @router.get("/", response_model=AdminEmbedTokenListResponse)
 async def list_all_embed_tokens(
@@ -96,8 +90,7 @@ async def bulk_revoke(
 ) -> BulkRevokeResponse:
     """Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only)."""
     # WR-01 (Phase 1212): scope by tenant so a tenant-A admin cannot revoke
-    # tenant-B tokens by UUID.  Mirrors the EMBED-03 filter on list_all_embed_tokens.
-    # Inert (filter_tenant_id=None) in single_tenant.
+    # tenant-B tokens by UUID (mirrors the EMBED-03 filter above).
     from app.core.db.tenant_session import current_tenant_var
 
     request_tenant = current_tenant_var.get()

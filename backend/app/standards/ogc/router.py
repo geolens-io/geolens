@@ -58,8 +58,8 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _CRS84_URI = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
-# fix(#1614 codex r5): every route that runs _check_cold_rehydrate can answer
-# 202 {status: 'warming', job_id} in multi-tenant mode; declaring it keeps
+# fix(#1614): every route that runs _check_cold_rehydrate can answer 202
+# {status: 'warming', job_id} in multi-tenant mode; declaring it keeps
 # generated SDK clients from discarding the body or raising UnexpectedStatus.
 COLD_WARMING_RESPONSE: dict = {
     202: {
@@ -87,20 +87,14 @@ COLD_WARMING_RESPONSE: dict = {
 # indeterminate datatype. Deliberately NOT the whole 42 class — 42P01 is the
 # missing-table 503 and e.g. 42501 (privilege) is an operator problem.
 async def _emit_ogc_usage_event(table_name: str) -> None:
-    """Emit an OGC-serve usage event through the billing-import-free seam (METER-03).
+    """Emit an OGC-serve usage event through the billing-import-free seam
+    (METER-03), after a successful OGC serve in multi_tenant mode.
 
-    Called after a successful OGC collection/items serve in multi_tenant mode.
-    Uses get_billing_extensions() + hasattr(ext, "on_usage_event") so that:
-    - When the cloud overlay is active, CloudMeteringExtension.on_usage_event()
-      updates DatasetORM.last_accessed_at via update_last_accessed().
-    - When no extension provides on_usage_event (single_tenant / cloud-absent),
-      nothing runs — byte-identical OSS behaviour.
-
-    Best-effort: errors are logged and swallowed so a billing hook failure NEVER
-    fails an OGC response.
-
-    METER-03: the table_name is carried on the event so the cloud extension can
-    scope the last_accessed_at update to the correct dataset row.
+    Uses get_billing_extensions() + hasattr(ext, "on_usage_event"): with
+    the cloud overlay active, CloudMeteringExtension updates
+    DatasetORM.last_accessed_at; with no such extension, nothing runs —
+    byte-identical OSS behaviour. Best-effort: errors are logged and
+    swallowed so a billing hook failure never fails an OGC response.
     """
     if not is_multi_tenant():
         return
@@ -117,7 +111,7 @@ async def _emit_ogc_usage_event(table_name: str) -> None:
                 value=1,
                 table_name=table_name,
             )
-        except Exception:  # broad: billing hook failures must never fail an OGC response; varied extension errors
+        except Exception:  # broad: billing hook failure must never fail the response
             logger.warning(
                 "OGC usage event dispatch failed",
                 ext=type(ext).__name__,
@@ -133,23 +127,18 @@ async def _check_cold_rehydrate(
 ) -> "JSONResponse | None":
     """Prepare a cold OGC table through the provider-neutral serving seam.
 
-    Mirrors the tile-router _check_cold_rehydrate seam exactly:
-    - Returns None immediately when record_status != 'cold' (hot — the common path).
-    - Returns None when not is_multi_tenant() (single-tenant Community and
-      Enterprise remain byte-identical).
-    - The Community extension returns None, so no provider package is imported.
-    - Broad Exception → log warning, return None (cold-check failure MUST NEVER fail
-      an OGC response — T-1214-17).
-
-    When the table IS cold and the overlay is present:
-      - status='hydrated' → return None so the caller continues normally.
-      - status='warming'  → return a 202 JSONResponse ({status: 'warming', job_id}).
+    Mirrors the tile-router seam: returns None when record_status !=
+    'cold', when not is_multi_tenant(), or when the Community extension
+    returns None. A broad Exception logs and returns None — cold-check
+    failure MUST NEVER fail an OGC response (T-1214-17). When cold and
+    the overlay is present: 'hydrated' returns None; 'warming' returns a
+    202 JSONResponse.
 
     Args:
-        table_name:    The dataset table_name.
-        record_status: The record_status from the already-resolved dataset object —
-                       no extra DB round-trip on the hot path (T-1214-18).
-        tenant_id:     The server-resolved tenant UUID string.
+        table_name: the dataset table_name.
+        record_status: from the already-resolved dataset object — no
+            extra DB round-trip on the hot path (T-1214-18).
+        tenant_id: the server-resolved tenant UUID string.
     """
     # Fast path: table is hot.
     if record_status != "cold":
@@ -233,11 +222,6 @@ async def _get_visible_dataset(
     return dataset
 
 
-# ---------------------------------------------------------------------------
-# OGC Discovery endpoints
-# ---------------------------------------------------------------------------
-
-
 @ogc_router.get("/", response_model=LandingPage, responses=ERROR_RESPONSES_PUBLIC)
 async def landing_page(
     request: Request,
@@ -315,7 +299,7 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
             # OGC API Features Part 1: Core
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
-            # OGC API Features Part 3: Filtering. fix(#430 BA-14) dropped these
+            # OGC API Features Part 3: Filtering. fix(#430) dropped these
             # classes while per-dataset feature collections rejected `filter`
             # with 400; feat(#1614) restored them in the same commit that made
             # `filter=` + per-collection /queryables work, so they are never
@@ -340,11 +324,6 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
             "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/json",
         ]
     )
-
-
-# ---------------------------------------------------------------------------
-# Per-dataset OGC Features endpoints
-# ---------------------------------------------------------------------------
 
 
 @ogc_features_router.get(
@@ -438,7 +417,7 @@ async def get_dataset_collection(
         # APP origin (/raster-tiles/...), which nginx rewrites to the internal
         # tile proxy; the /api origin has no such route, so use public_app_url.
         public_app_url = await get_public_app_url(db, request=request)
-        # fix(#1372 codex r2): versioned like every rendered template so a
+        # fix(#1372): versioned like every rendered template so a
         # refetching client stops sharing the unversioned cache entry.
         raster_tiles_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
         if dataset.tile_cache_version:
@@ -517,7 +496,7 @@ async def get_collection_queryables(
             ),
         )
 
-    # fix(#1614 codex r1): a cold (evicted) table has no information_schema
+    # fix(#1614): a cold (evicted) table has no information_schema
     # rows, so deriving queryables from it would publish an attribute-less
     # document as authoritative. Run the same cold-rehydrate seam as /items
     # BEFORE reading the live schema (202-warming instead of a wrong 200).
@@ -531,11 +510,11 @@ async def get_collection_queryables(
         if _q_cold_result is not None:
             return _q_cold_result
 
-    # fix(#1614 codex r2): get_column_info returns [] for a MISSING table as
+    # fix(#1614): get_column_info returns [] for a MISSING table as
     # well as for an attribute-less one. A missing table (partial ingest /
     # eviction race) must stay the same retryable 503 the /items path
     # reports, not publish an empty queryables document as authoritative.
-    # fix(#1614 codex r6): schema-introspection database errors are
+    # fix(#1614): schema-introspection database errors are
     # operational — same 503 classification as the items path.
     try:
         if not await feature_table_exists(db, dataset.table_name):
@@ -565,41 +544,33 @@ async def get_collection_queryables(
     )
 
 
-# fix(#1845): the CQL2 compile is synchronous work on the event loop, and the
-# filter is the one input that lets an anonymous caller choose how much of it
-# to buy. The single-pass rename in filtering.py took the pathological case
-# from 2.4 s to 40 ms, but 40 ms is still 40 ms of blocked loop, and shapes
-# that stay under the bind cap (a long chain of LIKE predicates) still reach
-# hundreds of binds. The rename bounds the cost per request; this bounds the
-# rate, which is the half a compiler change cannot reach.
-#
-# 10/second against a global default of 60: far above any interactive client
-# (QGIS redraws a canvas extent, pygeoapi proxies a page) and far below what
-# it takes to keep the loop busy.
+# fix(#1845): CQL2 compile is synchronous, event-loop-blocking work, and
+# the filter is the one input letting an anonymous caller choose how
+# much of it to buy. The single-pass rename in filtering.py cut the
+# pathological case from 2.4s to 40ms, but shapes under the bind cap
+# still reach hundreds of binds — the rename bounds cost per request,
+# this bounds rate. 10/second sits far above any interactive client
+# (QGIS/pygeoapi paging) and far below what keeps the loop busy.
 _FILTERED_ITEMS_RATE_LIMIT = "10/second"
 
 
 def _items_request_carries_no_filter(request: Request) -> bool:
     """Exempt an unfiltered items request from the filter-specific limit.
 
-    A bulk ``ogr2ogr OAPIF:`` export pages this route as fast as the database
-    answers and buys none of the compile cost the limit exists for, so only a
-    request that actually carries ``filter=`` is charged against it.
+    A bulk ``ogr2ogr OAPIF:`` export pages this route without buying any
+    compile cost, so only a request carrying ``filter=`` is charged.
 
     CONSTRAINT: the decorator below MUST keep ``override_defaults=False``.
-    slowapi decides whether to fall back to the global default limits from the
-    presence of a route limit and its ``override_defaults`` flag, and it makes
-    that decision BEFORE ``exempt_when`` is consulted
-    (``slowapi/extension.py::_check_request_limit`` builds ``all_limits``, then
-    ``__evaluate_limits`` applies the exemption). With the slowapi default of
-    ``override_defaults=True`` an exempted route limit would therefore leave
-    the ordinary paging request with no limit at all, which is looser than
-    before this decorator existed.
+    slowapi decides whether to fall back to global default limits from
+    the route limit's presence and ``override_defaults``, BEFORE
+    ``exempt_when`` is consulted. With slowapi's default
+    ``override_defaults=True``, an exempted route limit would leave the
+    ordinary paging request with no limit at all.
     """
     return "filter" not in request.query_params
 
 
-# fix(#1857 item 7): two of the four refusals are resource bounds on a VALID
+# fix(#1857): two of the four refusals are resource bounds on a VALID
 # filter, which the generic "invalid query parameters" 400 the route inherits
 # does not describe.
 FILTER_BAD_REQUEST_RESPONSE = {
@@ -830,11 +801,10 @@ async def get_collection_items(
     # ST_AsGeoJSON cost (PERF-N1).
     # H-24: when after_gid is provided, the service uses keyset pagination and
     # ignores offset.
-    # fix(#315): the raster/VRT guard above handles datasets that never had a backing
-    # table. A genuinely-missing VECTOR table (cold-evicted / partial ingest)
-    # still raises ProgrammingError/OperationalError here; mirror the native
-    # list_features handler and return 503 rather than an unhandled 500 that
-    # holds a DB connection.
+    # fix(#315): the raster/VRT guard above only covers datasets that never
+    # had a backing table. A genuinely-missing VECTOR table (cold-evicted /
+    # partial ingest) still raises here; mirror list_features and return
+    # 503, not an unhandled 500 that holds a DB connection.
     # feat(#1614): compile the CQL2 filter against the live table schema —
     # the same schema authority the queryables document publishes. This runs
     # after the cold-rehydrate seam so a cold table warms (202) instead of
@@ -843,13 +813,13 @@ async def get_collection_items(
     cql2_binds: list = []
     if filter_expr is not None:
         # Ordering is deliberate: a parse failure is the caller's bug (400,
-        # no database access); then fix(#1614 codex r2) — a missing table
+        # no database access); then fix(#1614) — a missing table
         # yields an empty live schema, and compiling against it would 400
         # every attribute filter as an unknown property, so table
         # availability stays the retryable 503; schema-dependent validation
         # runs last.
         filter_ast = parse_feature_cql2(filter_expr, filter_lang)
-        # fix(#1614 codex r6): the schema-introspection queries carry no
+        # fix(#1614): the schema-introspection queries carry no
         # caller input, so any database error here is operational — classify
         # it exactly like the feature query's 503, not a 500.
         try:
@@ -871,9 +841,9 @@ async def get_collection_items(
         cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
 
     try:
-        # fix(#430 BA-15): a full page must be distinguishable from a full
+        # fix(#430): a full page must be distinguishable from a full
         # *final* page, or a feature count that is an exact multiple of `limit`
-        # emits a phantom keyset `next` to an empty page. fix(#1778 review r1):
+        # emits a phantom keyset `next` to an empty page. fix(#1778):
         # the over-fetch that answers it moved into get_features, which reports
         # it as `has_more`, so every caller gets the same answer.
         page = await get_features(
@@ -899,25 +869,16 @@ async def get_collection_items(
             detail=str(exc),
         )
     except DBAPIError as exc:
-        # feat(#1614): with a filter active, a type-shaped database error is
-        # the filter itself — e.g. a property-property comparison between
-        # incomparable types that pre-validation lets through. Report those
-        # as the caller's 400, never an unhandled 500 (QA finding B3).
-        # fix(#1614 codex r1): only type/data SQLSTATEs are caller faults —
-        # class 22 (data exceptions), the 42xxx operator/cast states, and
-        # client-side bind DataErrors. Everything else (dropped connection,
-        # cancellation, missing table) keeps the retryable 503 so monitoring
-        # and clients classify outages correctly.
-        # fix(#1778): the property-filter extension is a caller-supplied
-        # predicate too. Gating this branch on `cql2_where is not None` alone
-        # reported every type-shaped property-filter failure as a retryable
-        # 503, so clients retried forever against what is a query-shape bug.
-        #
-        # fix(#1778 review r2): the classification moved to
-        # `is_caller_type_fault`, which the native features list now reads too;
-        # the two had drifted. The catch widened to DBAPIError for the same
-        # reason it did there: asyncpg reports a value it cannot encode as a
-        # bare DBAPIError with SQLSTATE 22000, which no subclass here matched.
+        # feat(#1614)/fix(#1778): with a filter or property-filter active,
+        # a type-shaped DB error is the filter itself (e.g. incomparable
+        # types pre-validation let through) — report as the caller's 400,
+        # never an unhandled 500 (QA finding B3). Only type/data SQLSTATEs
+        # count: class 22, 42xxx operator/cast, client-side bind
+        # DataErrors; everything else keeps the retryable 503.
+        # Classification lives in `is_caller_type_fault` (shared with the
+        # native features list); catch widened to DBAPIError since
+        # asyncpg reports an unencodable value as bare DBAPIError with
+        # SQLSTATE 22000, matching no narrower subclass.
         caller_predicate = cql2_where is not None or bool(property_filters)
         if caller_predicate and is_caller_type_fault(exc):
             source = "CQL2 filter" if cql2_where is not None else "Property filter"
@@ -1017,7 +978,7 @@ async def get_collection_items(
             )
         )
     elif after_gid is None and page.has_more:
-        # fix(#1778 review r1): was `offset + limit < total`. numberMatched may
+        # fix(#1778): was `offset + limit < total`. numberMatched may
         # be the planner's estimate, and an estimate at or below the rows
         # already served would have dropped the link mid-result-set.
         links.append(

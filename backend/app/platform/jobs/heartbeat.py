@@ -14,17 +14,9 @@ from app.platform.jobs.models import IngestJob
 
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 
-# fix(#691): lease window for analysis materialize jobs. Governs BOTH the
-# per-user materialize cap (router_analysis.py) and the per-job status read's
-# auto-fail (platform/jobs/router.py), so the API and the polling client
-# always agree on when a dead worker's slot is released. 10x the renewal
-# interval: renewal is best-effort (maintain_ingest_job_heartbeat retries
-# through transient DB errors), so a short multiple would declare a live but
-# briefly-degraded worker dead and admit a second concurrent CTAS — ten
-# consecutive missed renewals means the worker is gone or the DB is in a
-# state where one more failed CTAS is not the problem. Still releases the
-# slot in five minutes instead of the 60-minute JOB_TIMEOUT_SECONDS backstop.
-# Module-level constant on purpose: promoting it to Settings is #696's scope.
+# fix(#691): lease shared by the materialize cap (router_analysis.py) and the
+# job-status auto-fail (platform/jobs/router.py), so API and poller agree. 10x
+# the renewal interval so one missed renewal can't admit a second concurrent CTAS.
 ANALYSIS_MATERIALIZE_LEASE_SECONDS = 300.0
 
 
@@ -32,17 +24,9 @@ class StaleIngestAttempt(RuntimeError):
     """Raised when a worker no longer owns the job attempt it received."""
 
 
-# fix(#1858): the shape `attempt_scoped_staging_table` produces, written once
-# so the code that RECOGNISES one of these names cannot drift from the code
-# that makes one. Deliberately narrow: `_staging_` followed by exactly a
-# `uuid4().hex`, anchored at the end. `generate_table_name` slugifies a
-# user-chosen title, so `parcels_staging`, `parcels_old` and `parcels_staging_
-# area` are all names a person can legitimately ask for, and a predicate wide
-# enough to cover them would refuse their registration. The spelling is a
-# POSIX regular expression because PostgreSQL's `~` and Python's `re` agree on
-# exactly this subset, which is what lets one string serve the SQL half of the
-# rule and the Python half (`backend/tests/test_staging_table_names_1858.py`
-# checks the two engines against each other).
+# fix(#1858): shared by the code that MAKES these names and the code that
+# RECOGNISES them. Narrow: `parcels_staging` is a legitimate user title.
+# POSIX syntax so Postgres `~` and Python `re` agree (test_staging_table_names_1858.py).
 ATTEMPT_STAGING_NAME_PATTERN = r"_staging_[0-9a-f]{32}$"
 
 _ATTEMPT_STAGING_NAME_RE = re.compile(ATTEMPT_STAGING_NAME_PATTERN)
@@ -57,13 +41,10 @@ def attempt_scoped_staging_table(base_table: str, attempt_id: uuid.UUID) -> str:
 def is_attempt_scoped_staging_table(table_name: str) -> bool:
     """Whether *table_name* is a physical staging table owned by an attempt.
 
-    fix(#1858): these are created inside an import and dropped in its
-    ``finally``, so one only survives a worker that was SIGKILLed or
-    OOM-killed between the two. Nothing reaps the survivor -- the sweeps in
-    ``platform/jobs/sweep.py`` cover storage objects, analysis outputs and VRT
-    generations, and none of them looks at PostGIS tables -- so table
-    discovery listed it and bulk registration bound a permanent dataset to a
-    table the next attempt is entitled to ``ALTER ... RENAME`` away.
+    fix(#1858): a survivor of a SIGKILLed/OOM-killed worker (created in an
+    import, dropped in its ``finally``; nothing else reaps it). Left
+    unrecognised, table discovery would let bulk registration bind a
+    permanent dataset to a table the next attempt can rename away.
     """
     return _ATTEMPT_STAGING_NAME_RE.search(table_name) is not None
 
@@ -219,11 +200,9 @@ async def resolve_ingest_attempt_or_skip(
 ) -> tuple[uuid.UUID, uuid.UUID] | None:
     """Parse the job id and resolve its delivery token, or signal a skip.
 
-    fix(#836): the parse/resolve/warn prologue was pasted at seven ingest task
-    sites. Returns ``(job_uuid, attempt_uuid)``, or ``None`` when a tokenless
-    legacy delivery could not adopt the pending job — the caller must return
-    without touching the row. ``task_label`` preserves each task family's
-    historical log message ("ingest" / "raster" / "reupload" / "vrt").
+    fix(#836): returns ``(job_uuid, attempt_uuid)``, or ``None`` when a
+    tokenless legacy delivery could not adopt the pending job — the caller
+    must return without touching the row.
     """
     job_uuid = uuid.UUID(job_id)
     attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
@@ -246,12 +225,10 @@ async def claim_job_attempt_and_start_heartbeat(
 ) -> "asyncio.Task[None] | None":
     """Claim the pending attempt, commit, and start the lease heartbeat.
 
-    fix(#836): the claim/stamp/commit/heartbeat prologue was pasted at seven
-    ingest task sites. Rolls back and returns ``None`` when the caller no
-    longer owns the attempt (another actor moved the row). When ``job`` and
-    ``current_step`` are given, stamps the first progress step in the same
-    commit so the polling UI sees a fresh signal on its first poll after
-    pickup (REMED-02 / ingest-audit P2-07).
+    fix(#836): rolls back and returns ``None`` when the caller no longer owns
+    the attempt. When ``job``/``current_step`` are given, stamps the first
+    progress step in the same commit so polling sees a fresh signal on its
+    first poll after pickup (REMED-02 / ingest-audit P2-07).
     """
     if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
         await session.rollback()
@@ -297,8 +274,7 @@ async def maintain_ingest_job_heartbeat(
         except asyncio.CancelledError:
             raise
         except Exception:  # broad: heartbeat lease renewal is best-effort
-            # A transient heartbeat write must not mask the ingest result. The
-            # next interval gets another chance before the one-hour lease ends.
+            # Must not mask the ingest result; the next interval retries.
             logger.warning(
                 "ingest_job_heartbeat_failed",
                 job_id=str(job_id),
@@ -308,7 +284,6 @@ async def maintain_ingest_job_heartbeat(
 
 
 async def renew_vrt_generation_heartbeat(generation_id: uuid.UUID) -> bool:
-    """Renew a running managed-VRT generation lease."""
     from app.core.db import async_session
     from app.processing.raster.models import VrtGeneration
 

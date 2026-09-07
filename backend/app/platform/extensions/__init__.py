@@ -14,44 +14,44 @@ import structlog
 
 from app.platform.extensions.version import check_extension_api_version
 from app.platform.extensions.defaults import (
-    DefaultAnthropicProvider,  # NEW (Phase 226)
-    DefaultAuditSink,  # NEW (Phase 222)
+    DefaultAnthropicProvider,
+    DefaultAuditSink,
     DefaultAuthExtension,
-    DefaultBillingExtension,  # NEW (Phase 223)
+    DefaultBillingExtension,
     DefaultBrandingExtension,
-    DefaultCatalogPort,  # NEW (Phase 230)
+    DefaultCatalogPort,
     DefaultConnectorExtension,
     DefaultDataServingExtension,
-    DefaultEntitlementPort,  # NEW (Phase 1207)
+    DefaultEntitlementPort,
     DefaultIdentityExtension,
-    DefaultNotificationSink,  # NEW (Phase 1229)
-    DefaultOpenAICompatibleProvider,  # NEW (Phase 226)
-    DefaultOpenAIEmbeddingProvider,  # NEW (Phase 231)
-    DefaultPermissionExtension,  # NEW (Phase 232)
-    DefaultProcessingPort,  # NEW (Phase 225)
-    DefaultWorkflowExtension,  # NEW (Phase 233)
+    DefaultNotificationSink,
+    DefaultOpenAICompatibleProvider,
+    DefaultOpenAIEmbeddingProvider,
+    DefaultPermissionExtension,
+    DefaultProcessingPort,
+    DefaultWorkflowExtension,
 )
 from app.platform.extensions.protocols import (
-    AuditSink,  # NEW (Phase 222)
+    AuditSink,
     AuthExtension,
-    BillingExtension,  # NEW (Phase 223)
+    BillingExtension,
     BrandingExtension,
     ConnectorCredentialRef as ConnectorCredentialRef,
     ConnectorDefinition as ConnectorDefinition,
     ConnectorResource as ConnectorResource,
-    NotificationSink,  # NEW (Phase 1229)
-    # feat(#1068): the audience seam's two DTOs. Runtime re-exports, not
-    # TYPE_CHECKING ones — an overlay implementing record_audience has to
-    # CONSTRUCT a RecordAudience, so the name must resolve at run time.
+    NotificationSink,
+    # feat(#1068): runtime (not TYPE_CHECKING) re-exports — an overlay
+    # implementing record_audience must CONSTRUCT a RecordAudience, so the
+    # name has to resolve at run time.
     RecordAudience as RecordAudience,
     RecordAudienceQuery as RecordAudienceQuery,
 )
 
 if TYPE_CHECKING:
-    from app.core.catalog_port import CatalogPort  # NEW (Phase 230)
+    from app.core.catalog_port import CatalogPort
     from app.core.identity import IdentityExtension
-    from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
-    from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231 + 1207)
+    from app.core.processing_port import ProcessingPort
+    from app.platform.extensions.protocols import (
         AIProviderExtension,
         ConnectorExtension,
         DataServingExtension,
@@ -68,16 +68,12 @@ _routers: list = []
 _loaded: bool = False
 
 # Foundational overlays register first; wrappers choose a larger value. Entry
-# point iteration order is explicitly unspecified, so composition must never
-# depend on the installer/filesystem order returned by importlib.metadata.
+# point iteration order is unspecified, so composition must never depend on
+# the installer/filesystem order returned by importlib.metadata.
 DEFAULT_EXTENSION_LOAD_PRIORITY = 100
 
-# ---------------------------------------------------------------------------
-# Slot classification (SLOT-01)
-# ---------------------------------------------------------------------------
-
 #: Single-slot keys: exactly ONE overlay may claim each of these.
-#: A second different overlay writing the same key RAISES ExtensionSlotConflictError.
+#: A second overlay writing the same key RAISES ExtensionSlotConflictError.
 SINGLE_SLOT_KEYS: frozenset[str] = frozenset(
     {
         "permission",
@@ -87,7 +83,7 @@ SINGLE_SLOT_KEYS: frozenset[str] = frozenset(
         "workflow",
         "branding",
         "auth",
-        "entitlement",  # NEW (Phase 1207 / ENTSEAM-01) — cloud overlay claims this in Phase 1213
+        "entitlement",  # ENTSEAM-01 — cloud overlay claims this
         "connectors",
         "data_serving",
     }
@@ -101,7 +97,7 @@ ADDITIVE_SLOT_KEYS: frozenset[str] = frozenset(
         "billing_extensions",
         "ai_providers",
         "embedding_providers",
-        "notification_sinks",  # NEW (Phase 1229 NOTIF-01) — overlays append sinks
+        "notification_sinks",  # NOTIF-01 — overlays append sinks
         "_routers",
     }
 )
@@ -111,22 +107,14 @@ _slot_owners: dict[str, str] = {}
 
 
 class ExtensionSlotConflictError(RuntimeError):
-    """Raised when two overlays attempt to write the same non-additive single-slot key.
-
-    References: SLOT-01
-    """
+    """Raised when two overlays write the same single-slot key (SLOT-01)."""
 
 
 def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) -> None:
     """Invoke ``loader(registry)`` and detect duplicate single-slot writes (SLOT-01).
 
-    Before the loader runs, snapshot which single-slot keys are already occupied.
-    After the loader runs, check each single-slot key: if it was previously owned
-    by a DIFFERENT overlay, raise :class:`ExtensionSlotConflictError` naming the
-    key and both provider classes.
-
-    Additive keys (see :data:`ADDITIVE_SLOT_KEYS`) are exempt — they legitimately
-    stack across overlays.
+    Raises :class:`ExtensionSlotConflictError` if a single-slot key changes
+    owner. :data:`ADDITIVE_SLOT_KEYS` are exempt — they legitimately stack.
     """
     # Snapshot the single-slot keys already present (and who owns them)
     pre_snapshot: dict[str, object] = {
@@ -143,12 +131,9 @@ def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) ->
         if key in pre_snapshot:
             prior_val = pre_snapshot[key]
             if new_val is not prior_val:
-                # Check the sanctioned wrap path (SLOT-02 / CLOUD-04):
-                # A replacement is allowed IFF the new value transparently carries
-                # the prior value as a marked inner via __slot_inner__.
-                # This lets a second overlay compose-wrap the first overlay's port
-                # without clobbering it.  A bare replacement (no __slot_inner__, or
-                # __slot_inner__ pointing to a different object) still raises.
+                # SLOT-02/CLOUD-04: a replacement is allowed only if it
+                # transparently wraps the prior value via __slot_inner__;
+                # a bare replacement or a wrong/missing inner still raises.
                 if getattr(new_val, "__slot_inner__", None) is prior_val:
                     # Sanctioned wrap — update ownership to reflect the chain.
                     _slot_owners[key] = ep_name
@@ -174,58 +159,33 @@ def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) ->
 def load_extensions() -> None:
     """Discover and load all extensions from the ``geolens.extensions`` group.
 
-    Version contract (OCG-04)
-    -------------------------
-    Each overlay's loader callable MUST declare ``EXTENSION_API_VERSION`` equal
-    to core's :data:`app.platform.extensions.version.EXTENSION_API_VERSION`.
-    A version mismatch raises :class:`RuntimeError` and is NOT swallowed — the
-    operator must align the overlay and core versions before the service boots.
-    Only non-version loader exceptions (e.g., missing dependencies) are caught
-    and logged as warnings.
+    Version contract (OCG-04): each loader must declare
+    ``EXTENSION_API_VERSION`` matching
+    :data:`app.platform.extensions.version.EXTENSION_API_VERSION`; a mismatch
+    raises :class:`RuntimeError` and is never swallowed. Other loader
+    exceptions (e.g. missing dependencies) are caught and logged as warnings.
 
-    Slot-conflict guard (SLOT-01)
-    -----------------------------
-    Duplicate writes to non-additive single-slot keys (see :data:`SINGLE_SLOT_KEYS`)
-    raise :class:`ExtensionSlotConflictError` naming the key and both providers.
-    Additive slots (see :data:`ADDITIVE_SLOT_KEYS`) are exempt.
+    Slot-conflict guard (SLOT-01): a second overlay writing a non-additive
+    single-slot key (see :data:`SINGLE_SLOT_KEYS`) raises
+    :class:`ExtensionSlotConflictError`. :data:`ADDITIVE_SLOT_KEYS` are exempt.
 
-    Wrap-don't-replace rule (SLOT-02)
-    ----------------------------------
-    An overlay that needs additive behavior on a single-slot key MUST wrap the
-    prior implementation retrieved via the corresponding ``get_*_extension()``
-    accessor at construction time, then register the wrapping impl under the
-    same key LAST — never bare re-register the key (the guard rejects that as a
-    conflict).
+    Wrap-don't-replace (SLOT-02/CLOUD-04): to add behavior on a single-slot
+    key, read the prior impl via the matching ``get_*_extension()``, wrap it,
+    set ``wrapper.__slot_inner__ = prior`` so the guard recognizes a
+    transparent wrap, and register the wrapper under the same key LAST::
 
-    The wrapper MUST set ``__slot_inner__ = <prior_impl>`` (the exact object
-    returned by ``get_*_extension()`` at wrapper construction time) so the guard
-    can verify the wrap is transparent and not a clobber.  Example::
+        prior = get_permission_extension()
+        wrapper = TierAwarePermission(inner=prior)
+        wrapper.__slot_inner__ = prior
+        registry["permission"] = wrapper
 
-        class TierAwarePermission:
-            def __init__(self, inner) -> None:
-                self.__slot_inner__ = inner   # REQUIRED: marks the sanctioned wrap
-                self._inner = inner
+    A wrapper whose ``__slot_inner__`` is not the exact prior instance is
+    still rejected as a conflict.
 
-            async def check_permission(self, *args, **kwargs):
-                return await self._inner.check_permission(*args, **kwargs)
-
-        def register_extensions(registry):
-            prior = get_permission_extension()  # read BEFORE writing
-            wrapper = TierAwarePermission(inner=prior)
-            registry["permission"] = wrapper    # guard allows: __slot_inner__ is prior
-
-    A wrapper whose ``__slot_inner__`` does NOT point to the exact prior instance
-    (e.g. points to ``None`` or an unrelated object) is still rejected as a
-    conflict.
-
-    References: SLOT-02, CLOUD-04
-
-    Deterministic composition order
-    -------------------------------
-    A loader may declare an integer ``EXTENSION_LOAD_PRIORITY`` attribute.
-    Lower values load first; ties are ordered by entry-point name. Loaders that
-    omit it use :data:`DEFAULT_EXTENSION_LOAD_PRIORITY`. An overlay that wraps
-    another overlay's single-slot ports must therefore declare a larger value.
+    Deterministic composition order: a loader may declare an integer
+    ``EXTENSION_LOAD_PRIORITY`` (default :data:`DEFAULT_EXTENSION_LOAD_PRIORITY`);
+    lower loads first, ties broken by entry-point name. An overlay wrapping
+    another overlay's single-slot port must declare a larger value.
     ``importlib.metadata`` entry-point iteration order is never authoritative.
     """
     global _loaded
@@ -237,8 +197,8 @@ def load_extensions() -> None:
     for ep in entry_points(group="geolens.extensions"):
         try:
             loader = ep.load()
-            # OCG-04: check declared overlay API version BEFORE invoking the loader.
-            # RuntimeError from check_extension_api_version escapes the broad-except below.
+            # OCG-04: version check runs before the loader call; its
+            # RuntimeError escapes the broad except below.
             declared_version = getattr(loader, "EXTENSION_API_VERSION", None)
             check_extension_api_version(ep.name, declared_version)
             if not callable(loader):
@@ -288,7 +248,6 @@ def get_extension(name: str) -> object | None:
 
 
 def has_extension(name: str) -> bool:
-    """Check whether an extension is registered."""
     return name in _extensions
 
 
@@ -302,11 +261,8 @@ def get_extension_routers() -> list:
     return list(_routers)
 
 
-# ---------------------------------------------------------------------------
-# Typed accessors — return the registered extension or a community default.
-# Call sites use these instead of get_extension(...) so the protocol contract
-# is always satisfied (community can never be `None`).
-# ---------------------------------------------------------------------------
+# Typed accessors return the registered extension or a community default,
+# so callers never see None instead of get_extension(...).
 
 
 def get_branding_extension() -> BrandingExtension:
@@ -326,13 +282,7 @@ def get_auth_extension() -> AuthExtension:
 
 
 def get_permission_extension() -> "PermissionExtension":
-    """Return the registered PermissionExtension or the community default.
-
-    Phase 232 / PERM-01 follows the single-slot extension shape used by
-    identity, processing_port, and catalog_port. Permission policy is a single
-    authority; overlays that need additive behavior can wrap
-    DefaultPermissionExtension explicitly.
-    """
+    """Return the registered PermissionExtension or the community default."""
     ext = _extensions.get("permission")
     if ext is None:
         return DefaultPermissionExtension()
@@ -340,12 +290,7 @@ def get_permission_extension() -> "PermissionExtension":
 
 
 def get_workflow_extension() -> "WorkflowExtension":
-    """Return the registered WorkflowExtension or the community default.
-
-    Phase 233 / WORK-01 follows the same single-slot shape as PermissionExtension.
-    Workflow policy is a singleton authority; overlays that need additive
-    behavior can wrap DefaultWorkflowExtension explicitly.
-    """
+    """Return the registered WorkflowExtension or the community default."""
     ext = _extensions.get("workflow")
     if ext is None:
         return DefaultWorkflowExtension()
@@ -371,13 +316,8 @@ def get_data_serving_extension() -> "DataServingExtension":
 def get_identity_extension() -> "IdentityExtension":
     """Return the registered IdentityExtension or the community default.
 
-    Phase 214 / IDENT-03 — mirrors ``get_branding_extension()``
-    and ``get_auth_extension()`` exactly.
-    Enterprise overlays register an implementation under the ``"identity"``
-    key via the ``geolens.extensions`` entry-point group; community
-    edition gets the no-op ``DefaultIdentityExtension`` whose
-    ``resolve_identity_from_token`` returns ``None`` (existing JWT
-    path runs unchanged).
+    Community's ``DefaultIdentityExtension.resolve_identity_from_token``
+    returns ``None``, leaving the existing JWT path unchanged.
     """
     ext = _extensions.get("identity")
     if ext is None:
@@ -386,27 +326,15 @@ def get_identity_extension() -> "IdentityExtension":
 
 
 def get_audit_sinks() -> list[AuditSink]:
-    """Return all registered AuditSinks, or [DefaultAuditSink()] when slot missing.
+    """Return all registered AuditSinks, or [DefaultAuditSink()] when unset.
 
-    Phase 222 D-09 / D-10 / D-11 — departure from the four existing
-    single-instance accessors: returns a list (community always has 1 sink,
-    enterprise can have N).
+    Additive slot: overlays append via
+    ``registry.setdefault("audit_sinks", [DefaultAuditSink()]).append(sink)``.
+    Reassigning the key drops DefaultAuditSink and breaks the AUDIT-05
+    guarantee that every deployment writes at least one sink; this is not
+    enforced beyond the architecture-guard test on direct ``log_action(`` calls.
 
-    Enterprise overlays append to ``_extensions["audit_sinks"]`` via
-    ``setdefault + append`` in their ``register_extensions(registry)`` callback::
-
-        sinks = registry.setdefault("audit_sinks", [DefaultAuditSink()])
-        sinks.append(MyEnterpriseSink())
-
-    Reassigning the slot (``registry["audit_sinks"] = [MySink()]``) makes
-    DefaultAuditSink disappear and breaks AUDIT-05 row-write contract for
-    that deployment. Phase 222 cannot enforce this in the contract (overlay
-    code lives outside this repo); the architecture-guard test only catches
-    direct ``log_action(`` calls, not registry misuse. Documented as Pitfall D
-    in 222-RESEARCH.md.
-
-    Returns a defensive ``list(sinks)`` copy so a sink cannot accidentally
-    mutate the registry mid-iteration in ``audit_emit()``.
+    Returns a defensive copy so a sink can't mutate the registry mid-iteration.
     """
     sinks = _extensions.get("audit_sinks")
     if sinks is None:
@@ -415,32 +343,16 @@ def get_audit_sinks() -> list[AuditSink]:
 
 
 def get_billing_extensions() -> list[BillingExtension]:
-    """Return all registered BillingExtensions, or [DefaultBillingExtension()] when slot missing.
+    """Return registered BillingExtensions, or [DefaultBillingExtension()].
 
-    Phase 223 D-06 — mirrors ``get_audit_sinks()`` shape verbatim (list-shape,
-    lazy default, defensive copy). The list shape is forward-compatible: a
-    future overlay may register a billing-event sink alongside a primary biller
-    (e.g., audit-trail-style billing events). Cost of list shape over single-slot
-    is one extra ``[]`` of syntax; benefit is symmetry with ``AuditSink`` (one
-    pattern, not two).
+    Additive slot, list-shape like ``get_audit_sinks()``: overlays append via
+    ``registry.setdefault("billing_extensions",
+    [DefaultBillingExtension()]).append(ext)``. Reassigning the key drops
+    DefaultBillingExtension — the lifespan dispatch loop tolerates this since
+    the default is a no-op, but keep the setdefault+append convention anyway.
 
-    Enterprise overlays append to ``_extensions["billing_extensions"]`` via
-    ``setdefault + append`` in their ``register_extensions(registry)`` callback::
-
-        billing_extensions = registry.setdefault(
-            "billing_extensions", [DefaultBillingExtension()]
-        )
-        billing_extensions.append(MarketplaceBillingExtension())
-
-    Reassigning the slot (``registry["billing_extensions"] = [MyExt()]``) makes
-    DefaultBillingExtension disappear from the iteration. The dispatch loop
-    (api/main.py lifespan, Plan 02) tolerates this — DefaultBillingExtension
-    is a no-op so its absence has no behavioral effect — but the
-    ``setdefault + append`` discipline matches Phase 222's pattern and keeps
-    the codebase consistent.
-
-    Returns a defensive ``list(exts)`` copy so an extension cannot accidentally
-    mutate the registry mid-iteration in the lifespan dispatch.
+    Returns a defensive copy so an extension can't mutate the registry
+    mid-iteration.
     """
     exts = _extensions.get("billing_extensions")
     if exts is None:
@@ -449,30 +361,15 @@ def get_billing_extensions() -> list[BillingExtension]:
 
 
 def get_notification_sinks() -> list[NotificationSink]:
-    """Return all registered NotificationSinks, or [DefaultNotificationSink()] when slot missing.
+    """Return registered NotificationSinks, or [DefaultNotificationSink()].
 
-    Phase 1229 NOTIF-01 / NOTIF-04 — mirrors ``get_audit_sinks()`` and
-    ``get_billing_extensions()`` shape exactly (list-shape, lazy default,
-    defensive copy). The list shape is forward-compatible: a future overlay may
-    register multiple channel sinks (SMTP + webhook + Slack incoming-webhook)
-    alongside the community no-op.
+    Additive slot, list-shape like ``get_audit_sinks()``: overlays append via
+    ``registry.setdefault("notification_sinks",
+    [DefaultNotificationSink()]).append(sink)``. Community (no notification
+    env vars set) sends zero outbound notifications. Reassigning the key
+    drops DefaultNotificationSink — use setdefault+append to preserve NOTIF-01.
 
-    Community edition (no notification env vars set) gets
-    ``[DefaultNotificationSink()]`` — behavior is byte-identical to today,
-    zero outbound send, zero side effects.
-
-    Enterprise overlays append to ``_extensions["notification_sinks"]`` via
-    ``setdefault + append`` in their ``register_extensions(registry)`` callback::
-
-        sinks = registry.setdefault("notification_sinks", [DefaultNotificationSink()])
-        sinks.append(SMTPNotificationSink(config))
-
-    Reassigning the slot (``registry["notification_sinks"] = [MySink()]``) makes
-    DefaultNotificationSink disappear from the iteration — use setdefault+append
-    to preserve the additive contract (NOTIF-01).
-
-    Returns a defensive ``list(sinks)`` copy so a sink cannot accidentally mutate
-    the registry mid-iteration in ``notify()``.
+    Returns a defensive copy so a sink can't mutate the registry mid-iteration.
     """
     sinks = _extensions.get("notification_sinks")
     if sinks is None:
@@ -483,20 +380,12 @@ def get_notification_sinks() -> list[NotificationSink]:
 def get_processing_port() -> "ProcessingPort":
     """Return the registered ProcessingPort or the community default.
 
-    Phase 225 / PROCESS-01 — single-slot shape (D-12), NOT list-shape
-    like get_audit_sinks() / get_billing_extensions(). ProcessingPort is
-    a singleton consumer surface; overlays REPLACE rather than append.
+    Single-slot, NOT list-shape like ``get_audit_sinks()`` — ProcessingPort
+    is a singleton consumer surface; overlays REPLACE rather than append.
 
-    Enterprise overlays register a tier-aware / quota-enforcing wrapper
-    under the ``"processing_port"`` key via the ``geolens.extensions``
-    entry-point group::
-
-        registry["processing_port"] = TierAwareProcessingPort(quota_config)
-
-    Community edition gets DefaultProcessingPort which forwards every
-    call to the existing app.modules.catalog.* functions via deferred
-    imports (D-09 / D-11 — behavior is byte-for-byte identical to
-    pre-Phase-225).
+    ``DefaultProcessingPort`` forwards every call to the existing
+    ``app.modules.catalog.*`` functions via deferred imports, so community
+    behavior is unchanged.
     """
     ext = _extensions.get("processing_port")
     if ext is None:
@@ -507,9 +396,7 @@ def get_processing_port() -> "ProcessingPort":
 def get_catalog_port() -> "CatalogPort":
     """Return the registered CatalogPort or the community default.
 
-    Phase 230 / CATPORT-01 — symmetric partner to get_processing_port().
-    CatalogPort is single-slot because it is a singleton boundary surface;
-    overlays replace it under the "catalog_port" registry key.
+    Single-slot, symmetric partner to ``get_processing_port()``.
     """
     ext = _extensions.get("catalog_port")
     if ext is None:
@@ -520,18 +407,11 @@ def get_catalog_port() -> "CatalogPort":
 def get_entitlement_port() -> "EntitlementPort":
     """Return the registered EntitlementPort or the community grant-all default.
 
-    Phase 1207 / ENTSEAM-01 — single-slot shape mirroring get_permission_extension(),
-    get_workflow_extension(), get_processing_port(), and get_catalog_port().
-
-    Community and Enterprise both return ``DefaultEntitlementPort`` (grant-all,
-    fail-OPEN) — correct because OSS/Enterprise are not multi-tenant-tiered; real
-    enforcement is the cloud overlay's job (Phase 1213). The grant-all default never
-    weakens ``require_enterprise()`` (edition gate) or ``PermissionExtension`` (RBAC)
-    because all three seams are orthogonal.
-
-    The cloud overlay (Phase 1213) registers a real implementation under
-    ``"entitlement"`` in its ``register_extensions(registry)`` callback. The
-    ExtensionSlotConflictError guard prevents two overlays from claiming the slot.
+    Community and Enterprise both return ``DefaultEntitlementPort``
+    (grant-all, fail-open) — correct because OSS/Enterprise aren't
+    multi-tenant-tiered; real enforcement is the cloud overlay's job. The
+    grant-all default never weakens ``require_enterprise()`` (edition gate)
+    or ``PermissionExtension`` (RBAC) — the three seams are orthogonal.
     """
     ext = _extensions.get("entitlement")
     if ext is None:
@@ -540,30 +420,20 @@ def get_entitlement_port() -> "EntitlementPort":
 
 
 def get_ai_provider(name: str) -> "AIProviderExtension":
-    """Return the named AIProviderExtension or raise ValueError (Phase 226 D-04/D-05).
+    """Return the named AIProviderExtension or raise ValueError.
 
-    Registry slot ``_extensions["ai_providers"]`` is a
-    ``dict[str, AIProviderExtension]`` — NEW shape (D-04). Distinct from
-    ``audit_sinks`` / ``billing_extensions`` (list-shape, iterated) and
-    ``processing_port`` / ``identity`` (single-slot, replaced) because AI
-    dispatch fans out by NAME at request time: ``LLM_PROVIDER`` PersistentConfig
-    stores ``"anthropic"`` or ``"openai_compatible"`` (or any overlay-registered
-    name like ``"bedrock"``), and the accessor returns THE provider matching that
-    name. O(1) lookup; mirrors the audit's "dispatch table" wording verbatim.
+    ``_extensions["ai_providers"]`` is a ``dict[str, AIProviderExtension]``,
+    distinct from the list-shape ``audit_sinks``/``billing_extensions`` and
+    the single-slot ``processing_port``/``identity`` — AI dispatch fans out
+    by name at request time (``LLM_PROVIDER`` config selects the key).
 
-    Per-key ``setdefault`` seeds the two community defaults without overwriting
-    overlay registrations (D-05). If an overlay registered
-    ``providers["anthropic"] = TierAwareAnthropicProvider()`` BEFORE the first
-    ``get_ai_provider()`` call (during ``load_extensions()``), the seeding step
-    skips that key and the overlay wins. If an overlay registers a NEW name
-    ``providers["bedrock"] = BedrockProvider()``, both defaults plus the new
-    provider coexist. Order-safe regardless of overlay registration timing —
-    same shape as Phase 222's ``setdefault + append`` for list-shape, adapted
-    to dict-shape.
+    Per-key ``setdefault`` seeds the two community defaults without
+    overwriting an overlay that registered the same key before the first
+    ``get_ai_provider()`` call; a new overlay-registered name coexists
+    alongside the defaults.
 
-    Raises ``ValueError("Unknown LLM provider: {name}")`` for unknown names
-    (D-06 — preserves today's ``llm_loop.py:149`` exception type/message so
-    existing tests that catch ValueError continue to pass).
+    Raises ``ValueError("Unknown LLM provider: {name}")`` for unknown names,
+    preserving the exception type/message existing callers catch.
     """
     providers = _extensions.setdefault("ai_providers", {})
     providers.setdefault("anthropic", DefaultAnthropicProvider())
@@ -574,24 +444,19 @@ def get_ai_provider(name: str) -> "AIProviderExtension":
 
 
 def get_embedding_provider(name: str) -> "EmbeddingProviderExtension":
-    """Return the named EmbeddingProviderExtension or raise ValueError (Phase 231 D-09/D-10).
+    """Return the named EmbeddingProviderExtension or raise ValueError.
 
-    Registry slot ``_extensions["embedding_providers"]`` is a
-    ``dict[str, EmbeddingProviderExtension]`` — same dict-shape as
-    ``ai_providers`` (Phase 226 D-04). Distinct registry from ``ai_providers``;
-    the same name (``"openai_compatible"``) coexists in both because dispatch
-    tables are name-scoped per extension type (D-07).
+    ``_extensions["embedding_providers"]`` is dict-shape like
+    ``ai_providers``, but a separate registry — the same name
+    (``"openai_compatible"``) can exist independently in both, since
+    dispatch tables are name-scoped per extension type.
 
-    Per-key ``setdefault`` seeds the single community default without overwriting
-    overlay registrations (D-10 mirroring Phase 226 D-05). If an overlay
-    registered ``providers["openai_compatible"] = TierAwareEmbeddingProvider()``
-    BEFORE the first ``get_embedding_provider()`` call, the seeding step skips
-    that key and the overlay wins. If an overlay registers a NEW name
-    ``providers["bedrock"] = BedrockEmbeddingProvider()``, both default and
-    overlay coexist. Order-safe regardless of overlay registration timing.
+    Per-key ``setdefault`` seeds the community default without overwriting
+    an overlay that registered the same key before the first
+    ``get_embedding_provider()`` call.
 
     Raises ``ValueError("Unknown embedding provider: {name}")`` for unknown
-    names (D-11 — symmetry with ``get_ai_provider``'s "Unknown LLM provider").
+    names, symmetric with ``get_ai_provider``.
     """
     providers = _extensions.setdefault("embedding_providers", {})
     providers.setdefault("openai_compatible", DefaultOpenAIEmbeddingProvider())

@@ -40,7 +40,7 @@ async def _probe(name: str, coro: Coroutine[Any, Any, None]) -> dict[str, Any]:
         await asyncio.wait_for(coro, timeout=HEALTH_TIMEOUT)
         latency_ms = round((time.monotonic() - start) * 1000, 1)
         return {"status": "ok", "latency_ms": latency_ms}
-    except Exception as exc:  # broad: health probes intentionally aggregate any provider-side failure as a degraded status
+    except Exception as exc:  # broad: aggregate any provider failure as degraded
         latency_ms = round((time.monotonic() - start) * 1000, 1)
         logger.warning("health_probe_failed", provider=name, error=str(exc))
         result: dict[str, Any] = {"status": "error", "latency_ms": latency_ms}
@@ -69,7 +69,6 @@ async def _check_database() -> None:
 
 
 async def _check_storage() -> None:
-    """Probe storage provider health."""
     from app.platform.storage import get_storage
 
     storage = get_storage()
@@ -77,7 +76,6 @@ async def _check_storage() -> None:
 
 
 async def _check_cache() -> None:
-    """Probe cache provider health."""
     from app.platform.cache import get_cache
 
     cache = get_cache()
@@ -121,7 +119,7 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
         from app.modules.auth.oauth import service as oauth_service
 
         providers = await oauth_service.list_providers(db, enabled_only=True)
-    except Exception as exc:  # broad: OAuth provider enumeration is non-fatal; health endpoint should not 500 if list fails
+    except Exception as exc:  # broad: enumeration is non-fatal; must not 500 the probe
         logger.warning(
             "Failed to enumerate OAuth providers for health probe",
             error=str(exc),

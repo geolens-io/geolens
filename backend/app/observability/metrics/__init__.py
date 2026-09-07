@@ -1,22 +1,12 @@
-"""Prometheus metrics module for GeoLens.
+"""Prometheus metrics module for GeoLens: HTTP request instrumentation,
+job queue gauges, and connection pool gauges.
 
-Provides HTTP request instrumentation, job queue gauges, and connection pool gauges.
-
-fix(#1240, #651): under UVICORN_WORKERS>=2 (the prod compose default), each
-worker used to answer /metrics from its own local prometheus_client registry,
-so successive scrapes sawtoothed between per-process values and Prometheus
-read every downward step as a counter reset -- fabricating rate() traffic and
-collapsing latency averages to a worker's lifetime mean. `init_metrics` itself
-needs no multiprocess-specific code: prometheus_fastapi_instrumentator's
-`expose()` already serves a fresh CollectorRegistry wrapped by
-multiprocess.MultiProcessCollector whenever PROMETHEUS_MULTIPROC_DIR is set
-(see its `metrics()` closure), and falls back to the plain default registry
-otherwise. Both docker-compose.yml and docker-compose.prod.yml set
-PROMETHEUS_MULTIPROC_DIR for the api service by default, so multiprocess mode
-is active in dev too, not just prod -- deliberately, so bumping
-UVICORN_WORKERS locally to reproduce #651 (per its own verification recipe)
-needs no extra env wiring. It works correctly at UVICORN_WORKERS=1: there is
-just one process's files for MultiProcessCollector to merge.
+fix(#1240, #651): without multiprocess mode, each worker answers /metrics
+from its own registry, so scrapes sawtooth between per-process values and
+Prometheus reads every downward step as a fabricated counter reset.
+`expose()` already serves a merged registry whenever
+PROMETHEUS_MULTIPROC_DIR is set, which both compose files do by default
+(dev included), so #651 reproduces locally with no env wiring.
 """
 
 import asyncio
@@ -35,8 +25,8 @@ logger = structlog.stdlib.get_logger(__name__)
 # by a sibling that died without running its own shutdown hook.
 _SWEEP_INTERVAL_SECONDS = 60
 
-# fix(#1240, #651 review round 6): must match the endpoint create_instrumentator()
-# + instrumentator.expose() below actually serve (its default, unoverridden).
+# fix(#1240, #651): must match the endpoint create_instrumentator() +
+# instrumentator.expose() below actually serve (its default, unoverridden).
 _METRICS_ENDPOINT_PATH = "/metrics"
 
 # How long the scrape-side non-blocking lock poll waits between attempts.
@@ -49,68 +39,46 @@ def _sweep_lock_path(multiproc_dir: str) -> str:
     """Path to the reader/writer lock file guarding PROMETHEUS_MULTIPROC_DIR
     against concurrent scrape-vs-sweep file mutation. See
     _consolidate_dead_cumulative_metric_files() (writer/exclusive side)
-    and the metrics-scrape middleware wired up in init_metrics() (reader/
-    shared side) for fix(#1240, #651 review round 6).
+    and the metrics-scrape middleware in init_metrics() (reader/shared
+    side); fix(#1240, #651).
     """
     return os.path.join(multiproc_dir, "sweep.lock")
 
 
-# fix(#1517): upper bounds for http_request_duration_seconds, the only latency
-# histogram carrying a `handler` label. The library default is (0.1, 0.5, 1)
-# plus the implicit +Inf, and histogram_quantile returns the highest FINITE
-# bound when the quantile lands in +Inf -- so on the default buckets p95 could
-# never exceed 1.0 for any handler selection, and every alert in
-# infra/monitoring/alerts.yml wanting a threshold above 1s was inexpressible.
-# GeoLensApiInteractiveLatencyP95 fired three times on the demo reading exactly
-# 1 each time; that was the ceiling, not a latency. Top finite bucket 10 puts
-# the clamp at 10s, well above any threshold the rules express.
-#
-# Cost, and why upstream ships it coarse: this histogram is labelled by
-# `handler` AND `method`, so each added bound multiplies its series count --
-# 4 bounds to 8 roughly doubles it. That is upstream's reason to default low,
-# not a GeoLens-specific one; at a few dozen templated handlers the extra
-# series are cheap and an expressible threshold is not optional.
-# The sibling http_request_duration_highr_seconds already carries 21 bounds up
-# to 60, but it is unlabelled, so it cannot answer "p95 excluding tiles" --
-# which is the entire point of the rules that read this one.
+# fix(#1517): upper bounds for http_request_duration_seconds (the only
+# `handler`-labelled latency histogram). The library default — (0.1, 0.5,
+# 1) + implicit +Inf — clamps p95 at 1.0, since histogram_quantile
+# returns the highest FINITE bound when the quantile lands in +Inf;
+# GeoLensApiInteractiveLatencyP95 fired on that ceiling, not real
+# latency. Kept short despite the cost (each bound adds one series per
+# `method` label value)
+# because the unlabelled sibling can't answer "p95 excluding tiles".
 LATENCY_LOWR_BUCKETS = (0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 
 
 def init_metrics(app: FastAPI):
     """Instrument the FastAPI app and expose /metrics endpoint."""
     instrumentator = create_instrumentator()
-    # fix(#1517): buckets are passed HERE, not in create_instrumentator().
-    # Instrumentator.__init__ accepts no bucket arguments at all;
-    # instrument() is the only place they can be set
-    # (prometheus_fastapi_instrumentator 8.1.0). instrumentator.py is the file
-    # that looks like it configures this and cannot.
+    # fix(#1517): buckets are passed HERE, not in create_instrumentator() —
+    # Instrumentator.__init__ takes no bucket args; instrument() is the
+    # only place they can be set (prometheus_fastapi_instrumentator 8.1.0).
     instrumentator.instrument(app, latency_lowr_buckets=LATENCY_LOWR_BUCKETS)
     instrumentator.expose(app, include_in_schema=False, should_gzip=True)
 
     @app.middleware("http")
     async def _hold_scrape_lock_during_metrics_response(request: Request, call_next):
         """Hold a shared (reader) lock on PROMETHEUS_MULTIPROC_DIR for the
-        duration of a /metrics scrape, so the consolidation sweep's exclusive
-        (writer) lock can never rename a counter_*.db/histogram_*.db/
-        summary_*.db out from under a scrape that has already globbed it.
+        duration of a /metrics scrape, so the consolidation sweep's
+        exclusive lock can never rename a .db file out from under a
+        scrape that already globbed it.
 
-        fix(#1240, #651 review round 6): MultiProcessCollector.collect()
-        globs "*.db" and then opens each matched path one by one. It only
-        tolerates a path disappearing between those two steps for
-        gauge_live*.db files (prometheus_client's own code has an explicit
-        except-continue for exactly that case, because mark_process_dead()
-        is expected to race a scrape); for the cumulative types (counter,
-        histogram, summary -- fix #1240, #651 review round 7) it
-        re-raises FileNotFoundError, which without this lock would surface
-        as an intermittent 500 from /metrics whenever the 60s sweep's
-        os.rename() lands mid-scrape. Excluded from instrumentation
-        (excluded_handlers=["/metrics", ...] in instrumentator.py) so this
-        lock wait itself is never measured as request latency.
-
-        Uses a non-blocking flock() in a poll loop (not a blocking flock()
-        call) so a brief wait for the sweep's exclusive hold never blocks
-        this worker's asyncio event loop -- fcntl.flock is not
-        awaitable/async-aware.
+        fix(#1240, #651): MultiProcessCollector.collect() tolerates a
+        path disappearing mid-scan only for gauge_live*.db; cumulative
+        types re-raise FileNotFoundError, which would surface as an
+        intermittent 500 when the 60s sweep's os.rename() lands
+        mid-scrape. Non-blocking poll loop (fcntl.flock isn't awaitable)
+        so a brief wait never blocks this worker's event loop. Excluded
+        from instrumentation so the wait is never measured as latency.
         """
         multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
         if request.url.path != _METRICS_ENDPOINT_PATH or not multiproc_dir:
@@ -136,19 +104,12 @@ def init_metrics(app: FastAPI):
 def shutdown_worker_metrics() -> None:
     """Mark this worker process's multiprocess metric files dead.
 
-    fix(#1240, #651): under UVICORN_MAX_REQUESTS recycling (#643) a worker
-    exits and is respawned mid-lifetime, not just at container shutdown.
-    Without this, the exited worker's mmap files linger under
-    PROMETHEUS_MULTIPROC_DIR and keep being summed into every future scrape
-    as a stale series. No-op when multiprocess mode isn't active -- both
-    compose files set PROMETHEUS_MULTIPROC_DIR by default (dev included), so
-    this is live in normal local development too; it only stays unset for a
-    bespoke deployment that runs the api image directly, outside these
-    compose files, without setting the var itself.
-
-    This only runs on a graceful lifespan shutdown -- see
-    sweep_dead_worker_metrics() for the OOM-kill/SIGKILL case, where this
-    function never gets a chance to run at all.
+    fix(#1240, #651): under UVICORN_MAX_REQUESTS recycling (#643) a
+    worker respawns mid-lifetime, not just at container shutdown;
+    without this its mmap files linger and keep summing into every
+    future scrape as a stale series. No-op when multiprocess mode isn't
+    active. Runs only on graceful lifespan shutdown — see
+    sweep_dead_worker_metrics() for the OOM-kill/SIGKILL case.
     """
     if "PROMETHEUS_MULTIPROC_DIR" not in os.environ:
         return
@@ -160,13 +121,10 @@ def shutdown_worker_metrics() -> None:
 def _dead_worker_pids() -> Iterator[int]:
     """PIDs with a live-mode multiprocess file but no longer running.
 
-    Reads pids off of gauge_live*_<pid>.db filenames (prometheus_client's own
-    naming scheme) and checks each with a signal-0 kill, the same liveness
-    probe prometheus_client's own docs recommend for this exact reaping
-    pattern. A pid that gets reused by an unrelated process before the next
-    sweep would be skipped as "alive" -- an accepted, documented limitation
-    of pid-based reaping, not something this sweep can close from inside a
-    dying process.
+    Reads pids from gauge_live*_<pid>.db filenames and checks each with
+    a signal-0 kill (prometheus_client's recommended reaping pattern). A
+    pid reused before the next sweep is skipped as "alive" — an accepted
+    limitation, not fixable from inside a dying process.
     """
     multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
     if not multiproc_dir:
@@ -216,110 +174,25 @@ def _iter_dead_pid_files(prefix: str, multiproc_dir: str) -> Iterator[tuple[int,
         yield pid, path
 
 
-# fix(#1240, #651 review round 4): non-numeric suffix so _iter_dead_pid_files
-# never mistakes this file itself for a dead worker's file.
+# fix(#1240, #651): non-numeric suffix so _iter_dead_pid_files never
+# mistakes this file itself for a dead worker's file.
 _ARCHIVE_SUFFIX = "archived"
 
 
 def _consolidate_dead_cumulative_metric_files() -> None:
-    """Fold dead workers' counter/histogram/summary files into one running
-    total per metric type, instead of leaving them to accumulate forever.
+    """Fold dead workers' counter/histogram/summary files into one
+    running total per type ("<type>_archived.db") instead of letting
+    them accumulate forever. mark_process_dead() never touches these
+    (fix(#1240), #651): their values are cumulative, summed across every
+    pid's file, so deleting one would silently subtract its contribution.
 
-    mark_process_dead() (used by shutdown_worker_metrics() and the gauge
-    reap above) deliberately never touches counter_<pid>.db /
-    histogram_<pid>.db / summary_<pid>.db -- unlike a gauge, these three
-    types' stored values are cumulative totals the collector sums across
-    every pid's file on every scrape, so simply deleting a dead pid's file
-    would silently subtract its contribution and produce a downward step (a
-    fabricated counter "decrease" -- exactly the sawtooth bug #1240 exists
-    to fix). Under the prod default UVICORN_MAX_REQUESTS=10000, a
-    long-running container recycles workers indefinitely, so those files
-    would otherwise accumulate without bound, one per departed worker, and
-    every scrape has to open and sum all of them.
-
-    fix(#1240, #651 review round 7): summary_<pid>.db is not optional to
-    cover -- prometheus_fastapi_instrumentator's default instrumentation
-    creates two Summary metrics (http_request_size_bytes,
-    http_response_size_bytes) alongside the Counter/Histogram ones, so every
-    recycled worker leaves one of these behind too. MultiProcessCollector's
-    own _accumulate_metrics() sums a Summary's raw (name, labels) samples
-    the same way it sums a Counter's -- plain addition, no bucket-style
-    reconstruction like a histogram's "le" boundaries need -- so a Summary
-    file's raw (key, value, timestamp) triples fold into its archive with
-    the exact same additive read-modify-write this function already does
-    for counter/histogram; no separate merge math is needed, just adding
-    "summary" to the prefixes iterated below. Verified empirically (not
-    just reasoned about) before this landed: prometheus_client's own
-    MmapedValue file-naming code confirms summary_<pid>.db has no mode
-    segment (same convention as counter/histogram, unlike gauge's
-    gauge_<mode>_<pid>.db), and a scratch script round-tripped a Summary's
-    _count/_sum through this exact consolidation path with the total
-    unchanged before the fix was written into this function.
-
-    Folds each dead pid's file additively into a single "<type>_archived.db"
-    file instead: read every (key, value, timestamp) triple straight out of
-    the dead pid's raw mmap file (MmapedDict.read_all_values_from_file --
-    the same binary format prometheus_client's own worker processes write,
-    and the mechanism its multiprocess.MultiProcessCollector.merge() docstring
-    points to for exactly this "write merged data back to mmap files" case),
-    add it to whatever total is already stored under that same key in the
-    archive file, and delete the source. The archive file is just another
-    counter_*.db/histogram_*.db/summary_*.db file as far as
-    MultiProcessCollector.collect() is concerned (it globs "*.db" and only
-    inspects the type prefix, not the pid segment), so it keeps contributing
-    to the summed total exactly as the dead files it absorbed would have.
-    Net effect: the scraped total is unchanged, but file count stays
-    O(live workers + 3) instead of growing with every worker ever recycled.
-
-    Races itself safely against BOTH sibling sweeps AND in-flight scrapes,
-    using the same reader/writer lock file as the /metrics scrape middleware
-    in init_metrics() (see _sweep_lock_path()): this whole function -- every
-    prefix's claim (os.rename()) and merge -- runs under ONE exclusive
-    (writer) hold of that lock, acquired once at the top and released at the
-    end. Two things this closes that a narrower lock wouldn't:
-
-    - fix(#1240, #651 review round 5): two workers each successfully
-      claiming a DIFFERENT dead pid's file in the same pass and then both
-      folding their value into the SAME "<type>_archived.db" at once is a
-      lost-update race (read, add, write is not atomic across processes) --
-      whichever worker's write lands last overwrites the other's,
-      permanently under-counting the archive. A per-prefix archive-only lock
-      (this function's first version) closed this by itself, but round 6
-      below needed a wider hold anyway, so it now covers this case too.
-    - fix(#1240, #651 review round 6): MultiProcessCollector.collect() globs
-      "*.db" and then opens each matched path one by one; it only tolerates
-      a path disappearing between those two steps for gauge_live*.db files
-      (prometheus_client's own code has an explicit except-continue there,
-      because mark_process_dead() is expected to race a scrape). For the
-      cumulative types (counter_*.db/histogram_*.db/summary_*.db) it
-      re-raises FileNotFoundError, so this function's own os.rename() claim
-      step -- if it ran unsynchronized -- could make a scrape that already
-      globbed a dead pid's file 500 when it tries to open the
-      now-renamed-away path. Holding the SAME lock the
-      scrape middleware takes (shared/reader) as exclusive/writer here means
-      no rename can land while any scrape is in flight, and no scrape can
-      start reading while a rename is in flight.
-
-    flock is released automatically by the kernel if this process dies while
-    holding it, so a crash mid-sweep can't deadlock a sibling worker's next
-    sweep or wedge /metrics shut. If this process is killed after claiming a
-    file but before merging it, the renamed file is orphaned (invisible to
-    both future scrapes and future sweeps) -- an accepted, documented
-    residual risk of the same shape as the pid-reuse limitation in
-    _dead_worker_pids(), not a correctness bug in the common case of a
-    graceful sweep pass.
-
-    Uses a blocking fcntl.flock() internally (unlike the scrape middleware's
-    non-blocking poll loop) -- this is safe ONLY because the sole caller,
-    sweep_dead_worker_metrics(), always invokes this whole function via
-    asyncio.to_thread(), off the event loop thread entirely (fix(#1240,
-    #651 review round 8): a blocking LOCK_EX here that ran directly on the
-    event loop could deadlock against this worker's own /metrics scrape
-    middleware, which holds a shared lock via a DIFFERENT file descriptor
-    on the same lock file while awaiting a thread-pool-dispatched handler --
-    see sweep_dead_worker_metrics()'s docstring for the full mechanism). Do
-    not call this function directly from a coroutine running on a worker's
-    event loop; always go through the to_thread()-wrapped caller.
+    Runs under one exclusive hold of the same lock the /metrics scrape
+    middleware takes as shared (_sweep_lock_path()), closing a
+    lost-update race between two sweeps and a FileNotFoundError a scrape
+    would hit if a rename landed mid-glob. Must run off the event loop
+    via asyncio.to_thread (see sweep_dead_worker_metrics()) — its
+    flock() blocks, and run inline it could deadlock against this
+    worker's own scrape middleware holding the shared lock on the file.
     """
     multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
     if not multiproc_dir:
@@ -335,6 +208,8 @@ def _consolidate_dead_cumulative_metric_files() -> None:
                 claimed_paths = []
                 for _pid, path in _iter_dead_pid_files(prefix, multiproc_dir):
                     claimed_path = f"{path}.claimed"
+                    # A kill after the rename but before the merge orphans the claimed
+                    # file, invisible to scrapes and sweeps: an accepted residual.
                     try:
                         os.rename(path, claimed_path)
                     except FileNotFoundError:
@@ -383,49 +258,16 @@ def _sweep_dead_worker_metrics_once() -> None:
 async def sweep_dead_worker_metrics() -> None:
     """Background loop: reap and consolidate files left by dead workers.
 
-    fix(#1240, #651 review round 2): shutdown_worker_metrics() only runs on a
-    graceful lifespan shutdown. A worker OOM-killed or SIGKILLed (the #643
-    scenario this whole gauge exists to catch) never reaches that shutdown
-    path, while the uvicorn supervisor stays up and respawns a replacement in
-    the same PROMETHEUS_MULTIPROC_DIR -- so the dead worker's RSS and pool
-    gauges would otherwise linger, inflating /metrics, until the whole
-    container restarts.
-
-    fix(#1240, #651 review round 4): under the prod default
-    UVICORN_MAX_REQUESTS=10000, a long-running container recycles workers
-    indefinitely, and mark_process_dead() intentionally never removes a dead
-    worker's counter_<pid>.db / histogram_<pid>.db / summary_<pid>.db (their
-    cumulative values still need to count toward the total; fix(#1240, #651
-    review round 7) added the summary case). Left alone those files grow
-    without bound -- see _consolidate_dead_cumulative_metric_files() for
-    how they get folded into one running archive file per metric type
-    instead.
-
-    No-op when multiprocess mode isn't active. Safe to run in every worker:
-    both the gauge reap and the counter/histogram/summary consolidation are
-    idempotent/self-excluding once a dead pid's files are gone, so a race
-    between two workers sweeping the same dead pid is harmless.
-
-    fix(#1240, #651 review round 8): _sweep_dead_worker_metrics_once() runs
-    in a thread-pool executor (asyncio.to_thread), NOT directly on this
-    coroutine's event loop. flock() locks are per OPEN FILE DESCRIPTION, not
-    per-process -- if this worker's OWN /metrics scrape middleware is
-    concurrently holding the shared (reader) lock via its own fd while
-    awaiting call_next() (which dispatches the instrumentator's sync
-    handler to a thread pool and yields control back to this same event
-    loop), and this sweep then called fcntl.flock(LOCK_EX) directly, that
-    blocking syscall would run ON the event loop thread. The lock can only
-    become available once the middleware's call_next() completes and its
-    finally-block releases the shared lock -- but that completion has to be
-    delivered back to the loop via a callback, and the loop thread is the
-    one now frozen inside the kernel waiting for the exclusive lock. Same
-    process, two different file descriptors on the same lock file, real
-    deadlock: this worker would stop answering ANY request (not just
-    /metrics) until forcibly killed, invisibly to the uvicorn supervisor.
-    to_thread() moves the entire blocking pass (including its flock calls)
-    onto a separate OS thread, so even if that thread blocks waiting for
-    the scrape's shared lock to release, the event loop thread stays free
-    to run the scrape's call_next() continuation and its unlock.
+    fix(#1240, #651): shutdown_worker_metrics() only runs on graceful
+    shutdown, so an OOM-killed/SIGKILLed worker (#643) leaves its
+    RSS/pool gauges and cumulative metric files behind (see
+    _consolidate_dead_cumulative_metric_files()), inflating /metrics
+    until the container restarts. No-op when multiprocess mode isn't
+    active; safe in every worker since both passes are idempotent once
+    a dead pid's files are gone. Dispatches via asyncio.to_thread — its
+    flock() blocks, and inline on the event loop it could deadlock
+    against this worker's own scrape middleware holding a lock on the
+    same file via a different fd.
     """
     while True:
         try:

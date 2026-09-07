@@ -1,7 +1,4 @@
-"""Geometry detection & GeoJSON helpers for ephemeral chat result layers.
-
-Phase 276 CODE-02 — extracted from chat_service.py.
-"""
+"""Geometry detection & GeoJSON helpers for ephemeral chat result layers."""
 
 import json
 import math
@@ -54,17 +51,16 @@ def _func_name(fn: exp.Func) -> str:
 def _selects_geometry(item: exp.Expression) -> bool:
     """True when a select item already yields a geometry-valued column.
 
-    Structural, never name-based (#556 review P2): a scalar aliased to a
-    geometry-looking name — ``md5(name) AS geometry``, ``ST_X(geom_4326) AS
-    st_x`` — must NOT count as selected geometry. If it did, the append is
-    skipped and the strict value parser then finds no geometry to overlay,
-    reintroducing the missing-map regression. Only the underlying expression
-    (a ``geom_4326`` column, or a geometry-returning function) decides.
+    Structural, never name-based (#556): a scalar aliased to a
+    geometry-looking name (``md5(name) AS geometry``) must NOT count, or
+    the append below is skipped and the strict value parser finds no
+    geometry to overlay — the missing-map regression this guards against.
+    Only the underlying expression (a ``geom_4326`` column, or a
+    geometry-returning function) decides.
 
-    Alias and Cast/Paren wrappers are unwrapped first, and — #556 review —
-    the unwrap runs for the UNALIASED case too, so a bare
-    ``ST_Buffer(...)::geometry`` (no ``AS``) correctly suppresses the append
-    instead of getting a redundant second geometry column bolted on.
+    Alias/Cast/Paren wrappers are unwrapped first, for the ALIASED and
+    UNALIASED case alike, so a bare ``ST_Buffer(...)::geometry`` correctly
+    suppresses the append instead of getting a redundant second column.
     """
     if isinstance(item, exp.Alias):
         item = item.this
@@ -80,15 +76,15 @@ def _selects_geometry(item: exp.Expression) -> bool:
 def ensure_geometry_selected(sql: str, layers) -> str:
     """fix(#544): deterministically append geom_4326 to row-level selects.
 
-    The SQL model is free to answer a location-shaped question with attribute
-    columns only, which silently drops the map overlay on every chat surface.
-    Rather than a model-dependent prompt rule, rewrite the generated SQL: when
-    it is a plain single-table SELECT from a layer that has geometry and no
-    geometry column in the select list, append the table's geom_4326.
+    The model can answer a location-shaped question with attribute columns
+    only, silently dropping the map overlay. Rather than a model-dependent
+    prompt rule, rewrite the generated SQL: for a plain single-table SELECT
+    from a layer with geometry and no geometry column selected, append
+    geom_4326.
 
-    Conservative by design — any shape where the appended column could change
-    results or break the query (aggregates, GROUP BY, DISTINCT, joins, CTEs,
-    set operations, SELECT *) is returned unchanged.
+    Conservative by design — any shape where the append could change
+    results (aggregates, GROUP BY, DISTINCT, joins, CTEs, set operations,
+    SELECT *) is returned unchanged.
     """
     geom_tables = {layer.dataset_table_name for layer in layers if layer.geometry_type}
     if not geom_tables:
@@ -104,7 +100,7 @@ def ensure_geometry_selected(sql: str, layers) -> str:
         or stmt.args.get("distinct")
         or stmt.find(exp.With)  # any CTE, top-level or nested — stay out
         or stmt.args.get("joins")
-        # fix(#556 review P2): HAVING without GROUP BY is still an aggregate
+        # fix(#556): HAVING without GROUP BY is still an aggregate
         # (implicit single group), and its COUNT(*) lives outside the SELECT
         # list where the per-item aggregate check can't see it. args.get scopes
         # to THIS query, so a subquery's HAVING doesn't suppress the append.
@@ -133,7 +129,7 @@ def ensure_geometry_selected(sql: str, layers) -> str:
         ):
             return sql
         for fn in item.find_all(exp.Func):
-            # fix(#556 review P2): only consult _ANON_AGG_NAMES for exp.Anonymous
+            # fix(#556): only consult _ANON_AGG_NAMES for exp.Anonymous
             # nodes. On a named Func, fn.name is arg-derived, not the function
             # name — CAST(mode AS TEXT) reports name="mode", which would falsely
             # trip the guard and drop the overlay for any row-level query that
@@ -150,7 +146,7 @@ def ensure_geometry_selected(sql: str, layers) -> str:
                 return sql
         if _selects_geometry(item):
             return sql
-    # fix(#556 review P2): build the qualifier from the alias/table AST
+    # fix(#556): build the qualifier from the alias/table AST
     # identifier (not an f-string) so a quoted alias survives — FROM ... AS "P"
     # must append "P".geom_4326 (unquoted P folds to lowercase and fails), and
     # an alias with spaces must not raise a ParseError inside stmt.select().
@@ -159,7 +155,7 @@ def ensure_geometry_selected(sql: str, layers) -> str:
     geom_col = exp.Column(this=exp.to_identifier("geom_4326"), table=ref_ident.copy())
     stmt.select(geom_col, copy=False)
     rendered = stmt.sql(dialect="postgres")
-    # fix(#556 review P2): sqlglot's postgres dialect does not faithfully
+    # fix(#556): sqlglot's postgres dialect does not faithfully
     # round-trip every pgvector/PostGIS distance operator — `<=>` (cosine) is
     # re-serialized as IS NOT DISTINCT FROM, silently turning nearest-neighbor
     # ranking into boolean equality. Re-rendering only happens on the append
@@ -211,7 +207,7 @@ def _is_geom_value(val: object) -> bool:
 
 
 def _first_non_null(rows: list[list], i: int) -> object:
-    """First non-null value in column i (fix #556 review P2: probing only
+    """First non-null value in column i (fix(#556) review P2: probing only
     rows[0] made a NULL leading geometry break detection and stripping)."""
     for row in rows:
         val = row[i] if i < len(row) else None
@@ -223,7 +219,7 @@ def _first_non_null(rows: list[list], i: int) -> object:
 def strip_geometry_columns(
     columns: list[str], rows: list[list]
 ) -> tuple[list[str], list[list]]:
-    """Drop geometry-valued columns from tabular chat output (fix #544).
+    """Drop geometry-valued columns from tabular chat output (fix(#544)).
 
     Raw WKB hex / GeoJSON strings are noise in a result table; geometry
     travels via the geojson payload instead. Value-based, not name-based:
@@ -247,7 +243,7 @@ def _detect_geom_column(columns: list[str], rows: list[list]) -> int | None:
     """Find the index of a geometry column.
 
     A geometry-*named* column that actually parses is preferred; otherwise
-    fall back to any column whose value parses as geometry (fix #556 review:
+    fall back to any column whose value parses as geometry (fix(#556) review:
     aliased computed geometry such as ``ST_Buffer(...) AS buffer``). Both
     phases use the strict, parse-verified _is_geom_value so a geometry-named
     hash column cannot shadow the real geometry, and values are probed at the
@@ -272,22 +268,16 @@ _JS_MAX_SAFE_INT = 2**53 - 1
 def _safe_value(v: object) -> object:
     """Convert values the client cannot represent to str; pass through the rest.
 
-    fix(#1241 codex r5): an integer outside JavaScript's safe range is
-    JSON-serializable and still lossy — 9007199254740993 arrives in the browser
-    as 9007199254740992, because JSON.parse rounds it to the nearest double.
-    That silently wrong id was always on screen; it becomes permanent now that
-    the map builder can save a chat preview as a dataset, since the snapshot is
-    serialized from the parsed payload. Emitting the exact digits as a string
-    is the only shape that survives the trip. Every smaller integer stays a
-    number, so ordinary ids keep their type.
+    fix(#1241): an integer outside JavaScript's safe range is lossy even
+    though JSON-serializable (9007199254740993 arrives as
+    9007199254740992). Emitting the exact digits as a string is the only
+    shape that survives; smaller integers stay numbers.
 
-    fix(#1778): NaN and +/-Infinity are the other values the client cannot
-    represent, and PostgreSQL ``real``/``double precision`` legally hold all
-    three. ``json.dumps`` writes them as the bare tokens ``NaN``/``Infinity``,
-    which ``JSON.parse`` rejects, so one such cell used to make the whole
-    actions frame unparseable: the browser dropped it silently and the
-    non-streaming endpoint returned 500 (Starlette renders with
-    ``allow_nan=False``). They become null, which the client can hold.
+    fix(#1778): NaN/+-Infinity are the other unrepresentable values
+    (Postgres real/double hold all three). ``json.dumps`` writes bare
+    tokens ``JSON.parse`` rejects, breaking the whole actions frame
+    silently (or 500ing non-streaming, Starlette's ``allow_nan=False``).
+    They become null instead.
     """
     if v is None or isinstance(v, (str, bool)):
         return v
@@ -302,17 +292,15 @@ def _safe_value(v: object) -> object:
 
 
 def safe_rows(rows: list[list]) -> list[list]:
-    """Normalize a tabular result's cells for the browser (fix(#1778 round 3)).
+    """Normalize a tabular result's cells for the browser (fix(#1778)).
 
-    ``_safe_value`` reached only the GeoJSON property copy, so a NaN or an
-    Infinity in an ordinary column still travelled in ``show_query_result``'s
-    ``rows``: the SSE frame carried a bare ``NaN`` token, ``JSON.parse``
-    rejected it and ``parseSSEBody`` dropped the whole frame silently, and the
-    non-streaming endpoint returned 500 because Starlette renders with
-    ``allow_nan=False``. The same normalization now runs on both halves of the
-    payload, at the one point the rows are handed to a frame.
+    ``_safe_value`` reached only the GeoJSON property copy — a NaN or
+    Infinity in an ordinary column still hit ``show_query_result``'s
+    ``rows`` as a bare token, which ``parseSSEBody`` silently dropped (SSE)
+    or 500'd (non-streaming, Starlette's ``allow_nan=False``). Same
+    normalization now runs on both halves, at the point rows reach a frame.
 
-    Call this on the way OUT, never before ``_extract_geojson``: geometry is
+    Call on the way OUT, never before ``_extract_geojson``: geometry is
     detected by value, and stringifying a cell first would hide it.
     """
     return [[_safe_value(cell) for cell in row] for row in rows]

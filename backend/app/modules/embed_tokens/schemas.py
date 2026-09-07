@@ -13,16 +13,14 @@ ADVANCED_SHARING_ERROR = "Advanced sharing controls are not enabled for this dep
 
 def _normalize_origin(origin: str) -> str:
     normalized = origin.strip().lower().rstrip("/")
-    # fix(#1548 review r10): a backslash is an origin-confusion primitive, not a
-    # formatting nit — 'https://maps.example.com\\@evil.com' parses as host
-    # 'maps.example.com\\' here and as host 'evil.com' in a browser. Refused for
-    # the same reason as in is_usable_public_origin (app/core/public_urls.py):
-    # the two parsers disagree, and that disagreement is the bug.
+    # fix(#1548): a backslash is an origin-confusion primitive --
+    # 'https://maps.example.com\\@evil.com' parses to a different host here
+    # than in a browser. Refused for the same reason as
+    # is_usable_public_origin (app/core/public_urls.py).
     if "\\" in normalized:
         raise ValueError(f"Invalid origin: {origin}")
-    # Reject wildcard entries — CSP frame-ancestors NEVER '*'.
-    # Check is performed after strip+lower so leading/trailing whitespace cannot
-    # smuggle wildcards. Covers '*', '*.example.com', 'https://*.example.com'.
+    # Reject wildcards (CSP frame-ancestors NEVER '*'); checked after
+    # strip+lower so whitespace can't smuggle one past this.
     if "*" in normalized:
         raise ValueError("Wildcard origin not allowed")
     if not normalized.startswith(("http://", "https://")):
@@ -33,31 +31,25 @@ def _normalize_origin(origin: str) -> str:
         raise ValueError(f"Invalid origin: {origin}")
 
     scheme = parsed.scheme or "https"
-    # fix(#1548 review r9): the host is taken from parsed.hostname and rebuilt,
-    # NOT sliced out of netloc. netloc carries userinfo, so 'https://u:p@host'
-    # used to store 'https://u:p@host' as an origin — a spelling no browser ever
-    # sends, and one that would leak the credentials into any CSP header or
-    # copied link built from it. hostname drops userinfo and lowercases for us.
-    #
-    # parsed.hostname also strips the square brackets from IPv6 literals (e.g.
-    # '::1'), producing an invalid CSP source expression like 'http://::1:8080'
-    # — RFC 3986 / W3C CSP3 §2.6.1 require them bracketed — so they go back on.
+    # fix(#1548): host comes from parsed.hostname, not sliced out
+    # of netloc -- netloc carries userinfo, so 'https://u:p@host' used to be
+    # stored verbatim, leaking credentials into any CSP header built from it.
+    # hostname also strips IPv6 brackets (e.g. '::1'), producing an invalid
+    # CSP source ('http://::1:8080'); RFC 3986/CSP3 require them bracketed,
+    # so they're added back below.
     host = parsed.hostname or ""
-    # fix(#1548 review r10): a non-ASCII host is REFUSED, not converted. Python's
-    # built-in idna codec is IDNA2003 and maps `faß.de` to `fass.de`, while
-    # browsers follow WHATWG/UTS #46 and send `xn--fa-hia.de` — so converting
-    # here would produce a near match, which denies every request while looking
-    # correct. Supply the punycode form, which is what the browser sends anyway.
+    # fix(#1548): non-ASCII hosts are REFUSED, not converted --
+    # Python's idna codec is IDNA2003 (faß.de -> fass.de) while browsers use
+    # WHATWG/UTS #46 (xn--fa-hia.de), so converting here would produce a
+    # near-match that silently denies every request.
     if not host.isascii():
         raise ValueError(
             f"Invalid origin: {origin}. An internationalized domain must be "
             "given in its punycode (xn--) form, which is what browsers send."
         )
-    # fix(#1548 review r11): the host must already be spelled the way a browser
-    # serializes it. Storing our own spelling of `192.168.1` or an uncompressed
-    # IPv6 literal meant the stored origin and the shell's Origin header could
-    # never match. The message names the canonical form where it can be computed
-    # without re-implementing the browser's parser.
+    # fix(#1548): host must already be spelled the way a browser
+    # serializes it (e.g. compressed IPv6, no leading zeros) or the stored
+    # origin can never match the shell's Origin header.
     host_problem = canonical_host_error(host)
     if host_problem is not None:
         raise ValueError(f"Invalid origin: {origin}. {host_problem}")

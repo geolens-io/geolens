@@ -53,7 +53,6 @@ async def create_empty_dataset(
 
     ``request`` should be a CreateEmptyDatasetRequest with ``title`` and ``columns``.
     """
-    # Validate column names
     seen_names: set[str] = set()
     for col in request.columns:
         lower_name = col.name.lower()
@@ -62,15 +61,11 @@ async def create_empty_dataset(
                 f"Invalid column name: {col.name!r}. "
                 "Must start with a letter or underscore and contain only alphanumeric characters and underscores."
             )
-        # fix(#1778): SAFE_COLUMN_NAME_RE allows a leading underscore and has
-        # no length bound, but the feature write path can address neither, so
-        # `POST /datasets/empty` with a column named `_notes` used to create a
-        # real column that the feature API could then never write — POST and
-        # PUT answered 201/200 with the value silently dropped. A name longer
-        # than 63 characters is worse: PostgreSQL truncates the identifier in
-        # the DDL while column_info keeps the full string, so the truncated
-        # name GET returns is rejected as unknown and the full one is dropped.
-        # Refuse at creation rather than build an unwritable column.
+        # fix(#1778): SAFE_COLUMN_NAME_RE allows a leading underscore and no
+        # length bound, but the feature write path can address neither: a
+        # column like `_notes` was created but silently dropped every write,
+        # and a name over 63 chars gets truncated by Postgres DDL while
+        # column_info keeps the full string. Refuse at creation instead.
         if not is_writable_feature_column(lower_name):
             raise ValueError(
                 f"Invalid column name: {col.name!r}. "
@@ -89,7 +84,6 @@ async def create_empty_dataset(
     if not request.columns:
         raise ValueError("At least one column is required.")
 
-    # Generate table name
     table_name, _collision_warning = await get_catalog_port().generate_table_name(
         request.title, session
     )
@@ -97,11 +91,9 @@ async def create_empty_dataset(
     data_schema = tenant_data_schema(tenant_id)
     reader_role = tenant_reader_role(tenant_id)
 
-    # Build column definitions SQL
     col_defs = []
     for col in request.columns:
         pg_type = _TYPE_MAP[col.type]
-        # Column name already validated against regex
         col_defs.append(f"{col.name.lower()} {pg_type}")
 
     columns_sql = ", ".join(col_defs)
@@ -115,7 +107,6 @@ async def create_empty_dataset(
     )
     await session.execute(text(create_sql))
 
-    # Grant reader access
     await get_catalog_port().grant_reader_access(
         session,
         table_name,
@@ -123,7 +114,6 @@ async def create_empty_dataset(
         role=reader_role,
     )
 
-    # Build column_info in standard format
     column_info = []
     for i, col in enumerate(request.columns, start=1):
         column_info.append(
@@ -135,7 +125,6 @@ async def create_empty_dataset(
             }
         )
 
-    # Create catalog record
     dataset = await create_dataset(
         session,
         table_name,
@@ -144,7 +133,7 @@ async def create_empty_dataset(
         column_info=column_info,
         source_format="created",
         srid=4326,
-        # fix(#430 BA-32): the table column is generic geometry(Geometry, 4326); storing
+        # fix(#430): the table column is generic geometry(Geometry, 4326); storing
         # POINT here rejected Polygon/LineString inserts the column accepts.
         geometry_type="GEOMETRY",
         feature_count=0,
@@ -164,9 +153,8 @@ async def create_dataset(
     visibility: str = "private",
     record_status: str = "published",
     ingestion: IngestionResult | None = None,
-    # Legacy kwargs — kept for backward compatibility with call sites that
-    # still pass ingestion fields directly. New call sites should use
-    # `ingestion=IngestionResult(...)` (post-impl-20260501 #2).
+    # Legacy kwargs, kept for call sites that still pass ingestion fields
+    # directly. New call sites should use `ingestion=IngestionResult(...)`.
     srid: int | None = None,
     geometry_type: str | None = None,
     feature_count: int | None = None,
@@ -184,18 +172,10 @@ async def create_dataset(
 ) -> Dataset:
     """Create a record + dataset pair from ingestion results.
 
-    Creates a Record first (shared metadata), then a Dataset linked via record_id.
-    If ``ingestion.extent_wkt`` is provided, converts it to a PostGIS Geometry.
-
-    The ``ingestion`` parameter bundles the 14 fields produced by the ingestion
-    pipeline (srid, geometry_type, feature_count, extent_wkt, column_info,
-    sample_values, source_format, source_filename, original_srid, source_url,
-    is_3d, n_dims, z_min, z_max). Pass ``None`` for ad-hoc creations like
-    empty layers — the dataset is created with all ingestion fields as ``None``.
-
-    Legacy kwargs are also accepted (rolled into an IngestionResult internally)
-    so existing test fixtures and call sites continue to work; prefer
-    ``ingestion=IngestionResult(...)`` for new code.
+    Creates a Record first (shared metadata), then a Dataset linked via
+    record_id. If ``ingestion.extent_wkt`` is provided, converts it to a
+    PostGIS Geometry. Pass ``ingestion=None`` for ad-hoc creations like
+    empty layers -- the dataset is created with all ingestion fields None.
     """
     if ingestion is None:
         ing = IngestionResult(
@@ -218,14 +198,13 @@ async def create_dataset(
         ing = ingestion
 
     spatial_extent_value = None
-    # fix(#934 codex r1): an antimeridian-crossing source produces a two-ring
+    # fix(#934): an antimeridian-crossing source produces a two-ring
     # MULTIPOLYGON extent; accepting only POLYGON here silently nulled
-    # Record.spatial_extent on first ingest. Both types satisfy
+    # Record.spatial_extent on first ingest. Both satisfy
     # chk_records_spatial_extent_type.
     if ing.extent_wkt and ing.extent_wkt.startswith(("POLYGON", "MULTIPOLYGON")):
         spatial_extent_value = func.ST_GeomFromText(ing.extent_wkt, 4326)
 
-    # Determine record_type: non-spatial datasets are 'table'
     record_type = "table" if ing.geometry_type is None else "vector_dataset"
 
     # fix(#302): authoritative count-cap check at the point the Record row is
@@ -250,18 +229,13 @@ async def create_dataset(
     dataset = Dataset(
         record_id=record.id,
         table_name=table_name,
-        # fix(#1218 review): first ingest IS the first successful
-        # materialization, so stamp it here rather than leaving every
-        # post-migration dataset reporting null forever. This mirrors the
-        # floor migration 0036's backfill uses (records.created_at), so a
-        # dataset created before the migration and one created after report
-        # the same kind of thing.
+        # fix(#1218): first ingest IS the first successful materialization,
+        # so stamp it here rather than leaving every dataset reporting null.
         #
         # A Python datetime, NOT func.now(): a SQL expression leaves the
-        # attribute EXPIRED after flush, so the next read of
-        # dataset.last_refreshed_at issues a lazy SELECT — which explodes once
-        # the session is closed, exactly where dataset_to_response reads it.
-        # Every stamping site uses a Python value for that reason.
+        # attribute EXPIRED after flush, so the next read issues a lazy
+        # SELECT that explodes once the session is closed, exactly where
+        # dataset_to_response reads it. Every stamping site does the same.
         last_refreshed_at=datetime.now(timezone.utc),
         srid=ing.srid,
         geometry_type=ing.geometry_type,
@@ -280,19 +254,17 @@ async def create_dataset(
     session.add(dataset)
     await session.flush()
 
-    # Eager-load the record relationship
     await session.refresh(dataset, ["record"])
 
-    # Auto-generate standard distribution records (6 for spatial, 2 for non-spatial).
-    # IMPORTANT: dataset.id is the Dataset PK (used in URL paths),
-    # record.id is the Record PK (used as FK in record_distributions).
+    # Standard distribution records: 6 for spatial, 2 for non-spatial.
+    # dataset.id is the Dataset PK (URL paths); record.id is the Record PK
+    # (FK in record_distributions).
     from app.modules.catalog.records.service import generate_distributions
 
     await generate_distributions(
         session, dataset.id, record.id, table_name, geometry_type=ing.geometry_type
     )
 
-    # Auto-generate attribute metadata from column_info
     if ing.column_info:
         await get_catalog_port().generate_attribute_metadata(
             session,
@@ -302,19 +274,14 @@ async def create_dataset(
             sample_values=ing.sample_values,
         )
 
-    # Auto-detect FK relationships based on column name matching
     if ing.column_info:
         await auto_detect_relationships(session, dataset.id, record.id, ing.column_info)
 
-    # fix(#1230): dataset.create was invisible in the audit trail — emitted
-    # here, not per-router, so every creation path (ingest registration via
-    # register_existing_table, file-upload ingest via tasks_common, layer/
-    # table creation, and the empty-dataset endpoint via
-    # create_empty_dataset) is covered from the one place they all funnel
-    # through, instead of duplicating — and risking missing — the call at
-    # each call site. No ip_address here: this is a domain-layer function
-    # with no Request, matching the existing reupload.commit precedent
-    # (tasks_common.py) which also emits without one.
+    # fix(#1230): dataset.create was invisible in the audit trail -- emitted
+    # here, not per-router, so every creation path funnels through one
+    # emit site instead of risking a missed call at each call site.
+    # No ip_address: a domain-layer function with no Request, matching the
+    # reupload.commit precedent (tasks_common.py).
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,

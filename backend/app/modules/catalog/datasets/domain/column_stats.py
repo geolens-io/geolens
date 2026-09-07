@@ -7,10 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 _IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]*$", re.IGNORECASE)
 
-# Postgres data_type values (from information_schema.columns) on which the
-# numeric MIN/MAX/AVG/percentile/stddev aggregation is valid. Anything else
-# (text, varchar, uuid, bool, etc.) is treated categorically so a stats request
-# on a text column returns a valid response instead of a 500.
+# information_schema.columns data_type values eligible for numeric
+# aggregation; anything else is treated categorically so a stats request on
+# a text column returns a valid response instead of a 500.
 _NUMERIC_TYPES = {
     "smallint",
     "integer",
@@ -53,11 +52,7 @@ def _sql_quote_ident(name: str) -> str:
 
     fix(#640): colons are backslash-escaped because SQLAlchemy ``text()``
     parses ``:name`` as a bind parameter even inside double-quoted
-    identifiers. Defense in depth here — every current caller pre-validates
-    names against ``_IDENTIFIER_RE`` which already rejects colons — but this
-    keeps the helper safe by construction and consistent with the
-    ingest-side copy in ``processing/ingest/metadata_sql.py``, whose inputs ARE
-    arbitrary source-file column names. Only valid inside ``text()``.
+    identifiers. Only valid inside ``text()``.
     """
     return '"' + name.replace('"', '""').replace(":", "\\:") + '"'
 
@@ -82,9 +77,8 @@ async def get_distinct_values(
         raise PermissionError(f"Access denied to table: {table_name!r}")
 
     table_ref = _qtable(table_name)
-    # fix(#458 E-33): quote the (already regex-validated) identifier so
-    # reserved-word column names (desc, order, user) don't 500 the query;
-    # get_column_stats/get_column_null_cardinality below already quote.
+    # fix(#458): quote so a reserved-word column name (desc, order,
+    # user) doesn't 500 the query.
     col_q = _sql_quote_ident(column_name)
 
     sql = text(
@@ -109,13 +103,9 @@ async def get_column_null_cardinality(
 ) -> dict[str, dict]:
     """Return null-count and distinct-count estimates per column.
 
-    Used to enrich AI metadata generation context so the LLM can comment
-    accurately on completeness and value variety. Computed on-demand via
-    one query that scans (or samples) the table once.
-
-    For tables larger than ``sample_size`` rows, TABLESAMPLE BERNOULLI is
-    used to bound query cost; the returned counts are approximate
-    extrapolations from the sample. Small tables get exact counts.
+    Computed in one query that scans (or, for tables over ``sample_size``
+    rows, TABLESAMPLE BERNOULLI-samples) the table once; sampled tables get
+    approximate/extrapolated counts.
 
     Returns:
         Dict mapping column_name to {"null_count": int, "distinct_count": int,
@@ -128,8 +118,6 @@ async def get_column_null_cardinality(
 
     schema = _current_data_schema()
 
-    # Filter columns down to identifier-safe + live-in-table to avoid
-    # producing query failures on bogus inputs.
     live_result = await session.execute(
         text(
             "SELECT column_name FROM information_schema.columns "
@@ -152,9 +140,7 @@ async def get_column_null_cardinality(
     if not candidates:
         return {}
 
-    # Decide between full scan (small tables) and sampling (large tables).
-    # pg_class.reltuples is autovacuum-maintained and "good enough" for
-    # the size decision.
+    # pg_class.reltuples (autovacuum-maintained) decides scan vs sample.
     size_q = await session.execute(
         text(
             "SELECT reltuples::bigint FROM pg_class "
@@ -166,7 +152,6 @@ async def get_column_null_cardinality(
     approximate = est_rows > sample_size
 
     if approximate:
-        # Sample ~sample_size rows via TABLESAMPLE BERNOULLI(pct).
         pct = max(0.1, min(100.0, 100.0 * sample_size / max(est_rows, 1)))
         from_clause = (
             f"{_qtable(table_name, schema=schema)} TABLESAMPLE BERNOULLI ({pct})"
@@ -174,7 +159,6 @@ async def get_column_null_cardinality(
     else:
         from_clause = _qtable(table_name, schema=schema)
 
-    # Build SELECT clause: total + per-column not-null + per-column distinct.
     parts = ["COUNT(*) AS _total"]
     for idx, (_, quoted) in enumerate(candidates):
         parts.append(f"COUNT({quoted}) AS _nn_{idx}")
@@ -188,9 +172,8 @@ async def get_column_null_cardinality(
         nn = int(row[1 + idx * 2]) if row[1 + idx * 2] is not None else 0
         dc = int(row[2 + idx * 2]) if row[2 + idx * 2] is not None else 0
         if approximate and sampled_total > 0:
-            # Extrapolate null count to the full table; cardinality is a
-            # SAMPLE distinct count and stays as-is (it under-estimates
-            # for high-cardinality columns, which the LLM should be told).
+            # distinct_count stays a sample count -- under-estimates
+            # high-cardinality columns; null_count is extrapolated.
             ratio = est_rows / sampled_total
             null_count = int(round((sampled_total - nn) * ratio))
             total = est_rows
@@ -217,10 +200,8 @@ async def get_column_stats(
     """Return min, max, count, mean, and quantiles for a numeric column.
 
     Args:
-        class_count: Number of classification classes. Quantile fractions are
-            computed dynamically as [1/n, 2/n, ..., (n-1)/n] so that the
-            returned ``quantiles`` list always has exactly ``class_count - 1``
-            entries regardless of the requested class count.
+        class_count: quantile fractions are [1/n, ..., (n-1)/n], so
+            ``quantiles`` always has exactly class_count - 1 entries.
     """
     _validate_identifier(table_name, "table name")
     _validate_identifier(column_name, "column name")
@@ -229,9 +210,7 @@ async def get_column_stats(
 
     schema = _current_data_schema()
 
-    # Detect the column's data type so we never cast a text column ::numeric
-    # (which raises a DataError -> 500). Reuses the information_schema lookup
-    # pattern from get_column_null_cardinality.
+    # Never cast a text column ::numeric -- that raises DataError -> 500.
     type_result = await session.execute(
         text(
             "SELECT data_type FROM information_schema.columns "
@@ -247,9 +226,7 @@ async def get_column_stats(
     tbl_q = _qtable(table_name, schema=schema)
 
     if data_type not in _NUMERIC_TYPES:
-        # Non-numeric column: numeric aggregates are undefined, so return a
-        # categorical summary (row count + distinct count) instead of casting
-        # to ::numeric. Numeric fields are null/empty.
+        # Non-numeric: return a categorical summary instead of casting.
         cat_sql = text(
             f"SELECT COUNT({col_q}), COUNT(DISTINCT {col_q}) "
             f"FROM {tbl_q} "
@@ -267,11 +244,9 @@ async def get_column_stats(
             "distinct_count": int(cat_row[1]) if cat_row[1] is not None else 0,
         }
 
-    # Compute quantile fractions dynamically based on class_count
     fractions = [round(i / class_count, 4) for i in range(1, class_count)]
     fractions_str = ", ".join(str(f) for f in fractions)
 
-    # Combined stats + quantiles in a single query (single table scan)
     combined_sql = text(
         f"SELECT MIN({col_q}::numeric), MAX({col_q}::numeric), "
         f"COUNT({col_q}), AVG({col_q}::numeric), "

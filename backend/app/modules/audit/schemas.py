@@ -4,14 +4,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-# Sortable columns for the admin audit-log list. This Literal is the OUTER half
-# of a two-layer allowlist: FastAPI rejects anything outside it with a 422
-# before the service runs, and _audit_sort_columns() in service.py resolves the
-# surviving value to a mapped column. A caller-supplied string is therefore
-# never interpolated into an ORDER BY clause.
+# Sortable columns for the admin audit-log list -- the OUTER half of a
+# two-layer allowlist: FastAPI 422s anything outside it before the service
+# runs, and _audit_sort_columns() (service.py) resolves the survivor to a
+# mapped column, so a caller string never reaches ORDER BY.
 #
-# `resource_name` is absent because resolve_resource_names() runs against the
-# page after the query returns; the database has nothing to order by.
+# `resource_name` is absent: resolve_resource_names() runs after the query
+# returns, so the database has nothing to order by.
 AuditSortField = Literal[
     "created_at", "action", "resource_type", "ip_address", "username"
 ]
@@ -25,14 +24,10 @@ class AuditLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    # Phase 279 ADMIN-05 (L-02 / Rule 1): user_id is nullable in the AuditLog
-    # model (ondelete='SET NULL' on the FK) — when a user is hard-deleted,
-    # their audit rows survive with user_id=None. The previous non-nullable
-    # uuid.UUID typing raised pydantic ValidationError when the response
-    # serializer hit a NULL'd row. Surfaced once Phase 279 added a
-    # `user.register` audit emit, which created register rows whose user
-    # later got deleted by the admin-delete tests, producing NULL user_id
-    # rows that subsequent date-range queries would try to serialize.
+    # Phase 279 ADMIN-05 (L-02/Rule 1): nullable (FK ondelete='SET NULL') --
+    # a hard-deleted user's audit rows survive with user_id=None. The
+    # previous non-nullable typing raised a ValidationError serializing
+    # those rows.
     user_id: uuid.UUID | None
     username: str | None = None
     action: str
@@ -52,9 +47,7 @@ class AuditLogListResponse(BaseModel):
     total: int
 
 
-# ---------------------------------------------------------------------------
-# SEC-FU-08: Column DDL feed response models
-# ---------------------------------------------------------------------------
+# SEC-FU-08: Column DDL feed response models.
 
 
 class ColumnDdlEntry(BaseModel):

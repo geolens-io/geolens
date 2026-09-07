@@ -90,11 +90,9 @@ def compute_schema_diff(
         ],
         "row_count_old": old_feature_count,
         "row_count_new": new_feature_count,
-        # fix(#1746 B2b review r24): `None` on either side is UNKNOWN, not
-        # zero. Coercing it invented a delta the size of whichever count was
-        # known, and the case that reaches this most often is a service preview
-        # whose collection size the service never published. An unknown
-        # difference is reported as unknown.
+        # fix(#1746): `None` on either side is UNKNOWN, not zero -- coercing
+        # it invented a delta the size of whichever count was known. An
+        # unknown difference is reported as unknown.
         "row_count_delta": (
             None
             if old_feature_count is None or new_feature_count is None
@@ -104,8 +102,7 @@ def compute_schema_diff(
 
 
 # Field maps for the simple-assignment portion of update_user_metadata.
-# Defined at module scope so they aren't rebuilt per call (and so
-# _apply_simple_field_assignments can read them without parameters).
+# Module scope so they aren't rebuilt per call.
 _RECORD_FIELD_MAP: dict[str, str] = {
     "title": "title",
     "summary": "summary",
@@ -137,7 +134,7 @@ def _apply_simple_field_assignments(
     record: Any, dataset: Dataset, meta: "DatasetMeta"
 ) -> bool:
     """Apply scalar fields present in the request body, including explicit
-    nulls — fix(#458 E-04): clears were silently dropped before. Absent fields
+    nulls — fix(#458): clears were silently dropped before. Absent fields
     keep PATCH semantics; _NON_CLEARABLE_FIELDS (title, NOT NULL) drop nulls."""
     mutated = False
     targets = ((record, _RECORD_FIELD_MAP), (dataset, _DATASET_FIELD_MAP))
@@ -171,12 +168,10 @@ async def _apply_visibility_change(
 ) -> bool:
     """Set record.visibility, blocking a change that would strand a shared map.
 
-    fix(#931): the gate used to be ``new != public and old == public``, matching
-    a query that only knew about public maps. An internal map using the dataset
-    was invisible to both, so the flip succeeded and every signed-in viewer of
-    that map silently lost the layer. The helper now compares the before and
-    after audiences itself and returns nothing when the change strands nothing,
-    so no gate is needed here.
+    fix(#931): the gate used to be ``new != public and old == public``, blind
+    to an internal map using the dataset -- that flip silently lost the
+    layer for every signed-in viewer. The helper now compares the before
+    and after audiences itself, so no gate is needed here.
     """
     from app.modules.catalog.maps.service import (
         find_maps_broken_by_dataset_visibility,
@@ -264,9 +259,8 @@ async def _maybe_defer_embedding(record_id: uuid.UUID, dataset_id: uuid.UUID) ->
     except (
         Exception
     ):  # broad: defer is non-fatal; embedding will catch up on next edit or backfill
-        # Non-fatal -- embedding will catch up on next edit or backfill.
-        # Log with traceback so operators can notice if this fails consistently
-        # (e.g., broker down) instead of silently dropping edits from the index.
+        # Traceback logged so operators can notice a consistent failure
+        # (e.g. broker down) instead of silently dropping edits from the index.
         logger.warning(
             "Failed to defer embed_record task for record %s (dataset %s)",
             record_id,
@@ -290,12 +284,9 @@ async def update_user_metadata(
     explicitly set (not None). Raises ValueError if dataset not found.
     Does not commit; caller controls transaction scope.
 
-    ``warnings_out``, when provided, collects advisory (non-blocking) warnings
-    for the caller to surface — currently the inherited-keyword disclosure
-    check below (feat #1070).
-
-    Decomposed into 5 step helpers for readability:
-    simple field assignments, visibility, record_status, is_dem, embedding-defer.
+    ``warnings_out``, when provided, collects advisory (non-blocking)
+    warnings -- currently the inherited-keyword disclosure check below
+    (feat #1070).
     """
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
@@ -305,9 +296,10 @@ async def update_user_metadata(
 
     record = dataset.record
 
-    # fix(#1881): the pair, before the first write, whatever the body names:
-    # a workflow hook may write the datasets row on a record_status body.
-    # `is_dem` writes raster_assets, so it extends the order to that child.
+    # fix(#1881): lock the pair before the first write, whatever the body
+    # names -- a workflow hook may write the datasets row on a
+    # record_status body. `is_dem` writes raster_assets, so it extends the
+    # lock order to that child.
     touches_raster = "is_dem" in meta.model_fields_set
     await lock_catalog_rows_for_write(
         session, dataset, with_raster_asset=touches_raster
@@ -344,15 +336,11 @@ async def update_user_metadata(
     if meta.is_dem is not None:
         mutated_flags.append(await _apply_is_dem(session, dataset_id, meta.is_dem))
 
-    # feat(#1070): after the visibility/record_status helpers resolve, ask —
-    # of the RESOLVED state, so both widening axes route through this one
-    # check — whether keywords inherited from the analysis source now reach
-    # anyone who cannot open that source. Advisory, never blocking: exposure
-    # requires the owner's deliberate act on metadata they can already edit,
-    # so the owner is told, not stopped. fix(#1178 review): the check is a
-    # shared helper because the publication-status endpoints write
-    # record_status without coming through here — see its docstring for the
-    # writer enumeration.
+    # feat(#1070): after the visibility/record_status helpers resolve, ask
+    # of the RESOLVED state whether keywords inherited from the analysis
+    # source now reach anyone who cannot open that source. Advisory, never
+    # blocking. fix(#1178): shared helper, since the publication-status
+    # endpoints write record_status without coming through here.
     if meta.visibility is not None or meta.record_status is not None:
         from app.modules.catalog.records.inherited import (
             inherited_keyword_disclosure_warning,
@@ -369,17 +357,11 @@ async def update_user_metadata(
 
     await session.flush()
 
-    # Trigger embedding regeneration if relevant fields changed.
     # model_fields_set, not is-not-None: an explicit clear must also re-embed.
     if {"title", "summary", "lineage_summary"} & meta.model_fields_set:
         await _maybe_defer_embedding(record.id, dataset.id)
 
     return dataset
-
-
-# ---------------------------------------------------------------------------
-# Attribute metadata service functions
-# ---------------------------------------------------------------------------
 
 
 async def list_attributes(
@@ -443,10 +425,10 @@ async def sample_example_values(
 ) -> list | None:
     """Up to ten distinct non-null values of one column, or None.
 
-    Reads the data table, so call it BEFORE the catalog pair is locked: every
-    column DDL holds its ALTER TABLE before taking the pair (#1847). None for a
-    geometry column, an unsafe name, or any query failure; the read runs in a
-    savepoint so a failure leaves the transaction usable.
+    Reads the data table, so call it BEFORE the catalog pair is locked
+    (#1847). None for a geometry column, an unsafe name, or any query
+    failure; the read runs in a savepoint so a failure leaves the
+    transaction usable.
     """
     if not data_type or "geometry" in data_type.lower():
         return None
@@ -485,11 +467,12 @@ async def reset_attribute(
 ) -> AttributeMetadata:
     """Reset attribute metadata to auto-populated values.
 
-    Re-infers title, semantic_role, domain_type, units from field_name/data_type
-    and clears user_modified_fields and description. `example_values` is the
-    result of `sample_example_values`; a caller that holds the catalog pair must
-    have sampled before taking it, since sampling reads the data table (#1847).
-    Left unset, this samples first. Raises ValueError if attribute not found.
+    Re-infers title, semantic_role, domain_type, units from
+    field_name/data_type and clears user_modified_fields and description.
+    `example_values` is the result of `sample_example_values`; a caller
+    holding the catalog pair must sample before taking it, since sampling
+    reads the data table (#1847). Left unset, this samples first. Raises
+    ValueError if attribute not found.
     """
     attr = await get_attribute(session, attribute_id)
     if attr is None:

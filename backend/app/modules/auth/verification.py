@@ -1,21 +1,10 @@
-"""Email-verification token service (Phase 1231 / SIGNUP-03/05).
+"""Email-verification token service (SIGNUP-03/05).
 
-Provides two async functions that mirror the ``RefreshToken`` opaque-token
-pattern from ``app.modules.auth.service``:
-
-- ``issue_verification_token(db, user_id, expire_hours=24) -> str``
-  Issues a single-use expiring verification token.  The raw token is returned
-  to the caller (to embed in the verification link email); only its sha256 hex
-  digest is persisted.  Flush-not-commit: the caller owns the transaction.
-
-- ``redeem_verification_token(db, raw_token) -> uuid.UUID | None``
-  Validates the raw token (hash lookup, expiry check, consumed_at check) and,
-  on success, sets ``User.email_verified = True`` and marks the token consumed.
-  Returns the user's UUID on success or ``None`` on any failure — expired,
-  unknown, and already-consumed tokens all return the same ``None`` sentinel
-  (enumeration-safe, SIGNUP-05).  Flush-not-commit.
-
-Security: T-1231-01..03.
+Opaque single-use tokens, mirroring the ``RefreshToken`` pattern: the raw
+token goes to the caller and only its sha256 hash is persisted. Redemption
+returns ``None`` uniformly for expired, unknown, and already-consumed tokens
+(enumeration-safe, SIGNUP-05). Callers own the transaction (flush, not
+commit).
 """
 
 from __future__ import annotations
@@ -38,17 +27,8 @@ async def issue_verification_token(
 ) -> str:
     """Issue a single-use expiring verification token for *user_id*.
 
-    The raw urlsafe token is returned to the caller (embed in the email link).
-    Only the sha256 hex digest is stored — the plaintext is never persisted
-    (mirrors RefreshToken: ``secrets.token_urlsafe(32)`` + ``hashlib.sha256``).
-
-    Args:
-        db: Async SQLAlchemy session (caller owns the transaction).
-        user_id: The user to issue the token for.
-        expire_hours: Token lifetime in hours (default 24).
-
-    Returns:
-        The raw opaque verification token (URL-safe base64, 32 bytes entropy).
+    Returns the raw token; only its sha256 hash is persisted. Flush-not-commit
+    — caller owns the transaction.
     """
     raw = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
@@ -71,30 +51,17 @@ async def redeem_verification_token(
 ) -> uuid.UUID | None:
     """Redeem a raw verification token, activating the user's email.
 
-    Validates the token (hash lookup, expiry, consumed_at) and, on success:
-    - sets ``consumed_at`` on the token row (single-use gate), and
-    - sets ``User.email_verified = True`` via a targeted UPDATE.
-
-    Returns the user's UUID on success, or ``None`` on any failure.
-    Expired, unknown, and already-consumed tokens all return ``None``
-    identically (enumeration-safe, SIGNUP-05: no timing or response
-    difference leaks whether the email address exists).
-
-    Args:
-        db: Async SQLAlchemy session (caller owns the transaction).
-        raw_token: The raw opaque token from the verification URL.
-
-    Returns:
-        The user's UUID if the token was valid and just consumed, else None.
+    Returns the user's UUID on success, else ``None`` — expired, unknown, and
+    already-consumed tokens all return ``None`` identically (enumeration-safe,
+    SIGNUP-05: no timing or response difference leaks whether the email
+    exists).
     """
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     now = datetime.now(UTC)
 
-    # Atomic single-use consume (H1 — Codex review): claim the token in ONE
-    # UPDATE so two concurrent redemptions of the same token cannot both pass the
-    # `consumed_at IS NULL` check. The predicate is evaluated under the row lock
-    # the UPDATE takes, and RETURNING yields the user_id only for the statement
-    # that actually consumed the row — the loser matches 0 rows and gets None.
+    # Atomic claim: the predicate is evaluated under the row lock this UPDATE
+    # takes, so two concurrent redemptions can't both pass consumed_at IS NULL
+    # — the loser matches 0 rows and gets None.
     result = await db.execute(
         update(EmailVerificationToken)
         .where(

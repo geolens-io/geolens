@@ -3,34 +3,20 @@ import time
 from collections import OrderedDict
 from typing import Any
 
-# fix(#430 BA-35): bound the store so a no-Redis deployment can't be OOM'd by an
-# attacker issuing many distinct search queries — each writes a unique key that is
-# never re-requested (so never lazily evicted). An LRU cap evicts the coldest
-# entry once full; the Redis backend is unaffected (server-side TTL).
+# fix(#430): LRU-capped so a no-Redis deployment can't be OOM'd by
+# unbounded distinct cache keys that are never re-requested (so never
+# lazily evicted). Coldest entry evicts once full; Redis is unaffected.
 _MAX_ENTRIES = 10_000
 
 
 class InMemoryCacheProvider:
-    """In-memory cache using an LRU-bounded dict + time.monotonic() TTL.
+    """In-memory LRU-bounded cache with a time.monotonic() TTL.
 
-    Replaces the previous module-level _cache dict pattern in settings/service.py.
-
-    fix(#1778 codex r3): ``security=`` is accepted and ignored here, and both
-    halves of that are deliberate.
-
-    As the LAYERED provider's fallback it is never asked a security question at
-    all: ``RedisCacheProvider`` refuses to route one here, because a positive
-    authorization decision held in one Uvicorn worker's memory is not the
-    deployment's view and cannot see a revoke another worker performed.
-
-    As the WHOLE cache -- ``REDIS_URL`` unset -- it is the only store there is,
-    so serving a security positive from it is exactly as correct as the
-    deployment is single-process. It is not correct under ``uvicorn --workers N``
-    without Redis: each worker then caches independently and a revoke in one is
-    invisible to the others until the entry's TTL expires. That is a property of
-    running a multi-process deployment without a shared cache rather than
-    something this class can fix, and it is the same reason ``init_tile_cache``
-    warns about an unset ``REDIS_URL`` in the worker.
+    fix(#1778): ``security=`` is accepted but ignored. Safe as the layered
+    provider's Redis fallback (never asked a security question there) or as
+    the sole store in a single-process deployment; unsafe as the sole store
+    under multiple workers, since a revoke in one worker won't reach the
+    others until TTL expiry.
     """
 
     def __init__(self, max_entries: int = _MAX_ENTRIES) -> None:
@@ -59,12 +45,10 @@ class InMemoryCacheProvider:
     async def set_if_absent(
         self, key: str, value: Any, ttl: int = 300, *, security: bool = False
     ) -> bool:
-        """fix(#1778): store only when the key is unset. True if stored.
+        """fix(#1778): store only when the key is unset (or expired). True if stored.
 
-        No await between the presence check and the write, so on a single event
-        loop no other coroutine can interleave -- the same reasoning
-        ``delete_many`` relies on. An entry whose TTL has passed counts as
-        absent: ``get`` would evict it anyway.
+        No await between the presence check and the write, so no coroutine
+        can interleave on a single event loop.
         """
         entry = self._store.get(key)
         if entry is not None and time.monotonic() <= entry[1]:
@@ -76,8 +60,8 @@ class InMemoryCacheProvider:
         return True
 
     async def set_authoritative(self, key: str, value: Any, ttl: int = 300) -> None:
-        """fix(#1778 codex r1): one store, so this is ``set``. Named separately
-        because the layered provider has to do more."""
+        """fix(#1778): one store, so this is ``set``. Named separately because
+        the layered provider has to do more."""
         await self.set(key, value, ttl)
 
     async def delete(self, key: str) -> None:

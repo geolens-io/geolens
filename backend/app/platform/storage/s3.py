@@ -1,22 +1,16 @@
 """S3-compatible storage backend.
 
 Wraps the synchronous boto3 client in `asyncio.to_thread` so callers can
-await uploads/downloads without blocking the event loop. Works with native
-AWS S3, MinIO, GCS via the S3-compatible API, DigitalOcean Spaces, and any
-other S3-compatible provider — addressing style and endpoint URL are both
-configurable via env vars.
+await uploads/downloads without blocking the event loop. Works with AWS S3,
+MinIO, GCS (via its S3-compatible API), DigitalOcean Spaces, and other
+S3-compatible providers via `endpoint`/`addressing_style` env vars.
 
-# Endpoint behavior
-# -----------------
-# - Native AWS S3: leave `endpoint` unset; boto3 picks the regional endpoint.
-# - MinIO/local: set `endpoint=http://minio:9000` and `allow_http=True`.
-# - GCS: set `endpoint=https://storage.googleapis.com`, `region=auto`, and
-#   use HMAC keys (NOT GCP service account keys) as access_key_id/secret.
-#
-# # Addressing style
-# `path` (`http://endpoint/bucket/key`) is required for MinIO. `virtual`
-# (`http://bucket.endpoint/key`) is required for some AWS S3 buckets in
-# certain regions. `auto` lets the SDK decide — usually correct for AWS.
+Endpoint: unset for AWS S3; `http://minio:9000` + `allow_http=True` for
+MinIO; `https://storage.googleapis.com` + `region=auto` + HMAC keys (not
+GCP service account keys) for GCS.
+
+Addressing style: `path` for MinIO, `virtual` for some AWS regions, `auto`
+lets the SDK decide (usually correct for AWS).
 """
 
 from __future__ import annotations
@@ -34,18 +28,15 @@ from botocore.exceptions import ClientError
 from app.core.async_io import run_in_thread_draining
 from app.platform.storage.provider import StoredObject
 
-# Matches LocalStorageProvider's chunk size: one 1 MiB buffer resident per
-# stream, whatever the object weighs.
+# Matches LocalStorageProvider's chunk size.
 _STREAM_CHUNK_BYTES = 1024 * 1024
 
 
 def _as_utc(value: datetime) -> datetime:
-    """Normalize a provider timestamp to timezone-aware UTC.
+    """Normalize a timestamp to timezone-aware UTC (feat #1249).
 
-    feat(#1249): botocore returns aware datetimes today, but the
-    ``StoredObject`` contract is what the reconciliation's cutoff comparison
-    depends on — a naive value would raise there instead of answering, so it
-    is pinned here rather than assumed.
+    botocore already returns aware datetimes; this pins the ``StoredObject``
+    contract that reconciliation's cutoff comparison depends on.
     """
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
@@ -101,19 +92,11 @@ class S3StorageProvider:
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
         """Store data at key. Returns s3://bucket/key URI.
 
-        fix(#1532 review r8): drained on cancellation, like the local provider's
-        write and like the export cache's digest step. A bare ``to_thread``
-        RETURNS on a cancel while the SDK upload keeps running in the executor,
-        so the caller's cleanup — deleting the key it was writing, closing the
-        source file, removing the conversion directory — races a live upload. It
-        can commit after the delete, read a handle that has already been closed,
-        or leave multipart parts behind that no lifecycle rule is configured to
-        collect.
-
-        Draining costs a cancelled request the rest of its upload. That is the
-        right trade: the alternative is an object store holding bytes nothing
-        will ever reference, or a delete that lands before the write it was
-        meant to undo.
+        fix(#1532): drained on cancellation — a bare ``to_thread`` would
+        return while the SDK upload kept running, racing cleanup (undo-
+        delete, closed source handle, orphaned multipart parts). Draining
+        costs a cancelled request the rest of its upload; that's the safer
+        trade.
         """
         if isinstance(data, bytes):
             await run_in_thread_draining(
@@ -133,7 +116,7 @@ class S3StorageProvider:
                 response = self.client.get_object(Bucket=self.bucket, Key=key)
                 return response["Body"].read()
             except ClientError as e:
-                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                # fix(#430): normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -157,7 +140,7 @@ class S3StorageProvider:
                     Key=dst_key,
                 )
             except ClientError as e:
-                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                # fix(#430): normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(src_key) from e
                 raise
@@ -177,7 +160,7 @@ class S3StorageProvider:
                 return response["Body"].read()
             except ClientError as e:
                 code = e.response.get("Error", {}).get("Code")
-                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                # fix(#430): normalize missing-object to FileNotFoundError.
                 if code in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 # A window that starts at or past the end of the object is an
@@ -191,32 +174,20 @@ class S3StorageProvider:
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream the whole object from ONE ``get_object``, in 1 MiB chunks.
 
-        fix(#1540 review P1): this used to raise ``NotImplementedError`` on the
-        grounds that the s3 backend always redirects. That stopped being true
-        when the COG download route gained the one case it cannot delegate to
-        the bucket — a resumed range whose ``If-Range`` no longer matches, which
-        RFC 9110 section 13.1.5 says must be answered with the complete
-        representation, and which a presigned URL cannot answer because the
-        bucket does not evaluate the precondition.
-
-        The first version of that fallback streamed through
-        ``_iter_storage_range``, which issues a separate ranged ``get_object``
-        per chunk: 5,120 object-store requests for a 5 GiB COG, selectable by
-        any caller willing to send a stale validator, and counted by the rate
-        limiter as one request. One ``get_object``, read in chunks off the
-        socket, costs the same as any other full download.
-
-        Chunked rather than ``.read()`` for the reason the local provider gives:
-        a multi-GB COG must never be materialized as a single ``bytes``. The
-        body is closed in a ``finally`` so a client that disconnects mid-stream
-        releases its connection back to the pool instead of leaking it.
+        fix(#1540): this IS reachable — a resumed range whose ``If-Range`` no
+        longer matches must be answered with the complete representation
+        (RFC 9110 13.1.5), which a presigned URL can't do since the bucket
+        never evaluates the precondition. Never reintroduce
+        NotImplementedError here, and never loop a ranged ``get_object`` per
+        chunk (it did, once: 5,120 requests for a 5 GiB COG). Body closed in
+        ``finally`` so a disconnecting client releases its pool connection.
         """
 
         def _open():
             try:
                 return self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
             except ClientError as e:
-                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                # fix(#430): normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -236,17 +207,11 @@ class S3StorageProvider:
     ) -> AsyncIterator[bytes]:
         """Stream a byte window from ONE ranged ``get_object``.
 
-        fix(#1540 review P1): this is the method whose absence produced the
-        defect twice. Serving a range by calling ``get_range`` per 1 MiB chunk
-        issues a separate ``GetObject`` per chunk, so an ordinary
-        ``Range: bytes=0-`` against a 5 GiB COG became 5,120 serial object-store
-        requests — one API request by the rate limiter's count, thousands by the
-        bill's. The window is requested once here and the body is read off the
-        socket in chunks, which is what a range request should cost.
-
-        A window starting at or past the end is an empty stream rather than an
-        error, matching ``get_range`` and local/POSIX seek-then-read: the caller
-        has already decided what a zero-length window means.
+        fix(#1540): avoids looping ``get_range`` per 1 MiB chunk, which turns
+        one ``Range`` request into one ``GetObject`` per chunk — invisible to
+        the rate limiter's per-request count but not to the bill. A window
+        starting at or past the end is an empty stream, matching
+        ``get_range`` and local/POSIX seek-then-read.
         """
 
         def _open():
@@ -258,7 +223,7 @@ class S3StorageProvider:
                 )["Body"]
             except ClientError as e:
                 code = e.response.get("Error", {}).get("Code")
-                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                # fix(#430): normalize missing-object to FileNotFoundError.
                 if code in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 if code in ("416", "InvalidRange", "RequestedRangeNotSatisfiable"):
@@ -309,7 +274,7 @@ class S3StorageProvider:
                 response = self.client.head_object(Bucket=self.bucket, Key=key)
                 return int(response["ContentLength"])
             except ClientError as e:
-                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                # fix(#430): normalize missing-object to FileNotFoundError.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -337,16 +302,11 @@ class S3StorageProvider:
     ) -> AsyncIterator[list[StoredObject]]:
         """Yield ListObjectsV2 pages, each entry with its last-modified time.
 
-        One request per page rather than a drain-then-return: a consumer that
-        stops after the first page never issues the second, so a caller with a
-        bounded work budget pays for a bounded number of round trips against an
-        arbitrarily large prefix (fix(#1249) review r1).
-
-        ``start_after`` becomes S3's own ``StartAfter``, so a resumed walk skips
-        the earlier keys server-side rather than fetching and discarding them
-        (fix(#1249) review r2). It applies to the FIRST request only —
-        ListObjectsV2 ignores it once a ``ContinuationToken`` is present, and
-        sending both would only invite a reader to think otherwise.
+        One request per page (fix(#1249)), not drain-then-return, so a
+        consumer that stops early pays for a bounded number of round trips
+        against an arbitrarily large prefix. ``start_after`` becomes S3's
+        ``StartAfter`` on the FIRST request only — ListObjectsV2 ignores it
+        once a ``ContinuationToken`` is present.
         """
         params: dict = {"Bucket": self.bucket, "Prefix": prefix}
         if start_after is not None:
@@ -369,7 +329,8 @@ class S3StorageProvider:
         """Verify the S3 bucket is reachable via head_bucket."""
         await asyncio.to_thread(self.client.head_bucket, Bucket=self.bucket)
 
-    # --- Presigned URL methods (synchronous -- router wraps in asyncio.to_thread) ---
+    # Presigned URL methods are synchronous; the router wraps them in
+    # asyncio.to_thread.
 
     def generate_presigned_put_url(
         self,
@@ -379,10 +340,9 @@ class S3StorageProvider:
     ) -> str:
         """Generate a presigned PUT URL for direct upload.
 
-        fix(#1234): clamped to the job lifetime, same as the part URLs. The
-        3600 default happens to match today's default timeout, which is
-        exactly why it needed the clamp — configure the timeout lower and the
-        one-shot PUT URL silently outlives the job it belongs to.
+        fix(#1234): clamped to the job lifetime, same as the part URLs below
+        — a lower configured timeout would otherwise let a 3600s URL silently
+        outlive the job it belongs to.
         """
         from app.core.config import settings
 
@@ -427,10 +387,9 @@ class S3StorageProvider:
     ) -> str:
         """Generate a presigned URL for uploading a single part.
 
-        fix(#1234): clamped to the job lifetime. A part URL that outlives the
-        job it belongs to is a URL the client can still use against a row the
-        pending sweep has already failed — the server was offering 7200s
-        against a 3600s lifetime.
+        fix(#1234): clamped to the job lifetime — an unclamped part URL was
+        usable against a row the pending sweep had already failed (7200s
+        offered against a 3600s job lifetime).
         """
         from app.core.config import settings
 

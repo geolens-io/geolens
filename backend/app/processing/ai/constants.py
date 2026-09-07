@@ -3,7 +3,7 @@
 MAX_TOOL_ROUNDS = 8
 MAX_STREAMING_WALL_CLOCK_SECONDS = 90
 
-# PERF-009: cumulative input+output token budget per chat request. The tool loop
+# Cumulative input+output token budget per chat request. The tool loop
 # is otherwise bounded only by round count (MAX_TOOL_ROUNDS), wall clock
 # (MAX_STREAMING_WALL_CLOCK_SECONDS), and the 10/min rate limit — none of which
 # cap total provider token spend. A runaway/looping model can still drive ~8

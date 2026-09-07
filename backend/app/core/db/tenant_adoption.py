@@ -1,30 +1,28 @@
 """Forward-only tenant-ownership adoption at the current schema head.
 
-Reconstructs the ownership migration ``0019_tenant_provisioning_boundary``
-installs, against the **current head schema**, so a restored dump never needs
+Reconstructs what migration ``0019_tenant_provisioning_boundary`` installs,
+against the **current head schema**, so a restored dump never needs
 ``alembic downgrade 0016`` to reach the least-privilege provisioning boundary.
-
 Function bodies belong to the migrations and are never installed here.
-Adoption verifies both boundary functions are present, ``SECURITY DEFINER`` and
-``search_path``-pinned, and repairs the owner and the ACL that ``pg_restore
---no-owner --no-acl`` strips: PostgreSQL's default function ACL is ``EXECUTE``
-to ``PUBLIC``, so a restored ``catalog.provision_tenant_data_schema`` is a
-SECURITY DEFINER function owned by the restoring superuser and callable by
-every login in the database.
 
-Idempotence is keyed on database state, never on a marker or a timestamp: each
-step reads what the cluster currently holds and issues DDL only for the gap.
-Every tenant is adopted in its own transaction, so a run interrupted partway is
-resumed by running it again.
+Verifies both boundary functions are present, ``SECURITY DEFINER`` and
+``search_path``-pinned, and repairs the owner and ACL that
+``pg_restore --no-owner --no-acl`` strips: Postgres's default function ACL is
+``EXECUTE`` to ``PUBLIC``, so a restored ``catalog.provision_tenant_data_schema``
+would otherwise be owned by the restoring superuser and callable by every
+login in the database.
 
-Adoption rewrites only the grants it is itself the grantor of.  Any other
-anomaly is reported with the exact statement to run and the role to run it as,
-and the tenant is left for the next run.  See the repair boundary in
+Idempotence is keyed on database state, not a marker or timestamp: each step
+reads what the cluster currently holds and issues DDL only for the gap. Each
+tenant is adopted in its own transaction, so an interrupted run resumes by
+running again. Adoption rewrites only the grants it is itself the grantor of;
+any other anomaly is reported with the exact statement and role to run it as,
+and the tenant is left for the next run — see the repair boundary in
 :mod:`app.core.db.tenant_adoption_sql`.
 
-Run it with the migrator credential — ``CREATEROLE``, authority over the
-restored objects, and, on a non-superuser migrator, the privileges of
-``geolens_tenant_provisioner`` — against a database already at head::
+Run with the migrator credential (``CREATEROLE``, authority over the restored
+objects, and on a non-superuser migrator the privileges of
+``geolens_tenant_provisioner``) against a database already at head::
 
     docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \\
       migrate sh -c "uv run --no-dev python -m app.core.db.tenant_adoption --apply"
@@ -75,20 +73,14 @@ from app.core.db.tenant_adoption_sql import (
 logger = structlog.stdlib.get_logger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Introspection
-# ---------------------------------------------------------------------------
-
-
 async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
     """Read the tenant boundary from the database, never from a constant.
 
     The boundary is whatever currently carries 0018's insert-stamping trigger,
-    so an enumeration copied from a migration is stale the moment a table
-    joins.  Tables holding a ``tenant_id`` column *without* the trigger are
-    reported too, so a deliberately dormant column (0037's
-    ``dataset_refresh_runs``) and an accidental one are told apart on purpose
-    rather than by omission.
+    so an enumeration copied from a migration goes stale the moment a table
+    joins. Tables with a ``tenant_id`` column but no trigger are reported too,
+    so a deliberately dormant column (0037's ``dataset_refresh_runs``) is told
+    apart from an accidental one on purpose, not by omission.
     """
     result = await conn.execute(
         text(
@@ -196,9 +188,9 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
     ]
 
 
-#: ``prosrc`` with SQL comments removed: a substituted body could otherwise
-#: carry the markers below in a comment and satisfy the check while executing
-#: something else.  Structural, not provenance — see ``migration_shaped``.
+#: ``prosrc`` with SQL comments removed, so a substituted body can't carry the
+#: markers below in a comment and satisfy the check while executing something
+#: else. Structural, not provenance — see ``migration_shaped``.
 _EXECUTABLE_BODY = (
     "regexp_replace("
     "regexp_replace(routine.prosrc, '/\\*.*?\\*/', ' ', 'gs'),"
@@ -283,7 +275,7 @@ async def stamping_function_shape(conn) -> str | None:
 
     A trigger pointing at this name proves nothing on its own: a body that
     returns ``NEW`` untouched lands every insert tenantless while every
-    structural check passes.  Same structural limits as
+    structural check passes. Same limits as
     ``BoundaryFunctionState.migration_shaped``.
     """
     result = await conn.execute(
@@ -346,8 +338,6 @@ async def stamping_function_shape(conn) -> str | None:
             "control-plane insert and its owner can rewrite it"
         )
     if row.security_definer:
-        # 0018 installs it SECURITY INVOKER on purpose: it runs on every insert,
-        # and after a --no-owner restore its owner is the restoring superuser.
         return (
             f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() is SECURITY DEFINER — 0018 "
             "installs it SECURITY INVOKER, and it fires on every insert"
@@ -444,8 +434,8 @@ async def missing_provisioner_grants(conn) -> list[str]:
         "tenants_select": "SELECT on catalog.tenants",
     }
     findings = [label for key, label in labels.items() if not getattr(row, key)]
-    # The provisioner is reachable only through SECURITY DEFINER functions, so a
-    # grantable privilege there is a delegation nothing else would notice.
+    # A grantable privilege here is a delegation nothing else would notice,
+    # since the provisioner is reachable only through SECURITY DEFINER functions.
     findings += [
         f"{labels[key]} is grantable" for key in row.grantable_keys if key in labels
     ]
@@ -1022,11 +1012,6 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
     return TenantOwnershipState(tenant_id=tenant_id, **dict(row._mapping))
 
 
-# ---------------------------------------------------------------------------
-# Adoption steps
-# ---------------------------------------------------------------------------
-
-
 async def _holds_provisioner_privileges(conn) -> bool:
     result = await conn.execute(
         text("SELECT pg_catalog.pg_has_role(CURRENT_USER, :owner, 'USAGE')"),
@@ -1038,10 +1023,10 @@ async def _holds_provisioner_privileges(conn) -> bool:
 async def ensure_cluster_roles(conn) -> bool:
     """Create the fixed role topology if absent, and refuse an unsafe one.
 
-    Returns whether *this* run had to take a usable membership in the
-    provisioner, which is what decides whether the run gives one back.  A
-    membership an operator granted by hand is left alone: revoking somebody
-    else's grant is not this tool's business.
+    Returns whether this run had to take a usable membership in the
+    provisioner, deciding whether the run gives one back. A membership an
+    operator granted by hand is left alone — revoking someone else's grant is
+    not this tool's business.
     """
     held_before = await _holds_provisioner_privileges(conn)
     await conn.execute(text(CLUSTER_ROLE_CREATE_SQL))
@@ -1049,11 +1034,11 @@ async def ensure_cluster_roles(conn) -> bool:
     await conn.execute(text(PROVISIONER_DATABASE_GRANT_SQL))
     await conn.execute(text(f"GRANT USAGE ON SCHEMA catalog TO {PROVISIONER}"))
     await conn.execute(text(f"GRANT SELECT ON TABLE catalog.tenants TO {PROVISIONER}"))
-    # fix(#998): a grantable entry some third role issued survives the plain revokes
-    # below; refuse it with the grantor named before pretending to rewrite it.
+    # fix(#998): a grantable entry some third role issued survives the plain
+    # revokes below; refuse it with the grantor named, before rewriting it.
     await conn.execute(text(PROVISIONER_GRANT_OPTION_GUARD_SQL))
-    # A re-GRANT adds the privilege and leaves an existing GRANT OPTION alone.
-    # These are no-ops on a database that never had one.
+    # Re-GRANT adds the privilege and leaves an existing GRANT OPTION alone,
+    # so these are no-ops on a database that never had one.
     await conn.execute(
         text(f"REVOKE GRANT OPTION FOR USAGE ON SCHEMA catalog FROM {PROVISIONER}")
     )
@@ -1070,11 +1055,11 @@ async def ensure_cluster_roles(conn) -> bool:
 async def secure_boundary_functions(conn) -> list[BoundaryFunctionState]:
     """Re-own and re-restrict the two functions a restore left wide open.
 
-    The bodies belong to the migrations and are never rewritten here.  What
-    ``pg_restore --no-owner --no-acl`` strips is the owner and the ACL, and the
-    PostgreSQL default for a function with no ACL is ``EXECUTE`` to ``PUBLIC``,
-    so the state this repairs is a SECURITY DEFINER function owned by the
-    restoring superuser and callable by everyone.
+    Bodies belong to the migrations and are never rewritten here.
+    ``pg_restore --no-owner --no-acl`` strips the owner and ACL, and Postgres's
+    default for a function with no ACL is ``EXECUTE`` to ``PUBLIC`` — so this
+    repairs a SECURITY DEFINER function owned by the restoring superuser and
+    callable by everyone.
     """
     states = {state.name: state for state in await boundary_function_states(conn)}
     missing = [name for name in BOUNDARY_FUNCTIONS if name not in states]
@@ -1101,17 +1086,16 @@ async def secure_boundary_functions(conn) -> list[BoundaryFunctionState]:
 async def release_bootstrap_membership(engine, *, took_provisioner_edge: bool) -> None:
     """Give back the usable membership a fresh-cluster run had to take.
 
-    Only that one.  The automatic ADMIN membership PostgreSQL gives a role's
+    Only that one — the automatic ADMIN membership Postgres gives a role's
     creator is tolerated by the guards instead of revoked, because a member
-    cannot revoke it — its grantor is the bootstrap superuser, and on a managed
-    provider no customer role can assume that.
+    cannot revoke it: its grantor is the bootstrap superuser, which no
+    customer role can assume on a managed provider.
 
-    From PostgreSQL 16 this runs whatever the flag says: the predicate — granted
-    by the current role, carrying no ADMIN — describes the edge adoption takes
-    and nothing an operator would set up by hand, so running it unconditionally
-    also recovers one a previous run was killed before returning.  Before 16
-    there is a single row per pair and no way to tell those apart, so there the
-    flag is the only evidence there is.
+    From Postgres 16 this ignores the flag and runs unconditionally: the
+    predicate (granted by the current role, no ADMIN) uniquely describes the
+    edge adoption takes, so it also recovers one a previous run was killed
+    before returning. Before 16 there is one row per pair with no way to tell
+    those apart, so the flag is the only evidence available.
     """
     async with engine.begin() as conn:
         modern = await conn.execute(
@@ -1132,12 +1116,11 @@ async def adopt_tenant(conn, tenant_id: str) -> None:
 
 
 def _failure_message(exc: BaseException) -> str:
-    """One line, plus the remediation PostgreSQL attached to it.
+    """One line, plus the remediation Postgres attached to it.
 
-    The refusals this module raises carry the exact statement to run and the
-    role to run it as in the exception's HINT, and the driver leaves that out of
-    ``str(exc)``.  Dropping it would report a tenant as incomplete without
-    saying what to do about it.
+    Refusals raised here carry the exact statement and role to run in the
+    exception's HINT, which the driver leaves out of ``str(exc)``. Dropping it
+    would report a tenant as incomplete without saying what to do about it.
     """
     message = str(exc).strip().splitlines()[0]
     cause: BaseException | None = exc
@@ -1191,18 +1174,17 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
                     "tenant_adoption: tenant failed", tenant_id=tenant_id, exc_info=True
                 )
     finally:
-        # A bare finally, so a Ctrl-C (CancelledError, a BaseException) hands
-        # the edge back too. From PostgreSQL 16 even a SIGKILL is recoverable:
-        # the next run releases the edge whether or not it took one.
+        # Bare finally, so a Ctrl-C (BaseException) hands the edge back too.
+        # From Postgres 16 even a SIGKILL is recoverable: the next run
+        # releases the edge whether or not it took one.
         await release_bootstrap_membership(
             engine, took_provisioner_edge=took_provisioner_edge
         )
 
     topology = await cluster_topology_error(engine)
     async with engine.connect() as conn:
-        # Re-read rather than reuse the pre-apply list: a tenant provisioned
-        # while this ran was never adopted, and reporting only the snapshot
-        # would call the database clean without having looked at it.
+        # Re-read rather than reuse the pre-apply list, or a tenant provisioned
+        # while this ran would go unreported as if it had been checked.
         tenants_after = await list_tenants(conn)
         after = [await tenant_ownership_state(conn, tid) for tid in tenants_after]
         boundary = await live_tenant_boundary(conn)

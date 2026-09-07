@@ -130,10 +130,10 @@ SERVICE_UNAVAILABLE_RESPONSE = {
     "description": "Service unavailable — required publication metadata is missing",
 }
 
-# fix(#1550 review P3): a 503 from a queue dispatch failure is a different
-# condition from the publication-metadata one above, and the description ships
-# to clients in the committed OpenAPI document and both generated SDKs. Reusing
-# the constant told every SDK consumer the wrong reason for the failure.
+# fix(#1550): a 503 from a queue dispatch failure is a different condition
+# from the publication-metadata one above, and the description ships to
+# clients in the committed OpenAPI document and both generated SDKs.
+# Reusing the constant told every SDK consumer the wrong reason.
 QUEUE_UNAVAILABLE_RESPONSE = {
     **PROBLEM_RESPONSE,
     "description": "Service unavailable — the background job queue could not be reached",
@@ -224,21 +224,16 @@ def _is_standards_path(request: Request) -> bool:
 def _allow_header_with_head(headers: dict[str, str] | None) -> dict[str, str] | None:
     """Add HEAD to a 405's ``Allow`` header when GET is already listed.
 
-    fix(#1470): ``_register_standards_head_routes`` serves HEAD beside every
-    standards GET, but as a SEPARATE route. It has to be separate — FastAPI
-    derives a route's operation id from its name and path rather than its
-    method, so one route carrying ``{GET, HEAD}`` emits duplicate operation
-    ids and 48 phantom operations into ``openapi.json`` (measured, not
-    assumed). The cost of that separation is that starlette builds a 405's
-    ``Allow`` from the FIRST partial match, which is the GET-only canonical
-    route, so the header understated what the surface answers.
+    fix(#1470): ``_register_standards_head_routes`` serves HEAD beside
+    every standards GET as a SEPARATE route (FastAPI derives operation
+    ids from name+path, not method, so one route carrying ``{GET, HEAD}``
+    emits duplicate ids). Cost: starlette builds a 405's ``Allow`` from
+    the FIRST partial match, the GET-only canonical route, understating
+    the surface.
 
-    Restated here rather than in the route table because this is where the
-    standards error contract already lives, and because the rule is an
-    invariant of that surface rather than of any one route: HEAD is
-    registered for every standards GET, so GET being allowed means HEAD is
-    too. Keyed off GET for exactly that reason — a standards route that
-    allows only POST (``/stac/search``) gains nothing here.
+    Restated here, not the route table: HEAD is registered for every
+    standards GET, so GET allowed means HEAD is too, an invariant of the
+    surface. A POST-only route (``/stac/search``) gains nothing here.
     """
     if not headers:
         return headers
@@ -313,16 +308,17 @@ def register_error_handlers(app: FastAPI) -> None:
     ) -> Response:
         """Correct the ``Allow`` header on a framework-raised standards 405.
 
-        Registered on starlette's base class specifically: the handler above
-        is bound to fastapi's SUBCLASS, which routers raise explicitly, while
-        the 405 comes from ``fastapi.routing`` (which imports HTTPException
-        from ``starlette.exceptions``) and so never reached it. Handler
-        lookup walks the MRO and prefers the most specific registration, so
-        the problem-detail contract for router-raised errors is untouched.
+        Registered on starlette's base class specifically: the handler
+        above is bound to fastapi's SUBCLASS, which routers raise
+        explicitly, while the 405 from ``fastapi.routing`` imports
+        HTTPException from ``starlette.exceptions`` and never reached it.
+        Handler lookup walks the MRO and prefers the most specific
+        registration, so router-raised errors keep the problem-detail
+        contract untouched.
 
-        Everything else is delegated to fastapi's own default, unchanged --
+        Everything else delegates to fastapi's own default, unchanged —
         this deliberately does NOT convert framework 405/404 bodies to
-        problem+json, which would be a separate contract change.
+        problem+json, a separate contract change.
         """
         if exc.status_code == 405 and _is_standards_path(request):
             exc.headers = _allow_header_with_head(exc.headers)
@@ -363,7 +359,7 @@ def register_error_handlers(app: FastAPI) -> None:
             user = getattr(request.state, "user", None)
             if user is not None:
                 user_id = str(getattr(user, "id", None))
-        except Exception:  # broad: diagnostic context only — user_id stays None on any attribute access failure
+        except Exception:  # broad: diagnostic only — user_id stays None on failure
             pass
 
         # Prefer the middleware-generated UUID stashed on request.state — this
@@ -379,14 +375,14 @@ def register_error_handlers(app: FastAPI) -> None:
         try:
             if request.client is not None:
                 client_ip = request.client.host
-        except Exception:  # broad: diagnostic context only — client_ip stays None on any attribute access failure
+        except Exception:  # broad: diagnostic only — client_ip stays None on failure
             pass
 
         logger.exception(
             "Unhandled error",
-            # fix(#1778): same capability-in-the-path rule the access log has
-            # followed since #821 -- a 500 on /api/maps/shared/{token} used to
-            # write the token verbatim.
+            # fix(#1778): same capability-in-the-path rule the access log
+            # follows since #821 — without it, a 500 on
+            # /api/maps/shared/{token} would log the token verbatim.
             path=safe_access_log_path(request.url.path),
             method=request.method,
             query=redact_query_credentials(str(request.url.query))

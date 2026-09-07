@@ -1,31 +1,14 @@
 """OGC API -- Features landing page probe.
 
 Implements the probe adapter contract shared with wfs.py and arcgis.py:
-- probe_ogcapi(): fetch landing page, detect conformance, list collections
+probe_ogcapi() fetches the landing page, detects conformance, and lists
+collections. geometry_type/feature_count are None at probe time; the
+preview path (sources/preview.py) fills them in per-layer on demand.
 
-# Phase 1057 PROBE-05 + D-05 (ogrinfo enrichment dropped from probe phase)
-# -------------------------------------------------------------------------
-# enrich_ogcapi_layers() was removed in Phase 1057. The per-layer ogrinfo
-# subprocess (Semaphore(5) x N collections x ~3-4s) was the real latency
-# bottleneck — not the probe orchestrator logic. Dropping it makes the ≤5s
-# probe target trivially achievable.
-#
-# geometry_type and feature_count now return None for all OGC API layers at
-# probe time. When the user selects a specific layer, the preview path at
-# backend/app/modules/catalog/sources/preview.py already runs ogrinfo for
-# that single layer, supplying concrete geometry type at interaction time.
-#
-# D-09 kind classification is performed inline at layer-dict construction
-# (see classify_layer_kind in classify.py). OGC API Features collections
-# default to 'vector' unless explicit raster signals (coverage_format/
-# bands/image/* mediaType) are present in the collection JSON.
-#
-# Safety notes
-# ------------
-# The user-supplied base URL is SSRF-validated upstream by the probe router.
-# Secondary URLs extracted from the JSON response (e.g. /conformance href) are
-# re-validated via validate_url_for_ssrf() before fetching to prevent a
-# malicious landing page from redirecting to internal addresses.
+Safety: the base URL is SSRF-validated upstream by the probe router.
+Secondary URLs from the response body (e.g. the /conformance href) are
+re-validated via validate_url_for_ssrf() before fetching, since a landing
+page could otherwise redirect to an internal address.
 """
 
 import asyncio
@@ -52,8 +35,7 @@ from app.platform.service_endpoints import (
 logger = structlog.stdlib.get_logger(__name__)
 
 # What this adapter is, in the vocabulary ``build_credential_header`` reads.
-# The probe has no stored ``source_format`` to consult — it is what the probe
-# is trying to find out — so the adapter names its own.
+# The probe has no stored ``source_format`` — it names its own.
 OGCAPI_SERVICE_FORMAT = "ogcapi_features"
 
 
@@ -73,20 +55,11 @@ async def _resolve_conformance(
     degrades to what was known before it, so a service that answers the
     landing page and nothing else is still classified by its ``data`` link.
 
-    fix(#1746): extracted from ``probe_ogcapi`` unchanged. The credential
-    branch added there pushed that function past ruff's C901 ceiling, and
-    extraction is what this repo does about that rather than another
-    exemption.
-
-    fix(#1746 B2b review r5): the link is chosen by the RESPONSE DOCUMENT, and
-    following it is a fresh request rather than a redirect, so nothing httpx
-    does protects it: the cross-origin refusal in ``make_safe_client`` runs on
-    a hop, and there is no hop here. A landing page that omits ``conformsTo``
-    and points its conformance link at another origin would therefore have
-    been handed the credential built for the service. It is not followed with
-    one. ``credential_header`` is the name the credential travels under, or
-    None for an anonymous probe, which is the only thing that distinguishes
-    the two cases from in here.
+    fix(#1746): following the link is a fresh request, not a redirect, so
+    ``make_safe_client``'s cross-origin hop protection does not apply — a
+    landing page pointing its conformance link off-origin is not followed
+    with the credential. ``credential_header`` is the name it travels under,
+    or None for an anonymous probe.
     """
     conforms_to: list[str] = data.get("conformsTo", [])
     if conforms_to:
@@ -110,62 +83,29 @@ async def _resolve_conformance(
     if not conformance_href:
         return conforms_to, has_data_link
 
-    # Bound before the guard so the two log sites below always have something
-    # to name: the resolved form when there is one, the raw href when
-    # resolution is what failed. Never logged verbatim (fix(#1770 round 38
-    # P2)): `abs_href` names a document THIS SERVICE chose, so a hostile or
-    # compromised one can put a query string shaped like ours into it and get
-    # the credential this function is about to send reflected straight into
-    # our own logs -- the exact leak the GDAL-header-file design exists to
-    # avoid elsewhere. `redact_url_credentials` is applied at each log call
-    # below, never to `abs_href` itself: the unredacted value is what
-    # `same_origin`, `validate_url_for_ssrf` and the actual GET must keep
-    # using.
-    #
-    # fix(#1770 round 47b P1): truncated to `MAX_SERVICE_HREF_BYTES`
-    # characters at the seed, not the full raw href. `bounded_service_url`
-    # below can now fail BECAUSE `conformance_href` is huge (the round 47 P1
-    # class), and this variable is what every log/exception site below
-    # passes to `redact_url_credentials`, which itself calls the unbounded
-    # `parse_qsl` this codebase deliberately keeps unbounded (a redactor must
-    # never raise on the string it scrubs -- see that function's own
-    # comment). A 20 MB query string reaching an unbounded `parse_qsl` from
-    # a LOGGING call defeats the whole point of bounding the fetch path: the
-    # cost this round exists to refuse would be paid anyway, on every
-    # refused attempt, from a code path with no request in flight to time
-    # out. Truncating here makes `abs_href` safe to redact/log at every
-    # point in this function BY CONSTRUCTION, rather than trusting each
-    # call site to shrink it again -- the same reasoning as `# broad:`
-    # annotations existing at the catch site rather than being inferred.
+    # fix(#1770): bound `abs_href` before use, not after. It names a
+    # document THIS SERVICE chose, so a hostile one could reflect the
+    # credential straight into our logs via a crafted query string —
+    # `redact_url_credentials` is applied at each log call, never trusted to
+    # already be safe. And it must be truncated to `MAX_SERVICE_HREF_BYTES`
+    # at the seed: `redact_url_credentials` calls the deliberately-unbounded
+    # `parse_qsl`, so an oversized href reaching it from a LOGGING call would
+    # pay the cost bounding the fetch path exists to avoid.
     abs_href = conformance_href[:MAX_SERVICE_HREF_BYTES]
     try:
-        # fix(#1746 B2b review r19): resolution itself is inside the guard now.
-        # r6 moved the `same_origin` call in and left the `urljoin` outside,
-        # which was enough for the invalid-port case it was reasoning about
-        # (`urlparse` defers that until the attribute is read) but not for an
-        # unclosed IPv6 bracket, which raises during resolution. The whole
-        # answer degrades together or none of it does.
-        # fix(#1770 round 47 P1): refused before `urljoin`, same as every
-        # other service-advertised href -- see `bounded_service_url`'s own
-        # docstring. The broad `except Exception` below already degrades a
-        # `ValueError` from this the same way it degrades one from
-        # `urljoin` itself, so no new except clause is needed here.
+        # fix(#1746): resolution is inside the try — an unclosed IPv6
+        # bracket in the href raises during `urljoin` itself, not just on
+        # later attribute access, so the whole answer must degrade together.
+        # fix(#1770): refused before `urljoin`, like every other
+        # service-advertised href; the broad `except Exception` below
+        # already covers a `ValueError` from either call.
         abs_href = urljoin(
             url, bounded_service_url(conformance_href, what="conformance")
         )
-        # The same rule the redirect refusal applies, for a link the document
-        # chose rather than a Location header. Not followed at all rather than
-        # followed anonymously: an anonymous answer about a service the caller
-        # holds a credential for is evidence about a different request than the
-        # one the import will make, which is the disagreement class this wave
-        # exists to end (plan D6). Conformance stays unestablished and the
-        # `data` link decides, exactly as it does for a landing page that
-        # advertises no conformance link at all.
-        #
-        # fix(#1746 B2b review r6): inside the guarded block. `same_origin` is
-        # total on its own, and this is the second half of the same answer:
-        # everything done with a URL this document chose degrades to "no
-        # conformance" rather than escaping as a 500.
+        # fix(#1746): cross-origin, not followed at all — not even
+        # anonymously. An anonymous answer about a credentialed service is
+        # evidence for a different request than the one the import will
+        # make. Conformance stays unestablished; the `data` link decides.
         if credential_header is not None and not same_origin(url, abs_href):
             logger.warning(
                 "OGC API probe: conformance link is on another origin, "
@@ -174,43 +114,29 @@ async def _resolve_conformance(
             )
             return conforms_to, has_data_link
         await validate_url_for_ssrf(abs_href)
-        # The href comes out of an untrusted landing page, so it is revalidated
-        # on the line above rather than trusted because the base URL was.
+        # The href comes out of an untrusted landing page, revalidated above
+        # rather than trusted because the base URL was.
         #
-        # fix(#1770 round 43): this line used to carry a CodeQL full-SSRF
-        # suppression marker, from when the line below was a direct
-        # `client.get`/`client.stream` call and this was genuinely the sink.
-        # Round 41 moved the actual sink into `bounded_probe_read`
-        # (`platform/probe_bounds.py`), so a marker here bound to a call
-        # site one hop away from the sink -- exactly the trap AGENTS.md
-        # warns about, a marker that reads as a defense and does nothing.
-        # The real marker now lives directly above the `stream` call in
-        # `probe_bounds.py`; the `validate_url_for_ssrf` call above is still
-        # real Rule 2 posture, just no longer this function's suppression
-        # to carry.
+        # fix(#1770): no CodeQL suppression marker belongs on this line —
+        # the actual sink is the `stream` call inside `bounded_probe_read`
+        # (`platform/probe_bounds.py`), one hop away from here.
         conf_body, _ = await bounded_probe_read(
             client, abs_href, headers=headers, accept=OGC_JSON_ACCEPT
         )
         conf_data = json.loads(conf_body)
         conforms_to = conf_data.get("conformsTo", [])
     except SSRFError:
-        # fix(#1858 audit P2-2): swallowed ON PURPOSE, unlike the
-        # `/collections` fetch below. `abs_href` is an address the LANDING
-        # DOCUMENT chose, this read establishes one optional fact, and the
-        # `data` link decides when it is unestablished -- so a refused hop
-        # here leaves the probe able to answer, and ending it would let any
-        # service make itself undetectable by advertising a blocked
-        # conformance href.
+        # fix(#1858): swallowed ON PURPOSE, unlike the `/collections` fetch
+        # below — this read establishes one optional fact, and ending the
+        # probe here would let a service make itself undetectable by
+        # advertising a blocked conformance href.
         logger.warning(
             "OGC API probe: conformance link blocked by SSRF check",
             href=redact_url_credentials(abs_href),
         )
-    # fix(#1770 round 41 P1): EndpointCheckFailedError joins the broad catch
-    # below -- it is what `bounded_probe_read` raises for a body over the
-    # byte cap, over the decoded-size cap, or carrying a Content-Encoding
-    # other than identity, and this fetch degrades all three exactly like an
-    # httpx/JSON failure: conformance stays unestablished, the `data` link
-    # decides.
+    # fix(#1770): `EndpointCheckFailedError` (over-cap body/size, or a
+    # non-identity Content-Encoding) degrades the same as an httpx/JSON
+    # failure here — conformance stays unestablished.
     except Exception as exc:  # broad: conformance fetch — httpx/JSON/bound failures can throw varied errors; degrade gracefully
         logger.debug(
             "OGC API probe: conformance fetch failed",
@@ -231,22 +157,18 @@ async def probe_ogcapi(
     via the ``conformsTo`` array or ``/conformance`` link, then fetches
     ``/collections`` to build the layer list.
 
-    Returns a dict with ``service_type`` and ``layers`` on success, or None
-    if the URL does not appear to be an OGC API Features service.
+    Returns a dict with ``service_type`` and ``layers``, or None if the URL
+    does not look like an OGC API Features service.
 
-    fix(#1746): the credential becomes a header HERE rather than arriving as
-    one, which is what keeps ``build_credential_header`` the only producer of
-    a credential header in the tree. The probe door has already judged the
-    inputs, so a ValueError from the builder is unreachable over HTTP and is
-    caught for the in-process caller that skipped the door; the message is a
-    policy constant and carries no part of the credential.
+    fix(#1746): the credential becomes a header HERE, keeping
+    ``build_credential_header`` the tree's only producer of one. A
+    ValueError from the builder is unreachable over HTTP (the probe door
+    already judged the inputs) and is caught here for the in-process caller
+    that skipped it.
 
-    fix(#1770 round 41 P1): the whole function runs under
-    ``DEFAULT_CHECK_TIMEOUT`` -- the same clock ``assert_endpoints_stay_on_
-    origin`` runs its own reads under, reused rather than a new number
-    invented here. That check only runs AFTER this one returns, so without
-    its own bound a protected service a caller already holds a credential for
-    could otherwise trickle a response for as long as the client's own
+    fix(#1770): the whole function runs under ``DEFAULT_CHECK_TIMEOUT`` —
+    without its own bound, a protected service the caller already holds a
+    credential for could trickle a response for as long as the client's
     per-inactivity timeout tolerated, once per probe.
     """
     try:
@@ -262,22 +184,20 @@ async def _probe_ogcapi_within_deadline(
     client: httpx.AsyncClient,
     credential: ServiceCredential | None,
 ) -> dict | None:
-    """``probe_ogcapi``'s body, split out so the deadline wraps all of it."""
     headers: dict[str, str] = {"Accept": "application/json"}
     # Bound before the branch, because the conformance fetch below has to know
     # whether this request carries a credential and under what name.
     pair: tuple[str, str] | None = None
     if credential is not None:
-        # fix(#1746 B2b review r7): the ValueError propagates. See probe_wfs
-        # for why the caller and not the adapter decides what an uncomposable
-        # credential means.
+        # fix(#1746): ValueError propagates — see probe_wfs for why the
+        # caller, not the adapter, decides what an uncomposable credential
+        # means.
         pair = build_credential_header(
             replace(credential, service_format=OGCAPI_SERVICE_FORMAT)
         )
         if pair is not None:
             headers[pair[0]] = pair[1]
 
-    # Step 1: Fetch landing page
     try:
         body, _ = await bounded_probe_read(
             client, url, headers=headers, accept=OGC_JSON_ACCEPT
@@ -309,7 +229,7 @@ async def _probe_ogcapi_within_deadline(
     if not isinstance(data, dict):
         return None
 
-    # Step 2: Resolve conformsTo — may be at landing page level or at /conformance
+    # conformsTo may be at landing page level or via the /conformance link.
     conforms_to, has_data_link = await _resolve_conformance(
         url,
         client,
@@ -320,14 +240,12 @@ async def _probe_ogcapi_within_deadline(
     if not conforms_to and not has_data_link:
         return None
 
-    # Step 3: Validate OGC API Features conformance
     is_ogc_features = any(
         isinstance(uri, str) and "ogcapi-features" in uri for uri in conforms_to
     )
     if not is_ogc_features and not has_data_link:
         return None
 
-    # Step 4: Fetch /collections
     collections_url = url.rstrip("/") + "/collections"
     try:
         await validate_url_for_ssrf(collections_url)
@@ -336,18 +254,11 @@ async def _probe_ogcapi_within_deadline(
         )
         col_data = json.loads(col_body)
     except SSRFError:
-        # fix(#1858 audit P2-2): re-raised, not degraded. This clause ENDS
-        # the adapter either way -- `return None` here is `probe_ogcapi`
-        # answering "not an OGC API service" -- so swallowing it costs the
-        # door the only truthful answer it could have given and gains
-        # nothing. `probe_service_url` and the preview door both have an
-        # `except SSRFError` that reports a refused hop as itself, and
-        # `_header_auth_probe` now lets one through to reach them. The rule
-        # this follows, and the reason the four best-effort clauses in
-        # `adapters/arcgis.py` and `_resolve_conformance` above keep their
-        # degrade: a refusal on a read whose failure means "one optional
-        # fact is unknown" stays a degrade; a refusal on a read whose
-        # failure ends the adapter is raised.
+        # fix(#1858): re-raised, not degraded — this clause ENDS the
+        # adapter either way, so swallowing it would cost the door its only
+        # truthful answer. Rule: a read whose failure means "one optional
+        # fact is unknown" degrades; a read whose failure ends the adapter
+        # raises (see the arcgis.py/`_resolve_conformance` degrade clauses).
         logger.warning(
             "OGC API probe: collections URL blocked by SSRF check", url=collections_url
         )
@@ -360,23 +271,19 @@ async def _probe_ogcapi_within_deadline(
         )
         return None
 
-    # fix(#1770 round 44 P2): a credentialed `/collections` answering `200
-    # []`, `200 null`, or `200 "x"` is valid JSON but not a dict, and
-    # `.get(...)` on a list/None/str raises `AttributeError` -- uncaught by
-    # `_header_auth_probe` (`probe.py`, `ValueError` only) or the probe
-    # route, so it reached the caller as a bare 500 rather than the
-    # `ServiceNotRecognized`/`None` degrade every other unrecognised
-    # response gets.
+    # fix(#1770): a non-dict `/collections` response (e.g. `200 []`) makes
+    # `.get(...)` raise `AttributeError`, uncaught by `_header_auth_probe`
+    # or the probe route, reaching the caller as a bare 500 instead of the
+    # ordinary degrade.
     if not isinstance(col_data, dict):
         return None
     collections = col_data.get("collections", [])
     if not isinstance(collections, list):
         return None
 
-    # D-09: classify each collection dict at build time. geometry_type is None
-    # (D-05: ogrinfo enrichment dropped from probe phase). Raster signals such
-    # as coverage_format/bands/image/* mediaType are detected from the raw
-    # collection JSON c — most OGC API Features collections will be 'vector'.
+    # geometry_type is None here (probe phase skips ogrinfo enrichment).
+    # Raster signals (coverage_format/bands/image/* mediaType) are read from
+    # the raw collection JSON; most OGC API Features collections are 'vector'.
     layers = [
         {
             "name": c["id"],

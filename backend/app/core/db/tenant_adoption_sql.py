@@ -1,47 +1,45 @@
 """DDL ported from migration 0019, runnable at the current head schema.
 
 Split out of :mod:`app.core.db.tenant_adoption` so the tool and the ported DDL
-stay separately readable — these blocks are a faithful port of
+stay separately readable — a faithful port of
 ``_create_and_validate_cluster_roles`` and
 ``_adopt_and_backfill_existing_tenants`` in
-``backend/alembic/versions/0019_tenant_provisioning_boundary.py``, and they are
-reviewed against that file rather than against the surrounding Python.
+``backend/alembic/versions/0019_tenant_provisioning_boundary.py``, reviewed
+against that file rather than the surrounding Python. Historical migrations
+must stay self-contained, so this is a port, not an import.
 
-Historical migrations must stay self-contained, so this is a port, not an
-import.  Two deliberate divergences from 0019, both because the head schema
-moved (#998):
+Three deliberate divergences from 0019, all because the head schema moved
+(#998):
 
-- 0019 parked every tenant relation on the provisioner so its provisioning
-  function could rewrite their ACLs.  Migration 0024 removed that object-ACL
-  pass, so relations move straight to the per-tenant writer and the reader's
-  per-relation ``SELECT`` is granted by the writer, which is the contract
-  ingest already follows.
+- Migration 0024 removed the object-ACL pass 0019 relied on (parking every
+  tenant relation on the provisioner). Relations now move straight to the
+  per-tenant writer, and the reader's per-relation ``SELECT`` is granted by
+  the writer — the contract ingest already follows.
 - Every step is gated on the gap it closes, so an already-adopted tenant
-  issues no DDL at all.  0019 ran once, inside a migration; this runs whenever
-  an operator needs it.
-
-Repair boundary
----------------
-Adoption rewrites only grants it is itself the grantor of, plus ACLs on objects
-it owns or can own for the duration.  A pre-existing anomaly — a membership
-granted by a third party, a duplicate row hiding behind a canonical one, a
-default-privilege entry belonging to a role this credential cannot assume — is
-detected and refused with the exact statement to run and the role to run it as,
-not repaired.  Removing somebody else's grant means naming its grantor and being
-able to assume it, and PostgreSQL answers that differently for every combination
-of server version, grantor and dependent grant; the operator has authority this
-process does not, and a refusal that names the remedy costs one re-run.
+  issues no DDL. 0019 ran once inside a migration; this runs whenever an
+  operator needs it.
 - The reserved-role membership guard aggregates with ``bool_or`` instead of
-  reading one row.  PostgreSQL keeps one membership row per grantor, so a member
-  can hold two grants of the same role and 0019's scalar read picks one
-  arbitrarily — a canonical row can hide an unsafe one.
+  reading one row: Postgres keeps one membership row per grantor, so a member
+  can hold two grants of the same role and 0019's scalar read could pick one
+  arbitrarily, letting a canonical row hide an unsafe one.
+
+Repair boundary: adoption rewrites only grants it is itself the grantor of,
+plus ACLs on objects it owns or can own for the duration. A pre-existing
+anomaly — a membership granted by a third party, a duplicate row hiding
+behind a canonical one, a default-privilege entry belonging to a role this
+credential cannot assume — is detected and refused with the exact statement
+and role to run it as, not repaired. Removing someone else's grant means
+naming its grantor and being able to assume it, and Postgres answers that
+differently per combination of server version, grantor, and dependent grant;
+the operator has authority this process does not, and a refusal that names
+the remedy costs one re-run.
 """
 
 from __future__ import annotations
 
-#: The fixed cluster role topology installed by 0019.  Cluster roles are not
-#: carried by a database dump; on a fresh cluster they arrive from a globals
-#: dump, or from :func:`app.core.db.tenant_adoption.ensure_cluster_roles`.
+#: The fixed cluster role topology installed by 0019. Not carried by a
+#: database dump — on a fresh cluster they come from a globals dump, or from
+#: :func:`app.core.db.tenant_adoption.ensure_cluster_roles`.
 PROVISIONER = "geolens_tenant_provisioner"
 CONTROL = "geolens_tenant_control"
 WRITER = "geolens_tenant_writer"
@@ -59,24 +57,24 @@ _RELATION_KINDS = "'r', 'p', 'v', 'm', 'f', 'S'"
 #: The ADMIN-only membership shape the provisioning function demands: ``ADMIN``,
 #: and on PostgreSQL 16+ neither ``INHERIT`` nor ``SET``.
 #:
-#: ``admin_option`` alone is not enough to test.  A globals dump written by
-#: PostgreSQL 13-15 carries ``GRANT … WITH ADMIN OPTION``, and replaying that on
-#: 16+ lands ``SET TRUE`` — measured, not assumed — which
-#: ``provision_tenant_data_schema`` rejects as "not ADMIN-only".  Re-issuing the
-#: explicit three-option grant rewrites it in place.
+#: ``admin_option`` alone is not enough: a globals dump written by PG 13-15
+#: carries ``GRANT … WITH ADMIN OPTION``, and replaying it on 16+ lands
+#: ``SET TRUE`` (measured, not assumed), which ``provision_tenant_data_schema``
+#: rejects as "not ADMIN-only". Re-issuing the explicit three-option grant
+#: rewrites it in place.
 #:
-#: The options are read out of the row as jsonb because those columns arrived in
-#: 16 and GeoLens supports 13 and up (README); naming them directly would be a
-#: parse error on an older server, where ``admin_option`` is the whole story.
-#: The membership PostgreSQL 16+ hands a non-superuser role creator, and the
-#: reason none of this file tries to revoke one: its grantor is the bootstrap
-#: superuser, a member's plain ``REVOKE`` of it is a warning-level no-op, and
-#: ``GRANTED BY`` that grantor is permission denied for every customer role on a
-#: managed provider — measured, on 18.  It confers nothing on its own (ADMIN
-#: without INHERIT or SET), so it is tolerated wherever it appears instead.
+#: Options are read out of the row as jsonb since those columns arrived in 16
+#: and GeoLens supports 13+ (README); naming them directly is a parse error on
+#: an older server, where ``admin_option`` is the whole story.
 #:
-#: Before 16 there is no automatic membership at all, so the pre-16 arm of the
-#: jsonb read never matches and nothing is tolerated by accident.
+#: The automatic membership PG 16+ hands a non-superuser role creator is
+#: tolerated, never revoked: its grantor is the bootstrap superuser, a
+#: member's plain ``REVOKE`` of it is a warning-level no-op, and ``GRANTED
+#: BY`` that grantor is permission denied for every customer role on a
+#: managed provider (measured on 18). It confers nothing on its own (ADMIN
+#: without INHERIT or SET). Before 16 there is no automatic membership at
+#: all, so the pre-16 jsonb arm never matches and nothing is tolerated by
+#: accident.
 _MEMBERSHIP_CREATOR_SHAPE = """(
               membership.admin_option
               AND jsonb_exists(to_jsonb(membership), 'set_option')
@@ -111,12 +109,12 @@ _MEMBERSHIP_SET_ONLY = """(
           )"""
 
 #: True for a sequence a column owns — ``serial`` (dependency ``a``) or an
-#: identity column (dependency ``i``).  PostgreSQL refuses ``ALTER SEQUENCE …
-#: OWNER TO`` on those ("cannot change owner of sequence") and instead moves
-#: them with their table, so the transfer must skip them and let the ``ALTER
-#: TABLE`` carry them.  0019 did not exclude them, which is why the ordinary
-#: ``ogr2ogr`` output of a vector ingest — every ``ogc_fid`` serial — would
-#: have stopped its adoption loop dead.
+#: identity column (dependency ``i``). Postgres refuses ``ALTER SEQUENCE …
+#: OWNER TO`` on those ("cannot change owner of sequence") and moves them with
+#: their table instead, so the transfer must skip them and let ``ALTER TABLE``
+#: carry them. 0019 did not exclude them, so the ordinary ``ogr2ogr`` output
+#: of a vector ingest — every ``ogc_fid`` serial — would have stopped its
+#: adoption loop dead.
 _COLUMN_OWNED_SEQUENCE = """(
           relation.relkind = 'S'
           AND EXISTS (
@@ -129,11 +127,8 @@ _COLUMN_OWNED_SEQUENCE = """(
       )"""
 
 
-# ---------------------------------------------------------------------------
-# Cluster role topology (port of 0019 ``_create_and_validate_cluster_roles``)
-# ---------------------------------------------------------------------------
-
-#: Creates whatever is absent and nothing else.  Split from the validation half
+# Cluster role topology (port of 0019 ``_create_and_validate_cluster_roles``).
+#: Creates whatever is absent and nothing else. Split from the validation half
 #: (below) so the dry run can answer "would ``--apply`` refuse this cluster?"
 #: by running the identical guard, read-only, instead of a second copy of it.
 CLUSTER_ROLE_CREATE_SQL = f"""
@@ -472,23 +467,22 @@ $$
 """
 
 #: Re-own and re-restrict the two migration-owned SECURITY DEFINER functions
-#: after a ``pg_restore --no-owner --no-acl``.  Bodies are never touched.
+#: after a ``pg_restore --no-owner --no-acl``. Bodies are never touched.
 #:
-#: ``ALTER FUNCTION … OWNER TO`` wants two things PostgreSQL does not spell out
-#: in the error message: the incoming owner must hold ``CREATE`` on the
-#: containing schema, and the caller must hold the *privileges* of that owner,
-#: not merely ``ADMIN`` on it.  A superuser migrator has both implicitly.  The
-#: migrator this module documents — ``CREATEROLE`` plus authority over the
-#: restored objects, which is what a managed provider hands out — has neither by
-#: default, and would otherwise stop here with the restored functions still
-#: owned by the restore login and still executable by ``PUBLIC``.
+#: ``ALTER FUNCTION … OWNER TO`` needs two things Postgres doesn't spell out in
+#: its error: the incoming owner must hold ``CREATE`` on the containing
+#: schema, and the caller must hold that owner's *privileges*, not merely
+#: ``ADMIN`` on it. A superuser migrator has both implicitly; the migrator
+#: this module documents (``CREATEROLE`` plus authority over restored
+#: objects, what a managed provider hands out) has neither by default and
+#: would otherwise stop here with the functions still owned by the restore
+#: login and executable by ``PUBLIC``.
 #:
-#: The schema privilege is borrowed for the repair and given back before commit,
-#: the same shape the per-tenant writer edge uses below; a database already in
-#: the right state borrows nothing.  The role edge is *not* borrowed: rewriting
-#: the operator's own membership in the provisioner would mean guessing what to
-#: restore it to, so a caller without those privileges gets the exact ``GRANT``
-#: to run instead.
+#: The schema privilege is borrowed for the repair and given back before
+#: commit (a database already in the right state borrows nothing). The role
+#: edge is NOT borrowed: rewriting the operator's own provisioner membership
+#: would mean guessing what to restore it to, so a caller lacking it gets the
+#: exact ``GRANT`` to run instead.
 
 SECURE_BOUNDARY_FUNCTIONS_SQL = f"""
 DO $$
@@ -655,22 +649,22 @@ $$
 #: Hand back the usable provisioner edge this run took, if it took one.
 #:
 #: Gated by the caller on whether the run actually acquired it: an operator on
-#: PostgreSQL 13-15 may have granted the migrator this same shape by hand before
-#: recovery, and revoking somebody else's grant is not this tool's business.
+#: PostgreSQL 13-15 may have granted the migrator this same shape by hand
+#: before recovery, and revoking somebody else's grant is not this tool's
+#: business.
 #:
-#: ``CLUSTER_ROLE_VALIDATE_SQL`` rejects *any* direct member of these roles
+#: ``CLUSTER_ROLE_VALIDATE_SQL`` rejects any direct member of these roles
 #: except the role running it, so anything left here makes the next recovery
-#: depend on reusing the same migrator credential.  Two sources: the usable
+#: depend on reusing the same migrator credential. Two sources: the usable
 #: provisioner edge ``CLUSTER_ROLE_CREATE_SQL`` takes for the run, and the
-#: automatic ADMIN membership PostgreSQL 16+ gives a non-superuser creator on
-#: every role it creates.
+#: automatic ADMIN membership PG 16+ gives a non-superuser creator on every
+#: role it creates.
 #:
-#: The provisioner's automatic ADMIN edge is deliberately kept.  It grants no
-#: privileges by itself — measured — and it is what lets the same credential
-#: re-take a usable edge on the next run; without it the operator would have to
-#: re-grant by hand after every recovery.  What goes is the usable edge this run
-#: granted (grantor ``CURRENT_USER``, no ``ADMIN``) and the gateway memberships,
-#: which nothing in this tool ever reads.
+#: The provisioner's automatic ADMIN edge is kept deliberately: it grants no
+#: privileges by itself (measured) and lets the same credential re-take a
+#: usable edge next run, avoiding a hand re-grant after every recovery. What
+#: goes is the usable edge this run granted (grantor ``CURRENT_USER``, no
+#: ``ADMIN``) and the gateway memberships, which nothing in this tool reads.
 RELEASE_PROVISIONER_EDGE_SQL = f"""
 DO $$
 BEGIN
@@ -729,14 +723,12 @@ END
 $$
 """
 
-#: fix(#998 codex r45): the plain ``REVOKE GRANT OPTION`` statements in
+#: fix(#998): the plain ``REVOKE GRANT OPTION`` statements in
 #: ``ensure_cluster_roles`` reach only entries attributable to the executing
-#: role (or the object owner, for a superuser).  A grantable privilege some
-#: third role handed the provisioner survives them, and the final
-#: ``missing_provisioner_grants`` read then reports it as grantable after
-#: every ``--apply`` with nothing naming the grantor.  Refuse it up front,
-#: on the same terms as every other foreign grant: the role that can revoke
-#: it is named in the remedy.
+#: role (or the object owner, for a superuser). A grantable privilege some
+#: third role handed the provisioner survives them and would be reported as
+#: grantable after every ``--apply`` with no grantor named. Refuse it up
+#: front instead, on the same terms as every other foreign grant.
 PROVISIONER_GRANT_OPTION_GUARD_SQL = f"""
 DO $$
 DECLARE
@@ -832,10 +824,7 @@ $$
 """
 
 
-# ---------------------------------------------------------------------------
-# Per-tenant adoption (port of 0019 ``_adopt_and_backfill_existing_tenants``)
-# ---------------------------------------------------------------------------
-
+# Per-tenant adoption (port of 0019 ``_adopt_and_backfill_existing_tenants``).
 ADOPT_TENANT_SQL = f"""
 DO $$
 DECLARE

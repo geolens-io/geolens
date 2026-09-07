@@ -9,15 +9,14 @@ _engine_kwargs: dict = {
     "pool_pre_ping": settings.database_pool_pre_ping,
     "echo": False,
     # fix(#1778): keep bound parameters out of StatementError.__str__. Without
-    # this SQLAlchemy renders "[SQL: ...] [parameters: (...)]" into the
-    # exception message, and the DB error handler in api/main.py logs that
-    # message WITH a traceback. The SEC-03 redactor in core/logging_config.py
-    # only rewrites top-level event_dict keys by name, so it cannot see values
-    # embedded in the `exception` string: a connection reset mid-INSERT on
-    # catalog.users would put password_hash, email and username in stdout, and
-    # any feature write would put arbitrary tenant row data there. The
-    # statement text still reaches the log, which is what the handler's
-    # docstring asks for.
+    # this, SQLAlchemy renders "[SQL: ...] [parameters: (...)]" into the
+    # exception message that api/main.py's DB error handler logs with a
+    # traceback. The SEC-03 redactor in core/logging_config.py only rewrites
+    # top-level event_dict keys by name, so it can't see values embedded in
+    # the `exception` string: a connection reset mid-INSERT on catalog.users
+    # would put password_hash, email and username in stdout, and any feature
+    # write would leak arbitrary tenant row data. Statement text still
+    # reaches the log, as the handler's docstring requires.
     "hide_parameters": True,
 }
 
@@ -36,9 +35,9 @@ else:
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
-# ISO-01 (Phase 1208-01): register the tenant GUC hook on the global engine so
-# EVERY transaction (get_db + raw async_session + worker) picks up the GUC.
-# Single-tenant: the hook is an unconditional no-op (one boolean check, no SQL).
+# ISO-01 (Phase 1208-01): register the tenant GUC hook on the global engine
+# so every transaction (get_db, raw async_session, worker) picks it up.
+# single_tenant: the hook is an unconditional no-op (one check, no SQL).
 from app.core.db.tenant_session import install_tenant_session_hook  # noqa: E402
 
 install_tenant_session_hook(engine)

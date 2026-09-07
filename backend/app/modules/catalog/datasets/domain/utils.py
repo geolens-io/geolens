@@ -9,8 +9,6 @@ def extract_bbox(dataset: Dataset) -> list[float] | None:
 
     fix(#892): delegates to ``extent_to_bbox`` so a seam-crossing extent yields
     the RFC 7946 §5.2 west > east pair rather than a globe-spanning -180..180.
-    Both consumers want the spec form: the STAC/OGC record ``bbox``
-    (``search/service_records.py``) and the AI dataset-context ``extent_bbox``.
     """
     if dataset.record and dataset.record.spatial_extent is not None:
         return extent_to_bbox(dataset.record.spatial_extent)

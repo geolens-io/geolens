@@ -1,35 +1,21 @@
 """One spreadsheet-formula escaping rule for every CSV this product writes.
 
-fix(#1778): the rule was stated twice, in two private copies -- ``_safe_csv_cell``
-in ``modules/audit/router.py`` and ``_safe`` in ``modules/admin/router.py`` --
-and not at all in the third and most exposed writer. The dataset export
-(``processing/export/ogr.py``) hands ogr2ogr the table and ogr2ogr writes every
-attribute value verbatim; the writer side validates only the column NAME
-(``_COLUMN_NAME_RE`` in features/service.py), never the value. So an editor on
-any public dataset can store a property beginning with ``=``, ``+``, ``-`` or
-``@`` and any anonymous visitor who downloads the CSV distribution the DCAT
-record advertises executes it on open. That is a cross-privilege sink: the
-writer needs edit rights on one dataset, the victim needs none. It is also the
-one CSV in the product whose cells are wholly user-authored, while the two that
-were hardened carry mostly system-generated fields.
+fix(#1778): previously duplicated across two private copies and missing
+entirely from the dataset export, whose column-name validation never checked
+cell values — letting an editor on any public dataset store a property
+starting with ``=``, ``+``, ``-`` or ``@`` that executes when a visitor opens
+the downloaded CSV. The escape is a leading TAB, which spreadsheets read as
+"this cell is text".
 
-The escape is a leading TAB, which spreadsheets treat as "this cell is text".
+Strict by default: every cell starting with a trigger character is escaped,
+even a string that only looks numeric (e.g. account id ``-001``) — the right
+trade for the audit-log and admin-user exports.
 
-The default is strict: every cell starting with a trigger character is escaped,
-which is exactly what the audit-log and admin-user exports have always done. A
-username of ``+123`` or an account id of ``-001`` is a string that happens to
-look like a number, and stripping its protection to keep a spreadsheet from
-right-aligning it would be the wrong trade in a security log.
-
-fix(#1778 codex r1, narrowed r2): ``allow_numeric`` exists for the dataset
-export, and its callers must decide by COLUMN TYPE, never by the shape of the
-value. In a column the database calls ``integer`` or ``double precision``,
-``-12`` is a measurement: tab-prefixing it turns every negative reading in an
-exported attribute table into text, for pandas and QGIS as much as for Excel,
-and no spreadsheet reads a number as a formula anyway. In a text column ``-12``
-is a string a user typed, indistinguishable from the first half of ``-12+A1``,
-and it keeps the tab. ``numeric_column_names`` is the intended source of that
-decision.
+fix(#1778): ``allow_numeric`` exists only for the
+dataset export and must be decided by COLUMN TYPE, never by the value's
+shape — ``-12`` is a measurement in a numeric column but an indistinguishable
+formula fragment in a text column. ``numeric_column_names`` is the intended
+source of that decision.
 """
 
 from __future__ import annotations

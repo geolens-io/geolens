@@ -1,32 +1,13 @@
 """Inherited-keyword derivation for analysis-derived records (feat #1070).
 
-``apply_analysis_provenance`` copies the source record's keyword rows onto a
-materialized analysis output. Nothing marks those rows, by decision: marking
-them would cost a migration and a backfill, while the inherited set is
-recoverable at read time by resolving ``Record.derived_from`` to the source
-record and intersecting keyword sets. That derivation lives here.
+``apply_analysis_provenance`` copies the source's keyword rows without
+marking them; recovered at read time by intersecting keyword sets via
+``Record.derived_from``. Access gates on ``visible_derived_from``;
+audience-widening checks route through ``record_audience`` (#1068).
 
-Two questions, two audiences:
-
-* Which of this record's keywords are inherited? The intersection of its
-  keyword triples with the source record's. Read-side callers gate this on the
-  requester being able to access the source (the ``visible_derived_from``
-  rule), so a requester who cannot see the source also cannot tell "not
-  derived" from "derived from something you cannot see".
-* Does this record's audience reach beyond the source's? Asked of the
-  permission authority via ``record_audience`` (#1068), so an overlay's policy
-  answers rather than a restatement of the community ladder. This is what
-  makes an inherited keyword worth warning about: it is only consequential
-  when someone who cannot open the source can read it here.
-
-Accepted limitation (#1178 review): deleting a keyword on the SOURCE also
-empties the intersection here, so the copied row on the derived record loses
-its badge and stops triggering the publish-moment warning even though the
-copy still exists. That is the read-time route working as decided: row
-marking was rejected (it costs a migration and a backfill), and a source
-that no longer carries the keyword no longer has its association disclosed
-by it — the copy is just a word the owner can keep or delete. Revisit only
-if the read-time derivation route is itself replaced.
+Accepted limitation (#1178): deleting a source keyword leaves the copied row
+in place but drops it from the inherited set, losing its badge and the
+publish-moment warning.
 """
 
 from __future__ import annotations
@@ -128,19 +109,12 @@ async def audience_exceeds_source(
 ) -> bool:
     """Can anyone read ``record`` who cannot read its source?
 
-    ``visibility`` / ``record_status`` override the record's stored state so a
-    caller can ask the counterfactual — "would publishing this widen past the
-    source?" — which is the publish-moment question #1070 exists for.
-
-    An authority without ``record_audience`` cannot answer, and an
-    unanswerable question is not evidence the audiences nest — so it warns.
-    Over-warning is the cheap error here: this gates prose in a dialog, not a
-    row in a result set.
-
-    The NULL handling (``IS NOT false`` / ``IS NOT true``) follows
-    ``_stranded_viewer_exists`` in ``maps/service_public.py``: an overlay
-    predicate that cannot classify an account must send it to the warning
-    side, not silently out of the WHERE.
+    ``visibility``/``record_status`` let a caller ask the counterfactual —
+    "would publishing this widen past the source?" (#1070). An authority
+    without ``record_audience`` can't answer, so it warns (over-warning is
+    cheap here — this gates dialog prose, not a result-set row). NULL
+    handling follows ``_stranded_viewer_exists`` in
+    ``maps/service_public.py``: an unclassifiable account warns too.
     """
     permission = get_permission_extension()
     if getattr(type(permission), "record_audience", None) is None:
@@ -190,20 +164,11 @@ async def disclosed_inherited_keywords(
     """Inherited keywords readable, at the record's CURRENT state, by someone
     who cannot open the source. Empty when there is nothing to warn about.
 
-    The single question the ``update_user_metadata`` chokepoint asks after a
-    visibility or record_status change resolves — keyed off resolved state, so
-    both widening axes (visibility, and record_status to published) route
-    through one check.
-
-    fix(#1178 review r2): gated on ``actor``'s access to the SOURCE, with the
-    same ``visible_derived_from`` rule the keywords endpoint applies. Without
-    it this function was a membership oracle: an output owner who had LOST
-    access to a now-private source could add a guessed keyword to their own
-    record, send a no-op metadata PATCH, and read the warning as confirmation
-    that the guess exists on the inaccessible source. An actor who cannot
-    access the source therefore gets no disclosure warning either — the
-    accepted consequence of the redaction rule, since warning them would
-    disclose the very association the redaction hides.
+    fix(#1178): gated on ``actor``'s access to the SOURCE — otherwise an
+    output owner who lost source access could add a guessed keyword, PATCH
+    their record, and read the warning as confirmation the guess exists
+    there. No source access means no warning either, or that would disclose
+    the very association being redacted.
     """
     # Settle "not derived at all" before any query — role resolution and the
     # gate itself only make sense once there is a source to gate.
@@ -237,26 +202,11 @@ async def inherited_keyword_disclosure_warning(
 ) -> str | None:
     """The advisory warning every resolved-state audience writer emits, or None.
 
-    fix(#1178 review): the check lived inline in ``update_user_metadata`` and
-    the ordinary publish flow bypassed it — ``set_target_status`` writes
-    ``record_status`` directly, so a draft public analysis output published
-    with no warning. One shared helper, called AFTER each writer resolves the
-    new state, is the boundary that keeps the next status writer from
-    reopening the gap. Current callers: ``update_user_metadata``
-    (metadata PATCH, both axes) and the two publication-status endpoints in
-    ``datasets/api/router_data.py``.
-
-    Creation-time writers are deliberately not callers: ingest finalize
-    (``processing/ingest/tasks_common.py``) and the registration paths assign
-    an initial status/visibility to a record that cannot yet be
-    analysis-derived — ``derived_from`` and inherited keywords are written by
-    ``apply_analysis_provenance`` on outputs registered private — and a
-    worker has no owner on the wire to warn.
-
-    ``actor`` is the account making the change; the disclosure check reads
-    the source's keywords, so it is gated on the actor's access to the source
-    (see ``disclosed_inherited_keywords`` — fix #1178 review r2). No access,
-    no warning.
+    fix(#1178): one shared helper, called AFTER state resolves — an inline
+    check in ``update_user_metadata`` alone missed ``set_target_status``,
+    letting a draft public output publish with no warning. Creation-time
+    writers are not callers (nothing can be analysis-derived yet); ``actor``
+    gates on source access, same as ``disclosed_inherited_keywords``.
     """
     disclosed = await disclosed_inherited_keywords(
         session, record, dataset_id, actor=actor

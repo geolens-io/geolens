@@ -187,7 +187,7 @@ async def update_contact(
     if contact is None:
         raise ValueError(f"Contact {contact_id} not found")
 
-    # fix(#458 E-46): kwargs carry only explicitly-set fields (exclude_unset
+    # fix(#458): kwargs carry only explicitly-set fields (exclude_unset
     # at the router), so apply nulls too — that's how a field is cleared.
     for key, value in kwargs.items():
         setattr(contact, key, value)
@@ -230,7 +230,7 @@ async def list_keywords(
     result = await session.execute(
         select(RecordKeyword)
         .where(RecordKeyword.record_id == record_id)
-        # fix(#430 BA-34): deterministic order so paginated reads don't repeat/skip.
+        # fix(#430): deterministic order so paginated reads don't repeat/skip.
         .order_by(RecordKeyword.id)
         .offset(skip)
         .limit(limit)
@@ -287,11 +287,8 @@ async def delete_keyword(
 ) -> None:
     """Delete a keyword by ID, scoped to its owning record.
 
-    fix(#463 review): scoping by ``record_id`` keeps the delete addressable only
-    through its real owner, so a keyword whose id belongs to a different record
-    404s here instead of being deleted through a mismatched path — which also
-    kept the caller's re-embed (``_propagate_record_write``) pointed at the wrong
-    record while the keyword's real owner drifted.
+    fix(#463): scoping by ``record_id`` 404s a keyword belonging to a
+    different record, instead of deleting it through a mismatched path.
     """
     result = await session.execute(
         select(RecordKeyword).where(
@@ -323,7 +320,7 @@ async def list_distributions(
     result = await session.execute(
         select(RecordDistribution)
         .where(RecordDistribution.record_id == record_id)
-        # fix(#430 BA-34): deterministic order so paginated reads don't repeat/skip.
+        # fix(#430): deterministic order so paginated reads don't repeat/skip.
         .order_by(RecordDistribution.id)
         .offset(skip)
         .limit(limit)
@@ -349,16 +346,12 @@ async def _demote_other_primaries(
 ) -> None:
     """Clear ``is_primary`` on the record's other distributions (#1383).
 
-    One UPDATE, issued BEFORE the row that claims the flag is written, and the
-    ordering is the whole point. ``uq_record_distribution_primary`` (migration
-    0042) is a plain, non-deferrable partial unique index, so a second primary
-    fails at statement time rather than at COMMIT; leaving the demote to the
-    ORM's unit of work would make that failure depend on flush ordering
-    between an UPDATE and an INSERT that SQLAlchemy is free to choose.
-
-    ``generated_only`` restricts the demote to ``auto_generated`` rows. It is
-    what lets ``reconcile_distributions`` normalize its own rows without
-    writing a user's — see the preservation policy on its docstring.
+    Issued BEFORE the row that claims the flag is written — ordering is the
+    point, since ``uq_record_distribution_primary`` is a non-deferrable
+    partial unique index that fails at statement time, not at a
+    flush-order-dependent COMMIT. ``generated_only`` restricts the demote to
+    ``auto_generated`` rows, so ``reconcile_distributions`` never writes a
+    user's.
     """
     stmt = update(RecordDistribution).where(
         RecordDistribution.record_id == record_id,
@@ -380,7 +373,6 @@ async def _record_has_primary(
     *,
     user_authored_only: bool = False,
 ) -> bool:
-    """Whether some row on the record already holds ``is_primary``."""
     stmt = select(RecordDistribution.id).where(
         RecordDistribution.record_id == record_id,
         RecordDistribution.is_primary.is_(True),
@@ -406,25 +398,11 @@ async def create_distribution(
 ) -> RecordDistribution:
     """Create a manual distribution for a record.
 
-    **Primary semantics (#1383): the last write wins.** A row written with
-    ``is_primary=True`` demotes every other distribution on the record, the
-    generated ones included, in this transaction. Before this, the flag was
-    stored verbatim and every dataset already carries a generated primary
-    (GeoPackage when it has geometry, CSV when it does not), so one POST left
-    the record advertising two primaries with no tiebreak for the OGC Record
-    and STAC consumers that read ``properties.distributions``.
-
-    Rejecting the write with a 409 while another row holds the flag was the
-    alternative. It was not taken: the API has no demote verb, so "make this
-    one primary" would become a two-request dance with an unavoidable window
-    where the record has no primary at all, and every existing caller sending
-    ``is_primary=true`` would start failing. Demoting keeps the request
-    meaning what it says.
-
-    Enforcement does not live here. ``uq_record_distribution_primary``
-    (migration 0042) is the invariant — at most one primary row per record,
-    in the database, where no API path can route around it. The demote is
-    what keeps well-behaved callers from ever meeting it.
+    fix(#1383): last write wins — ``is_primary=True`` demotes every other
+    distribution on the record in this transaction (avoids two primaries
+    with no tiebreak for OGC/STAC readers). Enforced by
+    ``uq_record_distribution_primary`` (migration 0042); the demote just
+    keeps well-behaved callers from tripping it.
     """
     if record is None:
         record = await get_record(session, record_id)
@@ -460,13 +438,10 @@ async def update_distribution(
     """Update a distribution. Explicitly-set fields are applied, nulls included.
 
     Auto-generated distributions cannot be updated (raises ValueError).
-
-    ``is_primary=True`` follows the same last-write-wins rule
-    ``create_distribution`` states (#1383): the record's other distributions
-    are demoted here, in this transaction. Clearing the flag
-    (``is_primary=False``) promotes nothing — a caller saying "this is not the
-    primary" is not saying which one is, and a record with no primary is a
-    representable state that the next ``reconcile_distributions`` fills.
+    ``is_primary=True`` follows create_distribution's last-write-wins rule
+    (#1383); clearing it (``is_primary=False``) promotes nothing — a
+    no-primary record is representable, and the next
+    ``reconcile_distributions`` fills it.
     """
     result = await session.execute(
         select(RecordDistribution).where(
@@ -486,7 +461,7 @@ async def update_distribution(
     if kwargs.get("is_primary") is True:
         await _demote_other_primaries(session, record_id, keep_id=distribution_id)
 
-    # fix(#458 E-46): apply explicitly-set nulls too — see update_contact.
+    # fix(#458): apply explicitly-set nulls too — see update_contact.
     for key, value in kwargs.items():
         setattr(dist, key, value)
 
@@ -500,14 +475,8 @@ async def delete_distribution(
     """Delete a distribution by ID.
 
     Auto-generated distributions cannot be deleted (raises ValueError).
-
-    Deleting the row that holds ``is_primary`` hands the flag back to the
-    generated default (#1383). Without that, the demote-on-write rule would
-    make "no primary at all" reachable in one more request than it used to
-    be: the user's row took the flag off the generated GeoPackage when it was
-    created, and deleting it would leave nothing holding it. Withdrawing a
-    row withdraws its claim; the platform's own default is what the record
-    had before the claim.
+    Deleting the row holding ``is_primary`` hands the flag back to the
+    generated default (#1383): withdrawing a row withdraws its claim.
     """
     result = await session.execute(
         select(RecordDistribution).where(
@@ -535,13 +504,9 @@ async def _restore_generated_primary(
 ) -> RecordDistribution | None:
     """Give ``is_primary`` back to the best generated row, if there is one.
 
-    Same preference order ``reconcile_distributions`` normalizes with
-    (GeoPackage, then CSV), restricted to generated rows that actually exist —
-    a record whose modality generates neither is simply left without a
-    primary, the state it was in before. Called only after the flush that
-    removed the previous holder, and it re-checks that nothing else holds the
-    flag, so it can never be the write that trips
-    ``uq_record_distribution_primary``.
+    Same preference order as ``reconcile_distributions`` (GeoPackage, then
+    CSV), restricted to rows that exist. Re-checks nothing else holds the
+    flag, so it can never trip ``uq_record_distribution_primary``.
     """
     if await _record_has_primary(session, record_id):
         return None
@@ -713,37 +678,12 @@ async def generate_distributions(
 ) -> list[RecordDistribution]:
     """Generate standard distribution records for a dataset.
 
-    For spatial datasets (geometry_type is not None): creates 9 distribution rows
-    (7 download formats incl. GeoParquet, FlatGeobuf, and PMTiles + OGC
-    features + vector tiles).
-    For non-spatial datasets (geometry_type is None): creates only csv download
-    + OGC features (2 rows).
+    Spatial datasets get 9 rows; non-spatial get 2 (csv + OGC features).
+    All auto_generated=True, merged via ``ON CONFLICT DO NOTHING``.
 
-    All are marked auto_generated=True. Merge semantics: an AUTO-GENERATED row
-    already holding a (distribution_type, format) pair is left untouched, and
-    the insert itself is ``ON CONFLICT DO NOTHING`` against
-    ``uq_record_distribution``.
-
-    fix(#1383): the template's ``is_primary`` is inserted only when no row on
-    the record already holds the flag. At creation none does; on a reconcile
-    the holder is a survivor or a user's own row, and the caller's
-    normalization step is what moves the flag afterwards.
-
-    fix(#1370): the existence probe reads only auto-generated rows. It used to
-    read every row, so a distribution a user authored through
-    ``create_distribution`` counted as "the pair is taken" — and once somebody
-    added their own ``download``/``gpkg`` entry, the built-in
-    ``/datasets/{id}/export?format=gpkg`` row could never be generated for that
-    record again, by this call or by a later ``reconcile_distributions``
-    promote. The export endpoint kept working; the catalog record, the DCAT
-    feeds and the STAC assets simply stopped naming it. Two rows advertising
-    one format is the intended end state: one the user's, one the platform's.
-
-    Args:
-        dataset_id: Dataset PK (used in URL paths).
-        record_id: Record PK (FK in record_distributions).
-        table_name: Dataset table name (used in vector tile URL).
-        geometry_type: Geometry type string, or None for non-spatial datasets.
+    fix(#1383): ``is_primary`` is inserted only when no row already holds
+    it. fix(#1370): the existence probe reads only auto-generated rows, so
+    a user's matching row can't block the platform's from being generated.
     """
     # Fetch the pairs this function owns for this record in a single query.
     # Anything a user wrote is deliberately invisible here — see above.
@@ -758,22 +698,9 @@ async def generate_distributions(
     )
     existing_set = {(row[0], row[1]) for row in existing_result.all()}
 
-    # fix(#1463, codex round 2): repair a surviving row the OLD template wrote.
-    # Migration 0048 is one-shot and the scripted upgrade migrates while the
-    # previous app containers still serve (it migrates first, replaces the app
-    # after), so a dataset created in that window is stamped `OGC:WMTS` after
-    # the UPDATE commits — and the pair-existence skip below means the template
-    # never rewrites it. Scoped like the migration's WHERE plus this record;
-    # a user's own row is not visible to this function at all.
-    #
-    # fix(#1463, codex round 4): this is a partial mitigation, not a closer, and
-    # the earlier comment here overstated it. Both refresh callers gate
-    # `reconcile_distributions` on a modality FLIP (`tasks_postgis_refresh` and
-    # `tasks_common`, each deliberately, so an unchanged refresh cannot
-    # renormalize `is_primary`), and creation cannot meet a stale row. So the
-    # reach is: a dataset that gains or loses geometry, plus any future caller
-    # that regenerates. Everything else created in the window keeps the wrong
-    # label until #1467 removes the window itself, which is the actual fix.
+    # fix(#1463): repairs a stale `OGC:WMTS` protocol stamped during
+    # migration 0048's upgrade window. Partial mitigation — only reached on
+    # a modality-flip refresh (not fresh datasets); #1467 removes the window.
     if _VECTOR_TILES_PAIR in existing_set:
         await session.execute(
             update(RecordDistribution)
@@ -787,19 +714,12 @@ async def generate_distributions(
             .values(protocol=_VECTOR_TILES_PROTOCOL)
         )
 
-    # fix(#1383): the template's primary flag yields to whoever already holds
-    # it. At dataset creation nothing does and the GeoPackage (or CSV) row
-    # takes it exactly as before; on a reconcile the holder is a surviving
-    # generated row or a user's own, and inserting a second primary would
-    # violate `uq_record_distribution_primary` — aborting the refresh
-    # transaction the caller runs inside, which is the failure mode the
-    # ON CONFLICT clause below exists to avoid for the other unique index.
-    # Moving the flag afterwards is reconcile's normalization step, which
-    # demotes before it promotes.
+    # fix(#1383): the template's primary flag yields to whoever already
+    # holds it — inserting a second would violate
+    # `uq_record_distribution_primary` and abort the transaction.
     record_has_primary = await _record_has_primary(session, record_id)
 
-    # Build all new distributions in one list so they go out as a single
-    # multi-VALUES INSERT rather than one statement per row.
+    # Multi-VALUES INSERT rather than one statement per row.
     to_add: list[dict] = []
     primary_pair = _primary_pair(geometry_type)
 
@@ -816,7 +736,6 @@ async def generate_distributions(
         if not _pair_applies(dist_type, fmt, geometry_type):
             continue
 
-        # Skip if already exists
         if (dist_type, fmt) in existing_set:
             continue
 
@@ -861,20 +780,9 @@ async def generate_distributions(
     if not to_add:
         return []
 
-    # fix(#1370): ON CONFLICT DO NOTHING, not check-then-insert. Now that a
-    # user's row no longer hides its pair from the probe above, a user row
-    # whose url happens to equal the template's is a live collision on
-    # `uq_record_distribution` rather than a skipped pair — and
-    # `/datasets/{id}/export?format=gpkg` is a guessable thing to type. Catching
-    # IntegrityError instead would be a worse mechanism than it looks: the
-    # reconcile caller runs inside the write transaction of a registered-PostGIS
-    # refresh or a reupload swap, and a raised constraint violation aborts that
-    # whole transaction, turning a metadata correction into a failed job. A
-    # conflict resolved in the statement never opens that hole.
-    #
-    # Skipped rows are absent from RETURNING, so `created` stays a truthful
-    # list of what was inserted — which is what reconcile's is_primary
-    # normalization picks the primary from.
+    # fix(#1370): ON CONFLICT DO NOTHING, not check-then-insert —
+    # IntegrityError would abort the caller's transaction. Skipped rows stay
+    # out of RETURNING, so `created` is truthful for is_primary normalization.
     result = await session.execute(
         insert(RecordDistribution)
         .values(to_add)
@@ -895,67 +803,14 @@ async def reconcile_distributions(
 ) -> tuple[list[RecordDistribution], list[tuple[str, str]]]:
     """Bring a record's AUTO-GENERATED distributions in line with a modality.
 
-    fix(#1314): ``generate_distributions`` runs once, at dataset creation, and
-    merges rather than replaces — so a registered table that later gains a
-    geometry column never starts advertising vector tiles, and one that loses
-    its geometry goes on advertising GeoPackage, GeoJSON, Shapefile,
-    GeoParquet and tiles against a relation that cannot serve any of them.
-    This is the write that closes both directions: it inserts what the new
-    modality adds (by delegating to ``generate_distributions``) and removes
-    what the new modality excludes.
-
-    **Preservation policy.** Deliberately narrow, and the reason is that
-    ``record_distributions`` carries a single ``auto_generated`` boolean and no
-    per-field provenance — there is no ``user_modified_fields`` here the way
-    ``attribute_metadata`` has one:
-
-    - Rows with ``auto_generated=False`` ALWAYS survive, in both directions.
-      Those are the rows a user authored through ``create_distribution``, and
-      nothing in this function reads or writes them.
-    - Rows outside ``_GENERATED_PAIRS`` always survive, even when flagged
-      auto-generated. The raster and VRT ingest tails write their own
-      ``download`` rows (geotiff, vrt) and this function does not own them.
-    - Auto-generated rows the new modality excludes are DELETED. Any user edit
-      to such a row — title, media type, ``is_primary`` — is lost with it, and
-      the row is recreated from the template if the modality flips back.
-    - ``is_primary`` is NORMALIZED across the surviving generated rows, so
-      exactly one of them is primary for the new modality (GeoPackage when
-      there is geometry, CSV when there is not). A promote that left the old
-      CSV primary beside a new primary GeoPackage would advertise two. The
-      winner is picked from the rows that exist rather than from the modality
-      alone — a generated row the conflict-tolerant insert skipped is not
-      there to promote, and the fallback takes it.
-
-    **Where the primary flag fits the policy (#1383).** ``is_primary`` is a
-    per-RECORD invariant, not a per-row field: ``uq_record_distribution_primary``
-    (migration 0042) allows one primary row per record, and
-    ``create_distribution``/``update_distribution`` hold it up by demoting
-    everything else when a user claims the flag. That crosses this function's
-    boundary in exactly one place, and the boundary holds:
-
-    - The demote this normalization issues is scoped to ``auto_generated``
-      rows, so a user's row is still never written here. It does span
-      generated rows OUTSIDE ``_GENERATED_PAIRS`` — those survive, as the
-      bullet above promises, but they cannot keep a primary flag the record's
-      new winner needs, because the invariant is per record.
-    - A USER-authored primary outranks this normalization entirely: when one
-      exists, no generated row is promoted and the flags are left alone. The
-      explicit choice wins over the platform default, and a background
-      refresh never takes back what a user asked for.
-
-    Deleting that user row is what hands the flag back — see
-    ``delete_distribution`` — so the record does not sit primary-less waiting
-    for a refresh that may never come.
-
-    The lost-edit case is narrower than it reads: ``update_distribution`` and
-    ``delete_distribution`` both refuse to touch a row with
-    ``auto_generated=True``, so the API offers no way to edit one in the first
-    place. An edit could only exist from a direct database write, or from a
-    future path that relaxes that refusal — which is when this policy needs
-    revisiting, not before.
-
-    Returns ``(created, removed)``: the rows inserted, and the
-    ``(distribution_type, format)`` pairs deleted.
+    fix(#1314): merges rather than replaces — inserts what the modality adds
+    and DELETES auto-generated rows it excludes, taking user edits with
+    them. ``auto_generated=False`` rows and rows outside
+    ``_GENERATED_PAIRS`` are never inserted or deleted here, though the
+    ``is_primary`` demote below still reaches them (it is scoped to
+    ``auto_generated``, not to the pair set). fix(#1383): normalizes
+    ``is_primary`` unless a USER-authored primary already holds it. Returns
+    ``(created, removed)``.
     """
     result = await session.execute(
         select(RecordDistribution).where(
@@ -984,13 +839,12 @@ async def reconcile_distributions(
         session, dataset_id, record_id, table_name, geometry_type=geometry_type
     )
 
-    # fix(#1314 review round 1): chosen from the rows that ACTUALLY exist, not
-    # from the modality alone. Naming a pair with no generated row behind it
-    # cleared the CSV flag and promoted nothing, leaving the record with no
-    # primary distribution at all. fix(#1370) narrowed when that happens — a
-    # user's own GeoPackage entry no longer suppresses the generated one — but
-    # did not remove it: a user row sitting at the exact template url makes the
-    # insert a no-op, and then there is again no GeoPackage row to name.
+    # fix(#1314): chosen from the rows that ACTUALLY exist, not from the
+    # modality alone — naming a pair with no generated row behind it would
+    # clear the CSV flag and promote nothing, leaving no primary at all.
+    # fix(#1370) narrowed when that happens (a user's own GeoPackage entry
+    # no longer suppresses the generated one) but did not remove it: a user
+    # row at the exact template url makes the insert a no-op.
     generated = [
         row
         for row in survivors + created

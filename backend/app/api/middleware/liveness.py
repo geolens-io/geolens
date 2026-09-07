@@ -1,25 +1,17 @@
 """The one definition of "this request is the liveness probe".
 
-fix(#1778 codex r7): ``/health/live`` exists so an orchestrator can ask whether
-the API process is alive without asking whether its dependencies are. Answering
-that question honestly means the request must not touch the database, the cache
-or object storage on its way to the handler -- and the handler is only the last
-step. Three middlewares on the request path have a DB-backed branch, and in
-multi_tenant mode one of them turned a database outage into a ``403`` on the
-probe, which is precisely the restart loop the readiness/liveness split was
-added to prevent.
+fix(#1778): ``/health/live`` lets an orchestrator ask whether the API
+process is alive without asking whether its dependencies are, so the
+request must not touch the DB, cache, or object storage — in
+multi_tenant mode a DB-backed middleware once turned a database outage
+into a ``403`` on the probe, the restart loop the split exists to
+prevent.
 
-The predicate lives here, in one module, because the alternative is three
-independent path checks that drift. A middleware added later with a DB-backed
-branch has one obvious thing to call, and the structural test in
-``tests/test_health_liveness_split_1778.py`` fails if it does not.
-
-Path matching is exact rather than prefix-based. ``scope["path"]`` is what the
-app sees, which is ``/health/live`` both directly and behind the bundled Nginx
-(``location /api/`` rewrites ``^/api/(.*)`` to ``/$1`` before proxying).
-``/api/health/live`` is accepted as well, for an edge that proxies without that
-rewrite, and an ASGI ``root_path`` mount is stripped first, the way
-``DynamicCORSMiddleware._request_path`` already does it.
+The predicate lives here so a later DB-backed middleware has one
+obvious thing to call (``tests/test_health_liveness_split_1778.py``
+enforces it). Path matching is exact, not prefix-based:
+``scope["path"]`` is ``/health/live`` directly or behind Nginx;
+``/api/health/live`` is also accepted for an edge without that rewrite.
 """
 
 from __future__ import annotations

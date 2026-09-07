@@ -14,11 +14,9 @@ UserStatus = Literal["active", "pending", "suspended", "deactivated"]
 
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT access token for Authorization header")
-    # fix(#1446): required-but-nullable, NOT optional. Every login/refresh
-    # response serializes this key (as a string, or null in cookie mode), so
-    # omitting `default=` keeps it in OpenAPI's `required` list and stops the
-    # generated SDKs from exposing an `Unset`/absent shape the server never
-    # emits.
+    # fix(#1446): required-but-nullable, not optional — omitting `default=`
+    # keeps it in OpenAPI's `required` list so generated SDKs don't get an
+    # `Unset`/absent shape the server never emits.
     refresh_token: str | None = Field(
         description=(
             "Opaque token used to obtain a new access token. Always present for "
@@ -62,12 +60,10 @@ class UserCreate(BaseModel):
             "Plaintext password (policy: min 12 chars, 3+ character classes, "
             "at most 72 bytes UTF-8)"
         ),
-        # fix(#1715 codex r1): deliberately no json_schema_extra example. This
-        # one shipped a fake-but-plausible credential into openapi.json, both
-        # SDKs and api.generated.ts, where Rule 3 forbids a published example
-        # password. The sibling username and email examples stay; for a
-        # password, no example is better than one that reads like a real value
-        # and invites copy-paste.
+        # fix(#1715): deliberately no json_schema_extra example — a published
+        # example password (Rule 3) leaked a fake-but-plausible credential into
+        # openapi.json and both SDKs; no example beats one that invites
+        # copy-paste.
     )
     email: EmailStr | None = Field(
         default=None,
@@ -88,13 +84,9 @@ class UserCreate(BaseModel):
 
 class RegisterResponse(BaseModel):
     message: str
-    # M1 follow-up (Phase 1234): machine-readable post-registration step so the
-    # client renders the correct pending view from the server's actual decision
-    # instead of inferring it from a cached /auth/config snapshot (race-free).
-    # Computed purely from (config + submitted email) and therefore IDENTICAL for
-    # a genuine new signup and a swallowed username/email collision — the
+    # Computed purely from (config + submitted email), so it is IDENTICAL for a
+    # genuine new signup and a swallowed username/email collision — the
     # collision path must not be distinguishable (SEC-012 enumeration-safety).
-    # None on non-register responses (verify/resend reuse this model).
     next_step: Literal["verify_email", "await_approval"] | None = Field(
         default=None,
         description=(
@@ -122,9 +114,6 @@ class ConfigResponse(BaseModel):
     registration_enabled: bool = Field(
         description="Whether self-service registration is open"
     )
-    # SIGNUP-01 (Phase 1231): allow_signup is the cleaner public alias for
-    # registration_enabled that the login page reads to gate the signup affordance.
-    # Mirrors registration_enabled exactly; both are kept for back-compat.
     allow_signup: bool = Field(
         default=False,
         description=(
@@ -132,8 +121,6 @@ class ConfigResponse(BaseModel):
             "Alias for registration_enabled; login UI uses this to show/hide the signup link."
         ),
     )
-    # SIGNUP-04 (Phase 1231): email verification required flag for the login
-    # page to display appropriate messaging after registration.
     email_verification_required: bool = Field(
         default=False,
         description=(
@@ -149,9 +136,6 @@ class ConfigResponse(BaseModel):
             "Login UI can render conditional sign-in options without needing admin OAuthProvider access."
         ),
     )
-    # FRONT-01 (Phase 1223): when True the frontend redirects unauthenticated
-    # visitors at "/" to "/login" (the marketing landing surface).  Default
-    # False — self-hosters upgrading see zero change.
     landing_first: bool = Field(
         default=False,
         description=(
@@ -180,9 +164,6 @@ class ConfigResponse(BaseModel):
             "warning | info | success | destructive."
         ),
     )
-    # SSO-03 (Phase 1236 Plan 02): when False, POST /auth/login returns 403 for
-    # non-admin users and the login page should hide the username/password form.
-    # Default True — older clients that don't parse this field keep the form visible.
     password_login_enabled: bool = Field(
         default=True,
         description=(
@@ -217,11 +198,9 @@ class UserResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    # fix(#1446): stays REQUIRED. Only the body as a whole is optional (the
-    # route signature is `RefreshRequest | None = None`) so a browser on the
-    # cookie flow can POST nothing at all. Defaulting the field would instead
-    # declare `{}` a valid body, which the server can do nothing with — it
-    # would only reach the handler and 401.
+    # fix(#1446): stays required — only the body as a whole is optional (route
+    # signature `RefreshRequest | None = None`). Defaulting this field would
+    # make `{}` a valid body the server can't do anything with.
     refresh_token: str = Field(max_length=512)
 
 
@@ -307,12 +286,6 @@ class ApiKeyListResponse(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=256)
-    # WR-03: min_length=8 is the schema floor (allows the Pydantic validator to
-    # reject obviously short inputs before hitting the field_validator). The
-    # runtime policy enforced by validate_new_password / validate_password_from_settings
-    # is stricter: at least 12 characters and 3+ character classes (SEC-S16).
-    # The description surfaces the actual policy in the OpenAPI docs so clients
-    # do not generate passwords that pass schema validation but fail the route.
     new_password: str = Field(
         min_length=8,
         max_length=256,

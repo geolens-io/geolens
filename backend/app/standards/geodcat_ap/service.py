@@ -95,23 +95,14 @@ def record_to_geodcat_ap(
 ) -> dict:
     """Serialize a GeoLens dataset to GeoDCAT-AP 2.0.0 JSON-LD.
 
-    Args:
-        dataset: Dataset ORM object with the ``record`` relationship and its
-            keywords/contacts/distributions eager-loaded.
-        base_url: Absolute base URL (e.g. ``http://localhost:8000``).
-        app_base_url: Absolute public APP base URL, where the raster tile
-            template is served — fix(#1469), see
-            ``app.standards.distributions``.
-        include_context: Include ``@context``. Set to False for entries nested
-            inside a catalog feed to avoid duplicating the context.
-        lineage_summary: ``dcterms:provenance``, already access-checked by the
-            caller (``visible_lineage_summary``). fix(#1103): not read off the
-            record — an analysis output's lineage names the titles of the
-            datasets it was derived from, and this feed is served to anonymous
-            requesters.
-
-    Returns:
-        A plain dict suitable for JSON serialization as JSON-LD.
+    ``dataset`` needs ``record`` and its keywords/contacts/distributions
+    eager-loaded. ``app_base_url`` — fix(#1469): the raster tile
+    template is served there, not under the API base. ``include_context``:
+    False for entries nested in a catalog feed to avoid duplication.
+    ``lineage_summary`` (``dcterms:provenance``) arrives already
+    access-checked by the caller — fix(#1103): not read off the record,
+    since an analysis output's lineage names datasets an anonymous
+    requester may not see.
     """
     record = dataset.record
     result: dict = {}
@@ -226,17 +217,16 @@ def catalog_to_geodcat_ap(
 ) -> dict:
     """Serialize a list of visible datasets to a GeoDCAT-AP Catalog JSON-LD dict.
 
+    Every visible input dataset is emitted with the same deterministic
+    title-based description fallback as the per-dataset serializer, so
+    catalog validation can't hide published records by filtering first.
+
     Args:
         datasets: Dataset ORM objects with record relationships loaded.
         base_url: Absolute base URL.
 
     Returns:
-        A GeoDCAT-AP Catalog dict with nested dataset entries (no per-entry
-        ``@context``).
-
-    Every visible input dataset is emitted. A missing description receives the
-    same deterministic title-based fallback as the per-dataset serializer, so
-    catalog validation cannot hide published records by filtering them first.
+        A GeoDCAT-AP Catalog dict with nested entries (no per-entry @context).
     """
     lineage = lineage_by_record_id or {}
     entries = [

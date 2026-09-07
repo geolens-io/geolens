@@ -47,16 +47,13 @@ def _build_raster_metadata(
     source_count: int | None = None,
     base_url: str | None = None,
 ) -> RasterMetadata | None:
-    """Build RasterMetadata from a RasterAsset ORM object."""
     if raster_asset is None:
         return None
 
-    # Build bands list from band_info JSONB
     bands = []
     if raster_asset.band_info:
-        # Default a missing "index" to the 1-based position, not 0, so legacy
-        # band_info rows without the key get unique, correct band numbers
-        # instead of every band collapsing onto 0.
+        # Default a missing "index" to the 1-based position, not 0, so
+        # legacy rows without the key don't all collapse onto band 0.
         for position, b in enumerate(raster_asset.band_info, start=1):
             bands.append(
                 RasterBandInfo(
@@ -72,17 +69,12 @@ def _build_raster_metadata(
     if raster_asset.storage_backend == "s3" and is_admin:
         s3_uri = raster_asset.asset_uri
 
-    # Build tile and download URLs
-    # tile_url_meta stays relative (used by map rendering in the browser)
-    # connect URLs are absolute with api_key placeholder (for external GIS tools)
-    # fix(#821): the ?api_key= query lane is deprecated, but XYZ tile URLs in
-    # desktop GIS tools cannot send headers — this placeholder is the sanctioned
-    # remaining use of the lane.
+    # fix(#821): ?api_key= is deprecated, but desktop GIS XYZ tile clients
+    # can't send headers -- this placeholder is the sanctioned remaining use.
     tile_url_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-    # fix(#1372): `v` is the tile_cache_version — nginx's raster_cache keys on
-    # $arg_v, so a raster replace rolls the shared cache immediately. The
-    # connect URL stays unversioned: it is copied once into desktop GIS tools,
-    # where a frozen `v` would pin exactly the staleness it exists to bust.
+    # fix(#1372): `v` is tile_cache_version -- nginx keys raster_cache on
+    # $arg_v, so a replace rolls the cache. connect URL stays unversioned:
+    # it's copied once into GIS tools, where a frozen `v` pins staleness.
     tile_version = getattr(dataset, "tile_cache_version", None)
     tile_url_meta = (
         f"{tile_url_path}?v={tile_version}" if tile_version else tile_url_path
@@ -147,14 +139,10 @@ def dataset_to_response(
 ) -> DatasetResponse:
     """Convert a Dataset ORM object to a DatasetResponse schema.
 
-    ``can_view_provenance`` gates ``origin_uri``/``origin_ref`` per #1316: the
-    dataset owner and admins see the raw pointer, every other accessible-dataset
-    reader (named or anonymous) sees it nulled and keeps only the capability
-    summary fields (``origin``, ``source_freshness``, ``source_health``,
-    ``last_refreshed_at``, ``last_checked_at``), which are never gated. Callers
-    resolve the predicate via ``can_view_dataset_provenance`` in
-    ``authorization.py`` and pass the result in; it defaults to False so a
-    call site that forgets to decide redacts rather than leaks.
+    fix(#1316): ``can_view_provenance`` gates ``origin_uri``/``origin_ref`` --
+    owner/admin see the raw pointer, everyone else gets it nulled. Callers
+    resolve it via ``can_view_dataset_provenance`` in ``authorization.py``;
+    it defaults to False so a forgetful call site redacts rather than leaks.
     """
     record = dataset.record
     actor_map = actors_by_id or {}
@@ -174,7 +162,6 @@ def dataset_to_response(
         updated_user=updated_user,
     )
 
-    # Build raster metadata for raster_dataset and vrt_dataset records
     raster_metadata = None
     record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
     if record_type in RASTER_FAMILY_RECORD_TYPES and raster_asset is not None:
@@ -186,9 +173,8 @@ def dataset_to_response(
             base_url=base_url,
         )
 
-    # feat(#1218/#1224): resolved once. It is both the `origin` response field
-    # and the gate on source freshness below, and computing it twice is how the
-    # badge and the freshness chip would come to disagree.
+    # feat(#1218/#1224): resolved once -- serves as `origin` below and gates
+    # source freshness, so the badge and freshness chip can't disagree.
     origin = classify_origin(dataset.source_format, record_type)
 
     return DatasetResponse(
@@ -204,20 +190,10 @@ def dataset_to_response(
         n_dims=dataset.n_dims,
         z_min=dataset.z_min,
         z_max=dataset.z_max,
-        # fix(#1004): the RFC 7946 §5.2 spec bbox, west > east on a crossing.
-        # This was the span form under #892, when DatasetMap drew an unguarded
-        # planar ring and called fitBounds. #903 added the seam guards, and the
-        # span form then defeated them: extent_to_span_bbox flattens a Fiji
-        # extent to [-180, s, 180, n], which is bit-identical to a genuinely
-        # global dataset, so isLargeExtent fired first and no client-side test
-        # could tell the two apart. The seam information has to survive the
-        # wire. fix(#1112): the sibling `dataset_extent_bbox` in
-        # maps/_router_helpers.py now serves the same form for the same reason.
-        # It reaches a MapLibre source `bounds`, where an inverted pair yields
-        # no tiles at all, but the span conversion belongs at that boundary
-        # (normalizeRasterBounds in layer-adapters/shared.ts) rather than on the
-        # wire, so the builder's fit paths still get the seam. One column, one
-        # contract — pinned in tests/test_antimeridian_extent.py.
+        # fix(#1004): RFC 7946 §5.2 spec bbox (west > east on a seam crossing),
+        # not the flattened span form. fix(#1112): mirrored by
+        # dataset_extent_bbox in maps/_router_helpers.py for the same reason;
+        # pinned by tests/test_antimeridian_extent.py.
         extent_bbox=extent_to_bbox(record.spatial_extent),
         column_info=dataset.column_info,
         quality_detail=dataset.quality_detail,
@@ -232,11 +208,8 @@ def dataset_to_response(
         original_srid=dataset.original_srid,
         current_version=dataset.current_version,
         source_url=dataset.source_url,
-        # feat(#1218): origin is COMPUTED here, not stored — it is fully
-        # determined by source_format and record_type, and a third persisted
-        # value could only ever disagree with the two it derives from. Serving
-        # it retires the frontend's duplicate rule in OriginBadge.tsx and gives
-        # the CLI, MCP server, and SDKs the same answer.
+        # feat(#1218): origin is COMPUTED here, not stored -- it's fully
+        # determined by source_format and record_type, so all callers agree.
         origin=origin,
         # feat(#1316): raw pointers are owner-or-admin only; every other
         # reader keeps `origin` (above) and the freshness/health fields below.
@@ -249,12 +222,8 @@ def dataset_to_response(
         source_health=project_unknown(dataset.source_health),
         source_health_detail=dataset.source_health_detail,
         schema_drift_status=project_unknown(dataset.schema_drift_status),
-        # feat(#1224): the clock read lives here, at the response boundary, so
-        # compute_source_freshness stays a total function of its arguments and
-        # every threshold is testable without freezing time. `origin` gates the
-        # answer — a `created` dataset carries a last_refreshed_at it can never
-        # act on — and it is the same value served as `origin` above, resolved
-        # once so the field and the gate cannot disagree.
+        # feat(#1224): clock read lives here so compute_source_freshness stays
+        # a total function of its arguments, testable without freezing time.
         source_freshness=compute_source_freshness(
             dataset.last_refreshed_at,
             record.update_frequency,
@@ -271,17 +240,14 @@ def dataset_to_response(
         last_edited_at=last_edited.timestamp,
         collections=collections,
         record_status=record.record_status,
-        # fix(#1103): passed in already access-checked, like derived_from below
-        # and for the same reason — an analysis output's lineage sentence names
-        # the titles of the datasets it was built from, and a caller with no
-        # requester in hand cannot decide whether this requester may read them.
-        # Reading record.lineage_summary here instead is what leaked them; the
-        # structural guard in tests/test_analysis_provenance.py keeps it out.
+        # fix(#1103): passed in already access-checked -- an analysis output's
+        # lineage sentence names datasets it was built from, and reading
+        # record.lineage_summary here instead leaked them past the requester
+        # check. Guarded by tests/test_analysis_provenance.py.
         lineage_summary=lineage_summary,
-        # feat(#765): passed in already access-checked (the detail path calls
-        # visible_derived_from). Not read off the record here: the list
-        # builders share this function and would need a per-row check on the
-        # source dataset to emit it safely.
+        # feat(#765): passed in already access-checked (via visible_derived_from);
+        # not read off the record, since list builders share this function and
+        # would need a per-row check to emit it safely.
         derived_from=derived_from,
         update_frequency=record.update_frequency,
         usage_constraints=record.usage_constraints,
@@ -301,10 +267,8 @@ def dataset_to_response(
 async def dataset_geom_is_generic(db, table_name: str) -> bool:
     """True when the active tenant table's ``geom`` is generic GEOMETRY.
 
-    fix(#430 codex r18): genericity signal for DatasetResponse.
-    Mirror of features/service.py::_geom_column_is_generic (kept in this
-    domain: features already imports from datasets, so the reverse import
-    would cycle). Keep the two probes in sync.
+    fix(#430): mirrors features/service.py::_geom_column_is_generic (kept
+    here since features already imports from datasets). Keep both in sync.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var

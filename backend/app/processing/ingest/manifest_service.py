@@ -64,9 +64,8 @@ from app.processing.ingest.manifest_sources import (
 )
 from app.processing.ingest.service import queue_ingest_job, validate_file_extension
 
-# fix(#435): batch manifest-download writes so a 64 KiB httpx chunk does not cost
-# one `asyncio.to_thread` handoff each. 4 MiB keeps peak buffer memory small
-# while amortizing the thread hop across ~64 chunks.
+# fix(#435): batch download writes so a 64 KiB httpx chunk doesn't cost one
+# `asyncio.to_thread` handoff each; 4 MiB amortizes the hop across ~64 chunks.
 _WRITE_BUFFER_BYTES = 4 * 1024 * 1024
 
 # fix(#1814): total wall clock for staging one entry. Derived from the lease the
@@ -162,11 +161,11 @@ async def _authorize_prepared_source(
 ) -> None:
     """Restrict unowned raw seed paths to administrators.
 
-    Local staging paths and same-bucket object keys do not carry a database
-    ownership record. Treating knowledge of a path as authorization turns the
-    ingest worker into a cross-user storage reader. They remain available as an
-    explicit operator-seed workflow, while ordinary upload users use HTTPS
-    sources (which retain the shared SSRF validation and redirect hooks).
+    Local staging paths and same-bucket object keys carry no database
+    ownership record; treating knowledge of a path as authorization would
+    turn the ingest worker into a cross-user storage reader. They remain an
+    admin-only operator-seed workflow, while ordinary users use HTTPS
+    sources (shared SSRF validation and redirect hooks).
     """
     if prepared.kind == "http":
         return
@@ -204,8 +203,8 @@ async def _download_http_source(
 ) -> str:
     """Stream one manifest source to staging. Takes no database session.
 
-    fix(#1814): a session here would hold a pooled connection for the length of
-    the download, so the caller reads the size ceiling before it commits.
+    fix(#1814): a session here would hold a pooled connection for the
+    download's length; the caller reads the size ceiling before committing.
     """
     staging_dir = Path(settings.upload_staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -214,10 +213,10 @@ async def _download_http_source(
     )
 
     bytes_seen = 0
-    # Phase 1061 SEC-S04 (Rule 2): use make_safe_client so per-hop SSRF
-    # revalidation applies to manifest HTTP source downloads. Lazy import
-    # to preserve the Phase 225 PROCESS-02/04 layering invariant — `processing/`
-    # cannot have a module-level import from `app.modules.catalog.*`.
+    # Rule 2 (AGENTS.md): make_safe_client for per-hop SSRF revalidation on
+    # manifest
+    # HTTP downloads. Lazy import: `processing/` may not import
+    # `app.modules.catalog.*` at module level (layering invariant).
     from app.platform.security import make_safe_client
 
     try:
@@ -242,16 +241,14 @@ async def _download_http_source(
                             raise ManifestSourceError(
                                 "Manifest source exceeds the remaining storage quota"
                             )
-                # fix(#435): `Path.open()` + `file_obj.write()` ran synchronously
-                # inside this async loop, stalling the event loop — and therefore job
-                # heartbeats, cancellation, and unrelated requests — for the length of
-                # a multi-GB download. Writes now go to a worker thread, batched
-                # through a 4 MiB buffer so we are not paying a thread handoff per
-                # 64 KiB httpx chunk.
-                # fix(#476): opening creates a resource, so retain the completed
-                # handle even if cancellation arrives while its worker thread runs.
-                # Close that handle before propagating cancellation; otherwise it is
-                # never assigned and the normal finally block cannot reach it.
+                # fix(#435): sync `Path.open()`/`write()` stalled the event
+                # loop (and job heartbeats, cancellation, other requests)
+                # for a multi-GB download; writes now go to a worker thread
+                # batched through the 4 MiB buffer.
+                # fix(#476): retain the completed open() handle even if
+                # cancellation arrives mid-open, and close it before
+                # propagating — otherwise it's never assigned and the
+                # normal finally block can't reach it.
                 (
                     file_obj,
                     open_cancellation,
@@ -263,11 +260,10 @@ async def _download_http_source(
                         destination.unlink(missing_ok=True)
                     raise open_cancellation
 
-                # Each threaded write/close is drained on cancellation, so worker
-                # shutdown or a client disconnect cannot return while a thread still
-                # owns the staged fd and race the unlink below. `bytes(buffer)`
-                # snapshots before the thread reads it, so the following
-                # `buffer.clear()` is safe.
+                # Each threaded write/close is drained on cancellation, so no
+                # thread still owns the staged fd to race the unlink below.
+                # `bytes(buffer)` snapshots before the thread reads it, so
+                # the following `buffer.clear()` is safe.
                 try:
                     buffer = bytearray()
                     async for chunk in response.aiter_bytes():
@@ -302,7 +298,7 @@ async def _download_http_source(
             f"Failed to download manifest source: {redact_url_credentials(str(exc))}"
         ) from exc
     except BaseException:
-        # fix(#435 codex r4): cancellation/shutdown. The `finally` above already
+        # fix(#435): cancellation/shutdown. The `finally` above already
         # drained the close, so no thread owns the fd — drop the partial staged file.
         destination.unlink(missing_ok=True)
         raise
@@ -412,11 +408,10 @@ async def _preflight_quota(
 ) -> int | None:
     """Refuse an over-quota caller, and derive the streaming byte budget.
 
-    Runs before the reservation is inserted, so an entry that cannot be
-    admitted leaves no row behind. The same snapshot supplies a hard byte
-    budget for streaming, so a caller at or near quota cannot force the server
-    to download a whole object merely to discover that it cannot be admitted.
-    Returns None when the caller has no storage cap.
+    Runs before the reservation is inserted, so a refused entry leaves no
+    row behind. The same snapshot supplies a hard byte budget for
+    streaming, so a caller near quota can't force a full download just to
+    discover it can't be admitted. Returns None when uncapped.
     """
     from app.modules.quota.service import get_user_quota_usage
 
@@ -511,7 +506,7 @@ async def _admit_staged_source(
 async def _caller_owns_job(db: AsyncSession, job: IngestJob, user: Identity) -> bool:
     """Owner-or-admin gate for referencing an existing manifest job's ids.
 
-    fix(#430 codex r15): in-flight jobs may have no Dataset row yet, so the
+    fix(#430): in-flight jobs may have no Dataset row yet, so the
     dataset-level write gate can't run — key ownership on IngestJob.created_by
     instead (same contract as service.py's reupload ownership check).
     """
@@ -540,18 +535,16 @@ def _skip_complete_message(prepared: ManifestPreparedSource) -> str:
     """Explain a skip_complete result without promising a recovery path
     `_validate_existing_dataset_update` would then refuse.
 
-    gh#1736: this branch means the manifest entry matches the last completed
-    one; it does not mean the source bytes were read. A stable URI whose file
-    changed underneath it lands here too, so say plainly that the source was
-    not inspected.
+    gh#1736: matching the last completed entry means only that, not that the
+    source bytes were read — a stable URI whose file changed underneath it
+    lands here too, so say plainly the source wasn't inspected.
 
-    gh#1773 codex r4: the original wording named `checksum` unconditionally,
-    but bumping it on a `raster_cog` entry changes the fingerprint to
-    "update" only for `_validate_existing_dataset_update` to then reject it
-    with "Manifest raster updates are not supported" -- an impossible
-    recovery path. Vector entries get the checksum escape hatch; raster
-    entries get the same guidance `_validate_existing_dataset_update` gives
-    on the update path, so the two never disagree.
+    gh#1773 codex r4: naming `checksum` unconditionally let a bumped
+    `raster_cog` fingerprint reach `_validate_existing_dataset_update`,
+    which then rejects it with "Manifest raster updates are not
+    supported" — an impossible recovery path. Vector entries keep the
+    checksum escape hatch; raster entries get that same rejection's
+    guidance instead, so the two never disagree.
     """
     if prepared.source.type == "raster_cog":
         return (
@@ -581,14 +574,11 @@ async def _classify_dataset(
     # before any staging, download, or queue work — and before the dry_run
     # early return, which is the branch operators use to validate a manifest.
     validate_publication_intent(dataset.publication)
-    # feat(#1691): the publication intent maps to a catalog visibility
-    # (publication_to_catalog_fields); an intent resolving to public goes
-    # through the same admin gate as every API mutation that accepts a
-    # visibility. Raises 403 for a non-admin when the
-    # restrict_public_visibility instance setting is on — surfaced as this
-    # entry's error by apply_manifest's per-entry isolation, and checked
-    # before staging so dry_run reports it too. Local import: processing/
-    # must not import app.modules.catalog.* at module level (PROCESS-02/04).
+    # feat(#1691): an intent resolving to public goes through the same
+    # admin gate as every visibility-accepting API mutation, raising 403
+    # for a non-admin when restrict_public_visibility is on. Checked before
+    # staging so dry_run reports it too. Local import: processing/ must not
+    # import app.modules.catalog.* at module level (PROCESS-02/04).
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
     intent_visibility, _ = publication_to_catalog_fields(dataset.publication)
@@ -673,8 +663,8 @@ def _validate_existing_dataset_update(
     record = getattr(existing_dataset, "record", None)
     record_type = getattr(record, "record_type", None)
 
-    # Raster replacement has different asset/version semantics and is not
-    # implemented by the vector-only reupload task used by manifest updates.
+    # Raster replacement has different asset/version semantics than the
+    # vector-only reupload task manifest updates use.
     if prepared.source.type == "raster_cog":
         raise ManifestSourceError(
             "Manifest raster updates are not supported; create a new raster "
@@ -760,11 +750,11 @@ async def _adopt_committed_reservation(
 ) -> IngestJob | None:
     """Reconcile a reservation whose insert was durable but unacknowledged.
 
-    Returns the row when this request may go on using it, and None when the
+    Returns the row when this request may go on using it, None when the
     caller must re-raise. Either way the key is not left held.
 
-    fix(#1814): the row decides, as at the staging bind. ``adopt`` is False
-    for a cancellation, which releases the landed row instead.
+    fix(#1814): ``adopt`` is False for a cancellation, which releases the
+    landed row instead.
     """
     job_id = job.id
     adopted: IngestJob | None = None
@@ -784,8 +774,8 @@ async def _adopt_committed_reservation(
 async def _commit_reservation(db: AsyncSession) -> None:
     """The commit that publishes the reservation, as a named seam.
 
-    fix(#1814): a test cannot ask a real session for the ambiguous shape,
-    durable in PostgreSQL and raising on the acknowledgement.
+    fix(#1814): named so a test can make it durable-but-raising, a shape a
+    real session can't be asked for directly.
     """
     await db.commit()
 
@@ -793,8 +783,8 @@ async def _commit_reservation(db: AsyncSession) -> None:
 async def _commit_staged_bind(db: AsyncSession) -> None:
     """The commit that publishes the staging bind, as a named seam.
 
-    fix(#1814): split out so a test can make it durable and then raising, which
-    a real session cannot be asked to do. Production is exactly ``db.commit()``.
+    fix(#1814): named so a test can make it durable-but-raising. Production
+    is exactly ``db.commit()``.
     """
     await db.commit()
 
@@ -808,9 +798,9 @@ async def _settle_under_reset(
 ) -> bool:
     """Run every statement of one settlement on a session that was just reset.
 
-    Returns whether an attempt committed. fix(#1814): any statement in a
-    settlement can find the transaction unusable. The body is fenced, so one
-    reset-and-retry lands nothing twice.
+    Returns whether an attempt committed. fix(#1814): the body is fenced so
+    one reset-and-retry, needed because any statement can find the
+    transaction unusable, lands nothing twice.
     """
     # fix(#1814): pinned once, never re-read. A retry can rotate the token
     # between the two attempts, and a reset reloads the new one, so the retry
@@ -864,8 +854,8 @@ async def _settle_staged_entry(
 ) -> None:
     """Settle an entry that failed after its source was staged, then reap the copy.
 
-    fix(#1814): the row decides, not the exception. The two settlements fence on
-    disjoint states, and read and settlement share one body.
+    fix(#1814): the row decides, not the exception — the two settlements
+    fence on disjoint states, and read and settlement share one body.
     """
     job_id = job.id
     # The safe default if neither attempt can read: keep the bytes, because
@@ -1018,7 +1008,7 @@ async def _reserve_or_settle_entry(
 
     if classification == "skip_complete" and job is not None:
         if existing_dataset is not None:
-            # fix(#430 codex r15): same gate as the update branch below —
+            # fix(#430): same gate as the update branch below —
             # raises 404/403 into the per-entry error wrapper, so the skip
             # response cannot disclose another user's job/dataset UUIDs.
             from app.modules.catalog.authorization import (
@@ -1112,9 +1102,9 @@ async def apply_manifest(
     http_request: Request,
 ) -> ManifestApplyResponse:
     """Apply a manifest payload through existing ingest/reupload queues."""
-    # AsyncSession.rollback() expires ORM instances. Keep the caller id outside
-    # that lifecycle so one rejected entry cannot make the next entry trigger a
-    # synchronous lazy load (MissingGreenlet) while checking authorization.
+    # AsyncSession.rollback() expires ORM instances; keep the caller id
+    # outside that lifecycle so a rejected entry can't trigger a
+    # synchronous lazy load (MissingGreenlet) in the next entry's auth check.
     caller = cast(Identity, _ManifestCaller(id=user.id))
     results: list[ManifestApplyEntryResult] = []
     quota = _ManifestQuotaReservation()

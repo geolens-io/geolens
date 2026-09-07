@@ -244,13 +244,12 @@ class ServiceCommitRequest(BaseCommitRequest):
             "the database. Deprecated: use the auth object with method bearer."
         ),
     )
-    # fix(#1755 item 3): the deprecated flat spelling of a credential is held
+    # fix(#1755): the deprecated flat spelling of a credential is held
     # to the same rule as the `auth` object beside it on this door.
     _validate_token = field_validator("token")(_validate_safe_token)
-    # feat(#1746 B2b): declared LAST, like every other model that gained this
-    # field, because the generated Python SDK gives each field a positional
-    # slot in declaration order and appending cannot move a slot that already
-    # exists. Pinned by test_service_auth_contract_1746.
+    # feat(#1746): declared LAST — the generated Python SDK gives each field
+    # a positional slot in declaration order, and appending cannot move a
+    # slot that already exists. Pinned by test_service_auth_contract_1746.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
@@ -341,9 +340,9 @@ class CommitRequest(BaseModel):
         default=None,
         description="CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).",
     )
-    # feat(#1746 B2b): the handler re-validates ServiceCommitRequest from THIS
-    # model's dump, so a field absent here is dropped before the subclass ever
-    # sees it. Appended, never inserted, for the positional-slot reason above.
+    # feat(#1746): the handler re-validates ServiceCommitRequest from THIS
+    # model's dump, so a field absent here is dropped before the subclass
+    # ever sees it. Appended, never inserted, for the positional-slot reason above.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
@@ -452,11 +451,6 @@ class BulkRegisterResponse(BaseModel):
     )
 
 
-# ---------------------------------------------------------------------------
-# Presigned S3 upload schemas
-# ---------------------------------------------------------------------------
-
-
 class PresignedUploadRequest(BaseModel):
     filename: str = Field(
         min_length=1,
@@ -528,11 +522,6 @@ class UploadConfigResponse(BaseModel):
     )
 
 
-# ---------------------------------------------------------------------------
-# VRT creation schemas
-# ---------------------------------------------------------------------------
-
-
 class VrtCreateRequest(BaseModel):
     source_dataset_ids: list[uuid.UUID] = Field(
         min_length=1,
@@ -584,11 +573,7 @@ class VrtMutationResponse(BaseModel):
     message: str = Field(description="Human-readable acceptance message.")
 
 
-# ---------------------------------------------------------------------------
 # Fan-out schemas (GPKG-03, Phase 1058-04)
-# ---------------------------------------------------------------------------
-
-
 class FanOutLayerRequest(BaseModel):
     """One layer to ingest as a separate dataset from a multi-layer source."""
 

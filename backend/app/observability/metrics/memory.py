@@ -1,30 +1,20 @@
 """Per-worker RSS memory metrics for Prometheus + log watermarks.
 
-fix(#643): an api uvicorn worker was OOM-killed at the container cgroup cap
-(~1.9 GB RSS) with nothing in the normal logs — the event was only visible
-in the VM's dmesg. Expose each worker's RSS as a gauge and, because many
-deployments never scrape /metrics, WARN in the structured logs whenever a
-worker crosses the memory watermark, so runaway growth is diagnosable from
-`docker logs` alone.
+fix(#643): an api uvicorn worker was OOM-killed at the container cgroup
+cap with nothing in the normal logs — visible only in the VM's dmesg.
+Exposes each worker's RSS as a gauge and WARNs in structured logs on the
+memory watermark, since many deployments never scrape /metrics. Reads
+/proc directly (Linux); idles silently where /proc is absent (macOS dev).
 
-Reads /proc directly (Linux containers; no psutil dependency). On platforms
-without /proc (macOS dev) the loop idles silently.
+fix(#1778): the Procrastinate worker runs this loop too — it hosts
+GDAL/OGR with a 4 GB mem_limit against the API's 2 GB, so it's the
+process most likely to reproduce #643, yet had no gauge or warning at
+all; "api worker" below is a naming leftover, both services run it now.
 
-fix(#1778): the Procrastinate worker starts this loop too. It hosts GDAL/OGR
-and carries a 4 GB mem_limit against the API's 2 GB precisely because a large
-raster ingest is memory-hungry, so it is the process most likely to reproduce
-#643 -- and it published no gauge and no watermark warning at all. The prose
-below says "api worker" because that is where the finding came from; both
-services run it now.
-
-fix(#1240, #651): the api service runs in prometheus_client multiprocess
-mode, so a scrape reports every live worker's gauge in one response instead
-of whichever single worker answered. The gauge's own `pid` label plus
-`multiprocess_mode="liveall"` (rather than the default `"all"`) means a
-recycled worker's series actually disappears once its mmap file is removed
-by `shutdown_worker_metrics()` on that worker's own shutdown -- `"all"`
-would keep a dead pid's last value forever, since prometheus_client's
-`mark_process_dead()` only unlinks files for `live*`-mode gauges.
+fix(#1240, #651): `multiprocess_mode="liveall"` (not the default `"all"`)
+so a recycled worker's series disappears once
+`shutdown_worker_metrics()` removes its mmap file, instead of `"all"`
+keeping a dead pid's last value forever.
 """
 
 import asyncio

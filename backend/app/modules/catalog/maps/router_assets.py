@@ -50,10 +50,9 @@ async def upload_map_icon_endpoint(
 ) -> MapIconResponse:
     """Upload a reusable SVG or PNG icon for symbol layers."""
     content = await file.read()
-    # fix(#1778 round 4): the icon bytes and the row that names them are
-    # published together. This is the third write-object-then-commit-row site in
-    # the maps package, and the only one whose write and commit sit in different
-    # functions, so the ledger is threaded through create_icon_asset.
+    # fix(#1778): the icon bytes and the row that names them publish
+    # together; write and commit sit in different functions here, so the
+    # ledger is threaded through create_icon_asset.
     async with map_asset_publication() as publication:
         try:
             asset = await create_icon_asset(
@@ -66,11 +65,11 @@ async def upload_map_icon_endpoint(
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        # fix(#1778 round 5): settle on the commit, and keep the refresh below
-        # outside the scope. A refresh that raises after a successful commit
-        # would otherwise have deleted an icon the committed row references.
-        # fix(#1778 round 6): mark before awaiting it, so a commit that made the
-        # row durable but never acknowledged it deletes nothing either.
+        # fix(#1778): settle on the commit, keeping the refresh below
+        # out of scope — else a refresh failure after a successful commit
+        # would delete an icon the committed row references.
+        # fix(#1778): mark before awaiting, so a commit that made the
+        # row durable but wasn't acknowledged deletes nothing either.
         publication.committing()
         await db.commit()
         publication.settled()
@@ -102,15 +101,9 @@ async def get_map_icon_asset_endpoint(
     return Response(content=content, media_type=media_type, headers=headers)
 
 
-# Sprites are anonymous, unauthenticated reads (MapLibre fetches them before any
-# auth context exists). FastAPI's `responses=` merge is additive along the whole
-# include chain — a route only ever gains keys from an ancestor router, never
-# loses one — so nesting this router under `router` (in turn nested under the
-# maps router's `responses=ERROR_RESPONSES_WRITE`) would still leak a 401/403/409
-# these routes can never emit. `sprites_router` is therefore mounted directly on
-# `api_router` in api/router.py, as a sibling of the maps router rather than a
-# descendant, carrying its own `/maps` prefix so the published paths are
-# unchanged.
+# Sprites are anonymous, unauthenticated reads. FastAPI's `responses=`
+# merge is additive, so nesting under `router` (inheriting
+# ERROR_RESPONSES_WRITE) would leak a 401/403/409 these routes never emit.
 sprites_router = APIRouter(
     prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_PUBLIC
 )

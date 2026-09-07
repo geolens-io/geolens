@@ -1,41 +1,14 @@
 """On-demand source-health probe for live-referenced dataset origins (#1222).
 
-ADR-002 gives ``datasets.source_health`` a three-value vocabulary and
-``datasets.last_checked_at`` the meaning "the last time GeoLens contacted the
-origin at all, success or failure". #1261 shipped both columns with nothing
-writing them. This endpoint is one of their two designated writers (the other
-is the refresh executor, #1220).
+One of two writers of ``datasets.source_health``/``last_checked_at``
+(the other is the refresh executor, #1220). Only ``stac``/``service``
+origins are probeable; everything else 409s rather than returning
+``unknown``, keeping "nothing to probe" distinct from "couldn't tell".
 
-Only two origin kinds are live-referenced and therefore probeable:
-
-- ``stac`` — the COG lives in someone else's bucket and is read at tile time
-  (``storage_backend="remote"``). A deleted upstream is otherwise discovered
-  only when a tile request fails, which is both late and invisible in the
-  catalog.
-- ``service`` — the rows were copied locally at import, so the data still
-  renders, but a dead origin means the dataset can never be refreshed.
-
-Everything else is 409 rather than a silent "unknown": an upload has no
-remote origin to contact, a registered PostGIS table is local, and a VRT has
-its own per-member health at ``/datasets/{id}/vrt/status/``. Returning 200
-with ``unknown`` for those would make "nothing to probe" and "probe could not
-tell" the same answer, which is the distinction the vocabulary exists to
-keep.
-
-### Why this is owner-or-admin and not a read
-
-Probing is an ACTION, not a read: it makes GeoLens issue an outbound request
-to a third-party host and then write two columns. Gating it on visibility
-would let anyone who can see a public dataset drive traffic at somebody
-else's origin service, with GeoLens as the amplifier, and write to a row
-they do not own. So the guard is ``check_dataset_write_access``, matching
-every other dataset mutation.
-
-Readers are not shut out of the information. ``source_health``,
-``source_health_detail`` and ``last_checked_at`` have been on
-``DatasetResponse`` since #1218, so ``GET /datasets/{id}`` already serves the
-stored state to anyone who can read the dataset. What a reader cannot do is
-make GeoLens go and re-check.
+Owner-or-admin, not read-gated: probing is an ACTION (outbound request
+plus a write), so visibility alone would let anyone amplify traffic at
+somebody else's origin. Readers still see the stored state via
+``DatasetResponse`` (#1218); they just can't trigger a re-check.
 """
 
 from __future__ import annotations
@@ -124,7 +97,7 @@ async def _stac_probe_targets(
 ) -> tuple[str | None, str | None]:
     """Resolve what a STAC probe would contact, on the request's DB session.
 
-    fix(#1271 review): split from the probing itself so the handler can
+    fix(#1271): split from the probing itself so the handler can
     release its pooled connection before the outbound wait — target
     resolution is the only part that needs the database.
     """
@@ -140,29 +113,12 @@ async def _probe_stac_targets(
 ) -> OriginProbeResult:
     """Probe a STAC dataset's item document and its data asset. Pure network.
 
-    Both, because they answer different questions and either can fail alone.
-    An item withdrawn from the catalog while its bucket keeps serving the COG
-    is exactly the state a catalog should flag, and it is invisible to an
-    asset-only probe. The reverse — item still published, asset deleted — is
-    the common one and invisible to an item-only probe.
-
-    Precedence: an item that is authoritatively gone wins, because "the
-    publisher withdrew this" is the more actionable fact and the asset's
-    continued availability does not change it. An item that is merely
-    unreachable does NOT win: that is the 401/403-versus-404 distinction one
-    level up, and treating "cannot tell about the item" as an item
-    withdrawal would be the same mistake in a different place. Otherwise the
-    asset's verdict stands, since the asset is what every tile request
-    depends on.
-
-    ``item_href`` is absent for catalogs that publish no rel=self link and for
-    datasets imported before #1222 taught the import path to record it, so
-    this degrades to the asset probe alone rather than requiring it.
-
-    ``contacted`` is the OR of the two probes' flags (fix #1271 review): a
-    403 from the item beside a policy-blocked asset still means the origin
-    answered once, and the contact clock must say so even though the asset's
-    verdict is the one that stands.
+    Both, since either can fail alone (item withdrawn but bucket still
+    serving, or item published but asset deleted -- the common case).
+    Precedence: an item authoritatively gone wins over the asset's verdict;
+    an item merely unreachable does NOT win, and the asset (what tiles
+    depend on) decides instead. ``item_href`` absent degrades to the asset
+    probe alone. ``contacted`` ORs both probes' flags.
     """
     item_result: OriginProbeResult | None = None
     asset_result: OriginProbeResult | None = None
@@ -190,25 +146,16 @@ async def _probe_stac_targets(
 def _service_probe_target(dataset: Dataset) -> str:
     """The URL a service probe contacts. Reachability is all it can claim.
 
-    Reachability is nearly all this can claim. ArcGIS FeatureServer answers
-    several conditions with HTTP 200 and an error envelope in the body, so a
-    status-code probe reads them as healthy. fix(#1746) parses exactly one of
-    those envelopes: codes 498 and 499, the auth refusals, which
-    :func:`probe_arcgis_origin` reports as ``inaccessible`` /
-    ``auth_required``. fix(#1746 codex r6): it asks the ``/query`` operation
-    rather than the layer document, because that is what the worker reads and
-    a service can serve one publicly while gating the other. A DROPPED LAYER
-    is still not detected — parsing the
-    rest of the per-service error space is the connector-completeness
-    contract, which ADR-002 leaves out of v1, so ``missing`` on a service
-    origin still means the HTTP resource itself is gone, not that a layer was
-    dropped from a service that still answers.
+    fix(#1746): ArcGIS answers several conditions with HTTP 200 and an
+    error envelope, so :func:`probe_arcgis_origin` parses codes 498/499
+    (auth refusals) from the ``/query`` operation the worker actually
+    reads, not the layer document. A DROPPED LAYER still reads as
+    ``missing``, not detected as such -- out of scope for v1 (ADR-002).
 
-    The per-service target rule lives in
-    :func:`~app.modules.catalog.sources.origin_probe.service_probe_target`,
-    which the refresh door reads too (fix #1746). This wrapper is only the
-    HTTP vocabulary around it: a row with nothing safe to probe answers 409
-    rather than reporting a health state.
+    Target rule lives in
+    :func:`~app.modules.catalog.sources.origin_probe.service_probe_target`
+    (shared with the refresh door); this wrapper just answers 409 when
+    nothing is safe to probe.
     """
     target = service_probe_target(dataset.origin_ref, dataset.origin_uri)
     if not target:
@@ -254,13 +201,13 @@ async def check_source_health(
             },
         )
 
-    # fix(#1271 review): the probe awaits a third-party host, and a reupload
-    # can commit a new origin binding in that window. Persisting through the
-    # ORM instance would write the OLD origin's verdict onto the new binding —
-    # permanently, when a service became an upload, since uploads 409 above
-    # and nothing could re-probe. Snapshot the binding now and make the write
-    # conditional on it below; set_dataset_origin clearing probe state on
-    # rebind covers the other interleaving (rebind commits after our write).
+    # fix(#1271): the probe awaits a third-party host, and a reupload can
+    # commit a new origin binding in that window. Persisting through the
+    # ORM instance would write the OLD origin's verdict onto the new
+    # binding, permanently if a service became an upload (uploads 409
+    # above, so nothing could re-probe). Snapshot the binding now and make
+    # the write conditional on it below; set_dataset_origin clearing probe
+    # state on rebind covers the other interleaving.
     bound_uri = dataset.origin_uri
     bound_ref = dataset.origin_ref
     bound_format = dataset.source_format
@@ -273,33 +220,29 @@ async def check_source_health(
     else:
         asset_uri = item_href = None
         service_target = _service_probe_target(dataset)
-        # fix(#1746): read while the session is still live — the ORM instance
-        # is dead after the rollback below, and the probe branch needs to know
-        # whether this origin speaks ArcGIS error envelopes.
+        # fix(#1746): read while the session is still live -- the ORM
+        # instance is dead after the rollback below, and the probe branch
+        # needs to know whether this origin speaks ArcGIS error envelopes.
         service_type = (dataset.origin_ref or {}).get("service_type")
 
-    # ...then release the pooled connection BEFORE the outbound wait
-    # (fix #1271 review). The probe can take 10s against a slow origin, and
-    # a session held across it pins a pool slot for the duration — a dozen
-    # concurrent probes would starve every other database-backed request.
-    # Everything the rest of the handler needs is in locals; the ORM
-    # instance is dead after this line. The conditional UPDATE below opens
-    # its own fresh transaction.
+    # fix(#1271): release the pooled connection BEFORE the outbound wait.
+    # The probe can take 10s against a slow origin, and a session held
+    # across it pins a pool slot -- a dozen concurrent probes would starve
+    # every other database-backed request. The conditional UPDATE below
+    # opens its own fresh transaction.
     await db.rollback()
 
-    # feat(#1268): timed around the outbound wait only, not the handler. The
-    # duration an operator cares about is the origin's, and folding the
-    # database work either side of it in would blur the one number that says
-    # "this source got slow". Real instruments rather than derived gauges,
-    # because a probe is a request and one request is handled by one worker.
+    # feat(#1268): timed around the outbound wait only, not the handler --
+    # the duration an operator cares about is the origin's, and folding
+    # database work in would blur the one number that says "this source
+    # got slow".
     probe_started = time.perf_counter()
     if origin == "stac":
         result = await _probe_stac_targets(asset_uri, item_href)
     else:
         # fix(#1746): ArcGIS answers an auth refusal with HTTP 200 and an
-        # error envelope, which a status-code probe reads as healthy, so the
-        # probe is chosen by service type. The refresh door chooses the same
-        # way, through the same helper.
+        # error envelope, which a status-code probe reads as healthy, so
+        # the probe is chosen by service type, same as the refresh door.
         result = await probe_service_origin(service_target, service_type)
     origin_probe_duration_seconds.labels(
         origin_kind=origin, health=result.health
@@ -312,14 +255,11 @@ async def check_source_health(
         detail=result.detail or "none",
     ).inc()
 
-    # last_checked_at is written on BOTH outcomes — that is the whole meaning
-    # of the column, and a failed probe is the case an operator most needs
-    # dated. The one exception is a probe that never left GeoLens: an SSRF
-    # policy refusal happens before any packet goes out (result.contacted is
-    # False), and stamping it would overwrite a real earlier contact time
-    # with a policy-check time. The verdict is still persisted — "policy now
-    # blocks this origin" is true state — but the contact clock keeps its
-    # prior value.
+    # last_checked_at is written on BOTH outcomes -- a failed probe is the
+    # case an operator most needs dated. Exception: an SSRF policy refusal
+    # happens before any packet goes out (result.contacted is False), so
+    # stamping it would overwrite a real earlier contact time with a
+    # policy-check time. The verdict is still persisted; the clock isn't.
     now = datetime.now(timezone.utc)
     values: dict[str, object] = {
         "source_health": result.health,
@@ -336,10 +276,10 @@ async def check_source_health(
             Dataset.source_format.is_not_distinct_from(bound_format),
         )
         .values(**values)
-        # fix(#1271 review): the response reports what the row actually holds
-        # after this write, not a pre-probe snapshot — a concurrent probe may
-        # have committed a newer contact time that an uncontacted outcome
-        # here correctly leaves in place.
+        # fix(#1271): the response reports what the row actually holds
+        # after this write, not a pre-probe snapshot -- a concurrent probe
+        # may have committed a newer contact time that this outcome leaves
+        # in place.
         .returning(Dataset.last_checked_at)
     )
     # Row-level, not rowcount: an ORM-enabled UPDATE..RETURNING yields a
@@ -361,11 +301,9 @@ async def check_source_health(
             },
         )
 
-    # fix(#1271 review): GET /datasets/ serves these three fields from a
-    # 60-second cache, so without this the list keeps reporting the
-    # pre-probe state after the probe response already showed the update —
-    # the same reason every other dataset mutation invalidates here. After
-    # the rowcount check: a discarded verdict changed nothing.
+    # fix(#1271): GET /datasets/ serves these fields from a 60s cache, so
+    # without this the list keeps reporting pre-probe state. After the
+    # rowcount check: a discarded verdict changed nothing.
     await invalidate_catalog_cache()
 
     # Built from locals rather than re-read from the instance: commit expires

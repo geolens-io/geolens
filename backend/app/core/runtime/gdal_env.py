@@ -1,21 +1,17 @@
 """Derive GDAL's AWS_* config for its S3 VSI reads from the app's S3_* settings.
 
 fix(#579): with STORAGE_PROVIDER=s3 on an S3-compatible endpoint (MinIO, R2),
-stored raster assets resolve as GDAL S3 VSI open-paths, but nothing told GDAL
-about the custom endpoint — those reads targeted the default AWS
-endpoint and failed. The application-side SDK honors S3_ENDPOINT /
-S3_ADDRESSING_STYLE, so only the GDAL read path was unaware.
+GDAL S3 VSI reads targeted the default AWS endpoint and failed, since only the
+application-side SDK honored S3_ENDPOINT/S3_ADDRESSING_STYLE, not GDAL.
 
-configure_gdal_s3_env() is called once at api and worker process start, before
-any GDAL/rasterio use. It applies values with os.environ.setdefault, so
-explicit operator-provided AWS_* env always wins, and GDAL subprocesses
-(gdal_safe_env, ogr2ogr) inherit them through os.environ. It copies no secret
-that is not already in the process env: AWS_SECRET_ACCESS_KEY mirrors the
-S3_SECRET_ACCESS_KEY env var the process was booted with.
+`configure_gdal_s3_env()` runs once at api/worker start, before any
+GDAL/rasterio use, applying values via `os.environ.setdefault` so explicit
+operator AWS_* env always wins; GDAL subprocesses inherit them through
+`os.environ`. Copies no secret not already in the process env.
 
 The titiler container is a separate process tree and cannot be configured
-here — the compose files derive the same trio in its command wrapper, and the
-Helm chart derives it at template time.
+here — compose derives the same trio in its command wrapper, and the Helm
+chart derives it at template time.
 """
 
 import os

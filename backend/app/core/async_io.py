@@ -1,16 +1,15 @@
-"""Cancellation-safe threaded I/O (fix(#435 codex r2/r3/r4)).
+"""Cancellation-safe threaded I/O (fix(#435)).
 
-`asyncio.to_thread` offloads a blocking call, but cancelling the awaiting task does
-NOT stop the thread — it is already running. When that thread owns a file descriptor
-(streaming a large upload to disk, zipping an export, copying a COG into storage), an
-early return lets the caller's cleanup close or delete the file while the thread is
-still writing to it: a truncated artifact, a fd race, or a thread exception nobody
-retrieves. Worker shutdown and client disconnect both hit exactly this.
+`asyncio.to_thread` offloads a blocking call, but cancelling the awaiting task
+does NOT stop the thread. If that thread owns a file descriptor (streaming an
+upload, zipping an export, copying a COG), an early return lets the caller's
+cleanup close/delete the file while the thread is still writing to it — a
+truncated artifact, an fd race, or an unretrieved thread exception. Worker
+shutdown and client disconnect both hit this.
 
-`run_in_thread_draining` waits for the thread to finish before propagating the
-cancellation, and keeps waiting through repeated cancellations (a shutdown that
-cancels again while we are draining), so the thread has always released the fd by the
-time control returns to the caller.
+`run_in_thread_draining` waits for the thread to finish, absorbing repeated
+cancellations, before propagating cancellation — so the fd is always released
+by the time control returns to the caller.
 """
 
 from __future__ import annotations
@@ -45,10 +44,10 @@ async def run_in_thread_draining(fn: Callable[..., _T], *args: Any) -> _T:
     then re-raises ``CancelledError`` — never returns while the thread is still live.
     """
     fut = asyncio.ensure_future(asyncio.to_thread(fn, *args))
-    # `asyncio.wait` waits on `fut` without cancelling it and without logging its
+    # `asyncio.wait` waits on `fut` without cancelling it or logging its
     # exception (unlike `asyncio.shield`, which logs a cancelled shield's inner
-    # exception even after we retrieve it). The loop keeps waiting through repeated
-    # cancellations, so a running thread is never abandoned.
+    # exception even after retrieval). Loops through repeated cancellations so
+    # a running thread is never abandoned.
     cancelled: asyncio.CancelledError | None = None
     while not fut.done():
         try:

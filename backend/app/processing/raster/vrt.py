@@ -12,7 +12,7 @@ from app.core.geo import (
     wrap_longitude,
 )
 
-# fix(#1857 item 3): re-export. The clamps live in platform/ so
+# fix(#1857): re-export. The clamps live in platform/ so
 # modules/catalog/ can reach them; both import paths are credited by the
 # Rule 2 gate's canonical-module map.
 from app.platform.gdal_env import (  # noqa: F401
@@ -21,31 +21,17 @@ from app.platform.gdal_env import (  # noqa: F401
 )
 
 
-# IA-P1-03 (Phase 1068): clamp the GDAL VSI surface that VRT processing
-# can reach. CPL_VSIL_CURL_ALLOWED_EXTENSIONS gates which URL-fetched
-# extensions GDAL will open; VRT_VIRTUAL_OVERVIEWS=NO blocks the implicit
-# overview-pyramid expansion that could pull additional remote sources
-# during a VRT build.
+# IA-P1-03 (Phase 1068): clamp the GDAL VSI surface — CPL_VSIL_CURL_ALLOWED_
+# EXTENSIONS gates fetchable extensions; VRT_VIRTUAL_OVERVIEWS=NO blocks
+# implicit overview expansion pulling in more remote sources.
 #
-# fix(#937): this dict used to also set GDAL_HTTP_FOLLOWLOCATION=NO as a
-# redirect clamp. That is not a GDAL configuration option (it is absent from
-# cpl_known_config_options.h) and was measured to have no effect on GDAL
-# 3.10.3 and 3.12.1 — a 302 is followed identically with and without it.
-# GDAL exposes NO option that stops redirect-following, so redirect safety
-# must be structural: never hand a caller-controlled host to GDAL. Here that
-# means user-uploaded VRTs reject URL and /vsi sources outright
-# (ingest/validation.py) and the raster pipeline only opens managed-storage
-# paths (bucket from settings, key validated by resolve_storage_key).
+# fix(#937): GDAL_HTTP_FOLLOWLOCATION is NOT a GDAL option and is a no-op
+# (measured, GDAL 3.10.3/3.12.1) — never re-add it. Redirect safety must be
+# structural: never hand a caller-controlled host to GDAL.
 #
-# fix(#1778): the three GDAL_HTTP_* clamps bound how long a single VSI read may
-# stall. `GDAL_SUBPROCESS_TIMEOUT_SECONDS` below bounds only the subprocesses;
-# an in-process read (`extract_raster_metadata` and `generate_quicklook` on a
-# built VRT, both run under `asyncio.to_thread`) had no bound at all, and a
-# Python thread is not killable, so one stalled object-storage source pinned a
-# pool thread for good. Enough of them starve every other `to_thread` in the
-# worker, which is the failure `build_vrt`'s docstring says it removed by
-# dropping its pre-build source probe. These are seconds; the retry count is
-# what turns a flaky read into a failure rather than a hang.
+# fix(#1778): GDAL_HTTP_* clamps bound a single VSI read's stall time.
+# GDAL_SUBPROCESS_TIMEOUT_SECONDS bounds only subprocesses; an unbounded
+# in-process read pinned a pool thread forever, starving the worker.
 _VRT_SAFE_ENV: dict[str, str] = {
     "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": "tif,tiff,vrt",
     "VRT_VIRTUAL_OVERVIEWS": "NO",
@@ -58,36 +44,17 @@ _VRT_SAFE_ENV: dict[str, str] = {
 def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
     """Return os.environ overlaid with the raster-pipeline GDAL safety clamps.
 
-    Shared by every GDAL CLI subprocess the raster pipeline spawns
-    (gdaladdo, gdalwarp, gdal_translate, gdalbuildvrt). Applies:
-
-    - CPL_VSIL_CURL_ALLOWED_EXTENSIONS="tif,tiff,vrt" — gates which
-      URL-fetched extensions GDAL will open (defense against the
-      classic /vsicurl/ side-channel that can fetch arbitrary remote
-      content when an attacker plants a SourceFilename with an
-      unexpected extension).
-    - VRT_VIRTUAL_OVERVIEWS="NO" — blocks the implicit overview-pyramid
-      expansion that could pull additional remote sources during a
-      build.
-
-    fix(#937): NO redirect clamp is applied, because none exists. The
-    GDAL_HTTP_FOLLOWLOCATION=NO this env used to carry is not a GDAL
-    configuration option and never stopped a 3xx; do not re-add it. If a
-    subprocess can be pointed at a caller-controlled URL, the fix is to
-    not do that (validate at the API layer, fetch only managed storage),
-    not an env var.
-
-    Phase 1071 KNOWN-03 (v1015 Phase 1068 tech-debt followup): the
-    clamps were originally scoped to _build_vrt only; they now apply
-    uniformly across the raster subprocess surface.
+    Shared by every GDAL CLI subprocess (gdaladdo, gdalwarp, gdal_translate,
+    gdalbuildvrt). CPL_VSIL_CURL_ALLOWED_EXTENSIONS defends against the
+    /vsicurl/ side-channel; VRT_VIRTUAL_OVERVIEWS blocks implicit remote
+    expansion. fix(#937): no redirect clamp exists as a GDAL option — never
+    add one; redirect safety must be structural (validate URLs, fetch only
+    managed storage).
 
     Args:
-        extras: Optional per-call additions (e.g. ``{"GDAL_CACHEMAX": "200"}``).
-            extras MUST NOT collide with security clamp keys in ``_VRT_SAFE_ENV``
-            (``CPL_VSIL_CURL_ALLOWED_EXTENSIONS``, ``VRT_VIRTUAL_OVERVIEWS``).
-            A ``ValueError`` is raised on collision so callers cannot silently
-            disable the security clamps.
-            Pass ``None`` (the default) for the base clamp only.
+        extras: Optional per-call additions. Must not collide with
+            ``_VRT_SAFE_ENV`` keys — raises ``ValueError`` so callers can't
+            silently disable the security clamps.
 
     Returns:
         A new dict suitable for ``subprocess.run(..., env=...)``.
@@ -110,23 +77,17 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
 def gdal_safe_open_env():
     """In-process twin of :func:`gdal_safe_env`, for ``rasterio.open`` calls.
 
-    ``gdal_safe_env`` clamps SUBPROCESS environments only; an in-process
-    ``rasterio.open`` gets none of it. Built from the same ``_VRT_SAFE_ENV``
-    constant so the two cannot drift when a clamp is added. Used by
-    :func:`_write_python_vrt`, which must open the sources it is asked to build
-    from -- the only in-process source access left in this module.
-
-    fix(#887, #937): the two clamps carried here (the ``/vsicurl`` extension
-    allow-list and ``VRT_VIRTUAL_OVERVIEWS``) are the real ones. Neither this
-    env nor any GDAL option provides redirect protection — see the
-    ``_VRT_SAFE_ENV`` note above.
+    ``gdal_safe_env`` clamps SUBPROCESS environments only. Built from the
+    same ``_VRT_SAFE_ENV`` so the two can't drift. Used by
+    :func:`_write_python_vrt`, the only in-process source access in this
+    module.
     """
     import rasterio
 
     return rasterio.Env(**_VRT_SAFE_ENV)
 
 
-# fix(#430 BA-29): raster GDAL CLIs run synchronously inside asyncio.to_thread, and
+# fix(#430): raster GDAL CLIs run synchronously inside asyncio.to_thread, and
 # Python threads aren't killable — a hung child (malformed TIFF, stalled /vsi
 # read) would pin a ThreadPoolExecutor thread forever and eventually starve every
 # other to_thread across the worker. A wall-clock timeout with kill-on-hang bounds
@@ -155,25 +116,11 @@ def run_gdal(cmd: list[str], *, env: dict[str, str], tool: str):
 
 
 # KNOWN-04 (Phase 1071): VSI prefix allow-list for internally generated
-# managed-storage VRT <SourceFilename> body content. User-uploaded VRTs are
-# validated by ingest/validation.py and intentionally reject all VSI paths.
-# Any internal module that needs to know which GDAL virtual-filesystem handlers
-# managed VRT processing accepts must import this constant, not re-declare it.
+# managed-storage VRT content. User-uploaded VRTs reject all VSI paths
+# (ingest/validation.py). Import this constant, don't re-declare it.
 #
-# The seven prefixes here cover the GDAL VSI handlers that the COG
-# ingest path legitimately uses for managed-storage VRTs:
-#
-#   /vsiaz/   — Azure Blob Storage
-#   /vsicurl/ — generic HTTPS sources
-#   /vsigs/   — Google Cloud Storage
-#   /vsimem/  — in-memory (testing scaffolds)
-#   /vsis3/   — AWS S3 (primary production backend)
-#   /vsitar/  — tar archive members
-#   /vsizip/  — zip archive members
-#
-# When adding a new managed-storage VSI scheme: add it HERE only. Future
-# internal consumers (env-overlay extensions, source classifiers, OpenAPI
-# examples) must import from the same constant rather than copy-pasting.
+#   /vsiaz/ Azure, /vsicurl/ HTTPS, /vsigs/ GCS, /vsimem/ in-memory,
+#   /vsis3/ AWS S3 (primary), /vsitar/ tar members, /vsizip/ zip members
 VRT_VSI_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/vsiaz/",
     "/vsicurl/",
@@ -212,29 +159,18 @@ _PIXEL_EPSILON = 1e-9
 def _offset_text(value: float) -> str:
     """Render a DstRect offset or size, keeping a fractional pixel fractional.
 
-    fix(#887): ``gdalbuildvrt`` emits sub-pixel geometry whenever a source is not
-    aligned to the chosen output grid -- a mixed-resolution mosaic produced
-    ``xOff="17751.5"`` and ``xOff="349.51"`` here. Rounding those to whole pixels
-    slides the source by up to half an output pixel and changes how GDAL
-    resamples it, so keep the fraction and only drop a trailing ``.0`` so the
-    common whole-pixel case still reads like GDAL's own output.
+    fix(#887): ``gdalbuildvrt`` emits sub-pixel geometry for misaligned
+    sources (``xOff="17751.5"``); rounding to whole pixels slides the
+    source by up to half a pixel and changes resampling. Shared by both
+    writers (codex round 7 caught them disagreeing).
 
-    Shared by BOTH writers on purpose: the ``gdalbuildvrt`` frame rewrite and the
-    CLI-less :func:`_write_python_vrt` fallback. They disagreeing about this rule
-    is what codex round 7 caught, and two copies is how it would diverge again.
+    ``rel_tol=0`` is load-bearing: the default grows the tolerance with the
+    offset (0.1 at 1e8 pixels, 1.0 at 1e9), silently rounding a real
+    0.49-pixel offset — only the absolute noise floor may be ignored.
 
-    ``rel_tol=0`` is load-bearing. ``math.isclose`` compares against
-    ``max(rel_tol * max(|a|, |b|), abs_tol)``, so leaving the 1e-9 default alive
-    makes the tolerance GROW with the offset: at 1e8 pixels it reaches 0.1, and
-    at 1e9 it reaches 1.0, which silently rounded a real 0.49-pixel offset to a
-    whole number -- reintroducing at scale exactly the defect this function
-    exists to prevent. Only the absolute noise floor should ever be ignored.
-
-    The fixed-point rendering is deliberate rather than ``repr``: it settles the
-    value at 1e-10 of a pixel, which absorbs the accumulated arithmetic noise
-    that makes an exact half-pixel arrive as 248.49999999999852. ``repr`` would
-    round-trip that noise into the file. Ten decimal places is fourteen orders
-    of magnitude finer than anything GDAL resamples on.
+    Fixed-point, not ``repr``: settles at 1e-10 of a pixel, absorbing
+    arithmetic noise (248.49999999999852) that ``repr`` would round-trip
+    into the file.
     """
     if math.isclose(value, round(value), rel_tol=0.0, abs_tol=_PIXEL_EPSILON):
         return str(int(round(value)))
@@ -242,16 +178,13 @@ def _offset_text(value: float) -> str:
 
 
 def _containing_pixels(span_px: float) -> int:
-    """Pixel count that CONTAINS a span -- round UP, never to nearest.
+    """Pixel count that CONTAINS a span — round UP, never to nearest.
 
-    fix(#887): a mosaic whose sources end at pixel 298.5 needs 299 pixels; 298
-    leaves the last half pixel outside the dataset and GDAL clips it, which no
-    pixel-count assertion catches because a 50-pixel source still reads back as
-    50 pixels. GDAL sizes its own mosaics this way (measured: max xOff+xSize
-    298.5 -> rasterXSize 299, and 440.51 -> 441). ``round`` first so float noise
-    on an exact boundary cannot add a stray pixel.
-
-    Shared by both writers, same reasoning as :func:`_offset_text`.
+    fix(#887): a mosaic ending at pixel 298.5 needs 299 pixels; 298 clips
+    the last half pixel (measured: GDAL sizes its own mosaics the same way,
+    298.5->299, 440.51->441). ``round`` first so float noise can't add a
+    stray pixel. Shared by both writers, same reasoning as
+    :func:`_offset_text`.
     """
     return max(1, math.ceil(round(span_px, 6)))
 
@@ -266,35 +199,24 @@ def _resolve_target_resolution(values: list[float], resolution_strategy: str) ->
     raise KeyError(resolution_strategy)
 
 
-# fix(#887): the seam logic is written in degrees throughout -- the >180 guard,
-# the +360 shift, the ±180 rings. `is_geographic` is NOT enough to guarantee
-# that: EPSG:4807 (NTF Paris) is geographic with an angular unit of GRADS, where
-# a full turn is 400 and the seam sits at 200. Feeding it a 360 shift moves the
-# eastern tile to the wrong place entirely -- a 195..200 / -200..-195 pair comes
-# out as a 40-grad hull instead of the intended 10. Compare the CRS's own
-# radians-per-unit factor rather than a unit name, which varies by PROJ build.
+# fix(#887): seam logic is degree-based throughout — EPSG:4807 (NTF Paris)
+# is geographic but in GRADS (turn = 400, seam at 200), so a 360 shift
+# would misplace it. Compare the CRS's own unit factor, not a name.
 
 
 def _is_degree_based(crs) -> bool:
     """True only for a geographic CRS whose angular unit is degrees.
 
-    fix(#961): the unit comparison itself is :func:`core.geo.crs_has_degree_unit`
-    -- this file used to carry its own copy of the constant and the
-    ``math.isclose`` call, kept in step with ``wkt_has_degree_unit`` by
-    cross-referencing comments. The shared helper takes a CRS OBJECT precisely
-    so this site keeps the live ``rasterio.crs.CRS`` it already holds instead of
+    fix(#961): the unit check is shared with :func:`core.geo.
+    crs_has_degree_unit`, which takes a CRS OBJECT so this site avoids
     round-tripping through WKT.
 
-    What stays here is the part that is local to re-framing: the
-    ``is_geographic`` precondition, and reading "unknown" as False. A CRS whose
-    units PROJ will not report must NOT be shifted by 360 -- the tile path makes
-    the opposite call (``wkt_has_degree_unit(...) is not False``) because there
-    an unknown CRS keeps the historical degrees assumption rather than losing
-    its resolution. Same question, opposite safe answer.
+    "Unknown" reads as False here — the opposite of the tile path's
+    ``wkt_has_degree_unit(...) is not False``, which keeps the historical
+    degrees assumption. Same question, opposite safe answer.
 
-    fix(#887): the shared helper's ``rel_tol`` is correct THERE and wrong in
-    :func:`_offset_text`, so do not "fix" that one by symmetry: an offset is an
-    unbounded pixel count whose noise floor does not scale with it.
+    fix(#887): the shared helper's ``rel_tol`` is correct there and wrong
+    in :func:`_offset_text` — don't "fix" that one by symmetry.
     """
     if crs is None or not crs.is_geographic:
         return False
@@ -304,20 +226,14 @@ def _is_degree_based(crs) -> bool:
 def normalize_lon_span(left: float, right: float) -> tuple[float, float]:
     """Fold a span's origin into a single turn, preserving its width.
 
-    fix(#887): :func:`_seam_frame_origin` shifts a source by exactly ONE turn,
-    which is only sound when every span already sits within one turn of the
-    others. GDAL accepts georeferencing further out, and the failure is silent
-    and scales with the distance -- spans ``535..540`` and ``-180..-175`` are
-    adjacent at the seam (535 ≡ 175), but at candidate origin 535 the second
-    source is moved only to ``180..185``, which is still WEST of the origin. The
-    chooser scores that frame at 5° and the shift then emits 360°; two turns out
-    emits 720°, three turns 1080°, and the westward and mixed-direction variants
-    behave the same way.
+    fix(#887): :func:`_seam_frame_origin` shifts a source by exactly ONE
+    turn — sound only within one turn of the others. Unnormalized, spans
+    ``535..540`` / ``-180..-175`` (adjacent at the seam, 535≡175) shift to
+    a 360°/720°/1080° hull instead of the true 10°, scaling with distance.
 
-    Normalizing up front restores the invariant the frame chooser's proof rests
-    on -- every source at or east of the returned origin after one turn -- rather
-    than complicating the shift with a per-source turn count. It is a no-op for
-    any raster already inside a single turn, which is every real one.
+    Normalizing restores the invariant the frame chooser's proof needs
+    (every source at or east of the origin after one turn); a no-op for
+    any raster already inside a single turn (every real one).
     """
     folded = wrap_longitude(math.fmod(left, 360.0))
     return (folded, folded + (right - left))
@@ -326,35 +242,20 @@ def normalize_lon_span(left: float, right: float) -> tuple[float, float]:
 def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
     """Pick the longitude frame origin for a seam-straddling geographic mosaic.
 
-    fix(#887): ``min(left)`` / ``max(right)`` across sources sitting on both
-    sides of ±180 allocated a near-global raster with a huge empty middle -- a
-    10°-wide Pacific mosaic came out 360° wide, and every source landed at the
-    wrong ``dst_x_off``, so the VRT was both enormous and misregistered.
-    Re-frame the mosaic so the seam falls *inside* the frame instead of
-    splitting it: every source starting west of the returned origin is shifted
-    +360, which makes the hull contiguous again.
+    fix(#887): ``min(left)``/``max(right)`` across ±180 allocated a
+    near-global raster with a huge empty middle (a 10°-wide Pacific mosaic
+    came out 360° wide). Re-frame so the seam falls *inside* the frame:
+    every source west of the origin shifts +360.
 
-    Returns the origin, or ``None`` when the plain -180..180 fold is already the
-    tightest hull and the geometry must be left exactly as it was.
+    Returns ``None`` when the plain -180..180 fold is already tightest.
 
-    Two guards, and BOTH are required -- either one alone is a coin flip
-    (see #883):
+    Two guards, both required (see #883): (1) the plain hull must be wider
+    than 180°; (2) the shifted hull must be narrower *by a real margin* —
+    ``left + 360`` isn't bit-exact, so a global mosaic can win a bare ``<``
+    on noise alone (the trap #886/#928 hit) without one.
 
-    1. the plain hull must be wider than 180°. Nothing narrower can be improved
-       by a shift, and this is what leaves a mosaic ending flush at +180, and
-       one spanning -10..170 (exactly 180), in the plain frame.
-    2. the shifted hull must be narrower than the plain one *by a real margin*.
-       A genuinely global mosaic measures 360° in every frame, so it ties and
-       keeps -180..180 rather than being re-framed to an arbitrary origin. The
-       margin matters: ``left + 360`` is not bit-exact for an arbitrary mantissa,
-       so a global mosaic on non-round tile boundaries can measure
-       359.99999999999994 shifted against 360.00000000000006 plain and win a
-       bare ``<`` on nothing but noise (the same trap #886/#928 hit in the
-       rollup folds). ``_SPAN_MARGIN`` is far above that noise and far below any
-       real gain.
-
-    Candidate origins are the source left edges, which is exhaustive: the
-    tightest circular hull of a set of intervals always starts at one of them.
+    Candidate origins are the source left edges — exhaustive, since the
+    tightest circular hull of a set of intervals always starts at one.
     """
     plain_span = max(right for _, right in spans) - min(left for left, _ in spans)
     if plain_span <= 180.0 + LON_EPSILON_DEGREES:
@@ -402,12 +303,9 @@ def _write_python_vrt(
             [abs(ds.transform.e) for ds in datasets], resolution_strategy
         )
 
-        # fix(#887): only a degree-based geographic CRS wraps at ±180. Projected
-        # easting runs continuously across the seam and its numbers are metres --
-        # a 40 000 km wide EPSG:3857 pair clears the >180 guard trivially and a
-        # +360 shift would move a source by 360 *metres* -- and a grads-based
-        # geographic CRS turns at 400, not 360. Gate the whole thing on EVERY
-        # source before computing any of the geometry.
+        # fix(#887): only a degree-based geographic CRS wraps at ±180 — a
+        # projected CRS's numbers are metres (a +360 shift would move a
+        # source 360m), and a grads CRS turns at 400, not 360.
         raw_spans = [(ds.bounds.left, ds.bounds.right) for ds in datasets]
         # fix(#887): normalized into a single turn for the seam decision, because
         # the frame chooser shifts by exactly one (see normalize_lon_span).
@@ -458,13 +356,9 @@ def _write_python_vrt(
             placed_left: float,
         ) -> None:
             source = SubElement(parent, "SimpleSource")
-            # STOR-03 (Phase 1210): write logical key + relativeToVRT="1" so the stored
-            # VRT XML is provider-agnostic.  dataset.name here is the resolve_open_path
-            # output (an absolute VSI path like /vsis3/bucket/key or a local filesystem
-            # path).  rewrite_vrt_sources, called at the store site in tasks_vrt.py
-            # AFTER metadata extraction + quicklook generation, normalises both to the
-            # logical key.  Setting relativeToVRT="1" here is a forward declaration of
-            # intent; the rewrite pass at the store site is the enforcement gate.
+            # STOR-03 (Phase 1210): writes logical key + relativeToVRT="1"
+            # so the stored XML is provider-agnostic; rewrite_vrt_sources
+            # (tasks_vrt.py) is the enforcement gate that normalises it.
             SubElement(source, "SourceFilename", relativeToVRT="1").text = dataset.name
             SubElement(source, "SourceBand").text = str(band_index)
             block_height, block_width = dataset.block_shapes[band_index - 1]
@@ -487,16 +381,14 @@ def _write_python_vrt(
                 xSize=str(dataset.width),
                 ySize=str(dataset.height),
             )
-            # fix(#887): destination geometry stays fractional, exactly as the
-            # gdalbuildvrt rewrite keeps it -- both go through _offset_text. The
-            # integer rounding this replaces put a source needing xOff 248.5 at
-            # 248, sliding it half an output pixel and changing its resampling.
+            # fix(#887): destination geometry stays fractional (via
+            # _offset_text) — integer rounding put xOff 248.5 at 248,
+            # sliding the source half a pixel and changing its resampling.
             dst_width = dataset.width * abs(dataset.transform.a) / res_x
             dst_height = dataset.height * abs(dataset.transform.e) / res_y
-            # `placed_left` is the source's position in the SAME frame as `left`
-            # -- normalized into one turn, then shifted if it sits west of the
-            # seam origin. Mixing frames here is how a seam-straddling source
-            # ended up half a world from its own pixels.
+            # `placed_left` is in the SAME frame as `left` (normalized,
+            # then shifted). Mixing frames here put a seam-straddling
+            # source half a world from its own pixels.
             dst_x_off = (placed_left - left) / res_x
             dst_y_off = (top - dataset.bounds.top) / res_y
             SubElement(
@@ -559,13 +451,13 @@ def _write_python_vrt(
 def resolve_vrt_source_path(asset_uri: str, *, tenant_id: str | None = None) -> str:
     """Delegate to the storage seam's resolve_open_path (STOR-01 / Phase 1210).
 
-    This function is kept for backward compatibility with existing callers.
-    New callers should import resolve_open_path from
-    app.platform.storage.titiler_url directly.
+    Kept for backward compatibility with existing callers; new callers
+    should import resolve_open_path from app.platform.storage.titiler_url
+    directly.
 
-    tenant_id: when provided (multi_tenant mode), prepend tenants/{tenant_id}/
-               to the object key.  In single_tenant this is always None and the
-               returned path is byte-identical with the pre-1210 inline code.
+    tenant_id: when provided (multi_tenant), prepend tenants/{tenant_id}/ to
+        the object key. Always None in single_tenant; the returned path is
+        byte-identical to the pre-1210 inline code.
     """
     from app.platform.storage.titiler_url import resolve_open_path
 
@@ -575,58 +467,36 @@ def resolve_vrt_source_path(asset_uri: str, *, tenant_id: str | None = None) -> 
 def shift_vrt_longitude_frame(vrt_path: str) -> None:
     """Re-anchor a built VRT's longitude frame so the seam falls inside it.
 
-    fix(#887): ``gdalbuildvrt`` gets everything about a seam-crossing mosaic
-    right except the geometry, so correct the geometry and keep the rest.
-    Rebuilding with :func:`_write_python_vrt` instead would throw the rest away
-    -- that writer emits bare ``SimpleSource`` elements with no ``NoDataValue``,
-    ``ColorInterp``, ``UseMaskBand`` or mask band, so the mosaic reads back
-    ``nodata=None`` with undefined colour interpretation and all-valid masks, and
-    ``extract_raster_metadata`` then persists a null nodata. Worse, without the
-    ``<NODATA>`` GDAL puts inside a ``ComplexSource``, an overlapping source's
-    fill pixels overwrite valid pixels from an earlier source (measured: an
+    fix(#887): ``gdalbuildvrt`` gets everything right except the geometry;
+    correcting via XML rewrite (not rebuilding with
+    :func:`_write_python_vrt`) preserves ``NoDataValue``/``ColorInterp``/
+    mask bands — without the ``<NODATA>`` inside a ``ComplexSource``, an
+    overlapping source's fill pixels overwrite valid ones (measured: an
     overlap that should read 7 read 0).
 
-    Rewrites exactly three things -- ``rasterXSize``, the ``GeoTransform``
-    origin, and every ``DstRect`` ``xOff``, including the ones inside a
-    ``<MaskBand>``, which ``iter()`` reaches. Everything else is untouched, and a
-    non-crossing build is left byte-identical to plain ``gdalbuildvrt``.
+    Rewrites exactly three things — ``rasterXSize``, the ``GeoTransform``
+    origin, and every ``DstRect`` ``xOff`` (including inside a
+    ``<MaskBand>``). A non-crossing build stays byte-identical.
 
-    Each source's own left edge is recoverable from the ``xOff`` GDAL already
-    wrote (``old_left + xOff * res_x``), so this needs no second pass over the
-    sources and no filename matching.
+    Each source's left edge is recoverable from its own ``xOff``
+    (``old_left + xOff * res_x``), so this needs no second source pass.
 
-    It also DECIDES, from the same XML, opening nothing. That is deliberate
-    (fix(#887), codex round 9): the previous version probed every source with
-    ``rasterio.open`` before the build, and ``build_vrt`` runs inside
-    ``asyncio.to_thread`` (``tasks_vrt.py``). Python threads are not killable, so
-    a stalled object-storage read pinned a pool thread forever with none of
-    ``run_gdal``'s wall-clock timeout and kill-on-hang applying to it -- enough
-    stalled VRT jobs would starve every other ``to_thread`` in the worker. The
-    module comment on ``GDAL_SUBPROCESS_TIMEOUT_SECONDS`` names that hazard
-    already; the probe reintroduced it.
+    It DECIDES, from the XML alone, opening nothing (fix(#887), codex
+    round 9) — the previous version probed every source with
+    ``rasterio.open``, and a stalled object-storage read pinned a pool
+    thread forever (Python threads aren't killable; no ``run_gdal``
+    timeout applied to the probe).
 
-    fix(#1778): removing the probe did NOT remove the hazard from the pipeline,
-    and this docstring used to read as though it had. Steps 6 and 8 of the same
-    task open every ``/vsis3`` source in-thread, at a larger scale than the
-    probe did (metadata extraction, then two quicklook renders). What bounds
-    those is the ``GDAL_HTTP_*`` clamps in ``_VRT_SAFE_ENV``, applied through
-    ``tasks_vrt.read_vrt_metadata`` and ``tasks_vrt.render_vrt_quicklook``,
-    which enter :func:`gdal_safe_open_env` INSIDE the worker thread because a
-    rasterio ``Env`` is thread-local.
+    fix(#1778): the hazard isn't gone from the pipeline — later steps open
+    every ``/vsis3`` source in-thread for metadata + quicklook, bounded by
+    the ``GDAL_HTTP_*`` clamps via :func:`gdal_safe_open_env` INSIDE the
+    worker thread (a rasterio ``Env`` is thread-local).
 
-    ``gdalbuildvrt`` has already opened every source, under that timeout, and
-    written what this needs: per-source ``DstRect`` geometry, the hull
-    ``GeoTransform``, and the ``SRS``. Deriving the decision from those closes the
-    timeout gap and removes the SSRF question entirely rather than fencing it off
-    by URL prefix -- nothing here ever touches a source.
-
-    Returns without writing when the VRT is not a degree-based geographic mosaic,
-    when its sources do not straddle the seam, or when the XML lacks the geometry
-    this needs. That last case cannot hide a real crossing: detecting one requires
-    exactly the same ``GeoTransform`` and per-source ``DstRect`` values the
-    rewrite consumes, so a VRT this cannot read is one it also cannot have
-    detected. Verified against GDAL 3.10.3 (worker image) and 3.13.0, which emit
-    identical structure.
+    Returns without writing when the VRT isn't a degree-based geographic
+    mosaic, doesn't straddle the seam, or lacks the geometry this needs —
+    that last case can't hide a real crossing, since detecting one needs
+    the same values the rewrite consumes. Verified against GDAL 3.10.3 and
+    3.13.0.
     """
     from xml.etree.ElementTree import parse
 
@@ -647,10 +517,9 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     old_left, res_x = geotransform[0], geotransform[1]
     if res_x <= 0.0:
         return
-    # fix(#887): a rotated GeoTransform makes gt[0] no longer a pure longitude
-    # origin, so translating it along x would shear the mosaic. gdalbuildvrt
-    # never emits rotation terms, but this function's contract is that it fully
-    # understands the geometry it rewrites -- decline rather than assume.
+    # fix(#887): a rotated GeoTransform makes gt[0] not a pure longitude
+    # origin — translating it would shear the mosaic. Decline rather than
+    # assume, even though gdalbuildvrt never emits rotation terms.
     if geotransform[2] or geotransform[4]:
         return
 
@@ -676,16 +545,13 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     if not sources or any(rect is None for rect in rects):
         return
 
-    # A source's own longitude span is recoverable from the offset GDAL already
-    # wrote, so the seam decision needs no second pass over the sources and no
-    # filename matching. Duplicate spans (one DstRect per band, plus any mask
-    # band) are harmless: they change neither the hull nor the candidate origins.
+    # A source's longitude span is recoverable from GDAL's own offset, so
+    # no second pass or filename matching is needed. Duplicate spans (one
+    # DstRect per band, plus mask) are harmless — same hull either way.
     #
-    # fix(#887): normalized into a single turn first. The frame chooser shifts by
-    # exactly one turn, and a source georeferenced further out is still west of
-    # the origin afterwards -- see normalize_lon_span. Placement is pixel-space
-    # (SrcRect/DstRect), so re-expressing a source's longitude changes where the
-    # mosaic sits, never which pixels land in it.
+    # fix(#887): normalized into a single turn first (see
+    # normalize_lon_span). Placement is pixel-space, so re-expressing a
+    # source's longitude changes where the mosaic sits, never its pixels.
     reconstructed = []
     for rect in rects:
         raw_left = old_left + float(rect.get("xOff", "0")) * res_x
@@ -701,17 +567,10 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
 
     placements = []
     for rect, src_left, x_size in reconstructed:
-        # fix(#887): DEFENSIVE here, and deliberately kept. Codex round 6 found
-        # this comparison shifting the origin source itself, because `src_left`
-        # was reconstructed from a serialized pixel offset while `seam_origin`
-        # had been read straight off the source -- two derivations of one edge,
-        # disagreeing by ~1e-14, and the whole mosaic stayed 17998 px wide
-        # instead of 300. Round 9 removed the source-opening probe, so both
-        # values now come from THIS reconstruction and `seam_origin` is
-        # bit-identical to one of them; the mismatch is structurally impossible.
-        # The epsilon stays so that reintroducing a second derivation cannot
-        # quietly bring the bug back. (The load-bearing one is in
-        # _seam_frame_origin's hull contest.)
+        # fix(#887): DEFENSIVE — codex round 6 found this comparison
+        # shifting the origin source via two derivations of one edge
+        # disagreeing by ~1e-14 (mosaic stayed 17998px instead of 300);
+        # epsilon stays in case a second derivation returns.
         shift = 360.0 if src_left < seam_origin - LON_EPSILON_DEGREES else 0.0
         placements.append((rect, src_left + shift, x_size))
 
@@ -745,9 +604,6 @@ def _build_vrt(
         resolution_strategy: One of "finest", "coarsest", or "average".
         separate: If True, pass ``-separate`` to produce a band-stack VRT.
 
-    Returns:
-        ``output_path`` on success.
-
     Raises:
         RuntimeError: If gdalbuildvrt exits with a non-zero return code.
         KeyError: If an unrecognised resolution_strategy is supplied.
@@ -768,10 +624,9 @@ def _build_vrt(
         )
     if result.returncode != 0:
         raise RuntimeError(f"gdalbuildvrt failed: {result.stderr}")
-    # fix(#887): correct the antimeridian frame AFTER the build, from the XML
-    # gdalbuildvrt just wrote. It opens nothing itself and no-ops unless the
-    # sources really straddle ±180 -- so nothing in this function touches a
-    # source outside the timed, killable subprocess above.
+    # fix(#887): corrects the antimeridian frame AFTER the build, from the
+    # XML gdalbuildvrt wrote — opens nothing, no-ops unless sources
+    # straddle ±180.
     shift_vrt_longitude_frame(output_path)
     return output_path
 

@@ -89,18 +89,9 @@ async def _propagate_record_write(
 ) -> None:
     """Keep downstream surfaces coherent after a record sub-resource write.
 
-    fix(#458 E-15): contacts/keywords/distributions feed the DCAT-US/STAC feeds
-    (so bust the catalog cache on every write), and keywords are part of the
-    search embedding text (so re-embed when keywords changed). The top-level
-    metadata PATCH already does both; these sibling writes did neither. Both
-    steps are best-effort — the write is already committed and must not fail on a
-    cache/broker hiccup.
-
-    fix(#458 E-47): when db/user/details are passed, also emit a metadata.edit
-    audit event against the backing dataset, so contact/keyword/distribution/
-    translation changes appear in GET /datasets/{id}/history like top-level
-    metadata PATCHes do. Best-effort and post-commit for the same reason as the
-    cache bust; records without a backing dataset (mid-ingest orphans) skip it.
+    fix(#458): busts the catalog cache and re-embeds on keyword change,
+    like the top-level metadata PATCH; best-effort, post-commit. fix(#458): when db/user/details are passed, also emits a metadata.edit
+    audit event against the backing dataset, if there is one.
     """
     try:
         await invalidate_catalog_cache()
@@ -145,12 +136,9 @@ async def _check_record_read_access(
 ) -> None:
     """Verify the record is visible to the caller. Raises 404 on denial.
 
-    Record sub-resources (contacts/keywords/distributions) carry the same
-    visibility as the dataset they back, so authorization is delegated to the
-    shared per-dataset RBAC the dataset endpoints use — public/private/
-    restricted, owner, admin, and anonymous (public+published only), including
-    grants. This closes the gap where ANY authenticated user could read a
-    private record by gating only `user is None`.
+    Sub-resources carry the same visibility as the dataset they back, so
+    this delegates to the shared per-dataset RBAC — not a bare `user is
+    None` check, which let ANY authenticated user read a private record.
     """
     record = await get_record(db, record_id)
     if record is None:
@@ -221,12 +209,9 @@ async def _check_record_ownership(
 ) -> Record:
     """Verify the user owns the record or is an admin. Raises 404/403.
 
-    Returns the fetched Record so callers can reuse it without a second query.
-
-    fix(#458 E-14): gate on read-visibility first, so a private record the caller
-    can't even see 404s (no existence leak) instead of 403 — matching the dataset
-    PATCH IDOR contract (test_dataset_metadata_idor). A record the caller CAN see
-    but doesn't own still 403s (an honest "you can't edit this").
+    Returns the fetched Record so callers can reuse it without a second
+    query. fix(#458): gates on read-visibility first, so a record the
+    caller can't even see 404s (no existence leak) rather than 403.
     """
     await _check_record_read_access(db, record_id, user)
     record = await get_record(db, record_id)
@@ -243,11 +228,6 @@ async def _check_record_ownership(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Not authorized to modify this record",
     )
-
-
-# ---------------------------------------------------------------------------
-# Localized title/summary variants
-# ---------------------------------------------------------------------------
 
 
 @router.get(
@@ -351,11 +331,6 @@ async def delete_translation_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ---------------------------------------------------------------------------
-# Contacts
-# ---------------------------------------------------------------------------
-
-
 @router.get(
     "/{record_id}/contacts/",
     response_model=ContactListResponse,
@@ -439,8 +414,8 @@ async def update_contact_endpoint(
     """Update a contact."""
     await _check_record_ownership(db, record_id, user)
     try:
-        # fix(#458 E-46): exclude_unset, not exclude_none — an explicitly-set
-        # null clears the field (dataset E-04 contract); the schema already
+        # fix(#458): exclude_unset, not exclude_none — an explicitly-set
+        # null clears the field (the dataset contract); the schema already
         # 422s nulls on non-clearable fields.
         contact = await update_contact(
             db, contact_id, record_id, **body.model_dump(exclude_unset=True)
@@ -501,11 +476,6 @@ async def delete_contact_endpoint(
         },
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---------------------------------------------------------------------------
-# Keywords
-# ---------------------------------------------------------------------------
 
 
 @router.get(
@@ -573,7 +543,7 @@ async def list_keywords_endpoint(
                             select(Dataset.id).where(Dataset.record_id == record_id)
                         )
                     ).scalar_one_or_none()
-                    # fix(#1070 sec-audit): the counterfactual collapses the
+                    # fix(#1070): the counterfactual collapses the
                     # derived audience to "the owner", turning the gap into an
                     # oracle for whether that named owner holds a grant on a
                     # restricted source — so honor the overrides only for the
@@ -676,11 +646,6 @@ async def delete_keyword_endpoint(
         },
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---------------------------------------------------------------------------
-# Distributions
-# ---------------------------------------------------------------------------
 
 
 @router.get(
@@ -792,7 +757,7 @@ async def update_distribution_endpoint(
     """Update a distribution (manual only; auto-generated distributions are immutable)."""
     await _check_record_ownership(db, record_id, user)
     try:
-        # fix(#458 E-46): exclude_unset, not exclude_none — see update_contact.
+        # fix(#458): exclude_unset, not exclude_none — see update_contact.
         dist = await update_distribution(
             db, distribution_id, record_id, **body.model_dump(exclude_unset=True)
         )

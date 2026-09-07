@@ -1,20 +1,18 @@
 """The Web Mercator clip, the 0..360 longitude convention, and their CRS gates.
 
-Split out of ``metadata.py`` (#1042). The cluster that kept growing: #888
-(shift a 0..360 source instead of clipping it), #899 (angular units), #906
-(degenerate envelopes) and #961 (the predicate disagreement) all landed on
-these three functions. The #934 seam-aware extent work is their downstream
-consequence and lives in ``metadata_extent``: shifting instead of clipping is
-what lets an ordinary ingest produce a table that honestly crosses ±180.
+Split out of ``metadata.py`` (#1042); #888/#899/#906/#961 all landed on
+these three functions, which is why they share a file. The #934 seam-aware
+extent work in ``metadata_extent`` is the downstream consequence: shifting
+instead of clipping is what lets an ingest produce a table that honestly
+crosses ±180.
 
-The two ``srtext`` regexes and the inline ``GEOG(CS|CRS)`` test inside
-``_mercator_envelope_degenerates`` live with their callers rather than beside
-``core.geo``'s helpers for two reasons. They are SQL predicates evaluated
-inside a query against ``spatial_ref_sys``, where there is no Python-side CRS
-object to hand to PROJ; and #961 recorded them as a standing sync obligation
-whose whole content is that the two DELIBERATELY disagree on wrapped CRSs.
-Keeping both halves of that disagreement in one file is what makes it
-checkable by reading. ``tests/test_crs_degree_agreement.py`` is the gate.
+The ``srtext`` regexes and the inline ``GEOG(CS|CRS)`` test in
+``_mercator_envelope_degenerates`` live with their callers rather than in
+``core.geo`` because they're SQL predicates over ``spatial_ref_sys`` with no
+Python-side CRS object, and because #961 made them a standing sync
+obligation: the two DELIBERATELY disagree on wrapped CRSs, and keeping both
+halves in one file is what makes that checkable by reading.
+``tests/test_crs_degree_agreement.py`` is the gate.
 """
 
 from typing import TYPE_CHECKING
@@ -32,52 +30,36 @@ if TYPE_CHECKING:
 logger = structlog.stdlib.get_logger(__name__)
 
 
-# Web Mercator (EPSG:3857) cannot represent latitudes beyond ±85.06°.
-# Geometries extending past this (e.g. Antarctica at -90°) cause
-# "transform: tolerance condition error" in ST_Transform.
+# Web Mercator (EPSG:3857) can't represent latitudes beyond ±85.06°;
+# geometries past this (e.g. Antarctica at -90°) cause a ST_Transform
+# tolerance error.
 #
-# fix(#899 codex r1): this is a box, not a latitude cutoff — it bounds X at
-# ±180 as well. A point at lon 400 is dropped by the X bound with a perfectly
-# ordinary latitude, so the warning built from these counts must not tell the
-# user that latitude was the problem.
+# fix(#899): this is a box, not a latitude cutoff — it bounds X at
+# ±180 too, so a point at lon 400 is dropped by the X bound at an ordinary
+# latitude; the warning built from these counts must not blame latitude.
 _MERCATOR_SAFE_ENVELOPE = "ST_MakeEnvelope(-180, -85.06, 180, 85.06, 4326)"
 
-# fix(#888): matches the WKT1 (GEOGCS) and WKT2 (GEOGCRS) spellings PostGIS
-# ships in spatial_ref_sys.srtext for lon/lat CRSs. 4326/4979/4269 match;
-# 2263/3857 (projected, X in feet/metres) do not.
+# fix(#888): matches WKT1 (GEOGCS) and WKT2 (GEOGCRS) spellings PostGIS
+# ships for lon/lat CRSs (4326/4979/4269 match; projected 2263/3857 don't).
 #
-# fix(#961 review): the ANCHOR is load-bearing and must stay, even though it
-# makes this predicate disagree with `core.geo.wkt_is_geographic` and with the
-# degenerate-envelope floor below on wrapped CRSs (BOUNDCRS, COMPD_CS). Those
-# two can afford to see through a wrapper; this one cannot, and the reason is
-# the same one `core.geo._parse_crs` documents at length: a flat scan cannot
-# decide which subtree a token belongs to.
-#
-# Concretely. Un-anchoring lets `BOUNDCRS[SOURCECRS[GEOGCS[... UNIT["grad"...`
-# match as geographic, and `_DEGREE_UNIT_SRTEXT_RE` below is a flat substring
-# scan that would then find an unrelated `degree` on the TARGET CRS or a
-# PRIMEM and report degrees. `_shift_zero_to_360_longitudes` would subtract
-# 360 from coordinates whose full turn is 400 grads — silent corruption, and
-# the shape is real enough that `tests/test_wkt_is_geographic.py::
-# test_boundcrs_reports_the_source_crs_units_not_the_targets` already pins it
-# on the Python side.
-#
-# Declining to shift is safe: the source is then clipped and REPORTED by
-# `clip_to_mercator_bounds`'s accounting, which is a visible outcome. Shifting
-# wrongly is not. So this gate stays deliberately incomplete, and the property
-# tests/test_crs_degree_agreement.py enforces is soundness — it never fires
-# where PROJ says the axes are not degrees — rather than agreement.
+# fix(#961): the ANCHOR is load-bearing. Un-anchored, it would match
+# `BOUNDCRS[SOURCECRS[GEOGCS[... UNIT["grad"...` as geographic, and
+# `_shift_zero_to_360_longitudes` would subtract 360 from a CRS whose full
+# turn is 400 grads — silent coordinate corruption (pinned by
+# tests/test_wkt_is_geographic.py). This predicate therefore deliberately
+# disagrees with `core.geo.wkt_is_geographic` on wrapped CRSs (BOUNDCRS,
+# COMPD_CS): declining to shift here is safe (clipped + reported instead),
+# shifting wrongly is not. tests/test_crs_degree_agreement.py enforces
+# soundness — never firing where PROJ says axes aren't degrees.
 _GEOGRAPHIC_SRTEXT_RE = "^GEOG(CS|CRS)"
 
-# fix(#899 codex r1): geographic is not the same as degree-based. 14 SRIDs in a
-# stock PostGIS spatial_ref_sys are GEOGCS with an angular unit of grads — the
-# Paris-meridian family, 4807 NTF (Paris) and relatives — where a full circle
-# is 400, not 360. Translating one of those by -360 would move a valid feature
-# to a wrong place, so the unit has to be degrees before anything shifts. The
-# pattern covers WKT1 (`UNIT["degree"`) and WKT2 (`ANGLEUNIT["degree"`) in one
-# go, since the WKT2 spelling contains the WKT1 substring. The prefix test
-# above is what keeps a projected CRS out: 3857's srtext also carries
-# `UNIT["degree"` inside its nested GEOGCS.
+# fix(#899): geographic != degree-based. 14 stock PostGIS SRIDs are
+# GEOGCS with grads (Paris-meridian family, e.g. 4807 NTF) where a full
+# circle is 400, not 360 — translating by -360 would move a feature wrong,
+# so unit must be degrees before anything shifts. Matches WKT1
+# (`UNIT["degree"`) and WKT2 (`ANGLEUNIT["degree"`, containing the WKT1
+# substring) in one pattern; the prefix test above keeps projected CRSs out
+# despite their nested GEOGCS also carrying `UNIT["degree"`.
 _DEGREE_UNIT_SRTEXT_RE = 'UNIT\\["degree'
 
 
@@ -86,33 +68,25 @@ async def _shift_zero_to_360_longitudes(
 ) -> bool:
     """Shift a 0..360-convention source into -180..180. True when it shifted.
 
-    fix(#888): a source written in the 0..360 Pacific convention (common in
-    ocean and climate data) is not out-of-range data — it is the same world
-    with a different origin. Clipping it to the Mercator envelope silently
-    deletes everything east of lon 180; translating it preserves every
-    feature. #883 showed that a single-condition guard on this class of
-    problem is a coin flip, so *all four* of these must hold before anything
-    moves:
+    fix(#888): a 0..360-convention source (common in ocean/climate data) is
+    not out-of-range data — clipping to the Mercator envelope would silently
+    delete everything east of lon 180. #883 showed a single-condition guard
+    on this class of problem is a coin flip, so *all four* must hold before
+    anything moves:
 
-    1. The geometry column's CRS is lon/lat AND its angular unit is degrees.
-       "Longitude" is meaningless in a projected CRS, where X is metres or feet
-       and 300 is not out of range; and in a grads-based geographic CRS a full
-       circle is 400, so -360 is not a whole turn (fix(#899 codex r1)).
-    2. Table-wide min X >= 0. Any negative longitude means the source is
-       already -180..180; a source mixing both conventions is ambiguous, so
-       refuse to guess.
-    3. Table-wide max X > 180. This is the condition that separates a real
-       0..360 source from a dataset legitimately confined to the eastern
-       hemisphere (0..180 — Africa/Europe/Asia), which must not be flung
-       into -360..-180.
-    4. Table-wide max X <= 360. Past 360 is not the 0..360 convention at all
-       (wrong units, corrupt coordinates); leave those to the clamp.
+    1. Geometry CRS is lon/lat AND angular unit is degrees. A projected CRS
+       has no meaningful "longitude"; a grads-based CRS has a 400-unit full
+       circle, so -360 is not a whole turn (fix(#899)).
+    2. Table-wide min X >= 0 — any negative longitude means the source is
+       already -180..180, and mixing both conventions is ambiguous.
+    3. Table-wide max X > 180 — separates a real 0..360 source from one
+       legitimately confined to 0..180 (Africa/Europe/Asia).
+    4. Table-wide max X <= 360 — past 360 is wrong units or corrupt
+       coordinates, not this convention; leave those to the clamp.
 
-    Only rows whose *own* min X is >= 180 are translated, so a feature that
-    is already inside -180..180 keeps its exact coordinates. A feature that
-    straddles lon 180 in such a source needs an antimeridian split (#884 /
-    #886) rather than a translate: it stays put and is then reported by the
-    clip accounting in ``clip_to_mercator_bounds``.
+    Only rows whose own min X is >= 180 are translated. A feature straddling
+    lon 180 needs an antimeridian split (#884/#886), not a translate; it
+    stays put and is reported by ``clip_to_mercator_bounds``'s accounting.
     """
     tref = _qtable(table_name, schema=schema)
 
@@ -168,38 +142,31 @@ async def _mercator_envelope_degenerates(
 ) -> bool:
     """True when the safe envelope collapses under ST_Transform into ``src_srid``.
 
-    fix(#906): for a CRS with a narrow area of validity, transforming the
-    global Mercator safe envelope collapses it — in EPSG:4807 (NTF Paris,
-    grads) every X of the envelope becomes 197.396 — and the clip's
-    intersection would then silently empty the entire table. Enumerated
-    against a stock ``spatial_ref_sys``: 4415 of 8500 SRIDs produce a
-    zero-area or collapsed envelope and another 108 error outright, so this
-    is a class, not an exotic corner.
+    fix(#906): a CRS with a narrow area of validity can collapse the global
+    Mercator safe envelope under transform (EPSG:4807 NTF Paris grads: every
+    X becomes 197.396), silently emptying the table via the clip's
+    intersection. Enumerated against a stock ``spatial_ref_sys``: 4415 of
+    8500 SRIDs collapse or zero-area, another 108 error outright — a class,
+    not a corner case.
 
     Degenerate means any of:
 
-    - zero (or negative) area, or a collapsed X/Y range — the hard collapse
-      (EPSG:4807, every UTM zone, France's 2154, most national grids);
-    - a sliver: area under 1e-6 of its own bbox area — EPSG:2263 leaves a
-      19-square-foot bowtie stretched across a 3e16 sq ft bbox, and EPSG:5070
-      a 0.04 m² one; positive area, still data-destroying;
-    - for a projected CRS, an envelope bbox under 1000 linear units in either
-      dimension — EPSG:27700 collapses to a 0.005 m² *square* (ratio 1, so
-      the sliver test misses it) and polar stereographic 3031 to ~4 m across.
-      The floor is absolute, not relative to the table's extent, because a
-      3857 table with features genuinely beyond ±20 037 508 m is WIDER than
-      its correctly transformed envelope and is exactly what the clip exists
-      to trim (fix(#906 codex r1)). 1000 is orders of magnitude under any
-      sane world envelope in any projected linear unit (metres, feet, even
-      kilometres give ~40 075) and orders over every measured collapse.
-      Guarded to projected CRSs (see the four-mechanism table on #939)
-      because geographic units are degrees (the world is 360 wide) and a
-      geographic transform cannot collapse. The geographic test sees
-      through COMPD_CS (fix(#906 codex r2)): a compound geographic CRS like
-      stock 5498 (NAD83 + NAVD88) is degrees despite its prefix;
-    - the transform raising — the clip's own UPDATE would raise identically,
-      turning a bounds check into a failed ingest. Probed inside a SAVEPOINT
-      so the surrounding phase-2 transaction stays usable.
+    - zero/negative area or a collapsed X/Y range (EPSG:4807, every UTM
+      zone, France's 2154, most national grids);
+    - a sliver: area under 1e-6 of its own bbox (EPSG:2263 leaves a
+      19-sq-ft bowtie in a 3e16 sq ft bbox; EPSG:5070 a 0.04 m² one) —
+      positive area, still data-destroying;
+    - for a projected CRS, an envelope under 1000 linear units in either
+      dimension (EPSG:27700 collapses to a 0.005 m² square, ratio 1 so the
+      sliver test misses it; polar stereographic 3031 to ~4 m). Absolute,
+      not relative to the table's extent, because a 3857 table genuinely
+      beyond ±20 037 508 m is WIDER than its transformed envelope and is
+      exactly what the clip trims (fix(#906)). Guarded to
+      projected CRSs since geographic units are degrees and can't collapse
+      this way; sees through COMPD_CS (fix(#906)) so a compound
+      geographic CRS like stock 5498 (NAD83+NAVD88) still counts as degrees;
+    - the transform raising — the clip's own UPDATE would raise identically.
+      Probed inside a SAVEPOINT so the surrounding transaction stays usable.
     """
     probe = text(
         f"WITH env AS (SELECT ST_Transform({_MERCATOR_SAFE_ENVELOPE}, :srid) AS e) "
@@ -209,21 +176,18 @@ async def _mercator_envelope_degenerates(
         f"  OR ST_Area(e) < 1e-6 * ((ST_XMax(e) - ST_XMin(e)) "
         f"                        * (ST_YMax(e) - ST_YMin(e))) "
         f"  OR ( "
-        # fix(#906 codex r2): the floor's geographic test must see through
-        # COMPD_CS — a compound geographic CRS (e.g. stock 5498, NAD83 +
-        # NAVD88) starts with COMPD_CS but its horizontal axes are degrees,
-        # and its valid 360x170-degree envelope would trip the 1000-unit
-        # floor. Geographic-horizontal here means: a GEOG keyword present and
-        # no PROJ keyword anywhere (every projected WKT1 nests a GEOGCS, so
-        # the PROJ test must win) — the same keyword logic as
-        # core.geo.wkt_is_geographic, in srtext form.
-        # fix(#961 review): this predicate and the 0..360 gate's
-        # `_GEOGRAPHIC_SRTEXT_RE` deliberately DISAGREE on wrapped CRSs, and
-        # unifying them was tried and reverted. Seeing through a wrapper is
-        # right here (the consequence is a size floor) and unsafe there (the
-        # consequence is translating geometry by 360 in a CRS whose turn may
-        # be 400 grads). The asymmetry is the decision, not an oversight; both
-        # halves are pinned by tests/test_crs_degree_agreement.py.
+        # fix(#906): sees through COMPD_CS — a compound geographic
+        # CRS (e.g. stock 5498, NAD83+NAVD88) starts with COMPD_CS but its
+        # horizontal axes are degrees, so it must not trip the 1000-unit
+        # floor. Geographic here means a GEOG keyword present and no PROJ
+        # keyword anywhere (every projected WKT1 nests a GEOGCS) — same
+        # logic as core.geo.wkt_is_geographic, in srtext form.
+        # fix(#961): this predicate and the 0..360 gate's
+        # `_GEOGRAPHIC_SRTEXT_RE` deliberately DISAGREE on wrapped CRSs
+        # (unifying them was tried and reverted) — seeing through a wrapper
+        # is right here (a size floor) and unsafe there (translating by 360
+        # in a CRS whose turn may be 400 grads). Both halves are pinned by
+        # tests/test_crs_degree_agreement.py.
         f"    NOT COALESCE((SELECT srtext ~* 'GEOG(CS|CRS)' "
         f"                     AND srtext !~* 'PROJ(CS|CRS)' "
         f"                  FROM spatial_ref_sys "
@@ -252,30 +216,20 @@ async def clip_to_mercator_bounds(
 ) -> "MercatorClipCounts | None":
     """Clip geometries to the Web Mercator safe envelope (±85.06° lat).
 
-    Only updates rows whose geometry actually extends beyond the bounds,
-    so this is a no-op for most datasets.
+    Only updates rows whose geometry actually extends beyond the bounds, a
+    no-op for most datasets. ``schema`` defaults to ``"data"`` (single_tenant);
+    multi_tenant callers pass ``_current_tenant_schema()``.
 
-    ``schema`` defaults to ``"data"`` for single_tenant backward compatibility.
-    In multi_tenant callers pass ``_current_tenant_schema()`` (CR-03, Phase 1209).
+    Two CRS quirks the SQL handles: (1) the envelope is SRID 4326 and gets
+    transformed to match the column's SRID, else PostGIS raises `coveredby:
+    Operation on mixed SRID geometries`; (2) the envelope is always 2D, so a
+    3D column (e.g. `MultiPointZ`) needs `ST_Force3D` after
+    `ST_Intersection` or the UPDATE fails with `Column has Z dimension but
+    geometry does not` (clipped vertices land at z=0).
 
-    Two CRS-related quirks the SQL has to handle:
-
-    1. Envelope is in SRID 4326. If the column's SRID differs (4979 / any
-       projected CRS), transform the envelope to match — otherwise PostGIS
-       raises `coveredby: Operation on mixed SRID geometries`.
-    2. The envelope is always 2D. If the column is declared 3D (e.g.
-       `MultiPointZ` for a 4979 source with elevation), `ST_Intersection`
-       drops Z and the UPDATE then fails with `Column has Z dimension but
-       geometry does not`. Wrap the result in `ST_Force3D` to put Z back
-       (clipped vertices land at z=0, which is acceptable for the few rows
-       that get clipped past ±85° lat).
-
-    fix(#888): returns the clip accounting — how many rows lost geometry
-    entirely (``dropped_features``) and how many survived in reduced form
-    (``clipped_features``) — so the caller can tell the user at the point of
-    loss instead of leaving them to hit "Analysis produced no features to
-    save" three steps later. Returns None when the table has no registered
-    ``geom`` metadata (nothing was inspected, let alone clipped).
+    fix(#888): returns the clip accounting (``dropped_features``,
+    ``clipped_features``) so the caller can surface loss at the point it
+    happens. Returns None when the table has no registered ``geom`` metadata.
     """
     _validate_table_name(table_name)
     _validate_table_name(schema)

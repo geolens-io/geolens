@@ -84,26 +84,17 @@ def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
 
 
-# fix(#1496): the browser cookie flow is negotiated and CSRF-protected with two
-# request headers, and the spec named them only in prose — so the three
-# session-lifecycle operations published ZERO parameters, and neither a
-# generated SDK nor the docs "try it" form could express the inputs needed to
-# establish, refresh, or revoke a cookie session.
+# fix(#1496): the browser cookie flow is negotiated via two request headers
+# that the spec named only in prose, so generated SDKs/docs couldn't express
+# them. These parameters are DECLARED, not consumed — enforcement stays in
+# cookies.py, which reads the headers off the Request directly. Drift is
+# prevented two ways: each ``alias`` IS the cookies.py constant, and
+# tests/test_api_contract_openapi.py derives the expected header set from the
+# helper calls each handler actually makes.
 #
-# The parameters below are DECLARED, not consumed. Every cookie and CSRF
-# decision stays in app/modules/auth/cookies.py, which reads the headers off the
-# Request because it needs that same Request to reach the paired cookies;
-# FastAPI has no "document a header without binding it" primitive, so an
-# optional unread parameter is the declaration. Two things stop it rotting away
-# from the enforcement: each ``alias`` IS the cookies.py constant, so renaming
-# the header cannot leave a stale spec behind, and
-# tests/test_api_contract_openapi.py derives the expected header set per
-# operation from the helper calls each handler actually makes.
-#
-# Optional is the entire compatibility argument. Neither header carries a
-# default value, a pattern, or a required flag, so a caller that sends neither
-# gets the pre-GH-1302 token-in-body contract byte for byte — which is exactly
-# what the CLI, both generated SDKs, Postman, and CI logins send.
+# Optional is the entire compatibility argument: neither header has a
+# default/pattern/required flag, so a caller sending neither gets the
+# pre-GH-1302 token-in-body contract byte for byte.
 _AUTH_MODE_PARAM_DESCRIPTION = (
     f"Browser session-transport negotiation. Send `{COOKIE_AUTH_MODE}` to carry "
     f"the refresh token in an httpOnly `{REFRESH_COOKIE_NAME}` cookie, paired "
@@ -122,16 +113,12 @@ _CSRF_PARAM_DESCRIPTION = (
 
 
 # SP-11 (v1009.1) superseded by ROUTE-01 (Phase 1092): both slash and
-# no-slash variants register the same handler directly. Canonical
-# OpenAPI-published form is /login; /login/ is a hidden alias for callers
-# that send it. Mirrors Phase 280 dual-shape pattern in
-# catalog/maps/router.py. SP-11's original closure (no-trailing-slash-only
-# registration to prevent FastAPI's 307 from stripping the POST body for
-# OAuth2 form callers) is now structurally impossible because
-# redirect_slashes=False at the app level (see api/main.py). Keep
-# ``SP-11`` as the grep-anchor prefix so future maintainers searching the
-# repo for that audit ID land on this load-bearing context rather than
-# just hitting the in-prose mention.
+# no-slash variants register the same handler; canonical OpenAPI-published
+# form is /login, /login/ is a hidden alias. SP-11's original no-trailing-
+# slash-only registration (to dodge FastAPI's 307 stripping the POST body
+# for OAuth2 form callers) is now structurally impossible because
+# redirect_slashes=False at the app level (api/main.py). Keep ``SP-11`` as
+# the grep-anchor prefix so a search for that audit ID lands here.
 @router.post("/login/", response_model=TokenResponse, include_in_schema=False)
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(_login_rate_limit)
@@ -159,7 +146,7 @@ async def login(
         audit_emit,
     )  # LAZY — preserved per D-17
 
-    # fix(#1230 codex r1 P1): OAuth2PasswordRequestForm applies no length
+    # fix(#1230): OAuth2PasswordRequestForm applies no length
     # limit to username, so an unauthenticated caller could otherwise persist
     # an unbounded string in JSONB on every failed attempt (storage
     # exhaustion). Bound it to User.username's own column width (String(150))
@@ -167,11 +154,9 @@ async def login(
     attempted_username = form_data.username[:150]
 
     async def _audit_login_failure(reason: str, *, user_id: uuid.UUID | None) -> None:
-        """fix(#1230 codex r1 P1): audit every denial path, not just bad
-        credentials — pending/deactivated accounts, a disallowed email
-        domain, and password-login-disabled are all login failures an
-        operator needs to see, especially attempts against deactivated
-        accounts. Never includes the submitted password."""
+        """fix(#1230): audit every denial path, not just bad credentials —
+        pending/deactivated accounts, disallowed email domain, and
+        password-login-disabled. Never includes the submitted password."""
         await audit_emit(
             db,
             AuditEvent(
@@ -190,10 +175,9 @@ async def login(
             username=form_data.username, password=form_data.password
         )
     except AuthenticationError:
-        # user_id stays None: LocalAuthProvider deliberately does not
-        # disclose whether the username exists (the dummy-hash verify above
-        # this is a timing-attack guard, both branches raise here
-        # identically), and the audit row must not either.
+        # user_id stays None: LocalAuthProvider deliberately doesn't disclose
+        # whether the username exists (both branches raise identically, a
+        # timing-attack guard), and the audit row must not either.
         await _audit_login_failure("invalid_credentials", user_id=None)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -228,12 +212,10 @@ async def login(
             await _audit_login_failure("email_domain_not_allowed", user_id=user.id)
             raise
 
-    # SSO-01/SSO-02 (Phase 1236 Plan 02): when password_login_enabled is False,
-    # reject password login for non-admins.  manage_settings holders are always
-    # allowed through (break-glass) — same capability used for the domain gate.
-    # Cache-bypass (get_uncached): otherwise a stale `true` repopulated during a
-    # password-disable's invalidate->commit window would let non-admins keep
-    # logging in for up to the 30s cache TTL after the disable commits (Codex P2).
+    # SSO-01/SSO-02: when password_login_enabled is False, reject password
+    # login for non-admins (manage_settings break-glass, same as domain gate).
+    # Cache-bypass: a stale `true` during a disable's invalidate->commit
+    # window would let non-admins keep logging in for up to 30s (Codex P2).
     if user is not None and not await PASSWORD_LOGIN_ENABLED.get_uncached(db):
         from app.modules.auth.permissions import (  # LAZY — per D-17
             MANAGE_SETTINGS,
@@ -248,7 +230,6 @@ async def login(
                 detail="Password login is disabled; sign in with your SSO provider",
             )
 
-    # Record login timestamp
     user.last_login_at = func.now()
 
     # Read token lifetimes from PersistentConfig (hot-reloadable)
@@ -285,11 +266,9 @@ async def login(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
-# no-trailing-slash variants register against the same handler. The slash
-# form stays canonical (already published in OpenAPI); the no-slash form
-# is a hidden alias closing the 404 regression introduced by
-# redirect_slashes=False (see api/main.py).
+# ROUTE-01 (Phase 1092): dual-shape decorator — both slash forms register
+# the same handler. Slash form is canonical (published); no-slash form is
+# a hidden alias closing the 404 regression from redirect_slashes=False.
 @router.post("/refresh", response_model=TokenResponse, include_in_schema=False)
 @router.post("/refresh/", response_model=TokenResponse)
 @limiter.limit("30/minute")
@@ -353,21 +332,16 @@ async def refresh(
 
     service = AuthService(db)
 
-    # CR-01 (Phase 1236 Plan 03): enforce the allowed_email_domains allowlist at
-    # refresh time so that when an admin tightens the allowlist AFTER a user
-    # authenticated, the user's next refresh is rejected (no gap between domain
-    # enforcement at login and session continuation via refresh).
+    # CR-01 (Phase 1236 Plan 03): enforce allowed_email_domains at refresh
+    # time too, so tightening the allowlist after login rejects the next
+    # refresh (no gap between login-time and session-continuation checks).
     #
-    # Implementation notes:
-    # - We peek at the user WITHOUT revoking the token first: if the domain check
-    #   blocks the user, the old token stays intact (no silent revocation).
-    # - Break-glass: a returning manage_settings admin is exempt — same policy as
-    #   the password-login domain gate (DOMAIN-04).
-    # - PASSWORD_LOGIN_ENABLED is intentionally NOT checked here.  SSO-only is a
-    #   login-METHOD policy (governs the password endpoint); it must not gate session
-    #   continuation for users who already authenticated via SSO.  Only the DOMAIN
-    #   check (which is an authorization PERIMETER, not a method selector) belongs
-    #   at refresh.
+    # Peeks at the user WITHOUT revoking the token first — if the domain
+    # check blocks the user, the old token stays intact. Break-glass for a
+    # returning manage_settings admin, same as DOMAIN-04.
+    # PASSWORD_LOGIN_ENABLED is intentionally NOT checked here: it's a
+    # login-METHOD policy and must not gate session continuation for users
+    # who authenticated via SSO.
     user = await service.get_user_from_refresh_token(presented_token)
     if user is not None:
         await enforce_email_domain_gate(db, user.email, break_glass_user=user)
@@ -418,11 +392,10 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
     """Register a new user. Account requires admin approval before login."""
-    # Runtime-extension gate: when a deployment supplies its own tenant-scoped
-    # signup path, the global self-signup endpoint must stay closed so users are
-    # not created outside the deployment's isolation boundary. This fires before
-    # REGISTRATION_ENABLED so the standard self-hosted path remains unchanged.
-    # Lazy import: matching the established LAZY pattern (preserved per D-17).
+    # Runtime-extension gate: a deployment with its own tenant-scoped signup
+    # path must keep the global self-signup endpoint closed, so users aren't
+    # created outside the deployment's isolation boundary. Fires before
+    # REGISTRATION_ENABLED so the standard self-hosted path is unchanged.
     from app.platform.extensions import has_extension  # LAZY: preserved per D-17
 
     if has_extension("cloud"):
@@ -442,31 +415,26 @@ async def register(
     # principal exists at signup, so no break-glass user is passed.
     await enforce_email_domain_gate(db, body.email)
 
-    # Phase 279 ADMIN-05 (L-02): emit user.register audit event for funnel
-    # visibility (how many users register and from which IP). Lazy import
-    # follows the established LAZY pattern (preserved per D-17) used by the
-    # other audit-emitting routes in this file.
+    # Phase 279 ADMIN-05 (L-02): user.register audit event for funnel
+    # visibility (registration count and IP).
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
     )  # LAZY — preserved per D-17
 
-    # Phase 1230 EVENT-01: admin signup notification. Lazy import per D-17;
-    # emit is placed AFTER db.commit() and ONLY in the non-collision branch so
-    # (a) a notification failure cannot roll back the user row, and (b) the
-    # collision path stays byte-identical regardless of toggle state (SEC-012 /
-    # T-1230-05 enumeration-safety).
+    # Phase 1230 EVENT-01: admin signup notification, emitted AFTER
+    # db.commit() and ONLY in the non-collision branch, so a notification
+    # failure can't roll back the user row and the collision path stays
+    # byte-identical regardless of toggle state (SEC-012/T-1230-05).
     from app.platform.notifications.events import (
         build_event_notification,
         emit_event_safe,
     )  # LAZY — preserved per D-17
 
     service = AuthService(db)
-    # SEC-012: on a username/email collision the service raises ValueError and
-    # does NOT create a duplicate row (register_user flushes only on success).
-    # We silently swallow the collision and return the SAME pending-approval
-    # response a genuine new registration returns. This prevents username/email
-    # enumeration via distinguishable error codes or messages.
+    # SEC-012: on a collision the service raises ValueError without creating
+    # a duplicate row; we swallow it and return the SAME pending-approval
+    # response a genuine registration returns, to prevent enumeration.
     collision = False
     new_user_id: uuid.UUID | None = None
     try:
@@ -478,11 +446,9 @@ async def register(
     except ValueError:
         collision = True
 
-    # Determine the post-registration outcome from CONFIG + submitted email only,
-    # never from whether this was a genuine signup or a swallowed collision, so
-    # both return a byte-identical response (SEC-012 enumeration-safety). The
-    # verify-email path previously returned a different message than the collision
-    # swallow, leaking account existence whenever email verification was enabled.
+    # Outcome depends on CONFIG + submitted email only, never on whether this
+    # was a genuine signup or a swallowed collision (SEC-012 enumeration
+    # safety) — the verify-email path once leaked account existence this way.
     verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
     smtp_configured = bool(settings.smtp_host)
     wants_email_verification = bool(
@@ -490,9 +456,8 @@ async def register(
     )
 
     if not collision:
-        # Phase 279 ADMIN-05 (L-02): the registrant is the actor (no acting admin
-        # exists yet). resource_id == user_id == the new pending user. ip_address
-        # is captured for funnel + abuse-detection visibility.
+        # ADMIN-05 (L-02): registrant is the actor (no admin exists yet);
+        # resource_id == user_id == the new pending user.
         ip = get_client_ip(request)
         await audit_emit(
             db,
@@ -506,10 +471,8 @@ async def register(
             ),
         )
         await db.commit()
-        # Phase 1230 EVENT-01: notify admin of new signup AFTER commit so a
-        # notification error can never roll back the user row (T-1230-07).
-        # emit_event_safe is itself fail-safe (swallows all errors).
-        # body.username / body.email are already audit-logged above (non-secret).
+        # EVENT-01: notify admin AFTER commit so a notification error can't
+        # roll back the user row (T-1230-07); emit_event_safe swallows errors.
         _username = body.username
         _email = body.email or ""
         await emit_event_safe(
@@ -523,11 +486,9 @@ async def register(
         )
 
         if verification_required and body.email and not smtp_configured:
-            # Verification is required but no SMTP channel is configured, so we
-            # cannot send a verification email and fall back to admin-approval.
-            # Surface the mismatch instead of degrading silently (WR-02) so an
-            # operator who turned verification on can see why signups still need
-            # manual approval.
+            # No SMTP configured despite verification required: fall back to
+            # admin-approval, but surface the mismatch (WR-02) rather than
+            # degrading silently, so an operator can see why.
             import structlog  # LAZY — per D-17
 
             structlog.stdlib.get_logger(__name__).warning(
@@ -540,10 +501,9 @@ async def register(
             )
 
     if wants_email_verification:
-        # SIGNUP-03 / #267: send a verification email for both genuine new
-        # registrations and swallowed collisions. A collision has no user row to
-        # verify, so it receives a decoy token; the delivery side effect stays
-        # uniform and cannot reveal whether the submitted username/email existed.
+        # SIGNUP-03/#267: send for both genuine registrations and swallowed
+        # collisions — a collision gets a decoy token so delivery stays
+        # uniform and can't reveal whether the username/email existed.
         if new_user_id is not None:
             from app.modules.auth.verification import (
                 issue_verification_token,
@@ -554,9 +514,8 @@ async def register(
         else:
             raw_token = secrets.token_urlsafe(32)
 
-        # Send the verification email. If send_email raises a SMTP/OSError,
-        # map it to a clear HTTP 502. Never expose the exception repr, which may
-        # include an SMTP password; return only the exception type name.
+        # Map an SMTP/OSError to HTTP 502; never expose the exception repr
+        # (may include an SMTP password) — only the exception type name.
         import smtplib  # LAZY: per D-17
 
         from app.modules.auth.verification_email import (
@@ -581,9 +540,8 @@ async def register(
             ) from None
 
     # Unified response: IDENTICAL for a genuine new user and a swallowed
-    # collision given the same (config, submitted email). Closes the SIGNUP-03
-    # enumeration gap where the verify-email path returned a different message
-    # (and now next_step) than the collision-swallow admin-approval path.
+    # collision given the same (config, email) — closes the SIGNUP-03
+    # enumeration gap between the verify-email and collision-swallow paths.
     if wants_email_verification:
         return RegisterResponse(
             message=(
@@ -598,11 +556,7 @@ async def register(
     )
 
 
-# ---------------------------------------------------------------------------
-# Email verification endpoints (Phase 1231 SIGNUP-03/05)
-# ---------------------------------------------------------------------------
-
-
+# Email verification endpoints (Phase 1231 SIGNUP-03/05).
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
 @router.post(
     "/verify-email",
@@ -642,15 +596,13 @@ async def verify_email(
         )
 
     # Activate the account: flip is_active + status so the auth gate in
-    # dependencies.py (which checks is_active AND status == 'active') lets
-    # the user through.  redeem_verification_token already flipped email_verified.
+    # dependencies.py lets the user through. redeem_verification_token
+    # already flipped email_verified.
     from app.modules.auth.models import User  # LAZY — per D-17
 
-    # Only activate accounts that are still PENDING verification. An admin may
-    # have suspended/deactivated the account within the token's validity window;
-    # clicking the verification link must NOT silently undo that (CR-01). The
-    # token is already consumed (redeem above) and email_verified stays set —
-    # only the activation flip is gated on the still-pending precondition.
+    # Only activate accounts still PENDING: an admin may have suspended the
+    # account within the token's validity window, and the link must NOT
+    # silently undo that (CR-01) — only the activation flip is gated here.
     await db.execute(
         update(User)
         .where(
@@ -714,7 +666,7 @@ async def resend_verification(
 
     from app.modules.auth.models import User  # LAZY — per D-17
 
-    # Look up an unverified user by email (case-insensitive — L1, Codex review).
+    # Look up an unverified user by email (case-insensitive, L1).
     result = await db.execute(
         select(User).where(
             func.lower(User.email) == func.lower(body.email),
@@ -724,10 +676,9 @@ async def resend_verification(
     user = result.scalar_one_or_none()
 
     if user is not None:
-        # Issue a fresh token and attempt to send. Swallow send errors
-        # server-side so the response stays identical to the unknown-email path
-        # (enumeration-safe). Still log at WARNING so operators can diagnose
-        # SMTP misconfiguration without surfacing it to the client.
+        # Swallow send errors so the response stays identical to the
+        # unknown-email path (enumeration-safe); log at WARNING so operators
+        # can diagnose SMTP misconfiguration without surfacing it to clients.
         import smtplib  # LAZY — per D-17
         import structlog  # LAZY — per D-17
 
@@ -766,20 +717,17 @@ async def logout(
     request: Request,
     # fix(#1518): the ONE fail-open exception. Every other anonymous-capable
     # handler 401s a supplied-but-unresolvable credential; logout must not,
-    # because the credential it is being asked to discard is usually the one
-    # that expired, and refusing the call would make the dead session
-    # permanent. See get_optional_user_fail_open's docstring for the category
-    # and FAIL_OPEN_ALLOWLIST in tests/test_optional_auth_failure_mode_1518.py
-    # for the guard that keeps this list from growing by accident. The 401
-    # below still fires when NOTHING presented resolves.
+    # since the credential being discarded is often the one that expired.
+    # See get_optional_user_fail_open's docstring and FAIL_OPEN_ALLOWLIST in
+    # tests/test_optional_auth_failure_mode_1518.py. 401 still fires below
+    # when NOTHING presented resolves.
     identity: Identity | None = Depends(get_optional_user_fail_open),
     body: RefreshRequest | None = None,
     db: AsyncSession = Depends(get_db),
     # fix(#1496): declared for the contract, read via enforce_csrf below. No
-    # auth-mode parameter here on purpose: unlike login and refresh, logout
-    # never calls wants_cookie_auth. It accepts the refresh cookie and clears
-    # both cookies unconditionally, so publishing a negotiation header this
-    # handler ignores would document an input that does nothing.
+    # auth-mode parameter here: unlike login/refresh, logout never calls
+    # wants_cookie_auth — it accepts the refresh cookie and clears both
+    # cookies unconditionally.
     csrf_token: str | None = Header(
         default=None,
         alias=CSRF_HEADER_NAME,
@@ -813,25 +761,19 @@ async def logout(
     user_id: uuid.UUID | None = identity.id if identity is not None else None
     if user_id is None:
         # fix(#1446): fall back to a presented refresh token when the access
-        # token has aged out — otherwise logout 401s while a multi-day refresh
-        # credential stays valid, and the UI reports a clean sign-out.
-        #
-        # Two transports, because the deployment topology decides which one a
-        # browser has: the cookie (same-origin installs), and the body token
-        # (split-origin installs, which keep the pre-GH-1302 flow — see
-        # lib/auth-transport.ts). CSRF is enforced only for the cookie: it is
-        # the transport a cross-site page can cause the browser to attach. A
-        # body token is bearer-equivalent and unreadable cross-site, the same
-        # reasoning /auth/refresh applies.
+        # token has aged out, so logout doesn't 401 while a multi-day refresh
+        # credential stays valid. Two transports — cookie (same-origin) and
+        # body token (split-origin, pre-GH-1302 flow) — since topology decides
+        # which one a browser has. CSRF enforced only for the cookie: it's the
+        # transport a cross-site page can attach; a body token is
+        # bearer-equivalent and unreadable cross-site (same as /auth/refresh).
         cookie_token = read_refresh_cookie(request)
         if cookie_token is not None:
             enforce_csrf(request)
         # fix(#1446): try every presented credential, cookie first. Unlike
-        # /auth/refresh — where the cookie is authoritative so a stale
-        # localStorage value cannot resurrect an old token family — logout is
-        # best-effort revocation, and a dead cookie left in the jar must not
-        # shadow a live body token (a split-origin install can hold both
-        # after a same-origin era). Failing here leaves the session alive.
+        # /auth/refresh (cookie is authoritative), logout is best-effort
+        # revocation — a dead cookie must not shadow a live body token (a
+        # split-origin install can hold both). Failing leaves the session alive.
         body_token = body.refresh_token if body is not None else None
         for presented in (cookie_token, body_token):
             if presented is None:
@@ -861,10 +803,9 @@ async def logout(
     )
     await db.commit()
     logout_response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    # GH-1302: revocation above already kills the server-side row; clearing the
-    # cookies stops the browser from replaying a dead credential (and from
-    # holding a stale CSRF value into the next session). Unconditional — a
-    # non-browser caller simply has no such cookies to clear.
+    # GH-1302: revocation above already kills the server-side row; clearing
+    # cookies stops the browser replaying a dead credential or holding a
+    # stale CSRF value. Unconditional — a non-browser caller has none to clear.
     clear_browser_session(logout_response, request)
     return logout_response
 
@@ -908,14 +849,11 @@ async def create_download_token_endpoint(
     # the dataset (private dataset, no access). Allows anonymous on public datasets.
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    # Issue the download-scoped token.
-    # - Authenticated user: use AuthService.create_download_token (includes sub claim).
-    # - Anonymous user on public dataset: issue a token without sub. The COG download
-    #   endpoint's _resolve_download_user returns None for sub-less tokens, and
-    #   download_cog branches on user-None to enforce public visibility + emit the
-    #   audit row with user_id=NULL. (KNOWN-01 closure in Phase 1071; v1015
-    #   Phase 1065 left this consumer gap behind — the consumer used to reject
-    #   any sub-less token with 401, breaking the end-to-end anonymous flow.)
+    # Issue the download-scoped token: authenticated users get
+    # create_download_token (includes sub claim); anonymous users on a public
+    # dataset get a token with no sub — _resolve_download_user returns None
+    # for sub-less tokens, and download_cog branches on user-None for public
+    # visibility + a NULL user_id audit row (KNOWN-01, Phase 1071).
     download_tenant_id = getattr(dataset, "tenant_id", None)
     if is_multi_tenant() and download_tenant_id is None:
         # Hosted records without durable tenant ownership are invalid and must
@@ -1062,11 +1000,7 @@ async def me_usage(
     return await get_user_quota_usage(db, current_user.id)
 
 
-# ---------------------------------------------------------------------------
-# Self-service API key management
-# ---------------------------------------------------------------------------
-
-
+# Self-service API key management.
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
 @router.get("/api-keys", response_model=ApiKeyListResponse, include_in_schema=False)
 @router.get("/api-keys/", response_model=ApiKeyListResponse)
@@ -1205,11 +1139,7 @@ async def revoke_my_api_key(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ---------------------------------------------------------------------------
-# Password change
-# ---------------------------------------------------------------------------
-
-
+# Password change.
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
 @router.post(
     "/change-password",
@@ -1230,21 +1160,16 @@ async def change_password(
     )  # LAZY — preserved per D-17
     from app.modules.auth.providers.local import hash_password, verify_password
 
-    # fix(#1715 codex r1 P1): lock and reload the row BEFORE reading anything
-    # off it. An admin reset (POST /admin/users/{id}/reset-password/) takes the
-    # same row lock, so without this the two interleave badly: this handler
-    # would verify against the pre-reset hash and assign its replacement, then
-    # block inside revoke_all_tokens' own FOR UPDATE, and autoflush would write
-    # the self-service password AFTER the reset committed. Whoever held the old
-    # password would silently win the recovery. Blocking here instead means the
-    # verify runs against the hash the reset just committed, so the stale
-    # current_password is refused with the usual 400.
+    # fix(#1715): lock and reload the row BEFORE reading anything
+    # off it. An admin reset takes the same row lock; without this ordering
+    # this handler could verify against the pre-reset hash, block inside
+    # revoke_all_tokens' own FOR UPDATE, and autoflush the self-service
+    # password AFTER the reset committed — silently reverting the reset.
+    # Blocking here means verify runs against the hash the reset just
+    # committed, so a stale current_password is refused normally.
     #
     # Lock ordering is safe: the reset takes the admin-lifecycle advisory lock
-    # and then this row lock, while this path only ever takes the row lock, so
-    # there is no cycle. current_user is attached to this same request session
-    # (get_current_user depends on the same get_db), so refresh() both waits on
-    # the lock and reloads the committed attributes.
+    # then this row lock; this path only ever takes the row lock, so no cycle.
     await db.refresh(current_user, with_for_update=True)
 
     if current_user.auth_provider != "local":
@@ -1262,18 +1187,17 @@ async def change_password(
 
     current_user.password_hash = hash_password(body.new_password)
 
-    # SEC-S15 (Phase 1062-01): bump token_version so all outstanding access JWTs
-    # for this user are invalidated on their next request. Password rotation
-    # should force re-auth on every other device.
+    # SEC-S15 (Phase 1062-01): bump token_version so all outstanding access
+    # JWTs for this user are invalidated on their next request, forcing
+    # re-auth on every other device.
     #
     # fix(#821): bump_key_epoch=True — a password change is a credential
     # reset, so previously minted API keys are invalidated too (unlike plain
     # logout, which leaves API keys alone).
     #
-    # commit=False: fold the token revocation into the same transaction as the
-    # password hash mutation and audit row so all three land atomically. A crash
-    # between commits would otherwise leave the user with bumped token_version
-    # (all tokens rejected) but the new password not recorded, locking them out.
+    # commit=False: folds token revocation into the same transaction as the
+    # password hash mutation and audit row, so a crash between commits can't
+    # bump token_version without recording the new password (lockout).
     service = AuthService(db)
     await service.revoke_all_tokens(current_user.id, commit=False, bump_key_epoch=True)
 

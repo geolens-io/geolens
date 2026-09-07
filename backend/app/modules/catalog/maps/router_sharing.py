@@ -75,21 +75,18 @@ async def shared_map_card_endpoint(
 ) -> HTMLResponse:
     """Return crawler HTML for a public shared map.
 
-    Invalid, expired, revoked, and non-public links return 404 before map details
-    are rendered. User-controlled text is escaped before it enters social-card
-    metadata. This crawler-only route is excluded from OpenAPI.
+    Invalid, expired, revoked, and non-public links return 404 before map
+    details render; user-controlled text is escaped before entering
+    social-card metadata.
     """
     token_obj = await _validate_share_token(db, token)
     map_obj = None
     if token_obj is not None and not isinstance(token_obj, str):
         map_obj = await get_map(db, token_obj.map_id)
     if map_obj is None or map_obj.visibility != "public":
-        # fix(#526 B-048): "Copy Link" copies THIS /card URL — an expired or
-        # revoked link previously returned bare JSON 404 here, while the
-        # secondary /m/{token} route renders the friendly "link expired" view.
-        # Return 200 HTML with a meta-refresh into the SPA shell so both share
-        # affordances land on the same expired page (audit SH-01/SH-07). No
-        # map details are rendered on this path.
+        # fix(#526): "Copy Link" copies this /card URL — return 200 HTML
+        # with a meta-refresh into the SPA shell (not bare 404 JSON) so it
+        # lands on the same "link expired" page as /m/{token} (SH-01/SH-07).
         viewer_url = f"/m/{html.escape(token)}"
         fallback_html = (
             "<!doctype html>\n"
@@ -166,14 +163,9 @@ async def get_shared_map_endpoint(
         embed_token=embed_token,
         request=request,
     )
-    # fix(#1518 codex P2 round 4): the 404 and 410 arms are EXEMPT from the
-    # credential rule. It stops a dead credential being absorbed into an answer
-    # it could have changed, and here it could not: `_validate_share_token`
-    # takes no user, and the second `None` arm turns on a visibility check read
-    # through an unfiltered `get_map`, so an admin with a perfect bearer gets
-    # the same 404 and 410 as an anonymous caller. The share token ADDRESSES the
-    # resource; identity only widens which layers come back. A 401 also costs the
-    # viewer their one actionable message (`PublicViewerPage.tsx:84` has a 410 card).
+    # fix(#1518): 404/410 arms are exempt from the credential
+    # rule — the share token addresses the resource, identity only widens
+    # which layers come back, so a dead credential can't change these answers.
     if result is None:
         raise HTTPException(status_code=404, detail="Shared map not found")
     if result == "expired":
@@ -223,11 +215,9 @@ async def visibility_check_endpoint(
 @router.get(
     "/{map_id}/style.json",
     responses={
-        # fix(#1672): the 200 schema stays deliberately open — a hand-typed
-        # mirror of the versioned MapLibre style spec is exactly the kind of
-        # copy that drifts (#1670 avoided the same trap). The contract names
-        # the upstream spec and pins the one shape the two sides disagreed
-        # on: sprite is ALWAYS the array form, which /maps/import accepts.
+        # fix(#1672): 200 schema stays open — a hand-typed mirror drifts
+        # (#1670). One pinned shape: sprite is always the array form,
+        # matching what /maps/import accepts.
         200: {
             "description": (
                 "A complete MapLibre style document for the saved map. Its "
@@ -242,7 +232,7 @@ async def visibility_check_endpoint(
                 "application/json": {
                     "schema": {
                         "type": "object",
-                        # fix(#1672 codex r1): without this, openapi-typescript
+                        # fix(#1672): without this, openapi-typescript
                         # renders the open object as Record<string, never> and
                         # TS consumers cannot touch any style property.
                         "additionalProperties": True,

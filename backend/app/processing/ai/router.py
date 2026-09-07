@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Provider-SDK exception classes (anthropic / openai) are imported lazily
 # inside `_call_llm_endpoint` so `processing/` carries zero top-level
-# provider-SDK imports (oc-audit 2026-05-02 §5).
+# provider-SDK imports.
 
 from app.processing.ai.chat_service import (
     build_dataset_chat_system_prompt,
@@ -181,10 +181,10 @@ class AIAvailabilityResponse(BaseModel):
 async def _ai_availability(db: AsyncSession) -> bool:
     """Return whether builder chat is usable WITHOUT raising or leaking detail.
 
-    builder-audit #338 P1-11: same readiness predicate as ``_check_ai_available``
-    (AI enabled at runtime AND the admin-selected LLM provider has a key), but
-    collapsed to a boolean so a permitted editor gets a graceful disabled state
-    instead of a 403/503. Provider/key specifics are never surfaced here.
+    Same readiness predicate as ``_check_ai_available`` (AI enabled at runtime
+    AND the admin-selected LLM provider has a key), but collapsed to a boolean
+    so a permitted editor gets a graceful disabled state instead of a 403/503.
+    Provider/key specifics are never surfaced here.
     """
     if not await AI_ENABLED.get(db):
         return False
@@ -223,14 +223,12 @@ async def _check_ai_available(db: AsyncSession) -> None:
 async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
     """Enforce the per-user rolling 24h AI token budget. No-op when unset.
 
-    The slowapi per-IP rate limits cap request *frequency* but not cumulative
-    token spend, so an editor can sustain heavy multi-round tool loops
-    indefinitely (demo cost audit 2026-07-04, §3). This reads back the
-    already-recorded ``catalog.ai_token_usage`` (index ``ix_ai_token_usage_user_created``
-    backs the SUM) and 429s once the user's input+output tokens over the last
-    24h reach the operator-set cap. ``MAX_AI_TOKENS_PER_USER_PER_DAY`` defaults
-    to 0 (unlimited), so this is a pure no-op until an operator opts in — no
-    behaviour change for existing installs.
+    slowapi's per-IP limits cap request *frequency*, not cumulative token
+    spend, so an editor can sustain heavy multi-round tool loops
+    indefinitely. Reads back ``catalog.ai_token_usage`` and 429s once the
+    user's 24h input+output tokens reach the operator-set cap, over
+    ``ix_ai_token_usage_user_created``.
+    ``MAX_AI_TOKENS_PER_USER_PER_DAY`` defaults to 0 (unlimited).
     """
     cap = await MAX_AI_TOKENS_PER_USER_PER_DAY.get(db)
     if cap <= 0:
@@ -293,28 +291,18 @@ async def _validate_chat_layers(
     - Resolves each layer's dataset_table_name from the DB by dataset_id.
     - Rejects layers whose datasets the user cannot access.
 
-    **Access model (builder-audit follow-up):** AI chat is read-only w.r.t. map
-    state — edit actions are applied client-side and only persist at Save, which
-    is owner-gated. So chat is gated on VIEW access, not ownership: any user who
-    can view the map may ask the AI questions about it. The returned ``can_edit``
-    (owner-or-admin, matching the Save boundary) selects the AI tool set — a
-    view-only caller gets read-only tools so the model cannot emit edit actions.
+    **Access model:** chat is read-only w.r.t. map state (edits apply
+    client-side, persist only at Save, which is owner-gated), so it's
+    gated on VIEW access, not ownership. Returned ``can_edit``
+    (owner-or-admin) selects the AI tool set — a view-only caller gets
+    read-only tools.
 
-    **Visibility decision (Pitfall #5 — v1030 Phase 1135 AI-04):** This function
-    does NOT filter layers by their ``visible`` state, even if the frontend
-    sends a ``visible`` field on the ChatMapLayer model. AI chat analysis sees
-    every layer present in the map regardless of visibility. Rationale:
-    visibility is a viewer-only decluttering signal (users hide layers to
-    reduce visual noise, not to say "do not analyze these"). When a user asks
-    "summarize this layer" or "which counties are in the AOI", the AI must
-    have the full layer manifest to answer correctly; filtering by visibility
-    would silently exclude data the user expects to be analyzed.
+    **Visibility (Pitfall #5, AI-04):** does NOT filter by ``visible``;
+    analysis sees every layer regardless of visibility state, which is a
+    viewer-only decluttering signal. A future visible-only scope needs an
+    explicit ``include_hidden: bool``, not a silent change here.
 
-    If a future requirement DOES want to scope analysis to visible layers
-    only, add an explicit ``include_hidden: bool`` parameter rather than
-    silently changing the contract here.
-
-    Returns (validated_layers, basemap_style).
+    Returns (validated_layers, basemap_style, can_edit).
     """
     from app.modules.catalog.maps.models import Map as MapORM
     from app.modules.catalog.maps._router_helpers import (
@@ -600,16 +588,14 @@ async def _validate_chat_dataset(
 ) -> ChatMapLayer:
     """Resolve + authorize a dataset for dataset-scoped chat.
 
-    Authorization mirrors ``_authorize_metadata_dataset`` (SEC-D): the
-    attacker-controlled ``dataset_id`` is resolved via the port and
-    access-checked with ``check_dataset_access``, which raises 404 on denial —
-    the same response as a nonexistent dataset, so this is not an existence
-    oracle.
+    Authorization mirrors ``_authorize_metadata_dataset``: the
+    attacker-controlled ``dataset_id`` is access-checked with
+    ``check_dataset_access``, which raises 404 on denial — same as a
+    nonexistent dataset, so this is not an existence oracle.
 
-    Returns a server-built ChatMapLayer carrying only authoritative DB values
-    (the client never supplies schema/table context on this surface). Raster
-    and VRT datasets are rejected: their pixels live in object storage, not a
-    queryable ``data.*`` table, so query_data has nothing to run against.
+    Returns a server-built ChatMapLayer with only authoritative DB values.
+    Raster/VRT datasets are rejected: their pixels live in object storage,
+    not a queryable ``data.*`` table.
     """
     try:
         dsid = uuid_mod.UUID(dataset_id)
@@ -710,7 +696,7 @@ async def dataset_chat_stream_endpoint(
                 history=body.history or None,
                 port=port,
                 # "dataset:" prefix keeps the schema-context cache partition
-                # (PERF-04) disjoint from map-id partitions.
+                # disjoint from map-id partitions.
                 map_id=f"dataset:{body.dataset_id}",
                 can_edit=False,
                 system_prompt_override=build_dataset_chat_system_prompt(
@@ -721,7 +707,7 @@ async def dataset_chat_stream_endpoint(
                 # could reach any table the user can see.
                 restrict_tables=frozenset({layer.dataset_table_name}),
                 # Dataset chat has no map — withhold the overlay-only
-                # run_analysis tool (M4 Phase 5).
+                # run_analysis tool.
                 has_map=False,
             ):
                 if await request.is_disconnected():
@@ -738,11 +724,6 @@ async def dataset_chat_stream_endpoint(
             )
 
     return EventSourceResponse(event_generator())
-
-
-# ---------------------------------------------------------------------------
-# Metadata AI endpoints
-# ---------------------------------------------------------------------------
 
 
 async def _call_llm_endpoint(
@@ -765,8 +746,7 @@ async def _call_llm_endpoint(
     (chat, generate-map). Metadata endpoints don't tool-loop, so leave it None.
     """
     # Deferred imports — provider SDKs must not load at module import time
-    # within `processing/` (oc-audit 2026-05-02 §5). Used only for the
-    # `except` clauses below.
+    # within `processing/`. Used only for the `except` clauses below.
     import anthropic
     import openai
 
@@ -818,20 +798,18 @@ async def _call_metadata_ai(coro: Awaitable[_T], error_prefix: str) -> _T:
 async def _authorize_metadata_dataset(
     db: AsyncSession, dataset_id: str, user: Identity
 ) -> None:
-    """SEC-D: authorize the attacker-controlled body.dataset_id before AI metadata
-    generation. Without this, an editor (the default role has ``use_ai_chat``) can
-    read ANY user's PRIVATE dataset — its metadata, source_url/filename, column
-    schema, and sample values — because ``_build_dataset_context`` loads the dataset
-    with no visibility filter and renders it into the LLM prompt, which is echoed in
-    the response. Authorize in the handler (NOT inside ``_build_dataset_context``:
-    that has a ``dataset_id``-keyed TTL cache and no ``user`` param, so a cache hit
-    would bypass an in-service check). On denial ``check_dataset_access`` raises 404
-    — same response as a nonexistent dataset, so this is not an existence oracle.
+    """Authorize the attacker-controlled body.dataset_id before AI metadata
+    generation. Without this, any editor (default role has ``use_ai_chat``)
+    can read ANY user's PRIVATE dataset — metadata, source_url/filename,
+    column schema, sample values — because ``_build_dataset_context`` loads
+    it with no visibility filter and echoes it into the LLM prompt/response.
+    Authorize in the handler, not inside ``_build_dataset_context`` (its
+    ``dataset_id``-keyed TTL cache has no ``user`` param, so a cache hit
+    would bypass an in-service check). ``check_dataset_access`` raises 404
+    on denial — same as a nonexistent dataset, not an existence oracle.
 
-    fix(#435): goes through ProcessingPort rather than importing catalog directly.
-    Both operations already exist on the port, so the lazy import bought nothing and
-    cost the overlay seam: an Enterprise/Cloud port could not observe this
-    authorization at all.
+    fix(#435): goes through ProcessingPort, not a direct catalog import —
+    an Enterprise/Cloud port couldn't observe this authorization otherwise.
     """
     port = get_processing_port()
 
@@ -865,7 +843,7 @@ async def generate_metadata_summary(
 ) -> SummaryDraftResponse:
     """Generate an AI-drafted summary for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
+    await _authorize_metadata_dataset(db, body.dataset_id, user)
     return await _call_metadata_ai(
         generate_summary_draft(db, body.dataset_id, port=port, user_id=user.id),
         "AI metadata summary generation",
@@ -887,7 +865,7 @@ async def generate_metadata_keywords(
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
+    await _authorize_metadata_dataset(db, body.dataset_id, user)
     return await _call_metadata_ai(
         generate_keyword_suggestions(db, body.dataset_id, port=port, user_id=user.id),
         "AI metadata keyword generation",
@@ -909,7 +887,7 @@ async def generate_metadata_lineage(
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
+    await _authorize_metadata_dataset(db, body.dataset_id, user)
     return await _call_metadata_ai(
         generate_lineage_draft(db, body.dataset_id, port=port, user_id=user.id),
         "AI metadata lineage generation",
@@ -931,7 +909,7 @@ async def generate_metadata_quality_statement(
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
+    await _authorize_metadata_dataset(db, body.dataset_id, user)
     return await _call_metadata_ai(
         generate_quality_statement_draft(
             db, body.dataset_id, port=port, user_id=user.id

@@ -1,14 +1,12 @@
-"""AI-chat ``run_analysis`` tool: parameterized PostGIS previews (M4 Phase 5).
+"""AI-chat ``run_analysis`` tool: parameterized PostGIS previews.
 
-Split out of ``chat_actions.py`` to keep that module inside its line budget
-(test_layering.test_decomposed_service_modules_stay_within_size_budgets),
-following the existing ``chat_styles`` / ``chat_geojson`` sibling pattern.
+Split out of ``chat_actions.py`` to keep that module inside its line
+budget, following the ``chat_styles``/``chat_geojson`` sibling pattern.
 
 Reuses the catalog analysis service through ``ProcessingPort`` — the same
-server-built SQL, Pydantic param validation, and read-only sandbox rails as
-the ``/datasets/{id}/analysis/preview/`` endpoint. No LLM-authored SQL is
-involved anywhere on this path: the model only picks an operation enum and a
-bounded number.
+server-built SQL, Pydantic param validation, and read-only sandbox rails
+as the ``/datasets/{id}/analysis/preview/`` endpoint. No LLM-authored SQL
+is involved: the model only picks an operation enum and a bounded number.
 """
 
 from typing import TYPE_CHECKING
@@ -63,11 +61,11 @@ async def _resolve_layer_dataset(
 ):
     """Resolve one layer's dataset and authorize it, or return a tool error.
 
-    Returns the dataset on success and an ``{"error": ...}`` dict otherwise,
-    so callers stay linear. Shared by the source layer and (feat(#683)) the
-    clip mask layer, because BOTH need the Rule-1 check: the layer list is
-    client-supplied, so neither its dataset_id nor its table name is evidence
-    of access.
+    Returns the dataset on success and an ``{"error": ...}`` dict
+    otherwise, so callers stay linear. Shared by the source and clip mask
+    layers (#683), because BOTH need the Rule-1 check: the layer list is
+    client-supplied, so neither dataset_id nor table name is evidence of
+    access.
     """
     try:
         dataset_id = UUID(str(layer.dataset_id))
@@ -104,10 +102,9 @@ async def _run_analysis(
 ) -> dict:
     """Resolve the layer's dataset, authorize it, and run the preview.
 
-    The dataset is resolved from ``layer.dataset_id`` and then re-checked with
-    ``check_dataset_access`` (AGENTS.md Rule 1) — the layer list is
-    client-supplied, so neither its dataset_id nor its table name may be
-    trusted as evidence of access.
+    Re-checked with ``check_dataset_access`` (Rule 1) even though the
+    dataset was resolved from ``layer.dataset_id`` — the layer list is
+    client-supplied, so neither field is trusted as evidence of access.
     """
     layer = next((lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None)
     if layer is None:
@@ -122,7 +119,7 @@ async def _run_analysis(
     if not dataset.geometry_type or not dataset.table_name:
         return {"error": "That layer has no geometry to analyze."}
 
-    # fix(#674 review P2): only buffer consumes distance_meters. The tool schema
+    # fix(#674): only buffer consumes distance_meters. The tool schema
     # calls it "ignored otherwise", so a model may well send a placeholder 0 on a
     # centroid call — forwarding that would trip AnalysisPreviewRequest's gt=0
     # bound and fail a perfectly valid preview. Drop it for every other op.
@@ -155,7 +152,7 @@ async def _run_analysis(
         )
         if isinstance(mask_dataset, dict):
             return mask_dataset
-        # fix(#683 codex P2): distinct layer ids are NOT distinct data. A
+        # fix(#683): distinct layer ids are NOT distinct data. A
         # duplicated rendering is two layers over one dataset, so the id check
         # above lets that pair through — and clipping a table by itself is an
         # expensive way to return the input. Identity is the DATASET.
@@ -167,14 +164,12 @@ async def _run_analysis(
                 )
             }
 
-    # fix(#683 codex P1): mask_dataset rides along only when set. A separately
-    # distributed overlay that implements the pre-clip ProcessingPort rejects
-    # the unknown keyword, and passing an unconditional None would break EVERY
-    # chat analysis against such an overlay rather than only the new operation.
-    # Same reasoning, same shape as the materialize defer in
-    # router_analysis._defer. EXTENSION_API_VERSION is bumped alongside this,
-    # so an overlay that DECLARES its version fails loudly at load instead;
-    # this guard is for the legacy undeclared ones, which only warn.
+    # fix(#683): mask_dataset rides along only when set — an unconditional
+    # None would break EVERY chat analysis against an overlay whose
+    # pre-clip ProcessingPort rejects the unknown keyword, not just this
+    # operation. Same shape as the materialize defer in
+    # router_analysis._defer; a legacy undeclared overlay only warns, one
+    # that declares EXTENSION_API_VERSION fails loudly at load instead.
     mask_kwargs = {"mask_dataset": mask_dataset} if mask_dataset is not None else {}
 
     try:
@@ -185,13 +180,12 @@ async def _run_analysis(
             user_id=user.id,
             distance_meters=distance_meters,
             **mask_kwargs,
-            # fix(#716): release_session is deliberately NOT passed. The
-            # rollback that returns the pooled connection expires every ORM
-            # instance on the session, the authenticated User included, and
-            # both chat paths read `user.id` after this returns — a sync
-            # refresh on an expired instance raises MissingGreenlet. The REST
-            # endpoint passes it because it reads nothing afterwards; copying
-            # that call site verbatim is the natural mistake here.
+            # fix(#716): release_session is deliberately NOT passed. Its
+            # rollback expires every ORM instance on the session, including
+            # the authenticated User, and both chat paths read `user.id`
+            # after this returns — a sync refresh on an expired instance
+            # raises MissingGreenlet. The REST endpoint passes it because
+            # it reads nothing afterwards.
         )
     except ValueError as exc:
         # Pydantic/param validation (bad enum, missing or out-of-range
@@ -237,13 +231,13 @@ def collect_run_analysis_action(result: dict) -> dict | None:
     """Build the map action for a run_analysis result, or None when there is none.
 
     run_analysis reuses ``show_query_result`` purely as the ephemeral-overlay
-    carrier: geojson + bbox (+ the truncation pair), never columns/rows. Every
-    chat surface already renders geojson+bbox (fly-to + overlay) and skips the
-    inline data table when ``rows`` is absent — a gid-only table would be noise.
+    carrier: geojson + bbox (+ truncation), never columns/rows. Every chat
+    surface renders geojson+bbox and skips the inline table when ``rows``
+    is absent.
 
     ``truncated``/``row_count`` ride along only when the 500-feature cap
-    actually bit, so EphemeralBadge can say "500 of 10,651 features" instead of
-    presenting a capped preview as the complete result.
+    bit, so EphemeralBadge can say "500 of 10,651" instead of presenting a
+    capped preview as the complete result.
     """
     if "error" in result:
         return None
@@ -266,19 +260,15 @@ def collect_run_analysis_action(result: dict) -> dict | None:
         action["layer_id"] = result["layer_id"]
         if result.get("distance_meters") is not None:
             action["distance_meters"] = result["distance_meters"]
-    # fix(#683 codex P2): the truncation flag no longer depends on knowing the
-    # total. clip filters rows, so run_analysis_preview returns no
-    # source_feature_count for it — the clipped total is genuinely unknown —
-    # and requiring one dropped the disclosure entirely, presenting a capped
-    # clip preview as the whole result. Report the cap; name the total only
-    # when there is one.
+    # fix(#683): the truncation flag doesn't depend on knowing the total —
+    # clip filters rows, so the clipped total is genuinely unknown, and
+    # requiring one presented a capped clip preview as the whole result.
+    # Report the cap; name the total only when there is one.
     #
-    # fix(#1076): this flag currently reaches nobody. Both consumers —
-    # ChatPanel.tsx and ViewerChatPanel.tsx — build their truncation object
-    # only when a total came with it, and EphemeralBadge has no label for
-    # "capped, total unknown", so a capped clip still renders as a plain
-    # count. The payload is correct here so that fix is possible; the three
-    # frontend files move together in #1076.
+    # fix(#1076): this flag currently reaches nobody — both frontend
+    # consumers build their truncation object only when a total came with
+    # it, and EphemeralBadge has no "capped, total unknown" label. The
+    # payload is correct here so that frontend fix is possible.
     total = result.get("source_feature_count")
     if result.get("truncated"):
         action["truncated"] = True

@@ -2,9 +2,9 @@
 
 Split from the former single-module ``defaults.py`` (#836): this sub-module
 owns ``DefaultCatalogPort``, the catalog->processing delegation seam (every
-``app.processing`` import stays deferred inside method bodies per the Phase
-214 discipline). Import it via the ``app.platform.extensions.defaults``
-facade, never from this sub-module.
+``app.processing`` import stays deferred inside method bodies). Import it
+via the ``app.platform.extensions.defaults`` facade, never from this
+sub-module.
 """
 
 from __future__ import annotations
@@ -85,13 +85,11 @@ class DefaultCatalogPort:
             storage, key=key, upload_id=upload_id, job_id=job_id
         )
 
-    # fix(#1590): explicit keyword-only signature instead of a bare
-    # **kwargs shim, so a missing or misspelled keyword surfaces here
-    # instead of deep inside the service call. `replacing_dataset_id` is a
-    # structural superset over CatalogPort's declared params — see the
-    # comment on CatalogPort.verify_completed_presigned_upload for why it
-    # is not on the Protocol yet, and test_port_signature_parity_1590.py's
-    # EXPECTED_SUPERSET_PARAMS for how the structural test tracks it.
+    # fix(#1590): explicit keyword-only signature so a missing or
+    # misspelled keyword surfaces here, not deep inside the service call.
+    # `replacing_dataset_id` is a structural superset over CatalogPort's
+    # declared params — see test_port_signature_parity_1590.py's
+    # EXPECTED_SUPERSET_PARAMS.
     async def verify_completed_presigned_upload(  # type: ignore[no-untyped-def]
         self,
         *,
@@ -144,13 +142,11 @@ class DefaultCatalogPort:
 
         return sign_url_with_deadline(storage_method, created_at, *args)
 
-    # fix(#1590): explicit keyword-only signature instead of a bare
-    # **kwargs shim, so a missing or misspelled keyword surfaces here
-    # instead of deep inside the service call. `replacing_dataset_id` is a
-    # structural superset over CatalogPort's declared params — see the
-    # comment on CatalogPort.finalize_presigned_object for why it is not on
-    # the Protocol yet, and test_port_signature_parity_1590.py's
-    # EXPECTED_SUPERSET_PARAMS for how the structural test tracks it.
+    # fix(#1590): explicit keyword-only signature so a missing or
+    # misspelled keyword surfaces here, not deep inside the service call.
+    # `replacing_dataset_id` is a structural superset over CatalogPort's
+    # declared params — see test_port_signature_parity_1590.py's
+    # EXPECTED_SUPERSET_PARAMS.
     async def finalize_presigned_object(  # type: ignore[no-untyped-def]
         self,
         *,
@@ -284,8 +280,8 @@ class DefaultCatalogPort:
         return regenerate_vrt
 
     def ingest_part_size(self) -> int:
-        # fix(#836): PART_SIZE moved off the router — platform code must never
-        # import an API-edge module (route registration runs at import time).
+        # fix(#836): moved off the router — platform code must never import
+        # an API-edge module (route registration runs at import time).
         from app.processing.ingest.service import PART_SIZE
 
         return PART_SIZE
@@ -373,11 +369,9 @@ class DefaultCatalogPort:
         return await has_embeddings(session)
 
     async def resolve_embedding_config(self, session):  # type: ignore[no-untyped-def]
-        # fix(#1546): semantic search filters stored rows on the fingerprint,
-        # and `modules/catalog/` may not import `app.processing.*`. It gets the
-        # whole (model, dimensions, endpoint, fingerprint) rather than the
-        # fingerprint alone because it also has to PIN the provider call to the
-        # same configuration it filters on (#1546 review r1).
+        # fix(#1546): returns the whole (model, dimensions, endpoint,
+        # fingerprint), not just the fingerprint search filters rows on,
+        # because it also has to PIN the provider call to that same config.
         from app.processing.embeddings.helpers import resolve_live_embedding_config
 
         return await resolve_live_embedding_config(session)
@@ -385,16 +379,12 @@ class DefaultCatalogPort:
     async def generate_embedding(self, text, session, *, pinned=None):  # type: ignore[no-untyped-def]
         from app.processing.embeddings.service import generate_embeddings_batch
 
-        # fix(#1546 review r1, codex P1): `pinned` is (model, dimensions,
-        # endpoint) as ONE optional argument rather than three keyword ones.
-        # `None` is a legitimate resolved endpoint — the provider interface
-        # lets an extension answer `{"base_url": None}` meaning "use the client
-        # default", which is why `generate_embeddings_batch` distinguishes it
-        # from an omission with a sentinel (`_Unset`, #1525). Three defaults of
-        # `None` could not tell "not pinned" from "pinned to the client
-        # default", and would have re-resolved the endpoint for exactly the
-        # providers the pin most needs to protect. One argument, absent or
-        # complete, cannot express that mistake.
+        # fix(#1546): `pinned` is (model, dimensions, endpoint) as ONE
+        # optional argument, not three keyword ones. `None` is a legitimate
+        # resolved endpoint, so three separate `None` defaults couldn't tell
+        # "not pinned" from "pinned to the client default" and would have
+        # re-resolved the endpoint for exactly the providers the pin exists
+        # to protect.
         if pinned is None:
             from app.processing.embeddings.service import generate_embedding
 
@@ -411,15 +401,12 @@ class DefaultCatalogPort:
         return await set_hnsw_recall(session)
 
     async def get_record_embedding(self, session, record_id):  # type: ignore[no-untyped-def]
-        # fix(#1580): returns the anchor row's identity with its vector. This
-        # used to be a second, independent `LIMIT 1` off an unordered query: on
-        # a catalog holding more than one model's rows the ranking and the
-        # scoring could anchor on different vectors, and the caller had no way
-        # to ask which space it was handed because a list of floats does not
-        # say. fix(#1580 review r2): it is now the ONLY anchor read on this
-        # path — the caller passes what this returns into
-        # `get_nearest_record_ids`, so the ranking and the scoring share one
-        # row rather than two statements that happen to order the same way.
+        # fix(#1580): returns the anchor row's identity with its vector, and
+        # is the ONLY anchor read on this path — the caller passes it into
+        # `get_nearest_record_ids`, so ranking and scoring share one row
+        # instead of two independent unordered `LIMIT 1` reads that could
+        # anchor on different vectors for a catalog with more than one
+        # model's rows.
         from app.processing.embeddings.helpers import get_anchor_embedding_row
 
         return await get_anchor_embedding_row(session, record_id)
@@ -433,13 +420,12 @@ class DefaultCatalogPort:
         limit=5,
         max_distance=0.7,
     ):
-        # fix(#1580 review r2): the anchor travels in rather than being read
-        # again here. The caller has already read it to score the results, and
-        # two reads under READ COMMITTED can straddle a commit — leaving the
-        # ranking anchored on one row and the scoring on another. Required
-        # rather than optional on the PORT: the only core caller holds one, and
-        # an overlay that re-read would reintroduce exactly the disagreement
-        # this closes.
+        # fix(#1580): the anchor travels in rather than being read again
+        # here. The caller already read it to score the results, and two
+        # reads under READ COMMITTED can straddle a commit, leaving ranking
+        # anchored on one row and scoring on another. Required, not
+        # optional, on the PORT — an overlay that re-read would reintroduce
+        # the disagreement this closes.
         from app.processing.embeddings.helpers import get_nearest_record_ids
 
         return await get_nearest_record_ids(
@@ -454,12 +440,11 @@ class DefaultCatalogPort:
         self, session, embedding, record_ids, *, model_name, config_fingerprint
     ):
         # fix(#1580): scoped to the anchor's own vector space, like the
-        # selection ahead of it. Fixing only `get_nearest_record_ids` would have
-        # moved this defect one layer out rather than closing it: the neighbours
-        # would be chosen correctly and then SCORED off whichever of their rows
-        # the planner returned last, because a record may hold one row per model
-        # and this dict comprehension keeps the last of them. The similarity
-        # percentage the UI prints is this number.
+        # selection ahead of it. A record may hold one row per model, and this
+        # dict comprehension keeps the last of them — without the scope, the
+        # neighbours would be chosen correctly and then SCORED off whichever
+        # row the planner returned last. This number is the similarity
+        # percentage the UI prints.
         from sqlalchemy import select
 
         await self.set_hnsw_recall(session)
@@ -471,13 +456,12 @@ class DefaultCatalogPort:
             )
             .where(RecordEmbedding.record_id.in_(record_ids))
             .where(
-                # fix(#1580 review r2): the stored-vs-stored predicate, the same
-                # one the selection uses. `usable_by_config` grandfathers an
-                # unstamped row against a stamped anchor, which is right for
-                # search (a fresh query vector, and on upgrade day the unstamped
-                # rows are all there is) and wrong here — a stamped anchor is
-                # evidence of a partly regenerated catalog, and the rows still
-                # carrying NULL are most likely the old space.
+                # fix(#1580): the stored-vs-stored predicate, same as the
+                # selection uses. `usable_by_config` grandfathers an
+                # unstamped row against a stamped anchor — right for search
+                # (a fresh query vector) but wrong here: a stamped anchor
+                # means a partly regenerated catalog, so NULL rows are most
+                # likely the old space.
                 RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint)
             )
         )

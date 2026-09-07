@@ -1,15 +1,10 @@
 """Shared building blocks for the raster ingest and raster replace tasks.
 
-fix(#1290 review): a pure extraction from ``tasks_raster``, which crossed the
-1000-line ratchet threshold in round 3. Nothing here is new — every function
-moved verbatim — and nothing here is a Procrastinate task. What lives here is
-what BOTH raster tails need: the manifest-VRT discriminators, the strict-COG
-gate, the row builders for a freshly published raster, the managed-key
-resolver, and the orphan reaper.
-
-The replace tail was already importing four of these out of a sibling task
-module, which is the kind of reach-across that makes a later split harder than
-it needs to be. They have one home now.
+fix(#1290): a pure extraction from ``tasks_raster`` (crossed the 1000-line
+ratchet threshold) — every function moved verbatim, and nothing here is a
+Procrastinate task. What both raster tails need: the manifest-VRT
+discriminators, the strict-COG gate, the row builders for a freshly
+published raster, the managed-key resolver, and the orphan reaper.
 """
 
 import asyncio
@@ -39,12 +34,11 @@ _RASTER_FORMAT_LABELS: dict[str, str] = {
 def _friendly_raster_open_failure_message(original_filename: "str | None") -> str:
     """User-facing text for a raster source ``rasterio.open`` open-time failure.
 
-    Deliberately built from ``original_filename`` alone — never from the
-    staging path or the raw rasterio message — so the message can never leak
-    the `/app/staging/<uuid>_...` path rasterio/GDAL echo back on any
-    open-time failure (unrecognized format, corrupt/truncated IFD, missing
-    file, permission error — all read, from the person who uploaded the
-    file, as the same thing: "GeoLens could not open this as a raster").
+    Built from ``original_filename`` alone — never the staging path or raw
+    rasterio message — so it can't leak the `/app/staging/<uuid>_...` path
+    rasterio/GDAL echoes back on any open-time failure (unrecognized format,
+    corrupt/truncated IFD, missing file, permission error all read the same
+    to the uploader: "GeoLens could not open this as a raster").
     """
     name = os.path.basename(original_filename) if original_filename else None
     suffix = os.path.splitext(name)[1].lower() if name else ""
@@ -65,24 +59,23 @@ def extract_source_raster_metadata(
 ) -> dict:
     """``extract_raster_metadata``, translating an open-time rasterio failure.
 
-    fix(#1661): both raster ingest tails (``ingest_raster``, the replace tail)
-    call this on the freshly-staged SOURCE upload. ``extract_raster_metadata``
-    opens that file with a single ``rasterio.open`` call and reads everything
-    else off the resulting dataset, so ANY ``RasterioIOError`` it raises is by
-    definition "rasterio could not open this file" — the class GDAL raises
-    for an unrecognized format, a corrupt/truncated IFD, a missing file, or a
-    permission error alike (codex review on #1661 round 1: a narrower pattern
-    match on just the "not recognized as being in a supported file format"
-    text missed the corrupt-IFD shape, which ALSO quotes the staging path and
-    is equally production-reachable — a .tif with a valid magic header but a
-    corrupt IFD passes upload-time content-sniffing same as any other .tif).
-    That used to land the raw rasterio message — including the internal
-    staging path — in ``IngestJob.error_message`` verbatim. The full rasterio
-    message still reaches structured logs at error level here, the one place
-    that sees it; a failure raised by anything OTHER than the open call
-    itself (e.g. malformed EXIF/tag parsing further down in
-    ``extract_raster_metadata``) is not a ``RasterioIOError`` and keeps its
-    real message unchanged. Callers reading their own just-produced COG (no
+    fix(#1661): both raster ingest tails call this on the freshly-staged
+    SOURCE upload. ``extract_raster_metadata`` opens the file with a single
+    ``rasterio.open`` call and reads everything else off the resulting
+    dataset, so ANY ``RasterioIOError`` it raises means "rasterio could not
+    open this file" — unrecognized format, corrupt/truncated IFD, missing
+    file, or permission error alike. (A narrower pattern match on just the
+    "not recognized" text missed the corrupt-IFD shape, which also quotes
+    the staging path and is equally reachable: a .tif with a valid magic
+    header but a corrupt IFD passes upload-time content-sniffing same as
+    any other .tif.)
+
+    This used to land the raw rasterio message, staging path included, in
+    ``IngestJob.error_message`` verbatim. The full message still reaches
+    structured logs here, the one place that sees it; a failure from
+    anything OTHER than the open call itself (e.g. EXIF/tag parsing further
+    into ``extract_raster_metadata``) is not a ``RasterioIOError`` and keeps
+    its real message. Callers reading their own just-produced COG (no
     upload filename to leak) don't need this wrapper.
     """
     import rasterio
@@ -129,16 +122,12 @@ async def _enforce_strict_cog(
     """Strict-mode COG gate for ING-07 / P2-09.
 
     When the user opted in via ``RasterCommitRequest.strict_cog=True``,
-    reject non-COG TIFFs here instead of silently routing through
-    ``check_and_prepare_cog`` conversion.
-
-    Manifest-VRT jobs are excluded (VRTs are XML, not TIFFs — the COG
-    compliance check would fail for unrelated reasons).
-
-    On non-compliance, raises ``ValueError`` whose message contains the
-    compliance reason. The existing ``ingest_raster`` outer
-    ``except Exception`` handler writes the failure to the job via
-    ``_job_phase_session("error_write")``.
+    rejects non-COG TIFFs here instead of silently converting via
+    ``check_and_prepare_cog``. Manifest-VRT jobs are excluded (VRTs are
+    XML, not TIFFs — the compliance check would fail for unrelated
+    reasons). Raises ``ValueError`` with the compliance reason;
+    ``ingest_raster``'s outer ``except Exception`` handler writes it to the
+    job via ``_job_phase_session("error_write")``.
     """
     import asyncio
 
@@ -174,15 +163,16 @@ async def create_raster_dataset(
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a raster ingest.
 
-    ``meta`` describes the CONVERTED COG — the file this dataset will serve
-    (fix(#1290 review)). ``original_srid`` is the one value that must describe
-    the upload instead, so the caller reads it off the source and passes it in.
+    fix(#1290): ``meta`` describes the CONVERTED COG — the file this
+    dataset will serve. ``original_srid`` is the one value that must
+    describe the upload instead, so the caller reads it off the source and
+    passes it in.
 
     fix(#1778): ``dataset_id`` lets the caller decide the id BEFORE this
-    transaction opens. The object keys the tail is about to write embed it, and
-    naming them on the durable job row is only possible if the id exists while
-    that row can still be written to. Default None keeps every other caller on
-    the database-generated id.
+    transaction opens, since the object keys the tail is about to write
+    embed it and naming them on the durable job row needs the id to exist
+    while that row is still writable. Default None keeps every other
+    caller on the database-generated id.
 
     Returns (record, dataset, raster_asset).
     """
@@ -197,7 +187,7 @@ async def create_raster_dataset(
 
     # fix(#302): authoritative count-cap check in the same transaction that
     # inserts the Record (the upload-time pre-check is not atomic).
-    # fix(#430 BA-23): same for the byte cap — recount under the per-user advisory
+    # fix(#430): same for the byte cap — recount under the per-user advisory
     # lock so concurrent raster uploads can't overshoot max_storage_bytes_per_user.
     from app.modules.quota.service import (
         reserve_dataset_slot,
@@ -207,21 +197,19 @@ async def create_raster_dataset(
     await reserve_dataset_slot(session, created_by)
     await reserve_storage_bytes(session, created_by, cog_size)
 
-    # Mirror the vector ingest path (datasets/service.py
-    # `create_dataset_record`) which commits directly to `published`.
-    # Without this the raster stayed in `draft` and the anonymous public
-    # tile-access check at tiles/router.py `_resolve_raster_access`
-    # returned 404 for every raster tile fetch, so every public demo map
-    # containing a raster layer (Earth as Seen from Space, Global
-    # Bathymetry, …) was broken for anonymous users.
+    # Mirrors the vector ingest path (`create_dataset_record` in
+    # datasets/service.py), which commits directly to `published`. Without
+    # this the raster stayed in `draft` and the anonymous public
+    # tile-access check (`_resolve_raster_access` in tiles/router.py) 404'd
+    # every raster tile fetch for anonymous users.
     record = Record(
         title=title,
         summary=summary,
         record_type="raster_dataset",
         visibility=visibility,
         record_status=record_status,
-        # fix(#302): created_by was never set on raster records, leaving them
-        # NULL and invisible to the per-user quota count and owner checks.
+        # fix(#302): created_by was never set on raster records, leaving
+        # them NULL and invisible to per-user quota count and owner checks.
         created_by=created_by,
         updated_by=created_by,
     )
@@ -238,23 +226,23 @@ async def create_raster_dataset(
         source_format="geotiff",
         source_filename=source_filename,
         srid=meta.get("epsg"),
-        # fix(#1290 review): the SRID the uploaded file declared, which under a
-        # `srid_override` is not the one the COG carries. Two fields, two
-        # questions — the replace tail draws the same line.
+        # fix(#1290): the SRID the uploaded file declared, which under a
+        # `srid_override` is not the one the COG carries — two fields, two
+        # questions, same line the replace tail draws.
         original_srid=original_srid,
-        # fix(#1218 review): see create_dataset — every creation path stamps
-        # this, or post-migration rows report null while backfilled ones do
-        # not. Python value, not func.now(): a SQL expression leaves the
+        # fix(#1218): every creation path stamps this (see create_dataset) or
+        # post-migration rows report null while backfilled ones don't.
+        # Python value, not func.now(): a SQL expression leaves the
         # attribute expired and the next read lazy-loads.
         last_refreshed_at=datetime.now(timezone.utc),
     )
-    # feat(#1218): a raster dataset IS the COG; the pre-conversion upload is a
-    # transient input, so the origin is the uploaded file and there is no
-    # remote URI to point at (ADR-002 Decision 7).
-    # fix(#1294): file_hash was missing here, unlike the replace tail's
-    # equivalent call in tasks_raster_swap.py — both go through this same
-    # set_dataset_origin authority, so passing the sha256 the caller already
-    # computed for `source_sha256` is the whole fix.
+    # feat(#1218): a raster dataset IS the COG; the pre-conversion upload is
+    # transient, so the origin is the uploaded file with no remote URI to
+    # point at (ADR-002 Decision 7).
+    # fix(#1294): file_hash was missing here, unlike the replace tail's call
+    # in tasks_raster_swap.py — both go through this same set_dataset_origin
+    # authority, so passing the caller's already-computed source_sha256 is
+    # the whole fix.
     set_dataset_origin(
         dataset, "upload", filename=source_filename, file_hash=source_sha256
     )
@@ -311,17 +299,16 @@ def _build_dataset_asset_rows(
 ) -> list[dict]:
     """Build STAC-aligned ``dataset_assets`` rows for a freshly ingested raster.
 
-    BUG-041: ``dataset_assets`` is read by the search/STAC/OGC asset-output path
-    but was never written by ingest, so STAC item assets were never advertised.
-    This produces the rows the read path expects, using the stable keys defined
-    on ``DatasetAsset``:
+    BUG-041: ``dataset_assets`` is read by the search/STAC/OGC asset-output
+    path but was never written by ingest, so STAC item assets were never
+    advertised. Produces the rows using ``DatasetAsset``'s stable keys:
 
       - ``data`` / ``vrt``: the primary COG (or VRT) source
       - ``thumbnail``: 256px quicklook
       - ``overview``: 512px quicklook
 
-    hrefs are storage keys (storage-relative); ``resolve_asset_url`` turns them
-    into presigned/public URLs at read time (or omits them on local storage per
+    hrefs are storage-relative keys; ``resolve_asset_url`` turns them into
+    presigned/public URLs at read time (or omits them on local storage per
     GAP-031).
     """
     primary_key = "vrt" if is_manifest_vrt else "data"
@@ -382,10 +369,10 @@ async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> Non
     """Best-effort delete storage keys written before a failed/rolled-back commit.
 
     GAP-017: raster ingest puts COG/quicklook bytes to storage BEFORE the
-    terminal DB commit. If the commit (or any later step) fails, the dataset row
-    is rolled back and ``delete_dataset`` never runs for it, orphaning the bytes.
-    This reaps exactly the keys that were written. Failures here are swallowed —
-    cleanup must never mask the original ingest error.
+    terminal DB commit. If the commit (or a later step) fails, the dataset
+    row rolls back and ``delete_dataset`` never runs, orphaning the bytes —
+    this reaps exactly the keys that were written. Failures here are
+    swallowed; cleanup must never mask the original ingest error.
     """
     from app.platform.storage import get_storage
 
@@ -413,46 +400,42 @@ async def publish_commit_landed(
 ) -> bool:
     """Did the publishing commit durably land, despite the raise?
 
-    fix(#1778): #1708 codex r11's reasoning, applied to the raster and VRT
-    publish tails. A commit whose acknowledgement is lost — a dropped
-    connection, or the ``asyncio.CancelledError`` a cancel request delivers,
-    which is a BaseException the tails' ``except Exception`` never sees but
-    which their ``finally`` still runs through — may have been applied by
-    PostgreSQL all the same. Each tail set its "published" flag on the line
-    after that await, so a lost acknowledgement left the flag false and the
-    terminal cleanup deleted the exact object keys the committed row had just
-    been pointed at. Nothing
-    reclaims that: the superseded objects are still in the bucket but no row
-    points at them, so every tile request, download and STAC asset 404s until
-    an operator lists the prefix by hand.
+    fix(#1778): applies #1708's reasoning to the raster and VRT publish
+    tails. A commit whose acknowledgement is lost — a dropped connection, or
+    the ``asyncio.CancelledError`` a cancel delivers (a BaseException the
+    tails' ``except Exception`` never sees but their ``finally`` still runs
+    through) — may still have been applied by PostgreSQL. Each tail sets its
+    "published" flag on the line after that await, so a lost ack left the
+    flag false and the terminal cleanup deleted the exact object keys the
+    committed row had just been pointed at: the objects survive in the
+    bucket but nothing points at them, and every tile request, download and
+    STAC asset 404s until an operator lists the prefix by hand.
 
-    So decide by OBSERVATION rather than by the await's outcome: read the job
-    row back on a FRESH session (the publishing session is mid-failure and
-    cannot be trusted to see anything) and ask whether this attempt's terminal
-    write is there. ``status == 'complete'`` for this exact ``attempt_id`` is
-    the signal all four of these tails can share, because every one of them
-    stamps it in the SAME transaction as the pointer swap: seeing it means the
-    swap is durable, and no other attempt can have produced it, because the
-    attempt token is fresh per attempt and each of these tasks is ``retry=0``.
+    So decide by OBSERVATION, not the await's outcome: read the job row back
+    on a FRESH session (the publishing session is mid-failure) and ask
+    whether this attempt's terminal write is there. ``status == 'complete'``
+    for this exact ``attempt_id`` is the shared signal, because every tail
+    stamps it in the SAME transaction as the pointer swap — seeing it means
+    the swap is durable, and no other attempt could have produced it since
+    the attempt token is fresh per attempt and each task is ``retry=0``.
 
     A probe that itself fails returns True — standing down. The asymmetry is
-    deliberate and is #1708's: standing down on a false positive leaves objects
-    behind that an operator or a later sweep can still remove, while proceeding
-    on a false negative deletes the live raster.
+    #1708's: standing down on a false positive leaves objects an operator or
+    sweep can still remove, while proceeding on a false negative deletes the
+    live raster.
 
-    fix(#1778 codex r1): a caller that gets True stands DOWN, returning
-    normally rather than re-raising into its failure handler. Gating only the
-    orphaned-key cleanup was not enough, because the handler it still entered
-    writes about a job that succeeded: ``regenerate_vrt`` reloaded the now
-    ``completed`` ``VrtGeneration`` and stamped it ``failed``, which
-    ``get_vrt_status`` reads as "this dataset has no completed generation" and
-    the stale-generation sweep reads as evidence the asset was unhealthy.
-    Nothing is lost by returning: the terminal write is durable, and the only
-    work skipped is the post-commit best-effort block those tails already
-    treat as unfailable.
+    A caller that gets True stands DOWN, returning normally rather than
+    re-raising into its failure handler — gating only the orphaned-key
+    cleanup was not enough, because the handler still entered writes about a
+    job that succeeded (``regenerate_vrt`` reloaded the now ``completed``
+    ``VrtGeneration`` and stamped it ``failed``, which both ``get_vrt_status``
+    and the stale-generation sweep then read as an unhealthy asset). Nothing
+    is lost by returning: the terminal write is durable, and the only work
+    skipped is the post-commit best-effort block those tails already treat
+    as unfailable.
 
-    What the caller must NOT do is set ``final_status`` from this. That string
-    also decides whether the uploader's staged original may be deleted, and
+    The caller must NOT set ``final_status`` from this: that string also
+    decides whether the uploader's staged original may be deleted, and
     standing down there would turn a probe failure into a second, worse
     deletion.
     """
@@ -487,14 +470,13 @@ async def publish_commit_landed(
 def absorb_cancellation(exc: BaseException) -> None:
     """Clear the pending cancellation a stand-down is about to stop honouring.
 
-    fix(#1778 codex r1): a tail that observes its publish landed returns
-    normally instead of re-raising, so on the cancel half of the finding it
-    swallows the ``asyncio.CancelledError`` that #1709's ``abort=True``
-    delivers. Suppressing a cancellation without saying so leaves
-    ``Task.cancelling()`` above zero, and that count is what a
-    structured-concurrency parent reads to decide whether its own body was
-    cancelled rather than merely interrupted. Every other exception type is
-    left alone, and a call outside a running task is a no-op.
+    fix(#1778): a tail that observes its publish landed returns normally
+    instead of re-raising, so on the cancel path it swallows the
+    ``asyncio.CancelledError`` #1709's ``abort=True`` delivers. Suppressing
+    a cancellation without saying so leaves ``Task.cancelling()`` above
+    zero, which a structured-concurrency parent reads to decide whether its
+    own body was cancelled. Every other exception type is left alone; a
+    call outside a running task is a no-op.
     """
     if not isinstance(exc, asyncio.CancelledError):
         return
@@ -504,14 +486,14 @@ def absorb_cancellation(exc: BaseException) -> None:
 
 
 # fix(#1778): the `user_metadata` field a raster tail names its pre-commit
-# object keys under. `written_storage_keys` is a local list, so a SIGKILL or an
-# OOM between the puts and the terminal `finally` reclaimed nothing: `base_key`
-# embeds a dataset id that rolls back with the transaction, so no row, no
-# `delete_dataset` prefix reap and no staging reconciler (`STAGING_PREFIX` is
+# object keys under. `written_storage_keys` is a local list, so a SIGKILL or
+# OOM between the puts and the terminal `finally` reclaimed nothing:
+# `base_key` embeds a dataset id that rolls back with the transaction, so no
+# row, `delete_dataset` reap, or staging reconciler (`STAGING_PREFIX` is
 # `staging/` only) could ever name the objects again. The VRT publish path
 # already had an out-of-process owner for this class
-# (`_stale_generation_storage_keys` in the job sweep); this field extends the
-# same shape to `rasters/` and `originals/`.
+# (`_stale_generation_storage_keys` in the job sweep); this field extends
+# the same shape to `rasters/` and `originals/`.
 def attempt_scoped_raster_base_key(
     dataset_id: uuid.UUID,
     attempt_id: uuid.UUID,
@@ -519,31 +501,29 @@ def attempt_scoped_raster_base_key(
 ) -> str:
     """The object prefix ONE replace attempt may write under.
 
-    fix(#1778 codex r3). The replace tail used to key on dataset id plus the
-    content hash alone, which is deterministic across attempts: re-running the
-    same upload derives the same three keys. That is a collision the durable
-    reaper cannot survive. ``fail_stale_jobs`` commits, and that commit both
-    settles the dead attempt and releases the dataset's active-run reservation
-    through the refresh-run sweep, so a replacement can be admitted while the
-    post-commit cleanup is still running. The new attempt then writes the same
-    keys the reaper is about to delete, after the survivor snapshot and before
-    the delete, with no row naming them yet, and its own commit lands a
-    ``RasterAsset`` pointing at bytes that are gone.
+    fix(#1778): the replace tail used to key on dataset id plus content hash
+    alone, deterministic across attempts — re-running the same upload
+    derives the same three keys, a collision the durable reaper can't
+    survive. ``fail_stale_jobs``'s commit both settles the dead attempt and
+    releases the dataset's active-run reservation, so a replacement can be
+    admitted while post-commit cleanup is still running; the new attempt
+    then writes the same keys the reaper is about to delete, and its own
+    commit lands a ``RasterAsset`` pointing at bytes that are gone.
 
-    Attempt fencing closes that structurally rather than by ordering, which is
-    what the VRT publish path already does with
-    ``rasters/{id}/generations/{generation_id}/``: no two attempts can name the
-    same object, so there is no window left to get the ordering wrong in. Same
-    convention as ``attempt_scoped_staging_table``, which fences the vector
-    tails' staging tables on the identical fact.
+    Attempt fencing closes that structurally rather than by ordering — the
+    same approach the VRT publish path takes with
+    ``rasters/{id}/generations/{generation_id}/``: no two attempts can name
+    the same object, so there's no window to get the ordering wrong in.
+    Same convention as ``attempt_scoped_staging_table`` for the vector
+    tails' staging tables.
 
-    The content hash stays in the key. It is what invariant 10 rests on (a
-    replacement cannot overwrite the live asset in place) and it keeps the
-    stored key content-addressed; the attempt segment makes it
-    attempt-addressed as well.
+    The content hash stays in the key: it's what invariant 10 rests on (a
+    replacement cannot overwrite the live asset in place) and keeps the key
+    content-addressed, with the attempt segment making it attempt-addressed
+    too.
 
-    The first-ingest tail needs no equivalent: its keys sit under a dataset id
-    generated inside the task, so a retry produces a different one.
+    The first-ingest tail needs no equivalent: its keys sit under a dataset
+    id generated inside the task, so a retry produces a different one.
     """
     return f"rasters/{dataset_id}/attempts/{attempt_id}/{asset_sha256}"
 
@@ -565,72 +545,63 @@ async def record_unpublished_storage_keys(
 
     Returns whether the caller may proceed to write those objects. ``False``
     means this attempt is DEFINITIVELY fenced out: the ``(job_uuid,
-    attempt_uuid)`` pair matched no row, which happens when the stale sweep
-    fails the row on a heartbeat timeout while this worker is merely paused
-    (a GC pause, a slow syscall) rather than dead, and a retry has since
-    minted a new attempt on the same job. Every other fenced job-row write in
-    this codebase checks its match (``update_ingest_job_for_attempt`` in
-    ``heartbeat.py`` returns ``bool(rowcount)`` and every caller branches on
-    a miss); this one used to be the exception, silently committing nothing
-    and letting the caller carry on to write objects a dead attempt's row
-    would never record. A worker killed after that point leaves the objects
-    with no reference anywhere, the #1778 leak class reopened at the one
-    recorder that did not check its own fence.
+    attempt_uuid)`` pair matched no row — the stale sweep failed the row on
+    a heartbeat timeout while this worker was merely paused (GC pause, slow
+    syscall) rather than dead, and a retry has since minted a new attempt on
+    the same job. Every other fenced job-row write in this codebase checks
+    its match (``update_ingest_job_for_attempt`` in ``heartbeat.py`` returns
+    ``bool(rowcount)`` and every caller branches on a miss); this one used
+    to be the exception, silently committing nothing and letting the caller
+    write objects a dead attempt's row would never record — the #1778 leak
+    class reopened at the one recorder that didn't check its own fence.
 
-    An unreachable database or any other transient failure is a DIFFERENT
-    case and still returns ``True``: nothing there proves this attempt is
-    gone, and refusing to proceed over it would trade a possible leak for a
-    certain one. Only a confirmed zero-row match is a confirmed fence miss.
+    An unreachable database or other transient failure is a DIFFERENT case
+    and still returns ``True``: nothing there proves this attempt is gone,
+    and refusing over it would trade a possible leak for a certain one.
+    Only a confirmed zero-row match is a confirmed fence miss.
 
-    fix(#1778). One JSONB write, committed on its own session before the
-    publishing transaction opens, which is what makes the keys nameable after
-    the process is gone. Logical keys (never tenant-resolved) so the sweep
-    resolves them in its own tenant context, the way it already does for
+    fix(#1778): one JSONB write, committed on its own session before the
+    publishing transaction opens, so the keys are nameable after the
+    process is gone. Logical keys (never tenant-resolved) so the sweep
+    resolves them in its own tenant context, as it already does for
     ``_staged_presigned_keys``.
 
-    fix(#1778 codex r1): ``already_published`` is what the LIVE asset names,
-    and it is subtracted here rather than at either call site. A replace whose
-    conversion reproduces the published COG byte for byte (re-uploading the
-    same file) derives the same ``asset_sha256``, so the three keys this
-    attempt intends ARE the three keys the dataset is currently serving. A
-    crash any time after this write, even before the first put, then handed the
-    stale-job reaper permission to delete the live COG and both quicklooks. The
-    in-process failure cleanup has always excluded ``prior_physical_keys``; the
-    durable record has to carry the same exclusion, because the process that
-    knows it is the one that may not be there. Subtracting inside this function
-    rather than at the call sites means a future writer of intended keys gets
-    the exclusion by having to answer the question.
+    ``already_published`` — what the LIVE asset names — is subtracted here
+    rather than at either call site. A replace whose conversion reproduces
+    the published COG byte for byte derives the same ``asset_sha256``, so
+    the three keys this attempt intends ARE the three keys currently
+    serving; a crash any time after this write would hand the stale-job
+    reaper permission to delete the live COG and both quicklooks otherwise.
+    In-process failure cleanup has always excluded ``prior_physical_keys``;
+    the durable record needs the same exclusion, and doing it here rather
+    than at call sites means a future writer gets it for free. The reaper
+    carries the other half: it refuses to delete a key a live row still
+    references, whatever the job row says.
 
-    The reaper carries the second half of this: it refuses to delete a key a
-    live row still references, whatever the job row says.
+    ``attempt_scope`` is a token unique to this attempt, and a key that
+    doesn't contain it is DROPPED rather than recorded — the rule the
+    recorded set must satisfy for the reaper to be safe at all, since the
+    reaper deletes on "the attempt that wrote this is gone", and a key two
+    attempts can both name is one it can delete out from under the live
+    one. Checking it here, the single point where keys become durable,
+    stops a future writer from recording a shared key and finding out from
+    a support ticket. The replace tail's token is its attempt id, carried
+    through ``attempt_scoped_raster_base_key``; the first-ingest tail's is
+    the dataset id it generates per attempt.
 
-    fix(#1778 codex r3): ``attempt_scope`` is a token unique to this attempt,
-    and a key that does not contain it is DROPPED rather than recorded. That is
-    the rule the recorded set has to satisfy for the reaper to be safe at all,
-    because the reaper deletes on the strength of "the attempt that wrote this
-    is gone": a key two attempts can both name is one the reaper can delete out
-    from under the live one. Checking it here, at the single point where keys
-    become durable, is what stops a future writer from recording a shared key
-    and finding out about it from a support ticket. The replace tail's token is
-    its attempt id, carried by every key through
-    ``attempt_scoped_raster_base_key``; the first-ingest tail's is the dataset
-    id it generates per attempt.
-
-    Ordering is the whole mechanism and it is narrow. This must run BEFORE the
+    Ordering is the whole mechanism, and narrow: this must run BEFORE the
     phase-2 session takes the ``ingest_jobs`` row lock (phase 2's first
-    statements dirty ``current_step``/``progress``): a second session updating
-    that row while phase 2 holds it would block until phase 2 ended, and phase
-    2 would be waiting on this call. So it lives beside the pre-phase-2
-    progress write, never inside phase 2.
+    statements dirty ``current_step``/``progress``), or a second session
+    updating that row would block on phase 2 while phase 2 waits on this
+    call — so it lives beside the pre-phase-2 progress write, never inside
+    phase 2.
 
-    A JSONB merge rather than an assignment, so it cannot clobber a field a
-    later write adds, and fenced on ``attempt_id`` so a retry's keys never land
-    on another attempt's row.
-
-    A transient failure is swallowed, same as before. This buys
-    reclaimability for a crash that may not happen; refusing the ingest over
-    an error that says nothing about the fence would trade a possible leak
-    for a certain failure.
+    A JSONB merge rather than assignment, so it can't clobber a field a
+    later write adds, fenced on ``attempt_id`` so a retry's keys never land
+    on another attempt's row. A transient failure is swallowed: this buys
+    reclaimability for a crash that may not happen, and refusing the ingest
+    over an error that says nothing about the fence would trade a possible
+    leak for a certain failure.
     """
     from sqlalchemy import bindparam, case, func, text, update
     from sqlalchemy.dialects.postgresql import JSONB
@@ -648,22 +619,20 @@ async def record_unpublished_storage_keys(
         )
     if not unpublished:
         return True
-    # fix(#1778 codex r9): APPEND to what the row already names, never replace
-    # it. `/jobs/{id}/retry` preserves `user_metadata`, so a retried ingest
-    # reached this with the previous attempt's keys still on the row; a merge
-    # that set the field to this attempt's keys alone dropped them, and an
-    # attempt whose own best-effort delete had also failed lost its objects'
-    # last durable pointer with it. Neither stale pass nor the retention purge
-    # could then name them.
+    # fix(#1778): APPEND to what the row already names, never replace it.
+    # `/jobs/{id}/retry` preserves `user_metadata`, so a retried ingest
+    # reaches this with the previous attempt's keys still on the row; a
+    # merge that set the field to this attempt's keys alone would drop
+    # them, orphaning an earlier attempt's objects if its own best-effort
+    # delete had also failed.
     #
-    # A flat list that each attempt extends, rather than a map keyed by
-    # attempt. Which attempt wrote a key is not something any reader needs --
-    # the question every one of them asks is "is this key still owed a reap" --
-    # and keeping the shape a list means the reader is unchanged and a row
-    # written before this commit still reaps.
+    # A flat list each attempt extends, not a map keyed by attempt — no
+    # reader needs to know which attempt wrote a key, only "is this key
+    # still owed a reap", so the shape stays simple and a row written
+    # before this commit still reaps.
     #
-    # The CASE keeps it total: `jsonb || jsonb` concatenates two arrays, but
-    # would fold an array into a non-array, so anything that is not an array
+    # The CASE keeps it total: `jsonb || jsonb` concatenates two arrays but
+    # would fold an array into a non-array, so anything that isn't an array
     # is replaced rather than appended to.
     _existing_keys = func.coalesce(
         IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD],
@@ -704,7 +673,7 @@ async def record_unpublished_storage_keys(
         # an abort. See the docstring: only a confirmed zero-row match does.
         return True
     if not result.rowcount:  # type: ignore[attr-defined]
-        # fix(#1778 audit): a confirmed miss. This attempt no longer owns the
+        # fix(#1778): a confirmed miss. This attempt no longer owns the
         # row, so the objects it is about to write would have nothing durable
         # naming them; the caller must not write them.
         structlog.get_logger().warning(

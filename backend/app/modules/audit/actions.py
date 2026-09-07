@@ -1,25 +1,21 @@
 """Canonical registry of ``AuditEvent.action`` string literals.
 
 #1230 ("action-registry drift"): the frontend's ``CURRENT_AUDIT_ACTIONS``
-(``frontend/src/components/admin/AuditLogViewer.tsx``) had drifted from what
-the backend actually emits — it listed four ``layer.*`` values nothing
-writes to ``audit_logs`` (builder layer edits go to map edit history
-instead) and was missing several real ones (``connector.discover``,
-``connector.ingest_dispatch``, and the password-login/``dataset.create``
-actions added by this same issue).
+had drifted from what the backend actually emits -- listing ``layer.*``
+values nothing writes (builder layer edits go to map edit history instead)
+and missing real ones like ``connector.discover``.
 
-This module is the backend half of the fix: every literal passed as
-``AuditEvent(action=...)`` anywhere in ``backend/app`` must be a member of
-``AUDIT_ACTIONS``. ``backend/tests/test_audit_action_registry.py`` walks the
-AST of ``backend/app`` and fails CI if an emit site uses a string this set
-does not contain — so a new action is a one-line addition here, made in the
-same commit that starts emitting it, rather than a silent drift for the next
-audit sweep to rediscover.
+Backend half of the fix: every literal passed as ``AuditEvent(action=...)``
+must be a member of ``AUDIT_ACTIONS``.
+``backend/tests/test_audit_action_registry.py`` walks the AST of
+``backend/app`` and fails CI on an emit site using a string not in this
+set, so a new action is added here in the same commit that starts
+emitting it.
 
-This registry is NOT imported by emit sites (that would mean touching ~30
-call sites across a dozen modules for no behavioral gain); it is the
-independent source of truth the test checks emitted literals against. Keep
-it alphabetically sorted so a diff shows exactly what changed.
+Not imported by emit sites (that would mean touching ~30 call sites for
+no behavioral gain) -- it is the independent source of truth the test
+checks against. Keep alphabetically sorted so a diff shows exactly what
+changed.
 """
 
 from __future__ import annotations
@@ -28,10 +24,9 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
     {
         "api_key.create",
         "api_key.revoke",
-        # One row per ArcGIS sign-in attempt. Carries the portal host and the
-        # outcome, never a username: the outcome keeps the invalid/locked
-        # distinction the caller-facing message deliberately collapses, which
-        # is what makes someone walking accounts visible to an operator.
+        # One row per ArcGIS sign-in attempt: portal host + outcome, never a
+        # username. The outcome preserves the invalid/locked distinction the
+        # caller-facing message deliberately collapses.
         "arcgis_signin",
         "attribute.edit",
         "attribute.reset",
@@ -45,10 +40,9 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "config_import",
         "connector.discover",
         "connector.ingest_dispatch",
-        # fix(#1230): previously no emit site existed anywhere. Emitted once,
-        # inside create_dataset() (service_create.py), the function every
-        # creation path (ingest registration, file-upload ingest,
-        # layer/table creation, the empty-dataset endpoint) funnels through.
+        # fix(#1230): previously no emit site existed. Emitted once inside
+        # create_dataset() (service_create.py), which every creation path
+        # funnels through.
         "dataset.create",
         "dataset.delete",
         "dataset.download_cog",
@@ -91,12 +85,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "oauth.login.failure",
         "oauth.login.init",
         "oauth.login.success",
-        # fix(#1778): the IdP group-role mapping is applied on every OAuth
-        # login, not just the one that creates the account, so a role can now
-        # move without an admin touching it. These two are how an operator sees
-        # that happen: `changed` when the mapping moved the role, `change_refused`
-        # when the last-admin rule kept it where it was. Neither carries a claim
-        # value.
+        # fix(#1778): IdP group-role mapping applies on every OAuth login,
+        # not just account creation, so a role can move without an admin
+        # touching it. `changed` = role moved; `change_refused` = the
+        # last-admin rule kept it. Neither carries a claim value.
         "oauth.role.change_refused",
         "oauth.role.changed",
         "oauth_provider.create",
@@ -109,11 +101,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         # programmatic SQL data access. Emitted in processing/ai/query_router.py.
         "query.execute",
         "query.reject",
-        # feat(#1268) / ADR-002 Amendment A10: the refresh-run lifecycle. The
-        # run table is mutable and cascades with its dataset, so it is a status
-        # board rather than a ledger; these four are the append-only record.
-        # `abandoned` is the stale-run sweep's bookkeeping correction and is
-        # deliberately not spelled `failed`.
+        # feat(#1268)/ADR-002 A10: refresh-run lifecycle. The run table is
+        # mutable and cascades with its dataset (a status board, not a
+        # ledger); these four are the append-only record. `abandoned` is the
+        # stale-run sweep's correction, deliberately not spelled `failed`.
         "refresh.abandoned",
         # feat(#1677): the explicit-cancel counterpart to `abandoned` — a
         # person asked in-flight work to stop, vs. the sweep's bookkeeping
@@ -137,11 +128,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "user.deactivate",
         "user.delete",
         "user.export",
-        # fix(#1230): password-login success/failure and logout were the
-        # other structural gap — only the OAuth path emitted login events.
-        # Named to mirror oauth.login.success/failure under the existing
-        # user.* prefix (user.change_password, user.register, ...) rather
-        # than introducing a separate "auth." prefix for one code path.
+        # fix(#1230): password-login success/failure/logout were the other
+        # structural gap -- only OAuth emitted login events. Named to
+        # mirror oauth.login.success/failure under the existing user.*
+        # prefix.
         "user.login.failure",
         "user.login.success",
         "user.logout",

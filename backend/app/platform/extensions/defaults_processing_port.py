@@ -1,4 +1,4 @@
-"""Community-edition ProcessingPort default (Phase 225 D-09 / D-11 / PROCESS-01).
+"""Community-edition ProcessingPort default.
 
 Split from the former single-module ``defaults.py`` (#836): this sub-module
 owns ``DefaultProcessingPort``, the processing->catalog delegation seam.
@@ -11,30 +11,23 @@ from __future__ import annotations
 
 class DefaultProcessingPort:
     """Community-edition default: delegates every call to app.modules.catalog.*
-    via deferred imports (Phase 225 D-09 / D-11 / PROCESS-01).
+    via deferred imports.
 
     Each method does a deferred import into app.modules.catalog.* inside the
     function body, keeping platform/extensions/ free of module-load-time
-    modules.* edges (Phase 214 deferred-import discipline). Behavior is
-    identical to the pre-Phase-225 baseline — the Port is the seam, not a
-    re-implementation.
+    modules.* edges. Behavior is identical to the pre-split baseline — the
+    Port is the seam, not a re-implementation.
 
     create_dataset, get_dataset etc. delegate via the
-    app.modules.catalog.datasets.domain.service FACADE (never the sub-modules
-    directly — Phase 224 DECOUPLE-04).
+    app.modules.catalog.datasets.domain.service FACADE, never the
+    sub-modules directly.
     """
 
-    # -------------------------------------------------------------------------
-    # Read-side methods (D-06)
-    # -------------------------------------------------------------------------
-
     async def get_dataset(self, session, dataset_id):  # type: ignore[no-untyped-def]
-        # Explicit joinedload(Dataset.record) on the Port surface so callers can
-        # rely on `dataset.record.<attr>` access in async contexts without
-        # depending on the facade's implicit loading semantics. The facade today
-        # also eager-loads, but pinning the contract here protects callers (e.g.
-        # processing/export/router.py:95 reads dataset.record.title) from any
-        # future facade-internal change that drops the joinedload.
+        # Explicit joinedload(Dataset.record) on the Port surface so callers
+        # can rely on `dataset.record.<attr>` in async contexts without
+        # depending on the facade's implicit loading — protects callers
+        # from any future facade change that drops the joinedload.
         from sqlalchemy import select
         from sqlalchemy.orm import joinedload
 
@@ -111,25 +104,23 @@ class DefaultProcessingPort:
         mask=None,
         mask_dataset=None,
     ):
-        """Run a parameterized analysis preview (M4) for the AI chat surface.
+        """Run a parameterized analysis preview for the AI chat surface.
 
-        Params are re-validated by ``AnalysisPreviewRequest`` here, so the
-        LLM-supplied values pass through exactly the same bounds/requiredness
-        checks as the HTTP endpoint (a ValueError surfaces as a tool error the
-        model can retry from). Callers own the dataset VISIBILITY check, for
-        the mask dataset as much as the source — this port never checks it.
+        Params are re-validated by ``AnalysisPreviewRequest`` here, so
+        LLM-supplied values pass through the same bounds/requiredness checks
+        as the HTTP endpoint (a ValueError surfaces as a tool error the model
+        can retry from). Callers own the dataset VISIBILITY check, for the
+        mask dataset as much as the source — this port never checks it.
 
-        feat(#683): the mask's SHAPE and SIZE are checked here, so every port
-        caller gets the rails the REST route applies in ``_load_mask_dataset``.
-        Unioning points or lines masks nothing meaningful, and without the
-        shape check the failure is an empty result the model reports as a real
-        answer. The size ceiling is a resource rail, not a correctness one:
-        ``_mask_pieces`` materializes and subdivides every mask row before the
-        preview's own row cap can bite, so the work scales with the whole mask
-        however small the source is.
+        feat(#683): the mask's SHAPE and SIZE are checked here, so every
+        port caller gets the rails the REST route applies. Unioning points
+        or lines masks nothing meaningful; without the shape check the
+        failure is an empty result the model reports as real. The size
+        ceiling is a resource rail: ``_mask_pieces`` materializes and
+        subdivides every mask row before the preview's own row cap can bite.
 
-        ``release_session`` is deliberately never passed: see the reasoning at
-        the chat call site in ``chat_analysis._run_analysis``.
+        ``release_session`` is deliberately never passed — see
+        ``chat_analysis._run_analysis``.
         """
         from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
         from app.modules.catalog.datasets.domain.service import (
@@ -139,7 +130,7 @@ class DefaultProcessingPort:
         from app.platform.analysis_sql import MAX_MASK_LAYER_FEATURES
 
         # Ignored unless the operation owns it, mirroring what
-        # _drop_params_for_other_operations does to mask_dataset_id (#682).
+        # _drop_params_for_other_operations does to mask_dataset_id.
         mask_for_op = mask_dataset if operation == "clip" else None
         if mask_for_op is not None:
             shape = (getattr(mask_for_op, "geometry_type", None) or "").upper()
@@ -150,10 +141,9 @@ class DefaultProcessingPort:
                     f"Clipping needs a polygon layer as the mask; that one is "
                     f"{shape}. Pick a polygon layer instead."
                 )
-            # Counted the same way the REST route counts it: the cached
-            # snapshot when present, a LIMIT-bounded live count when it is
-            # NULL, because NULL-as-zero would admit exactly the unknown-size
-            # layers the gate exists for (fix(#701 review)).
+            # Counted like the REST route: cached snapshot when present, a
+            # LIMIT-bounded live count when NULL — NULL-as-zero would admit
+            # exactly the unknown-size layers this gate exists for.
             mask_count = await resolve_source_feature_count(
                 session, mask_for_op, cap=MAX_MASK_LAYER_FEATURES
             )
@@ -230,10 +220,6 @@ class DefaultProcessingPort:
 
         return extract_bbox(dataset)
 
-    # -------------------------------------------------------------------------
-    # OQ-3 InstrumentedAttribute encapsulators
-    # -------------------------------------------------------------------------
-
     async def get_records_without_embeddings(self, session, *, force=False):  # type: ignore[no-untyped-def]
         import structlog
         from sqlalchemy import select
@@ -258,53 +244,39 @@ class DefaultProcessingPort:
         )
         if not force:
             # fix(#1506): "missing" means "has no vector THIS model can use",
-            # not "has no vector at all". `record_embeddings` is keyed
+            # not "has no vector at all" — `record_embeddings` is keyed
             # (record_id, model_name) and semantic search reads only
             # active-model rows, so the old `RecordEmbedding.id IS NULL`
-            # predicate made Generate Missing a no-op after a model swap —
-            # every record kept its superseded row and so read as covered.
-            # Mirrors the model-scoped count in AdminService.get_embedding_stats
-            # (#1503), which is what the admin panel reports against.
+            # predicate made Generate Missing a no-op after a model swap.
             # The outer join went with it: NOT EXISTS correlates on its own,
-            # and the join only ever produced per-embedding duplicate Records
-            # that `.unique()` collapsed again.
+            # and the join only produced duplicate Records `.unique()`
+            # collapsed again.
             model_name = await resolve_embedding_model_name(session)
             if model_name == UNKNOWN_EMBEDDING_MODEL:
-                # Fail closed, which is the OPPOSITE of what the sentinel does
-                # for #1503's coverage stats, and deliberately so. There it
-                # under-reports a number on a read-only panel. Here it would
-                # select the entire catalog as missing and feed it to a run
-                # that cannot store the result: backfill.py stamps rows from
-                # its own EMBEDDING_MODEL.get() and `model_name` is NOT NULL,
-                # so every record gets embedded at provider-token cost and
-                # then fails to insert. Selecting nothing is the recoverable
-                # error — the operator re-runs once config resolution works,
-                # and the panel already reads 0% coverage meanwhile.
+                # Fail closed, the OPPOSITE of what the sentinel does for
+                # #1503's read-only coverage stats: here it would select the
+                # whole catalog as missing and feed a run that embeds every
+                # record at provider-token cost, then fails to insert (rows
+                # are stamped from EMBEDDING_MODEL.get(), NOT NULL). Selecting
+                # nothing is the recoverable error.
                 structlog.stdlib.get_logger(__name__).warning(
                     "backfill_skipped_unresolved_embedding_model"
                 )
                 return []
-            # fix(#1546): "missing" narrows again, from "has no vector THIS
-            # MODEL can use" to "has no vector this CONFIGURATION can use". A
+            # fix(#1546): "missing" narrows again, from "no vector THIS
+            # MODEL can use" to "no vector this CONFIGURATION can use". A
             # model served from a different endpoint is a different vector
-            # space, so a row carrying another configuration's stamp is as
-            # unusable to search as a superseded model's row, and leaving it
-            # out of this predicate would relocate #1546 into the skip
-            # decision: Generate Missing would report the catalog covered while
-            # search matched nothing.
-            #
-            # An unstamped row still counts as covering the record, which is
-            # what stops an upgrade from turning the next Generate Missing into
-            # a catalog-wide re-embed nobody asked to pay for.
+            # space, so a row stamped with another configuration is as
+            # unusable as a superseded model's row. An unstamped row still
+            # counts as covering the record, so an upgrade doesn't turn the
+            # next Generate Missing into a catalog-wide re-embed.
             config_fingerprint = await resolve_embedding_config_fingerprint(
                 session, model_name=model_name
             )
             if config_fingerprint == UNKNOWN_EMBEDDING_CONFIG:
-                # Fail closed for the same reason the unresolved model does
-                # above, one value out: an unresolvable configuration makes
-                # every stamped row read as foreign, so this would hand the
-                # whole catalog to a run whose provider call is the thing that
-                # cannot be resolved.
+                # Fail closed for the same reason as the unresolved model
+                # above: an unresolvable configuration makes every stamped
+                # row read as foreign.
                 structlog.stdlib.get_logger(__name__).warning(
                     "backfill_skipped_unresolved_embedding_config"
                 )
@@ -336,10 +308,10 @@ class DefaultProcessingPort:
 
         from app.modules.catalog.datasets.domain.models import Record, RecordKeyword
 
-        # RecordKeyword is not itself tenant-scoped. Join through Record so the
-        # database's Record RLS policy constrains the vocabulary to the active
-        # tenant in hosted mode; with RLS disabled this is byte-for-byte the
-        # same result set as the historical single-tenant query.
+        # RecordKeyword is not itself tenant-scoped. Join through Record so
+        # the database's Record RLS policy constrains the vocabulary to the
+        # active tenant in hosted mode; with RLS disabled this is the same
+        # result set as the historical single-tenant query.
         stmt = (
             select(RecordKeyword.keyword)
             .join(Record, RecordKeyword.record_id == Record.id)
@@ -399,10 +371,6 @@ class DefaultProcessingPort:
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    # -------------------------------------------------------------------------
-    # Write-side methods (D-07)
-    # -------------------------------------------------------------------------
-
     async def create_dataset(
         self,
         session,
@@ -414,7 +382,7 @@ class DefaultProcessingPort:
         visibility="private",
         ingestion=None,
     ):  # type: ignore[no-untyped-def]
-        # Delegates via facade — never service_create.py directly (DECOUPLE-04).
+        # Delegates via facade — never service_create.py directly.
         from app.modules.catalog.datasets.domain.service import create_dataset
 
         return await create_dataset(
@@ -445,18 +413,13 @@ class DefaultProcessingPort:
     async def reconcile_distributions(  # type: ignore[no-untyped-def]
         self, session, dataset_id, record_id, table_name, geometry_type=None
     ):
-        # fix(#1314): the preservation policy for user-authored rows lives in
-        # the function's docstring, not here — this is the seam, not a second
-        # place to state the rule.
+        # fix(#1314): the preservation policy for user-authored rows lives
+        # in the function's docstring, not here.
         from app.modules.catalog.records.service import reconcile_distributions
 
         return await reconcile_distributions(
             session, dataset_id, record_id, table_name, geometry_type=geometry_type
         )
-
-    # -------------------------------------------------------------------------
-    # Source preview helper (D-08)
-    # -------------------------------------------------------------------------
 
     def build_gdal_source(
         self,
@@ -482,11 +445,9 @@ class DefaultProcessingPort:
             result_offset=result_offset,
         )
 
-    # -------------------------------------------------------------------------
-    # ORM class helpers (Plan 02 — returned by Port so processing/* callers
-    # can pass the concrete class to apply_visibility_filter without importing
-    # from app.modules.catalog.* at top-of-file; deferred-import discipline)
-    # -------------------------------------------------------------------------
+    # ORM class helpers: returned by Port so processing/* callers can pass
+    # the concrete class to apply_visibility_filter without importing from
+    # app.modules.catalog.* at top-of-file (deferred-import discipline).
 
     def get_record_orm_class(self):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.models import Record
@@ -545,11 +506,8 @@ class DefaultProcessingPort:
             asset_key=asset_key,
         )
 
-    # -------------------------------------------------------------------------
-    # Dataset-with-attributes loader (Plan 02 — preserves joinedload semantics
-    # that metadata_service._build_dataset_context requires; Pitfall 2)
-    # -------------------------------------------------------------------------
-
+    # Preserves the joinedload semantics metadata_service._build_dataset_context
+    # requires.
     async def get_dataset_with_attributes(self, session, dataset_id):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
         from sqlalchemy.orm import joinedload

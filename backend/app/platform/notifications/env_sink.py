@@ -1,44 +1,30 @@
-"""Environment-driven NotificationSink that routes to configured channels (Phase 1229 NOTIF-04).
+"""Environment-driven NotificationSink that routes to configured channels (NOTIF-04).
 
 ``EnvConfiguredNotificationSink`` reads ``app_settings`` at ``deliver()``
-time and dispatches a ``Notification`` to whichever channels are
-configured:
+time and dispatches to whichever channels are configured: SMTP
+(``send_email``, when ``smtp_host`` is set) and webhook (``post_webhook``,
+when ``notification_webhook_url`` is set). If disabled or nothing is
+configured, ``deliver()`` returns silently.
 
-- **SMTP** (``send_email``) — when ``app_settings.smtp_host`` is set.
-- **Webhook** (``post_webhook``) — when ``app_settings.notification_webhook_url`` is set.
+Fail-safe rules (NOTIF-04/T-1229-07): each channel runs in its own
+try/except so one failure can't block another; partial success (>=1
+channel) counts as success; if ALL attempted channels fail, raises
+``NotificationDeliveryError`` with a secret-free summary — the ``notify()``
+facade's own try/except still keeps this off any request path. Error
+strings carry only ``type(exc).__name__``, never a raw secret or body
+(T-1229-04).
 
-When ``notifications_enabled`` is ``False`` or no channel is configured,
-the call returns silently (zero outbound side-effects) — preserving the
-byte-identical community default.
-
-Fail-safe rules (NOTIF-04 / T-1229-07):
-- Each channel is called inside its own ``try/except`` so one channel's
-  failure cannot prevent the other from being attempted.
-- If at least one channel succeeded, ``deliver()`` returns without raising
-  (partial success = success).
-- If ALL attempted channels failed, a ``NotificationDeliveryError`` is
-  raised with a **secret-free** summary of which channels failed. The
-  ``notify()`` facade (``__init__.py``) still wraps the entire sink call
-  in its own ``try/except``, so this raise never reaches a request path.
-- A safe error string contains only ``type(exc).__name__`` — never a raw
-  SMTP password, webhook secret, or notification body (T-1229-04).
-
-Registration:
-- This sink is NOT auto-registered into the extension registry here.
-  Plan 03's test-send endpoint instantiates it directly.  Operators who
-  want it in the default fan-out can append it to
-  ``_extensions["notification_sinks"]`` (setdefault + append pattern
-  documented in ``protocols.py``).
+Not auto-registered: Plan 03's test-send endpoint instantiates it
+directly. To include it in the default fan-out, append to
+``_extensions["notification_sinks"]`` (see ``protocols.py``).
 """
 
 from __future__ import annotations
 
 import structlog
 
-# Import channel functions at module level so tests can monkeypatch them via
-# `patch("app.platform.notifications.env_sink.send_email", ...)`.
-# The settings object is still read lazily (at deliver() time) to avoid
-# capturing the module-import-time values.
+# Imported at module level so tests can monkeypatch send_email/post_webhook;
+# settings are still read lazily (in deliver()) to avoid stale values.
 from app.platform.notifications.smtp_channel import send_email
 from app.platform.notifications.webhook_channel import post_webhook
 
@@ -58,22 +44,18 @@ class EnvConfiguredNotificationSink:
     """Dispatch a Notification to whichever channels are configured in app_settings.
 
     Structurally satisfies the ``NotificationSink`` Protocol (runtime
-    ``isinstance`` check succeeds) without importing the Protocol at
-    module load time (deferred-import discipline).
+    ``isinstance`` succeeds) without importing the Protocol at module load
+    (deferred-import discipline).
     """
 
     async def deliver(self, notification: object) -> None:
         """Route *notification* to all configured channels.
 
-        Parameters
-        ----------
-        notification:
-            A ``Notification`` instance (typed as ``object`` here so
-            the Protocol's ``deliver`` signature is satisfied without
-            a runtime import of ``Notification`` at module load).
+        *notification* is typed as ``object`` so the Protocol's ``deliver``
+        signature is satisfied without importing ``Notification`` at module
+        load.
         """
-        # Deferred import of settings (Phase 214 discipline) — not paid at module load.
-        # send_email / post_webhook are module-level imports (patchable in tests).
+        # Deferred import of settings (Phase 214) — not paid at module load.
         from app.core.config import settings as app_settings
 
         # Master toggle: notifications_enabled=False ⇒ no channels attempted.
@@ -87,7 +69,6 @@ class EnvConfiguredNotificationSink:
         if app_settings.notification_webhook_url:
             channels.append(("webhook", post_webhook))
 
-        # Nothing configured ⇒ silent no-op.
         if not channels:
             return
 
@@ -120,9 +101,8 @@ class EnvConfiguredNotificationSink:
         if successes:
             return
 
-        # Every attempted channel failed — raise a secret-free aggregated error.
-        # The notify() facade's per-sink try/except prevents this from
-        # reaching any request path (NOTIF-04).
+        # All channels failed: raise a secret-free error. notify()'s own
+        # try/except keeps this off any request path (NOTIF-04).
         raise NotificationDeliveryError(
             f"All {len(channels)} channel(s) failed: {', '.join(failures)}"
         )

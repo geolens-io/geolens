@@ -256,22 +256,13 @@ def record_to_dcat(
 ) -> dict:
     """Serialize a Dataset (with loaded record relationships) to DCAT 3 JSON-LD.
 
-    Args:
-        dataset: Dataset ORM object with record relationship eager-loaded.
-        base_url: Absolute base URL (e.g. ``http://localhost:8000``).
-        app_base_url: Absolute public APP base URL. fix(#1469): the raster
-            tile template is served there, not under the API base — see
-            ``app.standards.distributions``.
-        include_context: Include ``@context`` in output. Set to False for
-            individual entries within a catalog feed to avoid duplication.
-        lineage_summary: ``dcterms:provenance``, already access-checked by the
-            caller (``visible_lineage_summary``). fix(#1103): not read off the
-            record — an analysis output's lineage names the titles of the
-            datasets it was derived from, and this feed is served to anonymous
-            requesters. Omitted when absent.
-
-    Returns:
-        A plain dict suitable for JSON serialization as JSON-LD.
+    ``app_base_url`` — fix(#1469): the raster tile template is served
+    there, not under the API base. ``include_context``: False for
+    entries nested in a catalog feed to avoid duplication.
+    ``lineage_summary`` (``dcterms:provenance``) arrives already
+    access-checked by the caller — fix(#1103): not read off the record,
+    since an analysis output's lineage names datasets an anonymous
+    requester may not see. Omitted when absent.
     """
     record = dataset.record
     result: dict = {}
@@ -442,12 +433,12 @@ def catalog_to_dcat(
 ) -> dict:
     """Serialize a list of visible datasets to a DCAT 3 Catalog JSON-LD dict.
 
-    Every visible input dataset is emitted. A missing description receives the
-    same deterministic title-based fallback as the per-dataset serializer, so
-    catalog validation cannot hide published records by filtering them first.
+    Every visible input dataset is emitted with the same deterministic
+    title-based description fallback as the per-dataset serializer, so
+    catalog validation can't hide published records by filtering first.
 
     Args:
-        datasets: List of Dataset ORM objects with record relationships loaded.
+        datasets: Dataset ORM objects with record relationships loaded.
         base_url: Absolute base URL.
 
     Returns:

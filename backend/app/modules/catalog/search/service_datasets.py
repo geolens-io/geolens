@@ -93,8 +93,7 @@ def _resolve_sort_order(
     last_updated, and the default fallback. ``rank_col`` may be None
     when no text query is present.
     """
-    # Ranking boosts: published status + freshness (last 30 days)
-    # Only applied when sort_by == "relevance"; explicit sorts are unchanged.
+    # Boosts apply only when sort_by == "relevance"; explicit sorts are unchanged.
     published_boost = case(
         (Record.record_status == "published", literal(2.0)),
         else_=literal(1.0),
@@ -139,10 +138,8 @@ def _resolve_sort_order(
         )
     else:
         stmt = stmt.order_by(Record.created_at.desc())
-    # Deterministic final tiebreaker: Record.id is the UUID PK and is unique, so
-    # rows tying on every other key get a stable order. SQLAlchemy appends this
-    # after the per-branch ORDER BY, keeping OFFSET/LIMIT pagination stable
-    # (no dupes / dropped rows across pages).
+    # Final tiebreaker on the unique PK keeps OFFSET/LIMIT pagination stable
+    # (no dupes / dropped rows across pages) when every other key ties.
     stmt = stmt.order_by(Record.id.desc())
     return stmt
 

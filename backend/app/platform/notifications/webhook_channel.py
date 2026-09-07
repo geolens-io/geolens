@@ -1,37 +1,23 @@
-"""Generic outbound webhook channel for GeoLens notifications (Phase 1229 NOTIF-03).
+"""Generic outbound webhook channel for GeoLens notifications (NOTIF-03).
 
 POSTs a JSON payload to the operator-configured ``NOTIFICATION_WEBHOOK_URL``
-via the already-present ``httpx`` dependency (no new package added).
+via the already-present ``httpx`` dependency.
 
-Payload shape:
-    {
-        "event_type": "<str>",
-        "subject":    "<str>",
-        "body":       "<str>",
-        "data":       {<dict>},
-        "text":       "<subject>\\n<body>"
-    }
+Payload: ``{event_type, subject, body, data, text}`` — ``text`` is
+"<subject>\\n<body>" so a Slack/Teams incoming-webhook URL (which renders
+``{"text": "..."}``) works through this channel with no vendor SDK.
 
-The ``text`` field makes a Slack or Teams incoming-webhook URL work
-through this generic channel with no vendor SDK — Slack and Teams both
-render ``{"text": "..."}`` as the message body (NOTIF-03).
+Security (T-1229-04/T-1229-06): ``NOTIFICATION_WEBHOOK_SECRET``, if set,
+is sent only as the ``X-Webhook-Secret`` header, revealed via ``reveal()``
+at construction — never appended to the URL/query string. The webhook URL
+is operator-configured (admin trust boundary); no URL allow-list is
+enforced — SSRF risk accepted per design (T-1229-SC).
 
-Security notes (T-1229-04 / T-1229-06):
-- If ``NOTIFICATION_WEBHOOK_SECRET`` is configured, it is sent as the
-  ``X-Webhook-Secret`` request **header** only, revealed via ``reveal()``
-  at the header-construction boundary. It is never appended to the URL
-  or a query string.
-- The webhook URL is operator-configured (admin trust boundary). No
-  URL allow-list is enforced by this channel — that is out of scope
-  (T-1229-SC: operator controls the URL; SSRF risk accepted per design).
+Timeout: ``httpx.Timeout(10.0, connect=5.0)`` bounds the POST (T-1229-05).
 
-Timeout (T-1229-05):
-- ``httpx.Timeout(10.0, connect=5.0)`` bounds the POST so an
-  unreachable URL cannot hang the caller indefinitely.
-
-On non-2xx responses ``response.raise_for_status()`` raises
-``httpx.HTTPStatusError``; transport errors propagate as-is. The caller
-(``EnvConfiguredNotificationSink``) provides per-channel isolation.
+Non-2xx raises ``httpx.HTTPStatusError`` via ``raise_for_status()``;
+transport errors propagate. The caller (``EnvConfiguredNotificationSink``)
+provides per-channel isolation.
 """
 
 from __future__ import annotations
@@ -40,9 +26,8 @@ from __future__ import annotations
 def _make_client(timeout: "httpx.Timeout") -> "httpx.AsyncClient":  # type: ignore[name-defined]  # noqa: F821
     """Return an ``httpx.AsyncClient`` with *timeout* applied.
 
-    Extracted as a module-level function so tests can monkeypatch it
-    without patching ``httpx.AsyncClient`` globally (which causes
-    recursion when the patch lambda itself calls ``httpx.AsyncClient``).
+    Module-level so tests can monkeypatch it without patching
+    ``httpx.AsyncClient`` globally, which would recurse into this function.
     """
     import httpx
 
@@ -52,12 +37,12 @@ def _make_client(timeout: "httpx.Timeout") -> "httpx.AsyncClient":  # type: igno
 async def post_webhook(notification: "Notification") -> None:  # type: ignore[name-defined]  # noqa: F821
     """POST *notification* as JSON to the configured webhook URL.
 
-    Imports are deferred (Phase 214 deferred-import discipline) so this
-    module does not pay import cost for deployments that never call it.
+    Imports are deferred (Phase 214) so this module pays no import cost
+    for deployments that never call it.
 
     Raises:
         httpx.HTTPStatusError: on non-2xx HTTP response.
-        httpx.TransportError: on network-level failures (unreachable host, …).
+        httpx.TransportError: on network-level failures.
     """
     import httpx
 
@@ -72,15 +57,13 @@ async def post_webhook(notification: "Notification") -> None:  # type: ignore[na
         "subject": notification.subject,
         "body": notification.body,
         "data": notification.data or {},
-        # Slack/Teams incoming-webhook compatibility: both render {"text": "..."}
-        # as the message body with no vendor SDK required (NOTIF-03).
+        # Slack/Teams compatibility: both render {"text": "..."} (NOTIF-03).
         "text": f"{notification.subject}\n{notification.body}",
     }
 
     headers: dict[str, str] = {}
     if secret is not None:
-        # Reveal the secret ONLY at the header-construction boundary.
-        # Never append it to the URL or query string (T-1229-04).
+        # Reveal only at header-construction; never in the URL/query (T-1229-04).
         headers["X-Webhook-Secret"] = reveal(secret) or ""
 
     timeout = httpx.Timeout(10.0, connect=5.0)

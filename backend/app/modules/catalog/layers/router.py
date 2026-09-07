@@ -40,7 +40,7 @@ from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 
 async def _invalidate_tiles(table_name: str) -> None:
-    """fix(#458 E-05): column DDL changes the attribute set embedded in vector
+    """fix(#458): column DDL changes the attribute set embedded in vector
     tiles, so purge cached tiles post-commit — same treatment as the
     feature-edit path (features/router.py) and the reupload swap."""
     tile_cache = get_tile_cache()
@@ -54,10 +54,9 @@ logger = structlog.stdlib.get_logger(__name__)
 async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) -> None:
     """Roll back and map a DDL DB error to the right status. Never returns.
 
-    fix(#458 E-13): add/rename/drop caught only ValueError, so a DB-level failure
-    that isn't pre-validated — a dependent view on drop (2BP01), a lock timeout —
-    surfaced as a 500. Only `alter_column_type` mapped these. Classify by
-    SQLSTATE like the feature-write path: a bad request is a 400, an outage a 503.
+    fix(#458): classify by SQLSTATE like the feature-write path — a bad
+    request is a 400, an outage a 503 — since add/rename/drop only pre-mapped
+    ValueError.
     """
     await db.rollback()
     if is_operational(exc):
@@ -288,7 +287,7 @@ async def alter_column_type_endpoint(
             detail=str(exc),
         )
     except DBAPIError as exc:
-        # fix(#458 E-42): route through the shared classifier like add/rename/
+        # fix(#458): route through the shared classifier like add/rename/
         # drop, so a lock timeout or connection failure during ALTER TYPE is a
         # 503, while cast failures ("abc" → integer) stay 400 with the message.
         await _raise_ddl_db_error(db, exc, "Type change")

@@ -1,16 +1,13 @@
-"""Fernet encryption for the secrets GeoLens stores at rest (OAUTH-02).
-
-Covers ``OAuthProvider.client_secret_encrypted`` and
-``OAuthProvider.idp_certificate``.
+"""Fernet encryption for secrets GeoLens stores at rest (OAUTH-02): covers
+``OAuthProvider.client_secret_encrypted`` and ``.idp_certificate``.
 
 Keys are read in this order: ``SECRET_ENCRYPTION_KEY``, then
-``SECRET_ENCRYPTION_KEY_PREVIOUS``, then a key derived from ``JWT_SECRET_KEY``
-via HKDF. Writes always use the first key in that list; reads try every key in
-turn. Setting a dedicated key therefore leaves existing ciphertexts readable
-and takes every later write off the JWT secret, so the JWT secret can be
-rotated on its own (#1871).
+``_PREVIOUS``, then a key derived from ``JWT_SECRET_KEY`` via HKDF. Writes
+use the first key; reads try each in turn — so a dedicated key can be set
+without breaking old ciphertexts, and the JWT secret can then rotate freely
+(#1871).
 
-``decrypt_secret`` and ``rotate_secret`` raise
+``decrypt_secret``/``rotate_secret`` raise
 ``cryptography.fernet.InvalidToken`` when no configured key opens the value.
 """
 
@@ -22,7 +19,6 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 
 def _jwt_derived_fernet() -> Fernet:
-    """Derive the legacy Fernet key from the app's JWT secret using HKDF."""
     from app.core.config import settings
 
     kdf = HKDF(
@@ -56,12 +52,10 @@ def _get_fernet() -> MultiFernet:
 
 
 def encrypt_secret(plaintext: str) -> str:
-    """Encrypt a plaintext secret for database storage."""
     return _get_fernet().encrypt(plaintext.encode()).decode()
 
 
 def decrypt_secret(ciphertext: str) -> str:
-    """Decrypt a stored secret for use."""
     return _get_fernet().decrypt(ciphertext.encode()).decode()
 
 

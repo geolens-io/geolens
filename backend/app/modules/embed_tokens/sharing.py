@@ -22,19 +22,15 @@ async def get_active_allowed_origins(
 ) -> list[str] | None:
     """``allowed_origins`` of the map's current active embed token.
 
-    ``None`` when the map has no active token, ``[]`` when a token exists with
-    no origins recorded — the public-map path turns this into a per-token
-    ``frame-ancestors`` CSP directive, so those two cases are not
-    interchangeable.
+    ``None`` when the map has no active token (share and embed tokens are
+    distinct primitives; a map may have either without the other), ``[]``
+    when the token has none recorded -- the public-map path turns this into
+    a per-token CSP ``frame-ancestors``, so the two are not interchangeable.
 
-    SEC-S08 (Phase 1062-05). A share token and an embed token are distinct
-    primitives: a map may have either without the other.
-
-    CR-04 (Phase 1062 review): a non-expiring token has ``expires_at IS NULL``,
-    and in PostgreSQL ``NULL > now()`` evaluates to NULL (falsy). The expiry
-    predicate must admit NULL explicitly, or community-edition tokens — which
-    default to no expiry — silently fall out, the header falls back to
-    ``frame-ancestors 'self'``, and embed framing breaks.
+    CR-04 (Phase 1062 review): must admit ``expires_at IS NULL`` explicitly
+    -- in Postgres ``NULL > now()`` is NULL (falsy), so a non-expiring
+    (community default) token would silently fall out and framing would
+    break.
     """
     stmt = (
         select(EmbedToken.allowed_origins)

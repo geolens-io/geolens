@@ -1,51 +1,28 @@
 """Tenant session GUC plumbing (ISO-01, Phase 1208-01).
 
-Provides a single ContextVar (``current_tenant_var``) that carries the active
-tenant id across a request or worker job, a SQLAlchemy ``begin`` hook that
-issues ``SET LOCAL app.current_tenant = :tid``, and statement hooks that bind
-physical tenant-schema reads/writes to SET-only per-tenant roles. All hooks are
-active only in ``multi_tenant`` mode.
+Provides ``current_tenant_var``, a ContextVar carrying the active tenant id
+across a request or worker job; a SQLAlchemy engine-level ``begin`` hook that
+issues ``SELECT set_config('app.current_tenant', :tid, true)``; and statement
+hooks binding tenant-schema reads/writes to SET-only per-tenant roles. Active
+only in ``multi_tenant`` mode — in ``single_tenant`` (default) the hook
+returns after the first ``is_multi_tenant()`` check, a byte-identical no-op
+required by Plan 05.
 
-Single-tenant behaviour
------------------------
-In ``single_tenant`` (the default) the hook returns immediately after the first
-``is_multi_tenant()`` check, touching no SQL state.  This is a hard no-op with
-zero planner cost — the byte-identical guarantee required by Plan 05.
+``true`` as the third ``set_config`` arg makes it transaction-local, so it
+clears automatically and never bleeds across transactions on a reused
+connection. The tenant id is always a bound parameter, never f-string
+interpolated (T-1208-01).
 
-Multi-tenant behaviour
-----------------------
-When ``GEOLENS_TENANCY_MODE=multi_tenant`` and ``current_tenant_var`` holds a
-tenant id the hook executes::
+``current_tenant_var`` is set by two callers: ``TenantContextMiddleware``
+(request plane, resets in a finally block, T-1208-03) and
+``tenant_job_context`` (worker plane, for a Procrastinate job's duration).
+Both share this hook, so ``get_db`` sessions and the bare ``async_session``
+both pick up the GUC.
 
-    SELECT set_config('app.current_tenant', :tid, true)
-
-The ``true`` third argument makes the setting **transaction-local** — it is
-automatically cleared when the transaction ends, so there is no GUC bleed
-between transactions on a reused connection.
-
-The tenant id is always passed as a **bound parameter** (never f-string
-interpolated into SQL), satisfying T-1208-01.
-
-Entrypoints
------------
-``current_tenant_var`` is populated by two separate callers:
-
-1. **Request plane** — ``TenantContextMiddleware`` sets the var from
-   ``request.state.tenant_id`` and resets it in a finally block (T-1208-03).
-2. **Worker plane** — ``tenant_job_context(tenant_id)`` context manager sets
-   the var for the duration of a Procrastinate job.
-
-Both paths share the same hook so both the request-scoped ``get_db`` sessions
-AND the bare global ``async_session`` pick up the GUC.
-
-Implementation note on event choice
-------------------------------------
-The ``"begin"`` engine-level event fires synchronously when a connection-level
-transaction is opened (equivalent to the Session-level ``after_begin`` but
-registered on the engine so it covers ALL session types — get_db, raw
-async_session, and AsyncConnection.begin()).  The listener receives the
-``Connection`` object and runs synchronously inside the engine layer, making
-``conn.execute()`` safe without any async plumbing.
+The engine-level ``"begin"`` event (not Session-level ``after_begin``) is used
+because it covers every session type — get_db, raw async_session, and
+AsyncConnection.begin() — and hands the listener a ``Connection``, so
+``conn.execute()`` is safe with no async plumbing.
 """
 
 from __future__ import annotations
@@ -64,17 +41,14 @@ from sqlalchemy.engine import Connection
 
 logger = structlog.stdlib.get_logger(__name__)
 
-#: Carries the active tenant id for the current asyncio task / thread.
-#: Default ``None`` → hook is a no-op (tenant unknown / single_tenant).
+#: Active tenant id for the current asyncio task/thread; ``None`` means no-op.
 current_tenant_var: ContextVar[str | None] = ContextVar("current_tenant", default=None)
 
-# Sentinel attribute name used to prevent double-registration of the listener.
+# Prevents double-registration of the listener.
 _HOOK_ATTR = "_geolens_tenant_guc_installed"
 
-# A tenant data-plane schema is derived exclusively from a canonical UUID.  The
-# expression deliberately does not match a loose ``data_t_*`` prefix: the
-# statement binder must never turn attacker-controlled identifier text into a
-# PostgreSQL role name.
+# Matches only a canonical-UUID tenant schema, not a loose data_t_* prefix, so
+# the statement binder can never turn attacker-controlled text into a role name.
 _TENANT_SCHEMA_RE = re.compile(
     r"(?<![a-z0-9_])data_t_[0-9a-f]{8}_[0-9a-f]{4}_[0-9a-f]{4}_"
     r"[0-9a-f]{4}_[0-9a-f]{12}(?![a-z0-9_])",
@@ -241,13 +215,11 @@ def _before_tenant_cursor_execute(
 ) -> None:
     """Bind one tenant reader/writer role around a data-plane statement.
 
-    The runtime login receives only SET-capable membership in two fixed
-    gateways.  It has no inherited data-table privilege.  When a statement
-    names a physical tenant schema (directly or through a bound schema
-    parameter), this hook verifies that it matches ``current_tenant_var`` and
-    temporarily selects that tenant's reader or writer role.  The companion
-    after-hook immediately returns to the session login so catalog work in the
-    same transaction does not inherit data-plane privileges.
+    The runtime login has only SET-capable membership in two fixed gateways
+    and no inherited data-table privilege. When a statement names a physical
+    tenant schema, this verifies it matches ``current_tenant_var`` and selects
+    that tenant's role; the after-hook returns to the session login so other
+    catalog work in the same transaction never inherits data-plane privilege.
     """
     from app.core.db.tenant_schema import (
         tenant_data_schema,
@@ -286,8 +258,8 @@ def _before_tenant_cursor_execute(
         if _statement_requires_writer(statement)
         else tenant_reader_role(tenant_id)
     )
-    # ``role`` is derived from a UUID validated by tenant_schema.py. Quoting is
-    # still retained so this remains an identifier, never executable SQL.
+    # role is a UUID validated by tenant_schema.py; still quoted so it can
+    # only ever be read as an identifier, never as executable SQL.
     cursor.execute(f'SET LOCAL ROLE "{role}"')  # type: ignore[attr-defined]
     setattr(context, "_geolens_tenant_role_bound", True)
 
@@ -303,10 +275,8 @@ def _after_tenant_cursor_execute(
     """Return to the session login after a tenant data-plane statement."""
     if not getattr(context, "_geolens_tenant_role_bound", False):
         return
-    # The statement cursor owns the SELECT result metadata and pending rows.
-    # Executing the reset on that cursor would replace the result with the
-    # command-only SET response before SQLAlchemy can consume it. A sibling
-    # cursor changes the same connection-local role without touching the result.
+    # A reset on the statement's own cursor would clobber pending result rows
+    # with the SET response before SQLAlchemy reads them; use a sibling cursor.
     reset_cursor = conn.connection.cursor()
     try:
         reset_cursor.execute("SET LOCAL ROLE NONE")
@@ -320,8 +290,7 @@ def _normalize_context_tenant_id(tenant_id: str, *, operation: str) -> str:
     from app.core.db.tenant_schema import tenant_data_schema
 
     try:
-        # tenant_data_schema enforces the canonical UUID-shaped input contract;
-        # UUID then emits one normalized lowercase/hyphenated representation.
+        # Validate the canonical UUID shape before normalizing.
         tenant_data_schema(tenant_id)
         return str(uuid.UUID(tenant_id))
     except (ValueError, AttributeError, TypeError) as exc:
@@ -331,64 +300,34 @@ def _normalize_context_tenant_id(tenant_id: str, *, operation: str) -> str:
 def _on_begin(conn: Connection) -> None:
     """Engine ``begin`` event listener — issues the tenant GUC on txn start.
 
-    Fires synchronously when a connection-level transaction is opened (i.e.
-    immediately before the first statement in a BEGIN/COMMIT block).
+    single_tenant: zero-SQL no-op. multi_tenant + var set: issues
+    ``SET LOCAL app.current_tenant``. multi_tenant + var unset: no-op, so RLS
+    fail-closes the unscoped query.
 
-    In ``single_tenant`` (default): one boolean check, zero SQL → hard no-op.
-    In ``multi_tenant`` + var set: issues ``SET LOCAL app.current_tenant``.
-    In ``multi_tenant`` + var None: no-op (RLS fail-closes the unscoped query).
+    fix(#1778): use ``SET LOCAL``, never ``SELECT set_config(...)`` — the
+    SELECT form takes the transaction's first snapshot, so Postgres then
+    refuses a later ``SET TRANSACTION ISOLATION LEVEL``/``[NOT] DEFERRABLE``
+    (25001).
 
-    fix(#1778 codex r5): a ``SET LOCAL`` utility statement, not
-    ``SELECT set_config(..., true)``. Both set the same GUC for the same
-    transaction, but the SELECT form is a query, so it takes the transaction's
-    first snapshot and Postgres then refuses ``SET TRANSACTION ISOLATION
-    LEVEL`` and ``SET TRANSACTION [NOT] DEFERRABLE`` with "must be called
-    before any query" (25001). ``processing/ingest/tasks_postgis_refresh.py``
-    records having been bitten by precisely this hook: the in-transaction
-    spelling of REPEATABLE READ worked in single_tenant, where this function is
-    a hard no-op, and would have failed every registered-table refresh on a
-    multi-tenant deployment. That workaround stays where it is; this removes
-    the cause.
-
-    MEASURED, because the shape of the exposure is easy to get wrong:
-    ``SET TRANSACTION READ ONLY`` is unaffected by either form. Postgres
-    applies the first-query restriction to ``transaction_read_only`` only when
-    going read-only → read-write, so the sandbox executor's write backstop
-    (``platform/sandbox/executor.py``) held under the SELECT form too.
-    ISOLATION LEVEL and DEFERRABLE are the two that break.
-
-    T-1208-01 required a bound parameter here so a tenant id could never be
-    f-stringed into SQL. ``SET`` takes no bind parameter, so the guard moves to
-    the value instead: ``_normalize_context_tenant_id`` rejects anything that
-    is not a UUID and returns Python's own canonical rendering of it, which is
-    36 characters of hex and hyphens and cannot carry a quote. That is the same
-    guard ``tenant_data_schema`` and ``tenant_reader_role`` already rely on to
-    interpolate this value into an identifier (T-1209-14). It runs here as well
-    as at the two ``current_tenant_var.set`` sites, so the check sits at the
-    sink rather than only at the source.
-
-    Parameters
-    ----------
-    conn:
-        The synchronous ``Connection`` being transacted.
+    T-1208-01 requires a bound parameter for the tenant id; ``SET`` takes
+    none, so the guard moves to the value: ``_normalize_context_tenant_id``
+    accepts only a canonical UUID rendering (hex + hyphens, no quote) — the
+    same guard used at the ``current_tenant_var.set`` sites (T-1209-14).
     """
     from app.core.tenancy import is_multi_tenant
 
-    # Fast path: single_tenant → unconditional no-op, zero SQL cost.
     if not is_multi_tenant():
         return
 
     tid = current_tenant_var.get()
     if tid is None:
-        # Var unset in multi_tenant — leave GUC unset so RLS fail-closes.
         return
 
     try:
         canonical = _normalize_context_tenant_id(tid, operation="_on_begin")
     except ValueError:
-        # Fail closed rather than interpolating something unvalidated: leaving
-        # the GUC unset is the same state as the `tid is None` branch above,
-        # and RLS refuses the unscoped query. Logged without the value.
+        # Fail closed like the tid-is-None branch above; RLS refuses the
+        # unscoped query. The invalid value itself is not logged.
         logger.warning("tenant_guc_skipped_invalid_tenant_id")
         return
 
@@ -396,28 +335,18 @@ def _on_begin(conn: Connection) -> None:
 
 
 def install_tenant_session_hook(engine: object) -> None:
-    """Register the tenant GUC hook on *engine*.
+    """Register the tenant GUC hook on ``engine.sync_engine``.
 
-    Attaches an ``"begin"`` event listener to ``engine.sync_engine`` so every
-    connection-level transaction begun via this engine (whether via get_db,
-    raw async_session, or AsyncConnection.begin()) fires the GUC hook.
-
-    Safe to call multiple times — idempotent via a sentinel attribute on the
-    sync engine so repeated calls (e.g. per-test re-registration) do not stack
-    duplicate listeners.
-
-    Parameters
-    ----------
-    engine:
-        An ``AsyncEngine`` instance.  The hook is registered on
-        ``engine.sync_engine`` (the underlying synchronous engine that
-        SQLAlchemy uses for event dispatch).
+    Attaches the ``"begin"`` listener there so every connection-level
+    transaction (get_db, raw async_session, or AsyncConnection.begin()) fires
+    it. Idempotent via a sentinel attribute, so repeated calls (e.g. per-test
+    re-registration) never stack duplicate listeners.
     """
     from sqlalchemy import event
 
     sync_engine = engine.sync_engine  # type: ignore[union-attr]
     if getattr(sync_engine, _HOOK_ATTR, False):
-        return  # already registered
+        return
     event.listen(sync_engine, "begin", _on_begin)
     event.listen(
         sync_engine,
@@ -435,29 +364,18 @@ def install_tenant_session_hook(engine: object) -> None:
 
 @contextmanager
 def tenant_job_context(tenant_id: str | None) -> Generator[None, None, None]:
-    """Context manager that sets ``current_tenant_var`` for a worker job.
+    """Set ``current_tenant_var`` for a worker job's duration.
 
-    In ``single_tenant`` (the default) this is a strict no-op — the var is
-    never touched so the transaction hook remains silent.
-
-    In ``multi_tenant`` the var is set for the duration of the ``with`` block
-    and reset to its prior value on exit (including on exception), preventing
-    bleed between jobs that run in the same asyncio task (T-1208-03).
-
-    The cloud overlay (Phase 1211) supplies the per-job ``tenant_id`` from the
-    Procrastinate job's kwargs/context.  In core (this plan) ``tenant_id`` may
-    be ``None`` — the var stays unset and RLS fail-closes, which is the
-    intended backstop (T-1208-04).
-
-    Parameters
-    ----------
-    tenant_id:
-        The tenant id to stamp for this job, or ``None`` (no-op).
+    single_tenant: strict no-op, var untouched. multi_tenant: sets the var for
+    the ``with`` block and restores the prior value on exit (including on
+    exception), preventing bleed between jobs in the same asyncio task
+    (T-1208-03). ``tenant_id`` may be ``None`` in core (the cloud overlay
+    supplies it from Procrastinate job kwargs) — the var stays unset and RLS
+    fail-closes, the intended backstop (T-1208-04).
     """
     from app.core.tenancy import is_multi_tenant
 
     if not is_multi_tenant() or tenant_id is None:
-        # single_tenant or no tenant id available → strict no-op
         yield
         return
 
@@ -477,22 +395,17 @@ _TaskFn = TypeVar("_TaskFn", bound=Callable[..., Awaitable[Any]])
 def tenant_task(fn: _TaskFn) -> _TaskFn:
     """Bind the per-job tenant context around a Procrastinate task callable.
 
-    Procrastinate worker jobs run in a SEPARATE process that does not share the
-    request-plane ``current_tenant_var``. This decorator — applied UNDER
-    ``@task_app.task`` — reads the ``tenant_id`` job kwarg (threaded in at
-    enqueue time by :func:`defer_async_with_tenant`) and binds
-    ``current_tenant_var`` for the duration of the task via
-    :func:`tenant_job_context` (which resets it on exit, so it cannot bleed into
-    the next job on a reused worker asyncio task).
+    Worker jobs run in a separate process that does not share the request
+    ``current_tenant_var``. Applied UNDER ``@task_app.task``, this reads the
+    ``tenant_id`` job kwarg (threaded in by :func:`defer_async_with_tenant`)
+    and binds it via :func:`tenant_job_context` for the task's duration.
+    Without this, a multi_tenant worker task sees the var unset and falls back
+    to the shared ``data`` schema / global reader / no tenant storage prefix
+    (fix(#256)).
 
-    Single-tenant (default): ``tenant_job_context`` is a hard no-op, so the
-    wrapper is byte-identical to calling ``fn`` directly. The ``tenant_id``
-    kwarg is POPPED before ``fn`` is called, so tasks need no signature change
-    and tasks without ``**kwargs`` (e.g. ``embed_record``) are unaffected.
-
-    Worker correctness (Codex review of PR #256): without this, a multi_tenant
-    worker task sees ``current_tenant_var`` unset and falls back to the shared
-    ``data`` schema / global reader / no tenant storage prefix.
+    single_tenant: ``tenant_job_context`` is a no-op, byte-identical to
+    calling ``fn`` directly. ``tenant_id`` is POPPED before calling ``fn``, so
+    tasks without ``**kwargs`` (e.g. ``embed_record``) are unaffected.
     """
 
     @functools.wraps(fn)
@@ -515,15 +428,13 @@ async def defer_async_with_tenant(task: Any, /, **kwargs: Any) -> Any:
     """``task.defer_async(**kwargs)`` with the active tenant id threaded in.
 
     Captures ``current_tenant_var`` at enqueue time and forwards it as the
-    ``tenant_id`` job kwarg so the worker — a separate process that does not
-    share the request ContextVar — can rebind the tenant context at task entry
-    (see :func:`tenant_task`).
+    ``tenant_id`` job kwarg so the worker process (no shared ContextVar) can
+    rebind it at task entry (see :func:`tenant_task`).
 
-    Single-tenant (default): ``current_tenant_var`` is always ``None`` → no
-    kwarg is added and this is byte-identical to ``task.defer_async(**kwargs)``.
-    An explicit ``tenant_id`` passed by the caller is respected (``setdefault``).
-
-    ``task`` may be a bare task or a ``task.configure(...)`` result — both expose
+    single_tenant: the var is always ``None``, so no kwarg is added and this
+    is byte-identical to ``task.defer_async(**kwargs)``. An explicit
+    ``tenant_id`` from the caller is respected (``setdefault``). ``task`` may
+    be a bare task or a ``task.configure(...)`` result — both expose
     ``defer_async``.
     """
     tid = current_tenant_var.get()

@@ -1,50 +1,30 @@
-"""SQL identifier safety helpers (extracted from service.py — Phase 224 post-impl).
+"""SQL identifier safety helpers.
 
-Single source of truth for SQL-injection-prevention regexes used by the dataset
-domain sub-modules. Two distinct patterns exist:
-
-- SAFE_TABLE_NAME_RE: lowercase-only table names produced by the ingestion path
-  (e.g., "ds_abc123"). Used by service_lifecycle, service_metadata, service_query.
-- SAFE_COLUMN_NAME_RE: standard SQL identifier (Python-identifier-style, mixed case).
-  Used by service_create (column DDL) and service_relationships (FK column lookup).
-
-Pre-Phase-224, the lowercase pattern was redefined in 5 places and the column-name
-pattern in 2 places. Consolidating here removes drift risk and gives one audit
-point for security-critical validation.
+Single source of truth for SQL-injection-prevention regexes used across the
+dataset domain sub-modules: SAFE_TABLE_NAME_RE (lowercase ingestion-path
+table/schema names) and SAFE_COLUMN_NAME_RE (standard SQL identifiers).
 """
 
 from __future__ import annotations
 
 import re
 
-# Lowercase-only table names from the ingestion path. Anchored.
 SAFE_TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
-
-# Standard SQL identifier (Python-identifier-style). Anchored. Mixed case.
 SAFE_COLUMN_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def _safe_table_ref(table_name: str, schema: str = "data") -> str:
     """Return a safely quoted ``"<schema>"."<name>"`` SQL identifier.
 
-    Validates ``table_name`` against ``SAFE_TABLE_NAME_RE`` and quotes the
-    schema-qualified reference to prevent SQL injection in DDL statements
-    (CREATE/DROP/ALTER) that cannot use bound parameters for identifiers.
-
-    schema defaults to 'data' (single_tenant unchanged). In multi_tenant
-    callers pass the per-tenant schema from tenant_data_schema(tid).
-    The schema name is validated with the same SAFE_TABLE_NAME_RE — tenant
-    schema names follow the same lowercase-alphanumeric-underscore pattern
-    (``data_t_{uuid_underscored}``, matching ``tenant_data_schema()`` output).
-
-    T-1209-05: both table_name AND schema are validated before interpolation.
-
-    Re-exported from ``service.py`` for ``tests/test_sql_safety.py``.
+    Validates both table_name and schema against SAFE_TABLE_NAME_RE before
+    interpolating into DDL that cannot use bound parameters (T-1209-05).
+    Multi-tenant callers pass the per-tenant schema from
+    tenant_data_schema(tid); it matches the same lowercase pattern.
 
     Raises
     ------
     ValueError
-        If table_name or schema fails SAFE_TABLE_NAME_RE validation.
+        If table_name or schema fails validation.
     """
     if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name!r}")
@@ -56,21 +36,10 @@ def _safe_table_ref(table_name: str, schema: str = "data") -> str:
 def _safe_column_ref(name: str) -> str:
     """Return a double-quoted column identifier for use inside ``text()``.
 
-    fix(#1778): the row browser interpolated column names bare, so a column
-    whose name is a SQL reserved word (``desc``, ``order``, ``user`` -- routine
-    ogr2ogr output from DBF fields, and nothing renames them on ingest) turned
-    every SELECT and every ILIKE filter for that dataset into a syntax error.
-    The sibling read paths already quote: ``layers.service._qcol``,
-    ``features.service.live_property_columns`` and
-    ``processing.ingest.metadata_sql._sql_quote_ident``, whose escaping this
-    mirrors.
-
-    Embedded double quotes are doubled (the PostgreSQL-standard escape) and
-    colons are backslash-escaped, because SQLAlchemy ``text()`` reads ``:name``
-    as a bind parameter even inside a quoted identifier. The output is
-    therefore valid only inside ``text()``.
-
-    Quoting is not a substitute for validation: callers still filter names
-    through ``SAFE_TABLE_NAME_RE`` or ``SAFE_COLUMN_NAME_RE`` first.
+    fix(#1778): quotes so a reserved-word column name (``desc``, ``order`` --
+    routine ogr2ogr/DBF output) doesn't break the SQL. Embedded quotes are
+    doubled; colons are backslash-escaped since SQLAlchemy ``text()`` reads
+    ``:name`` as a bind parameter even inside a quoted identifier. Not a
+    substitute for validation -- callers still filter through SAFE_*_RE first.
     """
     return '"' + name.replace('"', '""').replace(":", "\\:") + '"'

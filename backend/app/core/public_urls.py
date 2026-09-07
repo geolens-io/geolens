@@ -24,54 +24,22 @@ _DEFAULT_PUBLIC_API_URL = "http://localhost:8000"
 
 
 class PublicUrlNotConfiguredError(RuntimeError):
-    """Phase 268 H-27: raised when a caller asks for an external-use URL
-    (e.g. OAuth redirect_uri) but neither PUBLIC_APP_URL nor PUBLIC_API_URL
-    is configured. The request-origin fallback is unsafe for redirect_uri
-    because the IdP receives whatever the attacker sets in
-    ``X-Forwarded-Host`` / ``Origin`` / ``Referer``, enabling an
-    auth-code-stealing attack against IdPs with permissive redirect-URI
-    policies. Forcing explicit configuration closes that path."""
+    """Phase 268 H-27: raised when a caller needs an external-use URL (e.g.
+    OAuth redirect_uri) but neither PUBLIC_APP_URL nor PUBLIC_API_URL is
+    configured. The request-origin fallback is unsafe here: an attacker
+    controls ``X-Forwarded-Host``/``Origin``/``Referer``, enabling
+    auth-code theft against IdPs with permissive redirect-URI policies."""
 
 
 def is_usable_public_origin(value: str | None) -> bool:
     """Is this a value a browser could actually be sent to?
 
-    fix(#1548 review r8): ONE shape rule for ``PUBLIC_APP_URL``, stated here and
-    mirrored by ``parseUsablePublicUrl`` in ``frontend/src/lib/public-urls.ts``.
-    The rule: an absolute HTTP(S) URL, with a host, and no query or fragment.
-
-    Everything else is untrusted, and each consumer already knows what to do
-    with untrusted — the backend refuses to issue a domain lock, the frontend
-    falls back for ordinary shares and suppresses a locked preview.
-
-    Why each clause is load-bearing, since none of them is hypothetical:
-
-    * ABSOLUTE, WITH A SCHEME AND HOST. ``_normalize_origin`` prepends
-      ``https://`` to anything that does not already start with http(s), so an
-      environment value of ``ftp://maps.example.com`` becomes the pseudo-origin
-      ``https://ftp:``, ``mailto:ops@example.com`` becomes
-      ``https://mailto:ops@example.com`` and ``file:///etc/hosts`` becomes
-      ``https://file:``. Each is non-loopback, so the domain-lock gate read the
-      deployment as configured and issued a lock no embed shell could ever
-      satisfy — this PR's original bug, returning through the check added to
-      prevent it.
-    * NO QUERY OR FRAGMENT. The backend drops them when it normalizes, so its
-      own comparison survives, but the frontend appends ``/m/<token>`` to the
-      configured string — putting the path inside the query or after the
-      fragment and producing links nobody can open.
-    * NO ``/api`` PATH. fix(#1555): the same clause the persistent-setting
-      validator has always had (``validate_public_app_url``, "must point to the
-      app, not the /api base"), applied to the entry point that skipped it. An
-      environment ``PUBLIC_APP_URL=https://maps.example.com/api`` reached
-      ``SharePanel`` through tile-config and built ``/api/api/maps/...`` card
-      links and ``/api/m/...`` iframe sources, while the domain-lock gate saw a
-      non-loopback origin and issued a token whose shell URL does not exist.
-      One rule with two entry points, only one of them checking.
-
-    The setting is environment-backed, so the environment path never passes
-    through the persistent-setting validator; that validator now defers to this
-    function for everything it does not say itself, so both entry points give
-    the same answer.
+    fix(#1548): the shape rule for ``PUBLIC_APP_URL``, mirrored by
+    ``parseUsablePublicUrl`` in ``frontend/src/lib/public-urls.ts`` — an
+    absolute HTTP(S) URL, with a host, no query/fragment, and no ``/api``
+    path (fix(#1555), the same clause ``validate_public_app_url`` already
+    had). Everything else is untrusted; each consumer refuses or falls
+    back accordingly rather than issuing a domain lock it can't satisfy.
     """
     if value is None:
         return False
@@ -86,28 +54,10 @@ def is_usable_public_origin(value: str | None) -> bool:
         return False
     if not parts.hostname:
         return False
-    # fix(#1548 review r9/r10): three characters/classes are refused OUTRIGHT,
-    # each because the two URL parsers disagree about it — and a value the two
-    # halves read differently is the whole bug class, whichever reading one
-    # prefers.
-    #
-    # * PERCENT-ENCODING. Python's urlsplit leaves `%6Daps.example.com` literal;
-    #   the browser decodes it to `maps.example.com`.
-    # * BACKSLASH. `https://maps.example.com\@evil.com` parses as host
-    #   `maps.example.com\` here and as host `evil.com` in a browser, which
-    #   makes it an origin-confusion primitive rather than a formatting nit.
-    # * NON-ASCII HOST. Refused rather than converted. Python's built-in idna
-    #   codec is IDNA2003: it maps `faß.de` to `fass.de`, while browsers follow
-    #   WHATWG/UTS #46 and send `xn--fa-hia.de`. Approximating that from here
-    #   means deviation characters, transitional processing and registry rules,
-    #   and a NEAR match is worse than none — it denies every request while
-    #   looking correct. An operator with an internationalized domain supplies
-    #   the punycode form, which is unambiguous and is what the browser sends.
-    #
-    # All three are checked on the RAW candidate rather than on the parsed host,
-    # because the browser parser has already decoded and punycoded by the time
-    # its equivalent could look — so the raw string is the only view the two
-    # sides can compare identically.
+    # fix(#1548): percent-encoding, backslashes, and non-ASCII hosts
+    # are refused outright on the RAW candidate — urlsplit and a browser
+    # parser read each differently (e.g. IDNA2003 vs WHATWG/UTS #46 for
+    # non-ASCII), which is origin confusion, not a formatting nit.
     if "%" in candidate or "\\" in candidate:
         return False
     if not candidate.isascii():
@@ -122,19 +72,11 @@ def is_usable_public_origin(value: str | None) -> bool:
 def is_api_base_path(path: str) -> bool:
     """Does this path name the API base rather than the app?
 
-    fix(#1555): stated once because two entry points ask it — the environment
-    path through ``is_usable_public_origin`` and the persistent-setting path
-    through ``validate_public_app_url``, which had it and was the only one
-    checking. ``/apiary`` is not an API base; ``/geolens/api/`` is.
-
-    fix(#1555 review): the question is asked of the path a BROWSER resolves,
-    which is not the path ``urlsplit`` hands back. ``/api/.`` and
-    ``/foo/../api/.`` are left untouched by Python and normalized to ``/api/``
-    by every browser, so both backend doors accepted them while the frontend —
-    reading ``URL.pathname``, already resolved — refused. Measured, not
-    assumed: before this, ``validate_public_app_url('https://maps.example.com/
-    api/.')`` returned the value and the domain-lock gate read it as a
-    configured origin.
+    fix(#1555): checked once, on the path a BROWSER resolves rather than the
+    one ``urlsplit`` hands back — ``/api/.`` and ``/foo/../api/.`` are left
+    untouched by Python but normalized to ``/api/`` by every browser, so a
+    raw-path check would miss both. ``/apiary`` is not an API base;
+    ``/geolens/api/`` is.
     """
     return _remove_dot_segments(path).rstrip("/").endswith("/api")
 
@@ -146,23 +88,13 @@ _DOUBLE_DOT_SEGMENTS = frozenset({"..", ".%2e", "%2e.", "%2e%2e"})
 
 
 def _remove_dot_segments(path: str) -> str:
-    """Resolve ``.`` and ``..`` the way a URL parser does.
-
-    RFC 3986 §5.2.4, with the ``%2e`` equivalences the URL Standard adds. Takes
-    the path of an ABSOLUTE URL, so it is either empty or rooted.
+    """Resolve ``.`` and ``..`` in an absolute URL's path the way a browser
+    does (RFC 3986 §5.2.4 plus the WHATWG ``%2e`` equivalences).
 
     A trailing dot segment leaves the slash behind: ``/api/.`` is ``/api/``,
-    matching ``new URL().pathname``, which is the whole point of the function.
-
-    The ``%2e`` half cannot be reached through ``is_usable_public_origin``
-    today: it refuses any candidate containing ``%`` several clauses earlier,
-    because Python leaves percent-encoding literal where a browser decodes it.
-    That refusal is a different rule with a different reason, though, and one
-    that a later change could narrow to "decode it instead" without anyone
-    noticing this depended on it. So the equivalence is implemented here rather
-    than assumed, and pinned by a test that calls this classifier directly —
-    an end-to-end test of a ``%2e`` value would pass on the percent clause
-    alone and prove nothing about this code.
+    matching ``new URL().pathname``. The ``%2e`` handling is implemented
+    here rather than relied on via the caller's separate percent-encoding
+    refusal, since that refusal could change independently of this.
     """
     if not path:
         return path
@@ -191,20 +123,12 @@ def is_loopback_host(host: str) -> bool:
 
     fix(#1555): the predicate this replaces was an enumerated set of three
     spellings (``localhost``, ``127.0.0.1``, ``::1``). Loopback is a RANGE:
-    ``127.0.0.0/8`` is loopback in its entirety, so a deployment configured as
-    ``http://127.0.0.2:8080`` was classified non-loopback, and
-    ``assert_domain_lock_is_enforceable`` read that as "this deployment knows
-    its public origin" and issued a domain lock every recipient resolves to
-    their OWN machine. The list form fails toward permitting the lock, which is
-    the direction that costs an operator a silently empty embed.
-
-    ``*.localhost`` counts. RFC 6761 §6.3 says resolvers should treat the
-    ``localhost`` zone as loopback and browsers do, so ``http://app.localhost``
-    is the same misconfiguration wearing a subdomain.
-
-    Bracketed IPv6 literals are accepted here because callers disagree about
-    whether they strip: ``urlsplit(...).hostname`` does, ``URL.hostname`` in a
-    browser does not.
+    ``127.0.0.0/8`` in its entirety, so e.g. ``127.0.0.2`` was previously
+    read as non-loopback and could get a domain lock issued that every
+    recipient resolves to their own machine. ``*.localhost`` counts too
+    (RFC 6761 §6.3). Bracketed IPv6 literals are accepted since
+    ``urlsplit(...).hostname`` strips brackets but a browser's
+    ``URL.hostname`` does not.
     """
     candidate = host.strip().lower()
     if candidate.startswith("[") and candidate.endswith("]"):
@@ -224,30 +148,16 @@ def canonical_host_error(host: str) -> str | None:
 
     Otherwise a sentence naming what is wrong, for an operator to act on.
 
-    fix(#1548 review r11): the same root as the IDN refusal — Python and the
-    browser disagree about a host's canonical spelling, and we store Python's.
-    Measured, not assumed:
-
-        input                          urlsplit          browser
-        http://192.168.1               192.168.1         192.168.0.1
-        http://010.0.0.1               010.0.0.1         8.0.0.1     (octal)
-        http://0x7f.1                  0x7f.1            127.0.0.1   (hex)
-        http://2130706433              2130706433        127.0.0.1
-        http://[2001:0db8:0:0:0:0:0:1] 2001:0db8:0:0...  [2001:db8::1]
-
-    In every row the shell would present the right column while
-    ``_resolve_self_origins`` stored the left, so the lock was issued and then
-    missed on every request.
-
-    THE TRAP, and the reason this asserts canonical form directly rather than
-    testing stability: ``192.168.1`` ROUND-TRIPS cleanly through urlsplit. It is
-    perfectly stable under our own parser and still wrong. A check built on
-    "parse it, re-serialize it, compare" would pass it.
-
-    The frontend does not need this function: it has a browser URL parser, so it
-    compares the host as written against the host that parser produced. Only
-    this side has to state the rule. ``public-app-url-shape.cases.json`` is what
-    holds the two methods to the same answers.
+    fix(#1548): Python and the browser disagree on canonical host
+    spelling (e.g. ``192.168.1`` → ``192.168.0.1``; also octal/hex IPv4 and
+    IPv6 non-compressed forms) — the shell presents the browser's reading
+    while the lock stored Python's, so it was issued and then missed on
+    every request. The trap: ``192.168.1`` ROUND-TRIPS cleanly through
+    urlsplit, so a "parse it, re-serialize it, compare" check would pass
+    it; only asserting canonical form directly catches it. The frontend
+    needs no equivalent — it has a browser parser to compare against.
+    ``public-app-url-shape.cases.json`` holds both sides to the same
+    answers.
     """
     if not host:
         return "The host is empty."
@@ -259,13 +169,9 @@ def canonical_host_error(host: str) -> str | None:
             address = ipaddress.IPv6Address(host)
         except ValueError:
             return f"{host!r} is not a valid IPv6 address."
-        # fix(#1555): an IPv4-MAPPED literal has no agreed spelling. Python
-        # renders ::ffff:7f00:1 as ::ffff:127.0.0.1 and a browser renders
-        # ::ffff:127.0.0.1 as ::ffff:7f00:1, so each side calls the other's
-        # canonical form non-canonical and the class had no answer both halves
-        # accept. Refused outright rather than translated, for the same reason
-        # as a non-ASCII host: the plain IPv4 form is unambiguous and is what a
-        # browser presents anyway.
+        # fix(#1555): an IPv4-mapped literal has no canonical spelling both
+        # Python and a browser agree on, so it's refused outright rather
+        # than translated.
         if address.ipv4_mapped is not None:
             return (
                 f"{host!r} is an IPv4-mapped IPv6 literal, which browsers and "
@@ -277,18 +183,15 @@ def canonical_host_error(host: str) -> str | None:
             return f"Write the IPv6 literal in its compressed form: [{compressed}]"
         return None
 
-    # A URL parser reads a host as IPv4 when its LAST label is numeric — which
-    # covers hex and octal spellings, not just dotted decimal. Anything matching
-    # that shape must already be canonical dotted-quad, and ipaddress rejects
-    # short forms, leading zeros and out-of-range octets for us.
+    # A URL parser reads a host as IPv4 when its last label is numeric
+    # (covers hex/octal too); ipaddress rejects non-canonical forms for us.
     last_label = host.rsplit(".", 1)[-1]
     if last_label.isdigit() or last_label.startswith("0x"):
         try:
             parsed_ip = ipaddress.IPv4Address(host)
         except ValueError:
-            # Deliberately NOT expanding it for them: computing what a browser
-            # would make of `0x7f.1` means implementing the WHATWG IPv4 parser,
-            # which is the approximation this whole rule exists to avoid.
+            # Not expanded for them: that needs the WHATWG IPv4 parser, the
+            # approximation this whole rule exists to avoid.
             return (
                 f"{host!r} is read as an IP address by browsers, and not in the "
                 "form they use. Write four decimal octets with no leading "
@@ -298,37 +201,18 @@ def canonical_host_error(host: str) -> str | None:
             return f"Write the IP address as: {parsed_ip}"
         return None
 
-    # Registered name. Case is not checked: both parsers lowercase it, so an
-    # uppercase spelling is not a disagreement and refusing it would cost an
-    # operator a working value for nothing.
+    # Registered name. Case isn't checked: both parsers lowercase it already.
     labels = host.split(".")
     if any(not label for label in labels):
         return f"{host!r} has an empty label."
     if not all(c.isalnum() or c == "-" for label in labels for c in label):
         return f"{host!r} contains a character that is not valid in a hostname."
-    # fix(#1555 review r4): an `xn--` label is accepted here as opaque LDH, and
-    # three rounds of validating it were REMOVED, because "what a browser sends"
-    # has no single answer for these labels. Measured with Playwright, in-page
-    # `new URL('https://<host>/p').hostname`:
-    #
-    #     host                   chromium 151  firefox 153  webkit 26.5  node 26
-    #     xn--.example           ok            THROWS       ok           THROWS
-    #     xn--a-sgn.example      ok            THROWS       ok           THROWS
-    #     xn--a-0hc.example      ok            THROWS       ok           ok
-    #     ex-.xn--mgbh0fb        ok            THROWS       ok           ok
-    #     xn--fa-hia.de          ok            ok           ok           ok
-    #
-    # Chromium and WebKit do not decode or validate an all-ASCII host at all;
-    # Firefox implements the URL Standard including every RFC 5893 bidi rule;
-    # Node's parser matches neither. So any refusal we add is stricter than the
-    # two engines most viewers use, which is the direction this file exists to
-    # avoid — and no rule can satisfy Firefox and Chromium at once. 13 of the 28
-    # hosts measured were read differently by different engines, ALL of them
-    # `xn--` cases; every other rule in this module agreed across all four.
-    #
-    # This also means a Node-based test cannot stand in for a browser here: run
-    # `new URL('https://xn--.example')` in node, find it invalid, and you are
-    # reading one engine's opinion, not the web's.
+    # fix(#1555): `xn--` labels are accepted as opaque LDH — Chromium/WebKit
+    # don't validate them at all, Firefox enforces full RFC 5893 bidi rules,
+    # and node matches neither; measured across 28 hosts they disagreed on
+    # 13, all `xn--` cases. Any refusal we add is stricter than the engines
+    # most viewers use, and no rule satisfies both; a node-based test can't
+    # stand in for a browser here.
     return None
 
 
@@ -392,20 +276,16 @@ def _is_env_only() -> bool:
 def _request_origin_decision(request: Request | None) -> tuple[str | None, bool]:
     """``(origin, allowlist_rejected)`` derived from the request headers.
 
-    SEC-05 / M-67: when ``CORS_ALLOWED_ORIGINS`` is configured (non-empty),
-    the resulting origin MUST be in that allowlist. This prevents an
-    attacker who controls ``X-Forwarded-Host`` (e.g., behind a permissive
-    reverse proxy) from steering URL generation to attacker.com.
+    SEC-05/M-67: when ``CORS_ALLOWED_ORIGINS`` is set, the derived origin
+    must be in that allowlist, or an attacker controlling
+    ``X-Forwarded-Host`` behind a permissive proxy could steer URL
+    generation to their own host. Empty allowlist (local dev) returns the
+    request-derived origin unchanged.
 
-    When ``CORS_ALLOWED_ORIGINS`` is empty (local dev, no proxy), the
-    function returns the request-derived origin unchanged — dev workflows
-    (Vite proxy, localhost-only) keep working without configuration.
-
-    fix(#1778): the second element exists because "no origin to derive" and
-    "an origin was derived and the allowlist refused it" are different
-    answers, and the resolvers below must not treat them alike. Collapsing
-    both into ``None`` let the raw-Host fallback re-derive the very origin
-    this function had just rejected.
+    fix(#1778): the second element distinguishes "no origin to derive" from
+    "an origin was derived and the allowlist refused it" — resolvers must
+    not treat those alike, or a raw-Host fallback re-derives the origin
+    just rejected.
     """
     if request is None:
         return None, False
@@ -461,23 +341,16 @@ def resolve_public_api_url(
 ) -> str:
     """Resolve the public API URL.
 
-    Phase 268 H-27: when ``for_external_use=True``, the request-origin
-    fallback is disabled. Such a URL is handed to a third party (e.g. an
-    IdP as the OAuth redirect_uri) where an attacker-controlled origin
-    enables auth-code theft. Caller MUST configure ``PUBLIC_APP_URL`` /
-    ``PUBLIC_API_URL`` for OAuth flows; otherwise this raises
-    ``PublicUrlNotConfiguredError``.
+    Phase 268 H-27: when ``for_external_use=True`` the request-origin
+    fallback is disabled and this raises ``PublicUrlNotConfiguredError`` if
+    neither PUBLIC_APP_URL nor PUBLIC_API_URL is set — such a URL can reach
+    a third party (e.g. an OAuth IdP) where an attacker-controlled origin
+    enables auth-code theft.
 
-    fix(#1778): the last-resort ``request.url.netloc`` fallback below runs only
-    when the allowlist did not have an opinion. It used to run whenever
-    ``_request_origin`` answered None, which included the case where the
-    allowlist had just REFUSED the derived origin -- and ``request.url.netloc``
-    is Starlette's read of the ``Host`` header, which nginx.conf forwards
-    verbatim (``proxy_set_header Host $http_host``) with no ``server_name``
-    restriction. SEC-05 therefore changed which of two code paths ran and both
-    returned the attacker's host. Giving nginx a ``server_name`` so an unknown
-    Host never reaches the app is still worth doing; this closes the app-side
-    half.
+    fix(#1778): the last-resort ``request.url.netloc`` fallback only runs
+    when the allowlist had no opinion, not when it just rejected a derived
+    origin — that fallback reads the raw ``Host`` header, which nginx
+    forwards verbatim.
     """
     normalized_api = normalize_public_url(api_url) or normalize_public_url(
         legacy_api_url
@@ -586,14 +459,12 @@ PUBLIC_URL_KEYS = frozenset(
 def invalidate_public_url_cache() -> None:
     """Clear the public-URL override cache.
 
-    BUG-025: ``_PUBLIC_URL_CACHE`` is a 60s module-global memoization of the
-    public_app_url / public_api_url / public_base_url AppSetting rows. The
-    ``config:`` cache invalidated by ``PersistentConfig.set``/``reset`` is a
-    SEPARATE layer; without clearing this one too, a settings write keeps
-    returning the OLD public URL (in the PUT response, /settings/tile-config,
-    OGC self-links, share links) for up to ``_PUBLIC_URL_CACHE_TTL`` per
-    process. PersistentConfig.set/reset call this when one of
-    ``PUBLIC_URL_KEYS`` is written.
+    BUG-025: ``_PUBLIC_URL_CACHE`` is a 60s memo of the public_app_url/
+    public_api_url/public_base_url AppSetting rows, separate from the
+    ``config:`` cache ``PersistentConfig`` manages — without clearing this
+    too, a settings write keeps returning the old public URL for up to
+    ``_PUBLIC_URL_CACHE_TTL``. ``PersistentConfig.set``/``reset`` call this
+    when a ``PUBLIC_URL_KEYS`` entry is written.
     """
     global _PUBLIC_URL_CACHE
     _PUBLIC_URL_CACHE = None
@@ -720,29 +591,13 @@ async def get_public_urls(
 async def get_configured_public_app_url(db: AsyncSession) -> str | None:
     """The explicitly configured ``PUBLIC_APP_URL``, or None. No derivation.
 
-    fix(#1548 review r9): ``get_public_app_url`` is a RESOLVER — when
-    ``PUBLIC_APP_URL`` is unset it derives an app URL from ``PUBLIC_API_URL`` by
-    stripping an ``/api`` suffix, and failing that from the caller's own request
-    headers. Both are the right behaviour for producing a link when any link is
-    better than none (OGC self-links, response bodies).
-
-    Both are wrong for the two callers that ask "what origin does a browser
-    present when it loads our embed shell", because neither derived value is
-    that origin:
-
-    * A deployment serving the API at ``https://api.example.com/api`` and the
-      app at ``https://maps.example.com`` derives ``https://api.example.com``.
-      That is a real, non-loopback host, so the domain-lock gate reads the
-      deployment as configured and issues a lock — and then every shell request
-      arrives from ``https://maps.example.com``, misses the allowlist, and the
-      map is empty. The original defect of this PR wearing a different hat.
-    * The request-header fallback is the vacuous-``self`` trap #1531 already
-      avoided: an origin taken from the caller is one every caller satisfies.
-
-    So domain locking and share-URL generation require the operator to say it.
-    Unset is a legitimate answer here, and every consumer already knows what to
-    do with it — refuse the lock, fall back for ordinary shares, suppress the
-    locked preview.
+    fix(#1548): unlike ``get_public_app_url``, this never derives from
+    PUBLIC_API_URL or request headers. Domain locking and share-URL
+    generation need the operator's own origin: a derived API origin can be
+    a real, non-loopback host that still isn't where the embed shell is
+    served (the original bug), and a request-derived origin is the
+    vacuous-``self`` trap #1531 already ruled out. Unset is a legitimate
+    answer here.
 
     Returns the value with any trailing slash trimmed, or None when unset,
     blank, or not a usable public origin (see ``is_usable_public_origin``).
@@ -760,29 +615,16 @@ async def get_shareable_app_url(
 ) -> str | None:
     """The origin a browser is served THIS deployment's app from, or None.
 
-    fix(#1548 review r10): "derived" turned out to name two different things,
-    and only one of them is untrustworthy.
+    fix(#1548): only ``request.state.tenant_public_origin`` counts as
+    trustworthy here — ``TenantContextMiddleware`` sets it after validating
+    the request Host against the tenant registry. An ``/api``-stripped
+    PUBLIC_API_URL or a header-derived origin is inferred, not verified,
+    and stays excluded (see ``get_configured_public_app_url``).
 
-    * An ``/api``-stripped ``PUBLIC_API_URL``, or an origin read off the
-      caller's own headers, is INFERRED — nobody checked that a browser is
-      served the app there, and in the header case the caller chose it. Those
-      stay excluded; see ``get_configured_public_app_url``.
-    * ``request.state.tenant_public_origin`` is VALIDATED INFRASTRUCTURE STATE.
-      ``TenantContextMiddleware`` sets it only after the request's Host resolves
-      against the tenant registry, and rejects the request outright when it
-      cannot form a trusted origin. It is the one origin that is definitely
-      right for a hosted tenant, and the fleet-wide ``PUBLIC_APP_URL`` cannot
-      represent a tenant host at all.
-
-    So a hosted tenant request answers with its own validated origin, and
-    everything else answers with the explicit fleet setting or nothing. The
-    condition mirrors the tenant branch of ``get_public_urls`` deliberately,
-    rather than drawing a second line a little differently.
-
-    Callers: share and embed URL generation, which must name a host the
-    RECIPIENT can open. On a tenant host that is the tenant's own origin — a
-    copied ``/card`` link on the fleet host arrives without the tenant context
-    its Host would have carried, and fails closed.
+    Callers: share/embed URL generation, which must name a host the
+    recipient can open — a tenant's own origin on a hosted tenant, since a
+    copied link on the fleet host arrives without the tenant context its
+    Host would carry.
     """
     if is_multi_tenant() and request is not None:
         tenant_id = getattr(request.state, "tenant_id", None)

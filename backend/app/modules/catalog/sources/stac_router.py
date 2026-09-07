@@ -58,9 +58,8 @@ def _validate_stac_http_url(v: str) -> str:
 def _validate_optional_stac_http_url(v: str | None) -> str | None:
     """``_validate_stac_http_url`` for a nullable field.
 
-    The nullable case has to be spelled out: a field validator runs on an
-    explicit ``None`` too, and ``HttpUrl(None)`` raises, which would reject
-    every import from a catalog whose items carry no rel=self link.
+    Spelled out because a field validator also runs on an explicit ``None``,
+    and ``HttpUrl(None)`` raises.
     """
     return None if v is None else _validate_stac_http_url(v)
 
@@ -70,11 +69,6 @@ router = APIRouter(
     tags=["STAC Import"],
     responses=ERROR_RESPONSES_WRITE,
 )
-
-
-# ---------------------------------------------------------------------------
-# Request / Response schemas
-# ---------------------------------------------------------------------------
 
 
 class StacConnectRequest(BaseModel):
@@ -224,32 +218,26 @@ class StacImportItem(BaseModel):
     _validate_data_asset_href = field_validator("data_asset_href")(
         _validate_stac_http_url
     )
-    # feat(#1222): the item's own href, as returned by search. Optional so an
-    # older client (or a catalog whose items carry no rel=self link) still
-    # imports; the dataset then simply has no item pointer and its health
-    # probe checks the asset alone.
+    # feat(#1222): optional so an older client (or a catalog whose items
+    # carry no rel=self link) still imports; health probe then checks the
+    # asset alone.
     item_href: str | None = Field(
         default=None,
         max_length=4096,
         description="The item's own canonical URL, echoed from search results.",
     )
     _validate_item_href = field_validator("item_href")(_validate_optional_stac_http_url)
-    # feat(#1266): which asset on the item this dataset is being bound to.
-    # Optional so an older client still imports — the first refresh then
-    # recovers the key by matching the stored href, which works right up
-    # until the href moves and the item has meanwhile gained a
-    # higher-priority asset. Recording it at import closes that window.
+    # feat(#1266): optional so an older client still imports; the first
+    # refresh then recovers the key by matching the stored href. Recording
+    # it at import closes the window where the href moves and the item has
+    # meanwhile gained a higher-priority asset.
     data_asset_key: str | None = Field(
         default=None,
         max_length=MAX_ASSET_KEY_CHARS,
         description="The asset key on the item, echoed from search results.",
     )
-    # feat(#1692): the asset's declared media type, echoed from search so the
-    # persisted origin asset can re-advertise it to generic STAC clients.
-    # Optional for the same reason the two echoes above are — an older client
-    # (or an item that declares no type) still imports, and the first refresh
-    # repairs the value from the live item document. Search bounds it at
-    # capture (storable_media_type), so an echo always fits.
+    # feat(#1692): optional for the same reason as the echoes above — the
+    # first refresh repairs the value from the live item document.
     data_asset_type: str | None = Field(
         default=None,
         max_length=MAX_ASSET_MEDIA_TYPE_CHARS,
@@ -302,11 +290,6 @@ class StacImportResponse(BaseModel):
     created: int = Field(description="Number of datasets created.")
     skipped: int = Field(description="Number of items skipped (duplicates).")
     errors: int = Field(description="Number of items that failed.")
-
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
 
 
 @router.post("/connect", response_model=StacConnectResponse)
@@ -464,16 +447,10 @@ async def stac_import(
     skipped = 0
     errors = 0
 
-    # Batch duplicate check — single query instead of N individual SELECTs.
-    #
-    # fix(#1286): keyed on `origin_ref`'s `asset_href`, the structured
-    # pointer, rather than on `origin_uri`'s string spelling — the same
-    # re-key applied to the service-preview guard in
-    # `catalog/sources/router.py`, so any future writer that produces a
-    # different spelling of the same asset can no longer degrade this guard
-    # without failing a test. `source_url` is kept as the fallback for rows
-    # migration 0036 could not backfill; it is PATCHable, so an owner who
-    # edited it could otherwise re-import the same asset as a second dataset.
+    # fix(#1286): keyed on origin_ref's asset_href (structured pointer), not
+    # origin_uri's string spelling, matching the service-preview guard in
+    # catalog/sources/router.py. source_url stays as fallback for rows
+    # migration 0036 could not backfill and which are PATCHable.
     hrefs = [i.data_asset_href for i in request.items]
     existing_hrefs: set[str] = {
         row.asset_href or row.source_url
@@ -497,8 +474,6 @@ async def stac_import(
         if (row.asset_href or row.source_url) is not None
     }
 
-    # Pre-filter importable items and SSRF-validate, then fetch COG info
-    # concurrently instead of N sequential HTTP calls.
     importable: list[StacImportItem] = []
     for item in request.items:
         if item.data_asset_href in existing_hrefs:
@@ -512,11 +487,9 @@ async def stac_import(
         try:
             await validate_url_for_ssrf(item.data_asset_href)
         except SSRFError as exc:
-            # Surface this otherwise-silent reject: catalogs commonly expose
-            # asset hrefs the SSRF guard rejects (e.g. ``s3://`` schemes),
-            # which fails every item with no server-side trace. Redact the href
-            # (drop query string + any userinfo) so a presigned URL's
-            # credentials are never written to application logs.
+            # Surfaced because catalogs commonly expose hrefs the SSRF guard
+            # rejects (e.g. s3:// schemes); href redacted so a presigned
+            # URL's credentials never reach logs.
             logger.warning(
                 "STAC item SSRF-rejected",
                 item_id=item.id,
@@ -530,7 +503,6 @@ async def stac_import(
             continue
         importable.append(item)
 
-    # Parallel COG info fetch — up to 10 concurrent Titiler requests
     cog_info_map: dict[str, dict | None] = {}
     if importable:
         sem = asyncio.Semaphore(10)
@@ -558,10 +530,8 @@ async def stac_import(
                 if item.bbox and len(item.bbox) >= 4:
                     w, s, e, n = item.bbox[:4]
                     # fix(#884): RFC 7946 §5.2 mandates west > east for a bbox
-                    # that crosses the antimeridian, so a remote [170,-20,-170,-15]
-                    # used to build a ring spanning longitude -170..170 -- the
-                    # complementary 340°, which does not even contain the data.
-                    # bbox_to_extent_wkt splits those at ±180.
+                    # crossing the antimeridian; bbox_to_extent_wkt splits
+                    # those at ±180 rather than building the wrong 340° ring.
                     spatial_extent = func.ST_GeomFromText(
                         bbox_to_extent_wkt(w, s, e, n), 4326
                     )
@@ -589,58 +559,39 @@ async def stac_import(
                     source_url=item.data_asset_href,
                     source_filename=item.id,
                     srid=item.epsg,
-                    # fix(#1218 review): stamped like every other creation
-                    # path, so post-migration imports do not report null while
-                    # backfilled ones carry a timestamp. Python value, not
-                    # func.now(): a SQL expression leaves the attribute
-                    # expired and the next read lazy-loads.
+                    # fix(#1218): Python value, not func.now() — a SQL
+                    # expression leaves the attribute expired and the next
+                    # read lazy-loads.
                     last_refreshed_at=datetime.now(timezone.utc),
                 )
-                # feat(#1218): system-managed origin pointer. The asset href is
-                # also what the duplicate-source guard keys on (fix #1286: via
-                # origin_ref.asset_href, not the origin_uri string), so
+                # feat(#1218): asset_href is also what the duplicate-source
+                # guard keys on (fix(#1286): origin_ref.asset_href), so
                 # writing it here keeps both in agreement by construction.
-                # feat(#1222): item_href joins the payload now that search
-                # surfaces it. It is the only stored value that can answer
-                # "was this item withdrawn from the catalog?" — the asset href
-                # answers a different question, and a 200 on one says nothing
-                # about the other.
+                # feat(#1222): item_href is the only stored value that can
+                # answer "was this item withdrawn?" — a 200 on the asset href
+                # says nothing about that.
                 set_dataset_origin(
                     dataset,
                     "stac",
                     uri=item.data_asset_href,
                     asset_href=item.data_asset_href,
                     item_href=item.item_href,
-                    # feat(#1266): the item's own id, so a refresh can tell
-                    # this item from another the same URL might later serve.
-                    # Already a required field of the request — this is the
-                    # value the catalog searched by — so nothing new is asked
-                    # of a client.
                     item_id=item.id,
                     collection_id=item.collection,
                     asset_key=item.data_asset_key,
                 )
-                # fix(#1271 review): the import IS a contact — the same
-                # contract _finalize_ingest and the reupload swap follow —
-                # but only when it can be PROVEN. Info in hand means Titiler
-                # reached the COG on GeoLens's behalf; every failure shape
-                # stays NULL, because a Titiler error is indistinguishable
-                # from its local pre-fetch rejections without parsing its
-                # error bodies (see fetch_cog_info). The probe settles it.
+                # fix(#1271): info in hand means Titiler reached the COG;
+                # every failure shape stays NULL since a Titiler error is
+                # indistinguishable from local pre-fetch rejections without
+                # parsing its error bodies (see fetch_cog_info).
                 ci = cog_info_map.get(item.data_asset_href)
                 if ci is not None:
                     dataset.last_checked_at = datetime.now(timezone.utc)
                 ci = ci or {}
-                # fix(#1334 review): the dataset-level mirror of the raster
-                # row's EPSG preference below — both come from the same
-                # probe, so both must prefer it the same way, or the OGC
-                # Records properties block (dataset.srid as `crs`,
-                # RasterAsset fields as `proj:code`/`proj:wkt2`) would
-                # publish two disagreeing declarations for one dataset.
-                # `reconcile_epsg` is the one place that decides when the
-                # probe outranks the item's declared value; see its
-                # docstring for why "no EPSG" and "no CRS at all" are
-                # different questions.
+                # fix(#1334): mirrors the raster row's EPSG preference below —
+                # both come from the same probe and must agree, or OGC
+                # Records would publish two disagreeing CRS declarations for
+                # one dataset.
                 reconciled_epsg = reconcile_epsg(ci, item.epsg)
                 dataset.srid = reconciled_epsg
                 db.add(dataset)
@@ -665,42 +616,21 @@ async def stac_import(
                     height=ci.get("height"),
                     nodata=str(nodata_raw) if nodata_raw is not None else None,
                     band_info=ci.get("band_info"),
-                    # fix(#1334): fetch_cog_info already retrieves this; it
-                    # was simply never read off the probe result onto the
-                    # row.
                     crs_wkt=ci.get("crs_wkt"),
-                    # fix(#1375): the resolution pair, and the rotation flag
-                    # that makes it readable. All three come off /cog/stac's
-                    # proj:transform, the same six affine numbers the
-                    # local-upload path reads from rasterio — see
-                    # cog_info.py's _geotransform.
-                    #
-                    # fix(#1375 review): they are ONE fact, so they are
-                    # written together or not at all. A probe that read no
-                    # transform leaves all three to their column defaults
-                    # rather than asserting `is_rotated=False`, which the
-                    # NOT NULL column cannot distinguish from a measurement.
-                    # The refresh path states the full argument at
-                    # `_pixel_geometry` in processing/ingest/tasks_stac_refresh.py;
-                    # the two cannot share a helper because `processing/` may
-                    # not import `catalog/` and this module is the catalog side.
+                    # fix(#1375): res_x/res_y/is_rotated come off /cog/stac's
+                    # proj:transform as one fact — written together or not at
+                    # all, since a probe with no transform must leave them at
+                    # column defaults rather than assert is_rotated=False.
                     **pixel_geometry,
                 )
                 db.add(raster_asset)
 
-                # feat(#1692): persist the origin item's primary data asset
-                # as a `dataset_assets` row, so the STAC items GeoLens serves
-                # carry the source COG href alongside the internal
-                # `raster_tiles` template. The tiles template renders only in
-                # GeoLens's own frontend; this row is what lets a generic
-                # STAC client (stac-browser, the QGIS STAC plugin, rio-viz)
-                # actually read pixels from an item we re-publish. Roled
-                # `data` — the tiles asset is the `visual` one — and served
-                # verbatim by resolve_asset_url's absolute-http(s)
-                # pass-through, since the href is already public in the
-                # origin catalog. The STAC refresh task upserts this same row
-                # (`_upsert_origin_data_asset`), which is what backfills
-                # datasets imported before it existed.
+                # feat(#1692): dataset_assets row so a generic STAC client
+                # (stac-browser, QGIS, rio-viz) can read pixels from a
+                # re-published item; the internal raster_tiles template
+                # renders only in GeoLens's own frontend. Roled `data` (tiles
+                # asset is `visual`). Refresh upserts the same row
+                # (_upsert_origin_data_asset) to backfill older imports.
                 db.add(
                     get_catalog_port().dataset_asset_orm_class()(
                         dataset_id=dataset.id,

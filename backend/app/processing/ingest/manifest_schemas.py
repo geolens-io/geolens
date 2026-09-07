@@ -36,13 +36,10 @@ ManifestSourceUri = Annotated[
     Field(
         min_length=1,
         max_length=2000,
-        # Phase 268 H-29: the local-path alternation now allows only `./`
-        # prefix (NOT `../`); this reverses the prior `(?:\.{1,2}/)?`.
-        # The `..` mid-path / trailing exclusion is enforced separately by
-        # `_reject_dotdot_segments` below — pydantic_core's regex engine
-        # (Rust) does not support look-ahead, so a single regex can't
-        # express both the prefix-shape and the `..`-anywhere rule.
-        # HTTP/storage URIs in the alternation remain unrestricted because
+        # Local-path alternation allows only a `./` prefix (not `../`); `..`
+        # mid-path/trailing is enforced separately by `_reject_dotdot_segments`
+        # below, since pydantic_core's regex (Rust) has no look-ahead to
+        # express both rules at once. HTTP/storage URIs are unrestricted —
         # they're not resolved as local filesystem paths.
         pattern=(
             r"^(?:(?:\./)?[^\s:/][^\s:]*|"
@@ -57,47 +54,21 @@ ManifestUrl = Annotated[
     Field(max_length=2000, pattern=r"^https?://[^\s]+$"),
 ]
 ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
-# gh#1736: a caller-declared digest of the source bytes, used only as a
-# change-detection input alongside the rest of the manifest entry. Apply does
-# not fetch the source to verify it; see ManifestSource.checksum below and
-# manifest_service._run_entry's skip-complete message for the caveat this
-# implies for a stable URI whose file content changes underneath it.
+# gh#1736: caller-declared digest, used only for change-detection — apply
+# never fetches the source to verify it (see manifest_service._run_entry's
+# skip-complete message for the implication on a stable URI whose content
+# changes underneath it).
 #
-# gh#1773 codex r1: the CLI's separate JSON Schema mirror of this pattern
-# needed an explicit minLength/maxLength(71) bound, because Python's `re`
-# (which the CLI's jsonschema validator uses) treats `$` as matching just
-# before a trailing newline, letting a YAML literal-scalar checksum with a
-# trailing newline through. pydantic-core's regex engine anchors `$` to the
-# true end of the string with no such exception, so ManifestApplyRequest
-# itself was never exploitable this way; test_rejects_checksum_with_a_trailing_newline
-# in test_manifest_apply_api.py pins that.
+# gh#1773: min_length/max_length(71) is a security bound, not padding.
+# Python's `re` (used by the CLI's separate JSON Schema mirror of this
+# pattern) treats `$` as matching just before a trailing newline; pydantic-
+# core's regex anchors to the true string end. Without the length bound
+# here AND in the emitted OpenAPI schema, a trailing-newline checksum could
+# pass one validator and not the other. test_manifest_apply_api.py pins both.
 #
-# gh#1773 codex r2: min_length/max_length(71) added below too, so the
-# *published* OpenAPI contract also carries the bound alongside pattern.
-# Before this, a consumer validating against the OpenAPI schema (rather than
-# against this pydantic model directly) could accept the same trailing-newline
-# value the CLI's mirror did, then get a 422 from the live API.
-# test_openapi_contract_carries_the_checksum_length_bound in
-# test_manifest_apply_api.py pins minLength and maxLength on the emitted
-# checksum property.
-#
-# gh#1773 codex r4: the description below used to promise checksum-driven
-# re-import unconditionally. For a raster_cog entry, bumping checksum does
-# change the fingerprint to "update", but manifest_service's
-# _validate_existing_dataset_update then rejects it ("Manifest raster
-# updates are not supported"), so that promise pointed a raster caller at an
-# impossible recovery path. Scoped to vector sources here, in the CLI's
-# schema mirror, and in the README; manifest_service._skip_complete_message
-# gives a raster entry the matching guidance instead.
-#
-# gh#1773 codex r5: the round-4 fix said a changed raster checksum "cannot
-# be re-imported this way", which reads as a harmless no-op. It is not: a
-# changed fingerprint classifies as update regardless of source type, and
-# _validate_existing_dataset_update raises for raster_cog before any
-# staging happens, so apply reports that entry as action="error" with
-# "Manifest raster updates are not supported; create a new raster dataset
-# instead." -- not a skip. Worded below to say that plainly. An unchanged
-# raster entry, checksum included, still skips normally.
+# Checksum bumps do not force reclassification for a raster_cog source —
+# _validate_existing_dataset_update rejects the update instead of skipping
+# it (see the Field description below and _skip_complete_message).
 ManifestChecksum = Annotated[
     str,
     Field(
@@ -126,13 +97,10 @@ ManifestBbox = Annotated[
     Field(min_length=4, max_length=4, description="WGS84 bbox hint."),
 ]
 
-# fix(#1683): the upload/reupload doors accept four more tier-1 vector
-# formats as of #1682 (FlatGeobuf, KML, KMZ, and a zipped File Geodatabase),
-# but that PR deliberately deferred extending the manifest door to them —
-# an earlier fgb-only version of this allowlist was dropped from #1681 for
-# being asymmetric with the other three. `.zip` already covers a zipped
-# File Geodatabase (the shapefile-vs-fgdb disambiguation happens downstream
-# in `source_format.py`, keyed off content, not the manifest schema).
+# fix(#1683): mirrors the upload door's tier-1 vector formats (FlatGeobuf,
+# KML, KMZ, zipped File Geodatabase). `.zip` already covers a zipped FGDB —
+# the shapefile-vs-fgdb split happens downstream in `source_format.py`,
+# keyed off content, not this schema.
 MANIFEST_SOURCE_EXTENSIONS: dict[str, frozenset[str]] = {
     "vector": frozenset(
         {
@@ -170,9 +138,8 @@ class ManifestCatalog(_ManifestBaseModel):
 
 
 class ManifestSource(_ManifestBaseModel):
-    # Manifest v1 can only route sources through the ordinary vector/COG
-    # ingestion lifecycle. Standalone VRT files are deliberately excluded:
-    # their referenced files are not owned or preserved by a manifest apply.
+    # Standalone VRT files are deliberately excluded: their referenced files
+    # are not owned or preserved by a manifest apply.
     type: Literal["vector", "raster_cog"] = Field(
         description=(
             "Source modality. Vector sources require zip, gpkg, geojson, json, "
@@ -190,18 +157,14 @@ class ManifestSource(_ManifestBaseModel):
     @field_validator("uri")
     @classmethod
     def _reject_dotdot_segments(cls, uri: str) -> str:
-        """Phase 268 H-29: reject `..` path traversal in manifest source URIs.
+        """Reject `..` path traversal in manifest source URIs.
 
-        Looks at every path segment (split on `/`). If any equals `..`, the
-        URI is rejected — this catches `../etc/passwd`, `foo/../bar`, and
-        trailing `./..` regardless of whether the local-path or storage-URI
-        alternation matched the structural regex. The check is also applied
-        to remote schemes for defense-in-depth (no legitimate HTTP/S3 URI
-        contains `..` segments either).
+        Checks every `/`-split path segment, catching `../etc/passwd`,
+        `foo/../bar`, and trailing `./..` regardless of which alternation
+        matched the structural regex. Also applied to remote schemes for
+        defense-in-depth.
         """
-        # Strip scheme so the segment check sees only the path portion;
-        # otherwise `https://...` would be split on `/` and pass trivially.
-        # urlparse handles this without re-implementing scheme parsing.
+        # Strip scheme first, or `https://...` splits on `/` and passes trivially.
         from urllib.parse import urlparse
 
         parsed = urlparse(uri)
@@ -248,11 +211,9 @@ class ManifestMetadata(_ManifestBaseModel):
     attribution: NonEmptyString5000 | None = None
     bbox: ManifestBbox | None = None
 
-    # fix(#1472 review): the manifest is the other write path to
-    # records.attribution, so it carries the same guard as the dataset PATCH.
-    # Enforced here rather than only in the ingest tail so a manifest with
-    # markup fails apply with a field-level 422, instead of being accepted and
-    # then having its credit line silently dropped at commit.
+    # fix(#1472): the manifest is another write path to records.attribution,
+    # so it carries the dataset PATCH's same guard — enforced here so markup
+    # fails apply with a 422 instead of being silently dropped at commit.
     @field_validator("attribution")
     @classmethod
     def attribution_is_not_markup(cls, v: str | None) -> str | None:
@@ -269,13 +230,11 @@ class ManifestMetadata(_ManifestBaseModel):
 
 
 class ManifestPublication(_ManifestBaseModel):
-    # fix(#1201): deliberately NOT a Literal. A manifest intent is a catalog
-    # record_status, and that set is open — the values come from the workflow
-    # extension's status_order(), so an overlay may define its own (#1183).
-    # A frozen enum here meant the API accepted an overlay-defined status
-    # while the manifest layer 422'd it. The live set is checked at apply
-    # time by `validate_publication_intent` in manifest_sources.py. The
-    # 20-character bound matches the record_status column (String(20)).
+    # fix(#1201): deliberately NOT a Literal — record_status is an open set
+    # (an overlay may define its own, #1183), and a frozen enum here 422'd
+    # statuses the API itself accepted. Checked live by
+    # `validate_publication_intent` in manifest_sources.py. 20-char bound
+    # matches the record_status column (String(20)).
     intent: str = Field(
         min_length=1,
         max_length=20,
@@ -293,9 +252,8 @@ class ManifestDataset(_ManifestBaseModel):
     key: ManifestDatasetKey
     title: NonEmptyString500
     description: NonEmptyString5000 | None = None
-    # Manifest v1 currently routes exactly one source through one ingest job.
-    # Accepting additional entries would include them in the idempotency
-    # fingerprint while silently ignoring every source after the first.
+    # Exactly one source per ingest job — extra entries would join the
+    # idempotency fingerprint while silently being ignored.
     sources: list[ManifestSource] = Field(min_length=1, max_length=1)
     metadata: ManifestMetadata | None = None
     publication: ManifestPublication

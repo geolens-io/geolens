@@ -2,24 +2,22 @@
 
 Two kinds of check live here, and they are NOT the same trust class.
 
-Hard boundary, and must be correct: one SELECT only, the blocked
+Hard boundary, must be correct: one SELECT only, the blocked
 function/operator list, the OID/regclass rejection, and RBAC table access
 through ``check_table_access``. A miss here reaches data or side effects it
 must not.
 
 The fan-out and output-width COST MODEL is best-effort pre-filtering, NOT a
-security boundary. It reads a static AST with no catalog statistics, so it
-cannot be complete. That is acceptable because every executed query is bounded
+security boundary: it reads a static AST with no catalog statistics, so it
+cannot be complete. That's acceptable because every executed query is bounded
 at runtime by ``execute_safe``: one in-flight query per user via
 ``pg_try_advisory_xact_lock``, a global capacity semaphore, a hard
 ``SET LOCAL statement_timeout``, a READ ONLY transaction on the fail-closed
-reader role, an outer row limit with a post-fetch serialized-byte cap, and an
-isolated request-session release.
-
-So the worst case of any under-count is one query, for one user, on the reader
-role, killed at the timeout, with its output clamped by the row and byte caps.
-A cost-model gap inside that floor is an accepted limitation, not a defect;
-only a runtime bound above that is missing or bypassable is a security issue.
+reader role, an outer row limit with a post-fetch byte cap, and an isolated
+request-session release. So the worst case of any under-count is one query,
+for one user, killed at the timeout, output clamped by the row/byte caps —
+a cost-model gap inside that floor is an accepted limitation, not a defect;
+only a missing or bypassable RUNTIME bound is a security issue.
 """
 
 from __future__ import annotations
@@ -493,12 +491,12 @@ def _resolve_binding(
 
     Lexical scoping, not a whole-statement search: an unrelated nested query
     reusing an alias must not make an outer binding look ambiguous. Walking
-    outward is also what resolves the correlated reference the
-    buffer's input fence relies on, since `(SELECT s.geom_4326 AS g OFFSET 0)
-    AS _pb` has no FROM of its own.
+    outward also resolves the correlated reference the buffer's input fence
+    relies on, since `(SELECT s.geom_4326 AS g OFFSET 0) AS _pb` has no
+    FROM of its own.
 
-    Returns the bound source and the scope that bound it, or None when the name
-    is unknown or bound more than once in one scope.
+    Returns the bound source and the scope that bound it, or None when the
+    name is unknown or bound more than once in one scope.
     """
     node: exp.Expression | None = select
     while node is not None:
@@ -518,11 +516,11 @@ def _sole_base_table(select: exp.Select) -> exp.Table | None:
     Walks outward past scopes that bind nothing and stops at the first that
     binds anything, which is how PostgreSQL resolves an unqualified name.
 
-    Known limit, and a deliberate one: a bare `geom_4326` handed to the buffer
-    at the top level is REFUSED, because the scaffold interposes its own
-    `(SELECT ... OFFSET 0) AS _pb` scope and deciding whether the name belongs
-    to `_pb` or to the outer table needs the table's column list. The prompt
-    teaches the qualified form for exactly this reason.
+    Deliberate known limit: a bare `geom_4326` handed to the buffer at the
+    top level is REFUSED — the scaffold interposes its own
+    `(SELECT ... OFFSET 0) AS _pb` scope, and deciding whether the name
+    belongs to `_pb` or the outer table needs the table's column list. The
+    prompt teaches the qualified form for exactly this reason.
     """
     node: exp.Expression | None = select
     while node is not None:
@@ -629,29 +627,29 @@ def _resolves_to_stored_column(scope: exp.Expression, column: exp.Column) -> boo
 def _is_bounded_geometry_source(stmt: exp.Expression, node: exp.Expression) -> bool:
     """Whether `node` can only be a stored geometry, never a manufactured one.
 
-    The scaffold assumes its input is a 4326 geometry, so its
-    planar span is at most 360 degrees; it slices that span into ~6-degree
-    bands and densifies it with `ST_Segmentize`, both of which scale with the
-    span. Two shapes reach past that without tripping any other guard:
+    The scaffold assumes its input is a 4326 geometry, so its planar span is
+    at most 360 degrees; it slices that span into ~6-degree bands and
+    densifies with `ST_Segmentize`, both scaling with the span. Two shapes
+    reach past that without tripping any other guard:
 
       ST_Buffer(ST_SetSRID(ST_MakePoint(0,0),4326), 1000000000)
-          a PLANAR buffer, so the radius is DEGREES -- a two-billion-degree
+          a PLANAR buffer, so the radius is DEGREES — a two-billion-degree
           span, hundreds of millions of bands, billions of vertices;
       ST_Transform(geom_4326, 3857)
           hands the scaffold metres with no large literal at all, so a
           40-million-unit span segmentized at 0.1 is the same explosion.
 
-    Inspecting the expression's own functions cannot answer this, because the
-    question is one of units, so the rule is structural: a bare column
-    reference, or a scalar subquery projecting one. Both prompt shapes qualify.
+    Inspecting the expression's own functions can't answer this (it's a
+    units question), so the rule is structural: a bare column reference, or
+    a scalar subquery projecting one.
 
-    A bare column is not enough on its own, because an alias
-    launders the expression back in -- a CTE projecting
-    `ST_Transform(geom_4326, 3857) AS g` satisfies the column test while the
-    `ST_Transform` sits OUTSIDE the exempt subtree. So the column's lineage is
-    resolved through CTE and derived-table projections until it reaches a base
-    table, and anything unresolvable is refused. The subquery's other clauses
-    stay under the ordinary allowlist and table checks.
+    A bare column alone is not enough, because an alias launders the
+    expression back in — a CTE projecting `ST_Transform(geom_4326, 3857) AS
+    g` passes the column test while the `ST_Transform` sits OUTSIDE the
+    exempt subtree. So the column's lineage is resolved through CTE and
+    derived-table projections until it reaches a base table; anything
+    unresolvable is refused. The subquery's other clauses stay under the
+    ordinary allowlist and table checks.
     """
     if isinstance(node, exp.Column):
         return _resolves_to_stored_column(stmt, node)
@@ -788,12 +786,12 @@ def _reject_too_many_output_columns(
 ) -> None:
     """Reject a statement whose output row is too wide.
 
-    Response width amplifies with no function at all, so
-    three forms are bounded here by counting VALUE SLOTS rather than AST
-    projections: many projections, one composite projection, and `SELECT *` /
-    `t.*` against a wide table, which expands to an unknown count and is
-    refused outright. The result columns are the outermost scope's projections
-    (a set op's branches must match, so the first is representative).
+    Response width amplifies with no function at all, so three forms are
+    bounded here by counting VALUE SLOTS rather than AST projections: many
+    projections, one composite projection, and `SELECT *` / `t.*` against a
+    wide table, which expands to an unknown count and is refused outright.
+    Result columns come from the outermost scope's projections (a set op's
+    branches must match, so the first is representative).
     """
     if cap is None:
         return
@@ -840,14 +838,14 @@ def _reject_recursive_cte(stmt: exp.Expression, sql: str) -> None:
 def _reject_oid_alias_casts(stmt: exp.Expression, sql: str) -> None:
     """Reject casts to PostgreSQL OID-alias types (``regrole``, ``regclass``…).
 
-    A cast to a ``reg*`` OID-alias type resolves an integer OID
-    to a catalog name, so ``SELECT v::regrole ... (VALUES (10), (16384))``
-    reads database role names without referencing any catalog table.
+    A cast to a ``reg*`` OID-alias type resolves an integer OID to a catalog
+    name, so ``SELECT v::regrole ... (VALUES (10), (16384))`` reads database
+    role names without referencing any catalog table.
 
-    Matched by the NORMALIZED type NAME, not the node type. A
-    bare ``regrole`` parses as ``exp.ObjectIdentifier`` but a qualified
+    Matched by the NORMALIZED type NAME, not the node type: a bare
+    ``regrole`` parses as ``exp.ObjectIdentifier`` but a qualified
     ``pg_catalog.regrole`` parses as a USER-DEFINED ``exp.DataType``, so a
-    node-type check does not see the qualified spelling. Normal types never
+    node-type check misses the qualified spelling. Normal types never
     render one of these tokens.
     """
     for cast in stmt.find_all(exp.Cast):
@@ -861,13 +859,13 @@ def _check_niladic_keywords(stmt: exp.Expression, sql: str) -> None:
     """Reject PostgreSQL's parenless identity keywords.
 
     ``SELECT user``/``current_role``/``system_user`` parse as ``exp.Column``,
-    so the Func walk in :func:`_check_function_allowlist` never sees them, yet
-    PostgreSQL evaluates them as SQLValueFunctions and returns the effective
-    role, the login name and the authentication method -- a reliable readout of
+    so the Func walk in :func:`_check_function_allowlist` never sees them,
+    yet PostgreSQL evaluates them as SQLValueFunctions returning the
+    effective role, login name and auth method — a reliable readout of
     whether ``SET LOCAL ROLE geolens_reader`` took effect.
 
     Only the unqualified, unquoted spelling is rejected: ``t.user`` and
-    ``"user"`` are real column references in PostgreSQL and stay allowed.
+    ``"user"`` are real column references and stay allowed.
     """
     for column in stmt.find_all(exp.Column):
         if column.table:
@@ -964,9 +962,9 @@ def validate_sql(
     Rejects: INSERT, UPDATE, DELETE, DROP, CREATE, multi-statement, SELECT INTO.
 
     ``extra_blocked_functions``, ``max_values_rows`` and ``max_output_columns``
-    are the raw-SQL endpoint's extra guards: output-amplifying function names to
-    reject, a per-VALUES tuple-count cap, and a projection-count cap, since
-    repeated columns amplify response width. Left None (off) for AI chat.
+    are the raw-SQL endpoint's extra guards: output-amplifying function names
+    to reject, a per-VALUES tuple-count cap, and a projection-count cap.
+    Left None (off) for AI chat.
     """
     try:
         statements = sqlglot.parse(sql, dialect="postgres")
@@ -1059,13 +1057,13 @@ def _resolve_cte(table: exp.Table) -> exp.CTE | None:
     Resolves against the WITH clauses in scope for THIS node, in declaration
     order: a body sees only siblings declared strictly before it, an owner
     query body sees them all, and the nearest enclosing binding wins.
-    Identifiers fold as PostgreSQL folds them, so quoted ``"PG_USER"`` does not
-    bind an unquoted ``PG_USER`` reference. A schema-qualified name is never a
-    CTE reference.
+    Identifiers fold as PostgreSQL folds them, so quoted ``"PG_USER"`` does
+    not bind an unquoted ``PG_USER`` reference. A schema-qualified name is
+    never a CTE reference.
 
     Returns None whenever the name does not resolve, which the caller must
-    treat as a real table and access-check: a name that resolves here is
-    skipped, and one that wrongly resolves reaches ``pg_catalog`` unchecked.
+    treat as a real table and access-check: a wrongly-resolved name would
+    let it reach ``pg_catalog`` unchecked.
     """
     if table.db:
         return None
@@ -1171,11 +1169,11 @@ def _join_is_constrained(join: exp.Join) -> bool:
 def _predicate_constrains(node: exp.Expression | None) -> bool:
     """Whether a boolean predicate genuinely narrows the join it gates.
 
-    An equality merely OCCURRING in the ON is not
-    enough — ``a.gid = b.gid OR TRUE`` is always true, so the join is still a
-    cartesian product. The predicate constrains only if an ``AND`` has a
-    constraining side, an ``OR`` has ALL sides constraining, or it is itself a
-    column-to-column equality. ``TRUE`` / ``1=1`` / an inequality do not.
+    An equality merely OCCURRING in the ON is not enough — ``a.gid = b.gid
+    OR TRUE`` is always true, so the join is still a cartesian product. It
+    constrains only if an ``AND`` has a constraining side, an ``OR`` has ALL
+    sides constraining, or it is itself a column-to-column equality.
+    ``TRUE`` / ``1=1`` / an inequality do not.
     """
     if node is None:
         return False
@@ -1388,13 +1386,12 @@ def _source_excess(
     product, so only its internal work beyond its row count adds. A
     parenthesized group's excess folds in the same way.
 
-    A CTE reference carries excess too, because PostgreSQL
-    inlines a non-recursive CTE, so its internal correlated work re-executes
-    per outer row rather than materializing once. An ordinary derived table is
-    the same worst case, since PostgreSQL can FLATTEN it.
-    A LATERAL over a NON-scope carries no inner scope to unwrap,
-    but the subqueries buried in it still run per outer row, so they are costed
-    directly as its per-row work.
+    A CTE reference carries excess too, because PostgreSQL inlines a
+    non-recursive CTE, so its internal correlated work re-executes per outer
+    row rather than materializing once. An ordinary derived table is the
+    same worst case, since PostgreSQL can FLATTEN it. A LATERAL over a
+    NON-scope carries no inner scope to unwrap, but its buried subqueries
+    still run per outer row, so they're costed directly as per-row work.
     """
     work: _FanoutMap
     rows: _FanoutMap
@@ -1446,20 +1443,20 @@ def _correlated_scopes(
 ) -> tuple[list[exp.Expression], list[exp.Expression], list[exp.Expression]]:
     """Per-INPUT-row and per-OUTPUT-row subquery scopes of ``select``.
 
-    A scalar/EXISTS/IN/WHERE subquery executes per row of the
-    enclosing SELECT, so its work multiplies by that row count. These are the
-    outermost such scopes directly under ``select``; its FROM/JOIN sources and
-    its WITH bodies are excluded, and deeper nesting is reached by recursion.
+    A scalar/EXISTS/IN/WHERE subquery executes per row of the enclosing
+    SELECT, so its work multiplies by that row count. These are the
+    outermost such scopes directly under ``select``; its FROM/JOIN sources
+    and WITH bodies are excluded, deeper nesting reached by recursion.
 
-    Returns ``(per_input, per_output, per_statement)``: whether the scope runs
-    per INPUT row (WHERE / JOIN-ON / GROUP BY, before aggregation), per OUTPUT
-    row (SELECT list / HAVING / ORDER BY, after it), or ONCE per statement
-    (LIMIT / OFFSET). Only per-output work shrinks when the SELECT aggregates;
-    per-statement work never gets a row multiplier.
+    Returns ``(per_input, per_output, per_statement)``: whether the scope
+    runs per INPUT row (WHERE / JOIN-ON / GROUP BY, before aggregation), per
+    OUTPUT row (SELECT list / HAVING / ORDER BY, after it), or ONCE per
+    statement (LIMIT / OFFSET). Only per-output work shrinks when the
+    SELECT aggregates; per-statement work never gets a row multiplier.
 
-    A JOIN contributes BOTH a source and an ``ON`` predicate, so it cannot be
-    skipped wholesale; the walk distinguishes them by which side
-    of the join it ascended from.
+    A JOIN contributes BOTH a source and an ``ON`` predicate, so it can't be
+    skipped wholesale; the walk distinguishes them by which side it
+    ascended from.
     """
     per_input: list[exp.Expression] = []
     per_output: list[exp.Expression] = []
@@ -1573,8 +1570,8 @@ def _is_ungrouped_aggregate(select: exp.Select) -> bool:
     """Whether ``select`` collapses its input to a single row.
 
     True when it has an aggregate in its own SELECT list and no GROUP BY, so
-    per-output-row work runs once. A GROUP BY is
-    treated conservatively as not reducing (its output cardinality is unknown).
+    per-output-row work runs once. A GROUP BY is treated conservatively as
+    not reducing (its output cardinality is unknown).
     """
     if select.args.get("group"):
         return False
@@ -1594,15 +1591,15 @@ def _merge_max(target: _FanoutMap, other: _FanoutMap) -> None:
 def _max_table_fanout(stmt: exp.Expression) -> int:
     """The largest base-table WORK multiplicity anywhere in the statement.
 
-    A per-reference count cannot see fan-out that COMPOSES
-    through the CTE graph -- ``WITH a AS (...foo), b AS (a CROSS JOIN a), c AS
-    (b CROSS JOIN b) SELECT c CROSS JOIN c`` keeps every name at two references
-    while multiplying ``data.foo`` to the eighth power.
+    A per-reference count cannot see fan-out that COMPOSES through the CTE
+    graph -- ``WITH a AS (...foo), b AS (a CROSS JOIN a), c AS (b CROSS JOIN
+    b) SELECT c CROSS JOIN c`` keeps every name at two references while
+    multiplying ``data.foo`` to the eighth power.
 
-    Taking the max over EVERY scope also catches a heavy
-    self-join buried in a scalar or predicate subquery. Parenthesized join
-    groups are costed as their own candidates, since their
-    ON-predicate work has no wrapping SELECT.
+    Taking the max over EVERY scope also catches a heavy self-join buried in
+    a scalar or predicate subquery. Parenthesized join groups are costed as
+    their own candidates, since their ON-predicate work has no wrapping
+    SELECT.
     """
     rows_memo: _FanoutMemo = {}
     work_memo: _FanoutMemo = {}

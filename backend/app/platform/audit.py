@@ -24,12 +24,9 @@ logger = structlog.stdlib.get_logger(__name__)
 class AuditEvent:
     """Immutable audit event passed to every registered AuditSink.
 
-    ``user_id`` is optional (uuid.UUID | None): the underlying ``audit_logs.user_id``
-    column is nullable (ON DELETE SET NULL via FK to catalog.users) and is used by:
-    - SAML JIT-provisioning rows that pre-date the user creation
-    - Anonymous-download audit rows (KNOWN-01, Phase 1071): public datasets can
-      be downloaded by anonymous callers, and the audit row records this with
-      user_id=NULL rather than fabricating an actor.
+    ``user_id`` is nullable (FK ON DELETE SET NULL to catalog.users): used by
+    SAML JIT-provisioning rows that pre-date user creation, and anonymous
+    download rows where user_id=NULL rather than a fabricated actor.
     """
 
     user_id: uuid.UUID | None
@@ -43,27 +40,17 @@ class AuditEvent:
 def _event_fields(event: AuditEvent) -> dict:
     """Every field of a dropped event, so the log IS the fallback audit record.
 
-    fix(#1491): the two drop paths below used to log action/resource_type/
-    resource_id only. That is an alert nobody can reconstruct the event from —
-    the actor, their address and the payload, which are the whole point of an
-    audit row, went with the row.
+    fix(#1491): the previous drop-path log omitted the actor, address and
+    payload — the audit content itself. NIST AU-5 requires alerting on an
+    audit-logging failure; logging the full event here is the "alternate
+    audit logging capability" AU-5(4) waives fail-closed for.
 
-    This is what makes fail-open defensible rather than merely convenient.
-    NIST SP 800-53 AU-5 is allocated to every baseline and asks for an alert on
-    an audit-logging process failure; fail-closed is AU-5(4), which sits in no
-    baseline at all and is waived "unless an alternate audit logging capability
-    exists". Logging the complete event is that capability: a rejected row
-    lands in the application log instead of vanishing.
-
-    ``details`` goes through ``redact_nested()`` rather than straight to the
-    logger. Most payloads carry nothing sensitive — fingerprints, token hints,
-    ids, changed-field names — but ``persistent_config`` puts ``old_value``/
-    ``new_value`` in there, and a ``basemaps`` setting holds an ``api_key``
-    inside a basemap entry. The structlog redactor is shallow by design and
-    ``details`` is not itself a denylisted key, so that credential would have
-    been emitted verbatim, during an audit failure, into the application log.
-    The deep walk is affordable here because this runs only when a row is
-    dropped, not on every log line.
+    ``details`` goes through ``redact_nested()``, not straight to the
+    logger: the structlog redactor is shallow and ``details`` isn't itself
+    denylisted, so a ``persistent_config`` ``old_value``/``new_value`` or a
+    basemap ``api_key`` would otherwise be emitted verbatim into the
+    application log. The deep walk is affordable here — it runs only when a
+    row is dropped.
     """
     return {
         "action": event.action,
@@ -94,45 +81,31 @@ async def audit_emit(
 ) -> None:
     """Dispatch an audit event to every registered sink with failure isolation.
 
-    ``sinks`` narrows the dispatch to the given sinks; by default every
-    registered sink receives the event.
+    ``sinks`` narrows the dispatch; by default every registered sink is used.
 
-    AUDIT-03's contract is that an audit sink must never break the operation it
-    records. The try/except below is only half of that: the default sink's
-    ``emit()`` bottoms out in ``session.add()``, which cannot fail, and the
-    INSERT it stages runs at the CALLER's flush/commit — outside any guard here.
-    A row the database rejects therefore used to roll back the caller's mutation
-    along with itself (#1484: a ``datetime.date`` in a stdlib-JSON column 500'd
-    a dataset PATCH and silently discarded the other fields in the same body).
+    An audit sink must never break the operation it records. The
+    try/except alone is not enough — the default sink's ``emit()`` bottoms
+    out in ``session.add()``, which cannot fail; the INSERT it stages runs
+    at the CALLER's flush/commit, outside any guard here.
 
-    fix(#1491): each sink now runs inside its own SAVEPOINT and its work is
-    flushed there, so a bad audit row rolls back only itself and the caller's
-    transaction survives. Fail-open, and loud: the failure is logged with the
-    sink and the event that produced it.
+    fix(#1491): each sink now runs inside its own SAVEPOINT, flushed there,
+    so a bad audit row rolls back only itself. Fail-open and loud: failures
+    are logged with the sink and event.
 
-    Two consequences worth knowing at the 100-odd call sites:
-
-    * The caller's pending work is flushed here (see the flush below). Callers
-      that stage a mutation and rely on a later ``commit()`` to raise its
-      IntegrityError will now see it raised at this call instead.
-    * Each event costs a SAVEPOINT / INSERT / RELEASE round trip that used to
-      ride along with the caller's commit.
+    Two consequences at the ~100 call sites: the caller's pending work is
+    flushed here, so a staged mutation's IntegrityError now raises at this
+    call instead of at a later ``commit()``; and each event costs a
+    SAVEPOINT / INSERT / RELEASE round trip.
     """
     sinks = get_audit_sinks() if sinks is None else list(sinks)
     if not sinks:
         return
 
-    # A missing session is an audit-infrastructure fault, and AUDIT-03 says
-    # those must not break the caller. The pre-#1491 code degraded here by
-    # accident: with no session it raised inside sink.emit(), where the
-    # try/except swallowed it. Moving the flush out of that guard (see below)
-    # made the same input a 500 instead, which surfaced on the OAuth generic-
-    # error path — a route whose entire job at that point is to return a clean
-    # 302 with Referrer-Policy: no-referrer. Turning an unaudited failure into
-    # an unhandled one there is strictly worse.
-    #
-    # Logged at error rather than passed over: this should not happen in a
-    # wired-up app, and swallowing it silently would hide a real defect.
+    # A missing session is an audit-infrastructure fault (must not
+    # break the caller) — concretely, on the OAuth generic-error path, whose
+    # only job here is a clean 302 with Referrer-Policy: no-referrer.
+    # Logged at error, not swallowed: this should never happen in a
+    # wired-up app.
     if session is None:
         logger.error(
             "audit_emit called without a session; event dropped",
@@ -140,20 +113,16 @@ async def audit_emit(
         )
         return
 
-    # Flush the CALLER's pending work HERE, outside every guarded block below.
-    # This is not an optimisation; it is the safety argument for the savepoint.
+    # Flush the CALLER's work HERE, outside every guarded block below — this
+    # is the safety argument for the savepoint, not an optimisation.
+    # ``begin_nested()`` flushes the whole session as it takes its snapshot
+    # (SQLAlchemy's ``_take_snapshot``); left inside the try/except, a broken
+    # caller mutation would raise inside the audit savepoint, roll back with
+    # it, and be swallowed as an "audit failure" — the edit silently
+    # discarded, pointing at the wrong culprit.
     #
-    # ``begin_nested()`` flushes the whole session as the first act of taking
-    # its snapshot (SQLAlchemy ``SessionTransaction._take_snapshot``), and that
-    # flush is the caller's work, not ours. Left to happen inside the try/except
-    # below, a caller whose own mutation is broken would have that error raised
-    # inside the audit savepoint, rolled back with it, and swallowed as an audit
-    # failure — the user's edit discarded and the log pointing at the wrong
-    # culprit. That is the #1484 bug inverted and much harder to diagnose.
-    #
-    # Running it here has a second effect the code below depends on: the session
-    # is clean when each savepoint opens, so anything pending inside one is
-    # necessarily the sink's own.
+    # Second effect the code below depends on: the session is clean when
+    # each savepoint opens, so anything pending inside one is the sink's own.
     await session.flush()
 
     for sink in sinks:

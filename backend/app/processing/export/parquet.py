@@ -1,14 +1,12 @@
 """GeoParquet export writer (pyarrow).
 
-The Debian GDAL build ships without the Arrow/Parquet driver, so ogr2ogr
-(export/ogr.py) cannot emit Parquet. This module writes a spec-valid
-GeoParquet 1.1 file directly from PostGIS via pyarrow instead — the geometry
-column is WKB-encoded and the file carries the ``geo`` metadata key that
-DuckDB, GeoPandas, and QGIS read.
+The Debian GDAL build has no Arrow/Parquet driver, so ogr2ogr can't emit
+Parquet; this module writes GeoParquet 1.1 directly from PostGIS via
+pyarrow instead, WKB-encoding geometry and attaching the ``geo`` metadata
+key DuckDB/GeoPandas/QGIS read.
 
-CRS: output is always EPSG:4326 (lon/lat), i.e. GeoParquet's default OGC:CRS84.
-The router rejects a non-4326 ``target_crs`` for parquet, so no reprojection or
-embedded PROJJSON is needed here.
+Output is always EPSG:4326 (OGC:CRS84); the router rejects a non-4326
+``target_crs`` for parquet, so no reprojection is needed here.
 """
 
 import asyncio
@@ -36,7 +34,7 @@ from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable, get_column_info
 
 # Re-exported from `ogr.py`, which owns it so `api/main.py` can read the whole
-# set of export media types without importing pyarrow (fix(#1532 review r9)).
+# set of export media types without importing pyarrow (fix(#1532)).
 from app.processing.export.ogr import PARQUET_MEDIA_TYPE  # noqa: F401
 
 # Mirror router._MAX_EXPORT_FEATURES. The router skips its cap when a dataset's
@@ -106,11 +104,9 @@ def build_geoparquet_table(
 ) -> "pa.Table":
     """Build a GeoParquet-annotated Arrow table from columnar Python values.
 
-    The WKB geometry lives in ``geom_col`` (renamed off "geometry" only when a
-    user attribute already claims that name); ``geo`` file metadata is attached
-    so DuckDB/GeoPandas/QGIS recognize the file. pyarrow infers each attribute
-    column's type; a column it can't unify (rare, mixed JSON) falls back to
-    string so the export still succeeds. Pure/DB-free so it is unit-testable.
+    WKB geometry lives in ``geom_col`` (renamed off "geometry" only when a
+    user attribute claims that name). A column pyarrow can't unify falls
+    back to string so the export still succeeds. Pure/DB-free, unit-testable.
     """
     arrays: dict[str, "pa.Array"] = {}
     for name in attr_names:
@@ -162,25 +158,20 @@ async def plan_parquet_export(
 ) -> ParquetExportPlan:
     """Everything that decides a parquet export's STATUS, producing no file.
 
-    fix(#1513, codex P2 on #1522): split out of ``export_parquet`` so the route
-    can run it BEFORE it answers a HEAD. Live introspection, filter validation
-    and the bounded count are all queries, not conversion, so a HEAD can afford
-    them — and has to: while these lived inside ``export_parquet`` a HEAD
-    answered 200 and the caller's follow-up range GET then failed 400 or 413,
-    which is worse than the 405 the HEAD route replaced, because it lies.
-
-    Split at the conversion boundary, not at an arbitrary point: everything
-    here is a read, and everything after it in ``export_parquet`` builds the
-    file. Returning the plan means a GET pays for this exactly once.
+    fix(#1513): split out so the route can run this
+    BEFORE answering a HEAD — introspection, filter validation and the
+    bounded count are reads a HEAD can afford; left inside
+    ``export_parquet``, a HEAD answered 200 while the GET later failed
+    400/413.
 
     Raises:
         ValueError: bad filter (unknown column, malformed clause) -> 400.
         ExportTooLargeError: selection over the cap -> 413.
     """
-    # Introspect the live table once and use it for BOTH column selection and
-    # filter validation — dataset.column_info is nullable, and trusting it would
-    # (a) silently export geometry-only and (b) reject a valid filter on a
-    # metadata-less dataset even though the columns are right here.
+    # Introspect the live table once for BOTH column selection and filter
+    # validation: dataset.column_info is nullable, and trusting it would (a)
+    # silently export geometry-only or (b) reject a valid filter when columns
+    # are right here.
     live_columns = await get_column_info(db, table_name, schema=schema)
     attr_names = _attr_names(live_columns)
 
@@ -193,37 +184,32 @@ async def plan_parquet_export(
     else:
         safe_where = None
 
-    # No blanket geom_4326 IS NOT NULL: a full export must keep rows with null
-    # geometry (they export with a null geometry cell, like the feature read path
-    # and the other export formats). A bbox filter still drops them naturally —
-    # a null geometry neither && nor ST_Intersects an envelope.
+    # No blanket geom_4326 IS NOT NULL: a full export keeps null-geometry
+    # rows (like the feature read path and other formats). A bbox filter
+    # still drops them naturally — null neither && nor ST_Intersects.
     clauses: list[str] = []
     params: dict = {}
     if bbox is not None:
-        # Mirror the features query bbox semantics (features/service.py): an
-        # envelope && prefilter for the index PLUS an exact ST_Intersects, and
-        # the antimeridian split when minx > maxx (parse_bbox allows it). Using
-        # only && would silently drop antimeridian boxes and return an
-        # envelope-overlap superset instead of the rows actually in the bbox.
-        # fix(#885): the fragment now comes from the shared builder in
-        # export/ogr.py, so the ogr2ogr path splits identically instead of
-        # handing a degenerate rectangle to -spat.
+        # Mirrors features query bbox semantics (features/service.py): an &&
+        # prefilter plus exact ST_Intersects, with the antimeridian split
+        # when minx > maxx (parse_bbox allows it) — && alone would drop
+        # antimeridian boxes and return an envelope-overlap superset.
+        # fix(#885): fragment comes from the shared builder in export/ogr.py
+        # so the ogr2ogr path splits identically.
         clauses.append(bbox_where_sql(bbox))
         params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])
     if safe_where is not None:
-        # SQLAlchemy text() reads ":name" as a bind parameter; a colon inside a
-        # string literal in the validated where clause (e.g. name = 'A:B' or an
-        # ISO timestamp) would otherwise misparse as an unbound param and fail.
-        # Escape colons to text()'s literal-colon form (\:). The bbox clause's
-        # real :minx/:miny binds are added separately and stay unescaped.
+        # SQLAlchemy text() reads ":name" as a bind; a colon inside the
+        # validated where clause (e.g. 'A:B', an ISO timestamp) would
+        # misparse. Escape to text()'s literal-colon form (\:); the bbox
+        # clause's real :minx/:miny binds are added separately, unescaped.
         escaped_where = safe_where.replace(":", "\\:")
         clauses.append(f"({escaped_where})")
     where_sql = " AND ".join(clauses) if clauses else "TRUE"
 
-    # Bound the in-memory build. The router caps by feature_count, but that guard
-    # is skipped when feature_count is NULL, so count the actual selection here
-    # (LIMIT stops the scan at cap+1) before streaming millions of rows into
-    # Python lists and OOMing the worker.
+    # Bound the in-memory build: the router's feature_count cap is skipped
+    # when NULL, so count the actual selection here (LIMIT stops the scan at
+    # cap+1) before streaming millions of rows into Python lists.
     count_sql = (
         f"SELECT COUNT(*) FROM (SELECT 1 FROM "
         f"{_qtable(table_name, schema=schema)} t "
@@ -280,39 +266,25 @@ async def export_parquet(
 ) -> tuple[str, str, str]:
     """Write the planned selection to a GeoParquet file.
 
-    Takes the plan from ``plan_parquet_export`` rather than deriving it, so the
-    route can decide the response status before it commits to producing bytes
-    (fix(#1513)). Every rejection this export can produce has already happened
-    by the time it is called.
+    Takes the plan from ``plan_parquet_export`` rather than deriving it, so
+    the route can decide the response status before committing to bytes
+    (fix(#1513)).
 
     Returns (file_path, download_filename, media_type). The caller owns the
     returned file's parent directory (FileResponse background cleanup).
+    Builds the whole selection in memory; bounded by the plan's count check.
 
-    Builds the whole selection in memory before writing one Parquet file.
-    Bounded by the plan's count check; switch to a fixed-schema batched
-    ParquetWriter if that ceiling ever needs raising.
-
-    deadline: ``time.monotonic()`` stamp by which the whole request must be
-        answered, from the route's entry. The ogr2ogr formats bound their
-        subprocess wall clock and libpq ``statement_timeout`` by what is left
-        of this (fix(#1778), ``export_subprocess_timeout_seconds``); this
-        format has no subprocess, but an unindexed table or a wide selection
-        can stream rows past the same edge-proxy window with nothing to stop
-        it. Reuses that helper rather than deriving a second bound, and raises
-        the same ``ExportError`` the ogr2ogr timeout raises, so the router's
-        ``except ExportError`` handling — one 500, not a response nginx has
-        already severed — is identical for every format. ``None`` for a
-        caller outside a request, which is the same arithmetic with an
-        elapsed time of zero.
+    deadline: ``time.monotonic()`` stamp for the whole request. Reuses
+        ``export_subprocess_timeout_seconds`` (fix(#1778)) since an
+        unindexed table can stream past the edge-proxy window with nothing
+        else to stop it. None outside a request.
     """
     attr_names, where_sql, params = plan
 
-    # Select the attribute columns directly (not via to_jsonb) so the async
-    # driver returns native Python values — dates, timestamps, UUIDs, numerics —
-    # and Arrow infers real column types instead of everything-as-string. Geometry
-    # is selected last and read positionally, so a user column that happens to
-    # share the WKB alias can't shadow it. Idents are information_schema names,
-    # double-quoted (embedded quotes doubled) defensively.
+    # Selects attribute columns directly (not via to_jsonb) so the async
+    # driver returns native Python values and Arrow infers real types.
+    # Geometry is selected last, read positionally, so a user column sharing
+    # the WKB alias can't shadow it. Idents double-quoted defensively.
     select_parts = ['"' + n.replace('"', '""') + '"' for n in attr_names]
     select_parts.append("ST_AsBinary(geom_4326)")
     sql = (
@@ -343,10 +315,9 @@ async def export_parquet(
     output_path = os.path.join(temp_dir, filename)
     geom_col = _geometry_column_name(attr_names)
     try:
-        # Arrow encoding + write are CPU-bound and can block the event loop for
-        # a multi-GB export; run them in a thread (mirrors the shapefile zip path
-        # in export/service.py), drained so a client disconnect can't rmtree
-        # temp_dir mid-write.
+        # CPU-bound Arrow encode+write can block the loop for a multi-GB
+        # export; threaded and drained (mirrors export/service.py's
+        # shapefile zip) so a disconnect can't rmtree temp_dir mid-write.
         await run_in_thread_draining(
             _write_geoparquet, geom, cols, attr_names, geom_col, output_path
         )
