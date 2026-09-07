@@ -1,10 +1,8 @@
 """Job status API endpoints: poll ingestion job progress and retry.
 
-The stale-job recovery/sweep handlers and their SQL constants split out into
-``sweep.py`` (#1335) — this module keeps the plain job CRUD surface (the
-FastAPI routes below) and re-exports what it imports from there, so every
-name a caller previously imported from ``app.platform.jobs.router`` still
-resolves from here.
+The stale-job recovery/sweep handlers split out into ``sweep.py`` (#1335);
+this module keeps the job CRUD routes and re-exports what it imports from
+there for backward compatibility.
 """
 
 import uuid
@@ -75,8 +73,7 @@ from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
 log = structlog.get_logger()
 
 # Contract: only these two keys may appear in temporal_parse_errors. The
-# alias lets ``cast`` narrow dict writes without triggering ruff F821 on
-# string literals inside the ``Literal[...]`` expression.
+# alias lets ``cast`` narrow dict writes without ruff F821 on Literal strings.
 TemporalParseKey = Literal["temporal_start", "temporal_end"]
 
 router = APIRouter(prefix="/jobs", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
@@ -92,23 +89,17 @@ async def _can_access_another_users_job(
 ) -> bool:
     """Delegate cross-user job access to the effective permission policy.
 
-    Owner access is handled by callers before invoking this helper. Passing the
-    job as ``resource`` lets enterprise extensions apply finer-grained policy
-    without core code falling back to a hard-coded role-name check.
+    Owner access is handled by callers before invoking this helper. Passing
+    the job as ``resource`` lets enterprise extensions apply finer-grained
+    policy instead of a hard-coded role-name check.
 
-    ``log_denial`` (fix(#1709 review r12)) exists because this check is a
-    whole decision at two call sites and only ONE ARM of a decision at a
-    third. Where it decides alone (``get_job_status``, ``retry_job``) a
-    refusal here IS the request's refusal and must be recorded — those
-    callers keep the default. Where a later arm can still grant (cancel's
-    dataset-write arm, the supported case of a dataset owner cancelling a
-    refresh an admin triggered), logging here would file a security denial
-    on every SUCCESSFUL cancel: false positives that trip alerts and bury
-    real denials. Such callers pass ``log_denial=False`` and own emitting
-    exactly one event once every arm has failed.
-
-    A default of True is the safe direction: a new caller that forgets the
-    flag over-reports rather than losing a denial silently.
+    ``log_denial`` (fix(#1709)): where this check decides alone
+    (``get_job_status``, ``retry_job``), a refusal here IS the request's
+    refusal and must be recorded. Where a later arm can still grant
+    (cancel's dataset-write arm), logging here would file a denial on every
+    SUCCESSFUL cancel — such callers pass ``log_denial=False`` and emit
+    exactly one event once every arm has failed. Default True: a caller
+    that forgets the flag over-reports rather than losing a denial silently.
     """
     # Deferred by design: shared platform code must not import product-domain
     # policy implementations at module load time (D-17).
@@ -187,8 +178,8 @@ async def cleanup_stale_jobs(
         multi_tenant = is_multi_tenant()
         if multi_tenant:
             # FORCE RLS makes a request session visible only to its current
-            # tenant. The lifecycle helper opens a scoped transaction for
-            # every tenant and reaps each tenant's staged objects in context.
+            # tenant; the lifecycle helper opens a scoped transaction per
+            # tenant and reaps each one's staged objects in context.
             from app.api.main import sweep_stale_jobs_once
 
             fleet_details = await sweep_stale_jobs_once(detailed=True)
@@ -220,25 +211,22 @@ async def cleanup_stale_jobs(
         if multi_tenant:
             details = database_details
         else:
-            # fix(#1277 review): this path passed commit=False, so the sweep
-            # deferred its counter to whoever owns the commit — that is the
-            # line above. The multi-tenant branch needs nothing here: the
-            # fleet helper runs fail_stale_jobs with its own commit per
-            # tenant, so each tenant's pass publishes its own.
+            # fix(#1277): this path passed commit=False, so the sweep
+            # deferred its counter to the commit above; the fleet helper
+            # (multi-tenant) already publishes its own per tenant.
             publish_refresh_reconciliation(outcome)
             outcome = await _reap_committed_staged_paths(outcome)
             outcome = await _sweep_expired_presigned_staging(db, outcome)
             # fix(#1249): same object-driven reconciliation the background
-            # sweeper runs. The multi-tenant branch needs nothing here — the
-            # fleet helper runs fail_stale_jobs with its own commit per
-            # tenant, and that path already reconciles in tenant context.
+            # sweeper runs; the fleet helper (multi-tenant) already
+            # reconciles per tenant.
             await reconcile_orphaned_staging_objects(db)
             details = outcome.as_dict()
     except Exception as exc:  # broad: cleanup spans DB and artifact deletion
         await db.rollback()
         # Cleanup failures can embed local paths or storage keys in exception
-        # messages. Record only the exception class in operator telemetry; the
-        # correlated audit event likewise carries a stable error code only.
+        # messages; record only the exception class, and let the correlated
+        # audit event carry a stable error code only.
         log.error(
             "Stale job cleanup failed",
             operation_id=operation_id,
@@ -275,9 +263,8 @@ async def cleanup_stale_jobs(
         ) from None
 
     # Cleanup has already committed and reaped its artifacts. A bookkeeping
-    # outage must not turn that successful mutation into a retryable 500 or
-    # emit a contradictory ``failed`` event; the committed phase marker still
-    # provides a durable recovery trail.
+    # outage must not turn that success into a retryable 500 or a
+    # contradictory ``failed`` event; the phase marker is already durable.
     try:
         await audit_emit_durable(
             AuditEvent(
@@ -339,13 +326,11 @@ async def get_job_status(
     # Auto-fail jobs whose worker lease has expired. Fall back to started_at
     # for jobs created before heartbeat support was deployed.
     #
-    # fix(#691): analysis materialize jobs use the short materialize lease
-    # rather than the 60-minute backstop, mirroring the per-user cap in
-    # router_analysis.py. The frontend polls this route for any job it
-    # tracks, so a hard-killed worker's analysis job flips to failed within
-    # the lease window and the Analysis panel's Create button re-enables at
-    # the same moment the server would admit a new materialize — the client
-    # follows the server's signal without needing heartbeat visibility.
+    # fix(#691): analysis materialize jobs use the short materialize lease,
+    # not the 60-minute backstop — the frontend polls this route, so a
+    # hard-killed analysis job flips to failed within the lease window and
+    # the Create button re-enables at the same moment the server would admit
+    # a new materialize.
     liveness_at = job.heartbeat_at or job.started_at
     if job.status == "running" and liveness_at is not None:
         is_analysis = "analysis" in (job.user_metadata or {})
@@ -369,17 +354,13 @@ async def get_job_status(
                     completed_at=now,
                 )
             )
-            # fix(#1550 review r2): gated on the UPDATE landing, as the
+            # fix(#1550): gated on the UPDATE landing, as the
             # stale-pending branch below already is. The predicate is
-            # conditional — a heartbeat renewal or the worker's own
-            # finalization committing between this request's read and this
-            # write makes it match zero rows — and auditing anyway would put
-            # "worker_lost" over a job that is still running, or that has just
-            # completed. A helper that performs a state change reports whether
-            # it landed; a caller recording an outcome conditions on that.
+            # conditional — a renewal or the worker's own finalize committing
+            # between read and write makes it match zero rows, and auditing
+            # anyway would put "worker_lost" over a still-running job.
             #
-            # Same transaction as the status change, so the two records of one
-            # state cannot disagree.
+            # Same transaction as the status change, so the two can't disagree.
             if lease_result.rowcount:
                 await audit_settled_embedding_backfill(
                     db,
@@ -391,37 +372,33 @@ async def get_job_status(
             await db.commit()
             await db.refresh(job)
 
-    # Auto-fail jobs stuck in "pending" beyond the timeout (orphaned / never
-    # queued). fix(#724 review): gated on the same live-queue predicate the
-    # sweeper uses — this is the path that actually fires, because the frontend
-    # polls this route every 2s for any job it is tracking.
+    # Auto-fail jobs stuck 'pending' beyond the timeout (orphaned/never
+    # queued). fix(#724): gated on the same live-queue predicate the
+    # sweeper uses — this is the path that fires, since the frontend polls
+    # every 2s for any job it is tracking.
     if job.status == "pending" and job.created_at is not None:
         elapsed = (now - job.created_at).total_seconds()
-        # fix(#1235 review r2): both halves, through the shared clauses. This
-        # path is the one that actually fires, so leaving it on the old
-        # predicates left the completion race exactly where it was — a poll
-        # blocked on a completing job's row lock resumes post-commit and fails
-        # the row it waited for.
+        # fix(#1235): both halves, through the shared clauses — this
+        # is the path that fires, so old predicates left the completion race
+        # intact: a poll blocked on a completing job's lock resumes
+        # post-commit and fails the row it waited for.
         for completion_bound, message in (
             (False, f"Stale: pending for {int(elapsed)}s without being processed"),
             (True, STALE_PENDING_BOUND_MESSAGE),
         ):
-            # fix(#1235 review r4): a fast-path skip, NOT a correctness gate.
-            # The clauses below remain the authority — they re-check the same
-            # age in SQL, so a row that slips past this check is still only
-            # failed if it genuinely qualifies. What this restores is the outer
-            # `elapsed` check the r2 rewrite dropped: without it, every 2s poll
-            # of every pending job issued both UPDATEs, and the frontend polls
-            # this route for the whole life of a job that is behaving normally.
+            # fix(#1235): a fast-path skip, not a correctness gate —
+            # the SQL clauses below re-check the same age and stay the
+            # authority. Restores the outer `elapsed` check the r2 rewrite
+            # dropped: without it, every 2s poll of every pending job issued
+            # both UPDATEs.
             if elapsed <= stale_pending_cutoff_seconds(
                 completion_bound=completion_bound
             ):
                 continue
-            # fix(#1556): the unbound half takes the shared ACTION, which
-            # settles a never-bound presigned upload as `cancelled`. The bound
-            # half keeps writing `failed` outright — a completion that bound
-            # bytes and then stalled IS a failure — and this is the same split
-            # the background sweep and the worker's startup recovery apply.
+            # fix(#1556): the unbound half takes the shared ACTION (settles a
+            # never-bound presigned upload as `cancelled`); the bound half
+            # writes `failed` outright — same split the background sweep and
+            # the worker's startup recovery apply.
             values = (
                 {"status": "failed", "error_message": message, "completed_at": now}
                 if completion_bound
@@ -448,10 +425,8 @@ async def get_job_status(
                 await db.refresh(job)
                 break
 
-    # fix(#1860): this handler already refused anyone who is neither the
-    # job's creator nor permitted by policy, so every caller that reaches here
-    # is entitled to the full payload. There is no redacted audience on this
-    # route.
+    # fix(#1860): this handler already refused non-creators without policy
+    # access, so every caller here is entitled to the full payload.
     return await _job_to_status_response(job, include_detail=True)
 
 
@@ -464,23 +439,21 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
             "Dataset replacement jobs cannot be replayed as ordinary imports. Start the reupload again.",
         )
     if bool((job.user_metadata or {}).get("refresh")):
-        # feat(#1265): a registered-PostGIS refresh job carries no file and no
-        # URL, so without this it fell through to the import copy below and
-        # told the user their "source" was gone — for a dataset that was never
-        # imported from one. Deliberately AFTER the reupload check: a service
-        # refresh job carries both markers and keeps its existing wording.
+        # feat(#1265): a registered-PostGIS refresh job carries no file/URL,
+        # so without this it fell through to the import copy, telling the
+        # user their "source" was gone. Deliberately AFTER the reupload
+        # check: a service refresh job carries both markers and keeps its
+        # existing wording.
         return (
             False,
             "Refresh runs cannot be replayed as imports. Refresh the dataset again from its source panel.",
         )
     if bool((job.user_metadata or {}).get(FAN_OUT_INTERRUPTED_METADATA_KEY)):
-        # fix(#1709 review r8 A): a fan-out parent whose dispatch crashed
+        # fix(#1709): a fan-out parent whose dispatch crashed
         # before any child was queued, settled by the stale sweep. Generic
-        # retry would re-queue this multi-layer parent as ONE default-layer
-        # import — the user's layer selection lived only in the fan-out
-        # request body and was never persisted — so the honest capability is
-        # a refusal naming the real path, exactly like the four sibling
-        # markers above and below.
+        # retry would re-queue it as ONE default-layer import — the layer
+        # selection was never persisted — so refuse and name the real path,
+        # like the sibling markers here.
         return (
             False,
             "Fan-out dispatch was interrupted before any layer was queued. "
@@ -493,30 +466,26 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
         )
     if (job.user_metadata or {}).get("analysis"):
         # ux(#698): analysis jobs carry file_path="" and would otherwise fall
-        # through to the import copy below, telling the user their "source" is
-        # gone and to "start the import again" for something that was never an
-        # import. They are genuinely not replayable here either: the drawn clip
-        # mask is deliberately not persisted (router_analysis.py stores a
-        # marker, not the geometry), so a replay could not reconstruct the run.
+        # through to the import copy, telling the user their nonexistent
+        # "source" is gone. Not replayable anyway: the drawn clip mask isn't
+        # persisted (router_analysis.py stores a marker, not the geometry).
         return (
             False,
             "Analysis runs cannot be replayed as imports. Start the analysis again from the map builder.",
         )
     if (job.user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY):
-        # fix(#1542): embedding backfill runs carry file_path="" for the same
-        # reason analysis runs do, and would otherwise be offered as replayable
-        # imports of a source that never existed. Restarting one is a POST to
-        # /admin/backfill-embeddings/, which re-runs its own pre-flight and
-        # concurrency guards — replaying it through the ingest retry path would
+        # fix(#1542): embedding backfill runs carry file_path="" like analysis
+        # runs. Restart via POST /admin/backfill-embeddings/, which re-runs
+        # its own pre-flight/concurrency guards — the ingest retry path would
         # skip both.
         return (
             False,
             "Embedding backfill runs cannot be replayed as imports. Start the backfill again from Settings.",
         )
     if (job.user_metadata or {}).get("manifest_key"):
-        # fix(#1814): generic retry runs its own failed -> pending CAS without
-        # the manifest key's advisory lock, so it can queue a second job for a
-        # key a concurrent re-apply is claiming. Re-apply owns manifest retries.
+        # fix(#1814): generic retry's failed -> pending CAS skips the
+        # manifest key's advisory lock, risking a second job for a key a
+        # concurrent re-apply is claiming. Re-apply owns manifest retries.
         return (
             False,
             "Manifest imports cannot be replayed here. Apply the manifest "
@@ -568,62 +537,43 @@ async def get_retry_capability(job: IngestJob) -> tuple[bool, str | None]:
 def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
     """The job payload for a reader with no claim on the job itself.
 
-    fix(#1860): ``GET /jobs/by-dataset/{dataset_id}`` gates on the DATASET
-    being visible and then returned the whole job row, so any signed-in reader
-    of a public or internal dataset saw another user's failure text and upload
-    filename. ``list_dataset_refresh_runs`` already redacts exactly those
-    fields behind ``can_view_dataset_provenance``, and ``GET /jobs/{job_id}``
-    is owner-or-policy. This endpoint was the third door and had neither.
+    fix(#1860): ``GET /jobs/by-dataset/{dataset_id}`` gated on the DATASET
+    being visible but returned the whole job row, leaking another user's
+    failure text and upload filename to any reader of a public/internal
+    dataset. This projection applies the same provenance rule
+    ``list_dataset_refresh_runs`` already applies, decided field by field.
 
-    The projection below is that same provenance rule applied to a job row,
-    decided field by field rather than by copying a field list.
+    Kept (refresh-runs publishes the same fact to the same audience):
 
-    Kept, because refresh-runs publishes the same fact to the same audience:
-
-    - ``id``: a job id is not a capability. Reading, retrying and cancelling a
-      job by id are all owner-or-policy, and refresh-runs already publishes
-      ``ingest_job_id`` to every reader of a visible dataset.
-    - ``status``: the outcome. Refresh-runs publishes ``status`` unredacted.
+    - ``id``: not a capability — read/retry/cancel are owner-or-policy, and
+      refresh-runs already publishes ``ingest_job_id``.
+    - ``status``: refresh-runs publishes it unredacted.
     - ``dataset_id``: the caller supplied it in the path.
-    - ``started_at`` / ``completed_at`` / ``created_at``: the timeline.
-      Refresh-runs publishes its own three timestamps unredacted.
+    - ``started_at`` / ``completed_at`` / ``created_at``: refresh-runs
+      publishes its own three timestamps unredacted.
 
-    Redacted, because each one says who ran the job or what was in the data,
-    which is the class refresh-runs nulls for a non-owner:
+    Redacted (each says who ran the job or what was in the data):
 
-    - ``source_filename``: deliberately STRICTER than its two siblings, which
-      is worth saying out loud because a later reader will find them.
-      ``dataset_to_response`` publishes ``Dataset.source_filename`` to every
-      reader of a visible dataset and gates only ``origin_uri`` / ``origin_ref``
-      on provenance, and ``list_dataset_versions`` publishes the per-version
-      filename on purpose, its docstring calling the timeline of filenames,
-      formats and feature counts public while gating ``file_hash`` and
-      ``uploaded_by``. So for a run that SUCCEEDED, the string nulled here is
-      already served next door and this costs nothing. The case it covers is
-      the one those surfaces never see: a FAILED run's filename never reaches
-      the dataset row, so on a failed reupload this is the only door the name
-      of the file an owner tried to load reaches a stranger through. Nulling
-      it unconditionally keeps this projection decidable from the job row
-      alone, rather than from whether the run happened to write a dataset.
+    - ``source_filename``: STRICTER than the dataset's own published
+      filename (``dataset_to_response`` publishes ``Dataset.source_filename``
+      to any reader; ``list_dataset_versions`` publishes it per-version too)
+      because a FAILED run's filename never reaches the dataset row — this
+      is the only door it reaches a stranger through. Nulled unconditionally
+      so the rule stays decidable from the job row alone.
     - ``error_message``: the field refresh-runs redacts by name.
-    - ``warning_message`` and ``warnings``: both name source columns, including
-      ORIGINAL names that a renaming ingest never publishes in the dataset
-      schema. This is the ``schema_diff`` class.
-    - ``current_step``: names a step of the ingest toolchain, past what
-      ``status`` already says.
-    - ``rows_processed`` and ``rows_failed``: run content, and redacted as a
-      pair on purpose. ``rows_processed`` alone reads as full coverage for a
-      run that dropped rows, so publishing one without the other is worse than
-      publishing neither.
+    - ``warning_message`` / ``warnings``: name source columns, including
+      ORIGINAL names a renaming ingest never publishes (the ``schema_diff``
+      class).
+    - ``current_step``: names an ingest-toolchain step, past what ``status``
+      already says.
+    - ``rows_processed`` / ``rows_failed``: redacted as a pair — one without
+      the other reads as full coverage for a run that dropped rows.
     - ``archive_failed``: an internal storage outcome.
-    - ``temporal_parse_errors``: its values are unparsed cell text from the
+    - ``temporal_parse_errors``: values are unparsed cell text from the
       source data.
-    - ``can_retry`` and ``retry_reason``: retry is owner-or-policy, so this
-      reader has no retry capability to report, and the reasons name staging
-      object and credential state. ``False`` is the honest answer for this
-      caller, not a concealed one. Skipping the call also spares a storage
-      round trip that only exists to answer a question this caller cannot act
-      on.
+    - ``can_retry`` / ``retry_reason``: retry is owner-or-policy, so
+      ``False`` is the honest answer here, not a concealment; also spares a
+      storage round trip this caller cannot act on.
     """
     return JobStatusResponse(
         id=job.id,
@@ -652,19 +602,17 @@ async def _job_to_status_response(
 ) -> JobStatusResponse:
     """Extract warnings + structured metadata from ``user_metadata`` (S3/TYPE-2).
 
-    Shared by ``get_job_status`` (lookup by job_id) and
-    ``get_job_status_by_dataset`` (lookup by dataset_id) so the warning-parse
-    contract lives in a single place.
+    Shared by ``get_job_status`` and ``get_job_status_by_dataset`` so the
+    warning-parse contract lives in one place.
 
-    ``include_detail`` is keyword-only and has no default so that every call
-    site has to settle who is reading before it can serialize a job at all:
-    True yields the full payload, False the redacted projection documented on
-    ``_redacted_job_status``. A default here would let a third door open
-    itself, which is how this endpoint came to be one.
+    ``include_detail`` is keyword-only with no default: every call site must
+    settle who is reading before serializing a job. True yields the full
+    payload, False the redacted projection on ``_redacted_job_status``. A
+    default here is how this endpoint became a third unguarded door (#1860).
 
-    Warnings are validated through the ``IngestJobWarning`` discriminated
-    union; any malformed entry (unknown ``kind``, missing fields) is logged
-    and dropped so a stale-producer bug cannot break the whole endpoint.
+    Warnings validate through the ``IngestJobWarning`` discriminated union;
+    a malformed entry (unknown ``kind``, missing fields) is logged and
+    dropped so a stale producer can't break the whole endpoint.
     """
     if not include_detail:
         return _redacted_job_status(job)
@@ -713,10 +661,9 @@ async def _job_to_status_response(
         archive_failed = bool(job.user_metadata.get("archive_failed"))
         raw_temporal = job.user_metadata.get("temporal_parse_errors")
         if isinstance(raw_temporal, dict):
-            # Narrow to the contract keys — drop anything unknown so the
-            # Pydantic ``Literal`` validation cannot reject the whole
-            # response on a stale producer. ``cast`` makes the narrowing
-            # explicit to mypy so no ``type: ignore`` is needed.
+            # Narrow to the contract keys — drop unknown ones so Pydantic's
+            # Literal validation can't reject the whole response on a stale
+            # producer. `cast` makes the narrowing explicit to mypy.
             for k, v in raw_temporal.items():
                 key = str(k)
                 if key in ("temporal_start", "temporal_end"):
@@ -779,8 +726,8 @@ async def get_job_status_by_dataset(
     documents the decision field by field.
     """
     # Visibility check: reuse the dataset detail permission so only users
-    # who can see the dataset can see the job warnings. Avoid leaking the
-    # existence of jobs via 403 vs 404 divergence.
+    # who can see the dataset can see the job; avoids leaking existence via
+    # 403 vs 404 divergence.
     from app.modules.catalog.authorization import (
         apply_visibility_filter,
         can_view_dataset_provenance,
@@ -793,10 +740,8 @@ async def get_job_status_by_dataset(
     )
 
     user_roles = await get_user_roles(db, user)
-    # fix(#1860): selects the Record rather than Dataset.id because the
-    # provenance predicate below reads it. Passing the entity rather than a
-    # scalar keeps this call site correct if that predicate ever consults a
-    # second field.
+    # fix(#1860): selects the Record, not Dataset.id, because the provenance
+    # predicate reads it — stays correct if that predicate needs a second field.
     dataset_stmt = (
         select(Record)
         .select_from(Dataset)
@@ -821,18 +766,16 @@ async def get_job_status_by_dataset(
     )
     job = job_result.scalar_one_or_none()
     if job is None:
-        # Dataset is visible but has no ingest job (remote/STAC/registered
-        # dataset). Return 200 + null rather than 404 so the dataset detail
-        # page can treat it as "no warnings" without a console 404.
+        # Dataset visible but has no ingest job (remote/STAC/registered
+        # dataset). 200 + null, not 404, so the detail page treats it as
+        # "no warnings" without a console 404.
         return None
 
-    # fix(#1860): the gate above is a VISIBILITY check, so it admits any
-    # signed-in reader of a public or internal dataset and says nothing about
-    # whose job row this is. The job's own creator keeps the full payload, both
-    # because it is their run and because this is the route the import flow
-    # polls. Everyone else goes through the same provenance predicate
-    # ``list_dataset_refresh_runs`` applies to the identical error text, so the
-    # two doors onto that text answer the same way.
+    # fix(#1860): the gate above is a VISIBILITY check — it says nothing
+    # about whose job row this is. The creator keeps the full payload (it's
+    # their run, and the import flow polls this route); everyone else goes
+    # through the same provenance predicate ``list_dataset_refresh_runs``
+    # applies to this text.
     include_detail = job.created_by == user.id or can_view_dataset_provenance(
         record, user, user_roles
     )
@@ -962,10 +905,9 @@ async def retry_job(
 # handled separately as the idempotent repeat, and everything else is active.
 _CANCEL_TERMINAL_STATUSES = ("complete", "failed", "fanned_out")
 
-# SQL to find the live Procrastinate row(s) for one ingest job — the same
-# args->>'job_id' correlation the sweeps use (`no_live_procrastinate_job` in
-# sweep.py, `_ABANDONED_RUN_SQL` in refresh/service.py). At most one row is
-# live in practice; a retried job's old row is terminal and excluded here.
+# SQL to find the live Procrastinate row(s) for one ingest job — same
+# args->>'job_id' correlation the sweeps use. At most one row is live in
+# practice; a retried job's old row is terminal and excluded here.
 _LIVE_QUEUE_ROWS_SQL = text(
     "SELECT id FROM catalog.procrastinate_jobs"
     " WHERE args->>'job_id' = :job_id AND status IN ('todo', 'doing')"
@@ -975,16 +917,14 @@ _LIVE_QUEUE_ROWS_SQL = text(
 def _is_lock_conflict(exc: DBAPIError) -> bool:
     """True for PostgreSQL 55P03 (lock timeout) or 40P01 (deadlock victim).
 
-    Both mean another transaction owns rows this cancel needs right now, and
-    both are safe to report as a retryable 409: nothing was written, and a
-    retry lands after the owner commits. 40P01 should be unreachable now that
-    the cancel takes its locks in the worker's own order (see the asset-first
-    acquisition in ``cancel_job`` — fix(#1709 review r2 P2)), but mapping it
-    costs one tuple member and turns a future ordering regression into a
-    clean conflict instead of a 500.
+    Both mean another transaction owns rows this cancel needs, and both are
+    safe to report as a retryable 409: nothing was written. 40P01 should be
+    unreachable now that cancel takes locks in the worker's own order (see
+    ``cancel_job``, fix(#1709)), but mapping it costs one tuple
+    member and turns a future ordering regression into a 409, not a 500.
 
-    fix(#1847): moved to ``app.core.db.sqlstate`` for a third caller. A rename,
-    not a policy change: the shared predicate matches the same two states.
+    fix(#1847): moved to ``app.core.db.sqlstate`` for a third caller — a
+    rename, not a policy change.
     """
     return is_lock_conflict(exc)
 
@@ -1000,41 +940,34 @@ async def _reconcile_cancelled_vrt_regeneration(
 ) -> None:
     """Release the VRT state a cancelled ``vrt_regenerate`` job would strand.
 
-    fix(#1709 review P1): VRT dispatch commits a ``pending`` VrtGeneration
-    and flips the RasterAsset to ``regenerating`` BEFORE deferring the job,
-    and that asset status is exactly what 409-blocks every later
-    regenerate/add-source/remove-source call. The worker unwinds it only on
-    its ``except Exception`` path — a task the cancel beat to the claim exits
-    without ever reaching it, and a delivered abort raises CancelledError, a
-    BaseException that handler never sees — so without this, a cancelled
-    regeneration stays blocked until ``sweep_stale_vrt_assets``'s
-    JOB_TIMEOUT_SECONDS cutoff.
+    fix(#1709): VRT dispatch commits a ``pending`` VrtGeneration
+    and flips the RasterAsset to ``regenerating`` BEFORE deferring the job;
+    that status 409-blocks every later regenerate/add/remove-source call.
+    The worker only unwinds it on its ``except Exception`` path — a task the
+    cancel beat to the claim never reaches it, and a delivered abort raises
+    CancelledError, a BaseException that handler never sees — so without
+    this, a cancelled regeneration stays blocked until
+    ``sweep_stale_vrt_assets``'s JOB_TIMEOUT_SECONDS cutoff.
 
-    Runs inside the cancel transaction, after the job CAS won, entirely as
-    guarded conditional updates, so the fence-wins discipline holds:
+    Runs inside the cancel transaction, after the job CAS won, as guarded
+    conditional updates so the fence-wins discipline holds:
 
-    - The generation flips to ``failed`` only from ``pending``/``running``.
-      (The ``vrt_generations`` CHECK constraint has no ``cancelled`` literal
-      and this feature ships no migration; ``failed`` with a user-cancel
-      message is the same convention the stale sweep writes.) A terminal row
-      means another actor finished first, and nothing here is touched.
+    - The generation flips to ``failed`` only from ``pending``/``running``
+      (no ``cancelled`` literal in the CHECK constraint; same convention the
+      stale sweep writes). A terminal row means another actor finished
+      first, and nothing here is touched.
     - The asset restore reuses the sweep's ``_READY_WORTHY_SQL`` branches:
-      ``ready`` only when the published composition provably still matches
-      the catalog's and the prior real attempt did not fail, else ``failed``.
-      Either branch clears ``current_generation_id``, so the 409 block lifts
-      immediately instead of an hour later.
-    - A worker that publishes cannot lose to this: its publish transaction
-      carries the fenced job-complete update, so it either committed before
-      the cancel's job CAS (the cancel then 409s and never reaches here) or
-      rolls back at the fence. Its failure handler's writes are the same
-      terminal values keyed to the same pointer, so late arrival on either
-      side degrades to a zero-row no-op, never a clobber.
+      ``ready`` only when composition still matches the catalog and the
+      prior attempt didn't fail, else ``failed``. Either branch clears
+      ``current_generation_id`` so the 409 block lifts immediately.
+    - A worker that publishes cannot lose to this: its publish carries the
+      fenced job-complete update, so it either committed before the cancel's
+      job CAS (cancel then 409s, never reaches here) or rolls back at the
+      fence. Late arrival on either side is a zero-row no-op, never a clobber.
 
-    Lock order (fix(#1709 review r2 P2)): the caller already holds the
-    RasterAsset row lock, taken as the cancel transaction's FIRST acquisition
-    to match the worker's publish order (asset FOR UPDATE -> generation ->
-    job). Everything here therefore locks rows the transaction is entitled
-    to reach without inverting that order.
+    Lock order (fix(#1709)): the caller already holds the
+    RasterAsset row lock, taken FIRST to match the worker's publish order
+    (asset FOR UPDATE -> generation -> job); everything here stays within it.
     """
     # Deferred by design: platform -> processing imports stay function-local
     # (D-17), mirroring the worker/task_app imports elsewhere in this module.
@@ -1097,17 +1030,13 @@ async def _may_cancel_job(
     Arm 1: owners always retain access. Arm 2: the effective cross-user
     capability policy (same as view/retry). Arm 3: dataset write access —
     ``check_dataset_write_access`` raises 404 (not visible) or 403 (visible,
-    not owner/admin); both mean "this arm does not grant", and the caller's
-    generic 403 avoids leaking dataset visibility through a cancel probe.
+    not owner/admin); the caller's generic 403 avoids leaking visibility.
 
-    fix(#1709 review r12): arm 2 runs as a SILENT probe here. A losing arm
-    is not a denied request when a later arm grants — and the arm that
-    grants in the case this feature added (a dataset owner cancelling a
-    refresh an admin triggered) is arm 3, so the previous shape filed a
-    ``permission_denied`` event on every successful cross-user cancel. The
-    denial is emitted once, below, only after every arm has failed; arm 3
-    emits none of its own (``check_dataset_write_access`` raises without
-    telemetry), so the deny path's event count is exactly one, unchanged.
+    fix(#1709): arm 2 runs as a SILENT probe — a losing arm is
+    not a denial when a later arm grants (arm 3, for a dataset owner
+    cancelling a refresh an admin triggered). The denial fires once, below,
+    only after every arm fails; arm 3 emits no telemetry of its own, so the
+    deny path's event count stays exactly one.
     """
     from app.modules.auth.dependencies import (
         get_cached_user_roles,
@@ -1129,9 +1058,8 @@ async def _may_cancel_job(
         except HTTPException:
             pass
 
-    # Every arm failed: now it is a real denial, and the only one.
-    # ``get_cached_user_roles`` is request-cached, so arm 2 already paid for
-    # this read.
+    # Every arm failed: a real denial, the only one. `get_cached_user_roles`
+    # is request-cached, so arm 2 already paid for this read.
     log_permission_denial(
         request,
         user,
@@ -1203,12 +1131,11 @@ async def cancel_job(
     # then commit. The attempt-id predicate mirrors retry_job's own CAS — a
     # stale cancel aimed at attempt N can never kill a retried attempt N+1.
     # The 2s lock_timeout keeps this request from blocking behind a finalize
-    # transaction, which holds its row locks from its first fenced update
-    # through the swap to commit.
+    # transaction holding its locks through the swap to commit.
     #
-    # fix(#1709 review r2 P2): the try covers the WHOLE transactional block;
-    # fix(#1847): every job type leads with the job row, the order the
-    # workers and the dataset delete hold.
+    # fix(#1709): the try covers the WHOLE transactional block;
+    # fix(#1847): every job type leads with the job row, matching the
+    # worker/dataset-delete order.
     previous_attempt_id = job.attempt_id
     now = datetime.now(timezone.utc)
     attempt_predicate = (
@@ -1249,8 +1176,8 @@ async def cancel_job(
                 "job_already_finished"
                 if job.status in _CANCEL_TERMINAL_STATUSES
                 # Still active under a different attempt id: retried
-                # concurrently. A cancel aimed at the old attempt must not
-                # kill the new one.
+                # concurrently — a cancel on the old attempt must not kill
+                # the new one.
                 else "job_conflict"
             )
             raise HTTPException(
@@ -1260,28 +1187,24 @@ async def cancel_job(
 
         run_id = await cancel_active_run_for_job(db, job.id, cancelled_by=user.id)
         if is_vrt_job:
-            # fix(#1709 review P1): same transaction as the job CAS, so the
+            # fix(#1709): same transaction as the job CAS, so the
             # VRT state this job stranded and the job's terminal status land
             # together.
             await _reconcile_cancelled_vrt_regeneration(db, job.dataset_id, now)
-        # fix(#1709 review r3 P2): an embedding backfill's dispatch commits an
-        # `embedding.backfill` audit event at outcome="requested" alongside
-        # the job row, and sweep.py's rule is that the job row and the audit
-        # trail are written together by whichever actor settles the job. A
-        # cancelled queued backfill never runs (the claim fails, or the queue
-        # row is aborted before delivery), so no in-process path can ever
-        # close that trail — this settle is the only one left, exactly as it
-        # is for the lease-expiry and stale-pending sweeps above. No-op for
-        # every other job kind (marker check inside), SAVEPOINT-guarded so a
-        # worker that settles concurrently keeps the database-arbitrated
-        # one-terminal-entry invariant.
+        # fix(#1709): an embedding backfill's dispatch commits an
+        # `embedding.backfill` audit event at outcome="requested"; sweep.py's
+        # rule is that the job row and audit trail settle together by
+        # whoever settles the job. A cancelled queued backfill never runs,
+        # so no in-process path ever closes that trail — this is the only
+        # one left. No-op for every other job kind, SAVEPOINT-guarded
+        # against a concurrently settling worker.
         await audit_settled_embedding_backfill(
             db,
             job_id=job.id,
             user_metadata=job.user_metadata,
             created_by=job.created_by,
             error_code="user_cancelled",
-            # fix(#1709 review r10): the terminal event names the CANCELLER,
+            # fix(#1709): the terminal event names the CANCELLER,
             # matching job.cancel and refresh.cancelled in this same
             # transaction — not the run's original requester.
             settled_by=user.id,
@@ -1313,8 +1236,7 @@ async def cancel_job(
             raise
         await db.rollback()
         # A finalize transaction owns rows this cancel needs; nothing was
-        # written. The client may retry and will then get
-        # `job_already_finished`.
+        # written. The client may retry and will then get `job_already_finished`.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "job_finishing"},
@@ -1322,12 +1244,10 @@ async def cancel_job(
     await db.commit()
 
     # Post-commit, best-effort: ask Procrastinate to cancel a todo row or
-    # abort a doing one. A failure ANYWHERE past the commit — the row lookup
-    # included (fix(#1709 review P2): a dropped connection here used to 500 a
-    # request whose cancel was already durable) — is logged, not surfaced:
-    # the fences above make the eventual delivery a no-op either way, the
-    # worker just runs to its finalize and dies at the fence instead of
-    # stopping early.
+    # abort a doing one. Any failure past the commit — row lookup included
+    # (fix(#1709): a dropped connection here used to 500 an
+    # already-durable cancel) — is logged, not surfaced: the fences above
+    # make delivery a no-op either way.
     try:
         queue_rows = await db.execute(_LIVE_QUEUE_ROWS_SQL, {"job_id": str(job.id)})
         queue_job_ids = list(queue_rows.scalars())
@@ -1378,8 +1298,7 @@ __all__ = [
     "stale_pending_unbound_values",
     "sweep_stale_vrt_assets",
     # fix(#1778): the startup recovery pass reaps the same pre-commit raster
-    # objects and analysis outputs the periodic sweep does, through the same
-    # façade.
+    # objects and analysis outputs the periodic sweep does, via the same façade.
     "_reap_unadopted_analysis_outputs",
     "reap_unpublished_storage_keys",
     "unadopted_analysis_tables_from_metadata",

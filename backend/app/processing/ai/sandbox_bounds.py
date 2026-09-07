@@ -31,13 +31,13 @@ from app.core.config import settings
 MAX_TABLE_REPEATS = 2
 
 # Cap on inline VALUES rows: a large constant relation cross-joined a few times
-# is a row explosion the base-table fan-out cap cannot see (#565 codex P1 r17).
+# is a row explosion the base-table fan-out cap cannot see (#565).
 # Generous enough for real lookup lists; the fan-out cap bounds the cross-join.
 MAX_VALUES_ROWS = 256
 
-# fix(#565 codex P1 r20): repeated plain projections need no function to
-# amplify -- SELECT payload, payload, ... (1600x) FROM foo LIMIT 1 fits under
-# the SQL cap and materializes a gigabyte-wide row.
+# fix(#565): repeated plain projections need no function to amplify --
+# SELECT payload, payload, ... (1600x) FROM foo LIMIT 1 fits under the SQL
+# cap and materializes a gigabyte-wide row.
 MAX_OUTPUT_COLUMNS = 100
 
 

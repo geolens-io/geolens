@@ -1,40 +1,34 @@
 """Mode-gated, idempotent RLS enablement helper (ISO-02, Phase 1208-02).
 
-Provides ``apply_tenancy_rls(conn)`` — the **runtime** half of the policy
-split: the migration ``0006_tenant_rls`` defines the fail-closed policies, and
-this helper enables + FORCEs them per table.
+Provides ``apply_tenancy_rls(conn)`` — the runtime half of the policy split:
+migration ``0006_tenant_rls`` defines the fail-closed policies, this helper
+enables + FORCEs them per table.
 
-Design invariants
------------------
-- **single_tenant**: RLS stays disabled. Runtime-role verification is a hard
-  no-op unless ``GEOLENS_RUNTIME_DB_ROLE`` explicitly enables the non-superuser
-  connection path, preserving existing installs byte-for-byte by default.
-- **multi_tenant**: for each tenant-shared table, reads
-  ``pg_class.relrowsecurity`` and ``pg_class.relforcerowsecurity`` FIRST and
-  only issues ``ALTER TABLE ... ENABLE/FORCE ROW LEVEL SECURITY`` when the
-  flag is not already set.  Steady-state boots are a cheap catalog read — no
-  ``ACCESS EXCLUSIVE`` lock, no multi-worker contention (T-1208-08).
-- **FORCE is required**: table owners bypass non-FORCE RLS. ``FORCE ROW LEVEL
-  SECURITY`` subjects a non-superuser owner to the policy too (T-1208-05).
-- **A safe runtime role is mandatory**: PostgreSQL superusers and roles with
-  ``BYPASSRLS`` ignore even FORCE RLS. Multi-tenant bootstrap verifies both
-  ``session_user`` and ``current_user`` (plus privileged role membership) and
-  refuses to serve when either can bypass the boundary.
+single_tenant: RLS stays disabled; runtime-role verification is a hard no-op
+unless ``GEOLENS_RUNTIME_DB_ROLE`` explicitly opts in, preserving existing
+installs byte-for-byte by default. multi_tenant: for each tenant-shared
+table, reads ``pg_class.relrowsecurity``/``relforcerowsecurity`` first and
+only issues ``ALTER TABLE ... ENABLE/FORCE ROW LEVEL SECURITY`` when unset —
+steady-state boots are a cheap catalog read, no ``ACCESS EXCLUSIVE`` lock or
+multi-worker contention (T-1208-08).
 
-Call from bootstrap
--------------------
-``apply_tenancy_rls_from_engine()`` is the convenience wrapper called by
-``bootstrap()`` — it opens a fresh AUTOCOMMIT connection from the global
-engine and delegates to ``apply_tenancy_rls(conn)``.  A mode flip (setting
-``GEOLENS_TENANCY_MODE=multi_tenant``) needs no new migration: the policies
-are already in the schema, and the next boot enables them.
+FORCE is required: table owners bypass non-FORCE RLS, and ``FORCE ROW LEVEL
+SECURITY`` subjects a non-superuser owner to the policy too (T-1208-05). A
+safe runtime role is mandatory: superusers and ``BYPASSRLS`` roles ignore
+even FORCE RLS, so multi-tenant bootstrap verifies both ``session_user`` and
+``current_user`` (plus privileged role membership) and refuses to serve when
+either can bypass the boundary.
 
-Teardown note (tests)
----------------------
-Any test that calls this in ``multi_tenant`` mode MUST disable RLS again in
+``apply_tenancy_rls_from_engine()`` is the convenience wrapper ``bootstrap()``
+calls — opens a fresh AUTOCOMMIT connection and delegates to
+``apply_tenancy_rls(conn)``. A mode flip to multi_tenant needs no new
+migration: the policies are already in the schema, and the next boot enables
+them.
+
+Tests: any test calling this in multi_tenant mode MUST disable RLS again in
 teardown (``ALTER TABLE ... NO FORCE / DISABLE ROW LEVEL SECURITY``) so the
-shared test DB stays in the single_tenant/RLS-disabled state that the rest of
-the suite expects.
+shared test DB stays in the single_tenant/RLS-disabled state the rest of the
+suite expects.
 """
 
 from __future__ import annotations
@@ -66,16 +60,15 @@ RLS_POLICY_NAMES: tuple[str, ...] = tuple(f"tenant_isolation_{t}" for t in RLS_T
 async def assert_multi_tenant_runtime_role(conn) -> None:
     """Verify the live role when tenancy or the single-tenant opt-in requires it.
 
-    ``FORCE ROW LEVEL SECURITY`` does not constrain PostgreSQL superusers or
-    roles carrying ``BYPASSRLS``. Checking only ``current_user`` is also
-    insufficient: a superuser ``session_user`` can ``RESET ROLE`` after a
-    temporary role switch. The application login itself, the effective role,
-    and every privileged role it can assume must therefore be safe.
+    ``FORCE ROW LEVEL SECURITY`` does not constrain superusers or
+    ``BYPASSRLS`` roles. Checking only ``current_user`` is also insufficient:
+    a superuser ``session_user`` can ``RESET ROLE`` after a temporary switch.
+    So the login itself, the effective role, and every privileged role it can
+    assume must all be safe.
 
-    Legacy single-tenant mode is a hard no-op. Setting
-    ``GEOLENS_RUNTIME_DB_ROLE`` opts single-tenant API/worker processes into the
-    same dangerous-attribute and role-membership verification and additionally
-    requires the live login to match the configured role name.
+    single_tenant is a hard no-op unless ``GEOLENS_RUNTIME_DB_ROLE`` opts the
+    process into the same verification, additionally requiring the live login
+    to match the configured role name.
     """
     from app.core.config import settings
     from app.core.tenancy import is_multi_tenant
@@ -282,28 +275,19 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
 async def apply_tenancy_rls(conn) -> None:
     """Enable + FORCE RLS on every tenant-shared table (multi_tenant only).
 
-    In ``single_tenant`` (the default): returns immediately — zero SQL, zero
-    planner cost (T-1208-07).
+    single_tenant: returns immediately, zero SQL, zero planner cost
+    (T-1208-07). multi_tenant: for each table, queries ``pg_class`` for the
+    current ``relrowsecurity``/``relforcerowsecurity`` flags and issues
+    ``ALTER TABLE ... ENABLE``/``FORCE ROW LEVEL SECURITY`` only for the flag
+    that is false. Steady-state boots skip both ALTERs — one cheap catalog
+    read per table, no ACCESS EXCLUSIVE lock (T-1208-08).
 
-    In ``multi_tenant``: for each table, queries ``pg_class`` to check the
-    current ``relrowsecurity`` and ``relforcerowsecurity`` flags.  Issues
-    ``ALTER TABLE ... ENABLE ROW LEVEL SECURITY`` only when ``relrowsecurity``
-    is false, and ``ALTER TABLE ... FORCE ROW LEVEL SECURITY`` only when
-    ``relforcerowsecurity`` is false.  Steady-state boots skip both ALTERs —
-    a single cheap catalog read per table, no ACCESS EXCLUSIVE lock (T-1208-08).
-
-    Parameters
-    ----------
-    conn:
-        An open async SQLAlchemy connection.  Must be in AUTOCOMMIT isolation
-        (or a writable transaction) so DDL takes effect immediately.  Pass a
-        connection from ``engine.begin()`` or an AUTOCOMMIT connection; do NOT
-        pass an in-flight read-only transaction.
+    ``conn`` must be AUTOCOMMIT or a writable transaction so DDL takes effect
+    immediately — never an in-flight read-only transaction.
     """
     from app.core.tenancy import is_multi_tenant
 
     if not is_multi_tenant():
-        # single_tenant → unconditional no-op: RLS stays DISABLED, zero cost.
         logger.debug("apply_tenancy_rls: single_tenant — skipping (no-op)")
         return
 
@@ -312,9 +296,8 @@ async def apply_tenancy_rls(conn) -> None:
     for table in RLS_TABLES:
         qualified = f"catalog.{table}"
 
-        # Step 1: read current RLS state from pg_class (cheap catalog read).
-        # Table name comes from the static RLS_TABLES constant (never from
-        # user input), so string formatting is safe here.
+        # Table name comes from the static RLS_TABLES constant, never user
+        # input, so string formatting into SQL is safe here.
         row = await conn.execute(
             text(
                 f"SELECT relrowsecurity, relforcerowsecurity "
@@ -329,14 +312,12 @@ async def apply_tenancy_rls(conn) -> None:
             )
         rls_on, force_on = result
 
-        # Step 2: ENABLE only when not already enabled (idempotent).
         if not rls_on:
             await conn.execute(
                 text(f"ALTER TABLE {qualified} ENABLE ROW LEVEL SECURITY")
             )
             logger.info("apply_tenancy_rls: enabled RLS", table=qualified)
 
-        # Step 3: FORCE only when not already forced (idempotent, T-1208-08).
         if not force_on:
             await conn.execute(
                 text(f"ALTER TABLE {qualified} FORCE ROW LEVEL SECURITY")
@@ -358,24 +339,21 @@ async def apply_tenancy_rls_from_engine(*, verify_runtime_role: bool = True) -> 
     Called by ``bootstrap()`` so mode flips require no new migration — the
     policies are already in the schema and this call enables them at boot.
 
-    In ``single_tenant``: RLS remains a no-op. The role check also remains a
-    no-op unless ``GEOLENS_RUNTIME_DB_ROLE`` opts into the non-superuser path.
-
-    In ``multi_tenant``: opens an AUTOCOMMIT connection (DDL outside a
-    transaction so each ALTER is visible immediately to other connections),
-        calls ``apply_tenancy_rls(conn)``, verifies the runtime role cannot
-        bypass RLS, then closes the connection. A privileged migration process
-        may pass ``verify_runtime_role=False`` while preparing the schema; API
-        and worker bootstrap always use the default verification.
+    single_tenant: RLS and the role check both remain a no-op unless
+    ``GEOLENS_RUNTIME_DB_ROLE`` opts into the non-superuser path. multi_tenant:
+    opens an AUTOCOMMIT connection, calls ``apply_tenancy_rls(conn)``,
+    verifies the runtime role cannot bypass RLS, then closes it. A privileged
+    migration process may pass ``verify_runtime_role=False`` while preparing
+    the schema; API/worker bootstrap always use the default verification.
     """
-    # fix(#909): via the app.core.db façade, not app.core.db.session — the test
-    # fixture reassigns the façade attribute, so importing from the origin
-    # module resolves the un-patched dev-database engine even when late-bound.
+    # fix(#909): via the app.core.db façade, not app.core.db.session — the
+    # test fixture reassigns the façade attribute, so importing from the
+    # origin module would resolve the un-patched engine even when late-bound.
     from app.core.db import engine
 
     async with engine.connect() as conn:
-        # Use AUTOCOMMIT so each ALTER TABLE is its own implicit transaction
-        # and is immediately visible to other connections.
+        # AUTOCOMMIT so each ALTER TABLE is its own implicit transaction,
+        # immediately visible to other connections.
         await conn.execution_options(isolation_level="AUTOCOMMIT")
         await apply_tenancy_rls(conn)
         if verify_runtime_role:

@@ -39,33 +39,31 @@ FETCH_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 
 # The edge proxy's ceiling on any /api/ request: frontend/nginx.conf's
 # `location /api/` sets `proxy_read_timeout 600s`, and this endpoint sends
-# NOTHING until the fetch AND all post-work (content sniff, quota recheck,
-# S3 staging copy, final commit) have finished — so the whole synchronous
-# path has to fit inside that deadline or nginx severs the response before
-# the job id ever reaches the browser (#1708 codex r3). Documented here as a
-# constant so the budget arithmetic below is checkable; the structural fix
-# for imports that genuinely need longer is the async fetch job (#1710).
+# NOTHING until the fetch AND all post-work (sniff, quota recheck, S3
+# staging copy, final commit) finish — so the whole synchronous path must
+# fit inside that deadline or nginx severs the response before the job id
+# reaches the browser (#1708 codex r3). A constant so the budget arithmetic
+# below is checkable; imports that genuinely need longer need the async
+# fetch job (#1710).
 EDGE_PROXY_READ_TIMEOUT_SECONDS = 600
 
-# Joint budget for everything the synchronous request stages: fetch + content
-# sniff + (S3 mode) the staging put, measured from fetch start. fix(#1708
-# codex r7): FETCH_MAX_SECONDS bounds only the download — a valid
+# Joint budget for everything the synchronous request stages: fetch +
+# content sniff + (S3 mode) the staging put, measured from fetch start.
+# fix(#1708): FETCH_MAX_SECONDS bounds only the download — a valid
 # near-limit fetch followed by a slow remote-S3 upload still blew past the
 # proxy. The put is a blocking boto3 upload in a DRAINED thread
-# (storage/s3.py), so an asyncio.timeout around it would not bound wall
-# time (the drain absorbs cancellation until the SDK thread finishes);
+# (storage/s3.py), so asyncio.timeout around it wouldn't bound wall time;
 # the router instead waits on the put task only for the budget's remainder
-# and ABANDONS the wait at the deadline — the thread's own lifetime stays
-# bounded by botocore's connect_timeout=10/read_timeout=60/3 adaptive
-# retries, and a late-landing object is deleted by the abandonment reaper.
+# and ABANDONS the wait at the deadline, bounded by botocore's
+# connect_timeout=10/read_timeout=60/3 retries, with a late-landing object
+# deleted by the abandonment reaper.
 #
-# fix(#1708 codex r16): 540 -> 510, derived rather than assumed. The clock
-# this budget starts does NOT cover the request's whole life (see the
-# INVARIANT at its initialization in router.py): auth, permission and
-# dependency-phase work run BEFORE the handler body, and the post-stage
-# transaction runs after the budget expires. Both can wait on a pool
-# checkout, bounded by ``settings.db_pool_timeout`` (default 30s) — past
-# that the request fails instead of proceeding. Worst case, in order:
+# fix(#1708): 540 -> 510, derived rather than assumed. This
+# budget's clock does NOT cover the request's whole life (see the
+# INVARIANT at its initialization in router.py): auth/permission work runs
+# BEFORE the handler body, and the post-stage transaction runs after the
+# budget expires; both can wait on a pool checkout up to
+# ``settings.db_pool_timeout`` (default 30s). Worst case:
 #
 #     30s  pre-handler pool wait (db_pool_timeout)
 #   + 510s joint stage budget (this constant)
@@ -73,44 +71,35 @@ EDGE_PROXY_READ_TIMEOUT_SECONDS = 600
 #   +  ~0  single-row CAS/commit + serialization, local Postgres
 #   = 570s  <= 600s proxy read timeout, ~30s margin
 #
-# At 540 that sum reached exactly 600 with no room for the queries
-# themselves. The fetch keeps its full ceiling either way:
-# PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS == 510.
+# (540 reached exactly 600, no margin.) Fetch keeps its full ceiling either
+# way: PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS == 510.
 #
-# fix(#1708 codex r17): 510 is the CEILING, not the answer. db_pool_timeout
-# is operator-settable (`Field(default=30, gt=0)`), and a hardcoded 510
-# silently breaks the invariant the moment it is raised — at
-# DB_POOL_TIMEOUT=60 the sum is 60 + 60 + 510 + 60 + 20 = 710 > 600 and the
-# job id is lost after a successful staging (THREE checkouts, not two — see
-# POOL_CHECKOUTS_PER_REQUEST; r17 undercounted, r18 caught it).
-# A test that reads the live setting
-# cannot catch that either, because CI only ever runs the default. So the
-# budget is DERIVED per request from the configured value (see
-# ``stage_total_budget_seconds``) and this constant only bounds it above.
+# fix(#1708): 510 is the CEILING, not the answer. db_pool_timeout
+# is operator-settable, and a hardcoded 510 silently breaks the invariant
+# once raised — at DB_POOL_TIMEOUT=60 the sum is 60+60+510+60+20 = 710 > 600
+# and the job id is lost after a successful staging (THREE checkouts, not
+# two — r17 undercounted, r18 caught it; see POOL_CHECKOUTS_PER_REQUEST).
+# CI only runs the default, so no test catches this either — the budget is
+# DERIVED per request from the configured value (``stage_total_budget_seconds``)
+# and this constant only bounds it above.
 STAGE_TOTAL_CEILING_SECONDS = 510
 
 # Every point where this handler's session BEGINS a transaction after a
-# release. Each is a pool checkout that can block up to db_pool_timeout
-# under exhaustion, and none of them is inside the joint stage clock, so
-# the budget must reserve room for every one. Enumerated from
-# ``upload_from_url`` rather than assumed (fix #1708 codex r18, which
-# caught this counted as 2):
+# release. Each is a pool checkout that can block up to db_pool_timeout,
+# none inside the joint stage clock, so the budget must reserve room for
+# every one. Enumerated from ``upload_from_url`` (fix #1708 codex r18,
+# which caught a prior count of 2):
 #
-#   1. Auth/dependency phase — require_permission -> get_current_user
-#      queries the request-cached session before the handler body runs;
+#   1. Auth/dependency phase — require_permission -> get_current_user;
 #      released by the pre-gate commit (r4).
-#   2. Pre-fetch transaction — allowlist read, size cap, count quota,
-#      quota usage, job INSERT + running stamp; released by the pre-fetch
-#      commit (r2/P1).
-#   3. Post-stage transaction — byte quota on the landed size, the
-#      running->pending CAS, and its commit.
+#   2. Pre-fetch transaction — allowlist/size/quota checks, job INSERT +
+#      running stamp; released by the pre-fetch commit (r2/P1).
+#   3. Post-stage transaction — byte quota, running->pending CAS, commit.
 #
-# The non-ambiguous failure path is also 3 (auth, pre-fetch, and
-# settlement's CAS after its rollback). The ambiguous-commit path adds a
-# 4th — the probe's fresh session — deliberately NOT budgeted for: it is
-# reached only when a commit's acknowledgement is lost, the response is
-# already an error, and its purpose is to avoid destroying live data, so a
-# late response there costs nothing beyond what is already lost.
+# The non-ambiguous failure path is also 3. The ambiguous-commit path adds
+# a 4th — the probe's fresh session — deliberately NOT budgeted: reached
+# only when a commit's acknowledgement is lost and the response is already
+# an error, so a late response there costs nothing beyond what's already lost.
 POOL_CHECKOUTS_PER_REQUEST = 3
 
 # Reserved, beyond the pool waits, for the post-stage transaction's
@@ -119,14 +108,12 @@ POOL_CHECKOUTS_PER_REQUEST = 3
 # estimate of their cost.
 POST_WORK_MARGIN_SECONDS = 20
 
-# A pathological pool timeout (DB_POOL_TIMEOUT=300 leaves 600 - 900 - 20 =
-# -320) must not yield a zero or negative budget, and must not crash the app
-# at import over an operator setting. Clamp here instead, and clamp STRICTLY
-# BELOW ``MIN_FETCH_BUDGET_SECONDS`` so the refusal is guaranteed by
-# construction rather than by however much time happened to elapse first:
-# ``_remaining_fetch_budget`` sees a remainder under its floor and refuses
-# before opening a connection. The one-time warning below says why, so the
-# operator sees a cause instead of a mysterious 502.
+# A pathological pool timeout (DB_POOL_TIMEOUT=300 leaves 600-900-20 = -320)
+# must not yield a zero/negative budget or crash the app at import. Clamp
+# here, STRICTLY BELOW ``MIN_FETCH_BUDGET_SECONDS`` so the refusal is
+# guaranteed by construction: ``_remaining_fetch_budget`` sees a remainder
+# under its floor and refuses before opening a connection. The one-time
+# warning below gives the operator a cause instead of a mysterious 502.
 STAGE_BUDGET_FLOOR_SECONDS = 1
 
 _budget_floor_warned = False
@@ -135,21 +122,18 @@ _budget_floor_warned = False
 def stage_total_budget_seconds() -> int:
     """The joint stage budget for THIS deployment's pool configuration.
 
-    fix(#1708 codex r17): derived rather than asserted. The synchronous
-    request must fit inside the edge proxy's read timeout, and the session
-    checks a connection out ``POOL_CHECKOUTS_PER_REQUEST`` times across it
-    (see that constant for the enumeration), each able to wait up to
-    ``settings.db_pool_timeout`` under exhaustion. Deriving the budget from
-    that value means raising the pool timeout shrinks the staging budget
-    automatically instead of quietly pushing the response past nginx:
+    fix(#1708): derived rather than asserted, so raising
+    ``settings.db_pool_timeout`` (waited on ``POOL_CHECKOUTS_PER_REQUEST``
+    times) shrinks the staging budget automatically instead of quietly
+    pushing the response past nginx:
 
         min(STAGE_TOTAL_CEILING,
             EDGE_PROXY - POOL_CHECKOUTS_PER_REQUEST*pool_timeout
             - POST_WORK_MARGIN)
 
     The ceiling keeps a very small pool timeout from inflating the budget
-    past what the preflight and fetch ceilings assume; the floor keeps a
-    very large one from producing a nonsensical budget.
+    past what preflight/fetch assume; the floor keeps a very large one from
+    producing a nonsensical budget.
     """
     global _budget_floor_warned
 
@@ -181,17 +165,15 @@ def stage_total_budget_seconds() -> int:
 
 
 # Bound on the submission-time SSRF preflight (validate_url_for_ssrf's
-# getaddrinfo). fix(#1708 codex r8): it was the one long operation left
-# outside every deadline — it runs before the fetch, so stalled DNS could
-# blow the proxy budget pre-fetch and pile up executor resolver threads
-# under load. Bounded AT THE CALL SITE (platform/security.py is shared
-# surface and stays untouched — see the note on #1710): asyncio.wait_for
+# getaddrinfo). fix(#1708): the one long operation left outside
+# every deadline — stalled DNS could blow the pre-fetch budget and pile up
+# executor resolver threads under load. Bounded AT THE CALL SITE
+# (platform/security.py stays untouched — see #1710): asyncio.wait_for
 # cancels the to_thread wrapper, which returns immediately while the
-# resolver thread runs on until the OS resolver gives up — the same
-# accepted abandonment pattern as the staging put, with the thread's
-# lifetime bounded by the OS resolver's own timeouts. 30s dwarfs any
-# healthy resolution and fits inside the stage budget with the full fetch
-# cap intact (30 + 480 <= 540, pinned by the budget test).
+# resolver thread runs on until the OS resolver gives up — same abandonment
+# pattern as the staging put. 30s dwarfs any healthy resolution and fits
+# inside the stage budget with the full fetch cap intact (30+480<=540,
+# pinned by the budget test).
 PREFLIGHT_DNS_MAX_SECONDS = 30
 
 # The least remaining joint budget worth starting a fetch with. Below this a
@@ -204,31 +186,28 @@ MIN_FETCH_BUDGET_SECONDS = 5
 # bound TOTAL time: a server trickling one chunk every few seconds holds the
 # request coroutine open forever while staying inside every socket timeout.
 #
-# Budgeted INSIDE the proxy deadline: 480s of fetch leaves ~120s for the
-# post-work, of which only the S3 staging copy scales with file size — a
-# 500 MB copy to same-network MinIO takes seconds, and even a conservative
-# 50 Mbps push to remote S3 is ~84s; the sniff reads header/footer bytes and
-# the quota recheck and commit are single-row queries. A download that
-# cannot finish in 480s could never have completed under the 600s edge
-# deadline anyway (500 MB at the old bound's ~7 Mbps floor is ~571s of
-# transfer alone, before any post-work) — the budget turns a mid-flight
-# severed connection into a prompt, clean 502 with the staged bytes removed.
+# Budgeted INSIDE the proxy deadline: 480s of fetch leaves ~120s for
+# post-work, of which only the S3 staging copy scales with file size (a
+# 500 MB copy to same-network MinIO takes seconds; ~84s even at a
+# conservative 50 Mbps to remote S3). A download that can't finish in 480s
+# could never complete under the 600s edge deadline anyway — the budget
+# turns a mid-flight severed connection into a prompt, clean 502 with the
+# staged bytes removed.
 FETCH_MAX_SECONDS = 480
 
 _CHUNK_SIZE = 65536
 
 # Batch threaded writes, mirroring manifest_service._download_http_source
-# (fix #435 there): a thread handoff per 64 KiB httpx chunk is pure overhead,
-# so buffer up to 4 MiB between writes.
+# (fix #435): a thread handoff per 64 KiB httpx chunk is pure overhead, so
+# buffer up to 4 MiB between writes.
 _WRITE_BUFFER_BYTES = 4 * 1024 * 1024
 
-# Longest filename we stage, measured in ENCODED UTF-8 BYTES — filesystems
-# cap name components in bytes (NAME_MAX 255), not characters, so a
-# character-count cap admits multibyte names four times too long
-# (#1708 codex P2). Budget arithmetic for every downstream construction:
-# local staging prepends "{job_id}_" (37 bytes) and resolve_file_path's
-# mkstemp builds "{job_id}_<8 random>_{name}" (46 bytes), so 160 keeps the
-# worst component at 206 bytes, well under the limit.
+# Longest filename we stage, in ENCODED UTF-8 BYTES — filesystems cap name
+# components in bytes (NAME_MAX 255), not characters, so a character-count
+# cap admits multibyte names four times too long (#1708 codex P2). Local
+# staging prepends "{job_id}_" (37 bytes) and resolve_file_path's mkstemp
+# builds "{job_id}_<8 random>_{name}" (46 bytes), so 160 keeps the worst
+# component at 206 bytes, under the limit.
 _MAX_FILENAME_BYTES = 160
 
 
@@ -243,11 +222,10 @@ class UrlFetchTooLargeError(UrlFetchError):
 def clamp_filename_bytes(name: str) -> str:
     """Trim the STEM so the whole name fits ``_MAX_FILENAME_BYTES`` of UTF-8.
 
-    fix(#1708 codex P2): clamps by encoded byte length, never splitting a
-    codepoint, and keeps the suffix — the extension allowlist keys on it, so
-    the clamp must not manufacture or destroy an extension. Both name
-    sources (URL basename and the request's ``filename`` override) go
-    through here before any path is built from them.
+    fix(#1708): clamps by encoded byte length, never splitting a
+    codepoint, and keeps the suffix — the extension allowlist keys on it.
+    Both name sources (URL basename, the request's ``filename`` override)
+    go through here before any path is built.
     """
     if len(name.encode("utf-8")) <= _MAX_FILENAME_BYTES:
         return name
@@ -274,11 +252,9 @@ def filename_from_url(url: str) -> str:
 def _size_cap_error(
     max_size_bytes: int, cap_error_detail: str | None = None
 ) -> UrlFetchTooLargeError:
-    # fix(#1708 codex r10): when the effective cap is the caller's remaining
-    # byte quota rather than the instance limit, the refusal should say so —
-    # the caller passes the quota-shaped detail and both refusal sites
-    # (declared Content-Length and the mid-stream count) speak with one
-    # voice.
+    # fix(#1708): when the effective cap is the caller's quota
+    # rather than the instance limit, the refusal should say so — the caller
+    # passes the quota-shaped detail and both refusal sites speak with one voice.
     if cap_error_detail is not None:
         return UrlFetchTooLargeError(cap_error_detail)
     return UrlFetchTooLargeError(
@@ -306,16 +282,14 @@ async def fetch_url_to_path(
 
     - ``UrlFetchTooLargeError`` — size cap exceeded (declared or streamed).
     - ``SSRFError`` — a redirect hop or connect-time re-resolution targeted a
-      blocked address (propagated from the safe client untouched, so the
-      router's submission-time handler covers both moments identically).
+      blocked address (propagated from the safe client untouched).
     - ``UrlFetchError`` — non-2xx status, timeout, wall-clock deadline, or any
       other transport failure.
     """
     total = 0
-    # fix(#1708 codex r13): the caller passes what the JOINT budget has left,
-    # already reduced by FETCH_MAX_SECONDS. Defaulting to the constant keeps
-    # the function usable on its own, but the handler never relies on that —
-    # see the invariant at stage_total_budget_seconds().
+    # fix(#1708): the caller passes what the JOINT budget has
+    # left. Defaulting to the constant keeps the function usable on its
+    # own; the handler never relies on that (see stage_total_budget_seconds()).
     fetch_timeout = (
         FETCH_MAX_SECONDS
         if timeout_seconds is None
@@ -328,22 +302,19 @@ async def fetch_url_to_path(
     try:
         try:
             try:
-                # fix(#1708 codex r5): the wall clock wraps the ENTIRE
-                # request — connect-time DNS, TLS, headers, every redirect
-                # hop, and the body — not just the gaps between body chunks.
-                # The previous per-chunk elapsed check never ran while an
-                # origin stalled DNS or trickled headers under httpx's
-                # per-read timeout, so such an origin could hold the request
-                # past the edge proxy's 600s deadline. asyncio.timeout
-                # cancels the scope at the deadline (the drained threaded
-                # writes finish their in-flight chunk first, so no thread
-                # outlives the descriptor) and raises TimeoutError at exit,
-                # translated below. Same outer-deadline pattern as
-                # origin_probe.py, whose comment records that unlike httpx's
-                # phase timeouts it can expire during DNS resolution.
+                # fix(#1708): the wall clock wraps the ENTIRE
+                # request — DNS, TLS, headers, every redirect hop, the body —
+                # not just gaps between chunks. The previous per-chunk check
+                # never ran while an origin stalled DNS or trickled headers
+                # under httpx's per-read timeout, letting it hold the request
+                # past the 600s edge proxy deadline. asyncio.timeout cancels
+                # the scope at the deadline (drained writes finish their
+                # in-flight chunk first, so no thread outlives the
+                # descriptor) and raises TimeoutError at exit, translated
+                # below — same outer-deadline pattern as origin_probe.py.
                 async with asyncio.timeout(fetch_timeout):
                     async with make_safe_client(timeout=FETCH_TIMEOUT) as client:
-                        # fix(#1708 codex r11): identity requested, enforced
+                        # fix(#1708): identity requested, enforced
                         # below, and the loop reads aiter_raw — three layers
                         # against compression bombs (see the loop comment).
                         #
@@ -363,11 +334,10 @@ async def fetch_url_to_path(
                                     f"The server returned HTTP "
                                     f"{response.status_code} for this URL."
                                 )
-                            # fix(#1708 codex r11): a transport-compressed
-                            # response is refused by design. The staged file
-                            # must be the literal bytes the sniff and GDAL
-                            # will read, and decoding a caller-controlled
-                            # stream is exactly the bomb surface this closes.
+                            # fix(#1708): a transport-compressed
+                            # response is refused by design — the staged
+                            # file must be the literal bytes the sniff and
+                            # GDAL will read.
                             encoding = response.headers.get(
                                 "Content-Encoding", "identity"
                             ).lower()
@@ -382,25 +352,23 @@ async def fetch_url_to_path(
                             declared = response.headers.get("Content-Length", "")
                             if declared.isdigit() and int(declared) > max_size_bytes:
                                 raise _size_cap_error(max_size_bytes, cap_error_detail)
-                            # Drained threaded writes (so a cancelled request
-                            # cannot leave a worker thread writing through an
-                            # unlinked descriptor), batched through a buffer
-                            # so the handoff is not paid per httpx chunk.
-                            # `bytes(buffer)` snapshots before the thread
-                            # reads it, so the following `clear()` is safe.
+                            # Drained threaded writes (so a cancelled
+                            # request can't leave a worker thread writing
+                            # through an unlinked descriptor), batched
+                            # through a buffer so the handoff isn't paid per
+                            # httpx chunk. `bytes(buffer)` snapshots before
+                            # the thread reads it, so `clear()` is safe.
                             #
-                            # fix(#1708 codex r11): aiter_raw, NEVER
+                            # fix(#1708): aiter_raw, NEVER
                             # aiter_bytes. aiter_bytes transparently inflates
                             # Content-Encoding gzip/br/zstd, so one wire
-                            # chunk from a caller-controlled origin could
-                            # materialize an unbounded intermediate `bytes`
-                            # BEFORE the size check ran — a compression bomb
-                            # against API memory despite the streaming cap.
-                            # With aiter_raw even an origin that lies about
-                            # its encoding can never route bytes through a
-                            # decompressor: the cap below provably measures
-                            # wire bytes, which (with identity enforced
-                            # above) are exactly the staged bytes.
+                            # chunk could materialize an unbounded
+                            # intermediate `bytes` BEFORE the size check ran
+                            # — a compression bomb despite the streaming cap.
+                            # aiter_raw measures wire bytes even if the
+                            # origin lies about its encoding, which (with
+                            # identity enforced above) are exactly the
+                            # staged bytes.
                             buffer = bytearray()
                             async for chunk in response.aiter_raw(_CHUNK_SIZE):
                                 total += len(chunk)
@@ -437,7 +405,7 @@ async def fetch_url_to_path(
     except BaseException:
         # Partial or refused download: remove the file before propagating.
         # Ordering matters — the descriptor was drained and closed above.
-        # fix(#1708 codex r5): best-effort, so a path the filesystem refuses
+        # fix(#1708): best-effort, so a path the filesystem refuses
         # (or a transient FS error) cannot replace the real failure on its
         # way to the caller's cleanup-then-stamp sequence.
         try:

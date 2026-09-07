@@ -1,16 +1,9 @@
-"""Structured ingest-warning producer contract (TYPE-1).
+"""Structured ingest-warning producer contract for ``IngestJob.user_metadata['warnings']``.
 
-The ingest tasks emit warnings into ``IngestJob.user_metadata['warnings']``
-via ``_append_job_warning``. Before the TYPE-1 remediation that helper
-accepted an untyped ``dict`` which meant a typo in a ``kind`` value or a
-shape drift in ``details`` would silently ship a warning the frontend drops
-(or crashes on). These TypedDicts pin the producer side of the contract so
-mypy catches a malformed warning at the call site rather than at deserialize
-time on the client.
-
-The matching Pydantic models live in ``app.jobs.schemas`` — the router
-validates through them before returning ``JobStatusResponse`` so the
-backend-frontend contract is closed at both ends.
+These TypedDicts pin the producer side so mypy catches a malformed ``kind``
+or ``details`` shape at the call site rather than at client deserialize
+time. Matching Pydantic models live in ``app.jobs.schemas``, validated by
+the router before ``JobStatusResponse`` goes out.
 """
 
 from typing import Literal, NotRequired, TypedDict
@@ -40,10 +33,8 @@ class MercatorClipDetail(TypedDict):
     dropped_features: int
     clipped_features: int
     # fix(#906): True when the clip was skipped because the safe envelope
-    # degenerates under ST_Transform into the source CRS (narrow-validity
-    # CRSs — EPSG:4807 collapses it to a line and the intersection would
-    # have emptied the table). Counts are 0/0 in that case; the warning
-    # exists so the skip is not silent.
+    # degenerates under ST_Transform into the source CRS (e.g. EPSG:4807
+    # collapses to a line). Counts are 0/0 then; warn so it isn't silent.
     clip_skipped: NotRequired[bool]
 
 
@@ -53,13 +44,12 @@ class MercatorClipWarning(TypedDict):
 
 
 class MercatorClipCounts(TypedDict):
-    """Return shape of ``clip_to_mercator_bounds`` (fix(#888)).
+    """Return shape of ``clip_to_mercator_bounds``.
 
-    ``shifted_longitudes`` records whether the source was recognised as
-    0..360 and translated into -180..180 before the clip ran; the two counts
-    describe what the clip itself destroyed. ``clip_skipped`` (fix(#906))
-    records that the clip did not run because the safe envelope degenerated
-    in the source CRS; the 0..360 shift has still been applied.
+    ``shifted_longitudes``: source was 0..360, translated to -180..180
+    before the clip ran. ``clip_skipped`` (fix(#906)): clip didn't run
+    because the safe envelope degenerated in the source CRS; the
+    longitude shift was still applied.
     """
 
     shifted_longitudes: bool
@@ -78,9 +68,7 @@ def make_reserved_rename_warning(
 ) -> ReservedRenameWarning:
     """Build a ``reserved_rename`` warning from ``rename_reserved_columns`` output.
 
-    The metadata helper returns ``list[dict]`` for backwards compat with
-    raw SQLAlchemy callers; this wrapper narrows the shape to the
-    producer contract before the warning goes into ``user_metadata``.
+    Narrows the helper's untyped ``list[dict]`` to the producer contract.
     """
     return ReservedRenameWarning(
         kind="reserved_rename",
@@ -115,17 +103,11 @@ def make_mercator_clip_warning(
 ) -> MercatorClipWarning | None:
     """Build a ``mercator_clip`` warning, or None when no geometry was lost.
 
-    fix(#888): the Web Mercator clamp is intentional, but it used to run
-    silently — a valid point at lat -89.95 became ``MULTIPOINT EMPTY`` and the
-    user only found out when a later analysis reported "produced no features
-    to save". This producer turns the clip accounting into the user-visible
-    warning, and returns None for the overwhelmingly common no-loss clip so
-    the "warn only when the user actually lost data" decision lives here
-    rather than being re-derived at each ingest call site.
-
-    Shapes that are not the documented counts dict (a stale producer, a
-    monkeypatched stand-in) yield None rather than a malformed warning: same
-    fail-closed stance the router takes when it re-parses these.
+    fix(#888): the Web Mercator clamp can silently empty geometry (e.g. a
+    point at lat -89.95 becomes ``MULTIPOINT EMPTY``); this makes that
+    user-visible instead. Any shape other than the documented counts dict
+    (stale producer, monkeypatched stand-in) yields None rather than a
+    malformed warning — same fail-closed stance the router takes on re-parse.
     """
     if not isinstance(clip, dict):
         return None

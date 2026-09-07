@@ -1,18 +1,12 @@
 """Sprite-backed icon asset helpers for map symbols.
 
-# builder-audit #338 STYLE-05: this module contains a hand-rolled SVG path
-# parser (``_path_points``) and rasterizer (``_draw_svg_element``) that turn
-# uploaded/built-in SVG icons into a server-side PNG sprite sheet. This is a
-# DELIBERATE no-native-dependency tradeoff: it avoids pulling in a native
-# Cairo binding (e.g. cairosvg/pycairo) which would complicate the build and
-# container image pre-release. The known limitation is that bezier and arc
-# path commands (C/S/Q/T/A) are approximated by their endpoint only (see
-# ``_path_points``), so curved icons render as polygonal/straight segments in
-# the sprite sheet rather than smooth curves. This is acceptable for the small
-# 24px sprite cells used here. The approximation behavior is pinned by the
-# deterministic golden-image tests in ``backend/tests/test_map_sprites.py``
-# (``test_path_points_*`` / ``test_render_icon_*``) so it cannot silently
-# regress; do not "fix" the curves without updating those tests.
+builder-audit #338 STYLE-05: hand-rolled SVG path parser (``_path_points``)
+and rasterizer (``_draw_svg_element``), a deliberate no-native-dependency
+tradeoff over a Cairo binding. Bezier/arc commands (C/S/Q/T/A) are
+approximated by endpoint only, rendering curved icons as straight segments
+— acceptable at the 24px sprite-cell size. Pinned by golden-image tests in
+``backend/tests/test_map_sprites.py``; do not "fix" the curves without
+updating those tests.
 """
 
 from __future__ import annotations
@@ -40,34 +34,15 @@ from app.modules.catalog.maps.service import MapAssetPublication
 from app.modules.catalog.maps.schemas import MapIconResponse
 from app.platform.storage import get_storage
 
-# SEC-09: register the SVG namespace as the empty prefix so re-serialized SVGs
-# emit `<svg xmlns="...">` rather than `<ns0:svg xmlns:ns0="...">`. This keeps
-# the active-content denylist (`<script`, `<foreignobject`) effective on the
-# canonical bytes — without this, `<script>` would re-serialize to `<ns0:script>`
-# and slip past byte-match checks. Registering once at import time is safe;
-# stdlib ElementTree namespace registration is process-global.
+# SEC-09: register the SVG namespace as the empty prefix so
+# re-serialized SVGs emit `<svg xmlns="...">`, keeping the
+# active-content denylist matching `<script` after round-trip.
 _stdlib_ET.register_namespace("", "http://www.w3.org/2000/svg")
 
 MAX_ICON_BYTES = 512 * 1024
-# fix(#1428): compressed size says nothing about decoded size — a 9000x9000 PNG
-# is ~79 KiB on the wire, inside MAX_ICON_BYTES, and ~320 MB once decoded into a
-# 24px cell. Two caps bound that, and they are deliberately different numbers
-# because they answer different questions:
-#
-#   MAX_ICON_DIMENSION is a PRODUCT bound, on what may be uploaded from here on.
-#   1024 is far more than a sprite cell (24px, 48 at @2x) can show, so it costs
-#   a new icon nothing and holds its decode to ~4 MiB.
-#
-#   MAX_RENDER_PIXELS is a MEMORY bound, on what is ALREADY stored — where the
-#   upload cap gets no say, since those rows predate it. Re-using the upload cap
-#   at render would blank icons that draw correctly on maps today, so this one
-#   is set by what a single decode may cost instead: 24M px is ~96 MB of RGBA,
-#   and decodes are sequential within a batch, so it bounds the peak. Anything
-#   plausible (~4900px square, or any shape under that area) still renders its
-#   real art; only DoS-scale artifacts degrade to the placeholder.
-#
-# Area rather than dimensions, because cost tracks area: a 12000x160 strip is
-# 1.9M px and cheaper to decode than a 2048 square.
+# fix(#1428): compressed size says nothing about decoded size. Two caps:
+# MAX_ICON_DIMENSION bounds new uploads (product); MAX_RENDER_PIXELS bounds
+# decode cost on already-stored icons (memory) — area, not dimensions.
 MAX_ICON_DIMENSION = 1024
 MAX_RENDER_PIXELS = 24_000_000
 SUPPORTED_MEDIA_TYPES = {"image/svg+xml": ".svg", "image/png": ".png"}
@@ -78,11 +53,9 @@ _PATH_TOKEN_RE = re.compile(
     r"[MmZzLlHhVvCcQqSsTtAa]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?"
 )
 SPRITE_CELL_SIZE = 24
-# fix(#1428 codex r1): how many icons the sheet render holds in flight at once —
-# it bounds both the concurrent storage reads and the icon bytes resident while
-# they are composited. The catalog has no size limit, so this cannot be "all of
-# them": 8 icons at MAX_ICON_BYTES is 4 MiB, and still 8x the serial read it
-# replaced.
+# fix(#1428): bounds concurrent reads/resident bytes during
+# compositing — the catalog has no size limit, so 8 icons at
+# MAX_ICON_BYTES (4 MiB) still beats the serial read it replaced.
 _SPRITE_RENDER_BATCH = 8
 
 
@@ -182,13 +155,11 @@ def validate_icon_upload(
 ) -> tuple[str, str, bytes]:
     """Validate an icon upload. Returns (slug, media_type, sanitized_content).
 
-    For SVG uploads, ``sanitized_content`` is the defusedxml-re-serialized form
-    of the input — this normalizes entity encodings (``&lt;script&gt;`` → text,
-    ``&#106;avascript:`` → ``javascript:``) BEFORE the active-content denylist
-    runs, defeating attribute-encoding bypasses (SEC-09 / M-71). Callers MUST
-    persist ``sanitized_content``, not the original upload bytes.
-
-    For PNG uploads, ``sanitized_content`` is the original bytes unchanged.
+    For SVG, ``sanitized_content`` is the defusedxml-re-serialized form —
+    normalizes entity encodings (``&#106;avascript:`` -> ``javascript:``)
+    BEFORE the active-content denylist runs (SEC-09/M-71). Callers MUST
+    persist ``sanitized_content``, not the original bytes. For PNG,
+    ``sanitized_content`` is unchanged.
     """
     if not content:
         raise ValueError("Icon file is empty")
@@ -216,15 +187,9 @@ def validate_icon_upload(
         if b"<svg" not in prefix:
             raise ValueError("SVG icon content is invalid")
 
-        # SEC-09 / M-71: re-serialize via defusedxml so entity-encoded payloads
-        # like &#106;avascript: in attributes are normalized into canonical
-        # bytes BEFORE the denylist matches. The SVG namespace is registered
-        # as the empty prefix at module import time so the round-trip emits
-        # `<svg xmlns="...">` (and child tags un-prefixed) — required for the
-        # denylist below to keep matching `<script`, `<foreignobject`, etc.
-        # Note: text content like &lt;script&gt; remains entity-encoded after
-        # round-trip — the CSP `default-src 'none'; sandbox` header on the icon
-        # GET response (SEC-01) is the second defense layer for that case.
+        # SEC-09/M-71: re-serialize via defusedxml so entity-encoded
+        # payloads normalize into canonical bytes before the denylist
+        # matches; CSP sandbox (SEC-01) is the 2nd layer for encoded text.
         try:
             root = fromstring(content)
         except Exception as exc:  # broad: lxml fromstring can throw varied parser errors on malformed SVG; map to ValueError
@@ -279,10 +244,10 @@ async def _load_icon_catalog(
 ) -> tuple[list[MapIconResponse], list[MapIconAsset]]:
     """The icon catalog, as sprite responses plus the uploaded rows behind them.
 
-    fix(#1428 codex r2): the sheet render needs those rows to reach storage, and
-    this is the query that already loads all of them. Re-reading them by id cost
-    a second query that grew a bind parameter per icon — past 32k uploads that
-    is more parameters than the driver accepts, on a route that takes no auth.
+    fix(#1428): the sheet render needs those rows, and this is the
+    query that already loads all of them. Re-reading by id costs a second
+    query with a bind parameter per icon — past 32k uploads, more parameters
+    than the driver accepts, on a route with no auth.
     """
     result = await session.execute(select(MapIconAsset).order_by(MapIconAsset.name))
     uploaded = list(result.scalars().all())
@@ -307,17 +272,11 @@ async def create_icon_asset(
 ) -> MapIconAsset:
     """Store one uploaded icon and the row that names it.
 
-    fix(#1778 round 4): ``publication`` is the rollback ledger from
-    ``map_asset_publication``. This is the third write-object-then-commit-row
-    site in the package, and the one whose commit is not here: the row is only
-    flushed below, and the route commits afterwards, so a failure in either step
-    would leave the icon bytes behind with no row naming them. The caller opens
-    the publication and this function records the key it wrote, because the key
-    is derived here and the commit happens there.
-
-    The key recorded is the physical one, which for icons is the logical one:
-    they are deliberately global rather than tenant-resolved, for the reasons
-    the comment below the slug gives.
+    fix(#1778): ``publication`` is the rollback ledger — the row
+    is flushed here, the route commits, so a failure between them would
+    leave orphan bytes; this records the key, the caller commits. The
+    key is physical (= logical): icons are deliberately global (see
+    comment below the slug).
     """
     base_slug, media_type, sanitized_content = validate_icon_upload(
         filename, content_type, content
@@ -325,31 +284,16 @@ async def create_icon_asset(
     icon_id = uuid.uuid4()
     extension = SUPPORTED_MEDIA_TYPES[media_type]
     slug = f"{base_slug}-{str(icon_id)[:8]}"
-    # fix(#1621): this key is DELIBERATELY global. It stays outside the
-    # tenants/<id>/ prefix that maps/thumbnails/ and maps/og-images/ resolve
-    # into through resolve_current_storage_key, because the bytes have to
-    # follow the rows and the rows are fleet-wide: catalog.map_icon_assets
-    # carries no tenant_id, has no RLS policy, appears in no tenant-adoption
-    # SQL, and its slug uniqueness is deployment-global (models.py). Every
-    # tenant's anonymous sprite request loads that one catalog, and the sheet
-    # cache is process-global to match.
-    #
-    # Resolving this key per tenant writes an icon under the uploader's prefix
-    # that no other tenant can read, so the next cold sprite build for any
-    # other tenant raises FileNotFoundError and 500s an unauthenticated route.
-    # Making icons per-tenant means moving the ROWS first: tenant_id, an RLS
-    # policy, per-tenant slug uniqueness, and a per-tenant sheet cache. Until
-    # that happens the bytes belong at the bucket root, and
-    # test_map_sprites.py::test_icon_storage_keys_stay_global_under_tenant_context
-    # fails if anyone reroutes them.
+    # fix(#1621): deliberately global, outside tenants/<id>/ — rows are
+    # fleet-wide too (no tenant_id/RLS, global slug); per-tenant keys would
+    # 500 other tenants' sprite builds.
+    # test_icon_storage_keys_stay_global_under_tenant_context enforces this.
     storage_key = f"maps/icons/{icon_id}{extension}"
     # Persist the sanitized form so the bytes on disk match what validation
     # accepted (SEC-09). For PNG this is the original bytes unchanged.
-    # fix(#1778 round 7): recorded before the write, like the two image
-    # handlers. Object storage can durably accept a PUT and still fail the
-    # client, so a raise from the put says nothing about whether the bytes
-    # landed; the key is freshly generated and never reused, so a rollback
-    # delete is either a real cleanup or a no-op on a key nothing wrote.
+    # fix(#1778): recorded before the write, like the image
+    # handlers — a PUT can land and still fail the client, so a fresh,
+    # never-reused key means rollback is either real cleanup or a no-op.
     if publication is not None:
         publication.record(storage_key)
     await get_storage().put(storage_key, sanitized_content)
@@ -474,11 +418,8 @@ def _point(
 
 
 def _path_points(path_data: str) -> list[list[tuple[float, float]]]:
-    # builder-audit #338 STYLE-05: hand-rolled SVG path tokenizer/state machine,
-    # deliberately kept dependency-free (no native Cairo). Curve/arc commands
-    # (C/S/Q/T/A) are collapsed to their endpoint below — a documented fidelity
-    # tradeoff. The exact polyline output is pinned by golden tests in
-    # backend/tests/test_map_sprites.py so the approximation cannot drift.
+    # builder-audit #338 STYLE-05: hand-rolled tokenizer/state machine (see
+    # module docstring); output is pinned by golden tests in test_map_sprites.py.
     tokens = _PATH_TOKEN_RE.findall(path_data.replace(",", " "))
     paths: list[list[tuple[float, float]]] = []
     current: list[tuple[float, float]] = []
@@ -529,9 +470,7 @@ def _path_points(path_data: str) -> list[list[tuple[float, float]]]:
             y1 = number()
             add_point(x, y1 if absolute else y + y1)
         elif op in {"C", "S", "Q", "T", "A"}:
-            # builder-audit #338 STYLE-05: approximate curves and arcs by their
-            # endpoint. This keeps uploaded SVG icons visible without depending
-            # on native Cairo bindings (deliberate no-native-dep tradeoff).
+            # Curves/arcs approximated by endpoint (see module docstring).
             needed = {"C": 6, "S": 4, "Q": 4, "T": 2, "A": 7}[op]
             values = [number() for _ in range(needed)]
             x1, y1 = values[-2], values[-1]
@@ -632,10 +571,9 @@ def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
     try:
         if media_type == "image/png":
             source = Image.open(BytesIO(content))
-            # fix(#1428 codex r4): .size comes off the header — convert() is what
-            # allocates. Refuse in between, so a stored artifact never reaches
-            # the decode. This is the gate for everything between the bound and
-            # Pillow's own bomb threshold, which sits ~7x higher.
+            # fix(#1428): .size comes off the header, convert()
+            # allocates — refuse between them, before Pillow's own bomb
+            # threshold (~7x higher) is even reached.
             if source.width * source.height > MAX_RENDER_PIXELS:
                 return _placeholder_icon(seed)
             source = source.convert("RGBA")
@@ -654,8 +592,7 @@ def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
         IndexError,
         SyntaxError,
         # fix(#1428): past ~179M px Pillow refuses from open() itself, before
-        # the MAX_RENDER_PIXELS check above can measure anything. Degrade that
-        # cell too, rather than 500 the whole sprite sheet.
+        # MAX_RENDER_PIXELS can measure anything; degrade the cell, don't 500.
         Image.DecompressionBombError,
     ):
         return _placeholder_icon(seed)
@@ -798,10 +735,9 @@ async def _render_sprite_png(
         (len(icons) * SPRITE_CELL_SIZE, SPRITE_CELL_SIZE),
         (0, 0, 0, 0),
     )
-    # fix(#1428 codex r1): a batch at a time, so neither the read fan-out nor the
-    # bytes held at once scale with the catalog. The whole-catalog gather this
-    # replaced retained every blob until the last one landed — up to
-    # MAX_ICON_BYTES per uploaded icon, on a route that takes no auth.
+    # fix(#1428): a batch at a time, so neither the read fan-out
+    # nor resident bytes scale with the catalog — the whole-catalog gather
+    # this replaced held every blob until the last one landed.
     for start in range(0, len(icons), _SPRITE_RENDER_BATCH):
         batch = icons[start : start + _SPRITE_RENDER_BATCH]
         payloads = await _load_icon_payloads(batch, assets)

@@ -28,11 +28,9 @@ logger = structlog.stdlib.get_logger(__name__)
 # deactivate each other (each operation targets a different row).
 _ADMIN_LIFECYCLE_LOCK_KEY = 0x47454F4C41444D49  # "GEOLADMI"
 
-# Inner half of the user-list sort allowlist (the outer half is the
-# UserSortField Literal in schemas.py, which FastAPI enforces at the boundary).
-# A sort key is only ever a dict lookup here, so an unmapped value cannot reach
-# SQL as text; list_users raises rather than falling back, because a permissive
-# fallback would silently serve the default ordering under a typo'd key.
+# Inner half of the user-list sort allowlist (outer: UserSortField in
+# schemas.py). A sort key is only ever a dict lookup, so an unmapped value
+# cannot reach SQL as text; list_users raises rather than falling back silently.
 USER_SORT_COLUMNS: dict[str, InstrumentedAttribute] = {
     "username": User.username,
     "email": User.email,
@@ -46,10 +44,10 @@ USER_SORT_COLUMNS: dict[str, InstrumentedAttribute] = {
 # top of a descending "Last Login" sort. Pin them last in both directions.
 _NULLABLE_USER_SORT_COLUMNS = frozenset({"email", "last_login_at"})
 
-# Inner half of the job-list sort allowlist (outer half: the JobSortField
-# Literal in schemas.py). Built by a function rather than held as a module
-# constant because IngestJob is imported lazily inside list_jobs; hoisting it to
-# module scope would put a platform.jobs import in every importer of this module.
+# Inner half of the job-list sort allowlist (outer: JobSortField in
+# schemas.py). A function, not a module constant, because IngestJob is
+# imported lazily here; hoisting it would put a platform.jobs import in
+# every importer of this module.
 _NULLABLE_JOB_SORT_COLUMNS = frozenset({"source_filename", "username", "duration"})
 
 
@@ -64,11 +62,9 @@ def _job_sort_columns() -> dict[str, Any]:
         # The list query already outer-joins users for the displayed username,
         # so ordering by it costs nothing extra.
         "username": User.username,
-        # What the UI's Duration column shows, as a column expression: the
-        # elapsed time of a finished job. The interval is NULL for exactly the
-        # rows that render "-" (either timestamp missing), so the ordering and
-        # the cell agree without a second rule. Pinned NULLS LAST below, which
-        # keeps pending and running jobs off the top of a descending sort.
+        # Column expression for the UI's Duration cell: NULL for exactly the
+        # rows that render "-", so ordering and the cell agree without a
+        # second rule. Pinned NULLS LAST below (_NULLABLE_JOB_SORT_COLUMNS).
         "duration": IngestJob.completed_at - IngestJob.started_at,
     }
 
@@ -114,19 +110,14 @@ async def _get_total_storage_bytes(db: AsyncSession, dataset_model: type) -> int
 class IdentityRoleOutcome:
     """What ``set_role_from_identity_provider`` did.
 
-    fix(#1778 codex r5). Three states, not two, because the caller writes an
-    audit row and each deserves a different one:
+    fix(#1778): three states, since the caller audits each differently:
 
     * ``applied=False`` -- the last-admin rule refused the demotion.
-    * ``applied=True, changed=False`` -- the role was already what the mapping
-      asks for. Nothing happened, so nothing is recorded. This is the state a
-      second concurrent callback lands in once it gets the lock.
-    * ``applied=True, changed=True`` -- the role moved, and ``previous_roles``
-      says from where.
-
-    ``previous_roles`` is always read UNDER the advisory lock, so it describes
-    the state the change actually started from rather than one a racing caller
-    had already replaced.
+    * ``applied=True, changed=False`` -- role already matched; nothing to
+      record (a second concurrent callback lands here once it gets the lock).
+    * ``applied=True, changed=True`` -- role moved; ``previous_roles`` says
+      from where, always read UNDER the advisory lock so it reflects the
+      actual starting state.
     """
 
     applied: bool
@@ -165,7 +156,6 @@ class AdminService:
 
     @staticmethod
     def _is_viable_admin(user: User) -> bool:
-        """Return whether the user currently provides a usable admin login."""
         return (
             user.status == "active"
             and user.is_active
@@ -243,11 +233,9 @@ class AdminService:
         Raises ValueError if username/email is taken or role not found.
 
         HARDEN-04: the role-existence check runs BEFORE the User row is added
-        or flushed so a bad role name produces a clean error with no partial
-        write.  The DB FK on user_roles.role_id is the hard backstop; this
-        early check exists to give a readable error message, not as a security
-        boundary.  A TOCTOU window (role deleted between check and UserRole
-        insert) is accepted — it is caught by the FK constraint.
+        or flushed, for a readable error rather than the FK backstop alone.
+        The TOCTOU window (role deleted between check and insert) is accepted
+        -- the FK constraint catches it.
         """
         await self._ensure_unique_user_field(
             User.username, username, "Username already taken"
@@ -257,8 +245,6 @@ class AdminService:
                 User.email, email, "Email already registered"
             )
 
-        # HARDEN-04: resolve the role BEFORE adding/flushing the User row so a
-        # missing role raises with no partial user in the session.
         role_result = await self.db.execute(select(Role).where(Role.name == role_name))
         role = role_result.scalar_one_or_none()
         if role is None:
@@ -307,22 +293,17 @@ class AdminService:
     async def reset_user_password(self, user_id: uuid.UUID, password: str) -> User:
         """Set another account's password (feat(#1715)), revoking its credentials.
 
-        The recovery path for a locked-out user, so it deliberately does not
-        ask for the old value the way POST /auth/change-password/ does. What it
-        does mirror is that endpoint's aftermath: revoke_all_tokens with
-        bump_key_epoch=True, so every outstanding access JWT, refresh row and
-        API key the account holds stops resolving. Anyone who reached the old
-        password is not left holding a live session.
+        Mirrors change_password's aftermath: revoke_all_tokens with
+        bump_key_epoch=True, so every outstanding JWT, refresh row and API key
+        the account holds stops resolving.
 
         commit=False folds the revocation into the caller's transaction, so the
-        new hash, the revocation and the router's audit row land together or
-        not at all -- the same atomicity change_password relies on.
+        new hash, revocation and audit row land together or not at all.
 
-        Accounts that sign in through an identity provider have no local
-        password to replace; raise rather than silently minting one (the router
-        maps it to 422). _get_lifecycle_user gives the shared "User not found"
-        the router maps to 404, plus the row lock that serializes this against
-        a concurrent deactivate or delete of the same account.
+        Identity-provider accounts have no local password to replace; raises
+        rather than silently minting one (router maps to 422).
+        _get_lifecycle_user gives the shared 404 plus the row lock that
+        serializes against a concurrent deactivate/delete.
         """
         user = await self._get_lifecycle_user(user_id)
         if user.auth_provider != "local":
@@ -435,9 +416,9 @@ class AdminService:
     ) -> bool:
         """Replace a user's role with new_role_name in the current transaction.
 
-        Returns whether the roles actually CHANGED. fix(#1778 codex r5): the
-        caller needs to tell "applied" from "was already correct", because an
-        IdP-driven caller emits an audit event and only a real change is one.
+        Returns whether the roles actually CHANGED (fix(#1778)): the caller
+        needs to tell "applied" from "was already correct", since an
+        IdP-driven caller only emits an audit event for a real change.
 
         Raises ValueError if the new role doesn't exist or if this would demote
         the sole admin.
@@ -449,11 +430,11 @@ class AdminService:
         if new_role is None:
             raise ValueError(f"Role '{new_role_name}' not found")
 
-        # fix(#821 codex review): an idempotent resubmission of the user's
-        # current role (e.g. a reconciliation-tool PATCH) is not a security
-        # event — skip the delete/recreate AND the key_epoch bump so it does
-        # not revoke the user's API keys. Queried explicitly rather than via
-        # user.roles to avoid depending on relationship load state.
+        # fix(#821): an idempotent resubmission of the user's current role
+        # (e.g. a reconciliation-tool PATCH) is not a security event — skip
+        # the delete/recreate and the key_epoch bump so API keys survive.
+        # Queried explicitly rather than via user.roles to avoid depending on
+        # relationship load state.
         current_role_names = set(
             (
                 await self.db.execute(
@@ -473,9 +454,8 @@ class AdminService:
         self.db.add(UserRole(user_id=user.id, role_id=new_role.id))
 
         # fix(#821): bump key_epoch so API keys minted under the old role stop
-        # resolving. Applies to promotion as well as demotion — a key must not
-        # silently change privilege level; the owner re-mints under the new
-        # role. token_version is deliberately NOT bumped here: JWTs are
+        # resolving — applies to promotion too, since a key must not silently
+        # change privilege level. token_version is NOT bumped: JWTs are
         # short-lived and role checks read live DB roles per request.
         await self.db.execute(
             update(User).where(User.id == user.id).values(key_epoch=User.key_epoch + 1)
@@ -487,53 +467,27 @@ class AdminService:
     ) -> IdentityRoleOutcome:
         """Apply an IdP-mapped role. False when the last-admin rule refused it.
 
-        fix(#1778 codex r1): the OAuth group-role reconciliation
+        fix(#1778): the public seam for two invariants OAuth reconciliation
         (``_reconcile_mapped_role`` in modules/auth/oauth/service.py) must not
-        be a second, weaker copy of this path. Two invariants live here and
-        both were missing from the reconciliation as first written:
+        skip: the last-admin rule, and the ``key_epoch`` bump (#821) so a role
+        change actually revokes stale-privilege API keys. Calls the same
+        ``_ensure_not_last_admin``/``_update_user_role`` the admin router uses.
+        A refusal is not an error here -- login continues with the role
+        unchanged and the caller records why.
 
-        * the last-admin rule. Assigning the default role directly could
-          remove the only active admin, which every other demotion route is
-          stopped from doing.
-        * the ``key_epoch`` bump (#821). Without it an API key minted while
-          the account was a viewer keeps resolving after the account is mapped
-          to admin, so the key silently gains privileges its owner never
-          re-minted it for.
+        The advisory lock is taken here (call only when a change is needed;
+        the caller compares the current role first) and covers BOTH branches,
+        including promotion: two concurrent OAuth callbacks for the same
+        account can otherwise both run ``_update_user_role`` unserialized,
+        colliding on ``user_roles``'s ``(user_id, role_id)`` primary key. Under
+        the lock, ``_update_user_role``'s idempotency check makes the second
+        caller's re-read a no-op instead. One lock for both branches, since
+        demotion needs the global one anyway (last-admin count is fleet-wide).
 
-        This is the public seam for that: it calls the same
-        ``_ensure_not_last_admin`` and ``_update_user_role`` the admin router
-        uses, rather than copying the count query. A refusal is not an error
-        for the caller -- an IdP assertion is not an admin action, so the login
-        continues with the role unchanged and the caller records why.
-
-        The advisory lock is taken here, so call this only when a change is
-        actually needed; the caller compares the current role first.
-
-        fix(#1778 codex r4): the lock covers a PROMOTION too, which it did not
-        at first. The reasoning for skipping it was that a promotion cannot
-        threaten the last-admin invariant, which is true and beside the point:
-        two OAuth callbacks for the same returning account can arrive together,
-        and both then ran ``_update_user_role`` unserialized. That deletes and
-        re-inserts ``catalog.user_roles``, whose primary key is
-        ``(user_id, role_id)``, so the two inserts collide and one otherwise
-        valid login fails on a duplicate key.
-
-        Holding the lock across both branches also makes ``_update_user_role``'s
-        idempotency check load-bearing: the second caller re-reads the roles
-        under the lock, finds the promotion already applied, and returns without
-        touching the table or bumping ``key_epoch`` a second time.
-
-        Same lock for both branches rather than a per-user row lock, because the
-        demotion branch needs the global one anyway (the last-admin count is
-        fleet-wide) and one lock cannot deadlock against itself.
-
-        fix(#1778 codex r5): returns an outcome rather than a bare bool, and the
-        ``previous_roles`` it carries are read UNDER the lock. Two concurrent
-        callbacks both captured the previous roles before waiting for the lock,
-        and the one that lost the race then emitted a second `oauth.role.changed`
-        event describing a transition that had already happened, with a snapshot
-        taken before the winner's write. The loser now reports
-        ``changed=False`` and the caller stays quiet.
+        Returns an outcome, not a bare bool, with ``previous_roles`` read
+        UNDER the lock -- reading it before the lock let two racing callbacks
+        both emit an `oauth.role.changed` event for the same transition, the
+        loser's snapshot stale by the time it was recorded.
         """
         await self._lock_admin_lifecycle()
         await self.db.refresh(user, attribute_names=["roles"])
@@ -563,38 +517,28 @@ class AdminService:
     ) -> tuple[User, str]:
         """Convert a SAML-authenticated user to local-password (Phase 221 LIFECYCLE-06).
 
-        In a single (uncommitted) DB transaction:
+        In one (uncommitted) transaction:
           1. Load the user; raise ValueError("User not found") if absent.
           2. Validate user.auth_provider == "oauth"; otherwise raise ValueError
              (router maps to 422).
-          3. Find a SAML linkage (oauth_accounts row joined to oauth_providers
-             where provider_type='saml'); raise ValueError if absent.
+          3. Find a SAML linkage (oauth_accounts joined to oauth_providers where
+             provider_type='saml'); raise ValueError if absent.
           4. Set user.password_hash = hash_password(password).
-          5. Flip user.auth_provider from 'oauth' to 'local' (chk_users_auth_provider
-             CHECK admits 'local').
-          6. DELETE the SAML oauth_accounts row (clean break per D-04 -- the
+          5. Flip user.auth_provider from 'oauth' to 'local'.
+          6. DELETE the SAML oauth_accounts row (clean break, D-04 -- the
              oauth_providers row stays; other users may still link to it).
-          7. revoke_all_tokens(commit=False, bump_key_epoch=True): revoke the
-             refresh rows, bump token_version and key_epoch, and stamp the
-             revocation horizon, so no SAML-era credential survives.
+          7. revoke_all_tokens(commit=False, bump_key_epoch=True) so no
+             SAML-era credential survives.
 
-        Returns (user, provider_slug). The router uses provider_slug to populate
-        the audit-log details field. The router (NOT this method) writes the
-        audit_log row and commits the transaction (per D-05).
+        Returns (user, provider_slug); the router uses provider_slug for the
+        audit-log details and writes/commits the audit row itself (D-05).
 
-        Per D-06: users.id is never updated; every FK referencing it is preserved
-        by virtue of the row not moving.
-        Per D-07: user_roles, api_keys, share_tokens, audit_logs, last_login_at
-        are never touched.
+        Per D-06/D-07: users.id, and user_roles/api_keys/share_tokens/audit_logs/
+        last_login_at, are never touched.
         """
-        # 1. Load user
-        #
-        # fix(#1715 codex r4 P1): FOR UPDATE, matching the reset and the login.
-        # This rotates credentials, so it must not read, decide and write from a
-        # snapshot another writer can invalidate underneath it. A lost update is
-        # already unreachable via auth_provider (this path demands 'oauth', the
-        # reset and change_password demand 'local', and only this path flips
-        # it), but that is an argument a future edit can break silently.
+        # fix(#1715): FOR UPDATE, matching the reset and the login -- this
+        # rotates credentials and must not read/decide/write from a snapshot
+        # another writer can invalidate underneath it.
         result = await self.db.execute(
             select(User).where(User.id == user_id).with_for_update()
         )
@@ -602,14 +546,12 @@ class AdminService:
         if user is None:
             raise ValueError("User not found")
 
-        # 2. Validate user is OAuth-authenticated
         if user.auth_provider != "oauth":
             raise ValueError(
                 f"User auth_provider is '{user.auth_provider}', not 'oauth' "
                 "-- conversion only applies to OAuth/SAML-authenticated users"
             )
 
-        # 3. Find a SAML linkage for this user
         saml_link_stmt = (
             select(OAuthAccount, OAuthProvider.slug)
             .join(OAuthProvider, OAuthAccount.provider_id == OAuthProvider.id)
@@ -625,31 +567,24 @@ class AdminService:
             )
         saml_account, provider_slug = link_row
 
-        # 4. Set password hash
         user.password_hash = hash_password(password)
 
-        # 5. Flip auth_provider (chk_users_auth_provider admits 'local')
+        # chk_users_auth_provider admits 'local'.
         user.auth_provider = "local"
 
-        # 6. Delete the SAML linkage row (clean break per D-04). Scoped by id so
-        #    only THIS user's SAML linkage is deleted -- other users' linkages
-        #    AND this user's non-SAML linkages (multi-IdP edge case) are preserved.
+        # Scoped by id: only THIS user's SAML linkage is deleted -- other
+        # users' linkages AND this user's non-SAML linkages are preserved.
         await self.db.execute(
             delete(OAuthAccount).where(OAuthAccount.id == saml_account.id)
         )
 
-        # 7. Revoke every session credential the SAML identity holds. Conversion
-        #    is a credential reset: SEC-S15 (CR-02, Phase 1062 review) requires
-        #    it to force re-authentication rather than let an outstanding SAML
-        #    access JWT stay cryptographically valid until its natural expiry,
-        #    and the SAML-era refresh tokens must not be exchangeable for a new
-        #    JWT afterwards. bump_key_epoch=True per fix(#821), so API keys
-        #    minted before the conversion also stop resolving.
+        # SEC-S15 CR-02: forces re-authentication rather than leaving an
+        # outstanding SAML JWT valid until natural expiry, and SAML-era
+        # refresh tokens unusable afterwards. bump_key_epoch=True (fix(#821))
+        # also stops pre-conversion API keys.
         #
-        #    fix(#1455): one call where two inline UPDATEs used to duplicate
-        #    revoke_all_tokens. The duplication is what let the sites drift —
-        #    the horizon added there would have silently missed this one. Same
-        #    session, so commit=False folds it into the caller's transaction.
+        # fix(#1455): one call replacing two inline UPDATEs that had drifted;
+        # commit=False folds it into the caller's transaction.
         await AuthService(self.db).revoke_all_tokens(
             user_id, commit=False, bump_key_epoch=True
         )
@@ -701,14 +636,11 @@ class AdminService:
         if status is not None:
             filters.append(User.status == status)
         if search is not None:
-            # T-2/T-1: normalize BOTH the column AND the pattern with
-            # lower(catalog.immutable_unaccent(...)) so (a) the predicate matches
-            # the trigram GIN indexes (ix_users_username_trgm,
-            # ix_users_email_trgm, both on lower(immutable_unaccent(col))) and the
-            # OR can BitmapOr both, and (b) accent-insensitive search works -- an
-            # accented term like "José" must itself be unaccented or it would
-            # never match the unaccented index column. escape_ilike() keeps %, _,
-            # \ literal (the bare f"%{search}%" previously leaked wildcards).
+            # T-2/T-1: normalize BOTH column AND pattern with
+            # lower(catalog.immutable_unaccent(...)) to match the trigram GIN
+            # indexes (ix_users_username_trgm, ix_users_email_trgm) and make
+            # search accent-insensitive ("José" must itself be unaccented).
+            # escape_ilike() keeps %, _, \ literal.
             pattern = func.concat(
                 "%", func.catalog.immutable_unaccent(escape_ilike(search).lower()), "%"
             )
@@ -774,12 +706,10 @@ class AdminService:
         user.status = "active"
         user.is_active = True
 
-        # fix(#821 codex review): approval assigns the account's authority, so
-        # bump key_epoch — any key that existed while the account was pending
-        # (legacy/manual rows; minting for non-active users is now refused)
-        # must not wake up with the approved role's privileges. The row is
-        # locked (with_for_update above), so the in-place increment is
-        # race-free.
+        # fix(#821): approval assigns the account's authority, so bump
+        # key_epoch — any key that existed while pending (legacy/manual rows;
+        # minting for non-active users is now refused) must not wake up with
+        # the approved role's privileges. Race-free: the row is locked above.
         user.key_epoch += 1
 
         # A pending account should not normally own a role, but legacy/manual
@@ -943,33 +873,21 @@ class AdminService:
     async def get_embedding_stats(self) -> EmbeddingStatsResponse:
         """Return embedding coverage statistics for the ACTIVE embedding model.
 
-        fix(#1503): the coverage join is scoped to the current model name.
-        `catalog.record_embeddings` is keyed `(record_id, model_name)` because
-        vectors from different models are incomparable, and semantic search
-        reads only rows matching the active model
-        (`catalog/search/service_semantic.py`). Counting every row regardless
-        of model reported 100% coverage after a model swap while search's
-        vector arm matched nothing, so the panel showed a healthy bar over
-        dead semantic ranking.
+        fix(#1503): scoped to the current model name — `record_embeddings` is
+        keyed `(record_id, model_name)`, and semantic search only reads rows
+        matching the active model. Counting every row regardless of model
+        showed 100% coverage after a model swap while search matched nothing.
+        When the active model can't be resolved, the sentinel name matches no
+        row, so coverage reads 0 -- deliberate, since search is equally unusable.
 
-        When the active model cannot be resolved, `resolve_embedding_model_name`
-        returns a sentinel that matches no stored row, so coverage reads 0 and
-        every embedded record reads stale. That is deliberate: search's vector
-        arm is equally unusable in that state, and over-reporting coverage is
-        the failure this fix exists to remove.
-
-        fix(#1546): the same argument, one value out. A row carrying the active
-        model name but another CONFIGURATION's stamp is in a different vector
-        space, so semantic search cannot use it either, and counting it would
-        show a healthy coverage bar over a catalog the vector arm skips — the
-        exact failure #1503 removed, re-entering through the endpoint.
+        fix(#1546): same argument, one value out -- a row with the active model
+        name but another CONFIGURATION's stamp is a different vector space, so
+        counting it would show the same false-healthy coverage.
 
         The FILTER below is the SQL spelling of
-        `RecordEmbedding.usable_by_config`, which is what the non-force backfill
-        and semantic search apply. Two spellings of one rule is a drift risk, so
-        it is not left to inspection: `test_embedding_config_stamp_1546.py`
-        builds a catalog holding every combination of model and stamp and
-        asserts this count equals what that predicate selects.
+        `RecordEmbedding.usable_by_config` (also used by the non-force backfill
+        and semantic search); `test_embedding_config_stamp_1546.py` asserts the
+        two spellings agree.
         """
         from app.processing.embeddings.helpers import (
             resolve_embedding_config_fingerprint,
@@ -1010,17 +928,12 @@ class AdminService:
             )
 
         missing_records = total_records - embedded_records
-        # Records carrying vectors, but none the active configuration can use.
-        # Subset of missing_records. fix(#1546): "configuration", not "model" —
-        # a row from another endpoint counts here too, and Generate Missing
-        # covers it for the same reason it covers a superseded model's row.
-        # fix(#1506): Generate Missing now covers these —
-        # the non-force backfill selects on "no active-model row" rather than
-        # "no row at all", so it re-embeds them without touching the records
-        # the current model already covers. Regenerate All remains the way to
-        # also DELETE the superseded rows; a non-force run leaves them in
-        # place, which costs storage but no longer counts as stale (the count
-        # below is a difference, and the new active-model row closes it).
+        # Records carrying vectors, but none the active CONFIGURATION can use
+        # (fix(#1546): "configuration", not "model"). fix(#1506): the
+        # non-force backfill selects on "no active-model row" rather than "no
+        # row at all", so Generate Missing re-embeds these without touching
+        # records the current model already covers; superseded rows are left
+        # in place (storage cost only, no longer counted as stale here).
         stale_records = any_model_records - embedded_records
         coverage_percent = (
             (embedded_records / total_records * 100) if total_records > 0 else 0.0
@@ -1034,7 +947,6 @@ class AdminService:
         )
 
     async def get_catalog_stats(self) -> CatalogStatsResponse:
-        """Return catalog statistics: counts, storage, breakdowns."""
         db = self.db
         from app.platform.extensions import get_processing_port
 

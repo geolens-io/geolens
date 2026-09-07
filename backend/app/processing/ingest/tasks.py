@@ -6,7 +6,6 @@ workflow-specific sub-modules so that existing imports continue to work:
     from app.processing.ingest.tasks import ingest_file, task_app
 """
 
-# -- Shared helpers, dataclasses, and app configuration --
 from app.processing.ingest.tasks_common import (  # noqa: F401
     IngestContext,
     StagingResult,
@@ -25,53 +24,37 @@ from app.processing.ingest.tasks_common import (  # noqa: F401
     task_app,
 )
 
-# -- Re-export infrastructure helpers used by sub-modules (for test mocking) --
 # fix(#909): async_session is deliberately NOT re-exported here. A module-scope
 # `from app.core.db import async_session` snapshots the dev-DB factory past the
-# test fixture's rebinding of app.core.db, and a re-export invites consumers to
-# inherit that snapshot. Late-bind at call scope instead (test_layering.py
-# enforces this).
+# test fixture's rebinding of app.core.db; late-bind at call scope instead
+# (test_layering.py enforces this).
 from app.platform.cache.tiles import invalidate_catalog_cache  # noqa: F401
 from app.platform.storage import get_storage  # noqa: F401
 from app.processing.embeddings.helpers import defer_embedding  # noqa: F401
-
-# -- Vector file and service ingestion tasks --
 from app.processing.ingest.tasks_vector import (  # noqa: F401
     ingest_file,
     ingest_service,
 )
-
-# -- Raster/COG ingestion tasks --
 from app.processing.ingest.tasks_raster import (  # noqa: F401
     create_raster_dataset,
     ingest_raster,
 )
-
-# -- VRT creation and regeneration tasks --
 from app.processing.ingest.tasks_vrt import (  # noqa: F401
     create_vrt_dataset,
     ingest_vrt,
     regenerate_vrt,
     regenerate_vrt_staged,
 )
-
-# -- File and service re-upload tasks --
 from app.processing.ingest.tasks_reupload import (  # noqa: F401
     reupload_file,
     reupload_service,
 )
-
-# -- Raster replace (feat #1221) --
 from app.processing.ingest.tasks_raster_replace import (  # noqa: F401
     reupload_raster,
 )
-
-# -- Registered-PostGIS refresh (feat #1265) --
 from app.processing.ingest.tasks_postgis_refresh import (  # noqa: F401
     refresh_postgis,
 )
-
-# -- STAC item/asset re-resolution (feat #1266) --
 from app.processing.ingest.tasks_stac_refresh import (  # noqa: F401
     refresh_stac,
 )

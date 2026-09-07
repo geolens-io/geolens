@@ -26,16 +26,15 @@ class EmbeddingUnavailableError(Exception):
 class _Unset:
     """Sentinel type: "the caller pinned nothing", distinct from a pinned None.
 
-    fix(#1525 review, codex P2): `None` is a legitimate RESOLVED endpoint. The
-    provider interface lets an extension answer `{"base_url": None}`, meaning
-    "use the client default", and a run that snapshots that has pinned a real
-    value. Testing `base_url is None` would read that pin as an omission and
-    re-resolve per batch, so the providers most likely to have an unusual
-    endpoint config are exactly the ones the pin would stop protecting.
+    fix(#1525): `None` is a legitimate RESOLVED endpoint — the provider
+    interface lets an extension answer `{"base_url": None}` meaning "use
+    the client default", and a run that snapshots that has pinned a real
+    value. Testing `base_url is None` would read that pin as an omission
+    and re-resolve per batch, defeating the pin for exactly the providers
+    with an unusual endpoint config.
 
-    `model` and `dimensions` keep their `is None` test: for those, `None` is
-    not something the config resolves to, and the falsy fallback below already
-    covers the resolved-but-empty case.
+    `model`/`dimensions` keep their `is None` test: for those, `None`
+    isn't something the config resolves to.
     """
 
     __slots__ = ()
@@ -52,21 +51,14 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
 
     Uses an OpenAI-compatible API (OpenAI, Ollama, Groq, Together, etc.).
     Model, dimensions, and base URL are read from PersistentConfig and the
-    EmbeddingProviderExtension's resolve_runtime_config (Phase 231 D-21).
+    EmbeddingProviderExtension's resolve_runtime_config.
 
     The 130s provider timeout suits background paths (ingest, backfill);
     request-hot-path callers (semantic search) wrap this call in a short
     ``asyncio.wait_for`` instead — see service_semantic (fix #448).
 
-    Args:
-        text: The text to embed.
-        session: Database session for reading PersistentConfig values.
-
-    Returns:
-        A list of floats representing the embedding vector.
-
     Raises:
-        EmbeddingUnavailableError: If no OpenAI-compatible API key is configured.
+        EmbeddingUnavailableError: if no OpenAI-compatible API key is configured.
     """
     vectors = await generate_embeddings_batch([text], session)
     return vectors[0]
@@ -76,12 +68,11 @@ async def resolve_embedding_base_url(session: AsyncSession) -> str | None:
     """Resolve the provider endpoint exactly as generate_embeddings_batch does.
 
     fix(#1525): a caller pinning a configuration for a whole run needs the
-    endpoint too, and has to get it from the provider rather than reading
-    ``EMBEDDING_BASE_URL`` itself. The fallback chain (EMBEDDING_BASE_URL ->
-    OPENAI_BASE_URL -> the operator-approved default, plus the credential
-    binding in ``app/core/ai_credentials.py``) belongs to the provider
-    extension; a second copy of it in the caller would drift from whatever
-    provider is actually registered.
+    endpoint too, from the provider rather than reading
+    ``EMBEDDING_BASE_URL`` itself — the fallback chain (EMBEDDING_BASE_URL
+    -> OPENAI_BASE_URL -> operator default, plus credential binding in
+    ``app/core/ai_credentials.py``) belongs to the provider extension; a
+    second copy here would drift from whatever provider is registered.
     """
     provider_ext = get_embedding_provider("openai_compatible")
     runtime_config = await provider_ext.resolve_runtime_config(session)
@@ -98,40 +89,23 @@ async def generate_embeddings_batch(
 ) -> list[list[float]]:
     """Generate embedding vectors for many texts in ONE provider call.
 
-    fix(#448): the backfill previously embedded one record per API call even
-    though the provider accepts input lists. Callers chunk to a sane batch
-    size (backfill uses 128; the OpenAI endpoint accepts up to 2048 inputs).
-    Config resolution and retry semantics are identical to the single-text
-    path — generate_embedding() delegates here with a one-element list.
+    fix(#448): callers chunk to a sane batch size (backfill uses 128; the
+    OpenAI endpoint accepts up to 2048 inputs) instead of one record per API
+    call. generate_embedding() delegates here with a one-element list.
 
-    fix(#1511 review): ``model`` and ``dimensions`` let a caller that already
-    resolved the pair pin it for the whole run instead of having this function
-    re-read the config on every call. fix(#1525): ``base_url`` completes the
-    set — the label a run writes names a model, and which endpoint served that
-    model is part of what the label promises. It is pinned by presence rather
-    than by not-None, because ``None`` is a value the config can resolve TO
-    (see ``_Unset``); omit the argument to keep the old per-call resolution.
+    fix(#1511, #1525): ``model``/``dimensions``/``base_url`` let a caller
+    that already resolved the config pin it for the whole run instead of
+    re-reading on every call. Pinned by presence, not by not-None, because
+    ``None`` is itself a resolved value (see ``_Unset``); omit an argument
+    to keep the old per-call resolution.
 
-    **A caller that writes its own ``model_name`` label MUST pass all three.**
-    Such a caller resolves the model once to label its rows; without pinning,
-    this function re-reads the config per call, so an admin swap mid-run has the
-    provider generate from model B while the rows are labelled model A. Search
-    reads only active-model rows, so those vectors are invisible to the model
-    that supposedly produced them. Passing a subset is worse than passing none:
-    model A with model B's dimensions is a pair that never existed in config,
-    and model A against a repointed endpoint is a vector space nothing in the
-    catalog can name. `processing/embeddings/backfill.py` and
-    `generate_and_store_embedding` below are the two such callers, and
-    fix(#1546) is what brought the second into line: it labelled rows from its
-    own `EMBEDDING_MODEL.get()` while leaving this function to re-read the
-    config for itself, so a swap landing between the two produced a row
-    labelled with one model holding another's vector. `generate_embedding`
-    above makes a single call and labels nothing, so it deliberately does not
-    pin.
-
-    Omitting them keeps the pre-existing per-call resolution, which is correct
-    for a single-call caller and silently racy for a multi-call labelling one.
-    Nothing enforces that distinction mechanically, so it is stated here.
+    **A caller that writes its own ``model_name`` label MUST pass all
+    three.** Without pinning, an admin swap mid-run has the provider
+    generate from model B while rows stay labelled model A — search reads
+    only active-model rows, so those vectors become invisible. A PARTIAL
+    pin is worse than none: model A with model B's dimensions, or model A
+    against a repointed endpoint, names a vector space nothing in the
+    catalog can describe.
 
     Returns vectors in the same order as ``texts``.
 
@@ -146,8 +120,8 @@ async def generate_embeddings_batch(
             "provider (OpenAI, Ollama, Groq, Together)."
         )
 
-    # Phase 231 D-12: hardcode "openai_compatible" — community ships one
-    # embedding provider; overlays add more under different names.
+    # Hardcode "openai_compatible" — community ships one embedding provider;
+    # overlays add more under different names.
     provider_ext = get_embedding_provider("openai_compatible")
     # fix(#1525): resolve the live config only when something below would still
     # come out of it. A fully pinned call needs nothing from it, and asking
@@ -187,7 +161,7 @@ async def generate_embeddings_batch(
         text_length=sum(len(t) for t in texts),
     )
 
-    # Phase 231 D-22: retry/backoff lives in DefaultOpenAIEmbeddingProvider.embed().
+    # Retry/backoff lives in DefaultOpenAIEmbeddingProvider.embed().
     # The provider raises EmbeddingUnavailableError on terminal failure (no
     # service-level retry needed — single source of truth).
     return await provider_ext.embed(
@@ -203,7 +177,7 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
     """Probe the configured embedding model to detect its natural output dimensions.
 
     Sends a short test string *without* a dimensions parameter to discover the
-    model's native vector size (Phase 231 D-21).
+    model's native vector size.
 
     Raises:
         EmbeddingUnavailableError: If no provider is configured or the API call fails.
@@ -218,7 +192,7 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
     model = await EMBEDDING_MODEL.get(session) or runtime_config.get("default_model")
     base_url = runtime_config.get("base_url")
 
-    # Phase 231 D-02: dimensions=None means "discover natural dim size".
+    # dimensions=None means "discover natural dim size".
     # The provider's retry/backoff loop handles transient failures.
     vectors = await provider_ext.embed(
         texts=["dimension probe"],
@@ -235,32 +209,23 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
     return len(embedding)
 
 
-# ---------------------------------------------------------------------------
-# Embedding column DDL helpers
-# ---------------------------------------------------------------------------
-
-
 async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
     """Resize the embedding column to new_dims if it currently differs.
 
-    Deletes all existing embeddings, drops the HNSW index, alters the column
-    type, then recreates the index (skipped above pgvector's 2000-dim HNSW
-    limit — the column stays unindexed and searches use exact scans).
-    Commits on success; rolls back on failure.
+    Deletes all existing embeddings, drops the HNSW index, alters the
+    column type, then recreates the index (skipped above pgvector's
+    2000-dim HNSW limit — the column stays unindexed, searches use exact
+    scans). Commits on success; rolls back on failure.
 
-    DBM-07 (Phase 271): The HNSW DDL is also issued by migration 0001_baseline for
-    fresh-install / migrated-up environments. This function handles the
-    config-time dimension-change path that the migration cannot reproduce
-    (column dimension is set at runtime when an embedding model is first
-    configured). Both paths use ``CREATE INDEX IF NOT EXISTS`` semantics
-    (the migration uses an explicit ``IF NOT EXISTS``; this function
-    recreates the index after a DROP) so they are idempotent and never
-    conflict. This is the single implementation: the settings UI
-    dimension-change handler in ``backend/app/modules/settings/router.py``
-    imports and calls THIS function (BUG-029 removed the divergent
-    error-swallowing copy that previously shadowed it there).
+    The HNSW DDL is also issued by migration 0001_baseline for
+    fresh-install/migrated-up environments; this handles the config-time
+    dimension-change path the migration can't reproduce (dimension is set
+    at runtime when a model is first configured). Both use ``CREATE INDEX
+    IF NOT EXISTS`` semantics so they never conflict. Single
+    implementation: the settings UI dimension-change handler imports and
+    calls THIS function rather than keeping its own divergent copy.
 
-    Returns True if the column was rebuilt, False if dimensions were unchanged.
+    Returns True if rebuilt, False if dimensions were unchanged.
     """
     from sqlalchemy import text as sa_text
 
@@ -277,7 +242,7 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
 
     try:
         if settings.geolens_runtime_db_role:
-            # fix(#1287 review): the runtime role deliberately cannot own or
+            # fix(#1287): the runtime role deliberately cannot own or
             # alter catalog relations. The privileged reconciler installs this
             # bounded SECURITY DEFINER operation with PUBLIC execute revoked.
             rebuild_result = await db.execute(
@@ -308,9 +273,9 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
                 )
             )
         else:
-            # fix(#449, codex P1): pgvector rejects HNSW on vector columns over
-            # 2000 dims; leave the column unindexed (exact-scan fallback)
-            # instead of failing the whole dimension change.
+            # fix(#449): pgvector rejects HNSW on vector columns over 2000
+            # dims; leave the column unindexed (exact-scan fallback) instead
+            # of failing the whole dimension change.
             logger.warning(
                 "Skipping HNSW index: %s dims exceeds pgvector's 2000-dim limit",
                 new_dims,
@@ -322,11 +287,6 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
         raise
 
     return True
-
-
-# ---------------------------------------------------------------------------
-# Embedding pipeline helpers
-# ---------------------------------------------------------------------------
 
 
 def build_content_text(
@@ -399,31 +359,26 @@ async def generate_and_store_embedding(
 
     content_hash = compute_content_hash(content_text)
 
-    # fix(#1546): this function writes its own `model_name` label, which
-    # `generate_embeddings_batch` documents as the case that MUST pin all three
-    # values. It did not: it labelled rows from `EMBEDDING_MODEL.get()` and then
-    # let the provider re-read the configuration for itself, so a swap landing
-    # between the two produced a row labelled with one model and holding
-    # another's vector.
+    # fix(#1546): this function writes its own `model_name` label — the
+    # case `generate_embeddings_batch` says MUST pin all three values. It
+    # didn't: it labelled rows from `EMBEDDING_MODEL.get()` while letting
+    # the provider re-read the config itself, so a swap between the two
+    # calls produced a row labelled with one model holding another's
+    # vector.
     #
-    # fix(#1546 review r3, codex P2): and the pin is resolved as ONE verified
-    # set, before anything else depends on the model name. Assembling it from a
-    # `model_name` read here and a dimensions/endpoint read further down let a
-    # settings publish land in between and pin (old model, new dimensions, new
-    # endpoint) — a triple that was never live, whose fingerprint no live
-    # configuration will ever equal. The row would be invisible for good while
-    # looking stamped, which is worse than the unstamped rows the column exists
-    # to tell apart.
+    # The pin must be ONE verified set, resolved before anything depends
+    # on the model name — assembling it from separate reads (a
+    # `model_name` here, dimensions/endpoint further down) lets a settings
+    # publish land in between and pin a triple that was never live, whose
+    # fingerprint no live configuration will ever equal: the row is
+    # invisible for good while looking stamped, worse than the unstamped
+    # rows this column exists to tell apart.
     #
-    # The model has to come out of the same verified set, not a separate read,
-    # because the lookup below uses it to find the row this call may UPDATE. A
-    # lookup under one model and a pin under another would write the new
-    # model's vector into the old model's row, mislabelled — the #1511 bug by
-    # another route.
-    #
-    # This costs the resolution on the "record touched, text unchanged" path,
-    # which an earlier revision skipped by reading the model on its own first.
-    # That shortcut is exactly what made the pin composable from two instants.
+    # The model must come from the same verified set, not a separate
+    # read, because the lookup below uses it to find the row this call
+    # may UPDATE — a lookup under one model and a pin under another would
+    # write the new model's vector into the old model's row (the #1511
+    # bug by another route).
     resolved = await resolve_live_embedding_config(session, uncached=True, verify=True)
     if resolved is None:
         logger.warning(
@@ -500,21 +455,15 @@ async def generate_and_store_embedding(
         # the insert branch — leaving the old stamp would label the new vector
         # with the configuration of the one it replaced.
         existing.config_fingerprint = config_fingerprint
-        # fix(#1580 review r2): the DB clock rather than the app's. fix(#1580)
-        # made this column load-bearing — related items anchors on a record's
-        # most recently written row — and a worker whose clock runs behind the
-        # database's could otherwise write a row that sorts BEFORE the one it
-        # replaced.
-        #
-        # fix(#1580 review r3): `clock_timestamp()`, not `now()`. `now()` is
-        # TRANSACTION-START time, so a job that opens its transaction, spends
-        # thirty seconds in a provider call and commits after another model's
-        # job carries the EARLIER stamp despite being the later write. Both
-        # branches are stamped explicitly for the same reason: the column's
-        # `server_default` is `now()` too, so an INSERT that took the default
-        # would disagree with an UPDATE that did not. The default itself stays
-        # as it is — changing it is a migration, and it is the fallback for
-        # rows nothing writes deliberately.
+        # fix(#1580): the DB clock, not the app's — related items anchors
+        # on a record's most recently written row, and a worker whose
+        # clock runs behind the database's could write a row that sorts
+        # BEFORE the one it replaced. `clock_timestamp()`, not `now()`:
+        # `now()` is TRANSACTION-START time, so a slow job can commit a
+        # LATER write with an EARLIER stamp. Both branches stamp
+        # explicitly since the column's `server_default` is `now()` too,
+        # and an INSERT taking the default would disagree with an UPDATE
+        # that didn't.
         existing.updated_at = func.clock_timestamp()
     else:
         session.add(

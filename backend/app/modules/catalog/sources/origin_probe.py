@@ -1,55 +1,23 @@
 """Bounded, SSRF-safe reachability probes for remote dataset origins.
 
-feat(#1222): one probe, two callers. ``router_vrt.py`` grew a private
-``_remote_asset_exists`` for VRT member health; the standalone STAC and
-service origins need the same request with a richer answer, and a second
-copy would be a second place for the SSRF contract to rot. Everything here
-goes through :func:`make_safe_client`, which is Rule 2's only sanctioned
-door (per-hop redirect revalidation plus connect-time IP pinning).
+Distinct from ``probe.py``, which detects what KIND of service a URL is.
+This module asks whether a pointer GeoLens already stored is still there,
+via :func:`make_safe_client` (Rule 2's sanctioned door).
 
-Distinct from the sibling ``probe.py``, which detects what KIND of service a
-URL is at import time. This module asks a much smaller question about a
-pointer GeoLens already stored: is it still there.
+fix(#1222): answers in a 3-value vocabulary (``missing``/``inaccessible``/
+``healthy``), not a boolean — a 401/403 (auth now required) must map to
+``inaccessible``, never ``missing``, or an operator is told to replace data
+that is still there.
 
-The probe answers in ADR-002's three-value health vocabulary rather than a
-boolean, because the two states a boolean collapses are the ones an operator
-has to act on differently:
+fix(#1755): :func:`probe_arcgis_origin` reads past the status code
+because ArcGIS reports auth refusals as an error envelope inside an HTTP
+200 body; it maps ``error.code`` ``498``/``499`` onto
+``inaccessible``/``auth_required``.
 
-- ``missing`` — the origin answered authoritatively that the resource is
-  gone (404/410). Someone deleted it upstream; the dataset will never work
-  again without a new pointer.
-- ``inaccessible`` — GeoLens could not determine whether it is still there.
-  A timeout, a TLS failure, an SSRF refusal, or a 401/403. Possibly
-  transient, and specifically NOT a reason to go re-import anything.
-
-The 401/403 split is the one worth stating twice, because collapsing it is
-the easy mistake: an upstream that newly requires authentication answers
-exactly like one that deleted the file, and calling that ``missing`` tells
-an operator to replace data that is still sitting there.
-
-``healthy`` is a status below 400, matching what the VRT probe has always
-meant by "the file is there".
-
-fix(#1755 item 7): the ArcGIS branch (:func:`probe_arcgis_origin`) reads
-past the status code, because ArcGIS reports its own auth refusals as an
-error envelope inside an HTTP 200 body rather than a 401/403. It parses the
-JSON body's ``error.code`` field and maps ``498``/``499`` (a rejected or
-required token) onto ``inaccessible``/``auth_required`` — the same verdict
-the generic 401/403 split above reaches for every other origin, reached
-here by reading the provider body instead of the status line.
-
-### Why ``detail`` is a code and not a sentence
-
-``source_health_detail`` is persisted and served on ordinary dataset reads
-(``DatasetResponse``), so anything that reaches it is readable by everyone
-who can read the dataset. Provider error text, response bodies, headers and
-URLs are therefore all out — an origin URI may legitimately carry a signed
-query string, and httpx bakes the full request URL into its exception
-messages. Rather than trying to scrub free text, the probe never composes
-any: it returns one member of :data:`DETAIL_CODES`, a closed set defined
-here. A closed set is checkable (``test_source_health_1222`` asserts every
-persisted value is in it), translatable by the frontend, and structurally
-incapable of leaking, which "remember to redact" is not.
+fix(#1222): ``source_health_detail`` is persisted and served on ordinary
+dataset reads, so it must never carry provider text, response bodies, or
+URLs (which may hold signed query strings). It only ever returns one member
+of :data:`DETAIL_CODES`, a closed, checkable, translatable set.
 """
 
 from __future__ import annotations
@@ -81,11 +49,8 @@ INACCESSIBLE = "inaccessible"
 # Seconds. Matches the timeout the VRT member probe has always used.
 PROBE_TIMEOUT_SECONDS = 10.0
 
-# feat(#1266): the ceiling on a document body this module will hold in memory.
-# The only caller reads STAC item documents, which run to a few kilobytes in
-# practice — a Sentinel-2 item carrying every band is well under 100 KB — so
-# this is generous for a real catalog and small enough that a hostile origin
-# streaming an endless body cannot walk a refresh worker out of memory.
+# fix(#1266): bounds a hostile origin streaming an endless body; real STAC
+# items run under 100 KB.
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 
 # The closed detail vocabulary. Every value is GeoLens's own word for a class
@@ -98,10 +63,9 @@ UNEXPECTED_STATUS = "unexpected_status"  # any other >= 400
 TIMEOUT = "timeout"
 NETWORK_ERROR = "network_error"  # connect failure, DNS, TLS, bad redirect chain
 BLOCKED_BY_POLICY = "blocked_by_policy"  # SSRF validation refused the target
-# fix(#1746): the origin wants a credential we do not hold. Separate from
-# UNAUTHORIZED, whose shipped copy says the source "now requires" access —
-# that misdescribes a service which has been org-only since the day it was
-# imported, which is the common case for an ArcGIS 499.
+# fix(#1746): separate from UNAUTHORIZED, whose copy says the source "now
+# requires" access — wrong for a service that has been org-only since import
+# (the common ArcGIS 499 case).
 AUTH_REQUIRED = "auth_required"
 
 DETAIL_CODES: frozenset[str] = frozenset(
@@ -118,10 +82,9 @@ DETAIL_CODES: frozenset[str] = frozenset(
     }
 )
 
-# fix(#1746): the two ways an origin can say "you need a credential I do not
-# hold" — ArcGIS's error envelope inside a 200, and a plain 401/403 from
-# everything else. They are one fact to a caller deciding whether to ask for a
-# token, so the set is named once here rather than spelled out at each reader.
+# fix(#1746): the two ways an origin can demand a credential we lack —
+# ArcGIS's 200-wrapped error envelope, and a plain 401/403 from everything
+# else — collapsed to one set for callers deciding whether to ask for a token.
 AUTH_CHALLENGE_DETAILS: frozenset[str] = frozenset({UNAUTHORIZED, AUTH_REQUIRED})
 
 # "The origin answered and the resource is gone." 404 and 410 only.
@@ -137,21 +100,14 @@ class OriginProbeResult:
 
     health: str
     detail: str | None = None
-    # fix(#1271 review): whether an outbound attempt actually left GeoLens.
-    # ``last_checked_at`` means "last time GeoLens contacted the origin at
-    # all", and an SSRF refusal happens before any packet goes out — stamping
-    # it would overwrite a real earlier contact time with a policy-check
-    # time. False ONLY for policy blocks: a timeout or TLS failure was still
-    # an attempt on the wire. Conservative on redirect chains — a mid-chain
-    # SSRF refusal did contact the first hop, but under-stamping a contact
-    # is recoverable while fabricating one is not.
+    # fix(#1271): False ONLY for a pre-flight SSRF policy block — that
+    # never puts a packet on the wire, so it must not overwrite a real
+    # earlier ``last_checked_at``. A timeout/TLS failure still counts as
+    # contact.
     contacted: bool = True
-    # fix(#1746 codex post-rebase): the body came back sub-400 but exceeded
-    # `max_bytes`, so it was never parsed. Deliberately NOT a detail code: the
-    # persisted vocabulary is a wire contract every consumer enumerates, and
-    # this is an internal fact one caller needs to interpret its own silence.
-    # The verdict stays `inaccessible`/`unexpected_status` for everyone who
-    # does not ask.
+    # fix(#1746): body was sub-400 but exceeded `max_bytes`
+    # and was never parsed. Not a detail code — the persisted vocabulary is a
+    # wire contract every consumer enumerates; this is internal-only.
     oversized: bool = False
 
     @property
@@ -163,17 +119,11 @@ class OriginProbeResult:
 def _classify_failure(exc: BaseException, *, responded: bool) -> tuple[str, bool]:
     """Classify a transport failure into (detail code, contacted).
 
-    Order matters twice over. ``SSRFResolutionError`` is an ``SSRFError`` and
-    ``SSRFError`` is a ``ValueError``, so the most specific class goes first.
-    And the two SSRF shapes report different facts: NXDOMAIN is a property of
-    the origin (``network_error``), a policy refusal is a property of GeoLens
-    (``blocked_by_policy``).
-
-    ``contacted`` for the SSRF shapes is whether any response hop arrived
-    before the failure — a public origin that redirects to a blocked target
-    WAS contacted (it answered), while a first-hop refusal never put a packet
-    on the wire. Timeouts and connect failures were attempts on the wire and
-    keep their stamp.
+    ``SSRFResolutionError`` is an ``SSRFError`` is a ``ValueError`` — check
+    the most specific class first. NXDOMAIN is a property of the origin
+    (``network_error``); a policy refusal is a property of GeoLens
+    (``blocked_by_policy``), and ``contacted`` reflects whether a response
+    hop arrived before the refusal.
     """
     if isinstance(exc, SSRFResolutionError):
         return NETWORK_ERROR, responded
@@ -181,23 +131,19 @@ def _classify_failure(exc: BaseException, *, responded: bool) -> tuple[str, bool
         return BLOCKED_BY_POLICY, responded
     if isinstance(exc, httpx.TimeoutException):
         return TIMEOUT, True
-    # fix(#1271 review): the OUTER deadline (asyncio.timeout around the whole
-    # probe) — unlike httpx's phase timeouts it can expire during DNS
-    # resolution, before any packet goes out, so contact is whatever the
-    # response hook can prove rather than assumed.
+    # fix(#1271): the OUTER deadline can expire during DNS resolution,
+    # before any packet goes out, so contact is whatever the response hook
+    # proved rather than assumed.
     if isinstance(exc, TimeoutError):
         return TIMEOUT, responded
-    # fix(#1271 review): raised while CONSTRUCTING the request — a malformed
-    # stored URL (migration 0036 backfills check only prefix and credentials)
-    # never puts a packet on the wire, so it must not advance the contact
-    # clock the way a connect or TLS failure legitimately does.
+    # fix(#1271): raised while CONSTRUCTING the request — a malformed
+    # stored URL never puts a packet on the wire.
     if isinstance(exc, (httpx.InvalidURL, httpx.UnsupportedProtocol)):
         return NETWORK_ERROR, responded
     return NETWORK_ERROR, True
 
 
 def _status_result(status_code: int) -> OriginProbeResult:
-    """Map an HTTP status onto a health value and a detail code."""
     if status_code < 400:
         return OriginProbeResult(HEALTHY)
     if status_code in _GONE_STATUSES:
@@ -214,14 +160,13 @@ async def probe_remote_uri(
 ) -> OriginProbeResult:
     """Probe *uri* without downloading its body.
 
-    A ranged ``GET`` rather than ``HEAD``: object stores and tile services
-    answer ``Range: bytes=0-0`` uniformly, while a meaningful minority reject
-    ``HEAD`` with 405 — which this function would then have to special-case
-    back into "probably fine", reintroducing the ambiguity the three-value
-    vocabulary exists to remove. Streaming plus the context-manager close
-    bounds the response body even for a server that ignores the range header.
+    A ranged ``GET`` rather than ``HEAD``: a meaningful minority of origins
+    reject ``HEAD`` with 405, which would reintroduce the ambiguity the
+    three-value vocabulary exists to remove. Streaming plus the
+    context-manager close bounds the body even if the range header is
+    ignored.
     """
-    # fix(#1271 review): records whether ANY response hop arrived, so a
+    # fix(#1271): records whether ANY response hop arrived, so a
     # mid-chain policy refusal (public origin redirecting to a blocked
     # target) still counts as a contact. First in the hook list so it runs
     # before the revalidation hook can raise.
@@ -232,12 +177,10 @@ async def probe_remote_uri(
         responded = True
 
     try:
-        # fix(#1271 review): a hard deadline around the WHOLE operation. The
-        # guard transport resolves DNS before httpx's phase timeouts apply,
-        # so a stalling resolver would otherwise hold the probe (and its
-        # caller's request) far beyond the advertised bound. Doubled because
-        # the phase timeouts remain the primary bound — this is the backstop
-        # for the phases they cannot see.
+        # fix(#1271): hard deadline around the WHOLE op — the guard
+        # transport resolves DNS before httpx's phase timeouts apply, so a
+        # stalling resolver would otherwise exceed the advertised bound.
+        # Doubled: this is a backstop, not the primary bound.
         async with asyncio.timeout(timeout * 2):
             async with make_safe_client(timeout=timeout) as client:
                 # hasattr: duck-typed clients in tests may not carry
@@ -265,10 +208,9 @@ async def probe_remote_uri(
     return _status_result(status_code)
 
 
-# ArcGIS reports auth refusals as an error envelope inside an HTTP 200 body:
-# 499 "Token Required" for an org-only service, 498 for a token it rejected.
-# A status-code probe reads both as healthy, which is the false positive this
-# closes (#1746 finding 12).
+# fix(#1746): ArcGIS reports auth refusals as an error envelope
+# inside an HTTP 200 (499 token required, 498 token rejected); a status-code
+# probe alone reads both as healthy.
 _ARCGIS_AUTH_ERROR_CODES = frozenset({498, 499})
 
 
@@ -277,28 +219,17 @@ async def probe_arcgis_origin(
 ) -> OriginProbeResult:
     """Probe an ArcGIS FeatureServer layer and read its error envelope.
 
-    Named for the question it asks, like its siblings ``probe_remote_uri`` and
-    ``probe_service_origin``: this is about an ORIGIN, a pointer GeoLens
-    already stored. Does it still answer, and is it asking us to authenticate.
+    Not ``probe_arcgis_service`` — that name is taken by the import-time
+    detector in ``adapters/arcgis.py``, which answers a different question
+    with layer metadata.
 
-    Deliberately not ``probe_arcgis_service``, which is taken in this package
-    by the import-time DETECTOR in ``sources/adapters/arcgis.py`` — that one
-    takes a client and a token, asks whether a URL is a FeatureServer at all,
-    and answers with layer metadata. Two functions with one name in one
-    package is a trap, and it got closer once this module started importing
-    from ``adapters/`` for the WFS URL builder.
+    Reads the body, so it inherits ``fetch_json_document``'s size cap; an
+    oversized sub-400 answer resolves in the origin's favour (see below).
 
-    Reads the body, so it inherits ``fetch_json_document``'s size cap, and an
-    oversized sub-400 answer is resolved in the origin's favour — see the
-    comment at that branch.
-
-    fix(#1746 codex r6): probes ``<layer>/query``, not the layer document.
-    ``build_gdal_source`` composes ``<layer>/query?...`` and that is what the
-    worker fetches, while a deployment that serves layer METADATA publicly and
-    gates the query operation is ordinary. Probing the document would clear
-    such a service and hand it to the worker to fail on. ``uri`` is still the
-    stored layer pointer, because that is what both callers hold; the query
-    URL is composed from it by the one builder the count fetcher also uses.
+    fix(#1746): probes ``<layer>/query`` (what the worker actually
+    fetches), not the layer document — a deployment that serves layer
+    metadata publicly but gates the query op would otherwise pass probing
+    and fail on ingest.
     """
     try:
         target = build_arcgis_count_query_url(uri)
@@ -308,14 +239,10 @@ async def probe_arcgis_origin(
         target = uri
     result, body, _final_url = await fetch_json_document(target, timeout=timeout)
     if result.oversized:
-        # fix(#1746 codex post-rebase): the origin answered sub-400 with a
-        # body too big to parse. An ArcGIS auth envelope is a few hundred
-        # bytes and a returnCountOnly answer is smaller still, so whatever
-        # this is, it is not a refusal. Calling an origin that answered 200
-        # `inaccessible` because it answered at LENGTH is the false negative
-        # that mirrors the false positive this probe exists to close. The
-        # size limit stays where STAC needs it; only the reading of a hit
-        # limit changes.
+        # fix(#1746): an ArcGIS auth envelope is a few
+        # hundred bytes, so an oversized sub-400 body is not a refusal —
+        # calling it `inaccessible` for answering at LENGTH would be the
+        # false negative mirroring the false positive this probe closes.
         return OriginProbeResult(HEALTHY)
     if not result.ok:
         return result
@@ -330,31 +257,22 @@ async def probe_arcgis_origin(
 def service_probe_target(origin_ref: Any, origin_uri: str | None) -> str | None:
     """The URL a probe of a service origin should contact, or ``None``.
 
-    fix(#1271 review): the target depends on the service type. Ingest stores
-    ``origin_uri`` as ``<base>/<layer identity>`` for provenance, and only
-    ArcGIS's flavor of that (``<base>/<numeric id>``) addresses a real HTTP
-    resource — the layer, from which :func:`probe_arcgis_origin` composes the
-    ``/query`` the worker actually reads (fix #1746 codex r6).
-    WFS and OGC API address layers through a typename or collection
-    parameter, so their enriched URI is a non-endpoint and probing it records
-    whatever the server's 404 fallback happens to say about a URL nobody
-    serves. For those two the canonical service base in ``origin_ref.url`` is
-    the thing whose reachability the answer describes, and for WFS the base
-    alone is not enough either: many servers 4xx a request without
-    ``service=WFS&request=GetCapabilities``, so the probe asks the same
-    question the import adapter asks, through the same URL builder. An OGC API
-    base is a plain JSON landing page and needs no parameters.
+    fix(#1271): only ArcGIS's ``origin_uri`` (``<base>/<numeric id>``)
+    addresses a real HTTP resource directly. WFS and OGC API address layers
+    through a typename/collection parameter, so their enriched URI is a
+    non-endpoint whose 404 would be a false verdict — those two probe the
+    canonical service base instead (WFS via ``build_capabilities_url``,
+    since many servers 4xx a bare base).
 
-    No fallback to ``origin_uri`` on the WFS and OGC API branches: migration
-    0036's legacy branch deliberately leaves ``url`` unset when the base is
-    not derivable, so the only value on hand is the non-endpoint, and probing
-    it would produce a false verdict. ``None`` means "nothing safe to probe",
-    which each caller answers in its own vocabulary.
+    No fallback to ``origin_uri`` on the WFS/OGC API branches: migration
+    0036's legacy branch can leave ``url`` unset, and probing the
+    non-endpoint would still be a false verdict. ``None`` means "nothing
+    safe to probe".
 
-    fix(#1746): lifted out of ``router_health`` so the refresh door can decide
-    what to contact the same way the health endpoint does. It takes the two
-    stored columns rather than a ``Dataset`` so this module keeps its
-    independence from the catalog ORM.
+    fix(#1746): lifted out of ``router_health`` so the refresh door decides
+    what to contact the same way the health endpoint does; takes the two
+    stored columns rather than a ``Dataset`` to keep this module independent
+    of the catalog ORM.
     """
     ref = origin_ref if isinstance(origin_ref, dict) else {}
     service_type = ref.get("service_type")
@@ -381,16 +299,10 @@ async def probe_service_origin(
     return await probe_remote_uri(target, timeout=timeout)
 
 
-# "The origin answered, and what it said is not something GeoLens can act
-# on." One VERDICT for both shapes of that, because they are one fact to the
-# person reading it and neither is a transport failure.
-#
-# fix(#1746 codex post-rebase): two constants rather than one, because they
-# are no longer one fact to every CALLER. "Too big to parse" and "not JSON"
-# say different things about whether an ArcGIS auth envelope could have been
-# in there, and only the size case can be ruled out by arithmetic. The
-# health value and the detail code are identical, so nothing persisted or
-# served changes.
+# fix(#1746): "too big to parse" and "not JSON" say
+# different things about whether an ArcGIS auth envelope could have been in
+# there — only the size case can be ruled out by arithmetic — so two
+# constants, though the persisted health value and detail code are identical.
 _UNREADABLE_DOCUMENT = OriginProbeResult(INACCESSIBLE, UNEXPECTED_STATUS)
 _OVERSIZED_DOCUMENT = OriginProbeResult(INACCESSIBLE, UNEXPECTED_STATUS, oversized=True)
 
@@ -405,37 +317,20 @@ async def fetch_json_document(
 ) -> tuple[OriginProbeResult, Any | None, str]:
     """Fetch *uri* and return its verdict, its parsed body, and its final URL.
 
-    feat(#1266). :func:`probe_remote_uri` asks whether a pointer still
-    resolves and deliberately throws the body away. Re-resolving a moved STAC
-    item asks the same question and then needs the answer's CONTENT — the
-    item document names where its assets live now. This is that request:
-    the same safe client, the same closed detail vocabulary, the same status
-    mapping, with the body kept.
+    feat(#1266): like :func:`probe_remote_uri` but keeps the body, for a
+    re-resolved STAC item document that names where its assets live now.
+    Goes through :func:`make_safe_client` like everything else here, so the
+    SSRF contract has one place to rot.
 
-    It lives here rather than beside its caller for the reason the module
-    docstring already gives for the probe: everything outbound goes through
-    :func:`make_safe_client`, which is Rule 2's only sanctioned door, and a
-    second fetch written elsewhere is a second place for the SSRF contract
-    and the health mapping to rot apart. Nothing in the refresh strategy
-    constructs an HTTP client of its own.
-
-    The body is returned ONLY for a sub-400 response, and only when it parses
-    as JSON inside ``max_bytes``. Anything else — an oversized stream, a body
-    that is not JSON, a 4xx or 5xx — yields ``None`` beside a verdict, so a
-    caller cannot accidentally read half a document. An unparseable or
-    oversized body reports ``unexpected_status``: the origin answered, and
-    what it answered with is not something GeoLens can act on. That is a
-    member of the closed vocabulary rather than a new code, because
-    ``source_health_detail`` is persisted and served, and widening the set
-    costs every consumer that enumerates it.
+    Body is returned ONLY for a sub-400 response that parses as JSON inside
+    ``max_bytes``; otherwise ``None`` plus ``unexpected_status`` (the closed
+    vocabulary, since ``source_health_detail`` is persisted and served).
 
     The third element is the URL the document actually CAME from, after any
-    redirect, falling back to the requested one. STAC hrefs are legally
-    relative, and resolving them against the address that was asked for
-    rather than the one that answered would point a redirected catalog's
-    assets at the wrong host. ``search_stac_items`` reads ``resp.url`` for
-    the same reason; the SSRF transport restores the hostname after each
-    pinned hop, so this is the logical URL and never the pinned IP.
+    redirect — STAC hrefs are legally relative, so resolving them against
+    the requested URL instead would point a redirected catalog's assets at
+    the wrong host. The SSRF transport restores the hostname after each
+    pinned hop, so this is never the pinned IP.
     """
     responded = False
     final_url = uri
@@ -467,8 +362,7 @@ async def fetch_json_document(
                         async for chunk in response.aiter_bytes():
                             raw.extend(chunk)
                             if len(raw) > max_bytes:
-                                # Stop reading rather than stop the request:
-                                # leaving the context manager closes the
+                                # Leaving the context manager closes the
                                 # response, so nothing keeps arriving.
                                 return _OVERSIZED_DOCUMENT, None, final_url
     except (
@@ -487,21 +381,11 @@ async def fetch_json_document(
     try:
         return result, json.loads(raw), final_url
     except (ValueError, RecursionError):
-        # Deliberately not folded into the handler above: a body that is not
-        # JSON is not a transport failure, and classifying it as one would
-        # report `network_error` for an origin that answered perfectly well
-        # with an HTML error page.
-        #
-        # fix(#1858): `RecursionError` joins it. A JSON depth bomb -- 300,000
-        # nested `[` at under two bytes each -- is a ~600 KB body, so it is
-        # under `max_bytes` (2 MiB here) and there is no other cap on this
-        # path. It is a `RuntimeError`, not a `ValueError`, so it escaped both
-        # this clause and the broad transport handler above, which has already
-        # returned by the time the parse runs. `GET /datasets/{id}/health`
-        # answered 500 and wrote neither `last_checked_at` nor a verdict, and
-        # the three STAC resolve paths died unclassified. `unexpected_status`
-        # is the right verdict for both shapes: the origin answered, and what
-        # it answered with is not something GeoLens can act on.
+        # Not folded into the transport handler above: a non-JSON body is
+        # not a transport failure.
+        # fix(#1858): `RecursionError` joins it — a JSON depth bomb well
+        # under `max_bytes` (300k nested `[` is ~600 KB) raised unclassified
+        # past this point before, 500ing `GET /datasets/{id}/health`.
         return _UNREADABLE_DOCUMENT, None, final_url
 
 

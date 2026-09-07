@@ -36,27 +36,14 @@ async def validate_record(
 ) -> ValidationResult:
     """Validate a record for publishing readiness.
 
-    Hard validation (VAL-01) -- blocks publish:
-    - title (non-empty)
-    - summary (non-empty)
-    - at least one contact
-    - at least one keyword
-    - license
-    - spatial_extent
-    - CRS (srid on dataset)
-    - lineage_summary
-
-    Soft validation (VAL-02) -- warnings only:
-    - temporal extent
-    - update_frequency
-    - quality_statement
-    - attribute descriptions
-    - source_url
+    Hard (VAL-01, blocks publish): title, summary, license, spatial_extent,
+    CRS, lineage_summary, >=1 contact, >=1 keyword.
+    Soft (VAL-02, warnings only): temporal extent, update_frequency,
+    quality_statement, attribute descriptions, source_url.
     """
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
 
-    # --- Hard validation (VAL-01) ---
     if not record.title or not record.title.strip():
         errors.append(ValidationIssue("title", "Title is required", "error"))
     if not record.summary or not record.summary.strip():
@@ -72,7 +59,6 @@ async def validate_record(
             ValidationIssue("lineage_summary", "Lineage summary is required", "error")
         )
 
-    # CRS via dataset
     if dataset and dataset.srid is None:
         errors.append(
             ValidationIssue(
@@ -80,7 +66,6 @@ async def validate_record(
             )
         )
 
-    # At least one contact
     contact_count = await session.scalar(
         select(func.count()).where(RecordContact.record_id == record.id)
     )
@@ -89,7 +74,6 @@ async def validate_record(
             ValidationIssue("contacts", "At least one contact is required", "error")
         )
 
-    # At least one keyword
     keyword_count = await session.scalar(
         select(func.count()).where(RecordKeyword.record_id == record.id)
     )
@@ -98,7 +82,6 @@ async def validate_record(
             ValidationIssue("keywords", "At least one keyword is required", "error")
         )
 
-    # --- Soft validation (VAL-02) ---
     if record.temporal_start is None and record.temporal_end is None:
         warnings.append(
             ValidationIssue(
@@ -124,7 +107,6 @@ async def validate_record(
                 ValidationIssue("source_url", "Source URL is recommended", "warning")
             )
 
-        # Check attribute descriptions
         attr_without_desc = await session.scalar(
             select(func.count()).where(
                 AttributeMetadata.dataset_id == dataset.id,

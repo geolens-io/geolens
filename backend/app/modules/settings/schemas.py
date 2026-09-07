@@ -62,12 +62,10 @@ class BasemapEntry(BaseModel):
         if "/styles/" in v:
             return v
         # feat(pmtiles): a single static PMTiles archive, addressed directly
-        # (no style JSON, no tile server) -- either bare (https://....pmtiles)
-        # or explicitly scheme-prefixed (pmtiles://https://....pmtiles) the way
-        # MapLibre's `pmtiles://` protocol and our frontend basemap builder
-        # (frontend/src/lib/basemap-utils.ts) both expect it. The inner URL
-        # must still be a well-formed http(s) URL -- this does not loosen
-        # acceptance for any other shape.
+        # (no style JSON, no tile server) -- bare (https://....pmtiles) or
+        # scheme-prefixed (pmtiles://https://....pmtiles), matching MapLibre's
+        # `pmtiles://` protocol and frontend/src/lib/basemap-utils.ts. The
+        # inner URL must still be a well-formed http(s) URL.
         inner = v.removeprefix("pmtiles://")
         inner_base_path = inner.split("?")[0].rstrip("/")
         if inner_base_path.lower().endswith(".pmtiles"):
@@ -165,11 +163,6 @@ class TileConfigResponse(BaseModel):
             "Null when a multi-tenant request has no resolved tenant context."
         ),
     )
-
-
-# ---------------------------------------------------------------------------
-# Unified settings API models
-# ---------------------------------------------------------------------------
 
 
 class SettingItem(BaseModel):
@@ -350,11 +343,6 @@ class NotificationTestResponse(BaseModel):
     message: str = Field(description="Human-readable summary of the test result.")
 
 
-# ---------------------------------------------------------------------------
-# Validators for PUT /settings/ -- reused from old schemas
-# ---------------------------------------------------------------------------
-
-
 def validate_login_rate_limit(v: Any) -> int:
     v = int(v)
     if v < 1 or v > 1000:
@@ -371,7 +359,7 @@ def validate_global_rate_limit(v: Any) -> int:
 
 def validate_ogc_items_max_page_size(v: Any) -> int:
     # Upper bound guards against a mis-set value that would let an anonymous
-    # request build an unbounded FeatureCollection in memory (#665 review).
+    # request build an unbounded FeatureCollection in memory (#665).
     v = int(v)
     if v < 1 or v > 100_000:
         raise ValueError("ogc_items_max_page_size must be between 1 and 100000")
@@ -465,21 +453,16 @@ def _normalize_absolute_url(v: Any) -> str:
 def validate_public_app_url(v: Any) -> str:
     """fix(#1555): one rule, both entry points.
 
-    This validator and ``is_usable_public_origin`` (app/core/public_urls.py)
-    each held half of what makes a public app URL usable, and a value only ever
-    met the half its entry point applied. An environment ``PUBLIC_APP_URL``
-    skips this function entirely, so ``https://maps.example.com/api`` was
-    accepted there; a persisted value skips the shape rule, so
-    ``https://192.168.1`` was stored here and then silently ignored by every
-    reader (``get_configured_public_app_url`` drops what the shape rule
-    refuses), leaving the operator an admin form that accepted a setting which
-    does nothing. The ``/api`` clause is checked explicitly first only to keep
-    its specific message; ``canonical_host_error`` supplies one for a host.
+    This validator and ``is_usable_public_origin`` each held half of what
+    makes a public app URL usable, so an env ``PUBLIC_APP_URL`` (which skips
+    this function) could accept ``https://maps.example.com/api``, while a
+    persisted value (which skips the shape rule) could store
+    ``https://192.168.1`` and have every reader silently ignore it. The
+    ``/api`` clause is checked first only to keep its specific message.
     """
     # `v is None`, not `not v`: JSON null is a legitimate clear (matching
-    # validate_privacy_url below), but a falsy non-string -- False, 0, [], {}
-    # -- is a type error, not a clear. `not v` caught those too and
-    # returned "" before the isinstance check below ever ran.
+    # validate_privacy_url below), but a falsy non-string (False, 0, [], {})
+    # is a type error, not a clear — `not v` wrongly caught those too.
     if v is None or (isinstance(v, str) and not v.strip()):
         return ""
     if not isinstance(v, str):
@@ -510,30 +493,25 @@ def validate_privacy_url(v: Any) -> str:
     """PRIV-1: the login/register privacy-policy link. Unset clears it.
 
     Deliberately NOT ``_normalize_absolute_url`` (above): that helper rejects
-    a query string or fragment, but a real operator policy page (Google
-    Docs, Notion, SharePoint) routinely carries one, and stripping it would
-    silently point the login/register link at the wrong document. Uses the
-    shared shape check in ``app.core.config.validate_privacy_url_shape``
-    instead, so this admin-write path agrees with the env-value boot
-    validator and the read-path defense in router_public.py on what "safe"
-    means for a value rendered as a raw ``<a href>``.
+    a query string or fragment, but a real policy page (Google Docs, Notion,
+    SharePoint) routinely carries one. Uses the shared shape check in
+    ``app.core.config.validate_privacy_url_shape`` instead, so this
+    admin-write path agrees with the boot validator and router_public.py's
+    read-path defense on what "safe" means for a raw ``<a href>``.
     """
     # `v is None`, not `not v`: JSON null is a legitimate clear (matching
-    # validate_enabled_plugins), but a falsy non-string -- False, 0, [], {}
-    # -- is a type error, not a clear. `not v` caught those too and
-    # returned "" before the isinstance check below ever ran.
+    # validate_enabled_plugins), but a falsy non-string (False, 0, [], {})
+    # is a type error, not a clear — `not v` wrongly caught those too.
     if v is None or (isinstance(v, str) and not v.strip()):
         return ""
     if not isinstance(v, str):
         raise ValueError("Value must be a string")
-    # No local re-wrap of the ValueError: the caller (router.py's
-    # _canonicalize_setting_value) already prefixes it with "Validation
-    # error for 'privacy_url': ...", so an added prefix here just duplicated
-    # the key name in the response detail.
+    # No local re-wrap of the ValueError: the caller
+    # (router.py's _canonicalize_setting_value) already prefixes it with
+    # "Validation error for 'privacy_url': ...".
     return validate_privacy_url_shape(v)
 
 
-# Mapping from setting key to validator function
 def validate_enabled_plugins(v: Any) -> list[str] | None:
     if v is None:
         return None
@@ -617,13 +595,12 @@ def validate_log_level(v: Any) -> str:
 def validate_allowed_email_domains(v: Any) -> list[str]:
     """Validate and normalize the allowed_email_domains setting.
 
-    - Raises ValueError if v is not a list.
+    - Raises ValueError if v is not a list, or if any entry is invalid
+      (offending pattern named in the message).
     - Normalizes each entry (strip, lower-case, drop empties, de-dup).
-    - Raises ValueError with the offending pattern named if any entry is invalid.
-    - Returns the normalized list (case-folded, de-duplicated).
-    - An empty input list returns [] (unrestricted — valid).
+    - Empty input returns [] (unrestricted — valid).
 
-    Imports domain helpers inline to avoid any circular-import risk at module load.
+    Imports domain helpers inline to avoid a circular-import risk at module load.
     """
     from app.modules.auth.domain_validation import (
         is_domain_pattern_valid,
@@ -632,9 +609,9 @@ def validate_allowed_email_domains(v: Any) -> list[str]:
 
     if not isinstance(v, list):
         raise ValueError("allowed_email_domains must be a list")
-    # Codex P3: reject non-string entries here (ValueError -> 422) before
-    # normalize_domains calls .strip() on them, which would raise AttributeError
-    # and surface as a 500 (update_settings only catches ValueError/TypeError).
+    # Reject non-string entries here (ValueError -> 422) before
+    # normalize_domains calls .strip(), which would raise AttributeError and
+    # surface as a 500 (update_settings only catches ValueError/TypeError).
     for entry in v:
         if not isinstance(entry, str):
             raise ValueError(

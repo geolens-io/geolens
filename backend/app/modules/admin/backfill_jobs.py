@@ -1,23 +1,14 @@
 """Queued embedding backfill: the concurrency guard and the worker task.
 
-fix(#1542): ``POST /admin/backfill-embeddings/`` used to run
-``backfill_embeddings`` inline in the request. A full regenerate is ~88%
-provider round trips and scales linearly, so a catalog somewhere below 59,000
-records outgrows nginx's 600s ``proxy_read_timeout`` for ``/api/``. The proxy
-giving up does not stop the run — the server keeps generating and committing
-batches against a connection nobody is reading — so the operator cannot tell
-"still running" from "died halfway", and the natural retry starts a SECOND full
-regenerate alongside the first. On the force path that means a second DELETE.
+fix(#1542): running inline used to outlast nginx's 600s proxy timeout, so a
+retry could start a second regenerate (a second DELETE on the force path)
+alongside the first. This now runs on the Procrastinate queue against an
+``IngestJob`` row the guard below refuses a second run against.
 
-The run now goes through the Procrastinate queue that already lives inside
-PostgreSQL, against an ``IngestJob`` row that gives the operator something to
-observe and gives the guard below something to refuse a second run against.
-
-This module lives under ``modules/admin/`` rather than beside the backfill in
-``processing/embeddings/`` because the task emits the completion/failure audit
-events, and ``processing/`` may not import ``app.modules.audit`` (the burndown
-in ``tests/test_layering.py`` may shrink, never grow). The worker picks it up
-through ``task_app.import_paths`` in ``processing/ingest/tasks_common.py``.
+Lives under ``modules/admin/``, not ``processing/embeddings/``, because the
+task emits audit events and ``processing/`` may not import
+``app.modules.audit`` (``test_layering.py``); the worker picks it up via
+``task_app.import_paths`` in ``processing/ingest/tasks_common.py``.
 """
 
 import asyncio
@@ -55,41 +46,24 @@ BACKFILL_FAILED_MESSAGE = "Embedding backfill failed. See server logs for detail
 UNRESOLVED_OUTCOME = "unresolved"
 
 
-# The statuses that hold the slot. Must stay byte-identical to the predicate of
-# `uq_ingest_jobs_active_embedding_backfill` (migration 0050) — the index is the
-# guard, this query is only the friendly half that produces a readable 409, and
-# a query admitting a run the index then refuses would turn every such request
-# into a 409 the operator cannot act on.
+# Must stay byte-identical to the predicate of
+# `uq_ingest_jobs_active_embedding_backfill` (migration 0050) — the index is
+# the guard, this query is only the friendly half producing a readable 409.
 SLOT_HOLDING_STATUSES = ("pending", "running")
 
 
 async def find_active_embedding_backfill(session: AsyncSession) -> IngestJob | None:
     """Return the embedding backfill run currently holding the slot, if any.
 
-    Keyed on status alone, deliberately, and NOT on a heartbeat lease.
+    Keyed on status alone, not a heartbeat lease: the partial unique index's
+    predicate must be immutable (no ``now()``), so a heartbeat-based query
+    could disagree with it. Status-only also errs on the strong side for a
+    force run that DELETEs every embedding first — a stale heartbeat is not
+    proof the old worker is gone.
 
-    fix(#1542 review P1): an earlier revision admitted a new run once a
-    ``running`` row's heartbeat had gone stale, on the reasoning that a dead
-    worker should not lock an operator out forever. A partial unique index
-    cannot express that — its predicate has to be immutable, so it cannot
-    consult ``now()`` — and the two halves disagreeing is worse than either
-    rule: the query says go, the index says no, and the operator gets a 409
-    naming a job that by the query's own reckoning is not running.
-
-    Status-only is also the stronger rule, which is the right side to err on
-    for a force run that DELETEs every embedding before regenerating. A stale
-    heartbeat is not proof the old worker is gone; it is proof we have not
-    heard from it. Admitting a second regenerate on that evidence is exactly
-    the concurrent double-DELETE this guard exists to prevent.
-
-    The slot is released when the row reaches a terminal status — by the worker
-    finishing, or by the stale-job sweeper, which fails abandoned ``running``
-    rows on the shared 60-minute ingest backstop and runs every five minutes.
-    That is the same release path every other abandoned ingest job has.
-
-    Scoped per tenant in hosted mode, matching the index's key: the backfill
-    only ever touches records the calling tenant can see, so one tenant's run
-    must not lock another's out.
+    Released when the row reaches a terminal status, either by the worker or
+    by the stale-job sweeper (60-minute ingest backstop, every 5 minutes).
+    Scoped per tenant in hosted mode, matching the index's key.
     """
     from app.core.tenancy import is_multi_tenant
 
@@ -120,11 +94,9 @@ async def _finalize(
 ) -> bool:
     """Stamp the terminal job state, fenced on the attempt this worker owns.
 
-    Returns whether the row actually took the update. It is fenced, so "I asked"
-    and "it happened" are different facts, and the caller writes the audit trail
-    off this answer — see ``_emit_terminal_audit``. Returning ``None`` and
-    letting the caller assume success is what let a lost fence produce a failed
-    job row under a "completed" audit entry.
+    Returns whether the row actually took the update, since a lost fence must
+    not let the caller assume success and audit a "completed" run that never
+    happened (see ``_emit_terminal_audit``).
     """
     values: dict[str, object] = {
         "status": status,
@@ -136,13 +108,10 @@ async def _finalize(
     if result is not None:
         backfill_meta["result"] = result
         values["rows_processed"] = result["processed"]
-        # fix(#1550 review): surfaced through JobStatusResponse.rows_failed so
-        # a partly-failed run is visible to whoever is watching. A run that
-        # created most of the catalog and had some records rejected is
-        # `complete` and is not a clean success. fix(#1549): after a force run
-        # those rejections are records that KEPT their old vectors, since a
-        # record whose replacement never committed never had its existing row
-        # deleted — so the gap is stale coverage rather than none.
+        # fix(#1550): surfaced via JobStatusResponse.rows_failed so a run that's
+        # `complete` with rejections isn't read as a clean success. fix(#1549):
+        # on a force run those rejections KEPT their old vectors — the
+        # replacement never committed, so the existing row was never deleted.
         extra_metadata["rows_failed"] = result["errors"]
         # Only a run that actually succeeded gets the completion stamps. A run
         # whose every embedding failed still records its counts — that is the
@@ -184,26 +153,21 @@ async def _emit_outcome_audit(
 ) -> None:
     """Record the run's outcome under the same action the request recorded.
 
-    The "requested" half is emitted by the route, in the same commit as the job
-    row. This half can only be emitted here — after the queue hop the request is
-    long gone — so the actor and client IP ride along as task kwargs to keep the
-    pair readable as one operation.
+    The "requested" half is emitted by the route in the same commit as the job
+    row; this half runs after the queue hop, so actor/IP ride along as task
+    kwargs to keep the pair readable as one operation.
     """
-    # fix(#1550 review P2): a run's state lives in two places — the job row and
-    # the audit trail — written by independent paths. Every path that TERMINATES
-    # a run has to write both, and the audit has to describe the row's actual
-    # final state rather than the one this worker intended. See
-    # `_emit_terminal_audit` for the rule and the module's tests for the
-    # enumeration of paths it covers.
+    # fix(#1550): a run's state lives in two places — job row and audit trail —
+    # written by independent paths. Every path that TERMINATES a run must write
+    # both, and the audit must describe the row's actual final state, not the
+    # one this worker intended (see `_emit_terminal_audit`).
     from app.modules.audit.service import AuditEvent, audit_emit_durable
 
     try:
-        # One operation, one terminal entry, and the DATABASE decides which —
-        # `uq_audit_logs_terminal_embedding_backfill` (migration 0051). The
-        # poll and the sweeper can both legitimately close a run this worker is
-        # still inside, so a check here would be a check-then-insert. Losing
-        # that race raises IntegrityError, which `audit_emit_durable` contains
-        # on its own session.
+        # One operation, one terminal entry, DATABASE-decided which —
+        # `uq_audit_logs_terminal_embedding_backfill` (migration 0051). The poll
+        # and sweeper can both legitimately close this run (check-then-insert),
+        # so the race's IntegrityError is contained by `audit_emit_durable`.
         await audit_emit_durable(
             AuditEvent(
                 user_id=uuid.UUID(user_id) if user_id else None,
@@ -231,14 +195,10 @@ async def _emit_outcome_audit(
 class _TerminalState:
     """What this run decided, and how much of that decision has been recorded.
 
-    fix(#1550 review P2, round 3): this PR fixed the "job row and audit trail
-    must agree" class four times — the dispatch failure, the lost fence, the
-    cancellation — and each fix revealed one more exit that did not go through
-    it. The exits are not the problem; a handler per exception type is. Every
-    way this task can end now funnels through :func:`_settle`, and this record
-    is what makes that safe: it knows whether the terminal row write has already
-    landed, so the recovery path never overwrites a committed outcome and never
-    skips one that is still missing.
+    fix(#1550): every way this task can end funnels through :func:`_settle`,
+    and this record is what makes that safe — it knows whether the terminal
+    row write has already landed, so recovery never overwrites a committed
+    outcome and never skips one still missing.
     """
 
     status: str | None = None  # job row status: "complete" | "failed"
@@ -252,13 +212,11 @@ class _TerminalState:
     row_attempted: bool = False
     row_applied: bool = False
     audited: bool = False
-    # fix(#1550 review): the live status the row was OBSERVED in. Every
-    # recovery path in this module was built around `running` — the fence
-    # matches running, the heartbeat covers running, the sweeper expires
-    # running — so a run whose claim commit was lost sat in `pending`,
-    # invisible to all of it, holding the unique slot (which counts pending and
-    # running alike) until stale cleanup. Recovery terminalizes from whatever
-    # state it finds rather than from the one it expected.
+    # fix(#1550): the live status the row was OBSERVED in. Every recovery path
+    # here was built around `running` (fence, heartbeat, sweeper), so a run
+    # whose claim commit was lost sat invisible in `pending` until stale
+    # cleanup. Recovery terminalizes from whatever state it finds, not the
+    # one it expected.
     expected_status: str = "running"
 
     def decide_complete(self, result: dict[str, int]) -> None:
@@ -291,14 +249,10 @@ async def _emit_terminal_audit(
 ) -> None:
     """Close the audit trail with what actually happened to the job row.
 
-    ``applied`` is ``_finalize``'s answer. When the fenced update did not land,
-    another actor (the stale-job sweeper, a status poll expiring the lease) has
-    already settled the row, and claiming the outcome this worker intended would
-    put a "completed" entry over a failed job. Record UNRESOLVED instead, and
-    carry the intended outcome so an operator can still see what the run did —
-    "the regenerate finished but its row was settled by someone else" is a
-    different incident from "the regenerate failed", and only one of them means
-    the vectors are missing.
+    ``applied`` is ``_finalize``'s answer. When the fenced update didn't land,
+    another actor already settled the row, so claiming the intended outcome
+    would put a "completed" entry over a failed job — record UNRESOLVED with
+    the intended outcome carried alongside instead.
     """
     if applied:
         await _emit_outcome_audit(outcome=outcome, extra=extra, **context)
@@ -325,11 +279,10 @@ async def _settle(
 ) -> None:
     """Record the run's terminal state — the row, then the trail — exactly once.
 
-    Idempotent by construction: each half is skipped if it has already been
-    done. That is what lets the recovery path call this again after a failure or
-    a cancellation without overwriting a committed outcome. It is deliberately
-    the SAME function on both paths, so a recovery cannot drift from the happy
-    path it is recovering.
+    Idempotent by construction: each half is skipped if already done, so
+    recovery can call this again after a failure or cancellation without
+    overwriting a committed outcome. Deliberately the SAME function on both
+    paths, so recovery cannot drift from the happy path it is recovering.
     """
     if state.status is None:
         return
@@ -364,19 +317,15 @@ _TERMINAL_STATUSES = frozenset({"complete", "failed", "cancelled", "fanned_out"}
 async def _release_caller_transaction(session: AsyncSession, job_id: str) -> None:
     """Let go of the transaction we are recovering FROM, before taking its locks.
 
-    fix(#1550 review P2): the recovery opened a fresh session while the caller's
-    transaction was still open and still holding the job row's lock — a
-    cancellation during ``session.commit()`` leaves exactly that state. The
-    recovery's UPDATE then blocked on its own caller until the 15s timeout
-    expired, after which nothing had been written and the row stayed ``running``,
-    holding the unique backfill slot until the stale sweep. You cannot take a
-    lock the thing you are recovering from is still holding.
+    fix(#1550): a cancellation during ``session.commit()`` can leave the
+    caller's transaction open and still holding the job row's lock, so a fresh
+    recovery session's UPDATE would block on it until the caller's own timeout
+    — leaving the row ``running`` and the slot held until the stale sweep.
 
-    Bounded separately from the caller's overall timeout so a wedged rollback
-    cannot consume the whole budget, and escalating to ``invalidate()`` — which
-    drops the connection rather than trying to speak to it — because a
-    connection that will not roll back will not do anything else either, and
-    dropping the socket is what actually releases the server-side lock.
+    Bounded separately from the caller's timeout so a wedged rollback can't
+    consume the whole budget; escalates to ``invalidate()`` (drops the
+    connection) since a connection that won't roll back won't do anything
+    else either, and dropping the socket is what releases the server-side lock.
     """
     try:
         await asyncio.wait_for(session.rollback(), timeout=5)
@@ -410,25 +359,15 @@ async def _recover_unsettled(
 ) -> None:
     """Finish whatever :func:`_settle` did not — by READING the row, not guessing.
 
-    fix(#1550 review P2, round 4): the previous revision decided what the
-    recovery owed from ``state.row_attempted``, an in-process flag set after
-    ``_finalize`` returned. That flag cannot describe what the database did. If
-    PostgreSQL committed the terminal ``complete`` but the acknowledgement was
-    lost — a cancellation or a dropped connection during ``commit()`` — the flag
-    stayed False, the recovery retried the fenced update, matched nothing
-    (because the row was already complete, not running), and recorded
-    ``unresolved`` over a committed success.
+    fix(#1550): an in-process "did I write it" flag can't tell apart two causes
+    of "my fenced update matched nothing" — someone else settled the row, or I
+    settled it and never heard back (ack lost to a cancellation or dropped
+    connection during ``commit()``). Only the row itself can, so read it.
 
-    "My fenced update matched nothing" has two causes that demand opposite
-    audit entries: someone else settled the row, or I settled it and never heard
-    back. No flag can tell them apart. The row can, so ask it.
-
-    The rule this settles on: **the audit describes the row.** If the row's
-    terminal status is the one this run decided, the decided outcome is true of
-    it and is what gets recorded — whoever's write landed. If it differs, the
-    row belongs to someone else's decision and the entry says UNRESOLVED. That
-    covers the lost acknowledgement, the late cancellation, and the stale-sweeper
-    race with one read and no special cases.
+    Rule: **the audit describes the row.** If the row's terminal status
+    matches this run's decided outcome, that outcome is recorded (whoever's
+    write landed); if it differs, the row belongs to someone else's decision
+    and the entry says UNRESOLVED.
     """
     from app.core.db import async_session
 
@@ -440,24 +379,16 @@ async def _recover_unsettled(
     async with async_session() as fresh:
         observed = await fresh.get(IngestJob, job_uuid)
         if observed is not None and observed.status in _TERMINAL_STATUSES:
-            # Settled already. Whether by this run's own committed write or by
-            # another actor, the trail must describe what the row says.
+            # Settled already — trail must describe what the row says, whoever
+            # wrote it.
             #
-            # fix(#1556 review, codex P2): status-matching is deliberately
-            # enough HERE, unlike in `_undispatched_settle_write_landed`, and
-            # the difference is worth stating because the two reads look
-            # identical. This one is reached only after this worker took the
-            # delivery, so "did the operation run at all" is already answered.
-            # `complete` has exactly one producer for a backfill row — this
-            # attempt's own fenced `_finalize` — so matching it proves
-            # authorship. `failed` has several producers, but every one of
-            # them records the same `outcome`, differing only in `error_code`,
-            # and each is a true description of a run that ended without
-            # success. Where they do differ the residual imprecision points
-            # the safe way: `worker_cancelled` warns that a force run's
-            # vectors may already be gone, which is the conservative claim.
-            # The dispatch cleanup had neither property, which is why it needs
-            # evidence of its own write rather than a matching status.
+            # fix(#1556): status-matching suffices HERE (unlike in
+            # `_undispatched_settle_write_landed`) because this worker already
+            # took delivery. `complete` has exactly one producer (this
+            # attempt's fenced `_finalize`), so a match proves authorship;
+            # `failed` has several, but all share the same outcome and differ
+            # only in `error_code`, and `worker_cancelled` is the conservative
+            # one where they diverge.
             state.row_attempted = True
             state.row_applied = observed.status == state.status
             if not state.row_applied:
@@ -515,27 +446,18 @@ async def _fail_undispatched_pending_row(job_uuid: uuid.UUID) -> bool:
 async def _undispatched_settle_write_landed(job_uuid: uuid.UUID) -> bool:
     """Ask the row for evidence of THIS write, on a fresh connection.
 
-    fix(#1556 review, codex P2): observing `status == "failed"` is observing
-    the state this write would have produced, not evidence that it produced
-    it — and `failed` is a state four other actors also write. The reachable
-    case: the dispatch DID land, a worker claimed the job and finalized it
-    `failed`, and only then was the request cancelled. The fenced update
-    matches nothing (the row is no longer `pending`) and its acknowledgement
-    is lost as well, so a status-only read calls the WORKER's failure this
-    cleanup's write and records `dispatch_cancelled` — which says the run
-    never started and nothing was deleted, over a force regenerate that ran
-    and failed after deleting every vector. Terminal entries are unique per
-    job id (migration 0051), so that entry then refuses the worker's real
-    `backfill_failed`: a lie that also evicts the truth.
+    fix(#1556): `status == "failed"` alone isn't proof — a worker could claim
+    and fail the job after this cleanup was cancelled, and a status-only read
+    would then record `dispatch_cancelled` (nothing deleted) over the real
+    `backfill_failed` (everything deleted), evicting the true terminal entry
+    (unique per job id, migration 0051).
 
-    ``UNDISPATCHED_RUN_MESSAGE`` is written at exactly one site, this one, and
-    once the row is terminal no other writer can overwrite it (every one of
-    them is fenced on a live status). So it is a marker only this write can
-    have left, which is the fact the caller actually needs.
+    ``UNDISPATCHED_RUN_MESSAGE`` is written at exactly one site — this one —
+    and once terminal, no other writer can overwrite it, so matching it proves
+    only this write could have landed.
 
-    Bounded separately, like ``_release_caller_transaction``: this runs during
-    a shutdown that has already lost one database round trip, and a second one
-    hanging must not extend the drain.
+    Bounded separately, like ``_release_caller_transaction``: a shutdown that
+    already lost one round trip must not let a second one extend the drain.
     """
     from app.core.db import async_session
 
@@ -556,31 +478,23 @@ async def settle_undispatched_run(
 ) -> None:
     """Settle a run that was committed but never reliably queued.
 
-    fix(#1550 review): ``defer_with_orphan_guard`` catches ``Exception``, so a
-    cancellation during dispatch walks past it AND past the route's
-    ``DeferFailed`` handler — the third time on this PR that ``except
-    Exception`` has silently excluded ``BaseException``, now at the point where
-    the job is created rather than where it ends. The row stays ``pending``
-    with no worker coming for it, and because the unique index counts
-    ``pending`` and ``running`` alike, it blocks every later backfill just as
-    effectively as a stuck running one.
+    fix(#1550): ``defer_with_orphan_guard`` catches ``Exception``, so a
+    cancellation during dispatch walks past it and the route's
+    ``DeferFailed`` handler, leaving the row ``pending`` with no worker
+    coming — and since the unique index counts ``pending`` and ``running``
+    alike, it blocks every later backfill just as effectively as a stuck
+    running one.
 
-    Fenced on ``pending`` so it cannot overwrite a run a worker did pick up
-    after all — the dispatch may well have reached the queue before the
-    cancellation landed, which is precisely why this is fenced rather than
-    unconditional.
+    Fenced on ``pending`` so it cannot overwrite a run a worker picked up
+    after all — dispatch may have reached the queue before the cancellation
+    landed.
 
-    fix(#1556): the settle's own commit is the last awaited commit on this
-    lifecycle that still sat outside the recovery boundary. It runs under the
-    cancellation that triggered it, so losing its acknowledgement is the
-    ordinary case rather than the exotic one — and the row it leaves behind is
-    ``failed``, which every sweeper skips because it is terminal. Nothing
-    would ever have closed the trail, so the run would keep ``requested`` as
-    its last word over a job the database records as failed. Same rule as
-    ``_recover_unsettled``: when the answer is lost, read the row — and read
-    it for evidence of THIS write rather than for the state this write would
-    have produced, because ``failed`` is a state four other actors also
-    reach. See ``_undispatched_settle_write_landed``.
+    fix(#1556): this settle's own commit can itself lose its acknowledgement
+    under the cancellation that triggered it, leaving a terminal ``failed``
+    row no sweeper will revisit and a trail stuck on ``requested``. Same rule
+    as ``_recover_unsettled``: read the row for evidence of THIS write, not
+    for a status other actors also reach (see
+    ``_undispatched_settle_write_landed``).
     """
     try:
         settled = await _fail_undispatched_pending_row(job_uuid)
@@ -592,11 +506,9 @@ async def settle_undispatched_run(
         )
         settled = await _undispatched_settle_write_landed(job_uuid)
     if not settled:
-        # A worker took it, or the lost write never landed after all. Leave
-        # both records to whoever owns the row now — a worker that claimed the
-        # delivery closes its own trail, and a row still ``pending`` is closed
-        # by the stale-pending sweep, which writes the status and the entry in
-        # one transaction.
+        # A worker took it, or the lost write never landed after all — leave
+        # both records to whoever owns the row: a worker closes its own trail,
+        # a still-pending row is closed by the stale-pending sweep.
         logger.info(
             "embedding_backfill_dispatch_cancel_found_run_in_progress",
             job_id=audit_context["job_id"],
@@ -621,22 +533,18 @@ async def run_embedding_backfill(
 ) -> None:
     """Run one embedding backfill against its ``IngestJob`` row.
 
-    ``retry=0``: a replay starts from scratch. fix(#1549) removed the reason
-    this used to give — a force run no longer deletes ahead of regenerating, so
-    an automatic replay would not delete a second time — but the flag stays,
-    because a replay would re-embed every record the first attempt had already
-    written, at provider rates, on behalf of an operator who never asked for it.
-    Failures are terminal and the operator restarts the run, which picks up
-    where it makes sense to rather than where the worker died.
+    ``retry=0``: fix(#1549) removed the original reason (force no longer
+    deletes ahead of regenerating), but an automatic replay would still
+    re-embed every already-written record at provider rates on an operator's
+    behalf who never asked for it — so failures stay terminal and the
+    operator restarts explicitly.
     """
     from app.core.db import async_session
     from app.processing.embeddings.backfill import backfill_embeddings
 
-    # Every `return` below closes the audit trail. The route has already
-    # committed a "requested" entry, so a path that ends the run without a
-    # terminal entry leaves an administrative operation looking perpetually
-    # in flight — the same divergence as claiming an outcome that did not
-    # happen, in the other direction.
+    # Every `return` below closes the audit trail — the route already
+    # committed a "requested" entry, so a path that skips a terminal one
+    # leaves the operation looking perpetually in flight.
     audit_context: dict[str, Any] = {
         "user_id": user_id,
         "ip_address": ip_address,
@@ -649,11 +557,10 @@ async def run_embedding_backfill(
         job_id, attempt_id, task_label="embedding backfill"
     )
     if resolved is None:
-        # A tokenless legacy delivery that could not adopt the row. The route
-        # always sends an attempt id, so this is unreachable today and stays
-        # covered anyway: an unreachable path that silently drops the run is
-        # exactly what a future change to the dispatch would turn into a live
-        # one, with no signal that it had.
+        # A tokenless legacy delivery that could not adopt the row. Unreachable
+        # today (the route always sends an attempt id) but stays covered: a
+        # silently-dropped run here is what a future dispatch change would
+        # turn live, with no signal that it had.
         await _emit_outcome_audit(
             **audit_context,
             outcome=UNRESOLVED_OUTCOME,
@@ -668,12 +575,11 @@ async def run_embedding_backfill(
         state = _TerminalState()
         heartbeat = None
         try:
-            # fix(#1550 review): the claim is INSIDE the guarded region. Its
-            # own commit is a lost-acknowledgement window at the other end of
-            # the run — a shutdown cancelling `pending`->`running` mid-commit
-            # can apply it without returning, and with the claim outside, the
-            # recovery never ran: the row stayed `running`, held the unique
-            # slot until the stale sweep, and kept only its `requested` entry.
+            # fix(#1550): the claim is INSIDE the guarded region — its own
+            # commit is a lost-acknowledgement window too. A shutdown
+            # cancelling `pending`->`running` mid-commit can apply it without
+            # returning; with the claim outside, recovery never ran and the
+            # row stayed `running`, holding the slot until the stale sweep.
             heartbeat = await claim_job_attempt_and_start_heartbeat(
                 session, job_uuid, attempt_uuid
             )
@@ -691,17 +597,13 @@ async def run_embedding_backfill(
                 )
                 return
 
-            # fix(#1709 review r6): the cooperative stop signal, read off the
-            # JOB ROW rather than procrastinate's abort flag — the DB CAS is
-            # the cancel design's correctness mechanism, and the row also
-            # covers settles by the sweeps. Polled by backfill_embeddings once
-            # per batch, so a user cancel whose best-effort queue abort was
-            # lost stops this run within one batch of provider spend; the
-            # fenced _settle below then loses to the committed cancel exactly
-            # like every other worker, and the terminal-audit unique index
-            # arbitrates the trail. Same session on purpose: the loop commits
-            # per batch and READ COMMITTED shows each new statement the
-            # latest committed status either way.
+            # fix(#1709): stop signal reads off the JOB ROW, not
+            # procrastinate's abort flag — the DB CAS is the cancel design's
+            # correctness mechanism, and it also covers sweep settles. Polled
+            # once per batch, so a lost queue-abort still stops the run
+            # within one batch of provider spend. Same session on purpose:
+            # the loop commits per batch and READ COMMITTED shows each new
+            # statement the latest committed status either way.
             async def _job_still_running() -> bool:
                 current = await session.scalar(
                     select(IngestJob.status).where(
@@ -728,14 +630,10 @@ async def run_embedding_backfill(
                 )
             else:
                 if result["errors"] and not result["created"]:
-                    # fix(#1550 review P1): `backfill_embeddings` swallows
-                    # per-record provider errors and returns counts rather than
-                    # raising, so a run where EVERY embedding failed returned
-                    # normally and was stamped `complete`. On the force path
-                    # that reads as a finished regenerate over a catalog whose
-                    # vectors were deleted and never rebuilt — zero coverage
-                    # reported as success, which is the one state an operator
-                    # most needs to be told about.
+                    # fix(#1550): `backfill_embeddings` swallows per-record
+                    # provider errors and returns counts instead of raising,
+                    # so a run where EVERY embedding failed would otherwise be
+                    # stamped `complete` — zero coverage reported as success.
                     logger.error(
                         "embedding_backfill_all_records_failed",
                         job_id=job_id,
@@ -756,10 +654,8 @@ async def run_embedding_backfill(
                 else:
                     state.decide_complete(result)
             # The single terminal write. Deciding the outcome and RECORDING it
-            # are separate steps on purpose: everything above only decides, so
-            # there is exactly one place where the job row and the audit trail
-            # are written, and exactly one place the recovery below has to
-            # resume from.
+            # are separate on purpose: exactly one place writes the job row
+            # and audit trail, and exactly one place recovery resumes from.
             await _settle(
                 session,
                 job_uuid,
@@ -769,22 +665,17 @@ async def run_embedding_backfill(
                 audit_context=audit_context,
             )
         except BaseException as exc:
-            # THE guarded exit — one, not one per exception type. Reached by a
-            # cancellation (a deploy draining the worker), by a failure of the
-            # terminal write itself (a connection blip after the provider work
-            # finished), and by anything else that unwinds past a claimed job.
+            # THE guarded exit — one, not one per exception type. Reached by
+            # cancellation, by a failure of the terminal write itself, and by
+            # anything else that unwinds past a claimed job.
             #
-            # fix(#1550 review P2 round 3): the previous revision caught only
-            # `CancelledError` here, so an `Exception` raised INSIDE the
-            # terminal write escaped — leaving the row `running`, holding the
-            # single active-backfill slot until the 60-minute sweep, and
-            # reporting finished provider work as nothing at all. Same harm as
-            # the cancellation bug, reached one line further in.
+            # fix(#1550): catching only `CancelledError` let an `Exception`
+            # raised INSIDE the terminal write escape, leaving the row
+            # `running` and the slot held until the 60-minute sweep.
             #
             # `_settle` is idempotent and `state` records how far it got, so
-            # this never rewrites an outcome that already committed: a shutdown
-            # arriving after `complete` landed emits the COMPLETED audit rather
-            # than contradicting a durable success.
+            # this never rewrites a committed outcome — a shutdown after
+            # `complete` landed emits the COMPLETED audit, not a contradiction.
             cancelled = isinstance(exc, asyncio.CancelledError)
             logger.warning(
                 "embedding_backfill_cancelled"

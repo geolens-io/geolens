@@ -49,14 +49,12 @@ class AuditLog(Base):
             },
         ),
         Index("ix_catalog_audit_logs_tenant_id", "tenant_id"),
-        # fix(#1550 review): one terminal entry per embedding backfill run,
-        # enforced by the database rather than by three call sites remembering
-        # to check. Three actors can legitimately close the same run — the
-        # worker, the status poll and the stale sweeper — and a read-before-
-        # write existence check is the same check-then-insert race this change
-        # already replaced on the job row. `requested` is excluded so a run can
-        # still record both that it was asked for and how it ended. Migration
-        # 0051 is the source of truth for the DDL.
+        # fix(#1550): one terminal entry per embedding backfill run,
+        # enforced by the database (three actors -- worker, status poll,
+        # stale sweeper -- can legitimately close the same run, and a
+        # read-before-write check races the same way the job row's did).
+        # `requested` is excluded so a run can record both that it was asked
+        # for and how it ended. Migration 0051 is the source of truth.
         Index(
             "uq_audit_logs_terminal_embedding_backfill",
             text("(details ->> 'job_id')"),

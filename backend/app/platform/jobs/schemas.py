@@ -4,23 +4,10 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# ---------------------------------------------------------------------------
-# Structured ingest-warning contract (TYPE-1/TYPE-2/TYPE-3)
-# ---------------------------------------------------------------------------
-#
-# The Procrastinate ingest tasks emit warnings into
-# ``IngestJob.user_metadata['warnings']``. Historically this was a free-form
-# ``list[dict[str, Any]]`` on the backend and a properly-typed discriminated
-# union on the frontend — which meant a typo in a ``kind`` value or a change
-# in ``details`` shape on the Python side could silently ship a warning the
-# frontend would drop or crash on.
-#
-# These Pydantic models pin the shape at the API boundary. Warnings are
-# produced via TypedDicts in ``app.ingest.warnings`` (so the producers stay
-# fast and cheap); the router re-parses them through ``IngestJobWarning``
-# before returning a ``JobStatusResponse`` so malformed warnings are caught
-# before they cross the wire. OpenAPI consumers get a proper union instead
-# of ``dict``.
+# Structured ingest-warning contract (TYPE-1/TYPE-2/TYPE-3): warnings land in
+# ``IngestJob.user_metadata['warnings']``. Producers use TypedDicts in
+# ``app.ingest.warnings``; the router re-parses through ``IngestJobWarning``
+# so malformed warnings are caught before they cross the wire.
 
 
 class ReservedRenameDetail(BaseModel):
@@ -57,7 +44,7 @@ class MercatorClipDetail(BaseModel):
     The clamp is a box, not a latitude cutoff: longitude -180 to 180 and
     latitude -85.06 to 85.06. Either bound can be the one that cost the user
     geometry, so clients must not present this as a latitude-only problem
-    (fix(#899 codex r1)).
+    (fix(#899)).
 
     ``dropped_features`` lost their geometry entirely (a valid point at lat
     -89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in
@@ -67,10 +54,8 @@ class MercatorClipDetail(BaseModel):
     dropped_features: int = Field(ge=0)
     clipped_features: int = Field(ge=0)
     # fix(#906): True when the clip was skipped because the Mercator safe
-    # envelope degenerates under ST_Transform into the source CRS (e.g.
-    # EPSG:4807 collapses it to a line); counts are 0/0 then, and the flag is
-    # what makes the skip user-visible instead of silent. Defaults False so
-    # pre-#906 stored warnings still validate.
+    # envelope degenerates under ST_Transform (e.g. EPSG:4807 collapses it to
+    # a line); counts are 0/0 then. Defaults False so pre-#906 warnings validate.
     clip_skipped: bool = False
 
     model_config = ConfigDict(extra="forbid")
@@ -97,32 +82,23 @@ class JobStatusResponse(BaseModel):
     dataset_id: uuid.UUID | None
     source_filename: str | None
     error_message: str | None
-    # These are computed for every response by ``_job_to_status_response``.
-    # Keep them required in OpenAPI so generated clients match the runtime
-    # contract and the hand-maintained frontend boundary type.
+    # Computed by ``_job_to_status_response``; required in OpenAPI so
+    # generated clients match the hand-maintained frontend boundary type.
     can_retry: bool
     retry_reason: str | None
     warning_message: str | None = None
-    # S3/TYPE-2: structured warnings surfaced from IngestJob.user_metadata so
-    # the frontend can render a banner on the upload success screen / dataset
-    # detail page. The legacy scalar ``warning_message`` is kept as an escape
-    # hatch for the table-name collision case that predates the structured
-    # shape; clients should prefer ``warnings`` and fall back to it.
+    # S3/TYPE-2: structured warnings from IngestJob.user_metadata. Legacy
+    # scalar ``warning_message`` stays as a fallback for the pre-structured
+    # table-name collision case; clients should prefer ``warnings``.
     warnings: list[IngestJobWarning] = Field(default_factory=list)
-    # REMED-02 / ingest-audit P2-07: progress fields populated by the ingest
-    # worker at natural step boundaries so the UI can surface progress during
-    # multi-minute ingests (raster COG convert, large VRT mosaics) instead of
-    # rendering a dead spinner. All three default to None so pre-existing job
-    # rows + service ingests that never write them validate cleanly. The
-    # `current_step` Literal is the union of vector + raster step names — the
-    # DB column intentionally stays a flexible String(32) so adding a step
-    # only requires touching this Literal (single-source-of-truth boundary).
+    # REMED-02 / ingest-audit P2-07: progress fields from the ingest worker,
+    # for multi-minute ingests. Default None so pre-existing/service rows
+    # validate. DB column stays String(32); this Literal is the source of truth.
     progress: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     current_step: (
         Literal[
-            # ux(#698): stamped at creation so a pending job reads as queued
-            # rather than as a job with nothing to say for itself. Applies to
-            # analysis today; any producer may set it.
+            # ux(#698): stamped at creation so a pending job reads as queued,
+            # not as having nothing to say. Analysis today; any producer may set it.
             "queued",
             "validating",
             "ogr2ogr",
@@ -130,24 +106,16 @@ class JobStatusResponse(BaseModel):
             "complete",
             "cog_convert",
             "quicklook",
-            # Analysis materialize (no numeric progress — the operation is a
-            # single CTAS, so there is nothing to report between these two).
+            # Analysis materialize: single CTAS, no progress to report between these.
             "analyzing",
             "registering",
         ]
         | None
     ) = None
     rows_processed: Annotated[int, Field(ge=0)] | None = None
-    # fix(#1550 review): rows the job processed but could NOT complete. The
-    # embedding backfill is the first producer: it catches per-record provider
-    # errors and returns counts rather than raising, so a run that regenerated
-    # most of the catalog and had some records rejected finishes `complete`
-    # with real coverage gaps — and after a FORCE run those gaps are records
-    # whose old vectors were deleted. The synchronous endpoint returned enough
-    # for the UI to warn about that; moving to the queue lost it, because
-    # `rows_processed` alone cannot distinguish a clean run from a partial one.
-    # Read from a generic `user_metadata["rows_failed"]` so any job type can
-    # populate it without this shared schema learning a domain.
+    # fix(#1550): rows processed but NOT completed. `rows_processed`
+    # alone can't distinguish a clean run from a partial one (e.g. embedding
+    # backfill after a FORCE run). Read from generic `user_metadata["rows_failed"]`.
     rows_failed: Annotated[int, Field(ge=0)] | None = None
     archive_failed: bool = False
     # TYPE-3: the temporal parser only ever emits these two keys; pin the

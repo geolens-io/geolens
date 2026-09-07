@@ -21,7 +21,6 @@ from sqlalchemy.pool import QueuePool
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# --- Gauges (current pool state) ---
 db_pool_checkedout = Gauge(
     "geolens_db_pool_checkedout",
     "Number of connections currently checked out from the pool",
@@ -66,7 +65,7 @@ async def _refresh_pool_metrics() -> None:
         db_pool_overflow.set(pool.overflow())
         db_pool_size.set(pool.size())
 
-    except Exception:  # broad: pool metrics refresh is non-fatal; engine/pool errors should not crash background loop
+    except Exception:  # broad: pool refresh is non-fatal; must not crash the loop
         logger.warning("Failed to refresh pool metrics", exc_info=True)
 
 

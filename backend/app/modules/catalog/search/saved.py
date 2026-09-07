@@ -41,11 +41,7 @@ async def create_saved_search(
     name: str,
     params: dict,
 ) -> SavedSearch:
-    """Create or update a saved search for a user.
-
-    If a saved search with the same (user_id, name) already exists, updates
-    its params and updated_at instead of creating a duplicate.
-    """
+    """Create a saved search, or update params/updated_at if (user_id, name) exists."""
     stmt = (
         pg_insert(SavedSearch)
         .values(user_id=user_id, name=name, params=params)

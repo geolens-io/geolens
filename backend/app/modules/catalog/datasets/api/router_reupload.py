@@ -226,23 +226,16 @@ def _assert_compatible_record_type(
 ) -> None:
     """Raise HTTP 400 when the source is incompatible with dataset.record.record_type.
 
-    Called from `reupload_dataset` (multipart), `request_presigned_reupload` (S3),
-    and `reupload_service_preview` (service URL) after dataset lookup, before
-    pipeline work, so the user sees the precise cross-record-type message rather
-    than a deep-pipeline 500.
+    Called from all three reupload doors (multipart, S3, service preview)
+    after dataset lookup, before pipeline work, so this gives one
+    identical error class instead of a deep-pipeline 500.
 
-    VRT reupload is rejected at this shared boundary because a VRT is defined by
-    its membership, not by a file. Raster reupload IS supported (#1221) and is
-    constrained here to raster payloads. File paths additionally reject raster
-    inputs for vector and table datasets.
+    VRT is rejected here since it's defined by membership, not a file.
+    Raster IS supported (#1221), constrained to raster payloads; file
+    paths additionally reject raster inputs for vector/table datasets.
 
-    Every door routes through this one function, which is what makes the
-    error class identical across them: the direct multipart door passes
-    ``file.filename``, the presigned door passes ``request.filename``, and both
-    get the same 400 with the same message for the same rejected payload.
-
-    Audit action `reupload.commit` is shipped — see test_provenance_attribution.py.
-    Do not rename to `dataset.reupload`.
+    Audit action `reupload.commit` is shipped -- see
+    test_provenance_attribution.py. Do not rename to `dataset.reupload`.
     """
     record_type: str = dataset.record.record_type
     ext: str = Path(filename or "").suffix.lower()
@@ -334,7 +327,7 @@ async def reupload_dataset(
         )
 
     # QUOTA-01/02: per-user quota check before any staging or job creation.
-    # fix(#1290 review): the REPLACEMENT variant. The creation-shaped check
+    # fix(#1290): the REPLACEMENT variant. The creation-shaped check
     # refused at the dataset-count cap, which locked an owner at their limit
     # out of replacing datasets they already own, and charged the incoming file
     # on top of the bytes this dataset already contributes.
@@ -378,7 +371,7 @@ async def reupload_dataset(
         except ValueError as exc:
             # Preserve the existing failed-job audit trail for a user content
             # error.
-            # fix(#1848 audit): guarded like the bind below, so a row the sweep
+            # fix(#1848): guarded like the bind below, so a row the sweep
             # already reclaimed keeps its terminal status and message.
             await db.execute(
                 _pending_reupload_update(job.id, dataset_id).values(
@@ -417,7 +410,7 @@ async def reupload_dataset(
 
     return ReuploadResponse(
         job_id=job.id,
-        # fix(#1848 audit): true by construction, not assumed -- the bind above
+        # fix(#1848): true by construction, not assumed -- the bind above
         # only reached here because the row was still pending.
         status="pending",
         message="File uploaded for re-upload preview",
@@ -631,7 +624,7 @@ async def reupload_preview(
             file_path, layer_name=layer_name
         )
     except UnsafeUploadError as exc:
-        # fix(#1846 review round 4): the same mapping `preview_file` gives it.
+        # fix(#1846): the same mapping `preview_file` gives it.
         # This block had no `except` at all, so a content refusal -- which is a
         # deliberate 4xx with a message that names the fix -- reached the client
         # as a 500 on this endpoint alone.
@@ -707,15 +700,14 @@ async def reupload_preview(
 
 
 def _require_reupload_source(job, is_service_refresh: bool) -> None:
-    """fix(#1274 review): reject a source-less job BEFORE reserving the dataset.
+    """fix(#1274): reject a source-less job BEFORE reserving the dataset.
 
     A presigned reupload whose upload never completed has an EMPTY-STRING
-    file_path (not None — which is why the truthiness test matters) and no
-    source_url. Creating the run first and 400ing after left that
-    reservation active, and once the client completed the upload the retry
-    hit dataset_busy — unreleasable by the sweep while the job sat pending,
-    for up to the 24-hour bound-job timeout. The queue-time is-None check
-    stays as defense in depth.
+    file_path (not None -- hence the truthiness test) and no source_url.
+    Creating the run first and 400ing after left that reservation active,
+    so a later completed upload hit dataset_busy, unreleasable by the
+    sweep for up to the 24-hour bound-job timeout. The queue-time is-None
+    check stays as defense in depth.
     """
     if not is_service_refresh and not job.file_path:
         raise HTTPException(
@@ -729,27 +721,18 @@ async def _refuse_if_origin_changed(
 ) -> None:
     """Refuse a commit whose expected origin is no longer the dataset's.
 
-    fix(#1768): `geolens replace` and the web re-upload dialog both refuse to
-    replace a dataset bound to a service, a STAC item, or a registered table,
-    and both decide that from a SINGLE read taken before the upload. Between
-    that read and the commit the user confirms sits an upload, a preview and a
-    human — and a service or STAC re-upload committing in that window rebinds
-    the dataset invisibly to them. The swap the commit queues then rebinds it
-    to `upload` unconditionally (`_apply_reupload_swap` in tasks_reupload.py),
-    severing the binding that was just established.
+    fix(#1768): `geolens replace` and the re-upload dialog both decide
+    from a SINGLE pre-upload read whether they're replacing a
+    service/STAC/registered-table dataset. Between that read and commit
+    sits an upload, a preview, and a human -- a service/STAC re-upload
+    committing in that window would rebind the dataset invisibly, since
+    the swap always rebinds to `upload` unconditionally.
 
-    Called AFTER `create_pending_run`, which is what makes the re-read
-    decisive rather than one more racing read: with the one-active-run slot
-    held, no other run for this dataset can be in flight, so any origin change
-    is already committed and a READ COMMITTED re-read sees it. Same shape as
-    the refresh door's own re-read (`router_refresh.py`) and deliberately the
-    same `origin_changed` code, so a client learns one word for "the source
-    moved under you".
-
-    ``None`` asserts nothing and returns: the field is optional, so a client
-    that sends none — an older CLI or SDK — gets exactly the pre-#1768
-    behaviour. Only ``record_type`` is left unrefreshed, because no path
-    changes a dataset's record type; ``source_format`` is the half that moves.
+    Called AFTER `create_pending_run`: the one-active-run slot means a
+    READ COMMITTED re-read sees any origin change already committed.
+    Same `origin_changed` code as the refresh door's re-read
+    (`router_refresh.py`). ``None`` returns immediately: an older
+    CLI/SDK gets the pre-#1768 behaviour.
     """
     if expected_origin_kind is None:
         return
@@ -792,20 +775,16 @@ async def _dispatch_reupload_task(
 ) -> None:
     """Defer the worker task this committed reupload needs.
 
-    Three destinations, one admission gate. The run row that admitted this
-    commit was already reserved by the caller, so nothing here decides whether
-    the refresh may proceed — only which executor performs it and on which
-    queue. Every branch goes through ``defer_with_orphan_guard`` so a
-    Procrastinate outage flips the committed job to ``failed`` and finalizes
-    the run instead of leaving a ghost ``pending`` row.
+    Three destinations, one admission gate already reserved by the
+    caller; this only picks the executor and queue. Every branch goes
+    through ``defer_with_orphan_guard`` so a Procrastinate outage flips
+    the job to ``failed`` and finalizes the run instead of leaving a
+    ghost ``pending`` row. Extracted from ``reupload_commit`` when the
+    raster branch (#1221) pushed it past the McCabe gate.
 
-    Extracted from ``reupload_commit`` when the raster branch (#1221) pushed
-    that handler past the McCabe gate.
-
-    feat(#1676): ``token`` and ``credential_ref`` are the two shapes a service
-    credential can arrive in, and exactly one of them is ever set — the caller
-    gets the pair from ``resolve_dispatch_credential``. Both are forwarded
-    verbatim; deciding between them is the worker's job, not this one's.
+    feat(#1676): ``token``/``credential_ref`` are the two shapes a
+    service credential can arrive in, exactly one ever set (from
+    ``resolve_dispatch_credential``); both forwarded verbatim.
     """
     if is_service_refresh:
         source_url = job.source_url
@@ -835,16 +814,12 @@ async def _dispatch_reupload_task(
     file_path = job.file_path
 
     if record_type == "raster_dataset":
-        # feat(#1221): the raster swap is a different worker task — it moves a
-        # RasterAsset pointer rather than renaming a staging table — but it is
-        # reached through this door and admitted by the same
-        # `create_pending_run` reservation the caller already holds, so a
-        # raster replace and a vector reupload cannot both run on one dataset.
-        #
-        # No priority-queue branch: raster work goes to the `raster` queue,
-        # where COG conversion is already the slow tenant. A small GeoTIFF
-        # jumping into `priority` would put a minutes-long GDAL conversion in
-        # the queue that exists to keep small vector imports snappy.
+        # feat(#1221): the raster swap moves a RasterAsset pointer rather
+        # than renaming a staging table, but is admitted by the same
+        # `create_pending_run` reservation, so raster and vector reuploads
+        # can't both run on one dataset. Goes to the `raster` queue, not
+        # `priority`: a minutes-long GDAL conversion there would block the
+        # queue that keeps small vector imports snappy.
         async def _defer_raster() -> None:
             await defer_async_with_tenant(
                 get_catalog_port().reupload_raster_task(),
@@ -926,26 +901,20 @@ async def reupload_commit(
             detail="Job already processed",
         )
 
-    # fix(#1746): judge the credential by the policy the WORKER will apply,
-    # selected by the service type of the job that is actually going to be
-    # dispatched, and compose the wire value from it. A WFS/OGC token
-    # containing `+` or `/` used to get a 202 here, spend its single-use
-    # credential, and then fail deterministically in ogr2ogr's own charset
-    # check. Placed ahead of every write below — the metadata merge, the
-    # admission slot, the stash — so a credential that cannot work never takes
-    # the one-active-run slot from a refresh that can, and nothing has to be
-    # rolled back to refuse it. ArcGIS keeps its wider vocabulary: its token is
-    # a urlencoded query parameter, never a header line.
+    # fix(#1746): judge the credential by the WORKER's policy for this
+    # job's service type -- a WFS token with `+`/`/` used to get a 202,
+    # spend its single-use credential, then fail in ogr2ogr's charset
+    # check. Placed ahead of every write so a bad credential never takes
+    # the one-active-run slot from a refresh that can.
     service_token = wire_credential(credential, service_format=_job_service_format(job))
 
-    # Merge commit request params into user_metadata, preserving existing keys.
-    # Keep token + layer_name request-only from user_metadata (layer_name goes
-    # into the dedicated source_layer column — see D-03 below).
+    # Merge commit request params into user_metadata, preserving existing
+    # keys. token + layer_name stay request-only (layer_name goes into the
+    # dedicated source_layer column, D-03 below).
     #
-    # feat(#1746): `auth` is excluded for the same reason `token` is, and the
-    # reason is sharper for it: user_metadata is a durable JSONB column, and
-    # this model_dump is a whitelist by omission, so a nested credential object
-    # would land in it in full.
+    # feat(#1746): `auth` is excluded for the same reason -- user_metadata
+    # is a durable JSONB column and this model_dump is a whitelist by
+    # omission, so a nested credential object would land in it in full.
     existing_meta = dict(job.user_metadata or {})
     existing_meta.update(
         request.model_dump(exclude_none=True, exclude={"token", "auth", "layer_name"})
@@ -958,25 +927,17 @@ async def reupload_commit(
         existing_meta["service_auth_required"] = True
     job.user_metadata = existing_meta
 
-    # GPKG-01 Phase 1058 (D-03): persist the user-chosen layer to the dedicated
-    # IngestJob.source_layer column so the worker reads it via job.source_layer.
-    # This is the canonical persistence path; user_metadata is not consulted by
-    # the worker for layer selection.
+    # GPKG-01 (D-03): persist to the dedicated IngestJob.source_layer
+    # column; user_metadata is not consulted by the worker for this.
     if request.layer_name is not None:
         job.source_layer = request.layer_name  # GPKG-01 Phase 1058
 
-    # feat(#1219) ADR-002 Decision 4b: the run row is written HERE, in the
-    # request transaction, before the task is deferred — not at swap commit.
-    # An at-commit design cannot represent a run that never committed: a
-    # worker that dies mid-fetch leaves no history row at all, and the
-    # ingest_jobs row that might have hinted at it is purged after the
-    # retention window. `trigger` is `manual` because a human clicked commit;
-    # `api` and `cli` belong to #1220's server-side refresh endpoint.
-    #
-    # The insert is also the admission gate (Decision 5b): a partial unique
-    # index allows one active run per dataset, so a second concurrent commit
-    # is refused HERE, atomically, rather than being discovered by the second
-    # worker at the advisory lock with both jobs already queued.
+    # feat(#1219) ADR-002 Decision 4b: the run row is written HERE, before
+    # the task is deferred, not at swap commit -- a worker dying mid-fetch
+    # would otherwise leave no history row at all. `trigger` is `manual`
+    # since a human clicked commit. Decision 5b: the insert is also the
+    # admission gate (partial unique index, one active run per dataset),
+    # refusing a second concurrent commit HERE rather than at the worker.
     is_service_refresh = bool(job.source_url and not job.file_path)
     _require_reupload_source(job, is_service_refresh)
 
@@ -1006,23 +967,18 @@ async def reupload_commit(
             },
         ) from exc
 
-    # fix(#1768): the origin door, and it has to be HERE — after the run row
-    # took the one-active-run admission slot, not before it. See
-    # `_refuse_if_origin_changed` for why the reservation is what makes the
+    # fix(#1768): the origin door, and it has to be HERE -- after the run
+    # row took the one-active-run admission slot, not before it. See
+    # `_refuse_if_origin_changed` for why the reservation makes the
     # re-read decisive.
     await _refuse_if_origin_changed(db, dataset, request.expected_origin_kind)
 
-    # feat(#1676): staged before the commit, exactly as the refresh door
-    # stages its own, so a configured-but-unreachable store rolls the whole
-    # request back — no committed job, no reserved run, nothing for the sweep
-    # to unwind — rather than leaving a dispatch that can never authenticate.
-    # The reverse order strands the credential instead, which is why the TTL
-    # exists and why nothing depends on the discard below actually running.
-    #
-    # An install with NO store configured takes the third branch and keeps the
-    # durable argument this door has always sent. Refusing there would break
-    # protected re-upload on every stock install, which is the trade #1220
-    # declined; see platform/refresh/credentials for the full contract.
+    # feat(#1676): staged before the commit so a configured-but-unreachable
+    # store rolls the whole request back rather than leaving a dispatch
+    # that can never authenticate. An install with NO store configured
+    # takes the third branch and keeps the durable argument instead;
+    # refusing there would break protected re-upload on every stock
+    # install -- see platform/refresh/credentials for the full contract.
     credential_ref: str | None = None
     token: str | None = service_token
     if is_service_refresh:
@@ -1048,29 +1004,18 @@ async def reupload_commit(
                 },
             ) from exc
 
-    # fix(#1709 review r4 P1): the pending check at the top of this handler
-    # is a plain read, and everything since — the metadata merge, the run
-    # row, the staged credential — flushes in THIS commit. POST
-    # /jobs/{id}/cancel can land between that read and here, and without a
-    # fence this commit would bind a pending run to the now-cancelled job:
-    # the queued task's claim fence fails immediately, nothing ever
-    # finalizes the run, and it holds `uq_refresh_runs_one_active` against
-    # every refresh until the stale-run sweep's cutoff — a successful cancel
-    # that leaves the dataset reporting busy for up to an hour.
+    # fix(#1709): the pending check at the top is a plain read, and
+    # everything since flushes in THIS commit -- POST /jobs/{id}/cancel
+    # landing in between would, without a fence, bind a pending run to a
+    # now-cancelled job that holds `uq_refresh_runs_one_active` for up to
+    # an hour of false "busy" after a successful cancel.
     #
-    # The same-value CAS below re-evaluates the pending+attempt pair against
-    # committed state under the row lock, atomically with the run flush. A
-    # committed cancel makes it match zero rows and the whole request rolls
-    # back — run row included — into a clean 409. When this side takes the
-    # lock first, the cancel waits at its own CAS and then cancels the job
-    # AND the run together: `cancel_active_run_for_job` sees the row this
-    # commit just made durable. Either serialization strands nothing.
-    #
-    # No deadlock risk from the ordering: the cancel locks job-then-run, and
-    # the run row this transaction INSERTs is invisible to the cancel's run
-    # CAS until commit (any pre-existing active run was refused above as
-    # dataset_busy), so the cancel never waits on anything this transaction
-    # holds except the job row itself.
+    # The same-value CAS below re-evaluates pending+attempt under the row
+    # lock, atomically with the run flush: a committed cancel matches zero
+    # rows and rolls the whole request back into a clean 409; if this side
+    # wins the lock first, the cancel's own CAS then cancels job AND run
+    # together. No deadlock: this transaction's run row is invisible to
+    # the cancel's CAS until commit.
     commit_fence = await db.execute(
         update(IngestJob)
         .where(
@@ -1100,14 +1045,11 @@ async def reupload_commit(
         )
     await db.commit()
 
-    # Each defer_async path is wrapped in the shared orphan guard
-    # (Theme H) so a Procrastinate outage flips the committed pending
-    # job to ``failed`` and returns HTTP 503 instead of leaving a ghost
-    # pending row for 60 minutes until stale-cleanup catches it. The run row
-    # rides along: the stale-run sweep would eventually cancel it, but the
-    # outcome is already known here, and an hour of `pending` for a dispatch
-    # that provably failed is the silent-failure shape this table exists to
-    # remove.
+    # Each defer_async path is wrapped in the shared orphan guard so a
+    # Procrastinate outage flips the committed job to ``failed`` and
+    # returns 503 instead of a ghost ``pending`` row for 60 minutes. The
+    # run row rides along -- an hour of `pending` for a provably failed
+    # dispatch is the silent-failure shape this table exists to remove.
     inner_rollback = make_refresh_run_failed_rollback(
         make_ingest_job_failed_rollback(
             job, message_prefix="Failed to queue reupload task"
@@ -1181,7 +1123,7 @@ async def request_presigned_reupload(
     try:
         allowed_list = await get_allowed_extensions_list(db)
     except Exception:  # broad: persistent_config lookup must not crash reupload UI; fall back to safe default list
-        # fix(#1682 codex r3): the configured default, not a frozen literal —
+        # fix(#1682): the configured default, not a frozen literal —
         # see _fallback_allowed_extensions in processing/ingest/router.py for
         # why a narrower fallback is not a safer one.
         allowed_list = list(settings.allowed_extensions_list)
@@ -1197,7 +1139,7 @@ async def request_presigned_reupload(
         )
 
     # QUOTA-01/02: per-user quota check before any staging or job creation.
-    # fix(#1290 review): identical admission to the direct door — same function,
+    # fix(#1290): identical admission to the direct door — same function,
     # same arguments — so the two doors cannot diverge on who may replace what.
     await check_replacement_quota(
         db,
@@ -1222,7 +1164,7 @@ async def request_presigned_reupload(
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
     part_size = get_catalog_port().ingest_part_size()
-    # fix(#1235 review r4): a gate, not a value — every signature below computes
+    # fix(#1235): a gate, not a value — every signature below computes
     # its own expiration inside the signing thread, and this call is here only
     # so a job with no usable lifetime left is refused before an upload id
     # exists. The return is deliberately discarded. Same as the upload door.
@@ -1243,7 +1185,7 @@ async def request_presigned_reupload(
                 raise initiation_cancel
             num_parts = math.ceil(request.file_size / part_size)
             urls = [
-                # fix(#1235 review r5/r8): each part computes its own
+                # fix(#1235): each part computes its own
                 # expiration INSIDE the signing thread. Same as the upload
                 # door; `sign_url_with_deadline` carries the reasoning.
                 await run_in_thread_draining(
@@ -1264,7 +1206,7 @@ async def request_presigned_reupload(
                     upload_id=upload_id,
                     job_id=job_id,
                 )
-            # fix(#1235 review r5): an HTTPException from here is the lifetime
+            # fix(#1235): an HTTPException from here is the lifetime
             # refusal and must survive as its own 409; the abort above has
             # already run. Same as the upload door.
             if isinstance(exc, (asyncio.CancelledError, HTTPException)):
@@ -1379,7 +1321,7 @@ async def complete_presigned_reupload(
             detail="Job is not a presigned upload",
         )
 
-    # fix(#1213 review r3): both one-shot facts, shared with the upload door.
+    # fix(#1213): both one-shot facts, shared with the upload door.
     # This door stamps `failed` itself before a content 422 (below), so without
     # the status half a client could re-PUT and complete again: a 200 that
     # binds a frozen object to a row preview and commit will refuse.
@@ -1411,14 +1353,11 @@ async def complete_presigned_reupload(
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
             if completion_cancel is not None:
-                # fix(#1233): do NOT delete the assembled object here. The
-                # upload id was consumed by CompleteMultipartUpload above, so
-                # the object's presence is the only record that assembly
-                # succeeded — `should_assemble_multipart` reads exactly that to
-                # let a retry skip re-assembly (#1202 r3). Deleting it left the
-                # client's natural retry re-assembling with a spent id, 502ing
-                # forever with no way back. Drain and re-raise only; the
-                # cancellation is not a rejection of the bytes.
+                # fix(#1233): do NOT delete the assembled object -- the
+                # spent upload id means the object's presence is the only
+                # record assembly succeeded, which `should_assemble_multipart`
+                # reads to let a retry skip re-assembly. Deleting it left a
+                # retry 502ing forever with a spent id and no way back.
                 raise completion_cancel
         except Exception as exc:  # broad: storage providers raise varied SDK errors
             await get_catalog_port().abort_presigned_multipart_upload(
@@ -1452,7 +1391,7 @@ async def complete_presigned_reupload(
             filename=job.source_filename or "",
             user_id=dataset.record.created_by,
             request=http_request,
-            # fix(#1290 review): completion is the THIRD admission point, and
+            # fix(#1290): completion is the THIRD admission point, and
             # it was still creation-shaped — an owner at the dataset-count cap
             # passed the request-time door, uploaded, and was refused here.
             # Naming the dataset makes the finalizer admit this as a

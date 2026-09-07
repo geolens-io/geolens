@@ -11,10 +11,6 @@ from app.modules.auth.models import User
 from app.modules.auth.password_policy import BCRYPT_MAX_PASSWORD_BYTES
 from app.modules.auth.providers import AuthenticatedIdentity, AuthenticationError
 
-# ---------------------------------------------------------------------------
-# Password hashing setup
-# ---------------------------------------------------------------------------
-
 password_hash = PasswordHash((BcryptHasher(),))
 
 # Pre-computed dummy hash used in timing-attack prevention: when a username
@@ -24,38 +20,27 @@ DUMMY_HASH = password_hash.hash("timing-attack-prevention-dummy")
 
 
 def hash_password(password: str) -> str:
-    """Hash a plaintext password for storage."""
     return password_hash.hash(password)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Verify a plaintext password against a stored hash.
 
-    fix(#1778): an input longer than bcrypt's 72-byte limit is a NON-MATCH, not
-    an exception. pwdlib's BcryptHasher raises ValueError rather than
-    truncating, and the two callers that reach here with an unvalidated string
-    both turned that into a 500. POST /auth/login takes an
-    OAuth2PasswordRequestForm, which carries no schema at all, so any
-    unauthenticated caller could 500 it on demand and the user.login.failure
-    audit row was skipped with it (the handler catches AuthenticationError, and
-    a ValueError is not one). POST /auth/change-password/ bounds only
-    ``new_password``; ``current_password`` is capped at 256 CHARACTERS.
+    fix(#1778): an input longer than bcrypt's 72-byte limit is a NON-MATCH,
+    not an exception — pwdlib's BcryptHasher raises ValueError rather than
+    truncating, and unvalidated callers (POST /auth/login, whose form schema
+    has no length cap) turned that into an uncaught 500 that also skipped
+    the user.login.failure audit row.
 
-    Refusing rather than truncating is the honest answer: register,
-    change-password, admin create and admin reset all run
-    validate_password_complexity, which caps the stored credential at
-    BCRYPT_MAX_PASSWORD_BYTES, so no hash in the database was derived from a
-    longer input and no correct password can be rejected here. Truncating would
-    instead accept the first 72 bytes of a longer string as the whole password.
+    Refusing rather than truncating is correct: every password-setting path
+    runs validate_password_complexity, capping the stored credential at
+    BCRYPT_MAX_PASSWORD_BYTES, so no correct password can be rejected here,
+    and truncating would instead accept the first 72 bytes of a longer
+    string as the whole password.
     """
     if len(plain.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
         return False
     return password_hash.verify(plain, hashed)
-
-
-# ---------------------------------------------------------------------------
-# Local auth provider
-# ---------------------------------------------------------------------------
 
 
 class LocalAuthProvider:
@@ -75,35 +60,27 @@ class LocalAuthProvider:
         Raises AuthenticationError on any failure (wrong user, wrong password,
         or deactivated account).
         """
-        # fix(#1715 codex r4 P1): a locking read, not a bare SELECT. An admin reset
-        # (POST /admin/users/{id}/reset-password/) holds FOR UPDATE on this row
-        # while it writes the new hash and revokes the account's credentials.
-        # Without a lock here, a login that read the row before that commit
-        # would verify the STALE hash and then mint tokens from the post-reset
-        # row: an access JWT carrying the new token_version, and a refresh row
-        # created after sessions_revoked_at, so both survive the revocation.
-        # The old-password holder would come out of the recovery with a live
-        # session. Blocking here means the verify below runs against whatever
-        # the reset committed, so the old password fails and nothing is minted.
+        # fix(#1715): a locking read, not a bare SELECT. An admin
+        # reset holds FOR UPDATE on this row while writing the new hash and
+        # revoking credentials; without a lock here, a login reading the row
+        # before that commit could verify the STALE hash and then mint
+        # tokens carrying the POST-reset token_version/horizon — surviving
+        # the revocation. Blocking here means the verify runs against
+        # whatever the reset committed, so the old password fails.
         #
-        # FOR NO KEY UPDATE, not FOR SHARE. The login handler assigns
-        # user.last_login_at, and that UPDATE needs FOR NO KEY UPDATE: under a
-        # shared lock two concurrent logins to one account would each hold FOR
-        # SHARE and then each try to upgrade, which is a deadlock Postgres
-        # resolves by aborting one otherwise-valid login (fix(#1715 codex r5)).
-        # Taking the write-compatible mode up front makes those two serialize
-        # for the few milliseconds of verify-plus-mint instead. It still does
-        # not conflict with FOR KEY SHARE, so foreign-key checks from other
-        # tables -- including this request's own refresh_tokens insert -- are
-        # not blocked, and it still conflicts with the reset's FOR UPDATE,
-        # which is the writer this has to serialize against.
+        # FOR NO KEY UPDATE, not FOR SHARE: the login handler's
+        # last_login_at UPDATE needs it — under FOR SHARE, two concurrent
+        # logins would each try to upgrade and deadlock (Postgres aborts
+        # one, fix(#1715)). Taking the write-compatible mode up
+        # front serializes them instead, without blocking FOR KEY SHARE
+        # (this request's own refresh_tokens insert), and still conflicts
+        # with the reset's FOR UPDATE, which is what it must serialize
+        # against.
         #
-        # The lock is held to the end of the request transaction, which is what
-        # keeps it covering the mint: the router commits after create_access_
-        # token and create_refresh_token, and nothing between here and there
-        # leaves the database. Lock ordering is unchanged and acyclic -- the
-        # reset takes the admin-lifecycle advisory lock and then this row, the
-        # login and change_password take only this row.
+        # Lock is held to the end of the request transaction (the router
+        # commits after minting tokens). Lock ordering is unchanged and
+        # acyclic: the reset takes the admin-lifecycle advisory lock then
+        # this row; login and change_password take only this row.
         result = await self.db.execute(
             select(User)
             .where(func.lower(User.username) == func.lower(username))
@@ -117,16 +94,11 @@ class LocalAuthProvider:
             raise AuthenticationError("Invalid credentials")
 
         if user.password_hash is None:
-            # fix(#1230 codex r10): OAuth-only users have no local password
-            # hash (oauth/service.py never sets one) -- `user.password_hash
-            # or ""` used to hand pwdlib an empty string, which it cannot
-            # parse as any known hash format. That raised UnknownHashError
-            # uncaught here, 500ing the login request and skipping the
-            # user.login.failure audit emit entirely (the except clause in
-            # the router only catches AuthenticationError). Still run a
-            # real verify against the dummy hash for timing-attack parity
-            # with the "user not found" branch above, then always fail --
-            # there is no real password for this account to match.
+            # fix(#1230): OAuth-only users have no local password
+            # hash; `user.password_hash or ""` used to hand pwdlib an empty
+            # string, raising uncaught UnknownHashError (500, and skipping
+            # the login.failure audit). Still verify against the dummy hash
+            # for timing-attack parity, then always fail.
             verify_password(password, DUMMY_HASH)
             raise AuthenticationError("Invalid credentials")
 

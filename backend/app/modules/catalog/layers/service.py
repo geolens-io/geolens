@@ -28,12 +28,9 @@ logger = structlog.stdlib.get_logger(__name__)
 def _qcol(name: str) -> str:
     """Return a double-quoted column identifier for DDL interpolation.
 
-    fix(#458 E-33): column names were interpolated bare, so a name that is a
-    SQL reserved word (``desc``, ``order``, ``user`` — routine ogr2ogr output
-    from DBF fields) passed COLUMN_NAME_RE but broke every DDL statement with
-    a syntax error, leaving the column permanently un-editable. Names are
-    regex-validated before reaching here, so quoting is belt-and-braces, not
-    an injection guard.
+    fix(#458): a reserved-word name (``desc``, ``order`` — routine ogr2ogr
+    DBF output) passes COLUMN_NAME_RE but breaks unquoted DDL. Names are
+    already regex-validated, so this is belt-and-braces, not an injection guard.
     """
     return '"' + name.replace('"', '""') + '"'
 
@@ -43,16 +40,10 @@ async def _compute_quality_detail(
 ) -> object:
     """The quality score for a schema change, WITHOUT storing it.
 
-    fix(#458 E-34): reupload recomputes quality_detail but column DDL did not,
-    so attribute_completeness drifted (an all-null added column, or a dropped
-    fully-populated one, changed the real score while the displayed one stayed
-    stale until the next reupload).
-
-    Returns rather than assigns, so the caller runs it BEFORE taking the
-    catalog rows. It is a COUNT per column over the whole data table plus a
-    geometry pass over 10,000 rows, and it needs neither catalog row (#1847).
-
-    `no_autoflush` because the caller has not taken the rows yet.
+    fix(#458): column DDL didn't recompute quality_detail like
+    reupload does, so attribute_completeness went stale until the next
+    reupload. Returns rather than assigns so the caller can run it before
+    taking the catalog rows; `no_autoflush` because those rows aren't held yet.
     """
     with session.no_autoflush:
         return await get_catalog_port().compute_quality_score(
@@ -72,20 +63,12 @@ async def create_layer(
     columns: list | None = None,
     description: str | None = None,
 ) -> Dataset:
-    """Create an empty spatial layer with full post-processing.
-
-    Steps mirror the ingest pipeline (tasks.py):
-    1. Generate table name
-    2. CREATE TABLE with typed geometry column (+ optional attribute columns)
-    3. Add geom_4326 column + spatial index
-    4. Grant geolens_reader SELECT
-    5. Extract column info
-    7. Create catalog dataset record
-    8. Compute quality score
+    """Create an empty spatial layer with full post-processing, mirroring the
+    ingest pipeline (tasks.py): table + geom_4326 + index, reader grant,
+    column info, catalog dataset record, quality score.
 
     Returns the created Dataset record.
     """
-    # 1. Generate table name
     table_name, collision_warning = await get_catalog_port().generate_table_name(
         name, session
     )
@@ -97,13 +80,11 @@ async def create_layer(
     reader_role = tenant_reader_role(tenant_id)
     table_ref = get_catalog_port().quote_table(table_name, schema=data_schema)
 
-    # 2. Build and execute CREATE TABLE DDL
     col_defs = "gid SERIAL PRIMARY KEY, geom geometry({geom_type}, 4326)".format(
         geom_type=geometry_type,
     )
     if columns:
         for col in columns:
-            # Double-check column name safety before interpolation
             if not COLUMN_NAME_RE.match(col.name):
                 raise ValueError(f"Invalid column name: {col.name!r}")
             pg_type = ALLOWED_COLUMN_TYPES[col.type]
@@ -112,12 +93,11 @@ async def create_layer(
     ddl = f"CREATE TABLE {table_ref} ({col_defs})"
     await session.execute(text(ddl))
 
-    # 3. Add geom_4326 column + spatial index (source is already 4326)
+    # source geometry is already 4326; add_4326_column is a passthrough here
     await get_catalog_port().add_4326_column(
         session, table_name, 4326, schema=data_schema
     )
 
-    # 4. Grant geolens_reader SELECT
     await get_catalog_port().grant_reader_access(
         session,
         table_name,
@@ -125,12 +105,10 @@ async def create_layer(
         role=reader_role,
     )
 
-    # 5. Get column info for catalog record
     column_info = await get_catalog_port().get_column_info(
         session, table_name, schema=data_schema
     )
 
-    # 6. Create dataset in catalog
     from app.modules.catalog.datasets.domain.schemas import IngestionResult
 
     dataset = await create_dataset(
@@ -149,7 +127,6 @@ async def create_layer(
         ),
     )
 
-    # 7. Compute quality score
     quality_score = await get_catalog_port().compute_quality_score(
         session,
         table_name,
@@ -168,11 +145,9 @@ async def count_maps_referencing_column(
 ) -> int:
     """Count distinct saved maps whose layer config references the column.
 
-    fix(#458 E-06): renaming or dropping a column silently broke saved maps
-    whose data-driven styles, filters, labels, or popups referenced it. This
-    text-scans the dataset's map-layer JSONB configs for the quoted column
-    name — approximate (a same-named string literal also matches), but scoped
-    to this dataset's layers the cost of a false warning is low.
+    fix(#458): warns before a rename/drop breaks a saved map's
+    data-driven style, filter, label, or popup. Text-scans the JSONB configs
+    for the quoted column name — approximate, but scoped to this dataset.
     """
     if not COLUMN_NAME_RE.match(column_name):
         return 0
@@ -205,7 +180,6 @@ async def add_column(
     """
     get_catalog_port().validate_table_name(dataset.table_name)
 
-    # Validate column name
     if not COLUMN_NAME_RE.match(column_name):
         raise ValueError(
             f"Column name {column_name!r} must start with a lowercase letter "
@@ -215,39 +189,34 @@ async def add_column(
     if column_name in RESERVED_COLUMNS:
         raise ValueError(f"Column name {column_name!r} is reserved and cannot be used.")
 
-    # Validate type
     if column_type not in ALLOWED_COLUMN_TYPES:
         raise ValueError(
             f"Column type {column_type!r} is not allowed. "
             f"Allowed types: {sorted(ALLOWED_COLUMN_TYPES.keys())}"
         )
 
-    # Check for duplicate column name
     existing_names = {c["name"] for c in (dataset.column_info or [])}
     if column_name in existing_names:
         raise ValueError(f"Column {column_name!r} already exists on this layer.")
 
     pg_type = ALLOWED_COLUMN_TYPES[column_type]
 
-    # Execute DDL
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} ADD COLUMN {_qcol(column_name)} {pg_type}"
     await session.execute(text(ddl))
 
-    # Refresh column_info
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
-    # fix(#1847): scan, then lock, then assign both fields. The scan needs
-    # neither catalog row; the lock follows the ALTER because the reupload swap
+    # fix(#1847): scan, then lock, then assign — the scan needs neither
+    # catalog row, and the lock must follow the ALTER since the reupload swap
     # takes its data-table ACCESS EXCLUSIVE before its catalog rows.
     quality_detail = await _compute_quality_detail(session, dataset, column_info)
     await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
     dataset.quality_detail = quality_detail
 
-    # Create (or revive) the AttributeMetadata row for the new column.
-    # fix(#458 E-12): (dataset_id, field_name) is unique, so re-adding a name
-    # dropped earlier must revive the historical is_current=False row instead
-    # of inserting a duplicate (which raised UniqueViolation -> 500).
+    # fix(#458): (dataset_id, field_name) is unique, so re-adding a
+    # previously dropped name must revive the historical is_current=False row
+    # instead of inserting a duplicate (UniqueViolation -> 500).
     new_col = next((c for c in column_info if c["name"] == column_name), None)
     if new_col:
         data_type = new_col.get("type", "")
@@ -266,7 +235,7 @@ async def add_column(
             )
             session.add(am)
         am.data_type = data_type
-        # fix(#458 E-44): the revive path (drop → re-add the same name) used to
+        # fix(#458): the revive path (drop → re-add the same name) used to
         # overwrite user-customized inferred fields with fresh inference while
         # user_modified_fields still claimed the customization. Honor it.
         user_modified = set(am.user_modified_fields or [])
@@ -323,13 +292,12 @@ async def rename_column(
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
-    # fix(#1847): the catalog writes start here, and the caller then stamps
-    # `record.updated_by`. After the ALTER because the reupload swap takes its
+    # fix(#1847): lock follows the ALTER — the reupload swap takes its
     # data-table ACCESS EXCLUSIVE before its catalog rows.
     await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
 
-    # fix(#458 E-43): keep the cached sample-values snapshot keyed by the new
+    # fix(#458): keep the cached sample-values snapshot keyed by the new
     # name; the builder reads this dict and an old-name entry looks like an
     # empty column after a rename.
     if dataset.sample_values and column_name in dataset.sample_values:
@@ -337,8 +305,7 @@ async def rename_column(
         samples[new_name] = samples.pop(column_name)
         dataset.sample_values = samples
 
-    # Migrate the AttributeMetadata row in place so attribute history follows
-    # the rename instead of being orphaned.
+    # Migrate in place so attribute history follows the rename, not orphaned.
     result = await session.execute(
         select(AttributeMetadata).where(
             AttributeMetadata.dataset_id == dataset.id,
@@ -393,8 +360,8 @@ async def alter_column_type(
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
-    # fix(#1847): scan, then lock, then assign both fields. The scan needs
-    # neither catalog row; the lock follows the ALTER because the reupload swap
+    # fix(#1847): scan, then lock, then assign — the scan needs neither
+    # catalog row, and the lock must follow the ALTER since the reupload swap
     # takes its data-table ACCESS EXCLUSIVE before its catalog rows.
     quality_detail = await _compute_quality_detail(session, dataset, column_info)
     await lock_catalog_rows_for_write(session, dataset)
@@ -433,44 +400,38 @@ async def drop_column(
     """
     get_catalog_port().validate_table_name(dataset.table_name)
 
-    # Validate column name format
     if not COLUMN_NAME_RE.match(column_name):
         raise ValueError(f"Column name {column_name!r} is not a valid column name.")
 
-    # Reject reserved columns
     if column_name in RESERVED_COLUMNS:
         raise ValueError(f"Column {column_name!r} is reserved and cannot be removed.")
 
-    # Verify column exists in current column_info
     existing_names = {c["name"] for c in (dataset.column_info or [])}
     if column_name not in existing_names:
         raise ValueError(f"Column {column_name!r} does not exist on this layer.")
 
-    # Execute DDL
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} DROP COLUMN {_qcol(column_name)}"
     await session.execute(text(ddl))
 
-    # Refresh column_info
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
-    # fix(#1847): scan, then lock, then assign both fields. The scan needs
-    # neither catalog row; the lock follows the ALTER because the reupload swap
+    # fix(#1847): scan, then lock, then assign — the scan needs neither
+    # catalog row, and the lock must follow the ALTER since the reupload swap
     # takes its data-table ACCESS EXCLUSIVE before its catalog rows.
     quality_detail = await _compute_quality_detail(session, dataset, column_info)
     await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
     dataset.quality_detail = quality_detail
 
-    # fix(#458 E-43): drop the removed column's cached sample values too.
+    # fix(#458): drop the removed column's cached sample values too.
     if dataset.sample_values and column_name in dataset.sample_values:
         samples = dict(dataset.sample_values)
         samples.pop(column_name)
         dataset.sample_values = samples
 
-    # Mark AttributeMetadata row as removed. fix(#458 E-12): filter on
-    # is_current like rename/alter do — drop→re-add→drop of the same name
-    # leaves historical rows for the field, and an unfiltered
-    # scalar_one_or_none() raised MultipleResultsFound (500).
+    # fix(#458): filter on is_current like rename/alter do — a
+    # drop→re-add→drop of the same name leaves historical rows, and an
+    # unfiltered scalar_one_or_none() raised MultipleResultsFound (500).
     result = await session.execute(
         select(AttributeMetadata).where(
             AttributeMetadata.dataset_id == dataset.id,

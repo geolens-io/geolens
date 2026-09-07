@@ -1,4 +1,4 @@
-"""Community-edition Anthropic AI provider default (Phase 226 D-17).
+"""Community-edition Anthropic AI provider default.
 
 Split from the former single-module ``defaults.py`` (#836): this sub-module
 owns ``DefaultAnthropicProvider``. Import it via the
@@ -20,10 +20,9 @@ async def _run_tool_use_blocks(
 ) -> list[dict]:
     """Execute one round's tool_use blocks and build the tool_result payload.
 
-    Split out of ``complete`` in fix(#1778 round 1): wrapping the loop so every
-    exit stamps its token usage pushed that function over the complexity gate,
-    and this block is self-contained. ``collected_actions`` is appended in
-    place, matching what the caller did inline.
+    fix(#1778): split out of ``complete`` because wrapping the loop so every
+    exit stamps its token usage pushed that function over the complexity
+    gate. ``collected_actions`` is appended in place, as the caller did inline.
     """
     tool_results: list[dict] = []
     for block in content:
@@ -39,8 +38,8 @@ async def _run_tool_use_blocks(
             {
                 "type": "tool_result",
                 "tool_use_id": block.id,
-                # fix(#1778 round 2): fenced, not bare JSON. See
-                # tool_result_content for why every result and not a subset.
+                # fix(#1778): fenced, not bare JSON — see tool_result_content
+                # for why every result, not a subset.
                 "content": tool_result_content(result),
             }
         )
@@ -48,23 +47,20 @@ async def _run_tool_use_blocks(
 
 
 class DefaultAnthropicProvider:
-    """Community-edition default: Anthropic native tool-calling loop (Phase 226 D-17).
+    """Community-edition default: Anthropic native tool-calling loop.
 
-    ``complete()`` body is ``_loop_anthropic`` from
-    ``app.processing.ai.llm_loop`` (lines 179-277) moved verbatim — same
-    request/response shape, same exit conditions, same token accounting.
-    ``stream()`` raises NotImplementedError (D-03 — true LLM-token streaming
-    is deferred; ``service.py:stream_generate_map`` is "semi-streaming"
-    around ``complete()``, not real token streams).
+    ``complete()`` is ``_loop_anthropic`` from ``app.processing.ai.llm_loop``
+    moved verbatim — same request/response shape, exit conditions, and token
+    accounting. ``stream()`` raises NotImplementedError — real LLM-token
+    streaming is deferred; ``service.py:stream_generate_map`` is
+    "semi-streaming" around ``complete()``, not real token streams.
 
-    Class-level ``_client`` cache survives test registry resets (RESEARCH.md
-    §Client Cache Lifetime) and is process-scoped in production (the
-    accessor calls ``providers.setdefault(...)`` so the instance lives for
-    the FastAPI process lifetime).
+    Class-level ``_client`` cache survives test registry resets and is
+    process-scoped in production (``providers.setdefault(...)`` keeps the
+    instance alive for the FastAPI process lifetime).
 
-    Deferred imports (Phase 214 / Phase 222 / Phase 225 discipline): all
-    SDK and modules-level imports happen INSIDE ``complete()``, never at
-    defaults.py module load.
+    All SDK and app-module imports happen INSIDE ``complete()``, never at
+    module load — deferred-import discipline.
     """
 
     _client = None  # class-level cache (AsyncAnthropic | None)
@@ -85,7 +81,6 @@ class DefaultAnthropicProvider:
         temperature=0.5,
     ):
         del temperature  # rejected by Claude 4.6+; kept in signature for callers
-        # Deferred imports (Phase 214 discipline)
         import time
 
         import structlog
@@ -139,17 +134,15 @@ class DefaultAnthropicProvider:
         collected_actions: list[dict] = []
         total_input = 0
         total_output = 0
-        # fix(#448): mirror the streaming path's PERF-009 runaway guards — the
-        # blocking tool loop (map-gen and friends) previously had neither a
-        # wall-clock deadline nor a cumulative token cap, so a pathological
-        # tool loop could burn budget until max_rounds.
+        # fix(#448): mirror the streaming path's runaway guards — a wall-clock
+        # deadline and cumulative token cap, so a pathological tool loop can't
+        # burn budget until max_rounds.
         deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
-        # fix(#1778 round 1): EVERY exit from this loop carries the tokens it
-        # has already spent, not just the exhaustion raises. After round one
-        # the provider has been billed, so a later request failure, a tool
-        # executor that raises, or a cancellation must still reach the daily
-        # quota. One helper decides; nothing here enumerates exception types.
+        # fix(#1778): EVERY exit from this loop carries the tokens already
+        # spent, not just the exhaustion raises — after round one the
+        # provider has been billed, so a later failure must still reach the
+        # daily quota.
         try:
             for round_num in range(max_rounds):
                 if time.monotonic() > deadline:
@@ -164,12 +157,10 @@ class DefaultAnthropicProvider:
                         input_tokens=total_input,
                         output_tokens=total_output,
                     )
-                # Anthropic API rejects `tools=[]` with 400 BadRequestError
-                # ("tools: must have at least 1 item"). Omit the kwarg entirely
-                # for no-tools paths (sql_generator.generate_sql,
-                # _retry_parse_map_spec). REVIEW.md CR-01.
-                # Claude 4.6+ models reject a non-default `temperature` with a
-                # 400; omit it on the Anthropic path (steering is prompt-based).
+                # Anthropic API rejects `tools=[]` with a 400 ("tools: must
+                # have at least 1 item"); omit the kwarg entirely for
+                # no-tools paths. Claude 4.6+ also rejects a non-default
+                # `temperature` with a 400, so it's omitted here too.
                 create_kwargs: dict[str, object] = {
                     "model": model,
                     "max_tokens": max_tokens,
@@ -234,15 +225,15 @@ class DefaultAnthropicProvider:
                 output_tokens=total_output,
             )
         except BaseException as exc:
-            # BaseException, not Exception: asyncio.CancelledError is the shape
-            # a client disconnect and the caller's wait_for timeout both take,
+            # BaseException, not Exception: a client disconnect and the
+            # caller's wait_for timeout both surface as asyncio.CancelledError,
             # and wait_for re-raises TimeoutError *from* it, so the stamp
             # survives on __cause__ for token_usage_from_error to find.
             attach_token_usage(exc, total_input, total_output)
             raise
 
-    # fix(#1590): explicit keyword-only signature instead of a bare
-    # **kwargs shim, matching AIProviderExtension.stream exactly.
+    # fix(#1590): explicit keyword-only signature, matching
+    # AIProviderExtension.stream exactly, instead of a bare **kwargs shim.
     async def stream(  # type: ignore[no-untyped-def]
         self,
         *,
@@ -264,11 +255,10 @@ class DefaultAnthropicProvider:
             "streaming is deferred to a follow-up phase)."
         )
 
-    # fix(#1590): explicit keyword-only signature instead of a bare
-    # **kwargs shim, matching AIProviderExtension.stream_chat_events
-    # exactly. `base_url` is accepted (the Protocol declares it) but unused
-    # here — Anthropic's streaming client resolves its own endpoint, same as
-    # `del temperature` in `complete()` above for a different unused keyword.
+    # fix(#1590): explicit keyword-only signature, matching
+    # AIProviderExtension.stream_chat_events exactly. `base_url` is accepted
+    # (the Protocol declares it) but unused — Anthropic's streaming client
+    # resolves its own endpoint.
     async def stream_chat_events(  # type: ignore[no-untyped-def]
         self,
         *,

@@ -1,10 +1,8 @@
 """Tenancy MODE axis helper.
 
-TSEAM-03 (Phase 1207-02): orthogonal tenancy mode — independent of the
-Community/Enterprise edition binary. Read by tenancy-aware code only.
-
-Edition stays binary (community|enterprise). Mode controls the tenancy
-posture of the deployment and is ORTHOGONAL to edition.
+TSEAM-03 (Phase 1207-02): tenancy mode is orthogonal to the binary
+Community/Enterprise edition — it controls deployment tenancy posture
+independently. Read by tenancy-aware code only.
 
 Usage::
 

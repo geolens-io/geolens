@@ -1,32 +1,14 @@
 """Source freshness: how a dataset's last refresh compares to its cadence.
 
-feat(#1224): ``records.update_frequency`` has carried the ISO 19115
-maintenance-frequency vocabulary since the catalog shipped, and nothing ever
-compared it to anything. ``datasets.last_refreshed_at`` (#1218) supplies the
-other half, so source freshness is a pure read-side computation over stored
-columns.
+feat(#1224): a pure read-side computation over ``records.update_frequency``
+and ``datasets.last_refreshed_at`` (#1218), never persisted (ADR-002
+Decision 2: a stored copy of a live-derived value can only disagree
+with its inputs). Always ``source_`` prefixed, never bare "freshness" --
+the frontend already uses that word for a different concept
+(``frontend/src/lib/quality-freshness.ts``).
 
-**"Source freshness", never bare "freshness".** The frontend already owns a
-different concept under that word: ``frontend/src/lib/quality-freshness.ts``
-measures the quality score's ``computed_at`` against the same
-``update_frequency``, with its own thresholds (2 / 14 / 62 / 186 / 550 days,
-plus a 45-day policy for an unknown cadence) and its own state set
-(``fresh`` / ``stale`` / ``missing``). The two share a word, an input, and the
-state name ``fresh`` while answering different questions, so every name here —
-module, function, response field, and copy — carries the ``source_`` qualifier.
-
-ADR-002 Decision 2 is the reason nothing here writes: the state derives from
-live columns, so persisting it would create a value whose only possible
-behaviour is to disagree with the ones it came from. The same argument retires
-``origin_kind`` and ``quality_score_numeric``. Contrast ``schema_drift_status``,
-which IS stored — drift compares a pre-refresh schema that no longer exists, so
-it derives from nothing at read time.
-
-``now`` and ``origin`` are parameters, not lookups, so the mapping is a total
-function of its inputs and every threshold is testable without freezing time.
-
-Source freshness never blocks anything. It is advisory state for the catalog UI
-(#1226), the CLI, and the SDKs.
+``now``/``origin`` are parameters, not lookups, so this stays a total,
+freeze-time-testable function. Advisory only -- never blocks anything.
 """
 
 from __future__ import annotations
@@ -44,30 +26,27 @@ UNKNOWN = "unknown"
 
 SOURCE_FRESHNESS_VALUES: tuple[str, ...] = (FRESH, DUE, OVERDUE, UNKNOWN)
 
-# Origins a refresh can actually re-pull from (ADR-002 Decision 5a's per-origin
-# table). An allowlist rather than a denylist on purpose: a future origin kind
-# nobody classified here reads "unknown", which withholds advice, instead of
-# reading "overdue", which names an action that may not exist. The partition
-# below is pinned against dataset_origin.ORIGIN_KINDS in the test suite, so
-# adding a kind fails loudly rather than defaulting either way in silence.
+# Origins a refresh can actually re-pull from (ADR-002 Decision 5a). An
+# allowlist, not a denylist: an unclassified future origin kind reads
+# "unknown" (withholds advice) instead of "overdue" (names an action that
+# may not exist). Pinned against dataset_origin.ORIGIN_KINDS in tests, so
+# adding a kind fails loudly rather than defaulting silently.
 REFRESHABLE_ORIGINS: frozenset[str] = frozenset(
     {"upload", "postgis", "service", "stac"}
 )
 
-# `created` is the whole reason origin is a parameter. A dataset drawn in the
-# app came from nowhere, so ADR-002 Decision 5a gives it 409
-# `refresh_not_applicable` — and yet service_create.py stamps every new dataset
-# with `last_refreshed_at` at creation, and migration 0036 backfills a floor for
-# older rows. Without this gate an eighteen-month-old sketch layer carrying
-# `update_frequency='monthly'` would report "overdue" and point the user at an
-# action that does not exist for it.
+# `created` is the whole reason origin is a parameter. A dataset drawn in
+# the app came from nowhere (ADR-002 Decision 5a: 409
+# `refresh_not_applicable`), yet service_create.py stamps every new dataset
+# with `last_refreshed_at`, and migration 0036 backfills a floor for older
+# rows. Without this gate an old sketch layer with `update_frequency`
+# would report "overdue" for an action that doesn't exist for it.
 NON_REFRESHABLE_ORIGINS: frozenset[str] = frozenset({"created"})
 
-# The full ISO 19115 MD_MaintenanceFrequencyCode set GeoLens accepts, mirroring
-# chk_records_update_frequency on catalog.records. Kept here as well so the two
-# can be compared: tests/test_dataset_source_freshness.py fails if the CHECK
-# gains a value that nothing below assigns a meaning to, which is the loud
-# version of a new vocabulary value silently rendering as "unknown" forever.
+# Full ISO 19115 MD_MaintenanceFrequencyCode set, mirroring
+# chk_records_update_frequency on catalog.records. Kept here too so
+# tests/test_dataset_source_freshness.py fails loudly if the CHECK gains a
+# value nothing below assigns a meaning to.
 UPDATE_FREQUENCY_VOCABULARY: frozenset[str] = frozenset(
     {
         "continual",
@@ -84,15 +63,14 @@ UPDATE_FREQUENCY_VOCABULARY: frozenset[str] = frozenset(
     }
 )
 
-# One cycle of each cadence, in days. Calendar-length values are the LONGEST
-# such period (31-day month, 92-day quarter, 366-day year) so a dataset kept on
-# schedule is never reported late by a leap day or a short month; being a day
-# slow to say "due" is the harmless direction.
+# One cycle of each cadence, in days. Calendar-length values are the
+# LONGEST such period (31-day month, 92-day quarter, 366-day year) so a
+# dataset kept on schedule is never reported late by a leap day or short
+# month -- being a day slow to say "due" is the harmless direction.
 #
-# `continual` shares daily's period. ISO defines it as "repeatedly and
-# frequently", with no unit attached, so any number here is invented; one day
-# is the shortest cadence the rest of the table can express and reads the way a
-# continually-updated dataset is meant to behave.
+# `continual` shares daily's period: ISO defines it as "repeatedly and
+# frequently" with no unit, so any number is invented, and one day is the
+# shortest cadence the table can express.
 FREQUENCY_PERIOD_DAYS: dict[str, int] = {
     "continual": 1,
     "daily": 1,
@@ -116,12 +94,10 @@ OVERDUE_PERIOD_MULTIPLE = 2
 def _as_utc(value: datetime) -> datetime:
     """Read a naive datetime as UTC so the subtraction below cannot raise.
 
-    Both inputs are timestamptz in the schema and arrive aware, and the app
-    builds its own clock reads with ``datetime.now(timezone.utc)`` — the only
-    naive datetimes this codebase produces are already UTC. Coercing rather
-    than raising keeps a stray naive value from turning a plain dataset GET
-    into a 500; coercing rather than returning ``UNKNOWN`` keeps it from
-    disappearing into a legitimate-looking state instead.
+    The only naive datetimes this codebase produces are already UTC.
+    Coercing rather than raising keeps a stray naive value from turning a
+    plain dataset GET into a 500; coercing rather than returning
+    ``UNKNOWN`` keeps it from disappearing into a legitimate-looking state.
     """
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
@@ -136,22 +112,14 @@ def compute_source_freshness(
     """Map a dataset's refresh age against its declared cadence.
 
     Returns ``fresh`` within one declared period, ``due`` past one, and
-    ``overdue`` past two. ``unknown`` covers every case where the question
-    cannot be asked: an origin nothing can refresh (``created``), no cadence
-    declared (``asNeeded``, ``irregular``, ``notPlanned``, ``unknown``, or
-    NULL), an unrecognised frequency string, or nothing refreshed yet.
+    ``overdue`` past two. ``unknown`` when the question can't be asked: an
+    unrefreshable origin, no/unrecognised cadence, or nothing refreshed yet.
 
-    ``origin`` is the value ``classify_origin`` produces, passed explicitly so
-    this stays a pure function. A NULL origin is a VRT, which is refreshable in
-    the sense that matters here: ADR-002 Decision 5a projects each VRT's latest
-    generation timestamp into ``last_refreshed_at`` precisely so freshness
-    renders uniformly across record types. (A collection also classifies as
-    NULL and never reaches this function — it has no dataset row.)
-
-    Boundaries are strict: an age of exactly one period is still ``fresh``, and
-    exactly two is still ``due``. A refresh timed to the declared cadence lands
-    on the boundary, so the inclusive reading would report an on-time dataset
-    late.
+    A NULL ``origin`` is a VRT, still refreshable here since ADR-002
+    Decision 5a projects each VRT's latest generation into
+    ``last_refreshed_at``. Boundaries are strict (exactly one period is
+    still ``fresh``): a refresh timed to the cadence lands on the
+    boundary, and an inclusive reading would report it late.
     """
     if origin is not None and origin not in REFRESHABLE_ORIGINS:
         return UNKNOWN

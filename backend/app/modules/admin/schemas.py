@@ -23,34 +23,21 @@ JobStatus = Literal[
     "pending", "running", "complete", "failed", "cancelled", "fanned_out"
 ]
 
-# Sortable columns for the admin user list. This Literal is the OUTER half of a
-# two-layer allowlist: FastAPI rejects anything outside it with a 422 before the
-# service runs, and USER_SORT_COLUMNS in service.py resolves the surviving value
-# to a mapped column. A caller-supplied string is therefore never interpolated
-# into an ORDER BY clause.
-#
-# Membership is limited to real `users` columns. Roles is a many-to-many and
-# storage is computed per page after the query returns, so neither can be
-# ordered by the database without restructuring the endpoint.
+# Outer half of a two-layer allowlist (inner: USER_SORT_COLUMNS in service.py) —
+# FastAPI 422s anything outside it, so no caller string reaches ORDER BY.
+# Excludes roles (many-to-many) and storage (computed per page), neither orderable.
 UserSortField = Literal["username", "email", "status", "last_login_at", "created_at"]
 
-# Sortable columns for the admin job list, same two-layer shape as
-# UserSortField above (inner half: _job_sort_columns() in service.py).
-#
-# `username` orders by the already-joined users row, and `duration` by the
-# completed_at - started_at interval, which is NULL for exactly the jobs whose
-# Duration cell renders "-". Nothing else the row displays is orderable: the
-# retry affordance is computed per page after the query returns.
+# Same two-layer allowlist shape as UserSortField (inner: _job_sort_columns() in
+# service.py). `duration` orders by completed_at - started_at, NULL for jobs whose
+# Duration cell renders "-"; retry affordance is computed per page, not orderable.
 JobSortField = Literal[
     "created_at", "source_filename", "status", "username", "duration"
 ]
 
-# Sortable columns for the admin published-maps list (inner half:
-# _share_token_ordering() in catalog/maps/service_public.py).
-#
-# Link status is absent: it is derived in Python from is_active plus expires_at
-# against now(), so ordering by it would need a CASE expression the listing
-# does not have. See AdminSharedMapsPage for the matching UI comment.
+# Inner half: _share_token_ordering() in catalog/maps/service_public.py.
+# Link status is absent — derived in Python from is_active + expires_at vs
+# now(), so ordering it would need a CASE the listing does not have.
 ShareTokenSortField = Literal[
     "map_name", "created_at", "creator", "expires_at", "embed_token_count"
 ]
@@ -58,10 +45,8 @@ ShareTokenSortField = Literal[
 SortDirection = Literal["asc", "desc"]
 
 
-# fix(#1715): one wiring for the password policy, shared by every admin schema
-# that accepts a password. Each of these used to carry its own copy of the same
-# four-line field_validator; the reset endpoint would have made three. The rules
-# themselves live in auth/password_policy.py and are unchanged.
+# fix(#1715): single shared password-policy wiring for every admin schema that
+# accepts a password; rules live in auth/password_policy.py.
 def _enforce_password_policy(value: str) -> str:
     """Enforce the application password policy (SEC-S16, Phase 1062-01)."""
     from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
@@ -79,9 +64,8 @@ class AdminUserCreate(BaseModel):
     password: str = Field(
         min_length=8,
         max_length=256,
-        # min_length=8 is a fast-fail floor; the canonical policy
-        # (PASSWORD_MIN_LENGTH / PASSWORD_REQUIRE_CLASSES) is enforced by
-        # validate_password below. See UserCreate docstring in auth/schemas.py.
+        # min_length=8 is a fast-fail floor; the real policy (PASSWORD_MIN_LENGTH /
+        # PASSWORD_REQUIRE_CLASSES) is enforced by validate_password below.
         description=(
             "Initial password (policy: min 12 chars, 3+ character classes, "
             "at most 72 bytes UTF-8). "
@@ -179,8 +163,8 @@ class SamlToLocalConversion(BaseModel):
     password: str = Field(
         min_length=8,
         max_length=256,
-        # min_length=8 is a fast-fail floor; the canonical policy is enforced
-        # by validate_password below (SEC-S16, Phase 1062-01).
+        # min_length=8 is a fast-fail floor; validate_password below enforces
+        # the real policy.
         description=(
             "Local-password for the converted account "
             "(policy: min 12 chars, 3+ character classes, at most 72 bytes "
@@ -205,8 +189,8 @@ class AdminPasswordReset(BaseModel):
     password: str = Field(
         min_length=8,
         max_length=256,
-        # min_length=8 is a fast-fail floor; the canonical policy is enforced
-        # by validate_password below (SEC-S16, Phase 1062-01).
+        # min_length=8 is a fast-fail floor; validate_password below enforces
+        # the real policy.
         description=(
             "Replacement password for the account "
             "(policy: min 12 chars, 3+ character classes, at most 72 bytes "

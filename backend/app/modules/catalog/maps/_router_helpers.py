@@ -1,9 +1,7 @@
 """Shared pure helpers for the maps router (response builders + access checks).
 
-Extracted from ``router.py`` (post-merge follow-up, 2026-05-29) to shrink the
-maps router toward the 1500 LOC cap and centralize the helpers reused across the
-router's endpoints. These helpers have no dependency on the router module, so
-importing them back into ``router.py`` does not create a circular import.
+No dependency on ``router.py``, so importing these back does not create a
+circular import.
 """
 
 import uuid
@@ -29,21 +27,10 @@ logger = structlog.stdlib.get_logger(__name__)
 def _build_frame_ancestors(origins: list[str] | None) -> str:
     """Build a CSP frame-ancestors directive value from an allowed_origins list.
 
-    SEC-S08 / Phase 1062-05: derives the per-token frame-ancestors directive from
-    the EmbedToken.allowed_origins list. Two layers of malformed-entry filtering:
-
-    1. CRLF injection: entries containing \\r or \\n are silently dropped to
-       prevent response-header splitting.
-    2. Wildcard ('*') entries: silently dropped even if they somehow reached the
-       DB (defense-in-depth on top of the schema-layer 422 rejection in
-       _validate_origins). CSP frame-ancestors '*' is a hard security violation —
-       it disables clickjacking protection entirely (SHARE-06, Phase 1137-02).
-
-    Both filters are defense-in-depth: schema validation already runs at
-    create/update time and rejects malformed entries with a 422. These filters
-    protect against any stale DB row that bypassed validation (e.g. a direct
-    admin INSERT or a future migration that restores a backup from before the
-    schema-layer pin was added).
+    SEC-S08: two defense-in-depth filters on top of the schema-layer 422 at
+    create/update time, guarding any stale DB row that bypassed it — CRLF
+    entries (would split the response header) and wildcard entries ('*' in
+    frame-ancestors disables clickjacking protection entirely, SHARE-06).
     """
     if not origins:
         return "frame-ancestors 'self'"
@@ -103,24 +90,15 @@ def _build_layer_response(
     layer: MapLayer,
     meta: DatasetMetaKwargs,
 ) -> MapLayerResponse:
-    """Build a MapLayerResponse from a layer and its dataset metadata dict."""
     return MapLayerResponse(
         id=layer.id,
         dataset_id=layer.dataset_id,
         dataset_name=meta.get("dataset_name", ""),
         dataset_geometry_type=meta.get("geometry_type"),
         dataset_table_name=meta.get("table_name", ""),
-        # fix(#1112): the RFC 7946 §5.2 spec bbox, west > east on a crossing.
-        # This was the span form under #892, when all three consumers below were
-        # seam-blind. They no longer are, and the span form defeated the guards
-        # they grew: it flattens a Fiji extent to [-180, s, 180, n], which is
-        # bit-identical to a genuinely global dataset, so auto-fit and Zoom to
-        # Layer framed the whole world with nothing left to detect. Each
-        # consumer now declares the form it wants: the two builder fit paths
-        # (BuilderMap.getVisibleLayerBounds, use-builder-layers.handleZoomToLayer)
-        # unwrap the crossing past 180 and fit the few degrees the data occupies,
-        # and normalizeRasterBounds (layer-adapters/shared.ts) spans it back at
-        # the MapLibre source boundary, where an inverted pair matches NO tile.
+        # fix(#1112): RFC 7946 §5.2 bbox (west > east on a crossing) — the
+        # builder fit paths unwrap it past 180, while normalizeRasterBounds
+        # re-spans it at the source boundary (an inverted pair matches no tile).
         dataset_extent_bbox=extent_to_bbox(meta.get("extent")),
         dataset_column_info=meta.get("column_info"),
         dataset_feature_count=meta.get("feature_count"),
@@ -288,7 +266,6 @@ def _build_map_response(
     forked_from_name: str | None = None,
     created_by_username: str | None = None,
 ) -> MapResponse:
-    """Build a MapResponse from a map object and layer list."""
     thumbnail_url = f"/maps/{map_obj.id}/thumbnail/" if map_obj.thumbnail_uri else None
     og_image_url = f"/maps/{map_obj.id}/og-image/" if map_obj.og_image_uri else None
     return MapResponse(

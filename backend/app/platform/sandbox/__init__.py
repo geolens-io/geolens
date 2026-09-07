@@ -63,45 +63,34 @@ async def validate_and_execute(
         row_limit: Maximum rows to return (default 1000).
         timeout_ms: Statement timeout in milliseconds, applied as SET LOCAL
             statement_timeout on the execution connection (default 10000).
-            Callers that need a tighter budget than the shared default — a
-            synchronous request path, say — pass a smaller value.
-        restrict_tables: Optional surface-level scope: when set, the effective
+        restrict_tables: Optional scope narrowing: when set, the effective
             allowlist is the INTERSECTION of the user's RBAC allowlist with
-            this set — it can only narrow access, never widen it. Used by
-            dataset-scoped chat (PR #531 review) so generated SQL cannot reach
-            other tables the user happens to be able to see.
+            this set — it can only narrow access, never widen it (used by
+            dataset-scoped chat, #531, so generated SQL cannot reach other
+            tables the user happens to be able to see).
         max_table_repeats: feat(#565): when set, reject any statement whose
-            transitive self-join FAN-OUT exceeds this — the largest number of
-            times one base table is multiplied into the worst-case cardinality,
-            computed through the CTE dependency graph (fix(#565 codex P1 r3)).
-            This is the self-join cost bound for the raw-SQL endpoint:
-            ``... FROM data.foo a CROSS JOIN data.foo b CROSS JOIN data.foo c``
-            passes every function/table check while its work grows with the
-            table's own size to the power of the fan-out, and the outer LIMIT
-            bounds rows returned, not work performed. Costing the graph (not
-            per-name reference counts) catches a CTE chain that keeps every
-            counter at the cap while multiplying one table far past it. Left
-            None (no cap) for AI chat so its behavior does not silently change.
-            EXPLAIN-based cost rejection is the finer-grained future
-            replacement discussed in #565; a static fan-out bound needs no
-            planner round-trip.
-        require_reader_role: feat(#565): fail closed if the restricted reader
-            role cannot be bound in single-tenant mode (see execute_safe).
-        release_session: fix(#565 codex P1 r11): close the caller's request
-            session AFTER the RBAC allowlist query and BEFORE execute_safe, so
-            its pooled connection is returned while the sandbox query runs on
-            its own connection. Without this each in-flight query holds two
-            pool slots; with the default 10+3 pool a handful of distinct users
-            exhaust it and unrelated endpoints block on the pool timeout. Only
-            safe when the caller reads nothing from ``db`` afterwards (the
-            raw-SQL endpoint does not; AI chat does, so it leaves this False).
-        capacity_semaphore: fix(#565 codex P1 r11): a GLOBAL fail-fast bound on
-            concurrent sandbox executions, on top of the per-user advisory lock
-            (which only stops ONE user stacking queries, not N distinct users
-            each holding a connection). If it is already at capacity the query
-            is refused with ``query_at_capacity`` rather than queued — the
-            client is holding a request open, so a fast refusal beats a slow
-            one. Mirrors the analysis-preview ``_preview_slots`` pattern.
+            transitive self-join FAN-OUT (through the CTE dependency graph)
+            exceeds this. Guards e.g.
+            ``FROM data.foo a CROSS JOIN data.foo b CROSS JOIN data.foo c``,
+            which passes every per-table check while its cost grows with the
+            table's size to the power of the fan-out — the outer LIMIT bounds
+            rows returned, not work performed. Costing the graph, not
+            per-name reference counts, catches a CTE chain that keeps every
+            counter at the cap while multiplying one table far past it. None
+            (no cap) for AI chat, to keep its behavior unchanged.
+        require_reader_role: fail closed if the restricted reader role
+            cannot be bound in single-tenant mode (see execute_safe).
+        release_session: fix(#565): close the caller's request session
+            AFTER the RBAC allowlist query and BEFORE execute_safe, so its
+            pool slot is freed while the sandbox query runs on its own
+            connection — without this each in-flight query holds two pool
+            slots and a handful of users exhaust it. Only safe when the
+            caller reads nothing from ``db`` afterwards.
+        capacity_semaphore: fix(#565): a GLOBAL fail-fast bound on
+            concurrent sandbox executions, on top of the per-user advisory
+            lock (which only stops one user stacking queries, not N distinct
+            users each holding a connection). At capacity the query is
+            refused with ``query_at_capacity`` rather than queued.
 
     Returns:
         SandboxResult with query results.
@@ -145,16 +134,13 @@ async def validate_and_execute(
                 "Query references the same table too many times",
             )
 
-        # fix(#565 codex P1 r11 / P2 r23): a global fail-fast capacity bound.
-        # `.locked()` then `async with` is atomic — no await between them, and
-        # acquiring a free semaphore does not yield — so this is a real
-        # check-then-act only in appearance. At capacity, refuse fast rather
-        # than queue. Acquired BEFORE phase 2 (r23): the RBAC allowlist query
-        # is itself pooled DB work, so N concurrent calls from one user could
-        # all run it and drain the pool before either this bound or the
-        # per-user advisory lock rejected the excess. Holding the slot across
-        # the whole DB-backed pipeline makes the advertised fail-fast real.
-        # SQL validation and the fan-out cap above are CPU-only (no pool), so
+        # fix(#565): global fail-fast capacity bound. `.locked()`
+        # then `async with` is atomic (no await between, acquiring a free
+        # semaphore doesn't yield), so this is check-then-act only in
+        # appearance. Acquired BEFORE phase 2: the RBAC allowlist query is
+        # itself pooled DB work, so N concurrent calls from one user could
+        # drain the pool before this bound or the advisory lock rejected the
+        # excess. SQL validation and the fan-out cap above are CPU-only, so
         # a malformed query is still rejected without consuming a slot.
         if capacity_semaphore is not None and capacity_semaphore.locked():
             raise SandboxError(
@@ -170,24 +156,18 @@ async def validate_and_execute(
             if restrict_tables is not None:
                 allowed_tables = allowed_tables & restrict_tables
 
-            # Phase 3: Check table access. validated.tables already excludes
-            # lexically in-scope CTE references (fix(#565 codex P1)), so every
-            # remaining reference must be an accessible data.* table — pass no
-            # CTE skip set, or a flat name match would re-admit an out-of-scope
-            # name (e.g. pg_user) that a same-named inner CTE happens to define.
+            # Phase 3: validated.tables already excludes lexically in-scope
+            # CTE references, so pass no CTE skip set here — a flat name
+            # match would re-admit an out-of-scope name (e.g. pg_user) that
+            # a same-named inner CTE happens to define.
             check_table_access(validated.tables, allowed_tables, cte_names=set())
 
-            # fix(#565 codex P1 r11): return the request session's pooled
-            # connection before the sandbox opens its own, so an in-flight
-            # query holds one pool slot, not two. Done after the RBAC query
-            # (which needs this session) and only when the caller opted in.
-            # ``close()`` rather than ``rollback()``: rollback ends the
-            # transaction but keeps the connection associated with the session,
-            # and execute_safe reusing that same pooled connection for its
-            # advisory-lock transaction then fails (a MissingGreenlet under the
-            # async pool); close cleanly returns it. The request handler reads
-            # nothing from ``db`` afterwards, and the dependency's own close
-            # becomes a no-op.
+            # fix(#565): free the request session's pooled connection
+            # before the sandbox opens its own, so an in-flight query holds
+            # one pool slot, not two. ``close()``, not ``rollback()``:
+            # rollback keeps the connection bound to the session, and
+            # execute_safe reusing it for its advisory-lock transaction then
+            # raises MissingGreenlet under the async pool.
             if release_session:
                 await db.close()
 
@@ -202,11 +182,9 @@ async def validate_and_execute(
             )
 
     except SandboxError:
-        # Already a sandbox error -- re-raise as-is
         raise
 
-    except Exception as exc:  # broad: sandbox boundary — sqlparser/validator/executor can throw varied types; map to SandboxError
-        # Unexpected error -- log full details and raise generic
+    except Exception as exc:  # broad: sandbox boundary, map to SandboxError
         logger.warning(
             "sandbox.unexpected_error",
             sql=sql,

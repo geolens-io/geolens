@@ -20,18 +20,11 @@ class CacheProvider(Protocol):
     async def get(self, key: str, *, security: bool = False) -> Any | None:
         """Return cached value or None on miss.
 
-        fix(#1778 codex r3): ``security=True`` marks the read as an
-        AUTHORIZATION decision, and a positive one may then only come from a
-        store every worker shares. A layered provider must not answer it from a
-        process-local fallback: production runs several Uvicorn workers, so one
-        worker's fallback is not the deployment's view, and a revoke another
-        worker performed during a Redis outage is invisible to it. When the
-        shared store cannot be reached the answer is None, and the caller
-        re-derives the decision from the database.
-
-        A REFUSAL is not subject to that rule. Refusing on possibly-stale
-        information is fail-closed, so a security read may still be answered
-        from a pending authoritative override.
+        fix(#1778): a ``security=True`` positive can only come from a store
+        every worker shares -- a layered provider must not answer it from a
+        process-local fallback (unreachable shared store answers None; caller
+        re-derives from the database). A REFUSAL is exempt: refusing on stale
+        data is fail-closed, so it may come from a process-local fallback too.
         """
         ...
 
@@ -40,11 +33,9 @@ class CacheProvider(Protocol):
     ) -> None:
         """Store value with TTL in seconds.
 
-        fix(#1778 codex r3): ``security=True`` means "do not write this where it
-        could later be mistaken for a shared answer". A layered provider skips
-        its process-local fallback entirely, because a security positive there
-        can never be served anyway and keeping one only invites a future reader
-        to trust it.
+        fix(#1778): ``security=True`` skips a layered provider's process-local
+        fallback entirely -- a security positive can never be served from
+        there, so caching one would only mislead a future reader.
         """
         ...
 
@@ -53,45 +44,25 @@ class CacheProvider(Protocol):
     ) -> bool:
         """Store value with TTL only when *key* has no entry. True if stored.
 
-        fix(#1778): the contract is "do not overwrite", which is what lets a
-        caller publish a result it computed from a snapshot without clobbering
-        a decision another writer has made in the meantime. The embed-token
-        validator uses it to write its positive entry: a concurrent revocation
-        stamps a denial under the same key, and whichever of the two lands
-        first, the denial is what survives. A plain ``set`` there re-cached a
-        token the revoke had already invalidated.
-
-        Must be atomic against a concurrent writer of the same key -- Redis
-        ``SET NX``, or a presence check with no await between the read and the
-        write.
-
-        fix(#1778 codex r1): "has no entry" means in EVERY store an
-        implementation might later read from, not just the one it would write
-        to now. A layered provider whose fallback still holds a denial must
-        answer False even while its primary store is empty.
-
-        fix(#1778 codex r3): ``security=True`` carries the same meaning it has
-        on ``set`` -- never publish an authorization positive into a
-        process-local store. A layered provider answers False when it cannot
-        reach the shared one, which reads as "not published" and costs the
-        caller one database re-derivation next time.
+        fix(#1778): the contract is "do not overwrite" -- a concurrent writer's
+        decision must win (e.g. a revocation racing this write). Must be
+        atomic against a concurrent writer of the same key (Redis ``SET NX``,
+        or no await between the presence check and the write). "No entry"
+        means in EVERY store a later read might consult, not just the one
+        written now -- a layered provider must check its fallback too.
+        ``security=True`` follows ``set``: never publish a positive into a
+        process-local store; answer False when the shared store is
+        unreachable.
         """
         ...
 
     async def set_authoritative(self, key: str, value: Any, ttl: int = 300) -> None:
         """Store value with TTL in EVERY store, overriding whatever is there.
 
-        fix(#1778 codex r1): the counterpart to ``set_if_absent``. That one
-        yields to an existing decision; this one IS the decision, so it has to
-        land everywhere a later read could look -- including a layered
-        provider's fallback, which an outage may have populated from a snapshot
-        that is now wrong.
-
-        The embed-token revoke path is the caller: a positive entry written
-        into the in-memory fallback during a Redis outage outlived a revocation
-        that only reached Redis, and the next Redis error served the revoked
-        token again. ``set`` is not a substitute, because it writes to one
-        store.
+        fix(#1778): counterpart to ``set_if_absent`` -- this IS the decision,
+        so it must land everywhere a later read could look, including a
+        layered provider's fallback that an outage may have populated with a
+        now-stale value. ``set`` is not a substitute; it writes to one store.
         """
         ...
 
@@ -102,12 +73,11 @@ class CacheProvider(Protocol):
     async def delete_many(self, *keys: str) -> None:
         """Delete several keys as ONE operation. No error if any is missing.
 
-        fix(#1543): the contract is atomicity, not batching for speed. No
-        reader may observe the cache with some of ``keys`` evicted and the rest
-        still present, so an implementation must not await between individual
-        evictions. ``delete_pattern`` is not a substitute — it is a scan plus
-        per-key deletes, so it is both non-atomic and wider than the caller
-        asked for.
+        fix(#1543): the contract is atomicity, not batching for speed -- no
+        reader may observe some of ``keys`` evicted and the rest still
+        present, so no await between individual evictions. ``delete_pattern``
+        is not a substitute: it's a scan plus per-key deletes, so it's both
+        non-atomic and wider than the caller asked for.
         """
         ...
 
@@ -145,26 +115,21 @@ def get_cache() -> CacheProvider:
     return _cache_provider
 
 
-# --- Tile cache (binary, separate from JSON cache) ---
-
 _tile_cache: "TileCacheProvider | InMemoryTileCacheProvider | None" = None
 
 
 def init_tile_cache(*, in_memory_fallback: bool = True) -> None:
     """Initialize the tile cache singleton.
 
-    Uses the Redis-backed binary provider when ``REDIS_URL`` is set;
-    otherwise falls back to an in-memory LRU provider (PERF-01,
-    Phase 274) so smaller single-VPS deployments still get tile-cache
-    benefits without running Redis.
+    Uses the Redis-backed provider when ``REDIS_URL`` is set, else an
+    in-memory LRU fallback so single-VPS deployments without Redis still
+    get tile-cache benefits.
 
     fix(#1315): pass ``in_memory_fallback=False`` from a process that only
-    ever INVALIDATES tiles and never reads them — the Procrastinate worker.
-    A process-local LRU there holds nothing, because nothing in that process
-    ever caches a tile, so the post-swap purge would evict zero entries while
-    logging ``tile_cache_invalidated`` — a no-op wearing a success message.
-    Leaving the singleton unset instead makes the gap legible: the caller sees
-    ``None`` and the warning below says what is lost and how to fix it.
+    invalidates tiles and never reads them (the Procrastinate worker) -- a
+    process-local LRU there would hold nothing, so purges would silently
+    no-op. Leaving the singleton ``None`` instead surfaces the gap via the
+    warning below.
     """
     global _tile_cache
     from app.core.config import settings
@@ -191,7 +156,6 @@ def init_tile_cache(*, in_memory_fallback: bool = True) -> None:
         )
         return
 
-    # PERF-01 (Phase 274): bounded in-memory LRU fallback.
     from app.platform.cache.tile_cache import (
         InMemoryTileCacheProvider as _InMemoryTileCacheProvider,
     )
@@ -200,59 +164,34 @@ def init_tile_cache(*, in_memory_fallback: bool = True) -> None:
 
 
 def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
-    """Return the tile cache provider.
+    """Return the tile cache provider, or None if uninitialized.
 
-    PERF-01 (Phase 274): in the API process this is non-None after
-    ``init_tile_cache()`` has run — the in-memory fallback covers an unset
-    ``REDIS_URL``.
-
-    ``None`` means one of two things: ``init_tile_cache()`` was never called
-    (a unit test before app startup), or fix(#1315) — the worker process
-    with ``REDIS_URL`` unset, where no cache this process could hold would
-    be the cache anyone reads.
+    ``None`` means either ``init_tile_cache()`` wasn't called yet (a unit
+    test before app startup), or fix(#1315): the worker process with
+    ``REDIS_URL`` unset, where a process-local cache would hold nothing
+    anyone reads.
     """
     return _tile_cache
 
 
-# --- Table invalidation listeners (fix #1429) ---
+# fix(#1429): the tile router keeps a process-local table_name -> dataset map
+# (authorization fields included) to skip a DB round trip per tile request;
+# versioning the tile cache key doesn't reach it. This function is the seam
+# letting the catalog delete path evict that entry without importing
+# `app.processing.*` (test_layering.py forbids catalog -> processing; both
+# may import platform/).
 #
-# The tile router keeps a process-local map of table_name -> dataset metadata
-# so it does not hit the DB per tile request. That map decides authorization —
-# visibility, record_status and created_by are read from the cached snapshot
-# rather than re-queried — so versioning the tile cache key does not reach it:
-# the stale entry is what picks the dataset, before any cache key is built.
+# Call AFTER the triggering transaction commits -- inside it, a concurrent
+# tile request can still read the not-yet-deleted row and re-cache what was
+# just evicted.
 #
-# This is the seam that lets the catalog delete path tell the tile router to
-# drop that entry without importing it — `catalog/` must not import
-# `app.processing.*` (test_layering.py::test_no_catalog_imports_processing),
-# but both sides may import `platform/`.
-#
-# Call this AFTER the triggering transaction commits. The map is populated
-# from `catalog.datasets`, which a dataset delete does not lock, so a notify
-# from inside the open transaction is undone by any concurrent tile request:
-# it still reads the not-yet-deleted row and re-caches what was just evicted.
-#
-# Scope, stated plainly, because two windows survive even post-commit:
-#   - Listeners are in-process. A delete handled by one uvicorn worker cannot
-#     evict another worker's map, so multi-worker deployments keep a window
-#     bounded by that map's 60s TTL.
-#   - A request whose catalog read was already in flight when the eviction ran
-#     writes its result afterwards. The opportunity is only one query wide,
-#     but an entry that does land then lives the full TTL like any other — the
-#     narrow window buys a short race, not a short consequence.
-# fix(#1444): both windows are now exactly the bounded-staleness tradeoff
-# already documented for visibility changes in processing/tiles/router.py —
-# the stale entry describes the SAME dataset it was cached for, and nothing
-# worse. It used to be able to describe a PREDECESSOR of a reused table name,
-# which no notification channel in this topology could have fixed (REDIS_URL is
-# unset by default, and LISTEN/NOTIFY needs a session-pinned connection that
-# transaction-mode PgBouncer — a supported topology, see the SET LOCAL note in
-# processing/tiles/router.py — does not provide). GH-1443 removed the
-# precondition instead: a table name freed by a delete is retired in
-# catalog.retired_table_names and never handed out again, so an entry cached
-# under a name cannot outlive its dataset's exclusive claim on that name.
-# Eviction is therefore an optimization here, not the thing standing between a
-# successor's rows and a predecessor's visibility.
+# Two staleness windows survive even post-commit: other uvicorn workers'
+# maps aren't evicted (bounded by the map's 60s TTL), and a request whose
+# read was already in flight writes its stale result after eviction (also
+# TTL-bounded). fix(#1444): both are safe because GH-1443 retires freed
+# table names in catalog.retired_table_names, so a stale entry can only ever
+# describe the SAME dataset it was cached for, never a reused name's
+# predecessor -- eviction here is an optimization, not a safety mechanism.
 _table_invalidation_listeners: list[Callable[[str], None]] = []
 
 

@@ -24,13 +24,9 @@ _ALLOWED_RECORD_TYPES = {
 }
 _ALLOWED_SORT_BY = {"relevance", "date_added", "name", "title", "last_updated"}
 
-# fix(#687): page-size ceiling for the offset-paged routes fed by
-# SearchQueryParams. Deliberately lower than the keyset-paged
-# `ogc_items_max_page_size` knob (#665) — offset paging is O(N) at depth, so
-# these routes keep the historical 200. A request above it is CLAMPED, never
-# rejected: /collections/datasets/items is an advertised OGC API Features
-# collection and Core /req/core/fc-limit-response-1(C) says an over-maximum
-# limit "SHALL NOT result in an error".
+# fix(#687): page-size ceiling for offset-paged routes (SearchQueryParams),
+# lower than the keyset-paged `ogc_items_max_page_size` (#665). An over-limit
+# request is CLAMPED, never rejected — OGC Core fc-limit-response-1(C).
 _MAX_PAGE_SIZE = 200
 
 
@@ -135,16 +131,8 @@ class SearchQueryParams(BaseModel):
     @field_validator("limit")
     @classmethod
     def _clamp_limit(cls, value: int) -> int:
-        """fix(#687): clamp an over-maximum page size instead of rejecting it.
-
-        Clamping here (rather than in each handler) keeps the echoed
-        ``self``/``next`` links and the executed query on the same value, and
-        covers both consumers of this model: the OGC-advertised
-        ``/collections/datasets/items`` — where clamping is a Core
-        conformance requirement — and ``/search/datasets/``, which previously
-        answered 422 for the same input and made client error handling
-        route-dependent.
-        """
+        """fix(#687): clamp here, not per-handler, so the echoed ``self``/``next``
+        links match the executed query for both consumers of this model."""
         return min(value, _MAX_PAGE_SIZE)
 
     def to_filters(self) -> SearchFilters:

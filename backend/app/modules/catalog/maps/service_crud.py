@@ -37,24 +37,16 @@ _UNSET = object()
 def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
     """A storage key for one map image that no later upload can reuse.
 
-    fix(#1778 round 3): the keys used to be ``{prefix}/{map_id}.{ext}``, one of
-    two names per map, chosen by the payload's encoding. Reusing them left a
-    window the row lock cannot close, because the lock is released by the commit
-    that records the URI and the cleanup runs after that: request A re-reads the
-    committed row, decides its old key is dead, and is then descheduled;
-    request B takes the lock, writes that same name again and commits the row
-    back onto it; A's delete lands on the object B just published. The row then
-    names a key with nothing behind it and the image endpoint answers 404.
+    fix(#1778): reused keys (``{prefix}/{map_id}.{ext}``) let a
+    race outlive the row lock — request A re-reads a committed key as
+    dead, request B writes and commits that same name, then A's delete
+    lands on the object B just published (404). A fresh random component
+    per write closes this by construction: once the row moves off a key,
+    nothing can move it back.
 
-    A fresh random component per write removes it by construction rather than by
-    timing. A key is written once and named by the row once, so once the row
-    moves off a key nothing can move it back, and a delete decided against a
-    stale read can only ever remove an object nothing points at.
-
-    The extension stays last: ``get_thumbnail`` and ``get_og_image`` pick the
-    response media type with ``endswith(".jpg")``. Keys already stored in the
-    unversioned shape keep working, since the row holds the key verbatim and the
-    first replacement deletes the old one, so nothing has to be migrated.
+    The extension stays last: ``get_thumbnail``/``get_og_image`` pick the
+    media type with ``endswith(".jpg")``. Pre-existing unversioned keys
+    keep working since the row holds the key verbatim.
     """
     return f"{prefix}/{map_id}-{uuid.uuid4().hex}.{ext}"
 
@@ -67,55 +59,17 @@ def _is_lock_timeout_error(exc: BaseException) -> bool:
 async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:
     """Take the row lock that serializes one map's asset replacements.
 
-    fix(#1778 round 2): the thumbnail and OG-image keys end in ``.jpg`` or
-    ``.png`` after the payload's encoding, so two overlapping uploads of one map
-    write two different objects and then race each other's cleanup. The losing
-    interleave: A puts ``.jpg``; B reads ``.jpg`` as the previous key, commits
-    its URI at ``.png`` and deletes ``.jpg``; A then commits its URI at ``.jpg``,
-    pointing the row at the object B just deleted. Both requests answer 204 and
-    the thumbnail endpoint answers 404 from then on.
+    fix(#1778): overlapping uploads can race their cleanup and
+    strand the row on an object the other just deleted (404 on read).
+    Held through the caller's commit; ``discard_map_asset_objects``
+    re-reads the committed row as the other half, since a lock can't
+    outlive the commit that releases it. Raises 404 centrally so all
+    three callers agree, and selects columns (not ``Map``) so a stale
+    identity-mapped instance can't shadow a fresh commit.
 
-    Held from here to the caller's commit, which is where PostgreSQL releases a
-    row lock, so the read of the previous key, the object write and the URI
-    update are one serialized unit per map. Callers take it AFTER validating the
-    payload, so no decode or image verification happens under the lock.
-
-    This is one half of the fix. A row lock cannot outlive the commit that
-    releases it, so the cleanup that follows the commit is guarded separately,
-    by ``discard_map_asset_objects`` re-reading the committed row. Both halves
-    are needed: the lock stops the bad interleave from being produced, the
-    re-read stops a cleanup that was queued before it from acting on it.
-
-    Raises 404 when the map is gone, because a concurrent delete may have
-    committed while this request waited here. The raise lives in this helper
-    rather than at each of the three call sites so the three cannot drift, the
-    way ``check_map_ownership`` above owns the 403 for the same reason.
-
-    Selects the two columns rather than the ``Map`` entity, and that is
-    load-bearing rather than a matter of taste. Every caller has already loaded
-    the map through ``get_map`` for its 404 and ownership check, so the entity
-    is in the session's identity map; a ``select(Map)`` returns that same
-    instance with the attributes it was loaded with, and the keys read back
-    would be the ones from BEFORE the wait on the lock. Whatever the other
-    request committed while this one waited is exactly what this read exists to
-    see. A column select never consults the identity map, so it cannot go stale.
-
-    fix(#1778 round 8): a ``SET LOCAL lock_timeout`` bounds the wait.
-    The lock used to be held from here through the caller's commit with no
-    engine-side timeout, which is fine for the lock's own purpose (serializing
-    replacements) but not for what got layered on top later: the write this
-    lock guards awaits ``storage.put`` before the commit, and the S3 provider's
-    connect/read timeouts plus its adaptive retries can take on the order of a
-    minute (``app/platform/storage/s3.py``). A degraded backend held every
-    other writer to the same map (the other image upload, a rename, a delete)
-    queued behind it with no bound, instead of failing fast. ``'2s'`` matches
-    the budget ``lock_map_for_asset_write``'s callers can already spend before
-    they answer (a row lock that is still contended after two seconds is
-    contended by another live request, not by network latency inside this one),
-    and matches the timeout the same pattern already uses in
-    ``app.platform.jobs.router`` (``SET LOCAL lock_timeout = '2s'`` there too).
-    A losing wait raises 55P03, mapped below to 409 rather than 500: nothing
-    was written, and the client's retry is the correct next action.
+    fix(#1778): ``SET LOCAL lock_timeout = '2s'`` bounds the
+    wait, since a degraded storage backend could otherwise queue every
+    writer behind this lock (a losing wait, 55P03, maps to 409).
     """
     await session.execute(text("SET LOCAL lock_timeout = '2s'"))
     try:
@@ -167,43 +121,19 @@ async def discard_map_asset_objects(
 ) -> None:
     """Best-effort removal of a map's stored thumbnail / OG-image objects.
 
-    fix(#1778): nothing in the backend ever called ``storage.delete`` for a
-    ``maps/`` key. Deleting a map dropped the row and left both images behind,
-    and because no code enumerates that prefix the orphan was undiscoverable
-    rather than merely unreclaimed. The builder captures a thumbnail and an OG
-    image on first open of every map, so essentially every map that has been
-    opened owns two objects.
+    fix(#1778): nothing ever called ``storage.delete`` for a ``maps/``
+    key, so deleted/re-uploaded images were orphaned undiscoverably.
+    Shared by delete/upload handlers, all holding
+    ``lock_map_for_asset_write`` from write to commit.
 
-    Three callers share this, and all three hold
-    ``lock_map_for_asset_write`` from before their write until their commit:
-    ``delete_map_endpoint``, ``upload_thumbnail`` and ``upload_og_image``. The
-    two upload handlers reach it because a re-upload in the other encoding
-    writes ``.png`` beside the stored ``.jpg``, repoints the column, and strands
-    the old key in place.
+    fix(#1778): re-reads the row rather than trusting the
+    caller's previous-key read (consistent with whatever committed
+    last), and relies on ``new_map_asset_key`` never reusing keys since
+    the re-read isn't atomic with the delete below.
 
-    fix(#1778 round 2): a key still named by the committed row is never
-    deleted. The lock is released by the commit that precedes this call, so a
-    request that read its previous key before another request committed can
-    arrive here holding a key that is live again. Re-reading the row is what
-    makes the outcome consistent with whatever committed last, rather than with
-    what this request saw on the way in.
-
-    fix(#1778 round 3): that re-read is not atomic with the delete below, and
-    making it atomic would mean holding a second row lock across a storage call.
-    ``new_map_asset_key`` closes the window at the other end instead: keys are
-    never reused, so a candidate here can never become live again between the
-    re-read and the delete. The re-read stays as the cheap invariant that says
-    what this function will not do, and it is what makes a key still named by an
-    older row shape safe during the changeover.
-
-    Always best effort. The object is a cached picture; a storage backend that
-    is refusing calls must not be able to stop an owner deleting their map, and
-    a delete that already committed cannot be undone by raising here. Failures
-    are logged with the key, which is derived from the map id and carries
-    nothing secret.
-
-    The provider import stays function-local, matching ``_reap_managed_storage``
-    in the dataset lifecycle, so tests keep patching the provider attribute.
+    Always best effort — a refusing backend must not block a delete,
+    and an already-committed delete can't be undone by raising. Import
+    stays function-local, matching ``_reap_managed_storage``.
     """
     from app.platform.storage.provider import get_storage
     from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -214,14 +144,9 @@ async def discard_map_asset_objects(
     try:
         live = await _live_map_asset_keys(session, map_id)
     except Exception:  # broad: any failure of the post-commit read
-        # fix(#1778 round 4): the liveness read is a database call made after the
-        # caller has already committed, so a transient failure here used to
-        # escape as a 500 for a delete or an upload that had durably succeeded,
-        # and the client would retry a thing that already happened. It is part
-        # of the best-effort cleanup, not part of the request's outcome. Without
-        # the read there is no way to tell a dead key from a live one, so the
-        # deletes are skipped: an object nothing points at costs storage, while
-        # deleting one the row still names costs the image.
+        # fix(#1778): the liveness read runs after commit, so a
+        # transient failure here shouldn't 500 an already-succeeded
+        # request — skip the deletes; an orphan costs less than a live delete.
         logger.warning(
             "map_asset_liveness_read_failed", map_id=str(map_id), exc_info=True
         )
@@ -241,13 +166,12 @@ async def discard_map_asset_objects(
 class MapAssetPublication:
     """The objects written for a row that has not committed yet.
 
-    fix(#1778 round 5): the rollback used to be keyed on "did the block raise",
-    which is not the same question as "did the row commit". Anything after a
-    successful commit but still inside the scope, such as the icon route's
-    ``session.refresh``, would fail and take an object the committed row
-    references. Settling is what ends the tracking, so the boundary is the
-    commit itself rather than the last statement someone happened to leave in
-    the block.
+    fix(#1778): the rollback used to be keyed on "did the block
+    raise", not "did the row commit" — anything after a successful commit
+    but still in scope (e.g. the icon route's ``session.refresh``) could
+    fail and delete an object the committed row references. Settling ends
+    the tracking, so the boundary is the commit itself, not the last
+    statement left in the block.
     """
 
     def __init__(self) -> None:
@@ -257,48 +181,33 @@ class MapAssetPublication:
     def record(self, physical_key: str) -> None:
         """Note an object that exists but is not named by a committed row yet.
 
-        PHYSICAL, not logical: the writers resolve their keys differently (map
-        images cross ``resolve_current_storage_key`` into the tenant prefix,
-        sprite icons are deliberately global), and the rollback deletes what it
-        is given rather than resolving anything itself.
+        PHYSICAL, not logical: writers resolve keys differently (tenant
+        prefix vs deliberately-global sprite icons), and rollback deletes
+        what it's given rather than resolving anything.
 
-        fix(#1778 round 7): call this BEFORE awaiting the write, not after.
-        Object storage can durably accept a PUT and still fail the client with a
-        timeout or a dropped connection, so a raise from the write says nothing
-        about whether the bytes landed; recording afterwards left the ledger
-        empty and the object unreferenced and unreclaimed, one more per retry.
-        Recording first costs nothing, because the key is freshly generated and
-        never reused: the rollback either deletes an object this request wrote,
-        or no-ops on a key nothing ever wrote, which every provider treats as
-        success (local "no error if missing", S3 silently ignores, Azure catches
-        ResourceNotFoundError).
-        ``test_every_object_write_records_before_putting_1778`` fails the build
-        if a writer puts before it records.
+        fix(#1778): call BEFORE awaiting the write — a PUT can
+        land and still fail the client, so recording after left orphaned
+        objects per retry. Recording first is free: rollback either
+        deletes what this request wrote or no-ops on an unwritten key.
+        ``test_every_object_write_records_before_putting_1778`` enforces this.
         """
         self._pending.append(physical_key)
 
     def committing(self) -> None:
         """A commit is about to be awaited, so its outcome stops being knowable.
 
-        fix(#1778 round 6): a lost connection between PostgreSQL making the
-        commit durable and the acknowledgement arriving raises out of the await
-        for a transaction that DID commit. Settling never runs, the exception
-        path treats the write as unpublished, and the object a committed row now
-        references is deleted. From this mark until ``settled``, an exception
+        fix(#1778): a lost connection between Postgres committing
+        and the ack arriving raises out of the await for a transaction
+        that DID commit — from this mark until ``settled``, an exception
         says nothing about whether the row landed, so nothing is deleted.
 
-        The cost of that is one object left behind when the commit genuinely
-        failed, on a path that is already rare. The alternative, verifying from
-        an independent session before deleting, buys back that object at the
-        price of a database call on an error path, on a connection that has just
-        proven unreliable, to decide a deletion. This module already answers
-        that trade the same way twice (the liveness read in
-        ``discard_map_asset_objects``, and skipping rather than guessing): an
-        orphan costs storage, a wrongly deleted object costs the image.
+        Costs one object left behind on the rare true-failure case; the
+        alternative (verifying from an independent session, on a
+        connection that just proved unreliable) costs more. Same trade as
+        the liveness read in ``discard_map_asset_objects``.
 
-        Call it as the statement immediately before the commit:
-        ``test_every_publication_marks_before_committing_1778`` fails the build
-        otherwise.
+        Call immediately before the commit:
+        ``test_every_publication_marks_before_committing_1778`` enforces this.
         """
         self._outcome_known = False
 
@@ -326,18 +235,17 @@ class MapAssetPublication:
 async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
     """Undo object writes when the row that would name them never commits.
 
-    fix(#1778 round 4): the upload handlers write the image and then record its
-    key on the map row. A failure between those two, in the update or in the
-    commit, left the object behind with nothing pointing at it, and since keys
-    stopped being reused every retry added another. Nothing in the backend
-    enumerates the ``maps/`` prefix, so those are not merely unreclaimed, they
-    are undiscoverable.
+    fix(#1778): the upload handlers write the image, then record
+    its key on the map row. A failure between those two left the object
+    behind with nothing pointing at it, and since keys are never reused,
+    every retry added another — undiscoverable, since nothing enumerates
+    the ``maps/`` prefix.
 
-    Cleanup runs on any exception, including an HTTPException the handler raises
-    itself, and never replaces it: a failure to tidy up is logged and dropped so
-    the caller still sees what actually went wrong. It runs only on what is
-    still pending, so a settled publication rolls nothing back, and it does not
-    run at all while a commit's outcome is indeterminate (see ``committing``).
+    Cleanup runs on any exception (including one the handler raises
+    itself) and never replaces it — a tidy-up failure is logged and
+    dropped so the caller still sees the real error. Runs only on what's
+    still pending (a settled publication rolls nothing back), and not at
+    all while a commit's outcome is indeterminate (see ``committing``).
     """
     from app.platform.storage.provider import get_storage
 
@@ -346,7 +254,7 @@ async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
         yield publication
     except BaseException:
         if publication.outcome_unknown:
-            # fix(#1778 round 6): the exception arrived while a commit was in
+            # fix(#1778): the exception arrived while a commit was in
             # flight, so it does not say whether the row landed. Deleting here
             # is the one irreversible option available.
             logger.warning(
@@ -417,13 +325,11 @@ async def get_map_with_layers(
 ) -> tuple[Map | None, list[LayerRow], str | None, str | None]:
     """Fetch map and its layers with dataset info, forked_from_name, and owner_username.
 
-    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values, record_type, is_3d), ...], forked_from_name, owner_username)
-    or (None, [], None, None).
-
-    Read path uses a single combined Map+ForkedMap+User LEFT JOIN to keep
-    the public GET /maps/{id} hot path at 2 queries total (matches
-    pre-PERF-6 behavior; the helper-based pattern is reserved for the
-    save path where map_obj is already in-session).
+    Returns (map, layer_rows, forked_from_name, owner_username), or
+    (None, [], None, None) if not found. Uses a single combined
+    Map+ForkedMap+User LEFT JOIN to keep GET /maps/{id} at 2 queries total
+    (the helper-based pattern is for the save path, where map_obj is
+    already in-session).
     """
     ForkedMap = aliased(Map)
     map_stmt = (
@@ -449,20 +355,17 @@ async def _layer_counts_for_maps(
 ) -> dict[uuid.UUID, int]:
     """Layer counts for exactly the maps on one page of the gallery listing.
 
-    fix(#1778): the listing used to read its counts from an uncorrelated
-    ``GROUP BY map_id`` subquery LEFT JOINed onto the page. PostgreSQL has no
-    limit-pushdown through a left join, so every gallery request aggregated
-    every row of ``catalog.map_layers`` to produce at most ``limit`` numbers,
-    and the cost grew with the total layer count rather than with the page.
+    fix(#1778): the listing used to read counts from an uncorrelated
+    ``GROUP BY map_id`` subquery LEFT JOINed onto the page — Postgres has no
+    limit-pushdown through a left join, so every request aggregated all of
+    ``catalog.map_layers``, cost growing with total layer count, not page size.
 
-    A correlated scalar subquery fixes the common case but not the general one:
-    measured on 5000 maps x 8 layers, the subplan ran 50 times at OFFSET 0
-    (2.5 ms against 12.3 ms for the join) but 4050 times at OFFSET 4000, where
-    it lost to the thing it replaced. OFFSET discards rows above the
-    projection, so the only form that is bounded by the page at every offset is
-    a second query keyed on the ids the page actually returned. That one plans
-    as a bitmap index scan on ``map_layers.map_id`` and measured 0.5-1.0 ms at
-    both offsets.
+    A correlated scalar subquery fixes the common case but not the general
+    one: measured on 5000 maps x 8 layers, the subplan ran 50 times at
+    OFFSET 0 (2.5ms vs 12.3ms for the join) but 4050 times at OFFSET 4000,
+    losing to what it replaced. The only form bounded by the page at every
+    offset is a second query keyed on the ids the page returned — a bitmap
+    index scan on ``map_layers.map_id``, measured 0.5-1.0ms at both offsets.
     """
     if not map_ids:
         return {}
@@ -508,18 +411,12 @@ async def list_maps(
     # Build search/visibility filters (applied to both count and data queries)
     def _apply_extra_filters(stmt: Select) -> Select:
         if search:
-            # SEC-FU-07 (sec-audit-20260519.md + WR-01): escape \, %, and _ before
-            # composing the ILIKE pattern. Backslash must be escaped FIRST so later
-            # replacements do not double-escape already-escaped sequences.
-            # escape_ilike() centralises the logic; escape="\\" makes the ESCAPE
-            # character explicit in the emitted SQL.
-            # T-2: lower() BOTH column and pattern so the predicate matches the
-            # functional trigram indexes (ix_maps_name_trgm on lower(name);
-            # ix_maps_description_trgm on lower(coalesce(description,''))). A bare
-            # ILIKE on the raw column emits `name ~~* pattern`, which the planner
-            # cannot match to lower(name) and falls back to a Seq Scan. Lowering
-            # the pattern is safe: escape_ilike()'s backslash/%/_ escapes are
-            # unaffected by .lower(). escape="\\" keeps the ESCAPE clause explicit.
+            # SEC-FU-07 (sec-audit-20260519.md + WR-01): escape \, %, _ via
+            # escape_ilike() before composing the pattern (backslash
+            # escaped FIRST or later replacements double-escape).
+            # T-2: lower() both column and pattern to match the functional
+            # trigram indexes (ix_maps_name_trgm, ix_maps_description_trgm)
+            # — a bare ILIKE on the raw column falls back to a Seq Scan.
             pattern = f"%{escape_ilike(search)}%".lower()
             stmt = stmt.where(
                 or_(
@@ -557,7 +454,7 @@ async def list_maps(
             User.username.label("created_by_username"),
         )
         .outerjoin(User, Map.created_by == User.id)
-        # fix(#430 BA-19): batch-seeded rows share a server-default timestamp; add a
+        # fix(#430): batch-seeded rows share a server-default timestamp; add a
         # unique tiebreaker so pagination is stable.
         .order_by(order_clause, Map.id)
         .offset(skip)
@@ -790,7 +687,7 @@ async def duplicate_map(
         .where(MapLayer.map_id == map_id)
         .order_by(
             MapLayer.sort_order, MapLayer.id
-        )  # fix(#430 BA-21): deterministic tie-break
+        )  # fix(#430): deterministic tie-break
     )
     layers = layers_result.scalars().all()
 

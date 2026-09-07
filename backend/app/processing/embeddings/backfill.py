@@ -47,10 +47,9 @@ def _compact_error(exc: BaseException) -> str:
     Prefers the driver's own message (`DBAPIError.orig`); otherwise cuts at
     SQLAlchemy's `[SQL:` marker, collapses whitespace and truncates.
 
-    fix(#1577 r1/r2): THE REDACTOR RUNS FIRST, ON THE RAW STRING. Truncating
-    first can cut the `@` that terminates userinfo; collapsing whitespace first
-    can split a URL so the match dies before the `@`. Nothing may be inserted
-    above it.
+    fix(#1577): THE REDACTOR RUNS FIRST, ON THE RAW STRING — truncating
+    first can cut the `@` terminating userinfo, and collapsing whitespace
+    first can split a URL so the match dies before the `@`.
     """
     origin = getattr(exc, "orig", None)
     message = redact_url_credentials(str(origin if origin is not None else exc))
@@ -133,7 +132,7 @@ def _structural_width_mismatch(
     otherwise survive (#449). fix(#1579): UNIFORMLY is the distinction; mixed
     widths are one bad input and fall to the per-record retry.
     """
-    # fix(#1579 r2): TWO vectors minimum. One input agrees with itself
+    # fix(#1579): TWO vectors minimum. One input agrees with itself
     # vacuously, and a final batch of one (any catalog sized 1 mod _BATCH_SIZE)
     # was read as structural; it falls through to the retry rule instead.
     if len(vectors) < 2:
@@ -168,7 +167,7 @@ async def _raise_on_retry_vector_width(
 ) -> None:
     """The retry's post-call bracket, plus a judgement on the vector it returned.
 
-    Drift first, then fit (fix(#1579 r4)): asking fit first returned early on a
+    Drift first, then fit (fix(#1579)): asking fit first returned early on a
     matching vector and left the LAST record's drift unobserved. A mismatch
     against a column that has not moved raises `_AnomalousVectorWidth` so the
     caller counts it and carries on (#449). Delegates the drift wording to
@@ -243,7 +242,7 @@ def _content_fields(record) -> dict[str, Any]:  # type: ignore[no-untyped-def]
 async def _records_still_empty(session, port, record_orm, record_ids) -> set[Any]:  # type: ignore[no-untyped-def]
     """Which of these records have no embeddable content RIGHT NOW, and hold them.
 
-    fix(#1584 r4/r5): ``expire_all`` first, because this session's identity
+    fix(#1584): ``expire_all`` first, because this session's identity
     map still holds the instances the run loaded at its start. Records are
     locked ``FOR UPDATE`` and the caller keeps the transaction open through
     its DELETE, so an editor's restore lands on one side or the other. A
@@ -294,7 +293,7 @@ def _delete_embeddings_for(record_orm, record_ids: list[Any], *, observed=None):
     """Remove EVERY embedding these records hold, under any model.
 
     The `Record` subquery is the tenant boundary: `RecordEmbedding` has no RLS
-    policy of its own (#1511). fix(#1584 r3): ``observed`` narrows the delete
+    policy of its own (#1511). fix(#1584): ``observed`` narrows the delete
     to the exact `(record_id, updated_at)` row versions the run saw, which no
     clock comparison can get wrong; only the end-of-run reclamation passes it.
     """
@@ -320,9 +319,9 @@ async def _replace_embeddings(
     fix(#1549): the DELETE precedes the INSERT in the same transaction, so an
     aborted run has replaced some records and left the rest untouched. The
     delete clears every row the record holds under any model, which the
-    upsert alone cannot reach. The COMMIT belongs to the caller (fix(#1579
-    r3)): its drift check is only sound while it holds the RowExclusiveLock
-    these statements take. ``record_orm`` is `Record` on a force run and None
+    upsert alone cannot reach. The COMMIT belongs to the caller (fix(#1579)):
+    its drift check is only sound while it holds the RowExclusiveLock these
+    statements take. ``record_orm`` is `Record` on a force run and None
     otherwise, which means "delete nothing".
     """
     if record_orm is not None:
@@ -337,21 +336,20 @@ async def _snapshot_embedding_config(
 ) -> tuple[str, int | None, str | None]:
     """Capture (model, dimensions, endpoint) as one consistent set, or refuse.
 
-    The values come from separate `PersistentConfig` reads, so they are
-    captured, read again and compared (fix(#1511 r2)); a change inside the
-    window shows up as a difference. fix(#1525): the endpoint is captured in
-    the same window and resolved through the provider, whose fallback chain
-    and credential binding it owns.
+    Values come from separate `PersistentConfig` reads, so they're
+    captured, read again, and compared (fix(#1511)); a change inside the
+    window is a difference. fix(#1525): the endpoint is captured in the
+    same window, resolved through the provider that owns its fallback
+    chain and credential binding.
 
-    Known residue (#1525 r2, tracked as #1543): the endpoint is read through
-    the provider's per-key cache and cannot be read uncached from here. For
-    the shipped provider a stale entry either resolves to the identical
-    approved URL or fails loudly, so only an extension provider that resolves
-    its endpoint from the database is exposed.
+    Known residue (#1543): the endpoint is read through the provider's
+    per-key cache and can't be read uncached from here. For the shipped
+    provider a stale entry resolves to the identical approved URL or
+    fails loudly; only a DB-resolved extension provider is exposed.
 
     Raises:
-        RuntimeError: If the model cannot be resolved, or if any value changed
-            while it was being captured. Call BEFORE anything destructive.
+        RuntimeError: if the model can't be resolved, or any value changed
+            while being captured. Call BEFORE anything destructive.
     """
     # Imported in-function, as the port does, so patching the module attribute
     # reaches this call site.
@@ -360,7 +358,7 @@ async def _snapshot_embedding_config(
         resolve_embedding_model_name,
     )
 
-    # fix(#1525 r2): read uncached. `PersistentConfig.get` answers from a
+    # fix(#1525): read uncached. `PersistentConfig.get` answers from a
     # per-key cache that `update_settings` evicts only after its commit, so two
     # cached reads can agree with each other on the far side of an update.
     model_name = await resolve_embedding_model_name(session, uncached=True)
@@ -450,7 +448,7 @@ async def _retry_batch_per_record(
     failed = 0
     for record_id, content in batch:
         try:
-            # fix(#1525 r6): the drift checks bracket the retry's provider call
+            # fix(#1525): the drift checks bracket the retry's provider call
             # too. The pre-call check is not redundant with the previous
             # record's post-call one, which never ran if that record failed.
             await _raise_on_pin_drift(
@@ -488,7 +486,7 @@ async def _retry_batch_per_record(
                 ],
                 record_orm=record_orm,
             )
-            # fix(#1579 r3): the row is SENT before the post-call check so the
+            # fix(#1579): the row is SENT before the post-call check so the
             # check holds the RowExclusiveLock; fix(#1549): the delete inside
             # `_replace_embeddings` rolls back with it on abort.
             await _raise_on_pin_drift(
@@ -501,7 +499,7 @@ async def _retry_batch_per_record(
             await session.commit()
             made += 1
         except _PinDrift:
-            # fix(#1525 r6): drift is not a bad record; it stops the run.
+            # fix(#1525): drift is not a bad record; it stops the run.
             await session.rollback()
             raise
         except Exception as exc:  # broad: same isolation, per record
@@ -522,16 +520,15 @@ async def _pinned_config_drift(
 ) -> str | None:
     """Describe how the live config has left the pinned one, or None if it has not.
 
-    fix(#1525 r4): notices that the run has outlived its pinned configuration,
-    read uncached for the reason `_snapshot_embedding_config` gives.
-    fix(#1533): the storage width is checked too, because the column moves
-    without a settings write (ENV_ONLY_CONFIG, a hand `ALTER TABLE`, a
-    restored dump, a failed rebuild).
+    fix(#1525): read uncached, for the reason `_snapshot_embedding_config`
+    gives. fix(#1533): storage width is checked too, since the column can
+    move without a settings write (ENV_ONLY_CONFIG, a hand `ALTER TABLE`,
+    a restored dump, a failed rebuild).
 
     NOT drift: an unresolvable model (a transient DB blip must not abort a
-    long run) and a provider resolve that RAISES (for the shipped provider
-    that is an endpoint edit diverging from the approved URL, and `embed`
-    re-binds to the approved one, so the pin is still accurate).
+    long run), and a provider resolve that RAISES (for the shipped
+    provider, an endpoint edit diverging from the approved URL — `embed`
+    re-binds to the approved one, so the pin stays accurate).
     """
     from app.processing.embeddings.helpers import (
         UNKNOWN_EMBEDDING_MODEL,
@@ -580,14 +577,14 @@ async def _preflight_embedding(
 ) -> None:
     """Generate one throwaway embedding to prove regeneration can work.
 
-    fix(#1511 r3): proves the capability instead of guarding failure modes one
-    at a time; subsumes provider outages, revoked keys, exhausted quota and
-    rejected dimensions for one provider call per force run. The cheaper
+    fix(#1511): proves the capability instead of guarding failure modes
+    one at a time — subsumes provider outages, revoked keys, exhausted
+    quota, and rejected dimensions in one call per force run. Cheaper
     guards stay because they fail earlier and name the problem better.
 
     Raises:
-        RuntimeError: If the embedding cannot be generated or cannot be stored
-            in the column as it stands. Run this BEFORE deleting anything.
+        RuntimeError: if the embedding can't be generated or stored in the
+            column as it stands. Run this BEFORE deleting anything.
     """
     model_name, dimensions, base_url = pinned
     try:
@@ -612,7 +609,7 @@ async def _preflight_embedding(
             "embedding configuration or provider and re-run."
         ) from exc
 
-    # fix(#1511 r4, #1533): the vector must also FIT the column, asked of
+    # fix(#1511, #1533): the vector must also FIT the column, asked of
     # storage so it holds for any cause (failed rebuild, restored dump, hand
     # ALTER, ENV_ONLY_CONFIG), and read once by the caller so the run pins it.
     column_dims = pinned_column_dims
@@ -644,21 +641,20 @@ async def backfill_embeddings(
 
     Args:
         session: Database session.
-        force: If True, regenerate every record and replace whatever vectors it
-               already holds, per batch inside the transaction that writes the
-               batch (fix(#1549)); the table is never emptied up front.
-        should_continue: Optional zero-argument async callable polled once per
-               batch BEFORE its provider call; False stops the run at the
-               boundary (fix(#1709 r6)). Opaque here: this module knows
-               records and vectors, not jobs.
+        force: regenerate every record, replacing its vectors per batch
+               inside the transaction that writes it (fix(#1549)) — the
+               table is never emptied up front.
+        should_continue: optional async callable polled once per batch
+               BEFORE its provider call; False stops the run at the
+               boundary (fix(#1709)).
 
     Returns:
         Dict with counts: processed, created, skipped, errors.
 
     Raises:
-        RuntimeError: On force=True, if AI is disabled, if the embedding config
-            cannot be resolved or moves while the run is starting, or if the
-            pre-flight embedding fails. Nothing is deleted in any of those
+        RuntimeError: on force=True, if AI is disabled, the embedding config
+            can't resolve or moves while the run is starting, or the
+            pre-flight embedding fails. Nothing is deleted in any of these
             cases.
     """
     port = get_processing_port()
@@ -675,7 +671,7 @@ async def backfill_embeddings(
         Record = port.get_record_orm_class()
         record_orm = Record
 
-        # fix(#1511 r5): a tenant with no visible records has nothing the
+        # fix(#1511): a tenant with no visible records has nothing the
         # DELETE could remove, so demanding a working provider first turned a
         # no-op into a 502 on a fresh install.
         if (await session.execute(select(Record.id).limit(1))).first() is None:
@@ -697,7 +693,7 @@ async def backfill_embeddings(
         pinned = await _snapshot_embedding_config(session)
         pinned_column_dims = await _live_column_dims(session)
 
-        # fix(#1511 r3): a comparison guard is blind to a pair that is wrong,
+        # fix(#1511): a comparison guard is blind to a pair that is wrong,
         # committed and stable; one real embedding tests the property itself.
         await _preflight_embedding(session, pinned, pinned_column_dims)
 
@@ -706,7 +702,7 @@ async def backfill_embeddings(
         # so an aborted run leaves a MIX that #1546's stamp keeps readable.
 
     # fix(#1506): `force` passes through; the port's non-force branch answers a
-    # different question. fix(#1584 r1/r3): the reclamation snapshot, taken
+    # different question. fix(#1584): the reclamation snapshot, taken
     # BEFORE the fetch that decides emptiness, as row versions, titleless only.
     observed_rows: list[tuple[Any, Any]] = []
     if record_orm is not None:
@@ -782,7 +778,7 @@ async def backfill_embeddings(
     traced_errors: set[str] = set()
 
     for start in range(0, len(items), _BATCH_SIZE):
-        # fix(#1709 r6): cooperative stop for a run whose job was settled under
+        # fix(#1709): cooperative stop for a run whose job was settled under
         # it; the cancel endpoint's queue abort is best-effort and the DB CAS
         # is the mechanism. Before the drift check so a stopped run pays nothing.
         if should_continue is not None and not await should_continue():
@@ -794,7 +790,7 @@ async def backfill_embeddings(
             )
             break
 
-        # fix(#1525 r4): stop when the pin is no longer active; a catalog
+        # fix(#1525): stop when the pin is no longer active; a catalog
         # written into a stale vector space reports success and matches nothing.
         # Outside the try: this must stop the run, not count as a batch error.
         await _raise_on_pin_drift(
@@ -829,9 +825,9 @@ async def backfill_embeddings(
                 for (record_id, content), vector in zip(batch, vectors, strict=True)
             ]
             await _replace_embeddings(session, rows, record_orm=record_orm)
-            # fix(#1579 r3): WRITE, then check, then commit: the write's
+            # fix(#1579): WRITE, then check, then commit: the write's
             # RowExclusiveLock makes an ALTER either visible or waiting.
-            # fix(#1525 r5): the last batch has no successor check; drop it here.
+            # fix(#1525): the last batch has no successor check; drop it here.
             await _raise_on_pin_drift(
                 session,
                 pinned,
@@ -844,7 +840,7 @@ async def backfill_embeddings(
             # the batch size on success.
             created += len(rows)
         except _PinDrift:
-            # fix(#1525 r5): drift is not a batch failure; retrying per record
+            # fix(#1525): drift is not a batch failure; retrying per record
             # would commit the same stale vectors one at a time.
             await session.rollback()
             raise
@@ -888,7 +884,7 @@ async def backfill_embeddings(
         # reported back to the caller.
         skipped_set = set(skipped_ids)
         reclaimable = [pair for pair in observed_rows if pair[0] in skipped_set]
-        # fix(#1584 r4/r5): an unchanged ROW is not an unchanged RECORD (the
+        # fix(#1584): an unchanged ROW is not an unchanged RECORD (the
         # ingest writer skips on an unchanged hash), so each record is re-read
         # and deleted under one FOR UPDATE lock, one chunk per transaction.
         removed = await _reclaim_observed_rows(session, port, record_orm, reclaimable)

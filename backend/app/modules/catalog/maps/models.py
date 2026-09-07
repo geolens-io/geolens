@@ -28,10 +28,9 @@ class Map(Base):
             "visibility IN ('private', 'public', 'internal')",
             name="chk_maps_visibility",
         ),
-        # Trigram GIN indexes added in migration 0010 (H-07) — declared on the
-        # model so alembic check sees them; the migration is the source of truth.
-        # `postgresql_ops` puts the operator class outside the expression so
-        # alembic's index compare can match the indexed expression.
+        # Trigram GIN indexes (migration 0010 H-07), declared here so
+        # alembic-check sees them. `postgresql_ops` sits outside the
+        # expression so alembic's index compare can match it.
         Index(
             "ix_maps_name_trgm",
             text("lower(name)"),
@@ -49,15 +48,9 @@ class Map(Base):
             "forked_from",
             postgresql_where=text("forked_from IS NOT NULL"),
         ),
-        # DBM-06 (Phase 271): Map.visibility composite index intentionally
-        # NOT created. The RBAC list-public-maps query uses
-        # `WHERE visibility = 'public' AND created_by = ?` and similar combos.
-        # db-audit M-18 recommended adding `Index('ix_maps_visibility_creator',
-        # 'visibility', 'created_by')` once a real-world metric warranted it.
-        # Revisit trigger: EXPLAIN (ANALYZE) on the public-maps list query
-        # shows a sequential scan against catalog.maps when row count exceeds
-        # ~10k. Until then, the cost of an extra index (write maintenance +
-        # disk) outweighs the latency benefit.
+        # DBM-06: no composite (visibility, created_by) index — db-audit M-18
+        # suggested one, but EXPLAIN showed no seq scan below ~10k rows; the
+        # write + disk cost isn't worth it until row count crosses that.
         {"schema": "catalog"},
     )
 
@@ -91,12 +84,9 @@ class Map(Base):
     # Active plugin IDs (null = use client defaults, [] = no plugins)
     plugins: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)
 
-    # Custom map-level legend title (null = no custom title; legend renders
-    # without a heading override). ENH-06 (Phase 1201). Additive nullable
-    # column — see migration 0004_add_maps_legend_title. The `plugins` column
-    # cannot hold this value (it is list[str] of enabled plugin IDs), and the
-    # basemap/terrain JSONB blobs are extra="forbid"-validated, so a dedicated
-    # nullable column is the correct home.
+    # Custom map-level legend title (null = no override). ENH-06. Can't reuse
+    # `plugins` (holds enabled plugin IDs) or the basemap/terrain JSONB blobs
+    # (extra="forbid"-validated), so this needs its own nullable column.
     legend_title: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Map-level terrain configuration (null = terrain disabled/unconfigured)
@@ -112,21 +102,15 @@ class Map(Base):
     # Preview thumbnail — storage key (e.g. "maps/thumbnails/{id}.jpg")
     thumbnail_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # fix(#1005): the thumbnail's own cache version. `updated_at` used to do
-    # double duty here, which meant the lazy backfill on first builder open —
-    # a read, editing nothing — bumped the map's edit timestamp and reordered
-    # the "Last updated" gallery. Splitting the two meanings is the only fix
-    # that keeps both correct: the card still busts its cache when the image is
-    # re-captured after an edit, without the capture claiming the map changed.
-    # Nullable, and the frontend falls back to `updated_at`, so maps written
-    # before this column keep a stable version rather than losing one.
+    # fix(#1005): thumbnail's own cache version, split from `updated_at`
+    # — a lazy backfill (a read, not an edit) shouldn't bump the edit
+    # timestamp. Nullable; frontend falls back to `updated_at` for old rows.
     thumbnail_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
-    # OG/social-card image — storage key (e.g. "maps/og-images/{id}.jpg")
-    # Added in migration 0001_baseline (SHARE-08 Path A). Separate from thumbnail_uri
-    # because the OG image is 1200x630 and exceeds the 100KB thumbnail cap.
+    # OG/social-card image key. Separate from thumbnail_uri: the OG image is
+    # 1200x630 and exceeds the 100KB thumbnail cap (SHARE-08).
     og_image_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Lineage (fork tracking)

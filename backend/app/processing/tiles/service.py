@@ -7,11 +7,10 @@ import structlog
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# builder-audit #338 MVT-09: SINGLE SOURCE OF TRUTH for the tile table/column name
-# regexes + validator. The router imports `_TABLE_NAME_RE` / `_validate_tile_table_name`
-# from here instead of re-declaring its own copy, so a future tightening of the
-# SQL-injection defense applies in exactly one place.
-# Strict table name validation to prevent SQL injection
+# builder-audit #338 MVT-09: SINGLE SOURCE OF TRUTH for the tile table/column
+# regexes + validator. The router imports `_TABLE_NAME_RE` /
+# `_validate_tile_table_name` from here so a tightened SQL-injection defense
+# applies in exactly one place.
 _TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 
 # Columns to exclude from MVT attribute selection
@@ -29,33 +28,26 @@ _CLUSTER_RESERVED_COLUMNS = {
     "source_gid",
 }
 
-# Strict column-name validation. Datasets are loaded by ogr2ogr which
-# normalizes column names to [a-zA-Z0-9_], but we re-validate before
-# substituting into SQL to defend against any future allowlist that
-# accepts admin-provided values directly.
+# Strict column-name validation. ogr2ogr normalizes column names to
+# [a-zA-Z0-9_], but names are re-validated before SQL substitution to defend
+# against a future allowlist that accepts admin-provided values directly.
 _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-# Phase 269 H-23: per-zoom column-projection budget.
-# Below this zoom level we project NO attribute columns by default to
-# bound MVT tile size for wide-table datasets (e.g. 137-column
-# `populated_places_10m` produced 824 KB tiles before this change).
-# Datasets with an explicit `tile_columns` allowlist override this.
+# Phase 269 H-23: per-zoom column-projection budget. Below this zoom no
+# attribute columns are projected by default, bounding MVT tile size for
+# wide-table datasets (137-column populated_places_10m produced 824 KB
+# tiles before this). An explicit `tile_columns` allowlist overrides it.
 #
-# builder-audit #338 MVT-02: dropping attributes at z<10 is an INTENTIONAL,
-# documented perf tradeoff (824 KB -> bounded tiles), not a spec gap, so the
-# default is deliberately left unchanged. It is NOT all-or-nothing: callers opt
-# specific columns back in at every zoom via `additional_columns` (the runtime
-# `cols=` query param) — see `_select_tile_columns`, which UNIONs them in
-# regardless of this zoom budget (but never past an explicit `tile_columns`
-# allowlist, fix(#1778)). The frontend already opts in data-driven
-# styling columns this way; non-styling popup/identify reads at z<10 are the
-# residual tradeoff (export/runtime `cols=` emission is handled separately).
+# builder-audit #338 MVT-02: an INTENTIONAL perf tradeoff, not all-or-
+# nothing — callers opt specific columns back in at every zoom via
+# `additional_columns` (the runtime `cols=` param; see
+# `_select_tile_columns`), which UNIONs them in regardless of this budget
+# but never past an explicit `tile_columns` allowlist (fix(#1778)).
 _DEFAULT_NO_ATTR_BELOW_ZOOM = 10
 
 # Phase 269 C-02: hard cap on features per tile to bound query cost.
-# Single-feature datasets see no impact; 332K-row polygon datasets had
-# 5,583 ms+ z=2 tiles before this. With 50K limit, tail latency is bounded
-# even when ST_AsMVTGeom would otherwise walk the full table.
+# 332K-row polygon datasets had 5,583ms+ z=2 tiles before this; a 50K limit
+# bounds tail latency even when ST_AsMVTGeom would otherwise walk the table.
 _TILE_FEATURE_LIMIT = 50000
 
 # v1006 server-side clusters: cap the number of candidate features considered
@@ -67,12 +59,10 @@ _CLUSTER_INPUT_LIMIT = 100000
 # 360/(extent*2^z) degrees of longitude at zoom z.
 _MVT_EXTENT = 4096
 
-# fix(#868): cluster_radius arrives in CSS/screen pixels (MapLibre clusterRadius
-# semantics, matching the client-side cluster path). Tiles display at 512 CSS px,
-# so one pixel covers _MVT_EXTENT / 512 = 8 extent units. The old bucket math
-# divided by the extent without this factor, treating pixels as extent units and
-# producing a grid ~8x finer than requested (overlapping cluster circles plus
-# unclustered singles leaking at low zoom).
+# fix(#868): cluster_radius arrives in CSS/screen pixels (MapLibre
+# clusterRadius semantics). Tiles display at 512 CSS px, so one pixel
+# covers _MVT_EXTENT/512 = 8 extent units. The old math divided by extent
+# without this factor, producing a grid ~8x finer than requested.
 _TILE_DISPLAY_SIZE_PX = 512
 _CLUSTER_PX_TO_EXTENT_UNITS = _MVT_EXTENT / _TILE_DISPLAY_SIZE_PX
 
@@ -82,13 +72,12 @@ _CLUSTER_PX_TO_EXTENT_UNITS = _MVT_EXTENT / _TILE_DISPLAY_SIZE_PX
 # but governs attribute projection, not geometry simplification.)
 _NO_SIMPLIFY_AT_OR_ABOVE_ZOOM = 10
 
-# builder-audit #338 MVT-07: sub-pixel factor applied to the degrees-per-MVT-unit
-# basis. 1.0 == one MVT coordinate unit, already ~1/16 of a rendered 256px tile
-# pixel, so vertices dropped at this tolerance are not visually distinguishable.
-# The prior piecewise schedule used this full-unit basis (360/(extent*2^z)) only
-# for z<6 and silently dropped the 360 degrees-per-tile factor for z6-9, making
-# that band's tolerance ~360x too small (effectively unsimplified). Using a
-# single continuous basis for all z<10 makes tolerance halve smoothly each zoom.
+# builder-audit #338 MVT-07: sub-pixel factor for the degrees-per-MVT-unit
+# basis. 1.0 == one MVT unit, already ~1/16 of a rendered 256px tile pixel,
+# so vertices dropped at this tolerance aren't visually distinguishable. The
+# prior piecewise schedule silently dropped the 360-degrees-per-tile factor
+# for z6-9, making that band's tolerance ~360x too small; one continuous
+# basis for all z<10 halves smoothly each zoom instead.
 _SIMPLIFY_SUBPIXEL_FACTOR = 1.0
 
 
@@ -102,11 +91,11 @@ def _simplify_tolerance_degrees(z: int) -> float | None:
     """Return the ST_SimplifyPreserveTopology tolerance in EPSG:4326 degrees for zoom ``z``.
 
     builder-audit #338 MVT-07: returns ``None`` at/above
-    ``_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM`` (full detail). Below it the tolerance is
-    ``factor * 360/(extent*2^z)``, so it shrinks continuously — halving each zoom
-    — with no discontinuity at the old z5->z6 boundary. This Python helper mirrors
-    the SQL expression emitted by ``_build_tile_query`` exactly, so the
-    monotonicity test can assert the schedule without executing SQL.
+    ``_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM`` (full detail). Below it the tolerance
+    is ``factor * 360/(extent*2^z)``, halving continuously each zoom with no
+    discontinuity at the old z5->z6 boundary. Mirrors the SQL expression in
+    ``_build_tile_query`` exactly, so the monotonicity test can assert the
+    schedule without executing SQL.
     """
     if z >= _NO_SIMPLIFY_AT_OR_ABOVE_ZOOM:
         return None
@@ -159,42 +148,35 @@ def parse_cols_param(
 ) -> tuple[list[str] | None, str]:
     """Normalize a `cols=` query param into (additional_columns, cache_key).
 
-    The returned list is the caller's request, validated: the names that exist
-    on this dataset, sorted and deduped. The returned key is not the request at
-    all. It is what the request ADDS to the projection the tile would have had
-    without it, so two requests that produce the same SQL produce one cache
-    entry (fix(#403) asked only for the sorted-and-deduped half of that).
+    The returned list is the caller's request, validated: names that exist
+    on this dataset, sorted and deduped. The returned key is NOT the
+    request — it's what the request ADDS to the projection the tile would
+    have had without it, so two requests producing the same SQL produce one
+    cache entry (fix(#403) asked only for the sorted/deduped half).
 
-    fix(#1778): both halves used to be the caller's own string, which meant the
-    key varied on input the projection ignores. Three ways that happened, and
-    the key now collapses all three:
+    fix(#1778): both halves used to be the caller's own string, so the key
+    varied on input the projection ignores. Three cases now collapse:
 
-    * `?cols=<random>`. ``_select_tile_columns`` drops an unknown name
-      silently, so the tile was byte-identical to the unfiltered one under a
-      fresh key.
-    * `?cols=<any valid subset>` at or above ``_DEFAULT_NO_ATTR_BELOW_ZOOM``,
-      where the zoom default already projects EVERY column. Every subset of a
-      wide table produced the same bytes under a different key, which is
-      exponentially many keys per tile rather than one bogus name at a time.
-      A name already on an explicit ``tile_columns`` allowlist is the same
-      case at any zoom.
+    * `?cols=<random>` — an unknown name is silently dropped, so the tile
+      was byte-identical to the unfiltered one under a fresh key.
+    * `?cols=<any valid subset>` at/above ``_DEFAULT_NO_ATTR_BELOW_ZOOM``,
+      where the zoom default already projects EVERY column (or the name is
+      already on an explicit ``tile_columns`` allowlist) — every subset of a
+      wide table produced the same bytes under a different key.
     * `?cols=gid`, or a cluster-reserved name on the cluster route, which no
       query builder emits at any zoom.
 
-    Each of those cost a full ``ST_AsMVT`` on an anonymous, ``@limiter.exempt``
-    route serving public datasets, and then WROTE the result. The default
-    production stack has no Valkey, so the writes land in an
-    ``LRUCache(maxsize=50_000)`` and evict legitimate tiles.
+    Each case cost a full ``ST_AsMVT`` on an anonymous, ``@limiter.exempt``
+    route, then WROTE the result — with no Valkey in the default stack, into
+    an ``LRUCache(maxsize=50_000)``, evicting legitimate tiles.
 
-    ``z``, ``tile_columns`` and ``mode`` are what make the answer the effective
-    projection; the caller passes what it will pass to ``get_tile`` or
-    ``get_cluster_tile``. ``z`` is positional and required so a third tile
-    endpoint cannot quietly go back to keying on the request. The zoom is
-    already a cache-key segment of its own, so this suffix only has to
-    separate requests at ONE tile, which is why it carries the difference
-    rather than the whole projection: an empty suffix keeps meaning "whatever
-    this tile projects by default" and stays byte-identical to the key a
-    no-`cols=` request has always used.
+    ``z``, ``tile_columns`` and ``mode`` mirror what the caller passes to
+    ``get_tile``/``get_cluster_tile``, so the answer is the effective
+    projection. ``z`` is positional and required so a third tile endpoint
+    can't quietly key on the raw request. The zoom is already its own
+    cache-key segment, so this suffix only has to separate requests at ONE
+    tile — it carries the difference, not the whole projection, so an empty
+    suffix stays byte-identical to the no-`cols=` key.
     """
     if not cols:
         return None, ""
@@ -208,10 +190,9 @@ def parse_cols_param(
     }
     if not known:
         return None, ""
-    # The raw string is bounded by the server's request-line limit, and the
-    # result by the dataset's column count, so neither side of this is caller-
-    # chosen. Names are compared, never interpolated: the query builders
-    # revalidate every name they emit regardless of what reaches them.
+    # The raw string is bounded by the server's request-line limit and the
+    # result by the dataset's column count. Names are compared, never
+    # interpolated: the query builders revalidate every name they emit.
     additional = sorted({c.strip() for c in cols.split(",")} & known)
     if not additional:
         return None, ""
@@ -222,9 +203,9 @@ def parse_cols_param(
         resolved, z, additional_columns=additional, **projection
     )
     # `additional_columns` only ever UNIONS into the base selection, so
-    # `effective` is a superset of `baseline` and the difference identifies it
-    # uniquely for this dataset at this zoom. An empty difference means the
-    # request changed nothing, which is the no-`cols=` entry.
+    # `effective` is a superset of `baseline`; the difference identifies the
+    # request uniquely for this dataset at this zoom. An empty difference
+    # means the request changed nothing (the no-`cols=` entry).
     return additional, ",".join(sorted(effective - baseline))
 
 
@@ -238,25 +219,22 @@ def _select_tile_columns(
     """Apply Phase 269 H-23 column allowlist + per-zoom defaults.
 
     Resolution rules:
-    * `tile_columns is None` (default) → fall back to per-zoom defaults:
-      project nothing at z<10, project everything at z>=10.
-    * `tile_columns == []`             → never project attributes.
-    * `tile_columns` non-empty         → admin-curated allowlist; only the
-      listed columns flow into MVT properties at any zoom.
+    * `tile_columns is None` (default) → per-zoom defaults: nothing at
+      z<10, everything at z>=10.
+    * `tile_columns == []` → never project attributes.
+    * `tile_columns` non-empty → admin-curated allowlist; only listed
+      columns flow into MVT properties at any zoom.
 
-    `additional_columns` (2026-05-18): runtime opt-in for columns the
-    requesting client knows it needs — typically data-driven styling
-    columns (e.g. `style_config.column`) that must be present at every
-    zoom to drive categorical / graduated paint expressions. These are
-    UNIONED into the result regardless of the zoom budget, and validated
-    against `columns` so callers cannot project attributes that don't exist
-    on the table. Names that fail `_COLUMN_NAME_RE` or aren't in `columns`
-    are silently dropped.
+    `additional_columns` (2026-05-18): runtime opt-in for columns the client
+    knows it needs (typically data-driven styling columns) that must be
+    present at every zoom. UNIONED into the result regardless of the zoom
+    budget, validated against `columns`; names failing `_COLUMN_NAME_RE` or
+    absent from `columns` are silently dropped.
 
     fix(#1778): when `tile_columns` is set, `additional_columns` is also
     intersected with it, so the three rules above hold for a `cols=` request
-    too. The zoom budget is a default the caller may override; the allowlist
-    is not.
+    too — the zoom budget is a default the caller may override; the
+    allowlist is not.
     """
     allowlist: set[str] | None = None
     if tile_columns is not None:
@@ -286,15 +264,12 @@ def _select_tile_columns(
         }
         if allowlist is not None:
             # fix(#1778): `cols=` overrides the ZOOM budget, never the admin
-            # allowlist. It used to union past `tile_columns` as well, which
-            # made the one per-dataset attribute-exposure control on the tile
-            # surface advisory: an operator who set `tile_columns` to [] or to
-            # a narrow list still shipped every other column to any client
-            # that appended `cols=`, including an anonymous holder of a signed
-            # tile template for a non-public dataset, who has no REST route to
-            # those attributes. The published contract on DatasetResponse and
-            # the metadata PATCH schema calls the list absolute; this is the
-            # code agreeing with it.
+            # allowlist. It used to union past `tile_columns` too, making the
+            # per-dataset attribute-exposure control advisory: an operator
+            # who set `tile_columns` to [] or a narrow list still shipped
+            # every other column to any client appending `cols=` —
+            # including an anonymous holder of a signed tile template for a
+            # non-public dataset, who has no REST route to those attributes.
             valid_extra &= allowlist
         if valid_extra:
             already = {c.get("name") for c in base}
@@ -330,21 +305,20 @@ def _build_tile_query(
 ) -> str:
     """Build the ST_AsMVT tile query for the given table and columns.
 
-    Phase 269 C-02: simplification applies at all zooms below z=10 (was z<6),
-    and the inner CTE has a 50K-feature LIMIT to bound query cost on wide
-    low-zoom tiles. builder-audit #338 MVT-07: the tolerance is in EPSG:4326 degrees
-    and follows one continuous schedule (``_simplify_tolerance_degrees``) that
-    halves each zoom, so low/mid-zoom tiles stay lightweight while high-zoom
-    tiles preserve full detail (z>=10 uses the original geometry untouched).
+    Phase 269 C-02: simplification applies below z=10 (was z<6), and the
+    inner CTE has a 50K-feature LIMIT to bound query cost on wide low-zoom
+    tiles. builder-audit #338 MVT-07: the tolerance is in EPSG:4326 degrees
+    and follows one continuous schedule (``_simplify_tolerance_degrees``)
+    that halves each zoom (z>=10 uses the original geometry untouched).
 
-    Phase 269 H-23: callers should pre-filter the ``columns`` list via
-    ``_select_tile_columns`` so this function emits the SELECT projection
-    straight from the already-pruned column list.
+    Phase 269 H-23: callers should pre-filter ``columns`` via
+    ``_select_tile_columns`` so this emits the SELECT projection straight
+    from the already-pruned list.
 
     DP-02 (Phase 1209-03): ``schema`` defaults to ``"data"`` (single_tenant
-    unchanged).  In multi_tenant callers pass ``tenant_data_schema(tid)`` so
-    the FROM clause is ALWAYS explicitly schema-qualified — we do NOT rely on
-    search_path alone as the primary isolation control (T-1209-11).
+    unchanged). multi_tenant callers pass ``tenant_data_schema(tid)`` so the
+    FROM clause is ALWAYS explicitly schema-qualified — search_path alone is
+    NOT the primary isolation control (T-1209-11).
     """
     _validate_tile_table_name(table_name)
     attr_columns = _build_attr_columns(columns)
@@ -407,9 +381,9 @@ WHERE mvtgeom.geom IS NOT NULL
 """
 
 
-# fix(#394) VT-07: MVT feature id for CLUSTER features. ST_AsMVT silently drops
-# non-positive ids, so the previous `-row_number()` left clusters with no id at
-# all (breaks any future promoteId/feature-state on cluster layers). Clusters
+# fix(#394) VT-07: MVT feature id for CLUSTER features. ST_AsMVT silently
+# drops non-positive ids, so a plain `-row_number()` left clusters with no id
+# (breaks any future promoteId/feature-state on cluster layers). Clusters
 # share the layer with unclustered features whose ids are real `gid`s, so the
 # per-tile row number is offset by 2^40 to stay disjoint from realistic serial
 # gids while remaining exactly representable as a JS double (< 2^53).
@@ -429,86 +403,74 @@ def _build_cluster_tile_query(
     semantics; converted to MVT extent units in-query via
     ``_CLUSTER_PX_TO_EXTENT_UNITS`` — fix(#868)).
 
-    fix(#868): the bucket grid is anchored to the WORLD MINIMUM in absolute
-    EPSG:3857 coordinates (``floor((ST_X(geom) - world_min) / bucket_size)``),
-    not to the tile's own minx/miny. Bucket size at a fixed zoom is identical
-    for every tile, so absolute anchoring makes the grids of adjacent tiles
-    line up instead of drifting by each tile's origin offset (a seam artifact
-    at tile borders). Anchoring at the world minimum (codex round 3) means
-    every in-world point yields an in-world cell origin: a 0-anchored grid
-    put the origin of a cell straddling the world's west/south edge outside
-    the world, so no tile owned that cell and points near lon -180 vanished.
+    fix(#868): the bucket grid anchors to the WORLD MINIMUM in absolute
+    EPSG:3857 coordinates, not the tile's own minx/miny, so adjacent tiles'
+    grids line up (bucket size at a fixed zoom is identical for every
+    tile). A 0-anchored grid put the origin of a cell straddling the
+    world's west/south edge outside the world, so no tile owned it and
+    points near lon -180 vanished.
 
-    fix(#868, codex P2 rounds on PR #872): an anchored cell can straddle a
-    tile border, so at clustering zooms the candidate scan covers the tile
-    envelope EXPANDED by one full bucket (clamped to the world envelope; see
-    the scan CTE) and each cell is emitted by exactly one tile — the tile
-    whose envelope contains the cell's ownership anchor, the cell ORIGIN
+    An anchored cell can straddle a tile border, so at clustering zooms the
+    candidate scan covers the tile envelope EXPANDED by one full bucket
+    (clamped to the world envelope, before the 4326 transform — past the
+    world edge the projection wraps longitude and the transformed bbox
+    inverts). No expansion past cluster max zoom: no cross-tile cells exist
+    there, and ring candidates would only consume the input cap before
+    ownership discards them, starving the tile of its own points.
+
+    Each cell is emitted by exactly one tile — the one whose envelope
+    contains the cell's ownership anchor, the cell ORIGIN
     (``world_min + bucket index * bucket size``; the point itself past
-    cluster max zoom). The anchor is pure grid geometry, so ownership never
-    depends on which candidates a tile scanned: when the input cap
-    saturates and neighbors see different subsets of a shared cell, the
-    worst case is an undercounted (or missing) cluster from the owner tile
-    — the degradation class any capped per-tile grid has — never a
-    cross-tile double- or zero-emit. World-min anchoring keeps every anchor
-    inside [world_min, world_max], so the inclusive lower bounds already
-    cover the west/south world edges; the east/north edge tiles use
-    inclusive UPPER bounds because an anchor can still land exactly on the
-    world maximum (a point at lon 180 past max zoom, or a bucket size that
-    divides the world width exactly). Internal borders stay half-open.
-    Past cluster max zoom the scan uses NO expansion (codex round 3): no
-    cross-tile cells exist there, and ring candidates would only consume
-    the input cap before ownership discards them, starving the tile of its
-    own points. Singles that only enter via the expanded ring drop out
-    through the ownership filter. ``ORDER BY gid`` keeps candidate
+    cluster max zoom). The anchor is pure grid geometry, independent of
+    which candidates a tile scanned, so under input-cap saturation the
+    worst case is an undercounted cluster from the owner tile — never a
+    cross-tile double- or zero-emit (a data-dependent anchor, like a
+    centroid, could land in either tile). World-min anchoring keeps every
+    anchor inside [world_min, world_max]: inclusive lower bounds cover the
+    west/south world edges, and the east/north edge tiles use inclusive
+    UPPER bounds since an anchor can land exactly on the world maximum;
+    internal borders stay half-open. ``ORDER BY gid`` keeps candidate
     membership deterministic per envelope.
 
-    fix(#868, codex round 4 on PR #872): ownership filters BEFORE the
-    feature cap (in the ``grouped`` CTE), so neighbor-owned cells can never
-    consume the output budget and displace owned cells. And because a cell
-    owned via its anchor can have its centroid up to one bucket inside the
-    NEIGHBOR tile — where a client whose viewport covers the centroid but
-    not the owner tile would never see it (no MVT buffer helps a tile the
-    client never requests) — the emitted geometry is CLAMPED into the
-    owning tile, one MVT extent unit inside each edge. Maximum positional
-    error from the clamp: one bucket, i.e. the cluster radius in CSS px
-    (48 by default), deterministic, and zero for geometry already inside
-    the tile (all past-max-zoom points; every cell whose centroid is
-    in-tile).
+    Ownership filters BEFORE the feature cap (in the ``grouped`` CTE), so
+    neighbor-owned cells can never consume the output budget and displace
+    owned cells. A cell owned via its anchor can have its centroid up to
+    one bucket inside the NEIGHBOR tile, where a client whose viewport
+    covers the centroid but not the owner tile would never see it (no MVT
+    buffer helps a tile the client never requests) — so the emitted
+    geometry is CLAMPED into the owning tile, one MVT extent unit inside
+    each edge. Maximum positional error: one bucket, i.e. the cluster
+    radius in CSS px (48 by default); zero for geometry already inside the
+    tile.
 
-    fix(#874): ``expansion_zoom`` is derived per cluster instead of shipping
-    ``cluster_max_zoom + 1`` for every one of them. The bucket grid halves per
-    zoom, so the split zoom is the smallest zoom at which the cell's extreme
-    members fall in different cells of the same world-min-anchored grid —
-    exactly where this query would stop grouping them. Clamped to
-    ``cluster_max_zoom + 1`` (a cell that still holds together there expands
-    to raw points at the next zoom) and to MapLibre's ceiling of 22. Under
-    input-cap saturation the spread comes from the visible members only, so
-    the value can land later than the true split zoom — the pre-#874
-    behaviour — never earlier.
+    fix(#874): ``expansion_zoom`` is derived per cluster rather than
+    shipping ``cluster_max_zoom + 1`` for every one of them. The bucket grid
+    halves per zoom, so the split zoom is the smallest zoom at which the
+    cell's extreme members fall in different cells of the same
+    world-min-anchored grid. Clamped to ``cluster_max_zoom + 1`` and to
+    MapLibre's ceiling of 22. Under input-cap saturation the value can land
+    later than the true split zoom (the pre-#874 behaviour), never earlier.
 
     Cluster output follows the MapLibre client-side cluster property shape:
     clustered features carry ``point_count`` and ``point_count_abbreviated``;
-    unclustered features omit those properties and carry ``source_gid``.
+    unclustered features omit those and carry ``source_gid``.
 
     fix(#403): ``attr_columns`` (pre-filtered via ``_select_tile_columns``,
     same rules as the plain vector path) are projected onto UNCLUSTERED
-    features — single-point buckets and everything past cluster max zoom —
-    via a join back to the source row. Cluster features keep NULLs for these
-    columns, which ST_AsMVT omits per feature, so cluster properties stay
-    exactly MapLibre-shaped. Without this, data-driven styling and popups
-    silently broke for any dataset on the server-cluster path.
+    features via a join back to the source row. Cluster features keep NULLs
+    for these columns, which ST_AsMVT omits per feature, so cluster
+    properties stay exactly MapLibre-shaped.
 
     DP-02 (Phase 1209-03): ``schema`` defaults to ``"data"`` (single_tenant
-    unchanged).  In multi_tenant callers pass ``tenant_data_schema(tid)`` so
-    the FROM clause is ALWAYS explicitly schema-qualified (T-1209-11).
+    unchanged); multi_tenant callers pass ``tenant_data_schema(tid)`` so the
+    FROM clause is ALWAYS explicitly schema-qualified (T-1209-11).
     """
     _validate_tile_table_name(table_name)
     # Schema name derives from validated-UUID tenant_data_schema() — safe to quote.
     qualified_table = f'"{schema}"."{table_name}"'
 
-    # Mirror _build_attr_columns' exclusion + revalidation rules, but project
-    # from the joined source row and only for unclustered features.
+    # Mirrors _build_attr_columns' exclusion + revalidation rules, projecting
+    # from the joined source row for unclustered features only.
     unclustered_attr_select = "".join(
         f",\n        src.{col['name']} AS {col['name']}"
         for col in (attr_columns or [])
@@ -778,15 +740,14 @@ async def get_tile(
         additional_columns: Runtime opt-in columns the caller needs at all
             zooms (e.g. data-driven styling columns). Unioned with the
             base selection; validated against ``columns``.
-        conn: Optional already-acquired asyncpg connection to reuse.
-            DP-02 (Phase 1209-03): pass a connection that has already had
+        conn: Optional already-acquired asyncpg connection to reuse. DP-02
+            (Phase 1209-03): pass one that already had
             ``set_tenant_role_for_tile_request`` called inside an open
-            transaction so the per-tenant role + search_path survive for
-            this query (T-1209-10).  When None, ``pool.fetchval`` acquires
-            a transient connection (single_tenant / legacy behaviour).
-        schema: Data schema name.  Defaults to ``"data"`` (single_tenant).
-            In multi_tenant callers pass ``tenant_data_schema(tid)`` so the
-            FROM clause is explicitly schema-qualified (T-1209-11).
+            transaction so the per-tenant role/search_path survive
+            (T-1209-10). None uses a transient connection from the pool.
+        schema: Data schema name; defaults to ``"data"`` (single_tenant). In
+            multi_tenant, pass ``tenant_data_schema(tid)`` so the FROM
+            clause is explicitly schema-qualified (T-1209-11).
 
     Returns:
         MVT binary data, or None if the tile contains no features.
@@ -800,12 +761,12 @@ async def get_tile(
         additional_columns=additional_columns,
     )
     query = _build_tile_query(table_name, selected_columns, schema=schema)
-    # layer_name must match the schema-qualified table so clients can identify it.
-    # In single_tenant schema=="data"; in multi_tenant the tile-config contract
-    # exposes the resolved tenant schema as ``mvt_source_layer_prefix``. Frontend
-    # consumers use that prefix for MapLibre's source-layer while keeping the
-    # logical ``data.{table}`` route used to sign tile URLs. The server must retain
-    # physical schema qualification here for dormant-tenancy isolation.
+    # layer_name must match the schema-qualified table so clients can
+    # identify it. In single_tenant schema=="data"; in multi_tenant the
+    # tile-config contract exposes the resolved tenant schema as
+    # ``mvt_source_layer_prefix``, while ``data.{table}`` still signs URLs.
+    # Physical schema qualification here is required for dormant-tenancy
+    # isolation.
     layer_name = f"{schema}.{table_name}"
 
     if conn is not None:
@@ -836,9 +797,9 @@ async def get_cluster_tile(
 ) -> bytes | None:
     """Execute a server-side point-cluster MVT query.
 
-    The query emits MapLibre-compatible cluster properties while keeping the
-    source as an authenticated vector tile, which avoids loading large datasets
-    as full-table GeoJSON in the browser.
+    Emits MapLibre-compatible cluster properties while keeping the source
+    as an authenticated vector tile, avoiding a full-table GeoJSON load in
+    the browser.
 
     Args:
         pool: asyncpg connection pool (used only when ``conn`` is None).

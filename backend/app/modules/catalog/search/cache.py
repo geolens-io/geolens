@@ -29,11 +29,9 @@ EndpointKind = Literal["search", "facets"]
 
 
 def is_anon_cacheable(user: Identity | None) -> bool:
-    """Single source of truth for "should this request use the anon cache?".
-
-    Anonymous = ``user is None``. API-key-authed users with empty role sets are
-    NOT anon and must bypass the cache (RESEARCH.md §1 edge case).
-    """
+    """True if ``user`` should use the anon cache: ``user is None`` and the
+    tenant cache context is available. API-key-authed users with empty role
+    sets are NOT anon and must bypass the cache (RESEARCH.md §1)."""
     return user is None and tenant_cache_context_available()
 
 
@@ -80,30 +78,13 @@ def build_cache_key(
     semantic_enabled: bool | None = None,
     preferred_languages: tuple[str, ...] = (),
 ) -> str:
-    """Build a deterministic cache key for the given request shape.
+    """Build a deterministic ``catalog:search:<endpoint>:<sha1 of canonical JSON>`` key.
 
-    The key is ``catalog:search:<endpoint>:<sha1_hex>`` where the SHA-1 is
-    computed over a canonical JSON dump of the request inputs. ``default=str``
-    handles ``date``/``UUID`` fields on the dataclass; ``sort_keys=True`` makes
-    the digest stable across Python versions.
-
-    ``public_api_url`` and ``public_app_url`` are included only for the
-    "search" endpoint, since facets responses carry no URLs. ``semantic_enabled``
-    is part of both keys: fix(#1855) made facets count over the same
-    semantic-or-lexical candidate set as the results.
-    ``public_app_url`` is in the key because raster_tiles asset hrefs are built
-    against the app origin (fix(#315)); a multi-origin deployment with a fixed
-    PUBLIC_API_URL but request-derived PUBLIC_APP_URL would otherwise serve a
-    cached response with another origin's tile host.
-
-    Maintenance contract:
-    - Every ``SearchFilters`` field must be JSON-native or have a deterministic
-      ``str()``. ``default=str`` will silently swallow non-determinism (e.g.
-      ``<X at 0x7f…>``) and degrade the cache to a no-op. Audit
-      ``SearchFilters`` when adding new fields.
-    - ``filters.keywords`` order is preserved on purpose: the underlying FTS
-      query treats different keyword orders as semantically distinct, so the
-      key must too. Do NOT sort ``filters.keywords`` here.
+    ``default=str`` silently swallows non-determinism outside date/UUID —
+    audit ``SearchFilters`` when adding fields. ``semantic_enabled`` is keyed
+    so facets match the results' candidate set (fix(#1855)); ``public_app_url``
+    is keyed because raster_tiles hrefs use the app origin (fix(#315)).
+    ``filters.keywords`` order is preserved — do NOT sort it here.
     """
     payload: dict[str, object] = {
         "filters": dataclasses.asdict(filters),

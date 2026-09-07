@@ -27,10 +27,8 @@ from app.core.runtime.staging import (
 )
 
 # Redirect stdlib tempfile to the staging volume BEFORE any task module is
-# imported. Otherwise the COG conversion sanity check in tasks_raster
-# (`shutil.disk_usage(tempfile.mkdtemp()).free`) reads the worker's small
-# `/tmp` tmpfs and rejects rasters that would fit fine on the multi-GB
-# staging volume. Mirrors the same redirect in `app.api.main`.
+# imported, or the COG sanity check in tasks_raster reads the worker's small
+# `/tmp` tmpfs and rejects rasters that fit fine on the staging volume.
 redirect_tempfile_to_staging(settings.upload_staging_dir)
 
 # fix(#579): before any GDAL/rasterio use — /vsis3/ reads need the custom
@@ -55,27 +53,16 @@ RECOVERY_LOCK_KEY = 224_001
 async def _recover_stale_jobs_for_current_scope() -> None:
     """Mark stale jobs as failed using an advisory lock + heartbeat lease.
 
-    Running workers renew ``heartbeat_at``. Recovery falls back to
-    ``started_at`` for pre-migration rows and only fails jobs whose most recent
-    liveness signal is older than ``JOB_TIMEOUT_SECONDS``.
+    Running workers renew ``heartbeat_at``; recovery falls back to
+    ``started_at`` for pre-migration rows and only fails jobs whose liveness
+    signal is older than ``JOB_TIMEOUT_SECONDS``.
 
-    This handles two cases:
-    1. Worker was killed while processing a job (status='running' AND its
-       heartbeat lease is older than 1 hour) — newly-started workers reclaim them
-       on startup via this advisory-locked recovery path.
-    2. Job was created but never queued — e.g., the HTTP request that
-       would have called defer_async() got a 502 (status='pending' with
-       no corresponding procrastinate task, older than 1 hour).
+    Handles two cases: (1) a worker killed mid-job, reclaimed on the next
+    worker's startup; (2) a job created but never queued (e.g. the defer
+    request got a 502), pending with no procrastinate task.
 
-    An advisory lock prevents multiple workers from running recovery
-    concurrently on startup (e.g., rolling restart). A worker that fails to
-    acquire the lock skips recovery — another worker already holds it.
-
-    **Rolling-deploy behavior:** A worker that is still renewing its lease is
-    not marked stale regardless of total runtime. Pre-migration jobs retain the
-    one-hour ``started_at`` fallback.
-
-    Each recovered job is logged individually with its job_id.
+    An advisory lock keeps recovery single-flight across a rolling restart;
+    a worker that fails to acquire it skips recovery.
     """
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob
@@ -88,8 +75,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
     stale_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
 
     async with async_session() as session:
-        # Advisory lock: only one worker runs recovery at a time.
-        # pg_try_advisory_xact_lock is released automatically when the
+        # pg_try_advisory_xact_lock releases automatically when the
         # transaction ends, so no explicit unlock is needed.
         lock_result = await session.execute(
             text("SELECT pg_try_advisory_xact_lock(:key)"),
@@ -99,19 +85,14 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             log.info("Stale job recovery skipped — another worker holds the lock")
             return
 
-        # Recover running jobs whose most recent liveness signal is older than
-        # one hour. Pre-migration jobs fall back to started_at.
-        # Mirrors fail_stale_jobs (router.py:39) which the lifespan
-        # sweeper runs every 5 minutes for the same purpose. The advisory
-        # lock ensures startup recovery and the sweeper don't collide.
+        # Mirrors fail_stale_jobs (router.py:39), which the lifespan sweeper
+        # runs every 5 minutes for the same purpose; the advisory lock keeps
+        # startup recovery and the sweeper from colliding.
         #
-        # fix(#1778 audit r12): the candidate set is read through its own
-        # `FOR UPDATE SKIP LOCKED` subquery, mirroring fail_stale_jobs's own
-        # fix for the identical race -- see that query's comment for why a
-        # `lock_timeout` on this set-based UPDATE would abort the WHOLE
-        # batch on one busy row rather than skipping just that row. A row a
-        # live phase-2 transaction holds `FOR NO KEY UPDATE` on is excluded
-        # here and picked up by a later pass once that transaction ends.
+        # fix(#1778): candidate set read via its own `FOR UPDATE SKIP
+        # LOCKED` subquery, mirroring fail_stale_jobs's fix for the same race
+        # — a `lock_timeout` on this set-based UPDATE would abort the WHOLE
+        # batch on one busy row instead of skipping just that row.
         stale_candidates = (
             select(IngestJob.id)
             .where(
@@ -135,9 +116,8 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         )
         stale_jobs = list(stale_result.scalars())
         for job in stale_jobs:
-            # SQLAlchemy RETURNING refreshes these values in production; the
-            # explicit assignments also keep lightweight session doubles
-            # representative of the atomic database transition.
+            # RETURNING refreshes these in production; the explicit
+            # assignment also keeps lightweight session doubles representative.
             job.status = "failed"
             job.error_message = (
                 f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
@@ -147,17 +127,10 @@ async def _recover_stale_jobs_for_current_scope() -> None:
                 "Recovered stale running job",
                 job_id=str(job.id),
             )
-            # fix(#1556): this pass is the FOURTH actor that can settle an
-            # embedding backfill row, and #1550 taught only three of them
-            # (the worker's own exits, the status poll, the lifespan sweep)
-            # to close the audit trail. It is also the one that matters most
-            # for the case the trail exists for: after a hard kill the row is
-            # usually reached by the restarted worker's startup pass, not by
-            # the 5-minute lifespan sweep, and once this pass has made the row
-            # terminal no later sweep will look at it again. Emitted on this
-            # session so the status change and the entry commit as one, the
-            # same rule `fail_stale_jobs` follows. A no-op for every other
-            # kind of job.
+            # fix(#1556): the fourth actor that can settle an embedding
+            # backfill row (#1550 taught the other three). Matters most
+            # after a hard kill, when this startup pass reaches the row
+            # before any later sweep would. No-op for every other job kind.
             await audit_settled_embedding_backfill(
                 session,
                 job_id=job.id,
@@ -166,12 +139,9 @@ async def _recover_stale_jobs_for_current_scope() -> None:
                 error_code="worker_lost",
             )
 
-        # Recover orphaned pending jobs (never queued).
-        # fix(#1235 review r2): through the shared clauses, which this site
-        # never had — it was missing BOTH the live-queue predicate (#724, so
-        # it could fail a job whose task was merely waiting) and the
-        # bound/unbound split (#1234, so it could fail a completion mid-commit
-        # every time a worker booted).
+        # fix(#1235): recover orphaned pending jobs (never queued) through
+        # the shared clauses — this site was missing both the live-queue
+        # predicate (#724) and the bound/unbound split (#1234).
         from app.platform.jobs.router import (
             ABANDONED_UPLOAD_MESSAGE,
             STALE_PENDING_UNBOUND_MESSAGE,
@@ -192,12 +162,9 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         )
         orphaned_jobs = list(orphaned_result.scalars())
         for job in orphaned_jobs:
-            # fix(#1556): the mirror has to reproduce the CASE the database
-            # just evaluated, not a constant. These assignments exist to keep
-            # lightweight session doubles representative (see the running half
-            # above), but they are writes to a persistent instance either way —
-            # a flat `job.status = "failed"` here would mark the object dirty
-            # and push `failed` back over the `cancelled` the UPDATE wrote.
+            # fix(#1556): must reproduce the CASE the database just
+            # evaluated, not a constant — a flat `job.status = "failed"`
+            # here would push `failed` back over the `cancelled` the UPDATE wrote.
             abandoned = is_abandoned_upload(job.user_metadata)
             job.status = "cancelled" if abandoned else "failed"
             job.error_message = (
@@ -209,11 +176,10 @@ async def _recover_stale_jobs_for_current_scope() -> None:
                 job_id=str(job.id),
                 status=job.status,
             )
-            # fix(#1556): the other half, same reason. A backfill whose
-            # dispatch never landed is `pending` with no queue row, which is
-            # exactly what this clause reaps — and the unique index counts
-            # pending, so the row is holding the single active-backfill slot
-            # while its trail still reads `requested`.
+            # fix(#1556): the other half. A backfill whose dispatch never
+            # landed is `pending` with no queue row — the unique index
+            # counts it, holding the single active-backfill slot while its
+            # trail still reads `requested`.
             await audit_settled_embedding_backfill(
                 session,
                 job_id=job.id,
@@ -222,9 +188,8 @@ async def _recover_stale_jobs_for_current_scope() -> None:
                 error_code="never_started",
             )
 
-        # GAP-002: sweep VRT assets stuck in status='regenerating' past the timeout.
-        # Uses the same stale_cutoff as the running-jobs sweep so the window is
-        # consistent — mirrors the fail_stale_jobs periodic sweep.
+        # GAP-002: sweep VRT assets stuck `regenerating` past the timeout,
+        # using the same stale_cutoff as the running-jobs sweep above.
         from app.platform.jobs.router import (
             _reap_stale_generation_storage,
             _reap_unadopted_analysis_outputs,
@@ -241,21 +206,15 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         ) = await sweep_stale_vrt_assets(session, stale_cutoff)
 
         await session.commit()
-        # fix(#1322 review): reap only after the commit above lands — deleting
-        # a dead attempt's storage objects before the reconciliation that
-        # restored ownership is durable can orphan a 'ready' asset against
-        # bytes a rolled-back commit never actually freed for deletion.
+        # fix(#1322): reap only after the commit above lands — deleting
+        # before ownership-restoring reconciliation is durable can orphan a
+        # 'ready' asset against bytes a rolled-back commit never freed.
         await _reap_stale_generation_storage(stale_generation_storage_keys)
-        # fix(#1778): the same treatment for a killed raster ingest or
-        # replace's own pre-commit objects. This pass matters more than the
-        # periodic sweep for that class: an OOM-killed worker is restarted, and
-        # the restart runs this before any lifespan sweeper gets there, so
-        # without it the keys are settled `failed` here and never seen again.
-        # Read off the rows this pass just moved off `running`, and deleted
-        # only after the commit above, for the reason the line above gives.
-        # fix(#1778 codex r1): through the shared reaper, which carries the
-        # survivor check and the tenant resolution, so this pass cannot delete
-        # a key a live row still names either.
+        # fix(#1778, codex r1): the same treatment for a killed raster
+        # ingest/replace's pre-commit objects, through the shared reaper
+        # (survivor check + tenant resolution) so this pass can't delete a
+        # key a live row still names. Matters more than the periodic sweep:
+        # an OOM-killed worker's restart runs this before any lifespan sweeper.
         await reap_unpublished_storage_keys(
             tuple(
                 key
@@ -263,10 +222,10 @@ async def _recover_stale_jobs_for_current_scope() -> None:
                 for key in unpublished_storage_keys_from_metadata(job.user_metadata)
             )
         )
-        # fix(#1778): and the analysis peer, same pass, same ordering.
-        # fix(#1778 codex r7/r10): (job, table) pairs, so the drop can refuse a
-        # table the job it is reaping did not create, and ALL of the names a
-        # row records, because the record accumulates across attempts.
+        # fix(#1778, codex r7/r10): the analysis peer, same pass/ordering.
+        # (job, table) pairs so a drop can refuse a table the job it's
+        # reaping didn't create; ALL names a row records, since it
+        # accumulates across attempts.
         await _reap_unadopted_analysis_outputs(
             tuple(
                 (job.id, name)
@@ -285,39 +244,31 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             )
 
 
-# fix(#624): a worker killed mid-job leaves its queue row in `doing` forever —
-# the demo carried one from 2026-06-29 for three weeks. Procrastinate 3.x tracks
-# worker heartbeats, so "this worker is gone" is a fact we can read rather than a
-# timeout we have to guess at. The cost of waiting is a stale metric; the cost of
-# being wrong is failing live work — so the window is deliberately generous.
-#
-# Cushion over the graceful-shutdown window: covers the final heartbeat interval
-# (10s by default) plus the unregister that follows the graceful wait.
+# fix(#624): a worker killed mid-job leaves its queue row in `doing` forever.
+# Procrastinate 3.x tracks worker heartbeats, so "this worker is gone" is a
+# fact we can read rather than a timeout to guess at — the window is
+# deliberately generous, since waiting costs a stale metric but being wrong
+# fails live work. Covers the final heartbeat interval (10s default) plus
+# the unregister that follows the graceful wait.
 _STALLED_SHUTDOWN_MARGIN_SECONDS = 60
 
 
 def stalled_worker_seconds() -> int:
     """Heartbeat silence after which a worker counts as dead.
 
-    Floored at ``JOB_TIMEOUT_SECONDS`` — the same 60 minutes the ingest_jobs
-    reaper above already calls stale.
+    Floored at ``JOB_TIMEOUT_SECONDS`` (60 min) — the same threshold the
+    ingest_jobs reaper above already calls stale.
 
-    fix(#624 codex P1 r4): this sweep is global — no queue filter, and the prune
-    touches every worker row — so a threshold derived from THIS process's config
-    would let a general worker fail a split-queue raster worker's live job.
-    ``WORKER_QUEUES`` exists precisely so those pools run with different settings,
-    and nothing in procrastinate's schema exposes another worker's shutdown
-    window to read. The hour dissolves that rather than papering over it: no
-    plausible graceful window reaches it, and past it the reaper has already
-    failed the user-facing ingest_jobs row — so failing the queue row is the
-    CONSISTENT verdict, which was the point of this sweep to begin with. That
-    also means no fleet-wide config coordination is required for correctness.
+    fix(#624): this sweep is global, so a threshold derived from THIS
+    process's config would let a general worker fail a split-queue raster
+    worker's live job. Past the hour the reaper has already failed the
+    user-facing ingest_jobs row, so failing the queue row too is consistent
+    — no fleet-wide config coordination needed.
 
-    Still maxed against the local graceful window (fix(#624 codex P2 r3)):
+    fix(#624): still maxed against the local graceful window, since
     procrastinate cancels the heartbeat side task BEFORE waiting
-    ``shutdown_graceful_timeout`` (``Worker._shutdown``), so an operator who sets
-    a window longer than an hour on this process would otherwise have its own
-    long jobs swept out from under a shutdown it explicitly configured.
+    ``shutdown_graceful_timeout``, so a longer configured window would
+    otherwise get its own long jobs swept out from under it.
     """
     from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
 
@@ -327,37 +278,28 @@ def stalled_worker_seconds() -> int:
     )
 
 
-# fix(#624 codex P2): a startup-only sweep is always one restart behind. Under
-# `restart: unless-stopped` (and Kubernetes) a crashed worker is back in seconds,
-# while the dead worker's last heartbeat is still fresh — so the startup pass
-# skips the very row it exists to reap, and nothing looks again. Sweeping on an
-# interval means a job stranded mid-run is failed ~1 cycle after it goes stale.
+# fix(#624): a startup-only sweep is always one restart behind — under
+# `restart: unless-stopped` a crashed worker is back in seconds while its
+# last heartbeat is still fresh, so the startup pass skips the row it
+# exists to reap. Sweeping on an interval fails a stranded job ~1 cycle
+# after it goes stale.
 STALLED_QUEUE_SWEEP_INTERVAL_SECONDS = 60
 
 
 async def _ingest_jobs_still_leasing(jobs: list) -> set[str]:
     """Of ``jobs``, the ingest_jobs ids whose row is provably still working.
 
-    fix(#624 codex P2 r5): procrastinate's worker heartbeat and the ingest task's
-    own lease are INDEPENDENT signals. ``Worker._shutdown`` cancels the worker
-    heartbeat and only then waits out ``shutdown_graceful_timeout``, while
-    ``maintain_ingest_job_heartbeat`` keeps renewing the ingest_jobs lease for
-    the whole window. So a silent worker does not imply dead work, and in a
-    split-queue fleet whose raster pool configures a shutdown longer than our
-    threshold, a timeout alone would fail a job that is still running.
+    fix(#624): the worker heartbeat and the ingest task's own lease are
+    INDEPENDENT signals — ``Worker._shutdown`` cancels the heartbeat before
+    waiting out ``shutdown_graceful_timeout``, while
+    ``maintain_ingest_job_heartbeat`` keeps renewing the lease. So a silent
+    worker doesn't imply dead work; trust the row's own fresh lease over any
+    timeout. The threshold is the backstop for jobs with no lease to read
+    (non-ingest tasks carry no ``job_id``).
 
-    Trust the work's own liveness signal over any timeout: a row that is
-    ``running`` on a fresh lease is alive, and no window arithmetic overrides
-    that. The threshold remains the backstop for jobs with no lease to read —
-    non-ingest tasks such as embeddings carry no ``job_id``.
-
-    fix(#624 codex P2 r6): grouped by tenant. In hosted mode ``ingest_jobs`` is
-    FORCE-RLS scoped by ``app.current_tenant``, so an un-tenanted SELECT sees
-    nothing and every hosted lease would read as dead — the exact live-work
-    failure this guard exists to prevent. ``defer_async_with_tenant`` threads
-    ``tenant_id`` into the job kwargs (see ``tenant_task``), so each group runs
-    under its own context; single-tenant jobs carry no tenant_id and
-    ``tenant_job_context`` is a hard no-op there anyway.
+    fix(#624): grouped by tenant, since ``ingest_jobs`` is FORCE-RLS
+    scoped — an un-tenanted SELECT sees nothing and every hosted lease would
+    read as dead, the exact failure this guard exists to prevent.
     """
     import uuid as uuid_mod
 
@@ -423,17 +365,13 @@ async def _leasing_ingest_job_ids(ids: set) -> set[str]:
 async def fail_stalled_queue_jobs() -> int:
     """Fail procrastinate rows whose worker died mid-job. Returns the count.
 
-    The ingest_jobs reaper above already gives the USER a verdict ("Stale:
-    running for over 60 minutes"), but nothing ever transitioned the queue row,
-    so queue depth and admin views counted phantom in-flight work — one more per
-    worker kill, accumulating forever.
+    The ingest_jobs reaper above gives the user a verdict, but never
+    transitions the queue row, so queue depth counted phantom in-flight
+    work, accumulating per worker kill. Fail rather than requeue: ingest
+    tasks are not idempotency-audited.
 
-    Fail rather than requeue: ingest tasks are not idempotency-audited, and
-    failing matches the verdict the user already got.
-
-    Caller must hold an open connector (``task_app.open_async()``). Runs once per
-    process rather than once per tenant — procrastinate's queue tables are shared
-    infrastructure, not RLS-partitioned like ingest_jobs.
+    Caller must hold an open connector. Runs once per process, not once per
+    tenant — procrastinate's queue tables aren't RLS-partitioned.
     """
     from procrastinate.jobs import Status
 
@@ -460,20 +398,12 @@ async def fail_stalled_queue_jobs() -> int:
         await manager.finish_job_by_id_async(
             job_id=job.id, status=Status.FAILED, delete_job=False
         )
-        # fix(#1778 codex r1): the second site that writes a terminal failed
-        # row. The metrics poll used to see it on its next pass; a transition
-        # count has to be told. fix(#1778 codex r2): after the await, so a
-        # persistence failure raises above this line and counts nothing --
-        # matching the manager wrapper's ordering. This path calls
-        # `finish_job_by_id_async` directly and so never passes through that
-        # wrapper, which is why the increment is written out here.
-        #
-        # fix(#1778 codex r5): `getattr`, not `job.queue`. count_failed_job
-        # guards the registry call, but the attribute read happened at the call
-        # site and outside that guard, so a job object without the attribute
-        # raised here -- mid-loop, after some rows had already been failed, and
-        # aborting the rest of the sweep. Metrics bookkeeping must never be the
-        # thing that stops a sweep; an unlabelled failure counts as "default".
+        # fix(#1778): a second terminal-failed-row site, so it needs
+        # its own increment — after the await, matching the wrapper's
+        # ordering, since this path calls `finish_job_by_id_async` directly.
+        # fix(#1778): `getattr`, not `job.queue` — an attribute read
+        # outside count_failed_job's guard would abort the rest of the
+        # sweep mid-loop; metrics bookkeeping must never stop a sweep.
         count_failed_job(getattr(job, "queue", None))
         failed += 1
         log.warning(
@@ -558,47 +488,32 @@ _OUTCOME_COUNTERS_ATTR = "_geolens_job_outcome_counters_installed"
 def install_job_outcome_counters(task_app) -> None:
     """Count a job's outcome once its terminal row is written, not before.
 
-    fix(#1778): ``geolens_jobs_completed_total`` used to be derived from a
-    ``SELECT status, COUNT(*) ... GROUP BY status`` over
-    ``catalog.procrastinate_jobs``. It could never move, because this worker
-    runs with ``delete_jobs="successful"``: ``procrastinate_finish_job_v1``
-    deletes the row while it is still ``doing``, so no ``succeeded`` row is
-    ever written for the poll to see. The events the trigger writes are
-    cascade-deleted with it, so they are not a source either. The only place
-    the transition is observable is inside the process that performs it.
+    fix(#1778): the completed/failed counters used to be derived from a
+    ``GROUP BY status`` poll over ``procrastinate_jobs``, but this worker
+    runs ``delete_jobs="successful"``, so no ``succeeded`` row (or its
+    cascade-deleted events) ever survives for the poll to see. The only
+    place the transition is observable is inside the process that performs
+    it — ``purge_expired_terminal_jobs`` broke the failed-delta arithmetic
+    the same way (r1).
 
-    fix(#1778 codex r1): ``geolens_jobs_failed_total`` is counted here too, and
-    the poll's ``failed`` delta is gone. That delta was snapshot arithmetic
-    over a row count, and ``purge_expired_terminal_jobs`` makes a queue's
-    failed group shrink, so ``_prev_counts`` kept the pre-purge figure and the
-    next burst produced a non-positive delta the counter never saw --
-    ``GeoLensJobFailures`` with it.
+    fix(#1778): hangs off the JOB MANAGER, not worker middleware —
+    Procrastinate runs middleware before ``_persist_job_status``, so it
+    would count a completion whose terminal row was never written. Wrapping
+    ``finish_job`` counts strictly after the row lands, and leaves both
+    counters untouched on exception.
 
-    fix(#1778 codex r2): and it hangs off the JOB MANAGER, not off a worker
-    middleware. Procrastinate runs worker middleware inside
-    ``Worker._process_job``'s ``try``, which is before ``_persist_job_status``,
-    so a middleware that counted there reported a completion for a job whose
-    terminal row had not been written and might never be -- and the failure
-    branch had the same ordering. ``_persist_job_status`` reaches the database
-    through ``job_manager.finish_job``, so wrapping that method counts strictly
-    after the row lands, and an exception on the way through leaves both
-    counters untouched.
+    Wrapping ``finish_job`` also avoids re-deriving Procrastinate's own
+    outcome: a retry goes through ``retry_job`` instead (not a failure), and
+    an abort is counted as neither.
 
-    Wrapping ``finish_job`` also removes the need to re-derive Procrastinate's
-    own outcome decision. A retry goes through ``retry_job`` instead and never
-    arrives here, so a retried attempt is not a failure; an abort arrives with
-    ``Status.ABORTED`` and is counted as neither. The status is the one
-    Procrastinate computed, not one this module inferred.
-
-    Idempotent via a sentinel on the manager, mirroring the other install
-    helpers, so a re-entrant call cannot stack wrappers and double count.
+    Idempotent via a sentinel on the manager, so a re-entrant call can't
+    stack wrappers and double count.
     """
     from procrastinate.jobs import Status
 
     manager = task_app.job_manager
-    # `is True`, not truthiness: the sentinel is one this function sets, and an
-    # object that answers every attribute (a test double, a proxy) would
-    # otherwise report itself already installed and silently count nothing.
+    # `is True`, not truthiness — a test double/proxy answering every
+    # attribute would otherwise report itself already installed.
     if getattr(manager, _OUTCOME_COUNTERS_ATTR, False) is True:
         return
     original_finish_job = manager.finish_job
@@ -620,9 +535,7 @@ def install_job_outcome_counters(task_app) -> None:
             elif status == Status.FAILED:
                 count_failed_job(queue)
         except Exception:  # broad: the terminal row is already written
-            # Reading the job or the status must not undo a persisted outcome.
-            # The count_* helpers guard the registry call; this guards
-            # everything before it.
+            # Reading the job/status must not undo a persisted outcome.
             log.warning("Failed to count a job outcome", exc_info=True)
 
     manager.finish_job = _finish_job_and_count
@@ -646,7 +559,7 @@ def count_completed_job(queue: str | None) -> None:
 def count_failed_job(queue: str | None) -> None:
     """Record one terminal failure on *queue*.
 
-    fix(#1778 codex r1): the single place the failed counter moves, so the
+    fix(#1778): the single place the failed counter moves, so the
     manager wrapper and the stalled-job sweep cannot drift apart.
     """
     try:
@@ -657,41 +570,29 @@ def count_failed_job(queue: str | None) -> None:
         log.warning("Failed to count a failed job", exc_info=True)
 
 
-# fix(#1778): how often to age out terminal queue rows. Six hours is a long way
-# under the shortest sensible INGEST_JOBS_RETENTION_DAYS and keeps the delete's
-# cost off the hot path; the window itself is the retention setting, not this.
+# fix(#1778): six hours is well under the shortest sensible
+# INGEST_JOBS_RETENTION_DAYS and keeps the delete's cost off the hot path.
 TERMINAL_JOB_PURGE_INTERVAL_SECONDS = 6 * 3600
 
 
 async def purge_expired_terminal_jobs() -> None:
     """Age out failed, cancelled and aborted queue rows and their events.
 
-    fix(#1778): nothing in the repository ever deleted these. Procrastinate's
-    ``delete_old_jobs`` is never called, there is no pg_cron, no CronJob, no
-    scheduled workflow and no periodic Procrastinate task, and
-    ``POST /jobs/cleanup/stale/`` sweeps only the ``ingest_jobs`` MIRROR. So a
-    successful job left nothing behind (``delete_jobs="successful"`` plus the
-    ON DELETE CASCADE on the events fkey) while every failure, cancellation and
-    abort left one job row plus three event rows forever. Meanwhile
-    ``INGEST_JOBS_RETENTION_DAYS`` deleted the mirror row after 30 days, so
-    what remained was also unattributable.
+    fix(#1778): nothing deleted these before. ``delete_old_jobs`` was never
+    called, and only successful jobs cleared themselves
+    (``delete_jobs="successful"`` plus cascade-deleted events); every
+    failure/cancellation/abort left rows forever, and the mirror row aged
+    out on ``INGEST_JOBS_RETENTION_DAYS`` separately, leaving them
+    unattributable.
 
-    The clearest sign it was an oversight rather than a decision is inside
-    ``fail_stalled_queue_jobs``: it writes a permanent FAILED row and then,
-    eight lines later, prunes ``procrastinate_workers`` so the heartbeat table
-    "doesn't grow one tombstone per killed worker".
+    Keyed to the same ``INGEST_JOBS_RETENTION_DAYS`` so the queue row and
+    its mirror age out together. 0 disables it.
 
-    Keyed to the same ``INGEST_JOBS_RETENTION_DAYS`` the mirror uses, so the
-    queue row and the row that explains it age out together. 0 disables it,
-    matching the mirror sweep.
+    One unfiltered call, not one per queue: the vendored query joins
+    ``procrastinate_jobs``/``procrastinate_events`` as an inline view BEFORE
+    the status/age predicate, so N per-queue calls would pay for the join N times.
 
-    One unfiltered call rather than one per queue: the vendored query builds
-    ``SELECT DISTINCT ON (job.id) job.*, event.at FROM procrastinate_jobs job
-    JOIN procrastinate_events event ...`` as an inline view BEFORE applying the
-    status and age predicate, so the join and sort happen whatever the queue
-    filter is -- N per-queue calls would pay for it N times.
-
-    Caller must hold an open connector (``task_app.open_async()``).
+    Caller must hold an open connector.
     """
     from app.processing.ingest.tasks import task_app
 
@@ -753,11 +654,9 @@ async def main() -> None:
     from app.platform.refresh.credentials import renew_credentials_periodically
     from app.processing.ingest.tasks import task_app
 
-    # MIG-02: fail closed before touching the DB if the schema heads are skewed
-    # from this image's migration scripts. The worker does not run migrations
-    # itself (depends_on: migrate); this guard refuses to start a worker whose
-    # image disagrees with the DB schema (in either direction), mirroring the
-    # API lifespan guard so the two entrypoints cannot drift.
+    # MIG-02: fail closed if the schema heads are skewed from this image's
+    # migration scripts. The worker doesn't run migrations itself
+    # (depends_on: migrate); mirrors the API lifespan guard.
     from app.core.db.schema_skew import assert_schema_in_sync
 
     await assert_schema_in_sync()
@@ -766,31 +665,22 @@ async def main() -> None:
     ensure_staging_ready(settings.upload_staging_dir)
     ensure_staging_ready(Path(settings.upload_staging_dir) / "exports")
 
-    # Sweep orphaned export temp dirs from previous crashes.
-    # ING-04 (P2-04): only delete entries older than EXPORTS_SWEEP_AGE_SECONDS
-    # (1 hour). In-flight exports started shortly before a rolling worker
-    # restart survive the sweep — a 10-minute COG export is no longer
-    # truncated mid-download because the new worker process happened to
-    # boot during the export's stream phase.
+    # ING-04 (P2-04): sweep orphaned export temp dirs from previous crashes,
+    # only entries older than EXPORTS_SWEEP_AGE_SECONDS (1 hour) — in-flight
+    # exports survive a rolling restart instead of being truncated mid-download.
     exports_dir = Path(settings.upload_staging_dir) / "exports"
     sweep_orphaned_exports(exports_dir)
 
-    # fix(#1746): reclaim GDAL bearer-header tempfiles a SIGKILL/OOM left
-    # behind on a previous ogr2ogr run (see sweep_stale_gdal_header_files
-    # docstring). The worker has no periodic sweep loop, unlike the API, so
-    # boot-time is the only hook here — matches how sweep_orphaned_exports
-    # itself is only swept at worker boot, not on a cadence.
-    # fix(#1746 codex r2): the container tmpfs, not the staging volume — see
-    # gdal_header_dir(); staging is backed up every cycle and /tmp is not.
+    # fix(#1746, codex r2): reclaim GDAL bearer-header tempfiles a
+    # SIGKILL/OOM left on the container tmpfs (not the staging volume — see
+    # gdal_header_dir()); boot-time is the only hook, no periodic sweep loop here.
     sweep_stale_gdal_header_files()
 
-    # 2. WORK-01: shared bootstrap — load extensions (overlay), check enterprise
-    # overlay requested, init edition, init storage + S3 health probe, init cache.
-    # bootstrap(app=None) = worker mode: skips router include and billing dispatch
-    # (both require a FastAPI app object). Runs BEFORE run_worker_async so all
-    # single-slot ports (ProcessingPort, CatalogPort, etc.) are resolved by the
-    # time any task tries to use them — closing the enterprise split-brain bug
-    # where the worker silently ran community ports on licensed deployments.
+    # 2. WORK-01: shared bootstrap (extensions, edition, storage, cache).
+    # bootstrap(app=None) = worker mode, skipping router/billing (need a
+    # FastAPI app). Runs before run_worker_async so all single-slot ports
+    # are resolved before any task uses them — closes the split-brain bug
+    # where the worker ran community ports on licensed deployments.
     from app.platform.extensions.bootstrap import (
         bootstrap,
         assert_enterprise_ports_resolved,
@@ -798,14 +688,12 @@ async def main() -> None:
 
     await bootstrap(app=None)
 
-    # WORK-02: affirmative post-bootstrap assertion — under GEOLENS_EDITION=enterprise
-    # every expected single-slot port must be a non-Default implementation.
-    # Fails loud (RuntimeError) rather than silently running community ports.
+    # WORK-02: under GEOLENS_EDITION=enterprise every single-slot port must
+    # be non-Default; fails loud rather than silently running community ports.
     assert_enterprise_ports_resolved()
 
-    # 3. fix(#507): recover only after bootstrap has applied tenancy RLS.
-    # Tenant-scoped recovery relies on FORCE RLS and the tenant GUC; running it
-    # before bootstrap could let an unqualified startup sweep cross tenants.
+    # 3. fix(#507): recover only after bootstrap applies tenancy RLS —
+    # earlier, an unqualified startup sweep could cross tenants.
     await recover_stale_jobs()
 
     # 4. Start health server as background task
@@ -814,35 +702,25 @@ async def main() -> None:
     # 5. Start job metrics collector as background task
     metrics_task = asyncio.create_task(update_job_metrics())
 
-    # fix(#1778): the same two collectors the API lifespan starts. This process
-    # is the one that most needs them -- it hosts GDAL/OGR and gets a 4 GB
-    # mem_limit against the API's 2 GB precisely because a large raster ingest
-    # is memory-hungry -- and it had neither. An OOM-killed worker left exactly
-    # the symptom #643 was filed for: nothing in `docker logs`, no gauge, only
-    # dmesg. update_memory_metrics also WARNs on crossing the watermark, so
-    # runaway growth is diagnosable without a Prometheus scrape.
-    #
-    # The worker runs its own engine and pool, so GeoLensDbPoolSaturated
-    # (infra/monitoring/alerts.yml) could never fire for it either. Both loops
-    # are no-ops off Linux and neither needs multiprocess mode.
+    # fix(#1778): the same two collectors the API lifespan starts, missing
+    # here despite this process hosting GDAL/OGR at a 4 GB mem_limit — an
+    # OOM kill left only dmesg, no gauge (#643). Also covers
+    # GeoLensDbPoolSaturated, which can't fire for the worker's own engine.
     memory_metrics_task = asyncio.create_task(update_memory_metrics())
     pool_metrics_task = asyncio.create_task(update_pool_metrics())
 
-    # fix(#1277 review round 4): the worker hosts credential renewal too. The
-    # process whose liveness gates the CLAIM is this one, so renewing here
-    # keeps a queued handoff alive exactly while a claim is still possible —
-    # the API sweeper alone left a healthy worker unable to claim a credential
-    # the API's own downtime had expired. Same helper, and EXPIRE is
-    # idempotent, so the two hosts overlapping costs one round trip.
+    # fix(#1277): the worker hosts credential renewal too, since this
+    # process's liveness gates the CLAIM — an API-only sweeper left a
+    # healthy worker unable to claim a credential the API's downtime
+    # expired. EXPIRE is idempotent, so the two hosts overlapping is cheap.
     credential_renewal_task = asyncio.create_task(renew_credentials_periodically())
 
     try:
         # 6. Run Procrastinate worker
         shutdown_timeout = settings.worker_shutdown_timeout
-        # fix(#448): concurrency was implicitly 1 (Procrastinate default), so a
-        # single long COG conversion head-of-line-blocked every queued upload
-        # across all three queues. Both knobs are env-configurable; a second
-        # worker service can pin WORKER_QUEUES=raster on multi-core hosts.
+        # fix(#448): concurrency defaulted to 1, so one long COG conversion
+        # head-of-line-blocked every queued upload. Both knobs are
+        # env-configurable; a second worker can pin WORKER_QUEUES=raster.
         queues = [q.strip() for q in settings.worker_queues.split(",") if q.strip()]
         # fix(#1812): "ingest-auth-v2" is consumer-only this release; an override
         # that omits it strands what a v1.18.0/1.18.1 API queued there (RUNBOOK 10).
@@ -858,19 +736,15 @@ async def main() -> None:
                 ),
             )
         async with task_app.open_async():
-            # fix(#1778): the only place a job outcome is observable --
-            # delete_jobs="successful" removes a succeeded row (and its events,
-            # by cascade) before any poll can see it, and the failed count is a
-            # transition too now that terminal rows are purged. Installed
-            # before the worker starts and after the connector is open, so no
-            # job can finish outside the wrapper. See
-            # install_job_outcome_counters.
+            # fix(#1778): the only place a job outcome is observable, since
+            # delete_jobs="successful" removes a row before any poll sees
+            # it. Installed after the connector opens, before the worker
+            # starts, so no job can finish outside the wrapper.
             install_job_outcome_counters(task_app)
-            # fix(#624): inside the connector context (it needs an open pool) and
-            # before the worker registers itself, so this process's own heartbeat
-            # can never be in the window it sweeps. This pass clears rows stranded
-            # before this process existed; the loop below owns the ones that go
-            # stale while it runs.
+            # fix(#624): inside the connector context and before the worker
+            # registers, so this process's own heartbeat can never be in the
+            # window it sweeps. Clears rows stranded before it existed; the
+            # loop below owns rows that go stale while it runs.
             await _sweep_stalled_queue_safely()
             # fix(#1778): early, before the jobs-by-events join this query
             # builds has a large table to sort.
@@ -885,17 +759,13 @@ async def main() -> None:
                     install_signal_handlers=True,
                     delete_jobs="successful",
                     shutdown_graceful_timeout=shutdown_timeout,
-                    # fix(#624 codex P1): MUST match the sweep's own window.
-                    # Procrastinate's Worker.run() prunes workers silent for
-                    # longer than this. procrastinate_jobs.worker_id is ON DELETE
-                    # SET NULL, and select_stalled_jobs_by_heartbeat treats a
-                    # `doing` job with a NULL worker_id as stalled OUTRIGHT — no
-                    # heartbeat comparison, because there is no longer a heartbeat
-                    # to compare. So at the 30s default, a live worker that merely
-                    # stalls (DB blip, long GC) gets pruned by another worker's
-                    # startup, its in-flight jobs go worker_id=NULL, and the sweep
-                    # fails them as stalled despite our cushion. Equal windows mean
-                    # a NULL worker_id can only mean a genuinely dead worker.
+                    # fix(#624): MUST match the sweep's own window.
+                    # worker_id is ON DELETE SET NULL, and
+                    # select_stalled_jobs_by_heartbeat treats a NULL
+                    # worker_id as stalled OUTRIGHT — at the 30s default, a
+                    # merely-stalled live worker gets pruned and its
+                    # in-flight jobs fail despite our cushion. Equal windows
+                    # mean NULL worker_id can only be a genuinely dead worker.
                     stalled_worker_timeout=stalled_worker_seconds(),
                 )
             finally:

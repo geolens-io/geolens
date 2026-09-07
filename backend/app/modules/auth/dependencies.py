@@ -29,42 +29,22 @@ log = structlog.get_logger()
 def _predates_revocation_horizon(payload: Mapping, user: User) -> bool:
     """True when this access JWT was certainly issued before the user's horizon.
 
-    fix(#1455): the companion to the ``token_version`` check at both call
-    sites. One helper rather than the pair of inline copies, so the two
-    dependencies cannot drift apart on a security predicate.
+    fix(#1455): companion to the ``token_version`` check at both call sites,
+    kept in one place so they cannot drift apart.
 
-    CONSTRAINT: the rounding below is only safe while ``revoke_all_tokens``
-    bumps ``token_version`` in the SAME UPDATE that stamps the horizon. Anyone
-    who removes or weakens that bump must tighten this back to
-    ``issued_at <= int(...)`` in the same change.
+    CONSTRAINT: safe only while ``revoke_all_tokens`` bumps ``token_version``
+    in the SAME UPDATE that stamps the horizon — a token minted before that
+    commit reads the pre-bump version and fails the version check instead. If
+    that coupling is ever removed, tighten this to ``issued_at <= int(...)``.
 
-    Why the coupling exists. ``iat`` is whole seconds (PyJWT truncates), so it
-    names the interval ``[iat, iat+1)`` rather than an instant, and this
-    rejects only when that WHOLE interval precedes the horizon — which leaves
-    the same-second region covered by nothing on this line. The bump is what
-    covers it: the horizon is the revoking transaction's ``now()``, so a token
-    minted before that UPDATE commits necessarily read the pre-bump version
-    under READ COMMITTED and dies on the version check, while one minted after
-    it commits carries the new version and legitimately lives. The same
-    composition covers API-vs-DB clock skew, where an API clock running ahead
-    could lift a pre-revocation ``iat`` past the horizon: the bump still
-    rejects it. This check is therefore added ALONGSIDE the version check and
-    never replaces it.
+    ``iat`` is whole seconds, so this rejects only the interval strictly
+    before the horizon and relies on the version bump to cover the
+    same-second case; rounding the other way breaks logout-then-immediate
+    re-login.
 
-    Rounding the other way is not free, which is why the constraint is worth
-    keeping rather than pre-emptively tightening: it kills any token minted in
-    the same second as a revocation, which breaks logging out and immediately
-    logging back in, and it made
-    ``test_a_rotation_racing_logout_never_leaves_a_live_session`` fail
-    intermittently (``iat=1786618628`` against a horizon of ``1786618628.02``,
-    a token minted AFTER the revocation and refused).
-
-    A missing (or non-numeric) ``iat`` is treated as 0, which precedes every
-    horizon and is therefore always rejected once one exists. That mirrors the
-    missing-``token_version``-is-0 convention at the call sites. Coercing
-    rather than comparing directly matters because PyJWT validates ``iat`` by
-    casting a COPY, leaving a numeric STRING in the payload, and ``"1" < 1``
-    raises rather than rejecting.
+    Missing/non-numeric ``iat`` is treated as 0 (always rejected). Coerced
+    rather than compared directly because PyJWT leaves ``iat`` as a numeric
+    STRING after validation, and ``"1" < 1`` raises instead of comparing.
     """
     if user.sessions_revoked_at is None:
         return False
@@ -74,26 +54,18 @@ def _predates_revocation_horizon(payload: Mapping, user: User) -> bool:
     return issued_at + 1 <= user.sessions_revoked_at.timestamp()
 
 
-# fix(#875): HTTP methods a read_only API key may authenticate. Enforcement is
-# method-based rather than capability-based on purpose: every read surface an
-# API-key client actually uses (OGC Features, STAC, tiles, search, dataset and
-# map reads) is a GET here, the STAC and OGC routers define no write routes at
-# all, and classifying every capability in the permission matrix as read or
-# write is a much larger change that is easy to get subtly wrong.
+# fix(#875): read_only API keys authenticate only these methods. Method-based
+# rather than capability-based: every read surface a key client uses is GET,
+# and classifying the whole permission matrix as read/write would be a much
+# larger, easier-to-get-subtly-wrong change.
 _READ_ONLY_SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
-# fix(#875 codex r1): "safe method" is not the same as "no side effect" here.
-# `GET /datasets/{dataset_id}/validate/?refresh=true` recomputes the quality
-# score with a full table scan and PERSISTS it. It is gated on
-# `check_dataset_write_access`, but that gate sees the owner identity the key
-# resolved to and cannot tell a read_only key from the owner's own session, so
-# the method check is the only place that can refuse it.
-#
-# Keyed by route template, valued by the QUERY PARAMETER that turns the read
-# into a write, so the ordinary cached read of the same route keeps working.
-# `backend/tests/test_api_key_scope_875.py` walks the route table and fails if
-# any GET handler gains a write guard or a commit without being classified
-# here or in that test's allowlist.
+# fix(#875): "safe method" != "no side effect" — e.g. a GET with
+# ?refresh=true persists a recomputed quality score, and the write-access gate
+# can't tell a read_only key from the owner's own session, so this table is
+# the only place that can refuse it. Keyed by route template -> the query
+# param that turns the read into a write; `test_api_key_scope_875.py` walks
+# the route table and fails if a GET gains a write guard uncatalogued here.
 _READ_ONLY_KEY_WRITING_GET_ROUTES: dict[str, str] = {
     "/datasets/{dataset_id}/validate/": "refresh",
     "/datasets/{dataset_id}/validate": "refresh",
@@ -103,49 +75,23 @@ _READ_ONLY_KEY_WRITING_GET_ROUTES: dict[str, str] = {
 # an empty value — counts as triggering the write, so the check fails closed.
 _FALSEY_QUERY_VALUES: frozenset[str] = frozenset({"false", "0", "off", "no", "f", "n"})
 
-# fix(#875): the ONE carve-out, as exact (METHOD, route template) pairs.
+# fix(#875): the ONE carve-out, as exact (METHOD, route template) pairs, not
+# bare templates — a bare template would exempt any future method on that
+# path. Matching is on the template Starlette resolved, never the concrete
+# path, so a caller cannot spoof the exemption by mirroring its characters; an
+# unresolved template is ``<unmatched-route>``, refused by default (fix(#875
+# codex r2)).
 #
-# #565 adds POST /api/query/, a SELECT-only sandbox endpoint that is a pure
-# read semantically and a POST only mechanically. A read_only key may call it,
-# because it is a read — the maintainer decision is recorded in both #875 and
-# #565. The general rule ("POST endpoints that are reads in spirit can trigger
-# jobs and writes") holds for AI chat and analysis previews and does not hold
-# for a raw SELECT through the sandbox rails.
+# POST /query/ (#565) is a read-only SELECT sandbox exempted despite being a
+# POST. POST /stac/search is STAC's required JSON-body search surface,
+# delegating to the same read-only `_execute_search` the GET form uses.
 #
-# Pairs, not bare templates: exempting the PATH would also exempt a future
-# DELETE /api/query/{id}. And an exact list rather than a "POST that looks
-# like a read" category, so a future POST cannot inherit the exemption by
-# resembling one. Matching is on the template Starlette resolved, never on the
-# concrete path, so a caller-supplied path that merely spells the same
-# characters cannot reach it; an unresolvable template is
-# ``<unmatched-route>``, which is in no pair and so is refused.
+# Spelled WITHOUT the `/api` prefix: the app uses `root_path="/api"`, which
+# Starlette strips before route matching, so no route template starts with
+# `/api/`.
 #
-# Spelled WITHOUT the `/api` prefix. The app is constructed with
-# `root_path="/api"` (`api/main.py`), and an ASGI root_path never appears in a
-# route template — starlette strips it before matching, and `api/main.py` says
-# so where it mirrors that behaviour. Nothing in the route table starts with
-# `/api/`, which is why the already-mounted `/stac/search` entry below is
-# spelled that way too. An `/api/query/` entry would simply never match, and
-# because the check fails closed that would silently defeat the maintainer
-# decision rather than break loudly (fix(#875 codex r2)).
-#
-# Both spellings, because ROUTE-01's dual-shape decorator registers the
-# trailing-slash form and a hidden bare form for the same handler, and
-# redirect_slashes is off — exempting only one would 403 half the callers of
-# the same endpoint for no reason anyone could find.
-#
-# NOT VERIFIABLE YET: the route does not exist, so the exact template is
-# whatever router #565 mounts it on. `/query/` assumes a bare `api_router`
-# path or a `prefix="/query"` router, matching every other entry here.
-# Whoever lands #565 must confirm the real `route.path` and move the entry
-# out of the pending list in `backend/tests/test_api_key_scope_875.py`, which
-# then asserts it resolves.
-# fix(#875 codex r1): STAC Item Search is the second entry, and it is required
-# rather than a widening. The issue's acceptance criteria say a read_only key
-# must be able to hit OGC/STAC endpoints, and `POST /stac/search` IS the
-# standard's JSON-body search surface — `search_post` delegates to the same
-# `_execute_search` the GET form uses and writes nothing. Refusing it would
-# have shipped a comment claiming STAC works next to code that broke it.
+# Both trailing-slash and bare spellings, because ROUTE-01 registers both
+# forms for the same handler and `redirect_slashes` is off.
 _READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/query/"),
@@ -175,7 +121,6 @@ def _read_only_key_may_call(
     route_template: str,
     query_params: Mapping[str, str] | None = None,
 ) -> bool:
-    """Whether a ``read_only`` API key may authenticate this request (#875)."""
     if method not in _READ_ONLY_SAFE_METHODS:
         return (method, route_template) in _READ_ONLY_KEY_EXEMPT_ROUTES
     trigger = _READ_ONLY_KEY_WRITING_GET_ROUTES.get(route_template)
@@ -194,26 +139,16 @@ def _query_key_may_authenticate(
 ) -> bool:
     """Whether a key that arrived in the QUERY STRING may authenticate this.
 
-    fix(#1845): the deprecated ``?api_key=`` lane is documented as read-only
-    ("kept for external clients that cannot set headers, e.g. XYZ tile URLs in
-    desktop GIS tools") and nothing enforced it, so the same credential
-    authorized admin mutations. This is the enforcement.
+    fix(#1845): the deprecated ``?api_key=`` lane was documented read-only but
+    unenforced, so the same credential could authorize mutations. Restriction
+    is on the TRANSPORT, not the key: a URL-borne key leaks into browser
+    history, logs, and ``Referer`` headers by construction, so what it may do
+    is bounded independently of what its owner may do.
 
-    The restriction is on the TRANSPORT, not on the key. A key in a URL is
-    written into browser history, bookmarks, screen shares, an operator's
-    upstream load balancer or CDN access log, and a cross-origin ``Referer``.
-    It is a value that leaks by construction, so what it may do is bounded
-    independently of what its owner may do.
-
-    It composes with, rather than duplicates, the #875 scope rule: the same
-    ``_READ_ONLY_KEY_WRITING_GET_ROUTES`` classification decides which GETs
-    are really writes, so "which requests are reads" has one definition. The
-    query lane is deliberately the stricter of the two and does NOT inherit
-    ``_READ_ONLY_KEY_EXEMPT_ROUTES``. Those two POSTs are reads a key's OWNER
-    chose to make with a scoped credential; a URL that ends up in a log is a
-    credential nobody chose to hand out, and the tile-URL clients this lane
-    exists for issue GETs.
-
+    Reuses the ``_READ_ONLY_KEY_WRITING_GET_ROUTES`` classification but is
+    deliberately stricter than the #875 scope rule — it does NOT inherit
+    ``_READ_ONLY_KEY_EXEMPT_ROUTES``, since those POSTs are reads a key owner
+    chose to make while a logged URL is a credential nobody chose to expose.
     Header keys are untouched.
     """
     return method in _READ_ONLY_SAFE_METHODS and _read_only_key_may_call(
@@ -221,25 +156,17 @@ def _query_key_may_authenticate(
     )
 
 
-# fix(#1845): the refusal below is reachable by an unauthenticated caller at
-# the global rate limit, so one warning per refused request is a log
-# amplification primitive: whoever holds the URL chooses how many lines an
-# operator stores. One line per route template per minute is enough to notice
-# a client that needs moving to the header, and the volume is then bounded by
-# the size of the route table rather than by request volume.
-#
-# Keyed by route template, never by anything caller-supplied: ``_route_template``
-# answers ``<unmatched-route>`` for anything it cannot resolve, so the key
-# space is the route table plus one and the dict cannot be grown by a caller.
-# Unsynchronised on purpose. A lost race costs one extra log line, and a lock
-# on the request path to protect a log throttle would be the more expensive
-# mistake.
+# fix(#1845): reachable by an unauthenticated caller at the rate limit, so
+# refusal logging is throttled to one line per route template per interval,
+# bounding log volume by route-table size rather than request volume. Keyed
+# by route template only (never caller-supplied), so the key space cannot be
+# grown by a caller. Left unsynchronized: a lost race costs one extra log
+# line, cheaper than a lock on the request path.
 _QUERY_LANE_LOG_INTERVAL_SECONDS = 60.0
 _query_lane_log_last: dict[str, float] = {}
 
 
 def _should_log_query_lane_refusal(route_template: str) -> bool:
-    """True at most once per route template per interval."""
     now = monotonic()
     last = _query_lane_log_last.get(route_template)
     if last is not None and now - last < _QUERY_LANE_LOG_INTERVAL_SECONDS:
@@ -251,12 +178,10 @@ def _should_log_query_lane_refusal(route_template: str) -> bool:
 def _supplied_api_key(request: Request) -> str | None:
     """The API key this request may authenticate with, header first.
 
-    fix(#1845): ONE place decides whether a query-string key counts, so the
-    resolver and ``request_carries_credentials`` cannot answer differently and
-    turn an ignored credential into a confusing 401. When the query lane is
-    refused the key is treated as absent, exactly as if it had never been
-    supplied: the caller gets the 401/403/404 the request would have earned
-    anonymously, not a new error shape that tells an attacker their key parsed.
+    fix(#1845): the sole place deciding whether a query-string key counts, so
+    this resolver and ``request_carries_credentials`` cannot disagree. A
+    refused query-lane key is treated as absent, not surfaced as a new error
+    shape that would tell an attacker their key parsed.
     """
     header_key = request.headers.get("X-Api-Key")
     if header_key:
@@ -268,12 +193,9 @@ def _supplied_api_key(request: Request) -> str | None:
     if not _query_key_may_authenticate(
         request.method, route_template, request.query_params
     ):
-        # No key material and no key identifier: resolving one would need the
-        # database lookup this refusal deliberately skips, and would turn an
-        # unauthenticated request into an oracle for whether a key is live.
-        # Throttled, because an anonymous caller decides how often this runs
-        # (the resolver and ``request_carries_credentials`` both reach it on an
-        # optional-auth route, so it is not even one call per request).
+        # No DB lookup here: it would turn an unauthenticated request into an
+        # oracle for whether a key is live. Throttled since an anonymous
+        # caller controls how often this refusal path runs.
         if _should_log_query_lane_refusal(route_template):
             log.warning(
                 "api_key_query_lane_refused",
@@ -294,10 +216,8 @@ def log_permission_denial(
 ) -> None:
     """Emit deliberately narrow telemetry for an authorization denial.
 
-    Centralizing this shape keeps manual, resource-aware authorization checks
-    aligned with ``require_permission``. Do not add request headers, query
-    strings, bodies, resource identifiers, or resource objects here: those can
-    contain credentials or tenant data.
+    Do not add request headers, query strings, bodies, or resource
+    identifiers/objects here: they can carry credentials or tenant data.
     """
     route_template = _route_template(request)
     fields: dict[str, object] = {
@@ -315,15 +235,13 @@ def log_permission_denial(
 async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     """Try to resolve a user from X-Api-Key header or api_key query parameter.
 
-    The ``?api_key=`` query-parameter lane is DEPRECATED (#821): a credential
-    in the URL is written into access logs and any upstream proxy logs. It is
-    kept for external clients that cannot set headers (e.g. XYZ tile URLs in
-    desktop GIS tools) but new integrations must use the ``X-Api-Key`` header.
-    Resolution precedence is unchanged: header > query param.
+    fix(#821): the ``?api_key=`` query lane is DEPRECATED (leaks into access
+    logs); kept for clients that cannot set headers, e.g. desktop GIS XYZ tile
+    URLs. Precedence: header > query param.
 
-    fix(#1845): that read-only justification is now enforced rather than
-    merely stated. ``_supplied_api_key`` drops a query-string key on anything
-    but a read, so the deprecated lane can no longer authorize a mutation.
+    fix(#1845): that read-only justification is now enforced, not just
+    documented — ``_supplied_api_key`` drops a query-string key on anything
+    but a read.
     """
     api_key = _supplied_api_key(request)
     if not api_key:
@@ -338,25 +256,22 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     if api_key_obj is None:
         return None
     now = datetime.now(timezone.utc)
-    # fix(#821): an expired key behaves exactly like an invalid one (and must
-    # not bump last_used_at below).
+    # fix(#821): an expired key behaves like an invalid one (must not bump
+    # last_used_at below).
     if api_key_obj.expires_at is not None and api_key_obj.expires_at <= now:
         return None
-    # fix(#821): staleness gate on the owner's key_epoch — the API-key
-    # analogue of the JWT token_version check (SEC-S15), but on a dedicated
-    # counter bumped only by security events (password change, role change,
-    # SAML-to-local conversion). Logout bumps token_version, NOT key_epoch,
-    # so signing out of the web UI never kills long-lived API keys.
+    # fix(#821): staleness gate on the owner's key_epoch, the API-key analogue
+    # of the JWT token_version check (SEC-S15) — a dedicated counter bumped
+    # only by security events. Logout bumps token_version, not key_epoch, so
+    # long-lived API keys survive a web UI sign-out.
     user = api_key_obj.user
     if user is None or api_key_obj.key_epoch != user.key_epoch:
         return None
     if not user.is_active or user.status != "active":
         return None
-    # Only update last_used_at if it's been more than 60 seconds (reduce write amplification).
-    # Use a separate session so we don't flush the request-scoped session early —
-    # an early commit on `db` would release advisory locks the route handler
-    # may still need, and would persist any uncommitted state from prior
-    # dependencies before the route's own logic decides whether to commit.
+    # Only bump last_used_at every 60s (reduce write amplification), via a
+    # separate session: committing on `db` here would flush/release advisory
+    # locks or uncommitted state the route handler still needs.
     if api_key_obj.last_used_at is None or (now - api_key_obj.last_used_at) > timedelta(
         seconds=60
     ):
@@ -374,18 +289,12 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
             )
             await side_session.commit()
         api_key_obj.last_used_at = now
-    # fix(#875): least-privilege scope, enforced HERE rather than in
-    # require_permission or middleware, because this is the one chokepoint
-    # every API-key lane passes through — header, deprecated ?api_key=, and
-    # every router that resolves an optional user.
-    #
-    # It must RAISE, not return None: returning None falls through to the
-    # anonymous/JWT path and turns a scope violation into a confusing 401.
-    #
-    # It sits AFTER the last_used_at bump on purpose. The key did
-    # authenticate; the request is refused on what it asked to do, and usage
-    # is recorded either way, so a client hammering writes with a read-only
-    # key still shows a moving last_used_at instead of looking dormant.
+    # fix(#875): least-privilege scope enforced HERE — the one chokepoint
+    # every API-key lane passes through (header, deprecated query, every
+    # optional-user router). Must RAISE, not return None, or a scope
+    # violation falls through to the anonymous/JWT path as a confusing 401.
+    # Runs AFTER the last_used_at bump so a read-only key hammering writes
+    # still shows activity instead of looking dormant.
     route_template = _route_template(request)
     if api_key_obj.scope == "read_only" and not _read_only_key_may_call(
         request.method, route_template, request.query_params
@@ -406,18 +315,14 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
 def request_carries_credentials(request: Request) -> bool:
     """True if the request supplied any user credential (Bearer / API key).
 
-    Lets anonymous-capable endpoints tell a truly anonymous caller (serve
-    public, 404 private) apart from one whose supplied credentials failed to
-    resolve — e.g. an expired or revoked JWT that ``_resolve_optional_identity``
-    maps to ``None``. The latter should get 401, not 404, so the client's
-    refresh-and-retry path fires instead of a misleading "not found". Mirrors
-    the credential sources ``_resolve_api_key`` + the bearer scheme accept.
+    Lets an anonymous-capable endpoint tell a truly anonymous caller (serve
+    public, 404 private) apart from one whose credential failed to resolve
+    (expired/revoked JWT), which should get 401 instead so refresh-on-401
+    fires. Mirrors the credential sources ``_resolve_api_key`` + bearer accept.
 
-    fix(#1845): "mirrors" is load-bearing, hence the shared
-    ``_supplied_api_key``. A query-string key the resolver refuses to read is
-    not a credential that failed to resolve; it is a credential that was never
-    accepted, and reporting it here would answer 401 where the request would
-    otherwise have been served anonymously.
+    fix(#1845): a query-string key the resolver refuses to read is NOT a
+    credential that failed to resolve — reporting it here would wrongly 401 a
+    request that should have been served anonymously.
     """
     return bool(request.headers.get("Authorization") or _supplied_api_key(request))
 
@@ -425,21 +330,15 @@ def request_carries_credentials(request: Request) -> bool:
 def reject_unresolvable_credentials(request: Request, user: Identity | None) -> None:
     """Apply the #1518 fail-closed rule at a point the CALLER chooses.
 
-    The single implementation of the rule, so the dependency and the handlers
-    that have to sequence it themselves cannot drift into two answers — which
-    is the shape of the bug #1518 reported in the first place.
+    The single implementation, so dependencies and handlers that must
+    sequence it themselves cannot drift into two answers (the original #1518
+    bug). ``get_optional_user`` calls this immediately; a CAPABILITY handler
+    (see ``get_optional_user_fail_open``) calls it only after its own
+    capability check has declined, never before.
 
-    ``get_optional_user`` calls this immediately, which is right for the ~62
-    endpoints whose only authorization input is the caller's identity. A
-    handler in the CAPABILITY category (see ``get_optional_user_fail_open``)
-    calls it later instead: after its capability check has declined to
-    authorize the request, and never before.
-
-    Deliberately NOT capability-aware itself. It would have to be handed the
-    verdict, and a header-presence proxy for that verdict is worse than
-    useless: it would let any caller suppress the 401 by sending a junk
-    ``X-Embed-Token``, restoring the silent downgrade through a header anyone
-    can set.
+    Deliberately NOT capability-aware: it would need the verdict handed in,
+    and a header-presence proxy would let any caller suppress the 401 by
+    sending a junk header.
     """
     if user is None and request_carries_credentials(request):
         raise HTTPException(
@@ -454,20 +353,12 @@ def capability_declined(
 ) -> NoReturn:
     """Report a capability that did not authorize — after the #1518 rule.
 
-    fix(#1518 codex P2 round 3): the rule was applied at ONE exit point per
-    handler, but a CAPABILITY handler has SEVERAL paths on which no capability
-    authorized. An invalid embed token raised 403 and a missing signed template
-    raised 403 without the rule ever running, so a caller with a dead bearer got
-    a resource-status answer and a refresh-on-401 client never fired.
+    fix(#1518): a CAPABILITY handler has several exit paths where
+    no capability authorized; calling this instead of a bare ``raise`` makes
+    the #1518 ordering structural rather than positional, and checkable — a
+    test can require every capability-declined raise to route through here.
 
-    Calling this instead of ``raise`` makes the ordering structural rather than
-    positional: the credential rule cannot be skipped by adding another exit,
-    because the exit itself goes through here. That is also what makes it
-    checkable — a test can require every capability-declined raise in these
-    handlers to route through this function, which it could not do for "the
-    handler calls the helper somewhere".
-
-    ``exc`` is the answer for a caller whose credential is fine: an invalid
+    ``exc`` is the answer once the credential itself is fine: an invalid
     capability really is 403, a missing resource really is 404.
     """
     reject_unresolvable_credentials(request, user)
@@ -481,25 +372,19 @@ async def _resolve_optional_identity(
 ) -> Identity | None:
     """Resolve a caller identity from an API key or JWT, or ``None``.
 
-    The raw resolution shared by both optional-identity dependencies below.
-    ``None`` here means "no identity resolved", which is NOT the same as "no
-    credential was supplied" — an expired, revoked, or mistyped credential
-    lands on the same ``None``. Deciding what that means is the caller's job:
-    ``get_optional_user`` refuses it, ``get_optional_user_fail_open`` does not.
-    Splitting the resolution out is what stops the #1518 answer from being
-    duplicated alongside a copy of the resolution logic, which is how the two
-    answers drifted apart the first time.
+    Shared by both optional-identity dependencies below. ``None`` means "no
+    identity resolved" — not "no credential supplied"; an expired, revoked, or
+    mistyped credential lands on the same ``None``. Deciding what that means
+    is the caller's job (``get_optional_user`` refuses it,
+    ``get_optional_user_fail_open`` does not).
     """
-    # Try API key first
     user = await _resolve_api_key(request, db)
     if user is not None:
         return user
 
-    # IdentityExtension hook (Phase 214 D-15): if an enterprise overlay
-    # registered an alternate identity backend, give it a chance to resolve
-    # the bearer token before the existing JWT decode path. Default impl
-    # returns None -> falls through to JWT below. Extension is bearer-token
-    # only (D-17 — API keys remain a community concern).
+    # IdentityExtension hook (Phase 214 D-15): lets an enterprise overlay
+    # resolve the bearer token before the JWT decode path; default impl
+    # returns None. Bearer-token only (D-17 — API keys stay community).
     if token is not None:
         ext_identity = await get_identity_extension().resolve_identity_from_token(
             token, request, db
@@ -532,17 +417,14 @@ async def _resolve_optional_identity(
     if user is None or not user.is_active or user.status != "active":
         return None
 
-    # SEC-S15 (Phase 1062-01): reject stale access JWTs.
-    # A missing token_version claim (legacy / forged tokens) is treated as
-    # version 0, which is always less than the minimum stored version of 1.
+    # SEC-S15 (Phase 1062-01): reject stale access JWTs; missing token_version
+    # (legacy/forged tokens) is treated as 0, always below the min stored 1.
     jwt_token_version: int = payload.get("token_version", 0)
     if jwt_token_version < user.token_version:
         return None
 
-    # fix(#1455): a matching token_version is not proof the token postdates the
-    # last revocation — a rotation racing that revocation reads the pre-bump
-    # value and mints a token carrying it. The horizon is the check that does
-    # not depend on when the claim was read.
+    # fix(#1455): matching token_version alone doesn't prove the token
+    # postdates revocation (rotation racing revocation) — see helper docstring.
     if _predates_revocation_horizon(payload, user):
         return None
 
@@ -556,27 +438,18 @@ async def get_optional_user(
 ) -> Identity | None:
     """Resolve the caller on an anonymous-capable endpoint. FAIL-CLOSED.
 
-    A credentialless request resolves to ``None`` and keeps the public path
-    (public datasets served, private ones absent). A request that SUPPLIED a
-    credential which does not resolve — expired, revoked, mistyped — gets 401.
+    A credentialless request resolves to ``None`` (public path). A request
+    that SUPPLIED a credential which fails to resolve — expired, revoked,
+    mistyped — gets 401.
 
-    fix(#401): the OGC/STAC read handlers resolved a stale/revoked token to the
-    anonymous path, so a credentialed caller's private dataset 404'd instead of
-    401ing and the client's refresh-on-401 retry never fired.
+    fix(#401): a stale/revoked token used to resolve to anonymous, so a
+    credentialed caller's private dataset 404'd instead of 401ing.
 
-    fix(#1518): that reasoning was never specific to OGC and STAC, but the fix
-    was. It lived in a separate ``get_optional_user_or_401`` and reached the 8
-    handlers whose routers were in scope; the other 58 kept this dependency and
-    kept silently downgrading. Seen through a list endpoint the same bug is
-    quieter than the 404 #401 describes and worse: the caller gets 200 and the
-    public subset, with no way to tell "my key expired last night" from "this
-    catalog holds nothing else". Which answer a caller got was decided by which
-    router happened to get patched, so it could be neither predicted nor
-    documented.
-
-    The rule lives HERE now, so every site inherits it instead of opting in.
-    ``get_optional_user_fail_open`` is the one sanctioned way out, and its
-    users are pinned by ``tests/test_optional_auth_failure_mode_1518.py``.
+    fix(#1518): that fix was router-scoped and left most endpoints silently
+    downgrading a bad credential to the anonymous/public subset instead of
+    401ing. The rule now lives HERE so every site inherits it;
+    ``get_optional_user_fail_open`` is the one sanctioned way out, pinned by
+    ``tests/test_optional_auth_failure_mode_1518.py``.
     """
     user = await _resolve_optional_identity(request, token, db)
     reject_unresolvable_credentials(request, user)
@@ -590,42 +463,27 @@ async def get_optional_user_fail_open(
 ) -> Identity | None:
     """The named exceptions to the fail-closed rule above (#1518).
 
-    This dependency does not judge the credential. A supplied-but-unresolvable
-    one resolves to ``None`` here and the handler decides what that means.
+    Does not judge the credential: a supplied-but-unresolvable one resolves to
+    ``None`` here, and the handler decides what that means. Exactly TWO
+    sanctioned categories:
 
-    There are exactly TWO sanctioned categories, stated so a future entry is
-    judged against a bar rather than against how inconvenient a 401 would be.
+    **RECOVERY** — an endpoint that recovers from a dead credential (e.g.
+    ``/auth/logout``, which accepts the refresh cookie or a body token once
+    the access JWT has aged out, fix(#1446)) and raises its own 401 if nothing
+    presented resolves.
 
-    **RECOVERY** — an endpoint whose job is to recover from a dead credential.
-    Refusing the caller because the very credential they are trying to discard
-    is dead is circular: it makes the broken state permanent. ``/auth/logout``
-    is the case. It accepts the refresh cookie or a body token when the access
-    JWT has aged out (fix(#1446)) and raises its own 401 when nothing presented
-    resolves, so it stays fail-closed on its own terms.
-
-    **CAPABILITY** — an endpoint that can be authorized by something OTHER than
-    the caller's identity, currently an embed token. A capability authorizes a
-    specific resource on its own and does not depend on who is asking, so a
-    stale session bearer sent alongside it is noise rather than a failed
-    authorization attempt. The rule is not waived for these, only RESEQUENCED:
-    the handler evaluates the capability first and calls
-    ``reject_unresolvable_credentials`` on the path where no capability
-    authorized the request. A CAPABILITY entry that does not call it is a hole,
-    so the structural test requires the call rather than trusting the label.
-
-    Why the resequencing lives in the handlers and not in
-    ``request_carries_credentials``: deciding whether a capability is VALID
-    needs a DB session and the resource id (``validate_embed_token_access``
-    takes both, and ``/tiles/tokens/`` resolves many ids in a loop), neither of
-    which a header predicate has. Degrading it to "an embed header is present"
-    would let any caller suppress the 401 with a junk header, which is #1518
-    again wearing a different hat.
+    **CAPABILITY** — an endpoint authorizable by something other than the
+    caller's identity (an embed token). The rule is RESEQUENCED, not waived:
+    the handler evaluates the capability first, then calls
+    ``reject_unresolvable_credentials`` only on the path where no capability
+    authorized the request. Resequencing lives in the handler, not in
+    ``request_carries_credentials``, because validating a capability needs a
+    DB session and the resource id — degrading it to "a header is present"
+    would let any caller suppress the 401 with a junk header (#1518 again).
 
     Every user of this dependency must be listed in ``FAIL_OPEN_ALLOWLIST`` in
-    ``tests/test_optional_auth_failure_mode_1518.py`` with its category and
-    justification. That test walks the route table and fails on an unlisted
-    one, which is what keeps the exception list from growing by accident — the
-    way the 8/58 split grew in the first place.
+    ``tests/test_optional_auth_failure_mode_1518.py`` with its category; that
+    test walks the route table and fails on an unlisted one.
     """
     return await _resolve_optional_identity(request, token, db)
 
@@ -636,18 +494,15 @@ async def get_optional_user_no_security_schema(
 ) -> Identity | None:
     """``get_optional_user`` minus the OpenAPI security marker.
 
-    fix(#430 codex): depending on ``oauth2_scheme_optional`` stamps a bearer
-    ``security`` entry onto the operation, so generated SDKs type genuinely
-    public endpoints (e.g. STAC collections) as requiring an authenticated
-    client. This variant extracts the bearer token from the raw header —
-    identical resolution semantics, zero schema footprint. Use ONLY on
-    endpoints that must stay anonymous on the public OpenAPI surface.
+    fix(#430): ``oauth2_scheme_optional`` stamps a bearer ``security``
+    entry onto the operation, mistyping genuinely public endpoints (e.g. STAC
+    collections) as requiring auth in generated SDKs. This extracts the bearer
+    token from the raw header instead — identical resolution semantics, zero
+    schema footprint. Use ONLY where the public OpenAPI surface must stay
+    anonymous.
 
-    fix(#1518): it delegates to ``get_optional_user`` rather than to the raw
-    resolver, so it inherits the fail-closed rule. What this variant opts out
-    of is the SCHEMA marker, never the failure mode — pointing it at
-    ``_resolve_optional_identity`` would silently restore the split on the
-    public STAC routes without tripping the fail-open allowlist.
+    fix(#1518): delegates to ``get_optional_user``, so it still inherits the
+    fail-closed rule; only the schema marker is opted out of.
     """
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else None
@@ -665,16 +520,13 @@ async def get_current_user(
     Uses oauth2_scheme_optional so that X-Api-Key requests without a Bearer
     token are not rejected before the function body runs.
     """
-    # Try API key first
     user = await _resolve_api_key(request, db)
     if user is not None:
         return user
 
-    # IdentityExtension hook (Phase 214 D-15): same pattern as
-    # get_optional_user. Duplicated across both deps to preserve the
-    # expired-token UX (RFC 6750 silent-refresh hint at lines below)
-    # rather than refactoring get_current_user to delegate to
-    # get_optional_user (Pitfall 9 recommendation).
+    # IdentityExtension hook (Phase 214 D-15), same pattern as
+    # get_optional_user. Duplicated here (not delegated) to preserve the
+    # expired-token 401 UX below (RFC 6750 silent-refresh hint).
     if token is not None:
         ext_identity = await get_identity_extension().resolve_identity_from_token(
             token, request, db
@@ -727,17 +579,14 @@ async def get_current_user(
     if user is None or not user.is_active or user.status != "active":
         raise credentials_exception
 
-    # SEC-S15 (Phase 1062-01): reject stale access JWTs.
-    # A missing token_version claim (legacy / forged tokens) is treated as
-    # version 0, which is always less than the minimum stored version of 1.
+    # SEC-S15 (Phase 1062-01): reject stale access JWTs; missing token_version
+    # (legacy/forged tokens) is treated as 0, always below the min stored 1.
     jwt_token_version: int = payload.get("token_version", 0)
     if jwt_token_version < user.token_version:
         raise credentials_exception
 
-    # fix(#1455): a matching token_version is not proof the token postdates the
-    # last revocation — a rotation racing that revocation reads the pre-bump
-    # value and mints a token carrying it. The horizon is the check that does
-    # not depend on when the claim was read.
+    # fix(#1455): matching token_version alone doesn't prove the token
+    # postdates revocation (rotation racing revocation) — see helper docstring.
     if _predates_revocation_horizon(payload, user):
         raise credentials_exception
 
@@ -747,7 +596,6 @@ async def get_current_user(
 async def get_current_active_user(
     current_user: Annotated[Identity, Depends(get_current_user)],
 ) -> Identity:
-    """Ensure the current user is active."""
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -824,10 +672,8 @@ def require_permission(*capabilities: str):
     ) -> Identity:
         from app.modules.auth.permissions import get_effective_permissions
 
-        # Get user roles (cached per-request)
         user_roles = await get_cached_user_roles(request, db, current_user)
 
-        # Get effective permission matrix (cached per-request)
         cached = getattr(request.state, "_effective_permissions", None)
         if cached is not None:
             matrix = cached
@@ -837,7 +683,6 @@ def require_permission(*capabilities: str):
 
         permission_ext = get_permission_extension()
 
-        # Check each requested capability
         for cap in capabilities:
             granted = await permission_ext.check_permission(
                 db,

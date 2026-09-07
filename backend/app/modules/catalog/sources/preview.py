@@ -44,10 +44,8 @@ def _encode_url_for_gdal(url: str) -> str:
     """Percent-encode URL paths so GDAL/libcurl accepts ArcGIS service names."""
     parts = urlsplit(url)
     encoded_path = quote(parts.path, safe="/%:@!$&'()*+,;=")
-    # fix(#1770 round 47 P1 class): the caller's OWN submitted service URL,
-    # not a service-advertised href read out of a third-party response --
-    # different threat model, already bounded by request-body size limits
-    # and Pydantic field validation on the way in.
+    # fix(#1770): caller's own submitted URL, not a third-party href;
+    # bounded by request-body size limits and Pydantic validation.
     pairs = parse_qsl(parts.query, keep_blank_values=True)  # parse_qs: unbounded
     encoded_query = urlencode(pairs)
     return urlunsplit(
@@ -55,21 +53,17 @@ def _encode_url_for_gdal(url: str) -> str:
     )
 
 
-# fix(#1746 B2b review r13): the two header-auth prefixes, and the bare URL
-# behind them. `run_service_preview` holds a composed GDAL source string
-# rather than a stored format, which is why the prefix is the selector here,
-# exactly as it already is for deciding whether to write a header file at all.
+# fix(#1746): prefix selects the auth format since run_service_preview
+# holds a composed GDAL source string, not a stored format.
 _GDAL_SOURCE_FORMATS = {"WFS:": "wfs", "OAPIF:": "ogcapi_features"}
 
 
 class _Localised(NamedTuple):
     """What to run ogrinfo against, and what to report regardless of it.
 
-    fix(#1746 B2b review r24): ``reported_name`` and ``total`` do not come from
-    ogrinfo and must not. Pointed at a scratch file with no layer argument, the
-    GeoJSON driver answers with the temp file's name and with the number of
-    features in the sample, so the user saw `oapif_items_xxxx` where their
-    collection should be and a row count of `sample_limit`.
+    fix(#1746): reported_name/total must NOT come from ogrinfo — pointed
+    at a scratch file, the GeoJSON driver reports the temp filename and
+    sample count instead of the real collection name/total.
     """
 
     gdal_source: str
@@ -89,22 +83,16 @@ async def _localise_protected_oapif(
 ) -> _Localised:
     """Read a protected OGC API collection locally, and describe the file.
 
-    fix(#1746 B2b review r16): its pages choose the next one, GDAL follows that
-    link, and `GDAL_HTTP_HEADER_FILE` applies to every request the process
-    makes, so a collection whose first page is same-origin can hand the
-    credential to any origin it names on page two. GDAL 3.10.3 offers no way to
-    scope the header to one origin, which was measured rather than assumed (see
-    `platform/service_items`), so the credential is kept out of GDAL entirely
-    here: the pages are fetched with the bounded client, streamed to a local
-    file, and ogrinfo is pointed at that.
+    fix(#1746): GDAL_HTTP_HEADER_FILE is process-global and OAPIF paging
+    follows a `next` link the origin chooses, so a same-origin first page
+    could hand the credential to an origin named on page two — GDAL 3.10.3
+    has no way to scope it (measured, see `platform/service_items`). Pages
+    are fetched with the bounded client, streamed to a local file, and
+    ogrinfo reads that instead. WFS pages by `startIndex` against the
+    validated capabilities endpoint and ignores `next`, so it is left alone.
 
-    WFS needs none of this and is left alone. Its driver pages by `startIndex`
-    against the endpoint the capabilities advertise, which is the endpoint the
-    description check validates, and it ignores a `next` attribute outright.
-
-    Returns the source, layer and credential to use from here, the file to
-    delete afterwards, and the two things the caller must report from here
-    rather than from ogrinfo.
+    Returns what to run ogrinfo against, the file to delete afterwards, and
+    the name/total to report instead of trusting ogrinfo.
     """
     if credential is None or not gdal_source.startswith("OAPIF:"):
         return _Localised(gdal_source, layer_name, credential, None, None, None)
@@ -117,33 +105,30 @@ async def _localise_protected_oapif(
             ),
             staging_dir=ensure_staging_ready(settings.upload_staging_dir),
             feature_limit=sample_limit,
-            # fix(#1746 B2b review r17): the preview's budget covers the page
+            # fix(#1746): the preview's budget covers the page
             # walk as well as ogrinfo now. It used to run before the clock
             # started, and the client's timeout is per inactivity, so a service
             # answering slowly forever held the API request open indefinitely.
             deadline=deadline,
         )
     except ItemFetchFailedError as exc:
-        # The same coded answer the description check gives, for the same
-        # reason: the caller named a URL whose collection cannot be read
-        # safely, and the field to change is the URL.
+        # Same coded 422 the description check gives: the URL's collection
+        # can't be read safely, and the field to change is the URL.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": exc.code, "message": exc.policy, "field": exc.field},
         ) from None
-    # A local file, with no credential anywhere in what follows. The layer
-    # argument is dropped because the GeoJSON driver has exactly one layer, but
-    # the collection the caller asked for is what gets reported.
+    # A local file, no credential anywhere in what follows. layer_name is
+    # dropped (GeoJSON driver has exactly one layer); the collection the
+    # caller asked for is still what gets reported.
     return _Localised(extract.path, "", None, extract.path, layer_name, extract.total)
 
 
 def _remove_quietly(path: str | None) -> None:
-    """Unlink a temp file, treating "already gone" as the outcome it wanted.
+    """Unlink a temp file; "already gone" counts as success.
 
-    Two of these exist on the preview path and both hold something that should
-    not outlive it: the 0600 credential header, and the local copy of a
-    protected collection. A SIGKILL between the two is what the staging and
-    header sweeps reclaim.
+    Covers the 0600 credential header and the local OAPIF copy — a SIGKILL
+    between the two is what the staging/header sweeps reclaim.
     """
     if path is None:
         return
@@ -154,11 +139,6 @@ def _remove_quietly(path: str | None) -> None:
 
 
 def _required_pair(pair: tuple[str, str] | None) -> tuple[str, str]:
-    """The builder's pair, where the caller has established there is one.
-
-    `build_credential_header` answers None for a format that carries no header,
-    and this branch runs only for `OAPIF:`, which is one of the two that do.
-    """
     if pair is None:  # pragma: no cover - unreachable from the OAPIF branch
         raise IngestionError("no credential header could be composed")
     return pair
@@ -201,12 +181,9 @@ def build_gdal_source(
             raise ValueError("ArcGIS layer preview requires a layer ID")
         safe_base_url = _encode_url_for_gdal(base_url.rstrip("/"))
         safe_layer_id = quote(str(layer_id).strip("/"), safe="")
-        # fix(#1359): a /query with no outFields returns the layer's display
-        # field alone, so the import landed geometry plus ONE attribute column
-        # and dropped every other field. The preview reads the layer's ?f=json
-        # field list and therefore promised columns this fetch never asked
-        # for. urlencode renders the value as `outFields=%2A`, which ArcGIS
-        # decodes back to `*`.
+        # fix(#1359): omitting outFields returns only the display field,
+        # dropping every other column. urlencode renders `*` as `%2A`,
+        # which ArcGIS decodes back correctly.
         params: dict[str, str | int] = {
             "f": "json",
             "where": "1=1",
@@ -218,19 +195,10 @@ def build_gdal_source(
             params["resultRecordCount"] = result_limit
         if result_offset is not None:
             params["resultOffset"] = result_offset
-        # feat(C2): deliberately still the query form, and the one ArcGIS
-        # transport lane C2 did NOT move. The httpx adapter sends
-        # ``Authorization: Bearer`` now, but GDAL reads a credential only from
-        # ``GDAL_HTTP_HEADER_FILE``, which is process-global (measured for
-        # #1770 and recorded in ``platform/service_items``) and whose writer
-        # holds every line to ``HEADER_TOKEN_CHARSET``. An ArcGIS token
-        # legitimately contains ``+`` or ``/``, which that charset refuses, so
-        # moving this path would mean either widening the base64url rule that
-        # exists to stop header smuggling into libcurl, or refusing tokens that
-        # work today. The exposure this leaves -- the token in the subprocess
-        # argv and in GDAL's error text -- is bounded where it lands:
-        # ``run_ogr2ogr_service`` redacts before the text becomes an exception,
-        # and #1753 purges the job row.
+        # feat(C2): kept as a query param — GDAL only reads credentials from
+        # GDAL_HTTP_HEADER_FILE, whose charset rejects the `+`/`/` a real
+        # ArcGIS token can contain. Exposure (argv, GDAL error text) is
+        # bounded: run_ogr2ogr_service redacts it and #1753 purges the job row.
         if token:
             params["token"] = token
         query_url = f"{safe_base_url}/{safe_layer_id}/query?{urlencode(params)}"
@@ -250,18 +218,12 @@ async def run_service_preview(
 ) -> dict:
     """Run ogrinfo against a remote service to get layer metadata and sample rows.
 
-    Args:
-        gdal_source: GDAL-prefixed source string (e.g. "WFS:https://..." or "ESRIJSON:https://...")
-        layer_name: Layer name to query (empty string for drivers that embed layer in URL)
-        sample_limit: Maximum number of sample features to retrieve
-        timeout: Seconds before killing the subprocess
-        credential: What to authenticate with, or None. For an ArcGIS source
-            the credential is already in ``gdal_source``'s query string and
-            this is ignored; for WFS and OGC API Features it becomes the one
-            line of a 0600 ``GDAL_HTTP_HEADER_FILE``.
+    credential is ignored for ArcGIS (token is already in gdal_source's query
+    string); for WFS/OGC API Features it becomes the one line of a 0600
+    GDAL_HTTP_HEADER_FILE.
 
-    Returns:
-        Dict with keys: srid, geometry_type, layer_name, feature_count, columns, sample_rows
+    Returns a dict with srid, geometry_type, layer_name, feature_count,
+    columns, sample_rows.
     """
     empty_fallback: dict = {
         "srid": None,
@@ -272,17 +234,8 @@ async def run_service_preview(
         "sample_rows": [],
     }
 
-    # fix(#1746 B2b review r16): a protected OGC API collection is read HERE,
-    # not by GDAL. Its pages choose the next one, GDAL follows that link, and
-    # `GDAL_HTTP_HEADER_FILE` applies to every request the process makes, so a
-    # collection whose first page is same-origin can hand the credential to any
-    # origin it names on page two. GDAL 3.10.3 has no way to scope the header to
-    # one origin, which was measured rather than assumed (see
-    # `platform/service_items`), so the credential is kept out of GDAL entirely
-    # for this path: the pages are fetched with the bounded client, streamed to
-    # a local file, and ogrinfo is pointed at that. WFS needs none of this; its
-    # driver pages by startIndex against the endpoint the capabilities
-    # advertise, which the description check validates.
+    # fix(#1746): protected OAPIF collections are localised here, not
+    # read by GDAL directly — see _localise_protected_oapif for why.
     deadline = time.monotonic() + timeout
     localised = await _localise_protected_oapif(
         gdal_source, layer_name, credential, sample_limit, deadline
@@ -291,14 +244,10 @@ async def run_service_preview(
     layer_name = localised.layer_name
     credential = localised.credential
     items_path = localised.items_path
-    # fix(#1846, GHSA-hrf5-v3cq-frx5): on the service branch the driver is
-    # pinned by the WFS:/OAPIF:/ESRIJSON: prefix the source string carries. On
-    # the localised branch it is not: `_localise_protected_oapif` swaps the
-    # source for a bare local staging path, and a bare path is identified by
-    # content like any other file. `_walk_pages` re-encodes every feature into
-    # its own FeatureCollection wrapper, so those bytes are always JSON --
-    # which makes naming the driver free, and makes the claim true rather than
-    # merely true in practice.
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): service branch driver is pinned by the
+    # WFS:/OAPIF:/ESRIJSON: prefix; localised branch swaps in a bare staging
+    # path, so `-if GeoJSON` is forced — _walk_pages guarantees those bytes
+    # really are JSON, so naming the driver here is a true claim, not a guess.
     driver_args = ["-if", "GeoJSON"] if items_path is not None else []
     cmd = [
         "ogrinfo",
@@ -322,40 +271,26 @@ async def run_service_preview(
     )
 
     header_file_path: str | None = None
-    # fix(#1746 B2b review r2): kept in scope past the block that composes it,
-    # because the failure handling below the `finally` is what needs it. The
-    # pattern-based redactors cannot see a credential in a header line, so the
-    # exact value is the only thing that can scrub an echo of one.
+    # fix(#1746): kept in scope for the finally/error paths below —
+    # pattern-based redactors can't see a credential in a header line, only
+    # the exact value can scrub an echoed one.
     header_line: str | None = None
     try:
-        # fix(#937): this env used to set GDAL_HTTP_FOLLOWLOCATION=NO as a
-        # redirect defense. That is not a GDAL configuration option and never
-        # stopped a redirect; do not re-add it. The actual SSRF defense for
-        # this user-supplied service URL is validate_url_for_ssrf at
-        # submission time; libcurl under GDAL follows redirects
-        # unconditionally, so post-validation redirects must be bounded
-        # operationally (worker egress firewall).
-        # fix(#1857 item 3): the SERVICE variant, not the vector one: this
-        # branch exists to read WFS and OAPIF, which the vector variant skips.
+        # fix(#937): GDAL_HTTP_FOLLOWLOCATION is not a real GDAL option and
+        # never stopped a redirect — never re-add it. SSRF defense is
+        # validate_url_for_ssrf at submission; libcurl follows redirects
+        # unconditionally after that, bounded operationally (egress firewall).
+        # fix(#1857): SERVICE variant — this branch reads WFS/OAPIF,
+        # which the vector variant skips.
         env = gdal_service_safe_env()
         pair: tuple[str, str] | None = None
         if credential is not None and (
             gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")
         ):
-            # fix(#1746): the credential policy first, because this branch
-            # builds the same header line the commit path builds. Preview used
-            # to judge the token by `_validate_safe_token` alone — printable,
-            # no whitespace — so a WFS token containing `+` or `/` previewed
-            # cleanly and was then refused at commit, or worse, burned its
-            # single-use credential and died in the worker. Same 422, same code
-            # and same policy-only message the commit doors return: the caller
-            # has the credential and can compare it against the rule, and a
-            # response must never echo any part of one.
-            #
-            # fix(#1746 B2b): the inputs are judged, and the line is composed
-            # afterwards by the one builder. Judging the composed line instead
-            # would reject every basic credential, because a basic line
-            # contains a space and a colon.
+            # fix(#1746): judge inputs before composing the header line —
+            # judging the composed line would reject every basic credential
+            # (it contains a space and colon), and would let a WFS token with
+            # `+`/`/` preview clean then fail at commit.
             rejection = credential_input_rejection(credential)
             if rejection is not None:
                 raise HTTPException(
@@ -369,11 +304,10 @@ async def run_service_preview(
             pair = build_credential_header(credential)
 
         if pair is not None:
-            # fix(#1746 B2b review r13): before the header file exists, because
-            # GDAL applies it to the operation endpoints the service's own
-            # description advertises, and those are fresh requests no redirect
-            # rule can see. Checked again in the worker: the document can
-            # change between a preview and the import it leads to.
+            # fix(#1746): checked before the header file exists, since
+            # GDAL applies it to endpoints the service's own description
+            # advertises. Checked again in the worker: the document can
+            # change between preview and the import it leads to.
             try:
                 # fix(#1828): a credentialed WFS never reaches GDAL without a
                 # layer, since GDAL opened layerless reads every layer's schema.
@@ -385,23 +319,19 @@ async def run_service_preview(
                 await assert_endpoints_stay_on_origin(
                     _service_url(gdal_source),
                     service_format=_gdal_source_format(gdal_source),
-                    # fix(#1746 B2b review r14): the same line the worker will
-                    # hand GDAL, so a protected service answers with the
-                    # document GDAL will act on rather than a 401. And the
-                    # layer being previewed, so the collection actually read is
-                    # the one checked rather than whatever fits on page one.
+                    # fix(#1746): same line the worker will hand GDAL, so
+                    # a protected service answers with the document GDAL will
+                    # act on rather than a 401.
                     credential_line=credential_header_line(pair),
                     collection=layer_name or None,
-                    # fix(#1746 B2b review r23): inside the preview's budget.
-                    # The client's timeout is per inactivity, so a service
-                    # trickling a 32 MiB capabilities document held the request
-                    # open indefinitely before ogrinfo had started.
+                    # fix(#1746): inside the preview's budget — the
+                    # client's per-inactivity timeout let a service trickling
+                    # a 32 MiB doc hold the request open before ogrinfo ran.
                     deadline=deadline,
                 )
             except (CrossOriginEndpointError, EndpointCheckFailedError) as exc:
-                # A coded 422, not the 502 the broad handler upstairs would
-                # make of it: this is an answer about the URL the caller
-                # submitted, and it names the field to change.
+                # Coded 422, not the 502 the broad handler upstairs would
+                # make of it: names the field to change on the caller's URL.
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail={
@@ -412,40 +342,24 @@ async def run_service_preview(
                 ) from None
 
             # SEC-021: mirror the ogr2ogr commit path (IA-P1-06 / SEC-FU-04).
-            # Passing the credential via GDAL_HTTP_HEADERS leaks it through the
-            # subprocess env (visible in /proc/<pid>/environ for the process
-            # lifetime) and lets a CR/LF in it inject arbitrary outbound HTTP
-            # headers under libcurl. Hand it to GDAL via a 0600
-            # GDAL_HTTP_HEADER_FILE instead, so the env var carries the file
-            # PATH and not the secret. The tempfile is unlinked in the finally
-            # below.
+            # GDAL_HTTP_HEADERS would leak the credential via subprocess env
+            # (/proc/<pid>/environ) and let a CR/LF inject outbound HTTP
+            # headers under libcurl. Use a 0600 GDAL_HTTP_HEADER_FILE instead,
+            # so the env var carries a path, not the secret; unlinked in the
+            # finally below.
             #
-            # fix(#1746 B2b): the line comes from the shared joiner and this
-            # site composes no prefix of its own. It used to write
-            # `f"Authorization: Bearer {token}"`, and handing that same line a
-            # finished basic credential would have produced
-            # `Authorization: Bearer Authorization: Basic <blob>` — a
-            # working-looking string that 401s at the origin and reads in a log
-            # like a credential problem rather than a bug.
+            # fix(#1746): the line comes from the shared joiner alone — no
+            # prefix composed here, so a finished basic credential can't
+            # collide with a hardcoded "Authorization: Bearer " prefix and
+            # produce a working-looking string that 401s at the origin.
             header_line = credential_header_line(pair)
             import tempfile
 
-            # fix(#1746): name the directory rather than inheriting it.
-            # Without `dir=`, where this credential file lands depends on
-            # whether the process ran `redirect_tempfile_to_staging`
-            # (app/api/main.py, app/platform/jobs/worker.py) AND on that
-            # helper's own escape hatch — it silently declines to move
-            # `tempfile.tempdir` when the directory is missing.
-            #
-            # fix(#1746 codex r2): and the directory is the container tmpfs,
-            # not the staging volume. Staging is a persistent volume that
-            # `scripts/backup-entrypoint.sh` tars every cycle, so a header
-            # orphaned by a SIGKILL before the unlink below could be archived
-            # into a backup. `gdal_header_dir()` is 0700 under /tmp, which both
-            # the api and the worker mount as their own 512m tmpfs: the file is
-            # private to this container and gone on restart, and the sweep at
-            # boot and on the API's periodic cadence reclaims one that leaks
-            # inside a container that keeps running.
+            # fix(#1746): name the directory explicitly, not the container
+            # tmpfs default — gdal_header_dir() is 0700 under /tmp (private
+            # to this container, gone on restart, swept at boot and on the
+            # API's periodic cadence), so a header orphaned by a SIGKILL
+            # can't land in the staging volume that gets tarred into backups.
             fd, header_file_path = tempfile.mkstemp(
                 prefix="gdal_auth_",
                 suffix=".hdr",
@@ -458,22 +372,17 @@ async def run_service_preview(
             os.chmod(header_file_path, 0o600)
             env["GDAL_HTTP_HEADER_FILE"] = header_file_path
             env.update(gdal_transport_env(_gdal_source_format(gdal_source)))
-            # Plan rule A: GDAL forwards `Authorization` only to the host it
-            # was given to, and forwards every other header name verbatim even
-            # across hosts, so a service-chosen API key is redirect-exposed on
-            # this path and cannot be protected from inside (bounded
-            # operationally, AGENTS.md Rule 2). The value is stated rather than
-            # inherited, and it is IF_SAME_HOST rather than NO: a same-host
-            # canonical redirect, such as one adding a trailing slash, must
-            # keep the credential or a protected service answers 401.
+            # Plan rule A: GDAL forwards non-Authorization headers verbatim
+            # across hosts, so a service-chosen API key is redirect-exposed
+            # here and can't be protected from inside (AGENTS.md Rule 2).
+            # IF_SAME_HOST not NO: a same-host canonical redirect (e.g. a
+            # trailing slash) must keep the credential or the service 401s.
             env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
-        # fix(#1746 B2b review r23): computed HERE rather than earlier, so it
-        # accounts for everything that has already spent the budget: the
-        # in-process page walk for a protected OGC API collection, and the
-        # endpoint check just above. Floored so a preflight that used the whole
-        # budget still fails through the ordinary ogrinfo timeout rather than
-        # through an arithmetic edge.
+        # fix(#1746): computed here so it accounts for budget already
+        # spent (page walk, endpoint check). Floored so a preflight that used
+        # the whole budget still fails via the ordinary timeout, not an
+        # arithmetic edge.
         timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -493,11 +402,9 @@ async def run_service_preview(
                 layer_name=layer_name,
                 timeout=timeout,
             )
-            # A timeout is a real failure, not a genuinely-empty layer. Raise so
-            # the router surfaces a 502 error toast instead of returning a
-            # fake-success preview with zero columns (which left the UI showing
-            # a spinner then no attributes). empty_fallback is reserved for
-            # zero-feature layers only (handled below).
+            # A timeout is a real failure, not a genuinely-empty layer — raise
+            # so the router surfaces a 502 instead of a fake-success preview
+            # with zero columns. empty_fallback is for zero-feature layers only.
             raise IngestionError(
                 f"ogrinfo timed out after {timeout:.0f}s for service preview"
             ) from exc
@@ -509,18 +416,11 @@ async def run_service_preview(
 
     if proc.returncode != 0:
         error_msg = stderr.decode().strip() if stderr else "unknown error"
-        # fix(#1746 B2b review r2): the exact-value scrub the worker task path
-        # already applies, brought to the preview path for the same reason.
-        # `redact_url_credentials` matches URL shapes and the stdlib log
-        # processor matches KEY names, and a credential echoed by the origin
-        # arrives as neither: GDAL prints the request it failed on, so an
-        # `Authorization: Basic <blob>` or a service-chosen API key can land in
-        # stderr as prose. `scrub_secret_value` needs no theory about the shape
-        # because it holds the value, and it covers the composed line, the
-        # scheme-prefixed half and the bare credential
-        # (`_secret_variants`). Applied BEFORE the log and before the exception
-        # is constructed, so every downstream reader of either sees the same
-        # scrubbed text.
+        # fix(#1746): a credential GDAL echoes back in stderr prose isn't a
+        # URL shape or a KEY name, so redact_url_credentials and the log
+        # processor both miss it. scrub_secret_value holds the exact value
+        # instead, applied before the log and the exception are built so
+        # every downstream reader sees the same scrubbed text.
         safe_error_msg = scrub_secret_value(
             redact_url_credentials(error_msg), header_line
         )
@@ -535,12 +435,9 @@ async def run_service_preview(
     try:
         data = json.loads(stdout.decode())
     except (ValueError, UnicodeDecodeError):
-        # fix(#1746 B2b review r2): an exit-0 run whose stdout is not the JSON
-        # document this asked for used to raise the decoder's own exception,
-        # and a JSONDecodeError carries the document that failed to parse.
-        # That document is GDAL output too. This refusal says only that the
-        # output could not be read, and names no part of it. `from None` so
-        # the chained original cannot carry it either.
+        # fix(#1746): a JSONDecodeError carries the document it failed to
+        # parse, which is GDAL output too. This refusal names no part of it;
+        # `from None` keeps the chained original from carrying it either.
         logger.error(
             "ogrinfo returned unreadable output for service preview",
             gdal_source=redact_url_credentials(gdal_source),
@@ -577,10 +474,8 @@ async def run_service_preview(
     result = {
         "srid": srid,
         "geometry_type": geometry_type,
-        # fix(#1746 B2b review r24): for a localised collection both of these
-        # come from the request and the service rather than from ogrinfo, which
-        # is describing a scratch file it was handed. Everywhere else they come
-        # from ogrinfo exactly as before.
+        # fix(#1746): for a localised collection these come from the
+        # request/service, not ogrinfo, which is describing a scratch file.
         "layer_name": localised.reported_name or layer.get("name", layer_name),
         "feature_count": (
             localised.total

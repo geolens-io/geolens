@@ -1,25 +1,17 @@
 """CRS URI/URN → EPSG integer parser.
 
-Phase 1057 CRS-06 (D-07, D-13):
-  Converts four standardised URI/URN CRS reference forms emitted by GeoServer and
-  pygeoapi into EPSG integer codes.  Anything unrecognised returns None so callers
-  preserve today's null-CRS fallthrough behaviour (D-07 default-deny).
+Converts URI/URN CRS reference forms emitted by GeoServer and pygeoapi into
+EPSG integer codes (D-07). Anchored regexes, known-form allowlist; anything
+unrecognised returns None (default-deny) — do NOT add forms not on this list:
 
-Covered forms (D-07 — do NOT add forms not on this list):
   1. http://www.opengis.net/def/crs/OGC/1.3/CRS84  → 4326
-  2. https://www.opengis.net/def/crs/OGC/1.3/CRS84 → 4326  (HTTPS variant of 1)
+  2. https://www.opengis.net/def/crs/OGC/1.3/CRS84 → 4326
   3. http(s)://www.opengis.net/def/crs/EPSG/0/{N}  → {N}
   4. urn:ogc:def:crs:EPSG::{N}                     → {N}
   5. urn:ogc:def:crs:OGC:1.3:CRS84                 → 4326
 
-NOT covered (handled elsewhere in the ingest pipeline):
-  - Bare "EPSG:N" strings — handled by ogrinfo projjson / WKT extraction
-  - Backend-side reprojection — explicitly out of scope per D-13
-
-Trust / threat model (T-1057C-01):
-  All patterns are compiled with anchored ^…$ regexes and a known-form allowlist.
-  Unrecognised URIs return None (default-deny).  No eval, no SQL, no path
-  manipulation.  The function signature is ``str | None → int | None``.
+NOT covered: bare "EPSG:N" strings (ogrinfo projjson/WKT extraction) and
+backend-side reprojection (out of scope per D-13).
 """
 
 from __future__ import annotations
@@ -48,29 +40,11 @@ _RE_OGC_CRS84_URN = re.compile(r"^urn:ogc:def:crs:OGC:1\.3:CRS84$")
 def parse_crs_uri(value: str | None) -> int | None:
     """Map a URI/URN-form CRS reference to an EPSG integer code.
 
-    Recognises exactly the four D-07 forms listed in the module docstring.
-    Returns ``None`` for any input that does not pattern-match (default-deny).
+    Recognises exactly the forms listed in the module docstring; returns
+    ``None`` for anything else, including ``None``/empty input (default-deny).
 
-    Args:
-        value: A CRS URI or URN string, or ``None`` / empty string.
-
-    Returns:
-        EPSG integer code (e.g. 4326, 3857, 32633), or ``None``.
-
-    Examples::
-
-        >>> parse_crs_uri("http://www.opengis.net/def/crs/OGC/1.3/CRS84")
-        4326
-        >>> parse_crs_uri("urn:ogc:def:crs:EPSG::32633")
-        32633
-        >>> parse_crs_uri("EPSG:4326")   # bare EPSG strings → None (not this helper's job)
-        None
-        >>> parse_crs_uri(None)
-        None
-
-    EPSG integer codes are accepted without an artificial upper bound.
-    The EPSG authority controls the namespace; downstream PostGIS rejects
-    unknown SRIDs at Find_SRID / ST_Transform time (T-1057C-04 accepted).
+    No upper bound on the returned code — downstream PostGIS rejects unknown
+    SRIDs at Find_SRID/ST_Transform time (T-1057C-04 accepted).
     """
     if not value:
         return None

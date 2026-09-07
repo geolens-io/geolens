@@ -30,12 +30,11 @@ logger = structlog.get_logger(__name__)
 class _StagePutAbandoned(HTTPException):
     """The staging put outlived its budget and was abandoned, not cancelled.
 
-    fix(#1708 codex r12): carries one fact settlement needs — the late-put
+    fix(#1708): carries the fact settlement needs — the late-put
     reaper already owns this key's deletion, so the failure path must NOT
-    synchronously await an S3 delete of it. A degraded endpoint is the very
-    condition that produced the timeout, and that delete would spend
-    botocore's read timeout plus retries on the way to the 502, pushing the
-    response past the edge proxy's deadline: the exact loss the budget
+    synchronously await an S3 delete of it. On a degraded endpoint that
+    delete would spend botocore's read timeout plus retries and push the
+    response past the edge proxy's deadline, the exact loss the budget
     exists to prevent.
     """
 
@@ -43,10 +42,9 @@ class _StagePutAbandoned(HTTPException):
 async def _put_staging_object(s3_key: str, local_dest: Path) -> None:
     """Upload the staged local file to the S3 staging key.
 
-    Owns its file handle so the task is self-contained: if the bounded wait
-    in ``_stage_put_bounded`` abandons it at the deadline, the handle is
-    still closed by THIS task's finally when the SDK thread finishes — the
-    caller never closes a file a live upload thread is reading.
+    Owns its file handle: if ``_stage_put_bounded`` abandons the wait at the
+    deadline, this task's own finally still closes it once the SDK thread
+    finishes — the caller never closes a file a live upload thread is reading.
     """
     # codeql[py/path-injection] fix(#1708): the component is basename-stripped (safe_upload_basename/filename_from_url) and byte-clamped, rooted under upload_staging_dir
     fh = open(local_dest, "rb")
@@ -61,21 +59,20 @@ async def _put_staging_object(s3_key: str, local_dest: Path) -> None:
 def _abandoned_put_reaper(s3_key: str, job_id: str):
     """Done-callback for a staging put whose wait was abandoned at deadline.
 
-    The request has already answered 502 and ``_settle_failed_url_import``
-    already attempted an S3 delete — but that delete may have run BEFORE the
-    in-flight upload finished, in which case the late-landing object is an
-    orphan nothing references. Re-delete once the task actually completes.
-    ``_cleanup_saved_upload`` never raises; ``task.exception()`` is retrieved
-    first so a failed upload does not log "exception was never retrieved".
+    The request already answered 502 and ``_settle_failed_url_import``
+    already attempted an S3 delete — but that may have run BEFORE the
+    in-flight upload finished, orphaning the late-landing object. Re-delete
+    once the task completes. ``_cleanup_saved_upload`` never raises;
+    ``task.exception()`` is retrieved first so a failed upload doesn't log
+    "exception was never retrieved".
     """
 
     def _cb(task: "asyncio.Task") -> None:
-        # fix(#1708 codex r14): cancelled() FIRST. On a cancelled task
-        # `exception()` RAISES CancelledError, which escaped this callback
-        # before the cleanup below was ever scheduled — and because the
-        # provider call drains, the upload can still land its object after
-        # that cancellation propagates, leaving it unreferenced. All three
-        # outcomes now schedule the same delete.
+        # fix(#1708): cancelled() FIRST — on a cancelled task,
+        # exception() RAISES CancelledError, which used to escape before
+        # cleanup was scheduled. The provider call drains, so the upload can
+        # still land after cancellation propagates; all three outcomes now
+        # schedule the same delete.
         if task.cancelled():
             outcome = "cancelled"
         else:
@@ -96,15 +93,13 @@ async def _stage_put_bounded(
 ) -> None:
     """Run the staging put inside what remains of the stage budget.
 
-    fix(#1708 codex r7): the put is a blocking boto3 upload in a DRAINED
-    thread — cancelling it does not bound wall time, because the drain
-    deliberately blocks until the SDK thread finishes (storage/s3.py records
-    why that trade is right for cancellation). So the deadline here is a
-    bounded WAIT: at the budget's remainder the wait is abandoned — never
-    cancelled — the request answers a clean 502 inside the proxy deadline,
-    and the still-running task keeps its own file handle, stays bounded by
-    botocore's connect/read timeouts and 3 adaptive retries, and hands its
-    late-landing object (if any) to ``_abandoned_put_reaper`` for deletion.
+    fix(#1708): the put is a blocking boto3 upload in a DRAINED
+    thread, so cancelling it wouldn't bound wall time (the drain blocks
+    until the SDK thread finishes; see storage/s3.py). So the deadline is a
+    bounded WAIT: at the remainder it's abandoned, never cancelled — the
+    request answers a clean 502, and the still-running task stays bounded by
+    botocore's connect/read timeouts and 3 retries, handing any late-landing
+    object to ``_abandoned_put_reaper``.
     """
     remaining = stage_deadline - time.monotonic()
     detail = (
@@ -114,14 +109,13 @@ async def _stage_put_bounded(
     if remaining <= 0:
         raise _StagePutAbandoned(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
     put_task = asyncio.create_task(_put_staging_object(s3_key, local_dest))
-    # fix(#1708 codex r8): the reaper must exist from the moment the put
-    # task can outlive this coroutine. asyncio.wait does not cancel the
-    # task when IT is cancelled, so a request cancelled mid-wait (forced
-    # worker shutdown) previously escaped before the timeout branch ever
-    # installed the callback — the settle path then deleted the key while
-    # the upload was still in flight, and its late-landing object had no
-    # deleter. No await sits between create_task and this try, so every
-    # exit that leaves the task running installs the reaper first.
+    # fix(#1708): the reaper must exist before the put task can
+    # outlive this coroutine. asyncio.wait doesn't cancel the task when IT
+    # is cancelled, so a mid-wait cancellation (forced shutdown) used to
+    # escape before the timeout branch installed the callback, letting the
+    # settle path delete the key while the upload was still in flight with
+    # no deleter for its late-landing object. No await sits between
+    # create_task and this try, so every exit installs the reaper first.
     try:
         _done, pending = await asyncio.wait({put_task}, timeout=remaining)
     except BaseException:
@@ -147,20 +141,19 @@ async def _stage_put_bounded(
 async def _url_import_transition_landed(job_id: uuid.UUID, staged_path: str) -> bool:
     """Did the running->pending transition durably land despite the raise?
 
-    fix(#1708 codex r11): a commit whose acknowledgement is lost
-    (cancellation or connection loss while ``COMMIT`` is in flight) may have
-    been durably applied by PostgreSQL even though the await raised. Read
-    the row back on a FRESH session — the request session is mid-failure
-    and cannot be trusted to see anything. True means the job is live
-    catalog state: 'pending' and bound to exactly the staged path this
-    request wrote.
+    fix(#1708): a commit whose acknowledgement is lost (cancellation
+    or connection loss while ``COMMIT`` is in flight) may have been durably
+    applied by PostgreSQL even though the await raised. Read the row back on
+    a FRESH session — the request session is mid-failure and untrustworthy.
+    True means the job is live catalog state: 'pending', bound to exactly
+    the staged path this request wrote.
 
-    A probe that itself fails returns True — standing down. The asymmetry
-    is deliberate: standing down on a false positive orphans bytes that the
-    sweeps can reclaim, while proceeding on a false negative deletes data a
-    durable pending row points at, which nothing can reclaim.
+    A probe that itself fails returns True — standing down. Deliberately
+    asymmetric: a false positive orphans bytes the sweeps can reclaim, while
+    a false negative deletes data a durable pending row points at, which
+    nothing can reclaim.
     """
-    # fix(#909)-style late bind so tests' engine patching is honored.
+    # Late bind so tests' engine patching is honored (fix(#909)-style).
     import app.core.db as db_module
 
     from app.platform.jobs.models import IngestJob
@@ -180,26 +173,22 @@ async def _url_import_transition_landed(job_id: uuid.UUID, staged_path: str) -> 
     return row is not None and row.status == "pending" and row.file_path == staged_path
 
 
-# fix(#1708 codex r14): stamped on the exception raised BY the final commit,
-# and read back in settlement. Carrying the fact on the exception rather than
-# threading a flag through the handler keeps the marker inseparable from the
-# one await whose outcome is genuinely unknown — nothing else can acquire it
-# by being re-raised through the same code path.
+# fix(#1708): stamped on the exception raised BY the final commit
+# and read back in settlement — carried on the exception, not threaded as a
+# handler flag, so the marker stays bound to the one await whose outcome is
+# genuinely unknown.
 _COMMIT_AMBIGUOUS_ATTR = "_geolens_url_import_commit_ambiguous"
 
 
 async def _commit_staged_transition(db: AsyncSession) -> None:
     """The final running->pending commit, as a named seam.
 
-    fix(#1708 codex r11): split out so tests can simulate the
+    fix(#1708): split out so tests can simulate the
     ambiguous-commit shape — durable on the server, exception on the
-    acknowledgement — which cannot be produced through a real session on
-    demand. Production behavior is exactly ``db.commit()``.
-
-    Kept as the bare commit so a test can replace it with an ack-lost
-    stub; the marking lives in ``_commit_staged_transition_guarded`` around
-    it, so the marker is always applied by production code rather than by
-    whatever a test substitutes here.
+    acknowledgement — which a real session can't produce on demand.
+    Production behavior is exactly ``db.commit()``; the marking lives in
+    ``_commit_staged_transition_guarded`` around it, so it's always applied
+    by production code, not by whatever a test substitutes here.
     """
     await db.commit()
 
@@ -207,12 +196,11 @@ async def _commit_staged_transition(db: AsyncSession) -> None:
 async def _commit_staged_transition_guarded(db: AsyncSession) -> None:
     """Commit the staged transition, marking the exception if it raises.
 
-    fix(#1708 codex r14): an exception out of THIS await, and only this
+    fix(#1708): an exception out of THIS await, and only this
     one, is ambiguous — PostgreSQL may have applied the transition before
     the acknowledgement was lost. Marking it here lets settlement tell it
-    apart from every failure whose outcome is known, without threading a
-    flag through the handler (which would also mean another branch in an
-    already complexity-capped function).
+    apart from every failure whose outcome is known, without another branch
+    in an already complexity-capped handler.
     """
     try:
         await _commit_staged_transition(db)
@@ -240,52 +228,47 @@ async def _settle_failed_url_import(
     bytes (the local file and, if the put ran, the S3 object) — nothing
     else references them, so both go before the exception propagates.
 
-    fix(#1708 codex r14): the session's transaction is ROLLED BACK FIRST,
-    before anything else here. Everything below — the probe's fresh
-    session, the remote delete, the CAS — used to run while this request
-    still held its failed transaction's pool connection, so a burst of
-    ordinary post-stage rejections (a quota race, say) could hold
+    fix(#1708): the session's transaction is ROLLED BACK FIRST,
+    before anything else here. The steps below — the probe's fresh session,
+    the remote delete, the CAS — used to run while this request still held
+    its failed transaction's pool connection, so a burst of ordinary
+    post-stage rejections (a quota race, say) could hold
     pool_size + max_overflow connections through a remote round-trip and
-    stall unrelated traffic until DB_POOL_TIMEOUT. That is the connection
-    family closed in r2/r7, reopened by a settlement path that grew.
+    stall unrelated traffic until DB_POOL_TIMEOUT.
 
-    fix(#1708 codex r11, narrowed by r14): the ambiguous-commit probe fires
-    ONLY when the exception itself carries the marker
-    ``_commit_staged_transition`` stamps on it. If it did, and PostgreSQL applied
-    the transition before the acknowledgement was lost, the row is already
-    'pending' and bound to ``staged_path``: the bytes are live catalog
-    state, deleting them would leave a durable pending job pointing at
-    nothing, and the failure CAS would match zero rows anyway — so
-    settlement stands down entirely and the request loses only its
-    response. Scoping matters as much as the check: applied to EVERY
-    failure (r11's mistake), the probe's deliberate "assume landed when the
-    probe itself fails" default turned ordinary pre-commit failures into
-    skipped cleanups and stranded 'running' jobs. The asymmetry is correct
-    only where the outcome is genuinely unknown.
+    fix(#1708): the ambiguous-commit probe fires
+    ONLY when the exception carries the marker
+    ``_commit_staged_transition`` stamps on it. If it did, and PostgreSQL
+    applied the transition before the acknowledgement was lost, the row is
+    already 'pending' and bound to ``staged_path`` — live catalog state, so
+    deleting the bytes would leave a durable pending job pointing at
+    nothing, and settlement stands down entirely. Applied to EVERY failure
+    (r11's mistake), the probe's "assume landed when the probe itself
+    fails" default instead turned ordinary pre-commit failures into skipped
+    cleanups and stranded 'running' jobs — the asymmetry is correct only
+    where the outcome is genuinely unknown.
 
-    fix(#1708 codex r5): cleanup is best-effort STRUCTURALLY. A cleanup step
+    fix(#1708): cleanup is best-effort STRUCTURALLY. A cleanup step
     that raises (the NUL-path unlink was one instance) previously escaped
     the handler's failure block before the failure CAS ran, stranding an
-    undiscoverable 'running' job for the full one-hour lease. That is a
-    shape, not an instance — any raising cleanup reintroduces it — so this
-    helper exists to make "cleanup can never preempt the stamp" a property
-    of the one function every failure goes through.
+    undiscoverable 'running' job for the full one-hour lease — a shape, not
+    an instance, so this helper makes "cleanup can never preempt the stamp"
+    a property of the one function every failure goes through.
 
-    fix(#1708 codex P1/r2): the job row was committed before the fetch, so
-    a rollback no longer removes it. The stamp is a guarded CAS from
+    fix(#1708): the job row was committed before the fetch, so a
+    rollback no longer removes it. The stamp is a guarded CAS from
     'running' only — zero rows means something external already settled the
     row, and that verdict is never overwritten. Best-effort throughout:
-    never mask the original error, and a cancelled request may refuse the
-    awaits — then the running sweep's hour is the fallback.
+    never mask the original error; a cancelled request may refuse the
+    awaits, leaving the running sweep's hour as the fallback.
     """
     from sqlalchemy import update as sa_update
 
     from app.platform.jobs.models import IngestJob
 
-    # Release the pool connection before the probe, the remote delete, or
-    # anything else that can take time (r14). Best-effort: a session whose
-    # connection died mid-commit may refuse this, and the CAS below opens
-    # its own transaction regardless.
+    # Release the pool connection before the probe/remote delete (r14).
+    # Best-effort: a session whose connection died mid-commit may refuse
+    # this, and the CAS below opens its own transaction regardless.
     try:
         await db.rollback()
     except BaseException:
@@ -296,23 +279,16 @@ async def _settle_failed_url_import(
         and staged_path is not None
         and await _url_import_transition_landed(job_id, staged_path)
     ):
-        # fix(#1708 codex r15): the transition is live, so the artifact the
-        # ROW references must survive — but the local file is only that
-        # artifact under local storage. The discriminator is the row itself:
-        #
-        #   staged_path == str(local_dest)  -> local storage. local_dest IS
-        #       the referenced artifact. Deleting it would leave a pending
-        #       job pointing at nothing, which is the whole failure this
-        #       stand-down exists to avoid.
-        #   staged_path != str(local_dest)  -> S3. The row records only the
-        #       staging key, so the local file is a redundant copy that
-        #       served the content sniff, and NOTHING downstream can ever
-        #       discover it — no reaper sees a path no row references. Left
-        #       behind, repeated ambiguous commits accumulate files up to
-        #       the upload limit on the staging volume.
-        #
-        # The success path makes exactly the same distinction a few lines
-        # later; this branch returns early, which is how it was missed.
+        # fix(#1708): the transition is live, so the artifact the
+        # ROW references must survive. Discriminator is the row itself:
+        #   staged_path == str(local_dest) -> local storage; local_dest IS
+        #     the referenced artifact, so it must not be deleted.
+        #   staged_path != str(local_dest) -> S3; the row records only the
+        #     staging key, so the local file is a redundant sniff copy that
+        #     nothing downstream can discover — left behind, repeated
+        #     ambiguous commits fill the staging volume.
+        # The success path makes the same distinction later; this branch
+        # returns early, which is how it was missed before.
         if staged_path != str(local_dest):
             try:
                 # codeql[py/path-injection] fix(#1708): clamped, staging-rooted path — see upload_from_url
@@ -330,21 +306,16 @@ async def _settle_failed_url_import(
         return
 
     try:
-        # fix(#1708 codex r12): the remote delete is the last unbounded
-        # operation on the request path, and it sits on the failure path
-        # that fires when S3 is degraded.
-        #
-        # Abandoned put: skip it entirely. `_abandoned_put_reaper` is
+        # fix(#1708): the remote delete is the last unbounded op
+        # on the failure path that fires when S3 is degraded.
+        # Abandoned put: skip it entirely — `_abandoned_put_reaper` is
         # already attached to the live put task and deletes this key when
-        # the upload actually ends — which is also the only ordering that
-        # can win, since a delete issued now would race the in-flight
-        # upload. Handing over costs nothing and saves the verdict.
-        #
-        # Every other failure: bound it by what is left of the request's
-        # own budget. `_cleanup_saved_upload` drains and never raises, so
-        # cancellation cannot stop it; the wait is abandoned instead and
-        # the deletion continues in the background, with the stale-staging
-        # sweep as the backstop if it ultimately fails.
+        # the upload ends, the only ordering that can win (a delete issued
+        # now would race the in-flight upload).
+        # Every other failure: bound by what's left of the request's own
+        # budget. `_cleanup_saved_upload` drains and never raises, so the
+        # wait is abandoned rather than cancelled, with the stale-staging
+        # sweep as backstop.
         if s3_key is not None and not isinstance(exc, _StagePutAbandoned):
             cleanup_budget = (
                 None if stage_deadline is None else stage_deadline - time.monotonic()
@@ -404,14 +375,10 @@ _BUDGET_EXHAUSTED_DETAIL = (
 def _preflight_dns_budget(stage_deadline: float) -> float:
     """The preflight resolution's bound: min(its ceiling, what remains).
 
-    fix(#1708 codex r19): the preflight was bounded by a bare
-    ``PREFLIGHT_DNS_MAX_SECONDS`` while the INVARIANT above states that
-    every phase uses ``min(own ceiling, remaining)``. Harmless while the
-    budget is healthy — the clock starts immediately before this phase, so
-    the min is always the ceiling — but wrong in the floored regime, where
-    a 1s budget would still have spent up to 30s resolving before anything
-    refused. A comment stating a rule the code does not follow is the
-    failure mode this PR has hit twice, so the code follows the rule.
+    fix(#1708): previously bounded by a bare
+    ``PREFLIGHT_DNS_MAX_SECONDS``, which is harmless while the budget is
+    healthy but wrong in the floored regime — a 1s budget could still spend
+    up to 30s resolving before anything refused.
 
     With nothing left, refuse with the BUDGET's message rather than a
     zero-second DNS timeout, which would blame the resolver for an
@@ -429,20 +396,18 @@ def _preflight_dns_budget(stage_deadline: float) -> float:
 def _remaining_fetch_budget(stage_deadline: float) -> float:
     """What the joint budget has left for the download, or a prompt refusal.
 
-    fix(#1708 codex r13): the fetch used to receive a fresh
-    ``FETCH_MAX_SECONDS`` regardless of how much of the request's own clock
-    auth, preflight DNS and the config/quota transaction had already spent —
-    so a slow start could carry the response past the edge proxy even though
-    each individual phase respected its own ceiling.
-    ``fetch_url_to_path`` applies ``min(FETCH_MAX_SECONDS, this)``. Below
-    ``MIN_FETCH_BUDGET_SECONDS`` no download can plausibly finish, so the
+    fix(#1708): the fetch used to get a fresh ``FETCH_MAX_SECONDS``
+    regardless of how much of the request's own clock auth, preflight DNS
+    and the config/quota transaction had already spent — so a slow start
+    could carry the response past the edge proxy even though each phase
+    respected its own ceiling. ``fetch_url_to_path`` applies
+    ``min(FETCH_MAX_SECONDS, this)``; below ``MIN_FETCH_BUDGET_SECONDS`` the
     request is refused now rather than opening a doomed connection.
 
-    fix(#1708 codex r25): called TWICE per request — once immediately after
-    the deadline is derived, purely for that refusal, and again here for the
-    download's bound. Sharing one function is the point: an early check with
-    its own threshold could drift from this one, and then the floor would
-    promise a refusal at a size this call still accepts.
+    fix(#1708): called TWICE per request — once right after the
+    deadline is derived, for that refusal, and again here for the
+    download's bound. One shared function so an early check's own threshold
+    can't drift from this one.
     """
     remaining = stage_deadline - time.monotonic()
     if remaining < MIN_FETCH_BUDGET_SECONDS:
@@ -459,17 +424,14 @@ async def _effective_stream_cap(
     """The fetch's byte cap, and the quota-shaped refusal detail if it is
     the quota rather than the instance limit doing the capping.
 
-    fix(#1708 codex r10): the effective stream cap is the SMALLER of the
-    instance upload max and the caller's remaining CORE byte quota. With
-    the instance-wide cap alone, a user at or near their storage cap could
-    spend instance-max bandwidth, staging disk, and a 480s request slot on
-    downloads the post-stage check is guaranteed to refuse — and an honest
-    at-cap user waited through the whole transfer for a 413 that was
-    knowable at submission. ``storage_cap == 0`` means unlimited (the
-    instance cap applies alone); zero remaining raises 413 here, before any
-    fetch. The post-stage byte-charged check remains authoritative for
-    races and the cloud entitlement seam, which this preflight does not
-    consult.
+    fix(#1708): the SMALLER of the instance upload max and the
+    caller's remaining CORE byte quota. With the instance-wide cap alone, a
+    user at or near their storage cap could spend instance-max bandwidth,
+    staging disk, and a 480s request slot on a download the post-stage
+    check is guaranteed to refuse. ``storage_cap == 0`` means unlimited;
+    zero remaining raises 413 here, before any fetch. The post-stage
+    byte-charged check stays authoritative for races and the cloud
+    entitlement seam, which this preflight doesn't consult.
     """
     usage = await get_user_quota_usage(db, user_id)
     if usage.storage_cap <= 0:

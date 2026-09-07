@@ -43,11 +43,6 @@ _VOCABULARY_CACHE_MAX = 32
 _neighbor_kw_cache: dict[str, tuple[float, list[str]]] = {}
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
 async def _build_dataset_context(
     session: AsyncSession,
     dataset_id: str,
@@ -245,14 +240,12 @@ async def _get_related_keywords_from_embeddings(
 ) -> list[str]:
     """Return keywords from the top-N nearest datasets by embedding similarity.
 
-    Falls back to empty list if dataset has no embedding or on any error.
-    Results cached 5min by dataset_id (vector NN is heavier than the
-    dataset-context query and embeddings change rarely).
+    Falls back to empty list on no embedding or any error. Cached 5min by
+    dataset_id (vector NN is heavier than the dataset-context query).
 
-    Phase 225 review fix (B-02 / W-01): both the dataset lookup and the
-    keyword aggregation route through the Port surface so processing/* keeps
-    no module-load-time OR deferred ``app.modules.catalog`` ORM imports here.
-    Enterprise overlays (Phase 226) can intercept both calls.
+    Both the dataset lookup and keyword aggregation route through the Port
+    surface so processing/* carries no ``app.modules.catalog`` ORM import;
+    Enterprise overlays can intercept both calls.
     """
     import uuid as _uuid
 
@@ -302,7 +295,7 @@ async def _generate_structured(
 
     Records token usage (subsystem ``metadata``) so metadata-assist calls count
     toward the per-user daily budget — otherwise the cap is bypassable through
-    the four ``/ai/metadata/*`` endpoints (codex P1 on #402).
+    the four ``/ai/metadata/*`` endpoints (fix(#402)).
     """
 
     # Resolve provider and model from PersistentConfig
@@ -340,11 +333,6 @@ async def _generate_structured(
         output_tokens=output_tokens,
     )
     return result
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 
 SUMMARY_SYSTEM = (

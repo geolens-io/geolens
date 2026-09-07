@@ -54,7 +54,6 @@ router = APIRouter(
 def _collection_to_response(
     collection, dataset_count: int, extent_data: dict
 ) -> CollectionResponse:
-    """Build a CollectionResponse from a Collection ORM object plus computed values."""
     return CollectionResponse(
         id=collection.id,
         name=collection.name,
@@ -69,15 +68,9 @@ def _collection_to_response(
     )
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
-# no-trailing-slash variants register against the same handler. Slash form
-# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
-# the 404 regression introduced by redirect_slashes=False (api/main.py).
+# fix(ROUTE-01): dual-shape decorator so both trailing-slash (canonical) and
+# no-slash variants hit this handler, closing the 404 from
+# redirect_slashes=False.
 @router.post(
     "",
     response_model=CollectionResponse,
@@ -336,15 +329,9 @@ async def add_datasets_endpoint(
         )
     await check_collection_ownership(db, collection, user)
 
-    # GAP-014: authorize each dataset being LINKED at write time, mirroring the
-    # FK-relationship create path (router_metadata.create_dataset_relationship)
-    # and the VRT SEC-C link-time check. manage_collections gates the action but
-    # not the link targets, so without this an editor could attach another
-    # user's private dataset. check_datasets_access_bulk raises 404 if access
-    # is denied for any requested id.
-    #
-    # fix(#1298): batched — a 100-id request used to cost one get_dataset() +
-    # check_dataset_access() round trip per id.
+    # fix(GAP-014,#1298): authorize each linked dataset at write time (mirrors
+    # the FK-relationship and VRT SEC-C checks, since manage_collections alone
+    # doesn't gate link targets); batched via check_datasets_access_bulk.
     user_roles = await get_user_roles(db, user)
     await check_datasets_access_bulk(db, body.dataset_ids, user, user_roles)
 

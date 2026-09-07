@@ -69,12 +69,8 @@ class SearchFilters:
 def _build_text_filter(q: str):
     """Build the full-text OR clause for a query string.
 
-    Returns a SQLAlchemy ``or_()`` clause combining:
-      - tsvector match on Record.search_vector
-      - ILIKE on Record.title
-      - ILIKE on Record.summary
-      - FTS + ILIKE on RecordKeyword
-      - FTS + ILIKE on RecordContact (name + organization)
+    Combines tsvector match on ``search_vector``, ILIKE on title/summary,
+    and FTS + ILIKE on RecordKeyword and RecordContact (name + org).
     """
     query_text = q.strip()
     # Use 'simple' regconfig for non-Latin scripts that 'english' can't tokenize;
@@ -82,11 +78,10 @@ def _build_text_filter(q: str):
     ts_query_en = func.websearch_to_tsquery("english", query_text)
     ts_query_simple = func.websearch_to_tsquery("simple", query_text)
     ts_query = ts_query_en.bool_op("||")(ts_query_simple)
-    # Use || (IMMUTABLE) instead of concat_ws (STABLE) so this expression
-    # matches the functional GIN index ix_records_simple_search_vector
-    # created by migration 0001_baseline.
-    # catalog.immutable_text_array_join is the IMMUTABLE wrapper around
-    # array_to_string defined by the same migration.
+    # Use || (IMMUTABLE), not concat_ws (STABLE), to match the functional GIN
+    # index ix_records_simple_search_vector (migration 0001_baseline).
+    # immutable_text_array_join is the IMMUTABLE array_to_string wrapper from
+    # the same migration.
     record_simple_vector = func.to_tsvector(
         "simple",
         func.coalesce(Record.title, "")
@@ -101,15 +96,11 @@ def _build_text_filter(q: str):
         ),
     )
 
-    # T-1: use catalog.immutable_unaccent (IMMUTABLE) on BOTH sides of the LIKE so
-    # the predicate matches the functional trigram GIN indexes, which are built on
-    # lower(catalog.immutable_unaccent(<col>)). A plain func.unaccent() renders
-    # unqualified and resolves via search_path to public.unaccent (STABLE), which
-    # the planner cannot match to the indexed expression -> seq scan. Both
-    # functions return identical text (accent-insensitive: cafe = café).
-    # escape_ilike() keeps user-supplied %, _, \ literal (a bare f"%{q}%"
-    # leaks wildcards); escape="\\" on every .like() below makes the ESCAPE
-    # character explicit, mirroring maps/admin/audit search surfaces.
+    # T-1: catalog.immutable_unaccent (IMMUTABLE) matches the trigram GIN
+    # indexes; a plain func.unaccent() resolves to public.unaccent (STABLE)
+    # via search_path and forces a seq scan instead.
+    # escape_ilike() keeps user %, _, \ literal; escape="\\" on every .like()
+    # makes the ESCAPE character explicit.
     unaccented_like = func.concat(
         "%", func.catalog.immutable_unaccent(escape_ilike(query_text).lower()), "%"
     )
@@ -231,14 +222,9 @@ def _build_text_filter(q: str):
 def parse_ogc_datetime(datetime_str: str) -> tuple[date | None, date | None]:
     """Parse an OGC datetime interval string into (start, end) dates.
 
-    Supports:
-    - Single instant: "2024-01-15" or "2024-01-15T00:00:00Z"
-    - Bounded interval: "2024-01-01/2024-12-31"
-    - Open start: "../2024-12-31"
-    - Open end: "2024-01-01/.."
-
-    A malformed value raises HTTP 400 (not a generic 500); this is the single
-    chokepoint for collection_items, search_datasets, and facets.
+    Supports an instant, a bounded interval, or ``../end``/``start/..``.
+    Raises HTTP 400 on a malformed value; the single chokepoint for
+    collection_items, search_datasets, and facets.
     """
     try:
         if "/" in datetime_str:
@@ -246,7 +232,6 @@ def parse_ogc_datetime(datetime_str: str) -> tuple[date | None, date | None]:
             dt_start = None if left == ".." else date.fromisoformat(left[:10])
             dt_end = None if right == ".." else date.fromisoformat(right[:10])
             return dt_start, dt_end
-        # Single instant
         instant = date.fromisoformat(datetime_str[:10])
         return instant, instant
     except ValueError as e:
@@ -259,11 +244,8 @@ def parse_ogc_datetime(datetime_str: str) -> tuple[date | None, date | None]:
 def _apply_common_filters(stmt, filters: SearchFilters, *, skip_text: bool = False):
     """Apply the shared filter stack used by both search and facets.
 
-    Handles: text search, spatial, keywords, geometry_type, srid,
-    source_organization, datetime_param, collection_id, exclude_synthetic.
-
-    Pass ``skip_text=True`` when the caller already handles text search
-    with custom ranking (e.g. ``search_datasets``).
+    Pass ``skip_text=True`` when the caller already handles text search with
+    custom ranking (e.g. ``search_datasets``).
     """
     if not skip_text and filters.q and filters.q.strip():
         text_clause, _parts = _build_text_filter(filters.q)
@@ -308,16 +290,11 @@ def _apply_common_filters(stmt, filters: SearchFilters, *, skip_text: bool = Fal
         stmt = stmt.where(Record.source_organization == filters.source_organization)
     if filters.datetime_param:
         dt_start, dt_end = parse_ogc_datetime(filters.datetime_param)
-        # fix(#1778): the bare `.is_(None)` arms below matched a record with
-        # NO temporal extent at all for ANY datetime filter, unconditionally
-        # -- datetime=1900-01-01 returned a record created in 2026. The STAC
-        # peer (stac/router.py _apply_datetime_filter) hit the same bug and
-        # was fixed by comparing the record's own advertised fallback
-        # instant (created_at, see build_time in record_metadata.py) instead
-        # of admitting every null-temporal row. Port that fix here, keeping
-        # the existing open-ended reading (temporal_end/temporal_start NULL
-        # with the OTHER bound set) for records that do have a defined start
-        # or end.
+        # fix(#1778): a bare `.is_(None)` here matched every null-temporal
+        # record for ANY datetime filter. Fully null-temporal records now
+        # compare against created_at instead (mirrors stac/router.py's
+        # _apply_datetime_filter); one-bound-set records keep the existing
+        # open-ended reading on the other bound.
         null_temporal = Record.temporal_start.is_(None) & Record.temporal_end.is_(None)
         if dt_start is not None:
             stmt = stmt.where(

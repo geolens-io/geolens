@@ -4,16 +4,12 @@ Rules:
   - Absolute http(s) hrefs (by-reference origin assets, #1692): passed through
   - Published thumbnails: public URL (no auth, cacheable)
   - S3 + published data assets: presigned URL (time-limited)
-  - Local storage: no unauthenticated proxy URL emitted (GAP-031)
-  - Draft/ready/internal records: no unauthenticated proxy URL emitted (GAP-031)
+  - Local storage, or draft/ready/internal records: no unauthenticated proxy
+    URL emitted (GAP-031)
 
-GAP-031 — The previous implementation emitted ``/assets/{key}`` for all
-local-storage and non-published paths.  That URL has no backend route: the
-nginx ``location /assets/`` block serves the SPA bundle directory, not
-storage files, so the URL was both dead and a potential collision surface.
-Because ``dataset_assets`` is never populated (BUG-041, Tier-2), this change
-has no live output impact.  Returning ``None`` for the unsafe proxy path lets
-callers (e.g. ``_build_stac_assets``) omit the asset entry rather than emit a
+GAP-031: nginx's ``location /assets/`` serves the SPA bundle, not storage
+files, so a bare ``/assets/{key}`` URL is dead. Returning ``None`` lets
+callers (e.g. ``_build_stac_assets``) omit the asset rather than emit a
 broken href.
 """
 
@@ -37,30 +33,13 @@ def resolve_asset_url(
 ) -> str | None:
     """Resolve an asset href to the correct URL form.
 
-    Args:
-        href: Raw asset path (storage-relative or absolute).
-        storage_backend: "local" or "s3".
-        record_status: Current publication status of the record.
-        roles: STAC asset roles (e.g., ["data"], ["thumbnail"]).
-        public_api_url: Base URL for proxy endpoints.
-        storage_provider: Storage provider instance for signing.
-        presign_ttl: Presigned URL TTL in seconds (default 3600).
-
-    Returns:
-        Resolved URL string, or None when no safe authorized URL exists
-        (e.g. local-storage paths that would collide with the SPA /assets/
-        nginx location — GAP-031).
+    Returns None when no safe authorized URL exists (e.g. a local-storage
+    path that would collide with the SPA /assets/ nginx location — GAP-031).
     """
     # feat(#1692): a by-reference origin asset (STAC import) stores the
-    # publisher's absolute http(s) URL as its href. That URL is already
-    # public in the origin catalog — it is not managed storage, so neither
-    # the presign branch nor the GAP-031 proxy refusal below applies, and
-    # both would mishandle it (the presign path would strip it into a
-    # nonsense storage key; the refusal would drop the one asset a generic
-    # STAC client can actually read). Checked FIRST and passed through
-    # untouched. Managed ingest writes storage-relative keys or s3:// URIs
-    # (see _build_dataset_asset_rows), so only origin pass-through rows
-    # match this shape.
+    # publisher's already-public absolute URL as its href — not managed
+    # storage, so the presign branch and the GAP-031 refusal below would
+    # both mishandle it. Checked first and passed through untouched.
     if href.startswith(("http://", "https://")):
         return href
 
@@ -76,26 +55,16 @@ def resolve_asset_url(
             physical_key, **presign_options
         )
 
-    # GAP-031: Do NOT emit a bare /assets/{key} proxy URL.  No backend route
-    # exists for that path; nginx serves the SPA bundle at /assets/ and would
-    # return the SPA index or a 404 — never the storage file.  Return None so
-    # callers can omit the asset entry rather than publish a dead href.
-    # This covers: local storage (any status), non-S3, and S3 without a
-    # signed-URL provider.
+    # GAP-031: no backend route serves /assets/{key} — nginx returns the SPA
+    # index or a 404, never the storage file. Return None so callers omit the
+    # asset rather than publish a dead href.
     return None
 
 
 def _extract_storage_key(href: str) -> str:
-    """Extract the storage key from an href.
-
-    Handles both absolute paths (/data/uploads/...) and S3 keys (uploads/...).
-    Strips leading slash and common prefixes.
-    """
-    # If it's an S3 URI, extract the key portion
     if href.startswith("s3://"):
         # s3://bucket/key -> key
         parts = href.split("/", 3)
         return parts[3] if len(parts) > 3 else ""
 
-    # Strip leading slash for consistency
     return href.lstrip("/")

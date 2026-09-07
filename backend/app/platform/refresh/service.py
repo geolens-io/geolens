@@ -1,21 +1,16 @@
 """Lifecycle rules for ``catalog.dataset_refresh_runs``.
 
-feat(#1219, #1223) / ADR-002 Decision 4. Every write to a run row goes through
-this module so the state machine has one implementation shared by the request
-side (which creates the row at dispatch) and the worker side (which finalizes
-it). ``processing/`` cannot import ``modules.catalog``, so a helper either
-lives here or gets copy-pasted into both — and a copy-pasted state machine is
-how handoff invariant 11 ("same executor") dies quietly.
+Every write to a run row goes through this module, shared by the request
+side (creates the row at dispatch) and the worker side (finalizes it), since
+``processing/`` cannot import ``modules.catalog``.
 
-The row is created at DISPATCH, not at commit (Decision 4b). Writing only at
-commit cannot represent a run that never committed: if the worker dies
-mid-fetch, an at-commit design leaves zero trace, and the ``ingest_jobs`` row
-that might have hinted at the failure is purged after the retention window.
+The row is created at DISPATCH, not at commit: if the worker dies mid-fetch,
+an at-commit design would leave zero trace once the ``ingest_jobs`` row is
+purged after its retention window.
 
-The functions the worker calls key on ``ingest_job_id`` rather than taking a
-run id, so nothing has to be threaded through the Procrastinate task
-arguments. Task args are durable rows in PostgreSQL; adding an argument to a
-deferred task also breaks in-flight jobs on deploy.
+Worker-facing functions key on ``ingest_job_id`` rather than a run id, so
+nothing has to be threaded through Procrastinate task arguments — adding an
+argument to a deferred task breaks in-flight jobs on deploy.
 """
 
 from __future__ import annotations
@@ -84,11 +79,9 @@ USER_CANCELLED_ERROR_MESSAGE = "Cancelled by user."
 def redact_run_error(message: str) -> str:
     """Short, credential-free failure text for a run row.
 
-    ADR-002 Decision 3 forbids a raw exception, a URL carrying query-string
-    credentials, or a GDAL command line in any stored reason string.
-    ``redact_url_credentials`` handles free text as well as URLs — its
-    scheme-less branch scans the string for URL-shaped substrings — which is
-    what GDAL stderr actually is.
+    Never store a raw exception, a URL with query-string credentials, or a
+    GDAL command line. ``redact_url_credentials`` also scans free text (not
+    just URLs) for URL-shaped substrings, which is what GDAL stderr is.
     """
     return redact_url_credentials(message)[:_MAX_ERROR_MESSAGE_CHARS]
 
@@ -96,15 +89,12 @@ def redact_run_error(message: str) -> str:
 def drift_status_from_diff(schema_diff: dict[str, Any] | None) -> str | None:
     """Project a ``compute_schema_diff`` result onto ``schema_drift_status``.
 
-    Returns ``None`` (stored as NULL, rendered as "unknown") when there is no
-    diff to judge. NULL is the only spelling of "never determined" — the CHECK
-    set deliberately excludes an ``'unknown'`` literal.
+    Returns ``None`` (stored NULL, rendered "unknown") when there is no diff
+    to judge — the CHECK set deliberately excludes an ``'unknown'`` literal.
 
-    A row-count change alone is NOT drift. The column answers "did the shape
-    of the data change", and a service that gained ten features overnight has
-    the schema it had yesterday. Only ``columns_added``, ``columns_removed``
-    and ``type_changes`` are structural, which is also what makes a column
-    RENAME read as drifted: one add plus one removal.
+    A row-count change alone is NOT drift: only ``columns_added``,
+    ``columns_removed`` and ``type_changes`` are structural (which is also
+    why a column RENAME reads as drifted: one add plus one removal).
     """
     if not schema_diff:
         return None
@@ -121,30 +111,20 @@ async def _run_audit_context(
 ) -> tuple[uuid.UUID | None, uuid.UUID, dict[str, Any]] | None:
     """``(actor, dataset_id, details)`` for one run's audit event, or None.
 
-    feat(#1268) / ADR-002 Amendment A10. A run row is mutable and cascades
-    with its dataset, so it is a status board rather than a ledger: delete the
-    dataset and every trace of what was ever pulled into it goes too. The
-    audit log is append-only and survives, which is why the lifecycle emits
-    into it as well. The two records answer different questions and neither
-    replaces the other.
+    A run row is mutable and cascades with its dataset (deleting the dataset
+    erases it), so the append-only audit log also gets an entry — the two
+    answer different questions.
 
-    Reads the row back rather than taking the caller's word for it. Every
-    caller invokes this AFTER its transition, so ``status`` and ``error_code``
-    are what actually landed — a caller that believed it wrote something else
-    cannot log the belief.
+    Reads the row back rather than trusting the caller: every call happens
+    AFTER the transition, so ``status``/``error_code`` are what landed.
 
-    The payload is ids, origin kind, trigger, status and error code, and
-    nothing else. Not the origin URI, not ``origin_ref``, not the schema diff,
-    and specifically not ``error_message``: that is redacted free text, and
-    redaction is the wrong thing to lean on when a closed vocabulary is
-    available. ``error_code`` carries the same diagnostic value with none of
-    the exposure, and audit rows are written for keeps.
+    Payload is ids, origin kind, trigger, status, error code — never
+    ``error_message`` (redacted free text; a closed vocabulary like
+    ``error_code`` is safer for a record written for keeps).
 
-    The four emitters below spell their action as a literal rather than taking
-    it as an argument, so ``test_audit_action_registry`` can see every action
-    this module writes by reading it. That guard is the reason the registry
-    and the frontend's display list cannot drift apart again, and it only
-    works on literals.
+    The four emitters below spell their action as a literal, not a param, so
+    ``test_audit_action_registry`` can enumerate every action by reading
+    the source; that only works on literals.
     """
     row = (
         await session.execute(
@@ -265,20 +245,15 @@ async def _emit_refresh_cancelled(
 ) -> None:
     """Record an explicit user cancel (#1677).
 
-    Deliberately not spelled ``refresh.abandoned``: that action is the
-    sweep's bookkeeping correction for a task proven gone, while this one
-    records a person asking in-flight work to stop.
+    Deliberately not ``refresh.abandoned``: that is the sweep's correction
+    for a task proven gone, while this records a person stopping in-flight
+    work.
 
-    fix(#1709 review r8 B): attributed to ``cancelled_by`` — the CANCELLING
-    user — not the run row's immutable ``triggered_by``. The two differ in
-    exactly the case the cancel design added authz arm 3 for: a dataset
-    owner cancelling a refresh someone else started. The dispatcher's
-    identity is not lost — ``refresh.dispatch`` already names it, and the
-    same ``job.cancel`` transaction names the canceller — so attributing
-    this event to the dispatcher would put an action in one user's history
-    that a different user performed. Falls back to the row's actor only
-    when no canceller is supplied (no such caller exists today; the default
-    keeps a future non-request caller from attributing to nobody).
+    fix(#1709): attributed to ``cancelled_by`` — the CANCELLING user —
+    not the row's immutable ``triggered_by``, since a dataset owner may
+    cancel a refresh someone else started; crediting the dispatcher would
+    put the action in the wrong user's history. Falls back to the row's
+    actor only when no canceller is supplied.
     """
     from app.platform.audit import AuditEvent, audit_emit
 
@@ -302,10 +277,10 @@ class DatasetBusyError(Exception):
     """Another refresh run for this dataset is already pending or running.
 
     Raised by ``create_pending_run`` when the partial unique index refuses a
-    second active row. The dispatch handler turns it into ADR-002 Decision 5b's
-    409 ``dataset_busy``. It is a domain error rather than an HTTPException so
-    ``platform/`` does not depend on FastAPI, and so the CLI and the future
-    server-side refresh endpoint can render it their own way.
+    second active row; the dispatch handler turns it into 409
+    ``dataset_busy``. A domain error, not an HTTPException, so
+    ``platform/`` stays free of a FastAPI dependency and callers can render
+    it their own way.
     """
 
 
@@ -321,54 +296,44 @@ async def create_pending_run(
 ) -> DatasetRefreshRun:
     """Insert the ``pending`` row in the caller's transaction, before ``defer``.
 
-    The caller must NOT commit inside this function: the whole point of
-    Decision 4b is that the run row and whatever else the request writes land
-    together, and the task is deferred only after that commit succeeds.
+    The caller must NOT commit inside this function: the run row and
+    whatever else the request writes must land together, and the task is
+    deferred only after that commit succeeds.
 
     Raises ``DatasetBusyError`` when this dataset already has an active run.
-    The refusal comes from ``uq_refresh_runs_one_active`` rather than from a
-    SELECT here, because a check-then-insert leaves a window between the two
-    statements and that window is precisely where a double-click lands. The
-    INSERT runs inside a SAVEPOINT so the failure does not poison the caller's
-    transaction — the handler still has to render a 409 and, on the reupload
-    door, the job row it already wrote is rolled back with the request.
+    The refusal comes from ``uq_refresh_runs_one_active``, not a SELECT here,
+    because a check-then-insert leaves a race window a double-click lands
+    in. The INSERT runs inside a SAVEPOINT so the failure does not poison
+    the caller's transaction.
 
-    ``started_at`` and ``created_at`` are stamped in Python rather than left to
-    ``server_default``. A server default leaves the attribute expired after
-    flush, and the next read lazy-loads — which under AnyIO raises
-    ``MissingGreenlet`` rather than returning a value.
+    ``started_at``/``created_at`` are stamped in Python, not left to
+    ``server_default``: a server default leaves the attribute expired after
+    flush, and the next read lazy-loads, which under AnyIO raises
+    ``MissingGreenlet`` instead of returning a value.
     """
     if origin_kind not in RUN_ORIGIN_KINDS:
         raise ValueError(f"unknown origin_kind {origin_kind!r}")
     if trigger not in RUN_TRIGGERS:
         raise ValueError(f"unknown trigger {trigger!r}")
 
-    # Read the parent's STORED tenant_id rather than copying an ORM attribute.
-    # In multi-tenant mode the stamping trigger fills `datasets.tenant_id` in
-    # the database while the ORM attribute stays None, so the attribute would
-    # have written NULL on exactly the installs the column exists for. This
-    # table carries no trigger of its own (it is not in migration 0018's set),
-    # which is why the value is written here at all.
+    # Read the parent's STORED tenant_id rather than copying an ORM attribute:
+    # the stamping trigger fills `datasets.tenant_id` in the DB while the ORM
+    # attribute stays None, so copying it would write NULL. This table has
+    # no trigger of its own (not in migration 0018's set).
     tenant_id = await session.scalar(
         text("SELECT tenant_id FROM catalog.datasets WHERE id = :dataset_id"),
         {"dataset_id": dataset_id},
     )
 
-    # fix(#1274 review): a reupload enqueued by a still-draining PRE-migration
-    # API pod has a live task but no run row, so the index cannot referee it.
-    # Refuse admission while one exists for this dataset. The predicate is
-    # deliberately narrow — a LIVE Procrastinate task AND a job with no run
-    # row of any status — because post-migration dispatch creates the run in
-    # the same transaction, so only legacy work can ever match and the check
-    # is inert once those pods drain. One gap is accepted and documented
-    # rather than closed (fix #1274 review r8): an old pod that has committed
-    # its job but not yet inserted the task row is invisible here for those
-    # milliseconds, and no marker can distinguish that state from a staged
-    # preview in legacy rows — treating both as busy would 409 refreshes
-    # behind every parked preview. Closing it needs a deployment barrier
-    # between API generations; single-node compose deploys (the shipping
-    # mode) never overlap generations, and rolling K8s deploys bound the
-    # exposure to concurrent same-dataset commits during the pod swap.
+    # fix(#1274): a reupload enqueued by a still-draining PRE-migration API
+    # pod has a live task but no run row, so the unique index can't referee
+    # it — refuse admission while one exists. Predicate is deliberately
+    # narrow (a LIVE task AND a job with no run row) since post-migration
+    # dispatch creates the run in the same transaction, so only legacy work
+    # matches and the check goes inert once those pods drain. Accepted gap
+    # (r8): an old pod that committed its job but hasn't yet inserted the
+    # task row is invisible here for those milliseconds; closing it needs a
+    # deployment barrier between API generations.
     legacy_live = await session.scalar(
         text(
             """
@@ -425,10 +390,10 @@ async def create_pending_run(
     return run
 
 
-# The index name is matched against the driver's error text so an unrelated
-# constraint violation — a bad FK, a CHECK — still propagates as itself rather
-# than being reported to the user as "busy". Matching on IntegrityError alone
-# would turn every future constraint on this table into a misleading 409.
+# Matched against the driver's error text so an unrelated constraint
+# violation (a bad FK, a CHECK) still propagates as itself rather than
+# being misreported as "busy" — matching on IntegrityError alone would turn
+# every future constraint on this table into a misleading 409.
 _ACTIVE_RUN_INDEX = "uq_refresh_runs_one_active"
 
 
@@ -458,20 +423,17 @@ async def transition_run(
 ) -> bool:
     """Compare-and-set one run's status. True when this caller won.
 
-    Every status write goes through here, and every one of them names the
-    state it believes the row is in. A blind ``UPDATE ... WHERE id`` would let
-    a worker that lost its lease overwrite a terminal status the stale-run
-    sweep had already written — the row would then report an outcome that
-    contradicts what actually happened, which is worse than reporting nothing.
+    Every status write names the state it believes the row is in. A blind
+    ``UPDATE ... WHERE id`` would let a worker that lost its lease overwrite
+    a terminal status the stale-run sweep already wrote, reporting an
+    outcome that contradicts what actually happened.
 
-    Zero rows updated is not an error and not a retry signal: it means another
-    actor owns this run now. Log it and back off, which is what the callers do.
+    Zero rows updated is not an error or a retry signal: it means another
+    actor owns this run now — callers log it and back off.
 
-    ``expected`` is a tuple because one legitimate caller has two acceptable
-    prior states: a run can fail BEFORE it is claimed (``reupload_service``
-    revalidates its URL for SSRF before phase 1), so the failure path accepts
-    `pending` as well as `running`. What matters, and what the tuple never
-    contains, is a terminal state.
+    ``expected`` is a tuple because a run can fail BEFORE it is claimed
+    (SSRF revalidation in ``reupload_service``), so the failure path accepts
+    both `pending` and `running`; it never contains a terminal state.
     """
     result = await session.execute(
         update(DatasetRefreshRun)
@@ -498,16 +460,12 @@ async def claim_run_for_job(
 ) -> uuid.UUID | None:
     """Move this job's run to ``running`` and stamp ``claimed_at``.
 
-    Returns the run id when this caller won the transition, else None.
+    Returns the run id when this caller won the transition, else None. None
+    is normal (no run row at all, or another actor already moved it) — the
+    ingest work proceeds regardless; the run row is history, never a gate.
 
-    None is normal, not an error, and covers two different cases the caller
-    treats identically: there is no run row at all (a re-upload dispatched
-    before this table existed), or another actor already moved it. Both mean
-    "this worker does not own a run", and the ingest work proceeds regardless —
-    the run row is history, never a gate on the data path.
-
-    ``started_at`` stays at dispatch time; ``claimed_at`` is stamped here, and
-    the gap between them IS the queue wait.
+    ``started_at`` stays at dispatch time; ``claimed_at`` is stamped here,
+    and the gap between them IS the queue wait.
     """
     run_id = await _active_run_id_for_job(session, ingest_job_id)
     if run_id is None:
@@ -531,14 +489,13 @@ async def cancel_active_run_for_job(
 ) -> uuid.UUID | None:
     """Finalize this job's active run as ``cancelled`` on a user's request.
 
-    feat(#1677). The caller (the cancel endpoint) owns the transaction: this
-    runs beside the fenced ``ingest_jobs`` CAS so the two terminal rows commit
-    together, and the worker's finalize fence (``require_ingest_job_update``)
-    is what guarantees no swap can land after that commit.
+    The caller (the cancel endpoint) owns the transaction: this runs beside
+    the fenced ``ingest_jobs`` CAS so the two terminal rows commit together,
+    and the worker's finalize fence (``require_ingest_job_update``)
+    guarantees no swap lands after that commit.
 
-    Returns the run id when this caller won the CAS, else ``None`` — no run
-    row is bound to the job (plain imports), or another actor finalized it
-    first. Both are normal, not errors.
+    Returns the run id when this caller won the CAS, else ``None`` (no run
+    row bound to the job, or another actor finalized it first — both normal).
     """
     run_id = await _active_run_id_for_job(session, ingest_job_id)
     if run_id is None:
@@ -570,18 +527,15 @@ def project_refresh_success(
     """Write the dataset-level state a successful refresh establishes.
 
     Duck-typed on the Dataset ORM instance so ``platform/`` does not import
-    ``modules.catalog`` — the same shape ``platform/dataset_origin.py`` uses.
+    ``modules.catalog``.
 
     ``last_refreshed_at`` is NOT set here: ``_apply_reupload_swap`` already
     stamps it as part of the swap, and two writers would be two answers.
 
-    ``contacted_origin`` gates ``last_checked_at`` because that column means
-    "the last time GeoLens contacted the origin at all". A file re-upload
-    contacts nothing — the bytes arrived from the browser — so stamping it
-    would claim a probe that never happened. ``source_health`` is deliberately
-    left alone on every path: the health vocabulary and its classifier belong
-    to the probe issue (#1222), and inventing a mapping here would put a
-    second, weaker classifier in the tree.
+    ``contacted_origin`` gates ``last_checked_at`` ("last time GeoLens
+    contacted the origin") because a file re-upload contacts nothing — the
+    bytes arrived from the browser. ``source_health`` is left alone on every
+    path: its classifier belongs to #1222, not here.
     """
     dataset.schema_drift_status = drift_status_from_diff(schema_diff)
     if contacted_origin:
@@ -598,17 +552,16 @@ async def record_refresh_success(
     schema_diff: dict[str, Any] | None,
     contacted_origin: bool,
 ) -> uuid.UUID | None:
-    """Finalize this job's run as ``succeeded`` and project drift onto the dataset.
+    """Finalize this job's run as ``succeeded``; project drift onto the dataset.
 
-    Called inside the worker transaction that commits the staging swap, so the
-    run's terminal status and the job's ``complete`` status land together. That
-    atomicity is what lets the stale-run sweep treat "job complete, run still
-    running" as impossible rather than as a state it has to guess about.
+    Called inside the worker transaction that commits the staging swap, so
+    the run's terminal status and the job's ``complete`` status land
+    together — that atomicity is what lets the stale-run sweep treat "job
+    complete, run still running" as impossible.
 
-    Expects ``running``: this worker claimed the run in phase 1, and anything
-    else means it lost ownership in between. The dataset projection still runs
-    — the swap DID happen and the drift it measured is true regardless of who
-    owns the bookkeeping row.
+    Expects ``running``: this worker claimed the run in phase 1. The dataset
+    projection still runs even if that expectation fails — the swap DID
+    happen and its drift is true regardless of who owns the bookkeeping row.
     """
     now = datetime.now(timezone.utc)
     project_refresh_success(
@@ -649,36 +602,26 @@ async def record_refresh_failure(
 ) -> uuid.UUID | None:
     """Finalize this job's run as ``failed``.
 
-    ``last_refreshed_at`` is untouched by construction — nothing here writes
-    it. A failed refresh leaves the live table and its freshness exactly as
-    they were, which is handoff invariant 10.
+    ``last_refreshed_at`` is untouched by construction: a failed refresh
+    leaves the live table and its freshness exactly as they were.
 
     When the run did reach out to a remote origin, ``last_checked_at`` is
-    stamped on the dataset: the attempt happened whether or not it worked, and
-    that is precisely the concept that column carries. The UPDATE goes through
-    parameterized SQL rather than the ORM class because the failure handler
-    runs in a fresh session with no dataset loaded, and ``platform/`` may not
-    import the catalog ORM at module scope.
+    stamped on the dataset via parameterized SQL (the failure handler runs
+    in a fresh session with no dataset loaded, and ``platform/`` may not
+    import the catalog ORM at module scope).
 
-    fix(#1220): that stamp is a GUARDED write, and ``origin_binding`` is what
-    makes it one. It is the ``(origin_uri, origin_ref, source_format)`` triple
-    the failing attempt read when it started, and the UPDATE only lands while
-    the row still carries it. Without the guard, a failure report from an
-    attempt whose dataset was rebound mid-flight — a concurrent re-upload
-    finishing first, say — would date the NEW binding's contact from the OLD
-    binding's doomed fetch, and for a rebind to an upload that is a contact
-    time nothing could ever have produced. Same discipline as
-    ``_record_failed_origin_contact`` in ``tasks_reupload.py``, which is the
-    dataset-side writer on the service path; this is the one every other
-    caller reaches. Passing ``contacted_origin=True`` without a binding raises
-    rather than falling back to an ID-only write, so the unguarded shape is
-    not reachable at all.
+    fix(#1220): that stamp is a GUARDED write — ``origin_binding`` is the
+    ``(origin_uri, origin_ref, source_format)`` triple read when the attempt
+    started, and the UPDATE only lands while the row still carries it.
+    Without the guard, a failure from an attempt whose dataset was rebound
+    mid-flight (a concurrent re-upload finishing first) would date the NEW
+    binding's contact from the OLD binding's doomed fetch. Passing
+    ``contacted_origin=True`` without a binding raises, so the unguarded
+    write is unreachable.
 
-    Accepts both non-terminal states. A run usually fails after it was claimed,
-    but not always: ``reupload_service`` revalidates its URL for SSRF before
-    phase 1, so that failure arrives while the run is still ``pending``, as
-    does the defer-guard rollback. Terminal states are excluded either way,
-    which is the guarantee that matters.
+    Accepts both non-terminal states: a run can fail while still ``pending``
+    (SSRF revalidation before phase 1, or the defer-guard rollback), not
+    just after being claimed. Terminal states are excluded either way.
     """
     if contacted_origin and origin_binding is None:
         raise ValueError(
@@ -750,9 +693,8 @@ async def _stamp_guarded_contact(
     caller is a failed background attempt, there is nobody to tell, and the
     rebind's own commit stamped whatever is true now.
 
-    ``GET /datasets/`` serves ``last_checked_at`` from a 60-second cache, so a
-    landed write invalidates it — every other writer of the field does, and a
-    lost race changed nothing worth invalidating for.
+    ``GET /datasets/`` serves ``last_checked_at`` from a 60-second cache, so
+    a landed write invalidates it, like every other writer of the field.
     """
     if binding is None:
         return False
@@ -784,13 +726,13 @@ def make_refresh_run_failed_rollback(
 ) -> Any:
     """Wrap a defer-guard rollback so it also finalizes the run as ``failed``.
 
-    ``defer_with_orphan_guard`` invokes the rollback and then commits, so both
-    the job's failure and the run's land in one transaction — the run can
-    never say `pending` for a dispatch that provably never happened.
+    ``defer_with_orphan_guard`` invokes the rollback and then commits, so
+    both the job's failure and the run's land in one transaction — the run
+    can never say `pending` for a dispatch that provably never happened.
 
-    The run is finalized AFTER the inner rollback, so a raise from the inner
-    closure keeps the pre-existing behaviour (guard logs it and still returns
-    503) rather than being masked by this wrapper's own work.
+    Finalized AFTER the inner rollback, so a raise from the inner closure
+    keeps the pre-existing behaviour (still returns 503) instead of being
+    masked by this wrapper.
     """
 
     async def _rollback(defer_exc: BaseException) -> None:
@@ -806,17 +748,14 @@ def make_refresh_run_failed_rollback(
     return _rollback
 
 
-# The shared last clause guards the pathological legacy DOUBLE (fix #1274
-# review): the old system had no admission control, so two reupload tasks for
-# one dataset can both be live at upgrade time, while the backfill's DISTINCT
-# ON could only represent one of them — the unique index allows one active
-# row. That sole row's reservation must therefore outlive EVERY live legacy
-# reupload task on the dataset, not just its bound job: releasing on the
-# bound job's completion would let a new refresh race the unrepresented
-# worker's swap. Native runs are unaffected in practice — their own job's
-# live task is already accounted for, and a coincidental legacy task on the
-# same dataset merely delays finalization by a sweep cycle, which is the
-# safe direction.
+# fix(#1274): guards the pathological legacy DOUBLE — the old system had no
+# admission control, so two reupload tasks for one dataset can both be live
+# at upgrade time, while the backfill's DISTINCT ON can represent only one
+# (the unique index allows one active row). That row's reservation must
+# outlive EVERY live legacy reupload task on the dataset, not just its bound
+# job, or a new refresh could race the unrepresented worker's swap. Native
+# runs are unaffected — a coincidental legacy task just delays finalization
+# by one sweep cycle, the safe direction.
 _NO_OTHER_LIVE_LEGACY_TASK = """
       AND NOT EXISTS (
           SELECT 1
@@ -832,50 +771,38 @@ _NO_OTHER_LIVE_LEGACY_TASK = """
 
 
 # This statement is itself a compare-and-set: `status IN ('pending',
-# 'running')` is the expected-state test, and RETURNING gives the rowcount, so
-# the sweep can no more overwrite a terminal status than `transition_run` can.
+# 'running')` is the expected-state test, RETURNING gives the rowcount, so
+# the sweep can no more overwrite a terminal status than `transition_run`.
 #
-# The dataset EXISTS clause looks redundant against a NOT NULL FK, and is not.
-# `dataset_refresh_runs` has no RLS policy of its own — its `tenant_id` is
-# dormant, like the one on `datasets` — so wherever RLS is ENABLED this UPDATE
-# would otherwise see every tenant's rows on every tenant's pass, while the
-# `ingest_jobs` sub-query beside it, on a table that does carry a policy, saw
-# only the current tenant's jobs and so read another tenant's live job as
-# absent. Joining through `catalog.datasets` puts the whole predicate in one
-# visibility scope. No table has RLS enabled today (enablement is #998's
-# work), so this is currently the no-op it appears to be — which is exactly
-# why it has to be written now rather than remembered later.
+# The dataset EXISTS clause looks redundant against a NOT NULL FK, and is
+# not: `dataset_refresh_runs` carries no RLS policy of its own (dormant
+# `tenant_id`, like `datasets`), so with RLS ENABLED this UPDATE would see
+# every tenant's rows while the `ingest_jobs` sub-query beside it (RLS-
+# enforced) sees only the current tenant's — reading another tenant's live
+# job as absent. Joining through `catalog.datasets` puts the whole predicate
+# in one visibility scope. No table has RLS enabled today (#998), so this is
+# currently a no-op — written now rather than remembered later.
 #
-# The two proofs the sweep needs before it may write `cancelled`. ADR-002
-# Decision 4d is explicit that this status is a bookkeeping correction and
-# never a stop signal, so it may only be written once the work is provably
-# not happening.
+# The two proofs the sweep needs before writing `cancelled` (a bookkeeping
+# correction, never a stop signal, per ADR-002 4d):
 #
-# 1. No Procrastinate job in a live state references the bound ingest job.
-#    Correlated on args->>'job_id', which every task in this codebase passes —
-#    the same correlation `no_live_procrastinate_job` in platform/jobs/sweep.py
-#    uses for ingest rows. Inlined rather than imported to avoid a
-#    platform/jobs -> platform/refresh dependency in the other direction.
-#
-#    A NULL ingest_job_id makes the comparison NULL, so the NOT EXISTS holds:
-#    the job row was purged by retention, which means its task is long gone.
+# 1. No live Procrastinate job references the bound ingest job (correlated
+#    on args->>'job_id', inlined rather than importing
+#    platform/jobs/sweep.py's `no_live_procrastinate_job` to avoid a
+#    platform/jobs -> platform/refresh dependency). A NULL ingest_job_id
+#    makes the comparison NULL, so NOT EXISTS holds: the job was purged.
 #
 # 2. The bound ingest job is absent, `failed`, or `pending` with no live
-#    task. A `running` job is still someone else's business — the ingest
-#    stale sweep runs first in the same pass and will fail it out if it is
-#    genuinely dead, so skipping it here costs one cycle and never writes a
-#    wrong terminal status. `pending` is NOT excluded (fix #1274 review):
-#    proof 1 already established no live task exists, and pending-plus-no-
-#    task past the cutoff is precisely the create-then-defer death this
-#    sweep exists to compensate — a presigned commit interrupted before its
-#    defer would otherwise hold the reservation for the bound-job sweep's
-#    24-hour timeout, refusing every retry with dataset_busy. A `complete` job cannot coexist with an active run for NATIVE
-#    rows, because `record_refresh_success` and the job's completion commit
-#    together — when the state does occur (migration 0037's backfilled rows,
-#    whose legacy workers finish without calling the finalizer), cancelling
-#    would claim abandonment for data that landed, so
-#    _LEGACY_COMPLETED_RUN_SQL above records the success instead and this
-#    statement keeps its hands off.
+#    task. `running` is skipped (the ingest stale sweep runs first and
+#    fails it out if genuinely dead). `pending` is NOT excluded (#1274):
+#    proof 1 already shows no live task, and pending-plus-no-task past the
+#    cutoff is exactly the create-then-defer death this sweep compensates
+#    for — otherwise a presigned commit interrupted before its defer would
+#    hold the reservation for 24h, refusing every retry with dataset_busy.
+#    `complete` can't coexist with an active run for NATIVE rows (success
+#    and job completion commit together); where it does (migration 0037
+#    backfilled legacy rows), _LEGACY_COMPLETED_RUN_SQL records the success
+#    instead and this statement stays hands-off.
 _ABANDONED_RUN_SQL = text(
     """
     UPDATE catalog.dataset_refresh_runs AS r
@@ -906,18 +833,14 @@ _ABANDONED_RUN_SQL = text(
 )
 
 
-# fix(#1274 review): the truth-recording counterpart to the abandonment
-# cancel below. For a NATIVE run, "bound job complete + run still active" is
-# impossible by construction — record_refresh_success and the job's
-# completion commit together — which is exactly why _ABANDONED_RUN_SQL
-# refuses to touch it. But migration 0037's backfill creates active rows for
-# refreshes already executing in PRE-migration workers, and those workers
-# finish by marking the job complete without ever calling the new finalizer.
-# A complete job IS the proof the swap committed, so the honest terminal
-# state is `succeeded`, stamped with the job's own completion time. Native
-# runs never match; if a future bug manufactures the state anyway, recording
-# success-when-the-data-landed both tells the truth and un-wedges the
-# admission index. No cutoff: the job's terminal status is proof enough.
+# fix(#1274): truth-recording counterpart to the abandonment cancel below.
+# For a NATIVE run, "bound job complete + run still active" is impossible
+# by construction (success and job completion commit together), which is
+# why _ABANDONED_RUN_SQL refuses to touch it. But migration 0037's backfill
+# creates active rows for refreshes already running in PRE-migration
+# workers, which mark the job complete without calling the new finalizer.
+# A complete job IS proof the swap committed, so the honest terminal state
+# is `succeeded`. No cutoff: the job's terminal status is proof enough.
 _LEGACY_COMPLETED_RUN_SQL = text(
     """
     UPDATE catalog.dataset_refresh_runs AS r
@@ -944,11 +867,9 @@ async def sweep_abandoned_refresh_runs(
     whose bound job completed — only reachable for migration 0037's
     backfilled rows, whose legacy workers finished without knowing this
     table exists. The second cancels runs whose task is proven gone: the
-    compensation for the one gap Decision 4b accepts, since create-then-
-    defer is not atomic and a process that dies between the commit and the
-    ``defer`` leaves a run in ``pending`` with no task behind it. Building
-    the dispatch outbox that would close that gap properly is scheduler
-    infrastructure, and gate 4 says this milestone ships no scheduler.
+    compensation for create-then-defer not being atomic — a process that
+    dies between the commit and the ``defer`` leaves a run ``pending`` with
+    no task behind it.
 
     Returns the number of runs finalized by either statement.
     """
@@ -967,12 +888,10 @@ async def sweep_abandoned_refresh_runs(
     # usable `.rowcount`, and the ids are needed anyway.
     recovered = list(completed.scalars())
     cancelled = list(result.scalars())
-    # feat(#1268): these two statements are the only terminal transitions no
-    # worker reports, so without an event here the audit log would show a
-    # dispatch and then nothing, forever. Emitted per run rather than as one
-    # summary row: the audit log is keyed on a resource, and "seven runs were
-    # reconciled" names no dataset anybody can go look at. Both statements
-    # normally match zero rows, so the per-row read costs nothing in practice.
+    # feat(#1268): these are the only terminal transitions no worker
+    # reports, so without an event here the audit log shows a dispatch and
+    # then nothing. Emitted per run, not as one summary row: the audit log
+    # is keyed on a resource, and "seven runs reconciled" names none.
     for run_id in recovered:
         await _emit_refresh_succeeded(session, run_id)
     for run_id in cancelled:

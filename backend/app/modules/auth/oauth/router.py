@@ -47,56 +47,42 @@ class _SSRFSafeOAuth2Client(AsyncOAuth2Client):
     """Authlib's HTTP client, with the transport decided here and not by a caller.
 
     fix(#1861): the app class below installed the IP-pinning transport in
-    ``_get_session`` alone. In authlib 1.7.2 that hook serves discovery
-    (``base_client/async_app.py:78``) and JWKS
-    (``base_client/async_openid.py:25``); the token exchange
-    (``async_app.py:126``) and the userinfo fetch (``async_app.py:90``, reached
-    from ``async_openid.py:36``) build their client through
-    ``_get_oauth_client`` (``base_client/sync_app.py:236``), which returned a
-    stock httpx transport. Those two requests are the ones carrying the client
-    secret and the access token. All four hooks construct ``self.client_cls``,
-    so this is the single place that reaches every one of them.
+    ``_get_session`` alone, which covers discovery and JWKS but NOT the token
+    exchange or userinfo fetch (built via ``_get_oauth_client``) — the two
+    requests carrying the client secret and access token. All four hooks
+    construct ``self.client_cls``, so this is the single place that reaches
+    every one of them.
 
     ``_get_oauth_client`` also merges the discovery document into the httpx
-    client kwargs (``sync_app.py:239``, ``client_kwargs.update(metadata)``), so
-    a document carrying a ``transport``, ``mounts``, ``proxy``, ``verify`` or
-    ``follow_redirects`` key would otherwise be choosing the transport security
-    of the request that carries the secret. They are set here, after that
-    merge; ``verify`` and ``cert`` need no entry because httpx reads them only
-    when it builds the transport itself.
+    client kwargs, so a document carrying a ``transport``/``mounts``/``proxy``/
+    ``follow_redirects`` key would otherwise choose the transport security of
+    the secret-carrying request. These are set here, AFTER that merge.
     """
 
     def __init__(self, *args, **kwargs):
         from app.platform.security import make_safe_transport
 
         kwargs["transport"] = make_safe_transport()
-        # httpx consults a per-scheme mount before ``transport``, and builds
-        # one from ``proxy``. Both are part of pinning the transport rather
-        # than separate rules, and an empty ``mounts`` does not clear what
-        # ``proxy`` added, so both are set. Passing a transport at all already
-        # stops httpx reading proxies from the environment
-        # (``_client.py``: ``allow_env_proxies = trust_env and transport is None``),
-        # which is why an operator's proxy configuration is unaffected.
+        # httpx consults a per-scheme mount before ``transport`` and builds
+        # one from ``proxy``; both pin the transport (an empty ``mounts``
+        # doesn't clear what ``proxy`` added). Passing a transport already
+        # stops httpx reading env proxies, so operator proxy config is
+        # unaffected.
         kwargs["mounts"] = {}
         kwargs["proxy"] = None
-        # httpx's own default, pinned so that it stays the default: nothing
-        # here follows a redirect, so neither the client secret nor the access
-        # token can cross an origin behind a 302. That is the strongest form of
-        # the rule ``_ALWAYS_CREDENTIAL_HEADERS`` in platform/security.py
-        # applies to the hops that do happen.
+        # httpx's own default, pinned so it stays the default: nothing here
+        # follows a redirect, so neither the client secret nor the access
+        # token can cross an origin behind a 302.
         kwargs["follow_redirects"] = False
         super().__init__(*args, **kwargs)
 
 
-# The endpoints authlib reads out of a discovery document and then fetches:
-# ``token_endpoint`` (async_app.py:125), ``userinfo_endpoint``
-# (async_openid.py:36), ``jwks_uri`` (async_openid.py:21) and
-# ``authorization_endpoint`` (async_app.py:101, which is handed to the
-# browser). A provider configured by discovery URL leaves the matching columns
-# empty on its row, so validate_provider_server_endpoints never sees the
-# address a request actually goes to. This list stays matched to the calls that
-# exist: refusing a login over an endpoint nothing fetches is a false refusal
-# rather than a defence.
+# Endpoints authlib reads from a discovery document and then fetches:
+# token_endpoint, userinfo_endpoint, jwks_uri, and authorization_endpoint
+# (handed to the browser). A provider configured by discovery URL leaves the
+# matching row columns empty, so validate_provider_server_endpoints never
+# sees the address a request actually goes to — this list must stay matched
+# to the calls that exist, or a route with no fetch gets falsely refused.
 _DISCOVERY_ENDPOINT_KEYS = (
     "authorization_endpoint",
     "token_endpoint",
@@ -116,12 +102,10 @@ def _endpoint_refused(
 ) -> HTTPException:
     """Log the operator-facing detail and return the refusal for the caller to raise.
 
-    fix(#1861): one helper for both sources of an endpoint, the provider row
-    and the discovery document, so the two cannot drift into different status
-    codes or different disclosure. The response names no host: these routes are
-    unauthenticated and an SSRFError message carries the hostname it was asked
-    to resolve. The operator log gets the provider, which endpoint was refused
-    and its hostname, which is what fixing the configuration needs.
+    fix(#1861): one helper for both sources (provider row and discovery
+    document), so they can't drift into different status codes/disclosure.
+    The response names no host — these routes are unauthenticated; the
+    operator log gets the provider, endpoint, and hostname.
     """
     logger.warning(
         "OAuth provider endpoint rejected",
@@ -139,13 +123,11 @@ def _endpoint_refused(
 def _loggable_hostname(url: str) -> str | None:
     """The hostname for the operator log, or None when the URL will not parse.
 
-    fix(#1861 codex r1): the refusal path must not raise. urlparse rejects a
-    malformed authority such as ``http://[invalid/token`` with ValueError, so
-    validate_url_for_ssrf never reaches its own checks and the refusal branch
-    receives exactly the string that cannot be parsed. Parsing it a second time
-    there raised inside the handler, replacing the sanitized 503 with an
-    unhandled 500 on an unauthenticated route. None reads as unparseable in the
-    log line, and error_type carries the reason.
+    fix(#1861): urlparse rejects a malformed authority with
+    ValueError before validate_url_for_ssrf's own checks run, so parsing it
+    again here would raise inside the handler — replacing the sanitized 503
+    with an unhandled 500 on an unauthenticated route. None reads as
+    unparseable in the log line.
     """
     try:
         return urlparse(url).hostname
@@ -166,9 +148,8 @@ async def _validate_discovery_endpoints(
         try:
             await validate_url_for_ssrf(url)
         except ValueError as exc:
-            # SSRFError and SSRFResolutionError are both ValueError, which is
-            # also what the row-level check raises, and so is the plain
-            # ValueError urlparse raises on a malformed authority.
+            # SSRFError/SSRFResolutionError are both ValueError, matching
+            # the row-level check and the plain ValueError urlparse raises.
             raise _endpoint_refused(
                 provider_slug, exc, endpoint=key, host=_loggable_hostname(url)
             ) from exc
@@ -179,9 +160,8 @@ class _SSRFSafeOAuth2App(StarletteOAuth2App):
 
     client_cls = _SSRFSafeOAuth2Client
 
-    # One validation per app instance, and build_oauth_client builds one per
-    # request. Nothing rewrites the endpoints after they are read: authlib
-    # caches the document under ``_loaded_at`` and only ever adds ``jwks``.
+    # One validation per app instance; build_oauth_client builds one per
+    # request. Nothing rewrites the endpoints after they're read.
     _endpoints_validated = False
 
     async def load_server_metadata(self) -> dict:
@@ -194,10 +174,9 @@ class _SSRFSafeOAuth2App(StarletteOAuth2App):
         still reaches nothing internal.
         """
         metadata = await super().load_server_metadata()
-        # Only a discovery document introduces an endpoint the row-level check
-        # in build_oauth_client has not already resolved. Without one, authlib
-        # keeps the registered columns in server_metadata, and re-resolving
-        # them here would refuse a provider that check just passed.
+        # Only a discovery document introduces an endpoint the row-level
+        # check hasn't already resolved; without one, re-resolving here would
+        # refuse a provider that check just passed.
         if self._server_metadata_url and not self._endpoints_validated:
             await _validate_discovery_endpoints(self.name, metadata)
             self._endpoints_validated = True
@@ -209,21 +188,17 @@ def _id_token_claims_options(
 ) -> dict | None:
     """id_token claim-validation overrides passed to ``authorize_access_token``.
 
-    Azure *multitenant* authorities (``/common/``, ``/organizations/``) publish a
-    TEMPLATED issuer ``https://login.microsoftonline.com/{tenantid}/v2.0`` in
-    their OIDC discovery document, but issued id_tokens carry the resolved
-    per-tenant issuer (e.g. ``.../9188040d-.../v2.0`` for personal accounts).
-    authlib's default pins ``iss`` to that templated string via an exact
-    value-match and rejects every login; joserfc (no callable validator) only
-    supports value/values matching, so for multitenant Microsoft we relax ``iss``
-    to required-but-not-value-pinned. The JWKS signature check and the PKCE +
-    client_secret code exchange still bind the token to Microsoft and to this app.
+    Azure multitenant authorities (/common/, /organizations/) publish a
+    TEMPLATED issuer in their discovery document, but issued id_tokens carry
+    the resolved per-tenant issuer. authlib's default pins ``iss`` by exact
+    match and rejects every login; joserfc supports no callable validator, so
+    for multitenant Microsoft this relaxes ``iss`` to required-but-unpinned.
+    JWKS signature check and the PKCE + client_secret exchange still bind the
+    token to Microsoft and this app.
 
-    Tenant-specific Microsoft providers (concrete ``/{tenant_id}/`` discovery URL,
-    as the admin UI builds) have a FIXED issuer that authlib can and must pin, so
-    they keep the default — relaxing them would drop cross-tenant ``iss`` isolation
-    (geolens#303 review). Returns None for every other case so authlib keeps its
-    default iss pin.
+    Tenant-specific Microsoft providers have a FIXED issuer authlib can and
+    must pin, so they keep the default — relaxing them would drop
+    cross-tenant ``iss`` isolation (geolens#303). Returns None otherwise.
     """
     if is_azure_multitenant(provider_type, discovery_url):
         return {"iss": {"essential": True}}
@@ -243,14 +218,12 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
             detail="OAuth provider not found or not enabled",
         )
 
-    # Validate every persisted endpoint before decrypting the client secret.
-    # This protects legacy rows as well as configurations written through CRUD
-    # or config import. fix(#1861): it covers the four columns on the row and
-    # nothing else, so a provider configured by discovery URL has its endpoints
-    # checked in _SSRFSafeOAuth2App.load_server_metadata instead. Either way
-    # every Authlib session, whichever hook builds it, then connects through
-    # the IP-pinning transport, which closes the DNS-rebinding gap between the
-    # check and request dispatch.
+    # Validate every persisted endpoint before decrypting the client secret,
+    # covering legacy rows and CRUD/config-import writes. fix(#1861): covers
+    # only the four row columns; a discovery-URL provider is checked in
+    # _SSRFSafeOAuth2App.load_server_metadata instead. Either way every
+    # Authlib session then connects through the IP-pinning transport, closing
+    # the DNS-rebinding gap between check and dispatch.
     try:
         await validate_provider_server_endpoints(provider)
     except ValueError as exc:
@@ -260,7 +233,6 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
 
     oauth = OAuth()
 
-    # Build registration kwargs
     register_kwargs: dict = {
         "client_cls": _SSRFSafeOAuth2App,
         "client_id": provider.client_id,
@@ -274,11 +246,9 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
     if provider.discovery_url:
         register_kwargs["server_metadata_url"] = provider.discovery_url
     else:
-        # Generic OIDC / GitHub without discovery -- explicit URLs.
-        # GitHub's token endpoint returns form-encoded unless Accept: application/json
-        # is sent. We request JSON via the token_endpoint_auth_method kwarg and by
-        # adding the Accept header to client_kwargs so authlib sends it during
-        # token exchange (SSO-05, Phase 1237).
+        # Generic OIDC / GitHub without discovery -- explicit URLs. GitHub's
+        # token endpoint returns form-encoded unless Accept: application/json
+        # is requested, hence token_endpoint_auth_method below (SSO-05).
         register_kwargs["authorize_url"] = provider.authorize_url
         register_kwargs["access_token_url"] = provider.token_url
         register_kwargs["userinfo_endpoint"] = provider.userinfo_url
@@ -328,12 +298,10 @@ async def oauth_login(
     redirect_uri = f"{public_api_url}/auth/oauth/{provider_slug}/callback"
 
     # HARDEN-04 (T-1238-05): generate a correlation_id at login-init so the
-    # matching callback audit entry (success OR failure) shares the same id,
-    # giving a non-repudiable trail linking initiation to outcome.
-    # Store in session keyed by provider slug; authlib already uses the session
-    # for its PKCE `state` parameter, so the middleware is already active.
-    # Details carry only provider_slug + correlation_id — no secrets, tokens,
-    # or email addresses (T-1238-06).
+    # matching callback audit entry shares it, linking initiation to outcome.
+    # Stored in session keyed by provider slug; authlib already uses the
+    # session for PKCE `state`. Details carry only provider_slug +
+    # correlation_id — no secrets, tokens, or email addresses (T-1238-06).
     correlation_id = uuid.uuid4().hex[:12]
     request.session[f"_oauth_correlation_{provider_slug}"] = correlation_id
 
@@ -391,12 +359,9 @@ async def oauth_callback(
             detail=str(exc),
         ) from exc
 
-    # HARDEN-04 (T-1238-05): read back the correlation_id stored at login-init so
-    # every callback audit entry (success or failure) shares the same id.
-    # Fall back to a fresh id when the session value is absent (e.g. cross-process
-    # restart between login-init and callback). Details carry only provider_slug,
-    # correlation_id, and an outcome string — never client_secret, tokens, or email
-    # (T-1238-06).
+    # HARDEN-04 (T-1238-05): read back the correlation_id from login-init so
+    # every callback audit entry shares it; falls back to a fresh id (e.g.
+    # cross-process restart). Details never carry secrets/tokens/email (T-1238-06).
     correlation_id: str = (
         request.session.get(f"_oauth_correlation_{provider_slug}")
         or uuid.uuid4().hex[:12]
@@ -416,12 +381,10 @@ async def oauth_callback(
             authorize_kwargs["claims_options"] = claims_options
         token = await client.authorize_access_token(request, **authorize_kwargs)
 
-        # Extract userinfo.
-        # GitHub is plain OAuth2 (not OIDC) with no id_token / userinfo endpoint
-        # that authlib knows about automatically. Its /user endpoint omits email
-        # when set to private, so we resolve the primary+verified email via a
-        # separate /user/emails call (T-1237-01 ASVS guard, SSO-05, Phase 1237).
-        # All other providers use the existing authlib userinfo path unchanged.
+        # GitHub is plain OAuth2 (not OIDC), no id_token/userinfo endpoint
+        # authlib knows automatically; resolve primary+verified email via
+        # /user/emails instead (T-1237-01, SSO-05). Other providers use
+        # authlib's userinfo path unchanged.
         if provider.provider_type == "github":
             # Pass the provider's configured user endpoint so GitHub Enterprise
             # providers resolve identity against their own API, not api.github.com.
@@ -441,13 +404,10 @@ async def oauth_callback(
             provider.provider_type, provider.discovery_url, userinfo
         )
 
-        # Find or create the GeoLens user
         user = await find_or_create_oauth_user(db, provider, userinfo, dict(token))
 
-        # Record login timestamp
         user.last_login_at = func.now()
 
-        # Issue GeoLens JWT
         expire_minutes = await ACCESS_TOKEN_EXPIRE_MINUTES.get(db)
         expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)
 
@@ -478,12 +438,11 @@ async def oauth_callback(
         )
         await db.commit()
 
-        # GH-1302: when the SPA shares this request's origin, the refresh token
-        # is delivered as an httpOnly cookie and never enters the fragment —
-        # the fragment is readable by any script on the landing page and was
-        # the same exfiltration surface as localStorage. The `auth_mode=cookie`
-        # marker tells the callback page not to expect a body token. A
-        # cross-origin SPA cannot send that cookie back, so it keeps the
+        # GH-1302: same-origin SPA gets the refresh token as an httpOnly
+        # cookie instead of in the fragment (readable by any script on the
+        # landing page, the same exfiltration surface as localStorage).
+        # `auth_mode=cookie` tells the callback page not to expect a body
+        # token; a cross-origin SPA can't send that cookie back, so it keeps
         # pre-GH-1302 fragment delivery.
         api_url = await get_public_api_url(db, request=request, for_external_use=True)
         cookie_mode = is_same_origin(
@@ -496,14 +455,12 @@ async def oauth_callback(
             + f"&expires_in={expire_minutes * 60}"
             + ("&auth_mode=cookie" if cookie_mode else "")
         )
-        # SEC-13 / L-67: the redirect URL carries the access_token (and, on the
-        # cross-origin fallback, the refresh_token) in the fragment. Without
-        # `Referrer-Policy: no-referrer`, the browser may include the FULL
-        # callback URL (which contains the IdP's `code=` query param) in
-        # subsequent Referer headers to third-party assets loaded by the
-        # post-redirect page — leaking the auth code. Per-redirect override of
-        # the global `strict-origin-when-cross-origin` from
-        # SecurityHeadersMiddleware.
+        # SEC-13/L-67: the redirect URL carries access_token (and, on the
+        # cross-origin fallback, refresh_token) in the fragment. Without
+        # Referrer-Policy: no-referrer, the browser may leak the full
+        # callback URL (with the IdP's code= param) to third-party assets on
+        # the post-redirect page. Per-redirect override of the global
+        # strict-origin-when-cross-origin from SecurityHeadersMiddleware.
         redirect = RedirectResponse(
             url=redirect_url,
             status_code=302,
@@ -516,16 +473,12 @@ async def oauth_callback(
     except HTTPException:
         raise  # Let 404s from build_oauth_client pass through
     except Exception as exc:  # broad: OAuth provider can return arbitrary errors; map to redirect with correlation_id
-        # Refusals the caller is told about by name, rather than through the
-        # generic "OAuth callback failed" below: Phase 268 H-30's
-        # email-not-verified collision, DOMAIN-03's allowlist rejection, and
-        # fix(#1778)'s registration-disabled gate.
-        #
-        # Each of the three does exactly the same thing, so they share one loop
-        # (fix(#1778): they were three copies of this block, and the third would
-        # have been a fourth). DOMAIN-03 (T-1236-04): the log records the
-        # provider slug and correlation_id ONLY -- never the attempted email
-        # address or subject (information-disclosure mitigation).
+        # Refusals told to the caller by name rather than the generic
+        # "OAuth callback failed" below: H-30's email-not-verified collision,
+        # DOMAIN-03's allowlist rejection, and fix(#1778)'s
+        # registration-disabled gate. All three do the same thing, so they
+        # share one loop. DOMAIN-03 (T-1236-04): the log records provider
+        # slug and correlation_id ONLY, never the attempted email/subject.
         from app.modules.auth.oauth.service import (
             OAuthDomainNotAllowedError,
             OAuthEmailUnverifiedError,
@@ -598,11 +551,10 @@ async def oauth_callback(
             provider=provider_slug,
             correlation_id=correlation_id,
         )
-        # FIX-C (Codex P2): discard any partial JIT side effects (flushed User /
-        # OAuthAccount / refresh token) before writing the audit row.  Without
-        # this rollback, a generic exception mid-provisioning can persist a
-        # half-created user row.  The rollback + audit_emit + commit sequence
-        # means ONLY the failure-audit row reaches the DB.
+        # FIX-C: discard any partial JIT side effects (flushed User/
+        # OAuthAccount/refresh token) before writing the audit row — the
+        # rollback + audit_emit + commit sequence ensures ONLY the
+        # failure-audit row reaches the DB.
         try:
             await db.rollback()
         except Exception:  # broad: defensive log-and-continue — an audit/rollback write must never break the OAuth redirect flow

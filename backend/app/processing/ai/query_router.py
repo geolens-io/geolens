@@ -4,39 +4,26 @@
 ``{columns, rows}`` through the same validation/execution rails AI chat uses
 (``app.platform.sandbox``), with a tighter budget on every axis:
 
-- auth required (``use_ai_chat``), never anonymous — anonymous would also
-  collapse the sandbox's per-user single-flight lock onto one shared slot;
-- ``restrict_tables`` is MANDATORY and non-empty, so one route can never
-  enumerate-and-dump every visible dataset (S03 follow-through);
+- auth required (``use_ai_chat``), never anonymous — anonymous collapses the
+  sandbox's per-user single-flight lock onto one shared slot;
+- ``restrict_tables`` is MANDATORY and non-empty (no enumerate-and-dump);
 - a self-join repetition cap (``max_table_repeats``) closes the CROSS JOIN
   cost vector a raw endpoint makes cheap to reach;
 - a 5 s statement timeout and a smaller default row limit than chat's;
-- the single-tenant reader role binds fail-closed (``require_reader_role``),
-  so a query can never silently run with superuser privileges;
+- the single-tenant reader role binds fail-closed (``require_reader_role``);
 - per-user AND per-IP slowapi rate limits;
-- errors expose only ``SandboxError.user_message`` (status carries the mapped
-  category), and every query the sandbox EVALUATES — success or rejection —
+- errors expose only ``SandboxError.user_message``; every EVALUATED query
   emits a durable audit event.
 
-Audit scope (fix(#565 codex P2)): the durable trail records queries the
-sandbox actually evaluated. PRE-sandbox rejections — a request refused by
-authentication, by body validation (a malformed/oversized payload), or by the
-rate limiter — never became a query and are deliberately NOT written to the
-durable trail; they are logged instead. This is a security decision, not an
-oversight: body-validation rejections bypass the per-request limiter, and a
-429 IS the limiter shedding load, so a durable DB write per such rejection
-would let a stream of cheap, throttled requests amplify into unbounded audit
-writes — the exact denial vector this endpoint is hardened against. Logs carry
-the same signal without a per-request write.
+Audit scope (fix(#565)): PRE-sandbox rejections (auth, body validation,
+rate limit) are logged, not written to the durable trail — a write per
+throttled 429 would let cheap requests amplify into unbounded audit writes.
 
-This router lives in ``processing/`` (not ``platform/``) on purpose: it must
-import ``modules.auth``/``modules.audit``, and ``platform/`` may not import
-``modules`` (``backend/tests/test_layering.py``).
-
-The primary consumer is the read-only MCP server's ``query`` tool
-(``mcp/geolens_mcp/``). Decided in #875/#565: a ``read_only`` API key may call
-this POST route — it is a read semantically — via the exact-route carve-out in
-``app.modules.auth.dependencies``.
+Lives in ``processing/`` not ``platform/`` because it imports
+``modules.auth``/``modules.audit`` (``platform/`` may not; test_layering.py).
+Primary consumer: the read-only MCP server's ``query`` tool, via the
+``read_only`` API-key carve-out in ``app.modules.auth.dependencies``
+(#875/#565).
 """
 
 from __future__ import annotations
@@ -73,19 +60,16 @@ logger = structlog.stdlib.get_logger(__name__)
 class _LoggedRejectionRoute(APIRoute):
     """Log — never durably audit — authenticated PRE-sandbox rejections (#565).
 
-    A body-validation failure (``RequestValidationError``, HTTP 422) or a
-    rate-limit rejection (``RateLimitExceeded``, HTTP 429) is raised before the
-    handler body runs, so neither ``query.reject`` audit in the handler fires.
-    These are intentionally logged, not written to the durable audit trail: see
-    the module docstring for why durably auditing them is a write-amplification
-    vector. The durable trail is reserved for queries the sandbox evaluated.
+    A body-validation failure (422) or rate-limit rejection (429) is raised
+    before the handler body runs, so the handler's ``query.reject`` audit
+    never fires — see the module docstring for why durably auditing these
+    is a write-amplification vector.
 
-    FastAPI solves dependencies (including auth) BEFORE body validation, and the
-    rate limiter runs inside the wrapped endpoint AFTER dependencies, so in both
-    cases ``_rate_limit_scoped_user`` has already stamped the resolved user id
-    onto ``request.state``. Auth failures raise their own 401/403 during
-    dependency solving and never reach here, so an unauthenticated request is
-    not logged as a rejected query attempt.
+    FastAPI solves dependencies (including auth) BEFORE body validation, and
+    the rate limiter runs AFTER, so ``_rate_limit_scoped_user`` has already
+    stamped the user id onto ``request.state`` in both cases. An
+    unauthenticated request's 401/403 happens during dependency solving and
+    never reaches here.
     """
 
     def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
@@ -129,21 +113,17 @@ _QUERY_DEFAULT_ROW_LIMIT = 100
 _QUERY_MAX_ROW_LIMIT = 1000
 
 # fix(#1778): the self-join fan-out cap moved to sandbox_bounds.py and now
-# applies to AI chat's query_data tool as well. It bounds worst-case
-# cardinality, which is a property of the shared planner and pool rather than
-# of this endpoint, and both surfaces are gated by the same `use_ai_chat`
-# permission — so "applied only on this endpoint" made it opt-out by asking
-# the chatbot instead. Kept under the local name so the call site below and
-# the #565 regression tests read unchanged.
+# applies to query_data too — a property of the shared planner/pool, not
+# this endpoint, and both surfaces share the `use_ai_chat` permission. Kept
+# under the local name so the #565 regression tests read unchanged.
 _QUERY_MAX_TABLE_REPEATS = MAX_TABLE_REPEATS
 
-# Output-amplifying functions dropped on this raw surface (#565 codex P1
-# r17/r18). Each turns a small input into an arbitrarily large single cell via
-# a width / count / replacement argument, which neither the SQL-length cap nor
-# row_limit nor the statement timeout bounds. The allowlist currently admits
-# only format / replace / regexp_replace of this set; the rest are listed
-# defensively so a future allowlist addition cannot silently reopen the hole on
-# this endpoint. AI chat keeps them all (it passes no extra-blocked set).
+# Output-amplifying functions dropped on this raw surface (fix(#565)): each
+# turns a small input into an arbitrarily large single cell via a width/
+# count/replacement argument, which no SQL-length cap, row_limit, or
+# statement timeout bounds. The allowlist currently admits only format/
+# replace/regexp_replace; the rest are listed defensively so a future
+# addition can't silently reopen the hole. AI chat keeps them all.
 _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
     {
         "format",
@@ -154,9 +134,9 @@ _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
         "rpad",
         "space",
         "overlay",
-        # concatenation doubles a value when both operands are the same — chained
-        # through CTEs it amplifies without bound (#565 codex P1 r19). `concat`
-        # is the trigger that also blocks the `||` operator in validate_sql.
+        # concatenation doubles a value when both operands are the same;
+        # chained through CTEs it amplifies without bound (#565). `concat`
+        # also triggers the `||` operator block in validate_sql.
         "concat",
         "concat_ws",
         # concatenating aggregates build one huge cell from many rows
@@ -186,18 +166,13 @@ _capacity_bound = capacity_bound
 _query_slots = query_slots
 
 # Module-level so tests can lower them; slowapi evaluates callables per
-# request (same pattern as auth.router's persistent-config-driven limits).
-#
-# These reuse the app-wide in-memory ``limiter`` (from modules/auth/router.py),
-# so like EVERY slowapi limit in this codebase the per-user/per-IP counters are
-# per-uvicorn-worker, not shared (#565 codex P2 r10). Cross-worker frequency
-# enforcement (a Valkey-backed limiter) is an app-wide change tracked separately
-# — deliberately not forked here for one endpoint. It is a secondary bound
-# regardless: the sandbox's per-user advisory lock is a Postgres xact lock, so
-# it is GLOBAL across workers and already serializes each user to ONE in-flight
-# query, and every query is capped at a 5 s statement timeout. So the
-# per-worker counter caps request FREQUENCY loosely; concurrency and per-query
-# cost are bounded cross-worker no matter the worker count.
+# request. These reuse the app-wide in-memory ``limiter``, so the per-user/
+# per-IP counters are per-uvicorn-worker, not shared (fix(#565)); a
+# Valkey-backed limiter is a tracked app-wide change, not forked here. It's
+# a secondary bound anyway: the sandbox's per-user advisory lock is a
+# Postgres xact lock (GLOBAL across workers), already serializing each user
+# to ONE in-flight query at a 5 s statement timeout — the per-worker counter
+# only caps request FREQUENCY loosely.
 _QUERY_PER_USER_LIMIT = "30/minute"
 _QUERY_PER_IP_LIMIT = "60/minute"
 
@@ -336,14 +311,12 @@ async def _audit_query(
         await audit_emit_durable(AuditEvent(action="query.reject", **common))
 
 
-# ROUTE-01 dual-shape: the trailing-slash form is canonical and OpenAPI-visible;
-# the no-slash form is a hidden alias. fix(#565 codex P2 r3): both are registered
-# on THIS router so both carry `_LoggedRejectionRoute` — the app-level
-# trailing-slash alias builder re-registers missing no-slash routes as PLAIN
-# APIRoutes, which would drop pre-sandbox-rejection logging on `/query`. It skips
-# `/query` because this hidden route already claims the (method, path) pair, and
-# `include_in_schema=False` keeps it out of the OpenAPI surface (and the #875
-# read_only carve-out already exempts both `/query/` and `/query`).
+# ROUTE-01 dual-shape: trailing-slash is canonical/OpenAPI-visible;
+# no-slash is a hidden alias registered here too so both carry
+# `_LoggedRejectionRoute` (the app's alias builder would otherwise
+# re-register a missing no-slash route as a plain APIRoute and drop
+# pre-sandbox-rejection logging). `include_in_schema=False` hides it; the
+# #875 read_only carve-out already exempts both forms.
 @router.post("", include_in_schema=False)
 @router.post(
     "/",
@@ -377,12 +350,11 @@ async def sandbox_query_endpoint(
             max_table_repeats=_QUERY_MAX_TABLE_REPEATS,
             require_reader_role=True,
             # Return the request connection before the sandbox opens its own,
-            # and cap total concurrent executions (#565 codex P1 r11). Nothing
-            # below reads `db`; the audit trail uses its own session.
+            # and cap total concurrent executions (fix(#565)). Nothing below
+            # reads `db`; the audit trail uses its own session.
             release_session=True,
             capacity_semaphore=_query_slots,
-            # Raw-surface guards against output/cardinality amplification
-            # (#565 codex P1 r17/r20).
+            # Raw-surface guards against output/cardinality amplification (#565).
             extra_blocked_functions=_QUERY_BLOCKED_FUNCTIONS,
             max_values_rows=_QUERY_MAX_VALUES_ROWS,
             max_output_columns=_QUERY_MAX_OUTPUT_COLUMNS,
@@ -401,17 +373,15 @@ async def sandbox_query_endpoint(
     await _audit_query(
         request, user, body, row_count=result.row_count, truncated=result.truncated
     )
-    # fix(#565 codex P2 r15/r20): driver types Pydantic cannot serialize turn a
-    # successful, already-audited query into a 500. Normalize each cell — bytea
-    # to \x-hex (matching to_jsonb), asyncpg ranges to text — recursively.
+    # fix(#565): driver types Pydantic cannot serialize turn a successful,
+    # already-audited query into a 500. Normalize each cell — bytea to
+    # \x-hex (matching to_jsonb), asyncpg ranges to text — recursively.
     result.rows = [[_json_safe(cell) for cell in row] for row in result.rows]
-    # fix(#565 codex P1 r20 / P2 r23): a wide DATA cell (or a projection the
-    # column cap let through) can still make one row gigabytes. Bound the
-    # response by its ACTUAL serialized size, not a `str(cell)` character count:
-    # that undercounts multi-byte UTF-8 (an 8M-emoji cell is ~32 MiB encoded)
-    # and JSON escaping. Serialize once with the model's own JSON encoder,
-    # measure the encoded bytes, and return exactly those bytes so the limit is
-    # enforced on what crosses the wire (and nothing is serialized twice).
+    # fix(#565): a wide DATA cell (or a projection the column cap let
+    # through) can still make one row gigabytes. Bound by the response's
+    # ACTUAL serialized size, not `str(cell)` length (undercounts multi-byte
+    # UTF-8 and JSON escaping) — serialize once, measure encoded bytes, and
+    # return exactly those bytes so nothing is serialized twice.
     payload = result.model_dump_json().encode("utf-8")
     if len(payload) > _QUERY_MAX_RESPONSE_BYTES:
         await _audit_query(request, user, body, category="response_too_large")
@@ -428,7 +398,7 @@ def _json_safe(value: object) -> object:
     Mirrors ``service_analysis._json_safe`` — duplicated because ``processing/``
     may not import ``modules.catalog``. Encodes bytea as ``\\x``-hex (matching
     to_jsonb) and asyncpg ranges (``int4range``, ``tsrange``, …) as their text
-    form, which Pydantic cannot serialize natively (fix(#565 codex P2 r20)).
+    form, which Pydantic cannot serialize natively (fix(#565)).
     Recurses into containers; scalar driver types Pydantic handles (datetime,
     Decimal, UUID) pass through.
     """

@@ -1,7 +1,4 @@
-"""Data-driven / categorical / graduated style builders for chat-edit.
-
-Phase 276 CODE-02 — extracted from chat_service.py.
-"""
+"""Data-driven / categorical / graduated style builders for chat-edit."""
 
 import math
 from typing import TYPE_CHECKING

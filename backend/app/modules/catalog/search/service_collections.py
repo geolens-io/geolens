@@ -51,7 +51,6 @@ async def search_collections(
     if not collections:
         return []
 
-    # Get visible member counts in a single query
     coll_ids = [c.id for c in collections]
     member_stmt = (
         select(
@@ -88,12 +87,8 @@ async def count_collections(
     *,
     collection_ids: Sequence[uuid.UUID] | None = None,
 ) -> int:
-    """Count collections matching the text filter used by ``search_collections``.
-
-    Page-independent total used to compute a stable ``numberMatched``. Mirrors
-    the filters in ``search_collections`` exactly (no LIMIT, no visibility
-    filter on the Collection rows themselves — consistent with the search).
-    """
+    """Page-independent total for ``numberMatched``; mirrors ``search_collections``
+    filters exactly (no LIMIT, no visibility filter on Collection rows)."""
     count_stmt = select(func.count()).select_from(Collection)
     if q and q.strip():
         q_like = f"%{q.strip().lower()}%"

@@ -1,19 +1,8 @@
-"""Collection service layer.
+"""Collection service layer: CRUD, dataset membership, visibility-aware
+reads, and per-collection stats.
 
-Handles CRUD operations for collections and collection-dataset membership.
-
-# Module structure
-# ----------------
-# 1. Core CRUD: create, update, delete, get, list collections
-# 2. Membership: add/remove datasets in/out of collections
-# 3. Visibility-aware reads: list collections and their datasets respecting RBAC
-# 4. Stats: dataset counts per collection
-#
-# # Commit semantics
-# Functions that take a session generally **flush** but do not commit.
-# Callers (router endpoints) own the commit boundary so multiple service
-# calls can be batched into a single transaction. All write functions
-# follow the flush-only pattern — never commit internally.
+Write functions flush but never commit; callers own the commit boundary
+so multiple calls can batch into one transaction.
 """
 
 import uuid
@@ -114,11 +103,8 @@ async def check_collection_ownership(
 ) -> None:
     """Verify the user owns the collection or is admin. Raises 403 otherwise.
 
-    Mutating a collection (rename, delete, add/remove member datasets) is
-    restricted to its creator (``created_by``) or a global admin. Reading and
-    listing collections stay open (collections are organizational). Collections
-    with no recorded owner (``created_by`` is NULL — seeded data or rows whose
-    owner was deleted) are admin-only.
+    Only mutation (rename/delete/membership) is gated; reads stay open.
+    Collections with no recorded owner (``created_by`` is NULL) are admin-only.
     """
     if collection.created_by is not None and collection.created_by == user.id:
         return
@@ -170,7 +156,6 @@ async def add_datasets_to_collection(
     if collection is None:
         raise ValueError(f"Collection {collection_id} not found")
 
-    # Fetch all existing memberships in one query to avoid N+1
     existing_result = await session.execute(
         select(CollectionDataset.dataset_id).where(
             CollectionDataset.collection_id == collection_id,
@@ -179,7 +164,7 @@ async def add_datasets_to_collection(
     )
     existing_ids = {row[0] for row in existing_result.all()}
 
-    # fix(#430 BA-33): dedupe request ids or a repeated pair violates the composite PK -> 500.
+    # fix(#430): dedupe request ids or a repeated pair violates the composite PK -> 500.
     new_ids = [did for did in dict.fromkeys(dataset_ids) if did not in existing_ids]
     for dataset_id in new_ids:
         session.add(
@@ -237,16 +222,13 @@ async def get_collection_datasets(
         base_stmt, user, user_roles, Record, DatasetGrant
     )
 
-    # Total count
     count_stmt = select(func.count()).select_from(filtered_stmt.subquery())
     total_result = await session.execute(count_stmt)
     total = total_result.scalar_one()
 
-    # Paginated results ordered by sort_order then added_at
-    # fix(#1778): sort_order server-defaults to 0 for every row and added_at
-    # is not unique either, so a batch of rows added in one INSERT ties on
-    # both columns and OFFSET/LIMIT paging over the tie has no defined
-    # order. dataset_id is unique within a single collection's rows.
+    # fix(#1778): sort_order and added_at both default/tie within a batch
+    # INSERT, so OFFSET/LIMIT paging needs a third column; dataset_id is
+    # unique per collection's rows.
     paginated_stmt = (
         filtered_stmt.options(joinedload(Dataset.record))
         .order_by(
@@ -295,11 +277,9 @@ async def batch_collection_extents(
     if not collection_ids:
         return {}
 
-    # fix(#886): the bbox is aggregated in two longitude domains so a collection
-    # holding datasets either side of the antimeridian keeps the narrower range
-    # instead of folding to a global bbox. The degenerate point/line extents
-    # that used to need GeoJSON coordinate flattening (#430 BA-20) come out of
-    # ST_XMin/ST_XMax as an equal-min/max bbox with no special case.
+    # fix(#886): bbox aggregated in two longitude domains so a collection
+    # spanning the antimeridian keeps the narrower range instead of folding
+    # to a global bbox.
     stmt = (
         select(
             CollectionDataset.collection_id,
@@ -321,16 +301,9 @@ async def batch_collection_extents(
     extents: dict[uuid.UUID, dict] = {}
     for row in rows:
         extents[row.collection_id] = {
-            # fix(#1006): the RFC 7946 §5.2 spec form, west > east on a
-            # crossing. This was the span form under #886, when BBoxPreview had
-            # no crossing guard; #903 added one (`crossesAntimeridian` at :75,
-            # `splitBbox` at :133) and the span form then defeated it, because
-            # rollup_span_bbox collapses a crossing rollup to
-            # [-180, s, 180, n] -- monotonic by the time it reaches the guard,
-            # and bit-identical to a genuinely global collection. Both consumers
-            # (CollectionCard, CollectionDetailPage) feed BBoxPreview and
-            # nothing here does span arithmetic. Follows the sibling per-dataset
-            # extent_bbox, flipped in #1004, so both fields keep one contract.
+            # fix(#1006): RFC 7946 §5.2 form (west > east on a crossing),
+            # matching the sibling per-dataset extent_bbox so BBoxPreview's
+            # crossing guard sees one contract from both fields.
             "extent_bbox": rollup_bbox(row[1:7]),
             "temporal_start": row.temporal_start,
             "temporal_end": row.temporal_end,

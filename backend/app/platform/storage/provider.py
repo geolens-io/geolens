@@ -11,11 +11,9 @@ from typing import AsyncIterator, BinaryIO, Protocol
 class StoredObject:
     """One object as the provider reports it right now.
 
-    feat(#1249): the staging-orphan reconciliation needs "and how old is it"
-    alongside "does it exist". ``last_modified`` is timezone-aware UTC on
-    every provider — a naive value would make the caller's cutoff comparison
-    raise rather than answer, so each implementation normalizes before
-    returning.
+    feat(#1249): ``last_modified`` is timezone-aware UTC on every provider —
+    a naive value would make the caller's cutoff comparison raise instead of
+    answer.
     """
 
     key: str
@@ -49,23 +47,21 @@ class StorageProvider(Protocol):
     async def get_range(self, key: str, start: int, length: int) -> bytes:
         """Retrieve at most ``length`` bytes starting at byte offset ``start``.
 
-        For checks that only inspect a bounded window of a large object (the
-        presigned-completion content check reads a header and, for Parquet,
-        the trailing magic) so the whole object never has to be downloaded.
-
-        ``length`` must be positive. Returns fewer bytes than requested when
-        the window runs past the end of the object. Raises FileNotFoundError
-        if the key does not exist (BA-24).
+        For checking a bounded window of a large object (e.g. a header, or
+        Parquet's trailing magic) without downloading it whole. ``length``
+        must be positive; returns fewer bytes if the window runs past the
+        object's end. Raises FileNotFoundError if the key does not exist
+        (BA-24).
         """
         ...
 
     def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream key bytes as an async iterator.
 
-        For large files (e.g. COGs) where loading the full payload into memory
-        is prohibitive. Implementations should yield in fixed-size chunks
-        (typically 1 MiB) and ensure the underlying file handle is closed
-        even on consumer abort. Raises FileNotFoundError if key does not exist.
+        For large files (e.g. COGs) where loading the full payload into
+        memory is prohibitive. Implementations must yield fixed-size chunks
+        and close the underlying handle even on consumer abort. Raises
+        FileNotFoundError if the key does not exist.
         """
         ...
 
@@ -74,24 +70,15 @@ class StorageProvider(Protocol):
     ) -> AsyncIterator[bytes]:
         """Stream a bounded window as ``get_range``, in chunks as ``get_stream``.
 
-        fix(#1540 review P1): the COG download route needs both properties at
-        once and had neither method that gives them. ``get_range`` returns
-        ``bytes``, so a multi-GB range would be materialized whole; calling it
-        in a loop instead — which is what the route did — turns ONE range
-        request into a separate object-store request per chunk. A client asking
-        for ``Range: bytes=0-`` on a 5 GiB COG cost 5,120 of them, serially,
-        while the per-request rate limiter counted a single API call.
-
-        **Implementations must issue one provider read for the whole window**
-        and chunk the response as it arrives. That is what makes a range
-        request cost what a range request should cost, and it is the property
-        the route depends on rather than a suggestion.
+        fix(#1540): implementations MUST issue ONE provider read for the
+        whole window and chunk the response as it arrives — looping
+        ``get_range`` per chunk turns one range request into one request per
+        chunk, invisible to the per-request rate limiter.
 
         ``length`` must be positive. The stream ends early if the object is
-        shorter than the window — a truncated response against a declared
-        Content-Length is a transfer error every HTTP client reports, which is
-        the loud failure; padding to length would be the quiet corrupt one.
-        Raises FileNotFoundError if the key does not exist (BA-24).
+        shorter than the window — never pad to length, which trades a loud
+        transfer error for a silent corruption. Raises FileNotFoundError if
+        the key does not exist (BA-24).
         """
         ...
 
@@ -124,27 +111,20 @@ class StorageProvider(Protocol):
     ) -> AsyncIterator["builtins.list[StoredObject]"]:
         """Yield objects under a prefix one provider page at a time.
 
-        feat(#1249): ``list`` answers which keys exist; this also answers how
-        old each one is, which is what tells an abandoned staging object from
-        one whose upload landed a second ago.
+        feat(#1249): also answers how old each key is, distinguishing an
+        abandoned staging object from one whose upload just landed.
 
-        Pages rather than one list, and for the same reason ``get_stream``
-        exists (fix(#1249) review r1): a caller that can act on a bounded
-        amount of work must not have to materialize an unbounded prefix first.
-        A consumer that stops early stops the provider's paging with it.
+        Paged (fix #1249) so a caller with a bounded per-pass budget never
+        has to materialize an unbounded prefix first; stopping early stops
+        the provider's paging with it.
 
-        ``start_after`` resumes a walk: only keys strictly greater than it are
-        yielded, in ascending key order, so a caller with a per-pass budget can
-        continue where the last one stopped instead of re-reading the front of
-        the prefix forever (fix(#1249) review r2). S3 pushes it down as
-        ``StartAfter``; the other backends filter, which costs them nothing
-        that matters — neither can hold a presigned staging object, since
-        presigned uploads refuse anything but the S3 backend at request time.
+        ``start_after`` resumes an ascending walk, yielding only keys
+        strictly greater than it, so a caller can continue where the last
+        pass stopped instead of re-reading the front of the prefix forever.
 
-        A COMPLETE key is a valid ``prefix`` and is how a caller re-reads one
-        object's timestamp immediately before acting on it. Implementations
-        yield every entry whose key STARTS WITH ``prefix`` — matching ``list``
-        — so a caller that means one exact object must filter for
+        A COMPLETE key is a valid ``prefix``: implementations yield every
+        entry whose key STARTS WITH ``prefix`` (matching ``list``), so a
+        caller meaning one exact object must filter for
         ``entry.key == key`` rather than trusting the page length.
         """
         ...
@@ -161,10 +141,10 @@ class StorageProvider(Protocol):
     ) -> str:
         """Generate a presigned PUT URL for direct upload.
 
-        Implementations MUST clamp ``expiration`` to
-        ``settings.pending_job_timeout_seconds`` (fix(#1234)), as for part URLs
-        below: a URL that outlives its job is usable against a row the pending
-        sweep has already failed. Raises NotImplementedError for local storage.
+        MUST clamp ``expiration`` to ``settings.pending_job_timeout_seconds``
+        (fix #1234), as for part URLs below — a longer-lived URL is usable
+        against a row the pending sweep already failed. Raises
+        NotImplementedError for local storage.
         """
         ...
 
@@ -173,7 +153,10 @@ class StorageProvider(Protocol):
         key: str,
         expiration: int = 3600,
     ) -> str:
-        """Generate a presigned GET URL for download. Raises NotImplementedError for local storage."""
+        """Generate a presigned GET URL for download.
+
+        Raises NotImplementedError for local storage.
+        """
         ...
 
     def initiate_multipart_upload(
@@ -181,7 +164,10 @@ class StorageProvider(Protocol):
         key: str,
         content_type: str = "application/octet-stream",
     ) -> str:
-        """Initiate a multipart upload, returns upload_id. Raises NotImplementedError for local storage."""
+        """Initiate a multipart upload, returns upload_id.
+
+        Raises NotImplementedError for local storage.
+        """
         ...
 
     def generate_presigned_part_url(
@@ -193,10 +179,9 @@ class StorageProvider(Protocol):
     ) -> str:
         """Generate a presigned URL for uploading a single part.
 
-        Implementations MUST clamp ``expiration`` to
-        ``settings.pending_job_timeout_seconds`` (fix(#1234)): a part URL that
-        outlives its job is usable against a row the pending sweep has already
-        failed. Raises NotImplementedError for local storage.
+        MUST clamp ``expiration`` to ``settings.pending_job_timeout_seconds``
+        (fix #1234), same reason as the put URL above. Raises
+        NotImplementedError for local storage.
         """
         ...
 
@@ -204,16 +189,21 @@ class StorageProvider(Protocol):
         self,
         key: str,
         upload_id: str,
-        # Use builtins.list rather than bare `list` because this class
-        # defines a `list(...)` method below, and mypy treats the method
-        # name as shadowing the builtin inside annotations.
+        # builtins.list, not bare `list`: this class defines a `list(...)`
+        # method that shadows the builtin name inside annotations.
         parts: "builtins.list[dict]",
     ) -> None:
-        """Complete a multipart upload with the list of {ETag, PartNumber} dicts. Raises NotImplementedError for local storage."""
+        """Complete a multipart upload with a list of {ETag, PartNumber} dicts.
+
+        Raises NotImplementedError for local storage.
+        """
         ...
 
     def abort_multipart_upload(self, key: str, upload_id: str) -> None:
-        """Abort an in-progress multipart upload. Raises NotImplementedError for local storage."""
+        """Abort an in-progress multipart upload.
+
+        Raises NotImplementedError for local storage.
+        """
         ...
 
 
@@ -246,12 +236,9 @@ def init_storage() -> None:
             raise RuntimeError(
                 "storage_provider='azure' but azure_storage_container is not configured"
             )
-        # CR-04 (Phase 1210): pass the account key as credential so that
-        # account_url + key auth works. When connection_string is present it
-        # takes precedence inside AzureBlobStorageProvider; the key is only
-        # used when account_url is the sole auth parameter.
-        # reveal() is called here — the raw value exists only in this local
-        # variable and is passed immediately to the SDK; it is never logged.
+        # CR-04: connection_string takes precedence over account_url+key
+        # inside AzureBlobStorageProvider. reveal() here is passed straight
+        # to the SDK and never logged.
         _storage = AzureBlobStorageProvider(
             container=settings.azure_storage_container,
             connection_string=reveal(settings.azure_storage_connection_string),

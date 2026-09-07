@@ -1,39 +1,22 @@
 """Expand the NL->SQL prompt's ``geolens_buffer`` marker (fix(#1589)).
 
-The prompt used to embed ``render_geodesic_buffer``'s rendered output twice —
-a 3 017-character ``<GEOM>``/``<METERS>`` template and a 3 073-character worked
-example, 6 090 characters of banding, seam-splitting and dissolve machinery in
-a 16 786-character prompt — and ask the model to reproduce it exactly (#1001).
-The nightly evals say the light model manages that about half the time: six of
-the nine runs between 08-12 and 08-18 failed, every one a sandbox refusal of a
-dropped parenthesis
-(``invalid_query``) or a paraphrase back to the bare
-``ST_Buffer(geom::geography, N)::geometry`` form (``disallowed spatial
-function``). None of them was a wrong answer that ran. Product-side, a
-metric-buffer question in chat failed at the sandbox roughly every other time.
+Asking the model to write ``render_geodesic_buffer``'s SQL by hand (#1001)
+failed unreliably: a dropped parenthesis or a paraphrase back to the bare
+``ST_Buffer(geom::geography, N)::geometry`` form. The model now writes
+``geolens_buffer(<geom>, <metres>)`` and this module substitutes the
+canonical render before anything else sees the SQL.
 
-So the model now writes ``geolens_buffer(<geom>, <metres>)`` and this module
-substitutes the canonical render before anything else sees the SQL. The
-expression's shape can no longer be wrong, because the model no longer writes
-it — the class of failure is removed rather than made rarer.
+Not a new privilege: it produces exactly the text a model was previously
+asked to type, and ``_matches_canonical_buffer`` in
+``platform/sandbox/validator.py`` still re-renders the template, compares
+ASTs, and validates the geometry argument under the full allowlist. This
+module decides SYNTAX only — a plain in-range distance number; whether the
+geometry argument is ACCEPTABLE stays the sandbox's decision (#1002).
 
-Where this sits in the trust model, stated plainly because it is the question a
-reader will have: expanding a marker is not a new privilege. It produces
-exactly the text a model was previously asked to type, and the sandbox treats
-it exactly as it treated that text. ``_matches_canonical_buffer`` in
-``platform/sandbox/validator.py`` still re-renders the template around the
-extracted input and compares ASTs, still refuses anything that is not a match,
-and still validates the geometry argument as ordinary SQL under the full
-allowlist. This module therefore decides SYNTAX only: it reads two arguments
-and checks that the distance is a plain in-range number. Whether a geometry
-argument is an ACCEPTABLE input stays the sandbox's single decision. #1002 is
-three rounds of evidence for what happens when two layers both try to answer
-that question.
-
-Deliberately NOT applied to the raw ``POST /api/query/`` endpoint
-(``query_router.py``), which takes SQL a person wrote. There the marker is an
-unknown function and stays one. ``tests/test_ai_buffer_marker_1589.py`` pins
-the call site as a closed list.
+Deliberately NOT applied to the raw ``POST /api/query/`` endpoint, which
+takes SQL a person wrote — there the marker is an unknown function and
+stays one. ``tests/test_ai_buffer_marker_1589.py`` pins the call site as a
+closed list.
 """
 
 from __future__ import annotations
@@ -68,37 +51,31 @@ _DISTANCE = re.compile(r"\A(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\Z")
 # positional parameter (``$1``), which is not a quote at all.
 _DOLLAR_OPEN = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
 
-# How many markers one statement may carry.
-#
-# Not an arbitrary round number: it is the validator's
-# ``_MAX_BUFFER_MATCH_ATTEMPTS``. That constant bounds how many buffer-shaped
-# subtrees the sandbox will re-render and verify, and past it no exemption is
-# granted — so a ninth expansion could only ever produce ~3 KB more SQL that is
-# then refused. Expanding it would cost the parse and buy a worse error.
-# ``test_the_marker_cap_matches_the_validators_verification_budget`` fails if
-# either number moves alone.
+# How many markers one statement may carry — not arbitrary: it's the
+# validator's ``_MAX_BUFFER_MATCH_ATTEMPTS``, which bounds how many
+# buffer-shaped subtrees the sandbox re-renders and verifies. Past it no
+# exemption is granted, so a ninth expansion would only cost the parse to
+# buy a worse error.
+# ``test_the_marker_cap_matches_the_validators_verification_budget`` fails
+# if either number moves alone.
 MAX_BUFFER_MARKERS = 8
 
 
 def _fail(message: str) -> SandboxError:
     """A marker problem, in the sandbox's own vocabulary.
 
-    ``invalid_query`` is the existing category for "this SQL cannot run", and
-    ``chat_actions._execute_chat_tool`` already maps it. A new category would
-    have to be added there for no gain.
+    ``invalid_query`` is the existing category for "this SQL cannot run",
+    already mapped by ``chat_actions._execute_chat_tool``.
 
-    fix(#1589 review r1): be clear about who reads ``message``. Nobody outside
-    the server does. ``_execute_chat_tool`` replaces it with the generic
-    ``ERROR_MESSAGES["invalid_query"]`` line ("I couldn't generate a valid
-    query for that."), so neither the user nor the model ever sees the
-    specific text — which is why it is logged here rather than only raised.
-    The audiences are this log line, and pytest when an eval trips one.
+    fix(#1589): ``message`` is server-only. ``_execute_chat_tool`` replaces
+    it with the generic ``ERROR_MESSAGES["invalid_query"]`` line, so neither
+    user nor model ever sees the specific text — it's logged here for that
+    reason, read by this log line and by pytest when an eval trips one.
 
-    Surfacing it to the MODEL, so it could correct its own call, is a real
-    option and deliberately not taken here: it means widening which sandbox
-    messages are considered safe to echo into a chat turn, which is a change
-    to a shared error path and belongs with the repair-pass work in #1589
-    rather than smuggled in beside it.
+    Surfacing it to the MODEL instead (so it could self-correct) is
+    deliberately out of scope here: it means widening which sandbox
+    messages are safe to echo into a chat turn, a shared-path change that
+    belongs with the repair-pass work, not smuggled in beside it.
     """
     logger.info("sql.buffer_marker_rejected", reason=message)
     return SandboxError("invalid_query", message)
@@ -190,20 +167,17 @@ def _skip_non_code(sql: str, i: int) -> int | None:
 def _marker_starts_at(sql: str, i: int, previous: str) -> bool:
     """Whether a bare ``geolens_buffer`` token begins at ``i``.
 
-    Case-insensitive, whole-token, and unqualified: ``geolens_buffer_x`` is a
-    different name, and ``public.geolens_buffer`` names some other schema's
-    function — substituting our expression for that would answer a different
-    question than the one asked.
+    Case-insensitive, whole-token, and unqualified: ``geolens_buffer_x`` is
+    a different name, and ``public.geolens_buffer`` names some other
+    schema's function.
 
-    ``previous`` is the last character before ``i`` that was neither whitespace
-    nor part of a comment, which the callers track as they scan. fix(#1589
-    review r2): reading ``sql[i - 1]`` for the qualifier instead made the rule
-    untrue for ``public./**/geolens_buffer(…)`` and ``public. geolens_buffer(…)``
-    — the first because the scan had skipped the comment and saw ``/``, the
-    second because it saw a space. Both are qualified names in PostgreSQL. The
-    ADJACENCY half stays positional on purpose: ``xgeolens_buffer`` is one
-    identifier, while ``x geolens_buffer`` is two, so a space matters there and
-    not here.
+    ``previous`` is the last non-whitespace, non-comment character before
+    ``i``, tracked by callers as they scan. fix(#1589): reading
+    ``sql[i - 1]`` directly instead broke on ``public./**/geolens_buffer(…)``
+    and ``public. geolens_buffer(…)`` — both qualified names in PostgreSQL,
+    but the raw lookback saw ``/`` or a space, not the dot. ADJACENCY stays
+    positional (``xgeolens_buffer`` is one identifier, ``x geolens_buffer``
+    is two); only the QUALIFIER check needed to skip comments/whitespace.
     """
     if sql[i : i + len(_MARKER)].lower() != _MARKER:
         return False
@@ -285,27 +259,17 @@ def _contains_marker(text: str) -> bool:
 def _without_comments(text: str) -> str:
     """``text`` with its comments replaced by a space, literals untouched.
 
-    fix(#1589 review r1): the scanner SKIPS comments when it splits the
-    arguments, which is right, but the slice it hands back still contains them
-    and ``render_geodesic_buffer`` interpolates that slice into a much larger
-    expression. Both comment forms then break the query in a way the model
-    cannot see:
-
-    - a block comment (``geolens_buffer(s.geom_4326 /* the stop */, 500)``)
-      rides into the scaffold and perturbs the text
-      ``_matches_canonical_buffer`` re-renders and compares, so the exemption
-      is not granted and the buffer's own functions are refused as
-      "disallowed spatial function";
-    - a line comment (``geolens_buffer(s.geom_4326 -- the stop\\n, 500)``)
-      lands mid-expression and comments out everything the renderer emits
-      after it, up to the next newline — which in a single-line render is the
-      entire tail. "Invalid SQL syntax".
-
-    Both fail closed, and both are exactly the class of failure this change
-    exists to remove: the model wrote a correct call and got a sandbox
-    refusal. PostgreSQL treats a comment as whitespace, so dropping one is
-    semantics-preserving; the replacement is a SPACE rather than nothing so
-    ``a/*x*/b`` cannot fuse into one identifier.
+    fix(#1589): the scanner skips comments when splitting arguments, but
+    the slice it returns still contains them, and
+    ``render_geodesic_buffer`` interpolates that slice into a larger
+    expression. A block comment rides into the scaffold and perturbs the
+    text ``_matches_canonical_buffer`` re-renders and compares, so the
+    exemption is refused ("disallowed spatial function"). A line comment
+    comments out the rest of a single-line render ("invalid SQL syntax").
+    Both fail closed on a model call that was correct. PostgreSQL treats a
+    comment as whitespace, so dropping one is semantics-preserving; the
+    replacement is a SPACE, not nothing, so ``a/*x*/b`` can't fuse into one
+    identifier.
     """
     if "--" not in text and "/*" not in text:
         return text
@@ -374,22 +338,18 @@ def _matching_paren(text: str, opening: int) -> int | None:
 def _without_redundant_parens(text: str) -> str:
     """``text`` with wrapping parentheses removed, one layer at a time.
 
-    fix(#1589 review r2): ``geolens_buffer((s.geom_4326), 500)`` is a correct
-    call, and the parentheses are the model's formatting rather than anything
-    it was asked for. But ``_is_bounded_geometry_source`` in the validator
-    recognises a bare column or a scalar subquery and nothing else, so the
-    rendered ``(s.geom_4326)`` was not granted the exemption and the buffer
-    came back "disallowed spatial function". Harmless formatting, recreating
-    exactly the refusal this change exists to remove.
+    fix(#1589): ``geolens_buffer((s.geom_4326), 500)`` is a correct call —
+    the parentheses are the model's formatting, not the validator's
+    contract — but ``_is_bounded_geometry_source`` recognises only a bare
+    column or a scalar subquery, so the wrapped form was refused as
+    "disallowed spatial function".
 
-    Two conditions stop the peel, and both matter:
-
-    - the opening parenthesis must be closed by the LAST character, or
-      ``(a) + (b)`` would lose the parentheses that group it, and
-      ``(s.geom_4326)::geometry`` would lose a cast's operand;
-    - the inside must still be an expression afterwards, or ``((SELECT …))``
-      would peel twice and leave a bare ``SELECT`` where the renderer needs a
-      scalar. It peels once, to the ``(SELECT …)`` the validator accepts.
+    Two conditions stop the peel: the opening paren must be closed by the
+    LAST character (else ``(a) + (b)`` loses its grouping, or
+    ``(s.geom_4326)::geometry`` loses a cast's operand), and the inside
+    must still be an expression afterwards (else ``((SELECT …))`` peels
+    twice into a bare ``SELECT``, not the scalar the renderer needs — it
+    peels once, to ``(SELECT …)``, which the validator accepts).
     """
     while text.startswith("("):
         close = _matching_paren(text, 0)
@@ -405,29 +365,23 @@ def _without_redundant_parens(text: str) -> str:
 def _checked_geometry(raw: str) -> str:
     """The geometry argument, checked for SYNTAX and nothing else.
 
-    One expression, and not a bare statement. That is the whole contract: it
-    keeps a structurally broken argument from becoming a confusing sandbox
-    error two layers later, and it stops there on purpose. Deciding whether the
-    expression is an acceptable buffer INPUT — bounded, allowlisted, resolvable
-    to a stored column — belongs to ``_is_bounded_geometry_source`` and the
-    function allowlist, in one place, for the reasons #1002 recorded.
+    One expression, not a bare statement — a structurally broken argument
+    fails here rather than as a confusing sandbox error two layers later.
+    Whether the expression is an acceptable buffer INPUT stays with
+    ``_is_bounded_geometry_source`` and the function allowlist (#1002).
 
-    Comments are dropped and redundant wrapping parentheses peeled rather than
-    passed through; ``_without_comments`` and ``_without_redundant_parens``
-    have the why. Both are formatting the model chose, both are
-    semantics-preserving to remove, and both otherwise cost it the exemption.
+    Comments are dropped and redundant wrapping parens peeled (see
+    ``_without_comments``/``_without_redundant_parens``): both are
+    formatting the model chose that would otherwise cost it the exemption.
     """
     geom = _without_comments(raw).strip()
     if not geom:
         raise _fail(f"{_MARKER}() needs a geometry expression")
     if _contains_marker(geom):
-        # Innermost-first expansion would render fine and then be refused: the
-        # validator exempts a buffer only when its input resolves to a stored
-        # geometry, and a buffer is not one. The prompt says the same ("a
-        # nested buffer ... is refused"). Refusing here rather than rendering
-        # ~6 KB that cannot pass is the whole benefit; the specific reason
-        # reaches the server log, not the model (see _fail). Checked BEFORE the
-        # peel so a parenthesised nested marker is refused, not unwrapped.
+        # Innermost-first expansion would render fine and then be refused:
+        # only a stored geometry gets the exemption, and a buffer isn't one.
+        # Checked BEFORE the peel so a parenthesised nested marker is
+        # refused, not unwrapped.
         raise _fail(f"{_MARKER}() cannot be nested inside another {_MARKER}()")
     geom = _without_redundant_parens(geom)
     if _single_expression(geom) is None:
@@ -438,17 +392,14 @@ def _checked_geometry(raw: str) -> str:
 def _checked_distance(raw: str) -> float:
     """The distance argument as a float, or a refusal.
 
-    A literal only. ``render_geodesic_buffer`` interpolates this value into SQL
-    text and does NOT bound it — ``render_buffer_expr`` is the caller that
-    does, and it is not on this path — so the range check has to happen here.
-    The bounds are that function's: greater than zero, at most
-    ``MAX_BUFFER_METERS``. A zero-metre buffer is refused rather than rendered
-    empty, which is what the analysis surface does with the same number.
+    A literal only. ``render_geodesic_buffer`` interpolates this value into
+    SQL and does NOT bound it — ``render_buffer_expr`` does, and it's not
+    on this path — so the range check happens here: greater than zero, at
+    most ``MAX_BUFFER_METERS``. A zero-metre buffer is refused rather than
+    rendered empty, matching the analysis surface.
 
-    Comments are dropped first, for the reason ``_without_comments`` gives:
-    ``geolens_buffer(s.geom_4326, 500 /* metres */)`` is a correct call, and
-    refusing it would leave half of the failure class this change removes
-    (fix(#1589 review r2)).
+    Comments are dropped first (fix(#1589)) so
+    ``geolens_buffer(s.geom_4326, 500 /* metres */)`` still parses.
     """
     text = _without_comments(raw).strip()
     if not _DISTANCE.match(text):

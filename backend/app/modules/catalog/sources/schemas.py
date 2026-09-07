@@ -8,14 +8,9 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.core.url_redaction import has_url_credentials
 
-# fix(#1746 B2b): the request-side auth schema lives in
-# ``app.platform.service_auth`` and is imported back here, unmoved in the wire
-# contract and unmoved for every existing importer. It had to leave this module
-# because ``processing/`` may not import ``app.modules.catalog.*`` at any scope
-# (test_layering PROCESS-02/04) and the import-commit door's request models are
-# in ``processing/ingest/schemas.py``. One definition of what a credential
-# looks like on the wire is the whole point of the object, so the model moved
-# to the layer all three can reach rather than being restated in two.
+# fix(#1746): ServiceAuthRequest lives in app.platform.service_auth, not here
+# — processing/ cannot import app.modules.catalog.* (test_layering
+# PROCESS-02/04), and importers there need this schema too. Import, don't redefine.
 from app.platform.service_auth import (
     DEPRECATED_TOKEN_SUFFIX,
     SERVICE_AUTH_BASIC_POLICY,
@@ -30,8 +25,7 @@ from app.platform.service_auth import (
     service_credential_from_request,
 )
 
-# Named re-exports, so a linter does not read the ones this module does not
-# itself use as dead imports. Nothing does `import *` from here.
+# Named re-exports so unused-import lint doesn't flag them; no `import *` here.
 __all__ = [
     "DEPRECATED_TOKEN_SUFFIX",
     "SERVICE_AUTH_BASIC_POLICY",
@@ -117,11 +111,7 @@ class ConnectorIngestResponse(BaseModel):
 
 
 def _validate_http_url(v: str) -> str:
-    """Validate HTTP/HTTPS URL format at the schema boundary.
-
-    Returns the input string so downstream code keeps working with str. The
-    SSRF guard runs separately after this format check.
-    """
+    """Validate URL format only; returns str. The SSRF guard runs separately."""
     HttpUrl(v)
     return v
 
@@ -246,12 +236,9 @@ class ServicePreviewRequest(BaseModel):
         max_length=200,
         description="ArcGIS OID field name used for orderByFields during preview pagination.",
     )
-    # fix(#1760 codex r2): LAST, like every other model that gained this field.
-    # The generated Python SDK gives each model field a positional slot in
-    # declaration order, so inserting `auth` ahead of `object_id_field` moved
-    # that slot and an existing positional caller would have sent its OID
-    # string as `auth` and collected a 422. Appending cannot move a slot that
-    # already exists. Pinned by test_service_auth_contract_1746.
+    # fix(#1760): auth MUST be added LAST. The generated SDK positions fields
+    # by declaration order, so inserting it earlier would shift an existing
+    # positional caller's OID string into auth. Pinned by test_service_auth_contract_1746.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )

@@ -116,15 +116,9 @@ router.include_router(assets_router)
 router.include_router(sharing_router)
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
-# no-trailing-slash variants register against the same handler. Slash form
-# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
-# the 404 regression introduced by redirect_slashes=False (api/main.py).
+# fix(ROUTE-01): dual-shape decorator so both trailing-slash (canonical) and
+# no-slash variants hit this handler, closing the 404 from
+# redirect_slashes=False.
 @router.post(
     "",
     response_model=MapResponse,
@@ -261,10 +255,9 @@ async def import_map_style_endpoint(
     style = body.model_dump(exclude_none=True)
     try:
         imported = parse_maplibre_style_import(style)
-    # fix(#1778 round 1): the per-map layer limit answers 422, the status the
-    # sibling layer-carrying schemas already produce for it, so the two doors
-    # report the same limit the same way. Must precede the ValueError arm below,
-    # which it subclasses.
+    # fix(#1778): the per-map layer limit answers 422, matching
+    # sibling layer-carrying schemas. Must precede the ValueError arm
+    # below, which it subclasses.
     except MapStyleImportLayerLimitError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -370,10 +363,9 @@ async def import_map_style_endpoint(
 @router.get(
     "/{map_id}",
     response_model=MapResponse,
-    # fix(getgeolens.com#86 review): read-gated (_check_map_read_access below),
-    # not write-gated, so the router's default 403 ("caller lacks write
-    # access") misdescribes this route's actual 403 cause. Same override on
-    # every other read-gated GET in this file (access, thumbnail, og-image).
+    # fix(getgeolens.com#86 review): read-gated, not write-gated, so the
+    # router's default 403 misdescribes this route's cause. Same override
+    # on every other read-gated GET in this file.
     responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_map_endpoint(
@@ -472,15 +464,13 @@ async def update_map_endpoint(
     if body.visibility is not None and body.visibility != MapVisibility.public:
         if map_obj.visibility == "public":
             await revoke_share_token_by_map(db, map_id)
-            # builder-audit #338 P0-01: a public->non-public downgrade must also revoke
-            # embed tokens, which previously survived (only the share token was
-            # flipped) and kept serving tiles for a now-private map until expiry.
+            # fix(P0-01): a public->non-public downgrade must also revoke
+            # embed tokens (previously only the share token was flipped),
+            # or they keep serving tiles for a now-private map.
             await revoke_embed_tokens_by_map(db, map_id)
 
-    # feat(#1691): a non-admin may not move a map TO public when the
-    # restrict_public_visibility instance setting is on. MapVisibility is a
-    # str Enum, so the gate's == "public" comparison works on it directly;
-    # None (visibility untouched) passes through.
+    # feat(#1691): a non-admin may not move a map TO public when
+    # restrict_public_visibility is on. None (untouched) passes through.
     await check_public_visibility_allowed(db, user, body.visibility)
 
     # Hard block: prevent publishing maps with non-public datasets
@@ -495,10 +485,9 @@ async def update_map_endpoint(
                 },
             )
 
-    # RBAC: when replacing layers, verify the user can access every dataset
-    # referenced. Without this, a map owner could insert MapLayer rows pointing
-    # at restricted datasets — RBAC at render time hides them, but the dangling
-    # rows are still a data-integrity / leakage hazard.
+    # RBAC: when replacing layers, verify access to every dataset — else
+    # an owner could insert MapLayer rows at restricted datasets, a
+    # data-integrity/leakage hazard even though render-time RBAC hides them.
     if body.layers is not None and body.layers:
         user_roles = await get_user_roles(db, user)
         requested_ids = [layer.dataset_id for layer in body.layers]
@@ -555,11 +544,9 @@ async def update_map_endpoint(
             ip_address=request.client.host if request.client else None,
         ),
     )
-    # builder-audit #338 STYLE-06: the per-field history events were six near-identical
-    # copy-pasted record_map_history_event blocks. Drive them from one table of
-    # (changed, action, summary, details) and loop uniformly so a new
-    # history-tracked field is a single row, not another hand-written block. The
-    # emitted events/semantics are identical to the previous blocks.
+    # fix(STYLE-06): drives the per-field history events from one table of
+    # (changed, action, summary, details), looped uniformly, instead of six
+    # near-identical hand-copied record_map_history_event blocks.
     new_visibility = (
         _visibility_value(kwargs["visibility"])
         if "visibility" in kwargs and kwargs["visibility"] is not None
@@ -847,13 +834,12 @@ async def delete_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    # fix(#1778): read the asset keys off the row before it goes, and delete the
-    # objects only once the row delete has committed. Snapshotting first also
-    # keeps the reads out of the post-commit window, where every attribute on
-    # map_obj is expired and a lazy refresh would raise.
-    # fix(#1778 round 2): under the same row lock the two upload handlers take,
-    # so a delete cannot interleave with an in-flight replacement and read a key
-    # that is about to be superseded.
+    # fix(#1778): snapshot asset keys off the row before delete, and remove
+    # the objects only once the row delete commits — after commit every
+    # attribute on map_obj is expired, and a lazy refresh would raise.
+    # fix(#1778): under the same row lock the two upload handlers
+    # take, so a delete can't interleave with an in-flight replacement and
+    # read a key about to be superseded.
     locked = await lock_map_for_asset_write(db, map_id)
     asset_keys = [locked.thumbnail_uri, locked.og_image_uri]
 
@@ -936,27 +922,19 @@ async def _record_image_capture(
 ) -> None:
     """Persist a captured map image without marking the map edited.
 
-    fix(#1005): ``updated_at`` was doing double duty as the thumbnail cache
-    version — ``MapCard``/``MapCardGrid`` pass it to ``useMapThumbnail`` as the
-    ``?v=`` version — so the lazy backfill that fires when an owner first opens
-    a thumbnail-less map in the builder, editing nothing, bumped the map's edit
-    timestamp and reordered the "Last updated" gallery. ``thumbnail_updated_at``
-    splits the two meanings.
+    fix(#1005): ``updated_at`` doubled as the thumbnail cache version, so a
+    lazy backfill bumped the edit timestamp and reordered the gallery.
+    ``thumbnail_updated_at`` splits the two meanings.
 
-    Dropping the endpoints' explicit ``map_obj.updated_at = ...`` is NOT enough,
-    and this is the part that is easy to get wrong: ``Map.updated_at`` carries
-    ``onupdate=func.now()``, so *any* update to the row bumps it. Measured — the
-    gallery still reordered with the assignment removed. Setting ``updated_at``
-    to its own column value is the explicit-value form that suppresses the
-    ``onupdate``: it happens in the database, so it neither invents a timestamp
-    nor clobbers a concurrent edit's.
+    Setting ``updated_at`` to its own value is the explicit-value form
+    that suppresses its ``onupdate=func.now()`` — dropping the assignment
+    isn't enough, since any row update bumps it otherwise (measured).
 
-    ``synchronize_session=False`` because both callers return 204 and never read
+    ``synchronize_session=False``: both callers return 204, never read
     the ORM object back.
 
-    fix(#1778 round 6): does NOT commit. The commit moved out to the callers so
-    each one can mark its publication immediately before awaiting it, which is
-    what makes an indeterminate commit outcome non-destructive.
+    fix(#1778): does NOT commit — callers commit so each can mark
+    its publication before awaiting.
     """
     await db.execute(
         update(Map)
@@ -1003,11 +981,9 @@ async def upload_thumbnail(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Body must be a data:image/ URI",
         )
-    # Phase 254 IN-02: the 100KB length bound now lives on
-    # ThumbnailUploadRequest.data_uri (Field(max_length=100_000)). Pydantic
-    # rejects oversize payloads with a 422 at request validation time,
-    # before this handler ever runs — so the previous manual
-    # `if len(data_uri) > 100_000` check has been removed as redundant.
+    # fix(Phase 254 IN-02): the 100KB bound lives on
+    # ThumbnailUploadRequest.data_uri (max_length), rejected by Pydantic
+    # before this handler runs — no manual length check needed here.
 
     # Decode base64 data URI → raw image bytes
     # Format: data:image/jpeg;base64,<payload>
@@ -1025,15 +1001,9 @@ async def upload_thumbnail(
             detail="Invalid data URI or base64 encoding",
         )
 
-    # SEC-12 / L-65: validate that the decoded bytes are a real image, not
-    # arbitrary attacker-controlled content labeled as data:image/png. PIL's
-    # Image.verify() walks the file header + structure without fully decoding
-    # the pixel data — fast (<10ms for typical thumbnails) and rejects all
-    # the obvious tampering vectors (random bytes, truncated images,
-    # mismatched MIME). Without this gate, a user with edit_metadata could
-    # store arbitrary bytes that GET /maps/{id}/thumbnail/ later serves back
-    # with a media_type=image/* Content-Type — a stored-content tampering
-    # primitive.
+    # SEC-12/L-65: validate the decoded bytes are a real image, not
+    # attacker-controlled content — Image.verify() catches random bytes,
+    # truncated images, and mismatched MIME without storing a tampering primitive.
     try:
         with Image.open(BytesIO(image_bytes)) as img:
             img.verify()
@@ -1049,27 +1019,19 @@ async def upload_thumbnail(
             detail="Thumbnail payload is not a valid image",
         )
 
-    # Determine extension from MIME type
     ext = "jpg" if "jpeg" in header else "png"
-    # fix(#1778 round 3): a fresh key per write, never one of two names per map.
+    # fix(#1778): a fresh key per write, never one of two names per map.
     storage_key = new_map_asset_key("maps/thumbnails", map_id, ext)
 
     storage = get_storage()
-    # fix(#1778 round 4): the object and the row that names it are published
-    # together. A failure in the update or the commit below would otherwise
-    # leave the image behind with nothing pointing at it, and since keys stopped
-    # being reused every retry would add another.
+    # fix(#1778): object and row publish together — a failure in
+    # the update/commit would leave the image behind with nothing pointing
+    # at it, and since keys are never reused, every retry adds another.
     async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
-        # fix(#1778 round 7): recorded BEFORE the write is awaited. Object
-        # storage can durably accept a PUT and still fail the client with a
-        # timeout or a dropped connection, so a raise here says nothing about
-        # whether the bytes landed. Recording first is free: the key is freshly
-        # generated and never reused, so the rollback's delete either removes an
-        # object this request wrote or is a no-op on a key that was never
-        # written, which every provider treats as success. This does not need
-        # the row lock below: the key is physical and freshly generated, so
-        # nothing else can race to record or reap it before the row exists.
+        # fix(#1778): recorded BEFORE the write — a PUT can land
+        # and still fail the client. Free to record first: rollback
+        # either removes what this request wrote or no-ops on an unwritten key.
         publication.record(physical_key)
         try:
             await storage.put(physical_key, image_bytes)
@@ -1080,34 +1042,18 @@ async def upload_thumbnail(
                 detail="Thumbnail storage unavailable",
             )
 
-        # fix(#1778 round 2): serialize the read of the previous key and the
-        # write of the new one under the row lock, so two overlapping uploads
-        # of one map cannot each delete the object the other is about to point
-        # the row at.
-        # fix(#1778 round 9): taken AFTER the storage write, not before it. The lock
-        # used to be held from before the PUT through the commit, which made it
-        # span an object-storage write with no bound of its own; a stalled PUT
-        # against a degraded backend held the row lock for as long as the PUT
-        # took, and every other writer to the same map (a rename, a delete, the
-        # other image upload) queued behind it. The 2s lock_timeout inside
-        # lock_map_for_asset_write only bounds THIS request's own wait for the
-        # lock, not another request's wait for a lock this request is holding,
-        # so the fix has to be shortening what the lock spans, not just timing
-        # out faster once it is held. Reading previous_key here, after the
-        # lock, rather than before the PUT, matters for the same reason the
-        # round-2 comment above does: two concurrent uploads must not each read
-        # the same stale previous key and either both try to reap it or leave
-        # it unreaped, and only a read taken under the lock, after whichever
-        # upload gets there first has already committed, is current.
+        # fix(#1778): previous-key read and new-key write happen
+        # under the row lock, so two overlapping uploads can't each delete
+        # the object the other is about to point at.
+        # fix(#1778): lock taken AFTER the storage write — holding
+        # it across the PUT let a stalled backend block every other writer
+        # to the map for as long as the PUT took.
         locked = await lock_map_for_asset_write(db, map_id)
         previous_key = locked.thumbnail_uri
 
         await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
-        # fix(#1778 round 5): the commit is the boundary, not the end of this
-        # block. Settling on it means anything that runs after cannot roll back
-        # an object the committed row names. fix(#1778 round 6): and marking
-        # before it means a commit whose outcome never came back deletes
-        # nothing, because it does not say whether the row landed.
+        # fix(#1778): commit is the boundary, marked before it —
+        # an outcome that never comes back deletes nothing.
         publication.committing()
         await db.commit()
         publication.settled()
@@ -1241,10 +1187,10 @@ async def upload_og_image(
     storage_key = new_map_asset_key("maps/og-images", map_id, ext)
 
     storage = get_storage()
-    # fix(#1778 round 4): same publication guard as the thumbnail PUT above.
+    # fix(#1778): same publication guard as the thumbnail PUT above.
     async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
-        # fix(#1778 round 7): recorded before the write, same as the thumbnail
+        # fix(#1778): recorded before the write, same as the thumbnail
         # PUT above and for the same reason. Does not need the row lock below,
         # same as the thumbnail PUT above.
         publication.record(physical_key)
@@ -1259,18 +1205,15 @@ async def upload_og_image(
                 detail="OG image storage unavailable",
             )
 
-        # fix(#1778 round 2) / fix(#1778 round 9): same row lock, taken after the
+        # fix(#1778) / fix(#1778): same row lock, taken after the
         # storage write and with the previous key re-read under it, for the
         # same reason as the thumbnail PUT above.
         locked = await lock_map_for_asset_write(db, map_id)
         previous_key = locked.og_image_uri
 
         await _record_image_capture(db, map_id, og_image_uri=storage_key)
-        # fix(#1778 round 5): the commit is the boundary, not the end of this
-        # block. Settling on it means anything that runs after cannot roll back
-        # an object the committed row names. fix(#1778 round 6): and marking
-        # before it means a commit whose outcome never came back deletes
-        # nothing, because it does not say whether the row landed.
+        # fix(#1778): commit is the boundary, marked before it —
+        # an outcome that never comes back deletes nothing.
         publication.committing()
         await db.commit()
         publication.settled()
@@ -1399,14 +1342,9 @@ async def add_layer_endpoint(
         target_id=layer.id,
         target_name=target_name,
         action="layer.add",
-        # fix(#941): this endpoint creates the layer row immediately, unlike
-        # style/filter/label/reorder edits, which are held locally and flushed
-        # on save. Discarding the builder edit does not roll the row back, so
-        # "Added ... layer" read as a claim about the user's saved map that the
-        # map then contradicted. Say what was created, and why it survived.
-        # The PATCH path at the save-diff flush keeps "Added ...": there the
-        # claim is true. `action` stays "layer.add" on both — it is a machine
-        # key the admin audit viewer filters on.
+        # fix(#941): unlike style/filter/label/reorder (held locally,
+        # flushed on save), this creates the row immediately, so the
+        # summary says what was created and that it's saved now.
         summary=f"Created {target_name} layer (saved immediately)",
         details={
             "dataset_id": str(body.dataset_id),
@@ -1520,9 +1458,9 @@ async def bulk_delete_layers_endpoint(
 
     deleted_count = len(deleted_ids)
 
-    # Phase 20260526-builder-audit #338 BLD-20260526-11: only emit audit/history when something was actually deleted.
-    # A request where all IDs are not_found produces deleted_count=0; emitting
-    # audit rows in that case creates false positives for monitoring systems.
+    # fix(BLD-20260526-11): only emit audit/history when something was
+    # actually deleted, or an all-not-found request creates a false-positive
+    # audit row.
     if deleted_count > 0:
         await audit_emit(
             db,
@@ -1539,9 +1477,9 @@ async def bulk_delete_layers_endpoint(
             ),
         )
 
-        # Phase 20260526-builder-audit #338 BLD-20260526-11: use target_type="map" with target_id=map_id since there is no
-        # single layer target for a bulk operation.  Mirrors how layer.replace is
-        # recorded elsewhere and prevents broken "jump to layer" links in history.
+        # fix(BLD-20260526-11): target_type="map" — no single layer target
+        # for a bulk op; mirrors layer.replace so "jump to layer" links
+        # don't break.
         await record_map_history_event(
             db,
             map_id=map_id,

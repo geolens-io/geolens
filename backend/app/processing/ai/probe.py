@@ -2,13 +2,11 @@
 
 The admin ai-status endpoint reports whether a provider key is CONFIGURED;
 this module answers whether it WORKS. A key rotated or expired upstream
-otherwise fails invisibly — on 2026-07-21 the public demo's chat and
-embeddings 401'd for a full day while every status surface showed green,
-because nothing ever exercised the key.
+otherwise fails invisibly, with every status surface still showing green.
 
-Opt-in only: each probe issues a real (if minimal) provider API call, so it
-must never run implicitly or on a dashboard poll — the router gates it
-behind an explicit ``?probe=true``.
+Opt-in only: each probe issues a real (if minimal) provider API call, so
+it must never run implicitly or on a dashboard poll — gated behind an
+explicit ``?probe=true``.
 """
 
 import structlog
@@ -53,11 +51,11 @@ def _sanitized_failure(exc: Exception) -> tuple[int | None, str]:
 async def _probe_chat(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
     """One-token completion through the SELECTED chat provider extension.
 
-    Dispatches via ``get_ai_provider(name).complete(...)`` with no tools and
-    ``max_rounds=1`` — the same seam and no-tools shape sql_generator uses —
-    so ``ok`` means the real chat route would authenticate, and overlay
-    providers are probed through their own registered extension (AIEXT-03:
-    no hardcoded provider branches in processing/).
+    Dispatches via ``get_ai_provider(name).complete(...)`` with no tools
+    and ``max_rounds=1`` — the same seam sql_generator uses — so ``ok``
+    means the real chat route would authenticate, and overlay providers
+    are probed through their own registered extension (no hardcoded
+    provider branches in processing/).
     """
     import asyncio
 
@@ -125,7 +123,7 @@ async def _probe_embeddings(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
     provider_ext = get_embedding_provider("openai_compatible")
     runtime_config = await provider_ext.resolve_runtime_config(db)
     model = await EMBEDDING_MODEL.get(db) or runtime_config.get("default_model")
-    # fix(#627, codex P2): same dims resolution as production embedding
+    # fix(#627): same dims resolution as production embedding
     # generation (generate_embeddings_batch) — probing with dimensions=None
     # (the model's natural size) would pass while a configured-but-unsupported
     # EMBEDDING_DIMS still breaks every real backfill/search call.

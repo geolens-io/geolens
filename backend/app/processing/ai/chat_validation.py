@@ -1,7 +1,4 @@
-"""Filter / action validation helpers for chat-edit.
-
-Phase 276 CODE-02 — extracted from chat_service.py.
-"""
+"""Filter / action validation helpers for chat-edit."""
 
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -22,11 +19,10 @@ logger = structlog.stdlib.get_logger(__name__)
 def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list[str]]:
     """Build ChatAction models per-item, dropping invalid ones with a note.
 
-    fix(#525 B-037): the previous ``[ChatAction(**a) for a in raw_actions]``
-    list comprehension let ONE Pydantic-invalid action (e.g. ``opacity: 50``)
-    raise through the caller's broad except — a single generic error event and
-    every valid action in the turn discarded. Malformed LLM output must degrade
-    per-action, mirroring _validate_actions' dropped[] pattern.
+    fix(#525): a single Pydantic-invalid action (e.g. ``opacity: 50``) must
+    not raise through the caller's broad except and discard every valid
+    action in the turn. Malformed LLM output degrades per-action, mirroring
+    _validate_actions' dropped[] pattern.
     """
     actions: list[ChatAction] = []
     dropped: list[str] = []
@@ -46,8 +42,8 @@ def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list
 def _extract_get_refs(expr: list | None) -> set[str]:
     """Recursively extract column names from ["get"/"has", "col"] nodes.
 
-    fix(#527 B-054/F-04): ["has", col] refs count too — a hallucinated
-    has-column filter previously passed validation and hid every feature.
+    fix(#527): ["has", col] refs count too, or a hallucinated has-column
+    filter passes validation and hides every feature.
     """
     if not isinstance(expr, list) or len(expr) == 0:
         return set()
@@ -179,8 +175,8 @@ async def _validate_actions(
             dropped.append(f"{action.type} (invalid layer_id: {action.layer_id})")
             continue
         # Validate filter expressions against the FULL shared grammar before
-        # they reach the client. builder-audit #338 P1-13: reuse filter_grammar's
-        # validate_filter (the same validator the layer schemas / style export
+        # they reach the client, reusing filter_grammar's validate_filter (the
+        # same validator the layer schemas / style export
         # use) so an AI set_filter cannot emit a filter that is accepted here
         # but fails at MapLibre runtime or round-trips into invalid saved state.
         # Legacy bare-field forms are normalized to expression form; recognized
@@ -188,9 +184,9 @@ async def _validate_actions(
         # action is dropped rather than surfaced as a 422.
         if action.type == "set_filter" and action.expression is not None:
             # Lazy import: app.processing must not module-level-import app.modules
-            # .catalog (Phase 225 PROCESS-02 layering guard). filter_grammar is a
-            # pure, dependency-free validator, so a function-scope import is the
-            # sanctioned access pattern.
+            # .catalog (PROCESS-02). filter_grammar is a pure, dependency-free
+            # validator, so a function-scope import is the sanctioned access
+            # pattern.
             from app.modules.catalog.maps.filter_grammar import (
                 FilterValidationError,
                 validate_filter,

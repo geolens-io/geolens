@@ -2,50 +2,31 @@
 
 Lives in platform so both the catalog preview path
 (``datasets/domain/service_analysis.py``) and the processing materialize
-worker (``processing/analysis/tasks.py``) can import it — catalog must not
-import processing and vice versa (CATPORT guards in test_layering.py).
+worker (``processing/analysis/tasks.py``) can import it (CATPORT guards in
+test_layering.py forbid catalog importing processing).
 
-Pure string rendering. The injection boundary:
-- numbers are bounds-validated floats rendered via ``float()`` formatting
-  (re-validated here against ``MAX_BUFFER_METERS`` so worker payloads don't
-  rely solely on the API schema's bounds);
-- clip masks are parsed and re-serialized by shapely, so the embedded JSON
-  is strictly ``{"type": ..., "coordinates": [numbers]}``;
-- table identifiers are the callers' responsibility (``_safe_table_ref`` /
-  regex-validated names).
+Pure string rendering. Injection boundary: numbers are bounds-validated
+floats re-checked here against ``MAX_BUFFER_METERS``; clip masks are parsed
+and re-serialized by shapely so the embedded JSON is strictly
+``{"type": ..., "coordinates": [numbers]}``; table identifiers are the
+caller's responsibility (``_safe_table_ref`` / regex-validated names).
 
 Source geometries are wrapped in ``ST_MakeValid``: one invalid ring anywhere
 in a dataset would otherwise abort the whole statement with a GEOS
-TopologyException, with no user-side workaround.
+TopologyException.
 
-``geom_4326`` is always LINEAR — ingest applies ``ST_CurveToLine`` when it
-builds the column and migration 0034 backfilled existing rows (#1104) — so
-nothing rendered here needs to guard against curved input. The per-read
-``linearized()`` wrapper the #1097 review added predated that invariant and
-is gone.
+``geom_4326`` is always LINEAR (ingest applies ``ST_CurveToLine``; migration
+0034 backfilled existing rows, #1104), so nothing here needs to guard
+against curved input.
 
-fix(#1089): one file until it reached 1255 lines, now a package split by
-OPERATION FAMILY:
-
-- ``shared`` — the fences, ceilings, antimeridian helper and mask parser more
-  than one family needs, and the half of the injection boundary above that
-  runs (``render_mask_expr``).
-- ``overlay`` — clip, intersect, select by location: a second layer or a drawn
-  mask cuts or filters the source. They share the mask handling, the
-  ``ST_Dimension = 2`` polygonal guard and the subdivide path.
-- ``measure`` — area and length: columns added, geometry untouched.
-- ``spatial_join`` — the same "add columns, leave the geometry alone" contract,
-  against a join LAYER rather than a measurement.
-- ``transform`` — buffer and centroid: the geometry is replaced in place.
-
-Never by CALLER. Before this module existed the preview path and the worker
-each carried their own copy of every statement, and they drifted — an approved
-preview and the dataset it saved could disagree about what the operation meant.
-Giving those two paths their own rendering modules recreates exactly that, so
-the proposal is rejected on sight however it is dressed up.
-
-This module is the whole import surface. Nothing outside ``platform/`` imports
-a family module directly, and ``test_layering.py`` fails the build if it does.
+fix(#1089): split from a single 1255-line file by operation family —
+``shared`` (fences/ceilings/antimeridian/mask parsing), ``overlay``
+(clip/intersect/select-by-location), ``measure`` (area/length),
+``spatial_join``, ``transform`` (buffer/centroid). Split by family, never by
+caller: a per-caller copy is what let preview and materialize drift before
+this module existed. This module is the whole import surface;
+``test_layering.py`` fails the build if something imports a family module
+directly.
 """
 
 from __future__ import annotations
@@ -59,14 +40,9 @@ from .measure import (
     render_measure_columns,
 )
 
-# fix(#1089 review r3): the six per-family expression renderers are bound
-# UNDER PRIVATE NAMES. They are #1089's own invention — the pre-split module
-# had no `render_clip_expr` and no sibling of it — so importing them publicly
-# here made `from app.platform.analysis_sql import render_clip_expr` succeed on
-# this branch and fail on main. That is an API expansion whatever `__all__`
-# says, because callers bind to ATTRIBUTES. Private names keep the promoted
-# surface exactly the 35 the single file defined, and
-# `test_analysis_sql_facade_surface_matches_its_declared_api` now enforces it.
+# fix(#1089): per-family `render_*_expr` helpers stay private
+# (`_`-prefixed) — exporting them would expand the facade past the
+# pre-split module's 35 names; the facade-surface test enforces it.
 from .measure import render_measure_expr as _render_measure_expr
 from .overlay import (
     INTERSECT_OUTPUT_COLUMNS,
@@ -120,15 +96,12 @@ def render_geometry_expr(
     distance_meters: float | None = None,
     mask: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
-    """Return ``(geometry expression, WHERE clause)`` for a per-row operation.
+    """Return ``(geometry expression, WHERE clause)`` for a per-row operation
+    on ``geom_4326``. The aggregate ``dissolve`` operation has a different
+    query shape and is rendered by the materialize worker, not here.
 
-    Operates on the conventional ``geom_4326`` column. The aggregate
-    ``dissolve`` operation has a different query shape and is rendered by the
-    materialize worker, not here.
-
-    ``clip`` here is the INLINE drawn-mask shape. Clipping against a mask
-    LAYER is a join, not an expression — see ``render_clip_layer_join``, which
-    both the preview and the materialize worker use.
+    ``clip`` here is the INLINE drawn-mask shape; clipping against a mask
+    LAYER is a join (``render_clip_layer_join``), not an expression.
     """
     if operation == "buffer":
         return _render_buffer_expr(distance_meters)
@@ -145,36 +118,19 @@ def render_geometry_expr(
     raise ValueError(f"Unsupported operation: {operation}")
 
 
-# The façade's contract, spelled out rather than left to whatever the imports
-# above happen to bind. Two reasons it is explicit:
+# Explicit rather than implicit: `ruff check --fix` sees every re-export here
+# as an unused import (F401) and will strip it without `__all__` marking these
+# as the point of the module — this repo has had façade re-exports stripped
+# that way before.
 #
-# - `ruff check --fix` deletes an unused import, and every re-export here IS an
-#   unused import as far as F401 can tell. `__all__` is what marks them as the
-#   point of the module. This repo has had façade re-exports stripped that way
-#   before; the fix is not "remember not to run --fix".
-# - It is the list a reviewer diffs against the pre-split module. A symbol that
-#   silently stopped being importable would break `service_analysis.py`,
-#   `tasks.py`, `router_analysis.py`, `schemas.py`, the sandbox validator, the
-#   NL->SQL prompt or its buffer-marker expander at import time — and #1089
-#   leaves all of them untouched on purpose, so nothing else in this PR would
-#   catch it.
-#
-# So this is the pre-split API verbatim, 35 names, neither added to nor taken
-# from. The six per-family `render_*_expr` helpers `render_geometry_expr`
-# composes are #1089's own and are not here — and, since fix(#1089 review r3),
-# not importable either: they are bound above under `_`-prefixed names.
-#
-# The distinction matters, and missing it is what the review caught. `__all__`
-# governs `import *` and states intent; callers bind to ATTRIBUTES. Leaving the
-# six public made `from app.platform.analysis_sql import render_clip_expr`
-# succeed here and fail on main — an API expansion however honest `__all__`
-# was, and nothing compared the two.
-# `test_analysis_sql_facade_surface_matches_its_declared_api` does now.
-#
-# The 35 count above is #1089's own snapshot, not a ceiling: a later PR
-# growing this list (fix(#727) adds `render_bbox_predicate`) is a deliberate,
-# stated API expansion of exactly the kind this paragraph says is fine to
-# make — the failure mode #1089 fixed was an UNSTATED one.
+# This is the pre-split module's 35-name API verbatim; the six private
+# `render_*_expr` helpers `render_geometry_expr` composes are not part of it.
+# `test_analysis_sql_facade_surface_matches_its_declared_api` diffs this list
+# so a symbol silently going missing (breaking `service_analysis.py`,
+# `tasks.py`, `router_analysis.py`, `schemas.py`, the sandbox validator or the
+# NL->SQL prompt) doesn't slip through unnoticed. A later PR growing this
+# list on purpose is fine — #1089 guarded against an UNSTATED change, not
+# growth.
 __all__ = [
     "BUFFER_LOCAL_SRID_SPAN_DEG",
     "BUFFER_SLICE_SEGMENTIZE_M",

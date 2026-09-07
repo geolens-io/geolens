@@ -49,17 +49,15 @@ async def _load_self_record_and_embedding(
 ) -> tuple[uuid.UUID, tuple[list[float], str, str | None]] | None:
     """Return (record_id, anchor) for the dataset, or None if either is absent.
 
-    fix(#1580): ``anchor`` is ``(embedding, model_name, config_fingerprint)``.
-    The vector alone does not say which model or endpoint produced it, so every
-    later read on this path takes the pair from here and compares inside that
-    one space.
+    fix(#1580): ``anchor`` is ``(embedding, model_name, config_fingerprint)``
+    -- the vector alone doesn't say which model produced it, so every later
+    read on this path compares inside that same space.
 
-    Phase 1061 SEC-S05: callers MUST gate visibility on the seed dataset BEFORE
-    invoking this function. The embedding read has no permission filter and
-    would otherwise act as a cosine-similarity oracle on private record content.
-    The API router (datasets/api/router_data.py:list_related_datasets) calls
-    check_dataset_access_or_anonymous on the seed before this function runs.
-    If you add a new caller, replicate that gate at the call site.
+    SEC-S05: callers MUST gate visibility on the seed dataset BEFORE calling
+    this -- the embedding read has no permission filter and would otherwise
+    be a cosine-similarity oracle on private record content. The API router
+    (datasets/api/router_data.py:list_related_datasets) already does this;
+    a new caller must replicate that gate.
     """
     record_id_row = (
         await db.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
@@ -81,10 +79,10 @@ async def _compute_neighbor_distances(
 ) -> dict[uuid.UUID, float]:
     """Cosine-distance every neighbor against the seed embedding.
 
-    fix(#1580): scored inside the anchor's own vector space. A neighbour that
-    also holds a row under another model would otherwise be scored off whichever
-    of its rows came back last, so the selection could be right and the printed
-    similarity still wrong.
+    fix(#1580): scored inside the anchor's own vector space -- a neighbour
+    holding a row under another model would otherwise be scored off
+    whichever row came back last, so the selection could be right while
+    the printed similarity is wrong.
     """
     embedding, model_name, config_fingerprint = anchor
     return await get_catalog_port().get_embedding_distances(
@@ -116,13 +114,11 @@ async def get_related_datasets(
             return []
         record_id, anchor = seed
 
-        # Find nearest neighbors using shared helper (over-fetch for RBAC filtering).
-        # fix(#1580): the selection and the scoring below stay in one vector
-        # space. fix(#1580 review r2): they stay on one ROW too — the anchor
-        # read above is handed in rather than taken again, because two reads
-        # under READ COMMITTED can straddle a worker committing a newer row for
-        # this record, which would rank against one vector and score against
-        # another.
+        # fix(#1580): selection and scoring stay in one vector space AND on
+        # one ROW -- the anchor read above is handed in rather than taken
+        # again, since two reads under READ COMMITTED can straddle a worker
+        # committing a newer row, ranking against one vector and scoring
+        # against another.
         neighbor_record_ids = await get_catalog_port().get_nearest_record_ids(
             db, record_id, anchor=anchor, limit=limit * 3, max_distance=0.7
         )
@@ -133,8 +129,6 @@ async def get_related_datasets(
             db, anchor, neighbor_record_ids
         )
 
-        # Join to Dataset + Record, apply visibility filter, then build response items
-        # sorted by similarity (descending).
         ds_stmt = (
             select(Dataset)
             .join(Record, Dataset.record_id == Record.id)
@@ -168,11 +162,6 @@ async def get_related_datasets(
     except Exception:  # broad: related-datasets is informational; any DB/scoring error degrades to empty list
         logger.exception("Error fetching related datasets for %s", dataset_id)
         return []
-
-
-# ---------------------------------------------------------------------------
-# Dataset FK relationships
-# ---------------------------------------------------------------------------
 
 
 async def create_relationship(
@@ -212,16 +201,15 @@ async def _visible_relationships(
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
 
     # FK columns store record_id, but dereferenceable endpoints resolve by
-    # Dataset.id, so resolve the source's Dataset.id (dataset_id is its record_id)
-    # for the response. (Create-input still takes target_dataset_id as a
-    # record_id — intentional asymmetry, unchanged here.)
+    # Dataset.id, so resolve the source's Dataset.id here (dataset_id is its
+    # record_id). Create-input still takes target_dataset_id as a
+    # record_id -- intentional asymmetry, unchanged here.
     source_dataset_id = (
         await session.execute(select(Dataset.id).where(Dataset.record_id == dataset_id))
     ).scalar_one_or_none()
 
-    # Inner-join Dataset (and its Record, eager-loaded via lazy="joined") so the
-    # target dataset object is available for the access check below. Relationships
-    # whose target has no backing Dataset are dropped (fail-closed).
+    # Inner-join Dataset so relationships whose target has no backing
+    # Dataset are dropped (fail-closed).
     stmt = (
         select(DatasetRelationship, Dataset, Record.title)
         .join(Dataset, DatasetRelationship.target_dataset_id == Dataset.record_id)
@@ -376,10 +364,10 @@ async def _detect_fk_candidates(
     if not candidates:
         return {}
 
-    # A public source dataset must not auto-link to private/unpublished targets:
-    # the resulting relationship would let anonymous callers reach the private
-    # target's rows via the related-records endpoint. Restrict matches to
-    # public+published targets when the source itself is public+published.
+    # A public source must not auto-link to private/unpublished targets --
+    # the relationship would let anonymous callers reach the target's rows
+    # via related-records. Restrict to public+published targets when the
+    # source itself is public+published.
     source_visibility_result = await session.execute(
         select(Record.visibility, Record.record_status).where(Record.id == record_id)
     )
@@ -506,7 +494,6 @@ async def _fetch_fk_value(
 async def _count_target_rows(
     session: AsyncSession, target_table: str, target_column: str, fk_value: object
 ) -> int:
-    """Count target rows matching the FK value."""
     table_ref = get_catalog_port().quote_table(target_table)
     result = await session.execute(
         text(
@@ -525,21 +512,18 @@ async def _fetch_target_rows(
     after: int,
 ) -> list[dict]:
     """Window-fetch matching target rows as gid+properties dicts."""
-    # fix(#1104): project the row before to_jsonb — serializing t.* first
-    # passes the curved source `geom` through the geometry→jsonb cast, which
-    # raises, even though the subtraction then discards it. Same rule as the
-    # feature readers; see live_property_columns.
+    # fix(#1104): project the row before to_jsonb -- serializing t.* first
+    # passes the source `geom` through the geometry->jsonb cast, which
+    # raises even though the subtraction then discards it.
     from app.modules.catalog.features.service import live_property_columns
 
     prop_cols = await live_property_columns(session, target_table)
     prop_sel = f", {prop_cols}" if prop_cols else ""
     table_ref = get_catalog_port().quote_table(target_table)
-    # fix(#1113 review r10): the match runs against the BASE table, inside the
-    # projection — a relationship may legitimately target a column the
-    # projection drops (safe-column validation accepts `geom`/`geom_4326`),
-    # and predicating on the projected alias made such a fetch an
-    # undefined-column error. Same colon escape as live_property_columns:
-    # the identifier is interpolated into text().
+    # fix(#1113): the match runs against the BASE table, inside the
+    # projection -- a relationship may legitimately target a column the
+    # projection drops (e.g. `geom`/`geom_4326`), and predicating on the
+    # projected alias made such a fetch an undefined-column error.
     qcol = '"' + target_column.replace('"', '""').replace(":", "\\:") + '"'
     rows_result = await session.execute(
         text(
@@ -578,7 +562,6 @@ async def get_related_records(
     """
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
 
-    # 1. Load relationship
     result = await session.execute(
         select(DatasetRelationship).where(DatasetRelationship.id == relationship_id)
     )
@@ -588,15 +571,13 @@ async def get_related_records(
     if source_record_id is not None and rel.source_dataset_id != source_record_id:
         raise ValueError("Relationship not found")
 
-    # 2. Load source dataset to get table_name
     source_ds = await get_dataset(session, dataset_id)
     if source_ds is None:
         raise ValueError("Source dataset not found")
     if rel.source_dataset_id != source_ds.record_id:
         raise ValueError("Relationship not found")
 
-    # 3. Load target dataset to get table_name
-    # target_dataset_id points to a Record, need to find its Dataset
+    # target_dataset_id points to a Record; find its Dataset.
     target_result = await session.execute(
         select(Dataset).where(Dataset.record_id == rel.target_dataset_id)
     )
@@ -604,19 +585,16 @@ async def get_related_records(
     if target_ds is None:
         raise ValueError("Target dataset not found")
 
-    # Validate column names
     if not SAFE_COLUMN_NAME_RE.match(
         rel.source_column
     ) or not SAFE_COLUMN_NAME_RE.match(rel.target_column):
         raise ValueError("Invalid column name in relationship")
 
-    # 4-5. Touch the source/target tables. fix(#315 sibling): a raster/VRT
-    # endpoint dataset (or a cold-evicted/partial vector table) resolves to a
-    # missing data.<table>, so these queries raise UndefinedTableError. Map that
-    # to 503 instead of an uncaught 500 that holds the DB connection (mirrors the
-    # features-router ProgrammingError->503 guard from PR #315).
+    # fix(#315): a raster/VRT endpoint dataset (or a cold-evicted/partial
+    # vector table) resolves to a missing data.<table>, raising
+    # UndefinedTableError. Map that to 503 instead of an uncaught 500 that
+    # holds the DB connection.
     try:
-        # 4. Get FK value from source table
         fk_value = await _fetch_fk_value(
             session, source_ds.table_name, rel.source_column, feature_gid
         )
@@ -628,7 +606,6 @@ async def get_related_records(
                 "columns": [],
             }
 
-        # 5. Query target table for matching rows
         total = await _count_target_rows(
             session, target_ds.table_name, rel.target_column, fk_value
         )
@@ -636,7 +613,6 @@ async def get_related_records(
             session, target_ds.table_name, rel.target_column, fk_value, limit, after
         )
 
-        # Get column info for target table
         columns = await get_catalog_port().get_column_info(
             session, target_ds.table_name
         )

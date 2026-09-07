@@ -27,9 +27,7 @@ def _humanize_column_name(field_name: str) -> str:
         objectid -> Objectid
         camelCaseField -> Camel Case Field
     """
-    # Replace underscores with spaces
     name = re.sub(r"_+", " ", field_name)
-    # Split camelCase boundaries
     name = re.sub(r"([a-z])([A-Z])", r"\1 \2", name)
     return name.strip().title()
 
@@ -71,21 +69,14 @@ def _infer_semantic_role(field_name: str, data_type: str) -> str:
     """Infer semantic role from column name and PostgreSQL data type."""
     lower = field_name.lower()
 
-    # Geometry detection
     if "geometry" in data_type.lower() or data_type == "USER-DEFINED":
         return "geometry"
-
-    # Identifier patterns
     if lower in ("id", "fid", "objectid", "gid", "ogc_fid") or lower.endswith("_id"):
         return "identifier"
-
-    # Temporal patterns
     if data_type in ("date", "timestamp without time zone", "timestamp with time zone"):
         return "temporal"
     if any(kw in lower for kw in ("date", "time", "year", "month", "day")):
         return "temporal"
-
-    # Numeric -> measure
     if data_type in (
         "integer",
         "bigint",
@@ -95,12 +86,8 @@ def _infer_semantic_role(field_name: str, data_type: str) -> str:
         "real",
     ):
         return "measure"
-
-    # Label patterns
     if lower in ("name", "label", "title", "display_name"):
         return "label"
-
-    # Text -> categorical
     if data_type in ("character varying", "text", "character"):
         return "categorical"
 
@@ -130,7 +117,6 @@ _PG_TYPE_TO_DOMAIN = {
 
 
 def _infer_domain_type(data_type: str) -> str:
-    """Map PostgreSQL data_type to domain classification."""
     return _PG_TYPE_TO_DOMAIN.get(data_type, "text")
 
 
@@ -147,10 +133,9 @@ def _build_attribute_metadata(
     """Factory for creating a new AttributeMetadata row with inferred fields.
 
     Shared by generate_attribute_metadata (initial ingest) and
-    refresh_attribute_metadata (re-upload new columns). Callers resolve
-    the AttributeMetadata ORM class once via the Port and pass it in so
-    we don't re-do that lookup on every iteration of a per-column loop
-    (Phase 225 review fix W-03).
+    refresh_attribute_metadata (new columns on re-upload). Callers resolve
+    the ORM class once via the Port and pass it in to avoid a repeat lookup
+    per column in the loop.
     """
     example_vals = None
     if sample_values and col_name in sample_values:
@@ -178,8 +163,7 @@ def _build_geometry_attribute_row(
 ) -> "Attribute":
     """Factory for the special ``geom`` attribute metadata row.
 
-    Callers pass the resolved ORM class to avoid redundant Port lookups
-    in tight loops (Phase 225 review fix W-03).
+    Callers pass the resolved ORM class to avoid redundant Port lookups.
     """
     return AttributeMetadata(
         dataset_id=dataset_id,
@@ -211,7 +195,6 @@ async def generate_attribute_metadata(
 
     AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
 
-    # Load existing field names to skip duplicates
     result = await session.execute(
         select(AttributeMetadata.field_name).where(
             AttributeMetadata.dataset_id == dataset_id
@@ -239,7 +222,6 @@ async def generate_attribute_metadata(
         created.append(am)
         existing_fields.add(field_name)
 
-    # Geometry row
     if geometry_type is not None and "geom" not in existing_fields:
         am = _build_geometry_attribute_row(AttributeMetadata, dataset_id, geometry_type)
         session.add(am)
@@ -261,18 +243,15 @@ async def refresh_attribute_metadata(
 ) -> None:
     """Refresh attribute metadata on re-upload, preserving user edits.
 
-    - Always refreshes system fields: data_type, example_values, ordinal_position,
-      is_nullable. Sets is_current=True.
-    - Per-field check: only refreshes title/semantic_role/domain_type/units/description
-      if that specific field name is NOT in user_modified_fields.
-    - New columns get auto-populated metadata.
-    - Removed columns are marked is_current=False.
+    System fields (data_type, example_values, ordinal_position, is_nullable,
+    is_current) always refresh. title/semantic_role/domain_type/units skip
+    refresh per-field when that name is in user_modified_fields. New columns
+    get auto-populated metadata; removed columns are marked is_current=False.
     """
     from app.platform.extensions import get_processing_port
 
     AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
 
-    # Load existing attribute rows keyed by field_name
     result = await session.execute(
         select(AttributeMetadata).where(AttributeMetadata.dataset_id == dataset_id)
     )
@@ -292,14 +271,12 @@ async def refresh_attribute_metadata(
 
         if field_name in existing:
             am = existing[field_name]
-            # Always refresh system fields
             am.data_type = data_type
             am.example_values = example_vals
             am.ordinal_position = col.get("ordinal_position")
             am.is_nullable = col.get("is_nullable")
             am.is_current = True
 
-            # Per-field check for user-editable fields
             modified = set(am.user_modified_fields or [])
             if "title" not in modified:
                 am.title = _humanize_column_name(field_name)
@@ -310,9 +287,8 @@ async def refresh_attribute_metadata(
             if "units" not in modified:
                 am.units = _infer_units(field_name)
             if "description" not in modified:
-                am.description = None  # No auto-inferred description
+                am.description = None
         else:
-            # New column -- create fresh row via shared factory
             am = _build_attribute_metadata(
                 AttributeMetadata,
                 dataset_id,
@@ -324,7 +300,6 @@ async def refresh_attribute_metadata(
             )
             session.add(am)
 
-    # Handle geometry row
     if geometry_type is not None:
         if "geom" in existing:
             geom_am = existing["geom"]
@@ -344,7 +319,6 @@ async def refresh_attribute_metadata(
                 )
             )
 
-    # Mark removed columns as is_current=False
     for field_name, am in existing.items():
         if field_name not in current_field_names and field_name != "geom":
             am.is_current = False

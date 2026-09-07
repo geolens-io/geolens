@@ -1,35 +1,15 @@
 """Shared MapLibre filter-expression validator/normalizer.
 
-builder-audit #338 P1-04: a single source of truth for the editable subset of
-MapLibre expression-form layer filters. Backend layer schemas, the
-style-export/import path, and the AI ``set_filter`` validation all call
-``validate_filter`` so a filter that is accepted, stored, exported, and
-replayed cannot diverge between those boundaries.
+Single source of truth (builder-audit #338 P1-04) for the editable subset
+of MapLibre expression-form layer filters, shared by layer schemas, style
+export/import, and the AI ``set_filter`` path.
 
-Contract
---------
-``validate_filter(value)`` returns a normalized filter (or ``None``) and:
-
-* accepts ``None`` and the empty array ``[]`` as *clear the filter* (returns
-  ``None`` — matches the frontend EDIT-03 behavior where ``map.setFilter(id, [])``
-  throws);
-* accepts and normalizes the editable expression subset the builder UI emits
-  (see ``frontend/src/components/builder/LayerFilterEditor.tsx``):
-  ``==``, ``!=``, ``<``, ``>``, ``<=``, ``>=``, ``in`` / contains, ``has``,
-  ``!``, ``all`` / ``any``, and ``to-number``-wrapped numeric comparisons;
-* normalizes the deprecated MapLibre *legacy filter* bare-field comparison
-  form ``[op, "field", value]`` into expression form
-  ``[op, ["get", "field"], value]``;
-* rejects malformed *recognized* forms — wrong arity on a comparison/``!``/
-  ``has``, a non-string operator, a non-array filter, or a legacy bare-field
-  ``in`` form;
-* EXPLICITLY PRESERVES opaque, structurally-valid filters that use operators
-  outside the editable subset (``match``, ``step``, ``case``, ``coalesce``,
-  ``geometry-type``, ``$type``/``$id`` legacy pseudo-fields, ...) verbatim,
-  without crashing — so power users and importers keep working.
-
-Callers that prefer to *drop* an invalid filter rather than surface a 422 (the
-AI path) can catch ``FilterValidationError``.
+``validate_filter(value)``: ``None``/``[]`` clear the filter; the editable
+subset (comparisons, ``in``/``has``, ``!``, ``all``/``any``, legacy
+bare-field rewritten to expression form) is normalized; malformed
+recognized forms raise; anything outside the subset (``match``, ``case``,
+...) is preserved verbatim. Catch ``FilterValidationError`` to drop an
+invalid filter instead of a 422 (the AI path).
 """
 
 from __future__ import annotations
@@ -38,19 +18,13 @@ from typing import Any
 
 # Editable comparison operators the structured builder editor can round-trip.
 _COMPARISON_OPERATORS = {"==", "!=", "<", ">", "<=", ">="}
-# Boolean combinators.
 _COMBINATORS = {"all", "any"}
 # Legacy MapLibre feature-filter pseudo-fields resolved by the renderer itself,
 # NOT read from feature properties — they must NOT be rewritten to ["get", ...].
 _LEGACY_PSEUDO_FIELDS = {"$type", "$id"}
-# fix(#1778): how many nested array levels a filter may carry. The structured
-# editor emits ``["all", <clause>, ...]`` with clauses one level below that, and
-# ``!`` adds one more, so real filters live in single digits. The bound exists
-# because everything downstream of here recurses: ``_normalize_node`` walks
-# ``all``/``any``/``!`` children and ``json.dumps`` walks the whole value when
-# the layer schema size-caps it. Past Python's own recursion limit both raise
-# RecursionError, which is NOT a ValueError, so Pydantic does not convert it to
-# a 422 and the layer routes answer 500 instead.
+# fix(#1778): real filters nest single digits (`all`/`!` cost one level each);
+# past this, `_normalize_node`/`json.dumps` recursion raises RecursionError
+# (not ValueError), which Pydantic can't turn into a 422.
 _MAX_FILTER_DEPTH = 32
 
 
@@ -169,12 +143,11 @@ def _normalize_node(node: Any) -> list:
 def _assert_depth_within_bound(value: Any) -> None:
     """Raise ``FilterValidationError`` past ``_MAX_FILTER_DEPTH`` array levels.
 
-    Iterative on purpose: a recursive depth check blows the recursion limit on
-    exactly the input it exists to refuse. It walks dicts as well as lists,
-    because below the operator a filter is arbitrary JSON and the size cap's
-    ``json.dumps`` recurses through both. Opaque operators are covered too,
-    since ``_normalize_node`` returns those without recursing but ``json.dumps``
-    still descends the whole value.
+    Iterative on purpose: a recursive check blows the recursion limit on
+    exactly the input it exists to refuse. Walks dicts too — below the
+    operator a filter is arbitrary JSON that the size cap's ``json.dumps``
+    recurses through, opaque operators included (``_normalize_node``
+    doesn't recurse into them, but ``json.dumps`` still does).
     """
     stack: list[tuple[Any, int]] = [(value, 0)]
     while stack:
@@ -195,12 +168,11 @@ def _assert_depth_within_bound(value: Any) -> None:
 def validate_filter(value: list | None) -> list | None:
     """Validate + normalize a MapLibre layer filter (builder-audit #338 P1-04).
 
-    ``None`` and ``[]`` both clear the filter (return ``None``). A recognized
-    form with invalid arity raises ``FilterValidationError``; opaque
-    unsupported filters are preserved verbatim. A filter nested past
-    ``_MAX_FILTER_DEPTH`` raises ``FilterValidationError`` too, so every caller
-    of this validator gets a 422 (or, on the AI path, a dropped action) instead
-    of the RecursionError the walk below used to raise.
+    ``None``/``[]`` clear the filter. A recognized form with invalid arity
+    raises ``FilterValidationError``; opaque forms pass through verbatim.
+    A filter nested past ``_MAX_FILTER_DEPTH`` also raises it, so every
+    caller gets a 422 (or a dropped action, on the AI path) instead of the
+    RecursionError this walk used to produce.
     """
     if value is None:
         return None

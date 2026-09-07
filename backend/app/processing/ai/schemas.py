@@ -222,8 +222,8 @@ def validate_paint_with_feedback(
     Used by the chat service to feed validation feedback back to the LLM.
 
     render_mode: when 'heatmap', geometry-type filtering is skipped so
-    heatmap-* properties are kept instead of dropped (fix #392, audit WR-01) —
-    mirrors the frontend's validateChatPaint render-mode awareness.
+    heatmap-* properties are kept instead of dropped (fix #392) — mirrors
+    the frontend's validateChatPaint render-mode awareness.
     """
     if not paint or (not geometry_type and render_mode != "heatmap"):
         return paint, []
@@ -318,23 +318,20 @@ class LLMMapSpec(BaseModel):
     explanation: str = ""
 
 
-# --- Chat-based map editing schemas ---
-
-
-# fix(#1778): bounds on client-supplied chat context. Without them the only
-# limit was DEFAULT_BODY_LIMIT_BYTES (10 MB, roughly 2.5 M tokens), and every
-# byte of it was billed to the provider and re-sent on each of up to 8 tool
-# rounds. enforce_ai_token_budget checks usage already recorded before the
-# handler runs, and MAX_REQUEST_TOKEN_BUDGET is checked at the top of the loop
-# where the running total is still zero, so neither bounds the first request.
+# fix(#1778): bounds on client-supplied chat context. Without them the
+# only limit was DEFAULT_BODY_LIMIT_BYTES (10 MB, ~2.5M tokens), billed
+# to the provider and re-sent on each of up to 8 tool rounds.
+# enforce_ai_token_budget checks usage already recorded before the
+# handler runs, and MAX_REQUEST_TOKEN_BUDGET is checked at the top of the
+# loop where the running total is still zero, so neither bounds the
+# first request.
 #
-# The per-message cap is generous against the chat loop's own max_tokens=4096
-# (about 16k characters), so a long assistant turn replayed as history is never
-# rejected. The aggregate sits deliberately above what the other three caps can
-# produce between them (20 x 20_000 of history plus a 2_000-character message),
-# so a long conversation can never start returning 422 on its own; what it
-# actually bounds is the free-form layer context, which has no shape of its own
-# to cap. A realistic request is well under a tenth of it.
+# The per-message cap is generous against the loop's own max_tokens=4096
+# (~16k chars), so a long assistant turn replayed as history is never
+# rejected. The aggregate sits above what the other three caps can
+# produce together, so a long conversation can never 422 on its own —
+# what it actually bounds is the free-form layer context, which has no
+# shape of its own to cap.
 _MAX_HISTORY_CONTENT_CHARS = 20_000
 _MAX_CHAT_LAYERS = 50
 _MAX_CHAT_PAYLOAD_CHARS = 500_000
@@ -547,9 +544,7 @@ class ChatResponse(BaseModel):
     actions: list[ChatAction]
 
 
-# ---------------------------------------------------------------------------
 # Live provider probe (fix #627)
-# ---------------------------------------------------------------------------
 
 
 class AIProbeCheck(BaseModel):

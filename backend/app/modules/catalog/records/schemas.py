@@ -37,9 +37,6 @@ def normalize_language_tag(value: str) -> str:
     return "-".join(canonical)
 
 
-# --- Localized record text ---
-
-
 class TranslationUpsert(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     summary: str | None = Field(default=None, max_length=5000)
@@ -64,9 +61,6 @@ class TranslationResponse(BaseModel):
 class TranslationListResponse(BaseModel):
     translations: list[TranslationResponse]
     total: int
-
-
-# --- Contacts ---
 
 
 class ContactCreate(BaseModel):
@@ -107,7 +101,7 @@ class ContactUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _reject_null_required(self) -> "ContactUpdate":
-        # fix(#458 E-46): PATCH follows the dataset E-04 contract — an
+        # fix(#458): PATCH follows the dataset E-04 contract — an
         # explicitly-set null clears the field. `role` is NOT NULL in the
         # model, so an explicit null there is a 422, not a silent drop.
         for field in ("role", "sort_order"):
@@ -133,9 +127,6 @@ class ContactResponse(BaseModel):
 class ContactListResponse(BaseModel):
     contacts: list[ContactResponse]
     total: int
-
-
-# --- Keywords ---
 
 
 class KeywordCreate(BaseModel):
@@ -187,9 +178,6 @@ class KeywordListResponse(BaseModel):
             "includes someone who cannot open the source dataset (feat #1070)."
         ),
     )
-
-
-# --- Distributions ---
 
 
 class DistributionCreate(BaseModel):
@@ -244,7 +232,7 @@ class DistributionUpdate(BaseModel):
     @field_validator("url")
     @classmethod
     def _validate_url(cls, v: str | None) -> str | None:
-        # fix(#458 E-45): the update path skipped the HTTP(S) validation the
+        # fix(#458): the update path skipped the HTTP(S) validation the
         # create path enforces, letting javascript:/file:// strings re-enter
         # the DCAT/STAC feeds as accessURL/downloadURL.
         if v is not None:
@@ -258,7 +246,7 @@ class DistributionUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _reject_null_required(self) -> "DistributionUpdate":
-        # fix(#458 E-46): explicit null clears optional fields (E-04 contract);
+        # fix(#458): explicit null clears optional fields (E-04 contract);
         # the NOT NULL trio must 422 instead of silently dropping the null.
         for field in ("distribution_type", "format", "url", "is_primary"):
             if field in self.model_fields_set and getattr(self, field) is None:

@@ -1,25 +1,13 @@
 """Tool definitions for chat-based map editing LLM interactions.
 
-This module declares the **JSON schemas** that the LLM sees as tool definitions
-when generating maps or editing them via chat. Each tool corresponds to one
-action the LLM can take (search the catalog, add/remove a layer, set a filter,
-change a paint property, generate a data-driven style, etc.). The actual
-execution of each tool happens in `app.ai.service` and `app.ai.chat_service` —
-this file is the **contract** the LLM is shown.
-
-# Editing guidelines
-# ------------------
-# - Anthropic and OpenAI tool schemas are produced by the helper functions at
-#   the bottom of this file (`get_anthropic_tools`, `get_openai_tools`). Add
-#   new tools by extending the underlying schema constants and re-exporting
-#   from those helpers — do NOT inline tool definitions in service.py.
-# - Schemas must stay valid JSON Schema. The LLM will reject malformed tool
-#   definitions silently (the request will succeed but no tool calls happen).
-# - Tool descriptions are visible to the model — keep them prescriptive and
-#   short. Long descriptions waste tokens on every request.
+The JSON-schema contract the LLM sees for each tool (search the catalog,
+add/remove a layer, set a filter, change a paint property, generate a
+data-driven style, etc.); execution lives in `app.ai.service` and
+`app.ai.chat_service`. Add tools via the schema constants and
+`get_anthropic_tools`/`get_openai_tools` below, not inline in service.py.
+Malformed JSON Schema fails silently -- the request succeeds with no tool
+calls.
 """
-
-# --- Shared search_datasets schema (reused from service.py) ---
 
 _SEARCH_DATASETS_SCHEMA = {
     "type": "object",
@@ -63,7 +51,6 @@ _SEARCH_DATASETS_DESC = (
     "(up to 5 columns). Use this to find datasets before adding them as layers."
 )
 
-# --- get_dataset_details tool schema ---
 
 _GET_DATASET_DETAILS_SCHEMA = {
     "type": "object",
@@ -82,8 +69,6 @@ _GET_DATASET_DETAILS_DESC = (
     "before applying data-driven styling."
 )
 
-
-# --- Anthropic tool format ---
 
 CHAT_TOOLS_ANTHROPIC = [
     {
@@ -135,11 +120,8 @@ CHAT_TOOLS_ANTHROPIC = [
             "desired paint object. Use the correct paint property for the "
             "geometry type: fill-color for polygons, line-color for lines, "
             "circle-color for points. Data-driven coloring (a colour that "
-            # fix(#549 codex r1): reworded from "Do NOT use this for ... use
-            # set_data_driven_style instead". The pointer is a CAPABILITY
-            # difference and stays, but the old phrasing read as
-            # request-classification prose, which is the shape the routing
-            # guard now rejects.
+            # fix(#549): capability pointer only -- request-classification
+            # prose here is what the routing guard rejects.
             "varies by column value) belongs to set_data_driven_style."
         ),
         "input_schema": {
@@ -325,17 +307,9 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "query_data",
         "description": (
-            # fix(#549 codex r1): behavioural only. This description used to
-            # classify user phrasing too ("use this when the user asks a
-            # question", "do NOT use this for map styling"), competing with
-            # the system prompt's verb classes from a second site without
-            # naming any sibling tool.
-            # feat(#1242): stays behavioural for the same reason. Whether a
-            # result is worth OFFERING as a set_filter follow-up is a
-            # response-shaping rule, not tool-selection, and it is decided in
-            # the system prompt's "Query Data Responses" section
-            # (build_chat_system_prompt) -- not restated here as a second
-            # classification site.
+            # fix(#549)/feat(#1242): behavioural only -- classifying user
+            # phrasing here would compete with the system prompt's verb
+            # classes (build_chat_system_prompt's "Query Data Responses").
             "Query the user's map data using SQL. The server generates the "
             "SQL from a natural language question and executes it safely, so "
             "the result is a table of values plus an optional highlight "
@@ -355,12 +329,9 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "run_analysis",
         "description": (
-            # fix(#549): behavioural only. This description used to classify
-            # user phrasing -- it cited "show the centre point of each parcel"
-            # as a transform request while the system prompt left "show"
-            # unclassified, so the model read verb classes from two competing
-            # sites. The system prompt is now the single owner of verb
-            # classification; nothing here may re-litigate which phrasing wins.
+            # fix(#549): behavioural only -- the system prompt is the single
+            # owner of verb classification; nothing here may re-litigate
+            # which phrasing wins.
             "Run a parameterized PostGIS geometry operation on a layer and "
             "draw the result on the map as a temporary preview. buffer grows "
             "each feature by a distance; centroid replaces each feature with "
@@ -377,12 +348,10 @@ CHAT_TOOLS_ANTHROPIC = [
                 },
                 "operation": {
                     "type": "string",
-                    # feat(#683): `clip` joined the enum once #682 shipped the
-                    # layer-sourced mask. The old narrowing said clip needed a
-                    # drawn polygon only the Analysis rail could supply, which
-                    # stopped being true then. `dissolve` stays out on its own
-                    # merits: it is materialize-only, an aggregate with no
-                    # preview shape.
+                    # feat(#683): `clip` joined the enum once #682 shipped
+                    # the layer-sourced mask; the old drawn-polygon-only
+                    # narrowing no longer holds. `dissolve` stays out: it's
+                    # materialize-only, an aggregate with no preview shape.
                     "enum": ["buffer", "centroid", "clip"],
                     "description": (
                         "buffer = grow each feature by a distance; "
@@ -413,16 +382,14 @@ CHAT_TOOLS_ANTHROPIC = [
 ]
 
 
-# Read-only chat tools: a user who can VIEW a map but not edit it (non-owner /
-# non-admin) may ask the AI questions about the map's data but must not be able
-# to change it. We enforce this by withholding every mutating tool from the
-# model — the read-only set can answer questions (sandboxed, RBAC-scoped
-# SELECTs) and draw a temporary analysis preview, but has no tool to emit a
-# style / filter / label / visibility / opacity / add- or remove-layer edit.
-# ``run_analysis`` qualifies: it only SELECTs through the same sandbox rails and
-# its result is an ephemeral overlay, never a persisted map change. Edit
-# *persistence* is separately owner-gated at Save, so this is defense-in-depth,
-# not the only gate.
+# Read-only chat tools: a view-only user (non-owner/non-admin) may ask
+# questions but must not be able to change the map, so every mutating tool
+# is withheld — the read-only set can answer questions (sandboxed,
+# RBAC-scoped SELECTs) and draw a temporary analysis preview, but has no
+# style/filter/label/visibility/opacity/add-or-remove-layer edit tool.
+# ``run_analysis`` qualifies: it only SELECTs and its result is an
+# ephemeral overlay, never a persisted change. Edit persistence is
+# separately owner-gated at Save, so this is defense-in-depth.
 _READONLY_TOOL_NAMES = {"query_data", "run_analysis"}
 CHAT_TOOLS_READONLY = [
     t for t in CHAT_TOOLS_ANTHROPIC if t["name"] in _READONLY_TOOL_NAMES

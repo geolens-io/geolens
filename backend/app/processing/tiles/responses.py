@@ -52,7 +52,6 @@ def _tile_etag(content: bytes) -> str:
 
 
 def _if_none_match_satisfied(if_none_match: str | None, etag: str) -> bool:
-    """Return whether an If-None-Match value matches the current tile ETag."""
     if not if_none_match:
         return False
     value = if_none_match.strip()

@@ -87,10 +87,10 @@ router = APIRouter(
 _CATALOG_CACHE_TTL = 60  # seconds
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
-# no-trailing-slash variants register against the same handler. Slash form
-# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
-# the 404 regression introduced by redirect_slashes=False (api/main.py).
+# ROUTE-01: dual-shape decorator -- both trailing-slash and no-trailing-slash
+# variants register against the same handler. Slash form stays canonical
+# (already in OpenAPI); no-slash is a hidden alias closing the 404
+# regression introduced by redirect_slashes=False (api/main.py).
 @router.get(
     "",
     response_model=DatasetListResponse,
@@ -100,8 +100,8 @@ _CATALOG_CACHE_TTL = 60  # seconds
 @router.get(
     "/",
     response_model=DatasetListResponse,
-    # fix(getgeolens.com#86 review): read-gated (visibility filtering inside
-    # get_datasets_list), not write-gated — see get_single_dataset above.
+    # fix(getgeolens.com#86): read-gated (visibility filtering inside
+    # get_datasets_list), not write-gated -- see get_single_dataset below.
     responses={403: FORBIDDEN_RESPONSE},
 )
 async def list_all_datasets(
@@ -141,11 +141,6 @@ async def list_all_datasets(
     return response
 
 
-# ---------------------------------------------------------------------------
-# Create empty dataset
-# ---------------------------------------------------------------------------
-
-
 @router.post(
     "/create/", response_model=DatasetResponse, status_code=status.HTTP_201_CREATED
 )
@@ -172,9 +167,7 @@ async def create_empty_dataset_endpoint(
         actors_by_id=actors_by_id,
         base_url=await get_dataset_service_url(db, request=request),
         # fix(#1103): access-checked prose. A dataset created here has no
-        # provenance to redact, and the helper says so without a query — the
-        # point of routing every builder through it is that no call site gets
-        # to decide that for itself.
+        # provenance to redact, and the helper says so without a query.
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, await get_user_roles(db, user)
         ),
@@ -186,10 +179,9 @@ async def create_empty_dataset_endpoint(
 @router.get(
     "/{dataset_id}",
     response_model=DatasetResponse,
-    # fix(getgeolens.com#86 review): read-gated (check_dataset_access_or_anonymous
-    # below), not write-gated, so the router's default 403 ("caller lacks write
-    # access") misdescribes this route's actual 403 cause. Same override on
-    # every other read-gated GET in this file (quicklook, history, refresh-runs).
+    # fix(getgeolens.com#86): read-gated (check_dataset_access_or_anonymous
+    # below), not write-gated -- same override on every other read-gated
+    # GET in this file (quicklook, history, refresh-runs).
     responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_single_dataset(
@@ -332,9 +324,8 @@ async def update_dataset_metadata(
     db: AsyncSession = Depends(get_db),
 ) -> DatasetResponse:
     """Update user-editable dataset metadata."""
-    # Owner-or-admin: editing metadata (incl. visibility/publication) is a
-    # mutation; the role gate + visibility check alone let any editor edit a
-    # peer's public dataset.
+    # Owner-or-admin: the role gate + visibility check alone let any editor
+    # edit a peer's public dataset.
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -348,18 +339,18 @@ async def update_dataset_metadata(
         db, user, meta.visibility, user_roles=user_roles
     )
 
-    # fix(#458 E-48): capture the pre-update value so a PATCH that echoes the
-    # same tile_columns doesn't roll the tile version / purge the tile cache.
-    # None and [] are captured distinctly (fix(#528) codex r1): None means
-    # per-zoom defaults while [] means "never project attributes"
-    # (_select_tile_columns), so a None↔[] flip IS a tile-content change.
+    # fix(#458): capture the pre-update value so a PATCH that echoes the
+    # same tile_columns doesn't roll the tile version / purge the tile
+    # cache. fix(#528): None and [] captured distinctly -- None means
+    # per-zoom defaults, [] means "never project attributes", so a
+    # None<->[] flip IS a tile-content change.
     tile_columns_before = (
         list(dataset.tile_columns) if dataset.tile_columns is not None else None
     )
 
-    # feat(#1070): advisory warnings from the metadata chokepoint — e.g. a
-    # visibility/status change exposing inherited keywords beyond the analysis
-    # source's audience. Collected here, attached to the response below.
+    # feat(#1070): advisory warnings from the metadata chokepoint, e.g. a
+    # visibility/status change exposing inherited keywords beyond the
+    # analysis source's audience. Attached to the response below.
     metadata_warnings: list[str] = []
     try:
         dataset = await update_user_metadata(
@@ -382,7 +373,6 @@ async def update_dataset_metadata(
             detail=msg,
         )
 
-    # Log the metadata edit
     await audit_emit(
         db,
         AuditEvent(
@@ -391,16 +381,15 @@ async def update_dataset_metadata(
             resource_type="dataset",
             resource_id=dataset_id,
             # exclude_unset, not exclude_none: an explicit null clear
-            # (#458 E-04) must appear in the audit/history details.
-            # fix(#1484): mode="json" — details lands in a JSONB column that
-            # serializes with stdlib json.dumps, and data_vintage_start/end are
-            # real date objects. A python-mode dump raised at flush time and
-            # rolled back the record UPDATE staged above it.
+            # (#458) must appear in the audit/history details. fix(#1484):
+            # mode="json" -- details is JSONB serialized with stdlib
+            # json.dumps, and data_vintage_start/end are real date objects;
+            # python-mode raised at flush and rolled back the UPDATE above.
             details=meta.model_dump(mode="json", exclude_unset=True),
             ip_address=request.client.host if request.client else None,
         ),
     )
-    # fix(#458 E-48): only when the value actually changed; a no-op echo must
+    # fix(#458): only when the value actually changed; a no-op echo must
     # not purge every cached tile for the table.
     tile_columns_changed = (
         "tile_columns" in meta.model_fields_set
@@ -427,14 +416,14 @@ async def update_dataset_metadata(
         dataset,
         actors_by_id=actors_by_id,
         base_url=await get_dataset_service_url(db, request=request),
-        # fix(#1103): the editor is owner-or-admin here, but "owner of the
-        # output" does not imply access to what it was derived from — a grant
-        # on the source can be revoked after the analysis ran.
+        # fix(#1103): "owner of the output" does not imply access to what
+        # it was derived from -- a grant on the source can be revoked
+        # after the analysis ran.
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, user_roles
         ),
-        # feat(#1316): reached only after check_dataset_write_access, which is
-        # the owner-or-admin gate itself.
+        # feat(#1316): reached only after check_dataset_write_access, the
+        # owner-or-admin gate itself.
         can_view_provenance=True,
     )
     if metadata_warnings:
@@ -445,9 +434,9 @@ async def update_dataset_metadata(
 async def _reap_after_commit(deletion) -> None:
     """Remove a deleted dataset's objects, once its rows are gone for good.
 
-    Runs after the commit because it is irreversible and the delete's FK
-    cascades can still lose a lock race. A failure orphans objects and cannot
-    resurrect a dataset, so it is logged rather than raised.
+    Runs after the commit because it's irreversible and the delete's FK
+    cascades can still lose a lock race. A failure orphans objects and
+    can't resurrect a dataset, so it's logged rather than raised.
     """
     from app.modules.catalog.datasets.domain.service import reap_managed_storage
 
@@ -464,13 +453,10 @@ async def _reap_after_commit(deletion) -> None:
 async def _rollback_failed_item(db: AsyncSession, user) -> None:
     """Roll back one failed bulk-delete item without breaking the next one.
 
-    `rollback()` expires every instance in the session, including the actor the
-    per-item access check reads, whose next attribute read would lazy-load
-    outside the greenlet. Reloading it here is awaited.
-
-    Only a PERSISTENT mapped instance is reloaded. An `IdentityExtension`
-    identity has no mapper, so `refresh()` would raise UnmappedInstanceError on
-    it; it is also not in the session, so nothing expired it.
+    `rollback()` expires every session instance, including the actor,
+    whose next attribute read would lazy-load outside the greenlet --
+    reloaded here instead, but only if PERSISTENT: an `IdentityExtension`
+    identity has no mapper and isn't in the session, so nothing expired it.
     """
     await db.rollback()
     try:
@@ -545,18 +531,17 @@ async def bulk_delete_datasets_endpoint(
             # fix(#1847): the reap is deferred past both invalidations below;
             # awaiting object storage here would delay them per item.
             pending_reaps.append(deletion)
-            # fix(#1429): only now is the delete visible to a concurrent tile
-            # request, so only now can the tile router's table_name -> metadata
-            # map be evicted without the request re-caching the deleted row.
+            # fix(#1429): only now is the delete visible to a concurrent
+            # tile request, so only now can the table_name -> metadata map
+            # be evicted without a request re-caching the deleted row.
             notify_table_invalidated(table_name)
             results.append(
                 BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted")
             )
             deleted += 1
         except CatalogLockConflict as exc:
-            # fix(#1847): per item, not raised. The batch commits per item, so
-            # aborting would discard results already committed, and the
-            # catch-all would call a contended row an unexpected failure.
+            # fix(#1847): per item, not raised -- the batch commits per
+            # item, so aborting would discard already-committed results.
             await _rollback_failed_item(db, user)
             results.append(
                 BulkDeleteResultItem(
@@ -672,17 +657,16 @@ async def delete_dataset_endpoint(
     )
     await db.commit()
 
-    # Invalidate caches after dataset deletion
     await invalidate_catalog_cache()
-    # fix(#1429): only now is the delete visible to a concurrent tile request,
-    # so only now can the tile router's table_name -> metadata map be evicted
-    # without the request re-caching the deleted row. That map decides
-    # visibility, so a stale entry would authorize a successor drawing this
-    # freed table name under the deleted dataset's rules.
+    # fix(#1429): only now is the delete visible to a concurrent tile
+    # request, so only now can the table_name -> metadata map be evicted
+    # without re-caching the deleted row -- that map decides visibility, and
+    # a stale entry would authorize a successor under the deleted dataset's
+    # rules.
     notify_table_invalidated(table_name)
 
-    # fix(#1847): after both invalidations. The reap awaits object storage, so
-    # a slow backend would delay them and a cancellation would skip them,
+    # fix(#1847): after both invalidations -- the reap awaits object
+    # storage, so a slow backend or cancellation would delay/skip them,
     # leaving search and the tile map serving a deleted dataset until TTL.
     await _reap_after_commit(deletion)
 

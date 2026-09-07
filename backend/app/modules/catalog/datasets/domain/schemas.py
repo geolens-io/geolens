@@ -26,17 +26,14 @@ from app.modules.catalog.sources.schemas import (
 from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
 from app.platform.dataset_origin import OriginKind
 
-# fix(#1755 item 3): the shared rule, not a second copy of it. Every request
+# fix(#1755): the shared rule, not a second copy of it. Every request
 # model carrying a service-credential token judges it by this one function.
 from app.platform.service_auth import _validate_safe_token
 
 
-# feat(#1222): built from the probe's own closed vocabulary rather than
-# retyped, so the two cannot drift. The wording matters as much as the list:
-# this field is served on every dataset read, so a client author has to be
-# told it is an enumerated code and not a message to show verbatim, or the
-# next person to touch the probe will "improve" it into a sentence carrying
-# provider text.
+# feat(#1222): built from the probe's own closed vocabulary, not retyped,
+# so the two cannot drift. The wording matters: it tells a client author
+# this is an enumerated code, not a message to show verbatim.
 SOURCE_HEALTH_DETAIL_DESCRIPTION = (
     "Why the origin is not healthy, as one of a fixed set of GeoLens codes: "
     + ", ".join(sorted(DETAIL_CODES))
@@ -220,7 +217,7 @@ class CollectionRef(BaseModel):
 class DerivedFromResponse(BaseModel):
     """Provenance for an analysis output: what it came from, and how.
 
-    fix(#765 review): declared as a model rather than ``dict[str, Any]``. The
+    fix(#765): declared as a model rather than ``dict[str, Any]``. The
     dict spelled itself into the checked-in OpenAPI as bare
     ``additionalProperties: true``, so both generated SDKs lost the shape — the
     TypeScript one degraded to an index signature and the Python one to an
@@ -332,7 +329,7 @@ class DatasetResponse(BaseModel):
         description="URL the data was originally fetched from",
     )
     # feat(#1218): read-only source-origin & refresh state. Every field below
-    # is system-managed — none is accepted by PATCH /datasets/{id}/metadata.
+    # is system-managed -- none accepted by PATCH /datasets/{id}/metadata.
     origin: str | None = Field(
         default=None,
         description=(
@@ -545,9 +542,8 @@ class BulkDeleteResultItem(BaseModel):
     dataset_id: uuid.UUID
     status: str  # "deleted" | "error"
     detail: str | None = None
-    # fix(#1847): machine-readable where an error has a code. It carries the
-    # one the single-delete 409 does, so a client sees the same code whichever
-    # endpoint it called. None for errors that have only prose.
+    # fix(#1847): carries the same code the single-delete 409 does, so a
+    # client sees one code regardless of endpoint. None for prose-only errors.
     code: str | None = None
 
 
@@ -583,10 +579,9 @@ class DatasetMeta(BaseModel):
         description="Access level: private, restricted, internal, or public",
     )
     license: str | None = Field(default=None, max_length=1000)
-    # feat(#1472): 5000, not the 1000 its neighbours use, because
-    # ManifestMetadata.attribution is NonEmptyString5000 and the ingest tail
-    # writes it straight to the column. A 1000-char bound here would accept a
-    # manifest value the dataset PATCH then refuses to round-trip.
+    # feat(#1472): 5000, not the 1000 its neighbours use -- a 1000-char bound
+    # would reject a manifest value the ingest tail writes straight to the
+    # column (ManifestMetadata.attribution is NonEmptyString5000).
     attribution: str | None = Field(
         default=None,
         max_length=5000,
@@ -695,10 +690,9 @@ class DatasetMeta(BaseModel):
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
 
-    # fix(#1472 review): attribution is the one field here that reaches an
-    # HTML render context (MapLibre's attribution control assigns it to
-    # innerHTML), so it is the one that must stay markup-free. See
-    # reject_html_markup for why MapLibre's own sanitizer is not a defense.
+    # fix(#1472): attribution is the one field here that reaches an HTML
+    # render context (MapLibre's attribution control assigns it to
+    # innerHTML), so it must stay markup-free. See reject_html_markup.
     @field_validator("attribution")
     @classmethod
     def attribution_is_not_markup(cls, v: str | None) -> str | None:
@@ -738,10 +732,9 @@ class SchemaDiff(BaseModel):
     )
     row_count_old: int | None
     row_count_new: int | None
-    # fix(#1746 B2b review r24): nullable, but still REQUIRED. `None` is the
-    # answer when either count is unknown; making a client distinguish
-    # "absent" from "unknown" as well would be a wider contract change than
-    # the finding needs.
+    # fix(#1746): nullable, but still REQUIRED -- `None` is the answer when
+    # either count is unknown; a client need not distinguish "absent" from
+    # "unknown" too.
     row_count_delta: int | None = Field(
         description=(
             "row_count_new minus row_count_old, or null when either side is unknown"
@@ -782,17 +775,11 @@ class ReuploadServicePreviewRequest(BaseModel):
     )
     _validate_token = field_validator("token")(_validate_safe_token)
     object_id_field: str | None = Field(default=None, max_length=200)
-    # feat(#1746): the fifth model to carry the structured credential. #1760
-    # left it out because nothing composed a header for the methods it adds;
-    # with the transport in place, leaving it out would mean a basic-protected
-    # service could be re-uploaded but not previewed first.
-    #
-    # LAST, like every other model that gained this field. The generated Python
-    # SDK gives each model field a positional slot in declaration order, so
-    # inserting `auth` ahead of `object_id_field` would move that slot and an
-    # existing positional caller would send its OID string as `auth` and
-    # collect a 422. Appending cannot move a slot that already exists. Pinned
-    # by test_service_auth_contract_1746.
+    # feat(#1746): must stay LAST, like every model with this field. The
+    # generated Python SDK gives each field a positional slot in declaration
+    # order; inserting `auth` earlier would shift `object_id_field`'s slot
+    # and send an existing positional caller's OID string as `auth`, a 422.
+    # Pinned by test_service_auth_contract_1746.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
@@ -988,11 +975,9 @@ class VrtSourceListResponse(BaseModel):
 class VrtSourceHealth(BaseModel):
     dataset_id: uuid.UUID
     title: str
-    # feat(#1221): `stale` means the member's own raster was replaced after the
-    # parent VRT was last built. The member is fine — it is the parent's stored
-    # VRT that still names the superseded COG, so the fix is a regenerate, not
-    # anything done to the source. Distinct from `inaccessible`, which is about
-    # the member itself and sends the reader somewhere else entirely.
+    # feat(#1221): `stale` means the member's raster was replaced after the
+    # parent VRT was last built -- the fix is a regenerate, not anything on
+    # the source. Distinct from `inaccessible`, about the member itself.
     status: Literal["healthy", "missing", "inaccessible", "stale"]
 
 
@@ -1171,19 +1156,12 @@ class IngestionResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
 
-# ---------------------------------------------------------------------------
-# Analysis (M4) — parameterized PostGIS operations
-# ---------------------------------------------------------------------------
-
-# Operation-scoped request fields → the only operation that reads them.
-# Documented as "<op> only; ignored otherwise", and actually dropped by the
-# request validators (fix(#682): a stray mask_dataset_id sent alongside
-# buffer/centroid would otherwise be loaded — and could 404/422 the request
-# or fail the job — and distance's gt/le bounds fire on placeholder values).
-# fix(#955): values are tuples because a param can belong to more than one
-# operation — select_by_location takes its selection geometry from the same
-# `mask`/`mask_dataset_id` pair clip does, rather than a second spelling of the
-# same two fields.
+# Operation-scoped request fields -> the only operation that reads them,
+# actually dropped by the request validators (fix(#682): a stray
+# mask_dataset_id sent alongside buffer/centroid could otherwise 404/422 the
+# request or fail the job). fix(#955): values are tuples because a param can
+# belong to more than one operation -- select_by_location shares
+# `mask`/`mask_dataset_id` with clip rather than re-spelling them.
 _ANALYSIS_PARAM_OWNERS = {
     "distance_meters": ("buffer",),
     "mask": ("clip", "select_by_location"),
@@ -1194,9 +1172,8 @@ _ANALYSIS_PARAM_OWNERS = {
 }
 
 # Operations whose geometry comes from a drawn mask or a mask layer, exactly
-# one of the two. fix(#956): intersect is deliberately NOT here — it takes a
-# LAYER only, because a drawn polygon carries no attributes to overlay with,
-# which would make it an expensive clip.
+# one of the two. fix(#956): intersect is deliberately NOT here -- it takes
+# a LAYER only, since a drawn polygon has no attributes to overlay with.
 MASK_OPERATIONS = ("clip", "select_by_location")
 
 
@@ -1225,9 +1202,9 @@ def _require_analysis_params(request: Any) -> None:
         raise ValueError(
             f"{request.operation} requires exactly one of mask or mask_dataset_id"
         )
-    # fix(#956): layer only, and required. `mask` is not an intersect param, so
-    # _drop_params_for_other_operations has already discarded any drawn one by
-    # the time this runs — this just insists on the layer that replaces it.
+    # fix(#956): layer only, and required. `mask` is not an intersect param,
+    # so _drop_params_for_other_operations already discarded any drawn one;
+    # this just insists on the layer that replaces it.
     if request.operation == "intersect" and request.mask_dataset_id is None:
         raise ValueError("intersect requires mask_dataset_id")
     if request.operation == "spatial_join":
@@ -1320,12 +1297,10 @@ class AnalysisPreviewRequest(BaseModel):
         if not all(math.isfinite(v) for v in value):
             raise ValueError("bbox coordinates must be finite numbers")
         minx, miny, maxx, maxy = value
-        # No antimeridian-crossing support here, unlike the OGC bbox parsers
-        # elsewhere in this codebase — this field feeds ST_MakeEnvelope
+        # No antimeridian-crossing support: this field feeds ST_MakeEnvelope
         # directly (see render_bbox_predicate), which has no wraparound
-        # semantics of its own, so a minx > maxx envelope would silently
-        # render as an empty or nonsensical box rather than the two-envelope
-        # split the OGC paths use. Reject it instead of guessing.
+        # semantics, so a minx > maxx envelope would silently render as an
+        # empty/nonsensical box. Reject it instead of guessing.
         if minx > maxx:
             raise ValueError("bbox minx is greater than maxx")
         if miny > maxy:

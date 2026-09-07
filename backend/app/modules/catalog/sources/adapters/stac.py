@@ -1,12 +1,7 @@
-"""STAC API adapter for connecting to remote SpatioTemporal Asset Catalogs.
+"""STAC API adapter: connect, list collections, and search items over httpx.
 
-Provides functions to connect, list collections, and search items from
-external STAC APIs using httpx for HTTP interaction.
-
-# Safety notes
-# ------------
-# The user-supplied STAC API URL is SSRF-validated upstream by the router.
-# Timeouts are enforced via httpx client settings (STAC_TIMEOUT).
+The user-supplied STAC API URL is SSRF-validated upstream by the router;
+timeouts are enforced via STAC_TIMEOUT / DEFAULT_CHECK_TIMEOUT.
 """
 
 from __future__ import annotations
@@ -51,34 +46,23 @@ def projection_epsg(properties: dict[str, Any]) -> int | None:
     return None
 
 
-# The longest asset key GeoLens will carry. STAC puts no limit on an asset
-# identifier, so this is GeoLens's own bound on a third-party string that
-# ends up in `origin_ref` — and because it is a bound rather than a fact
-# about STAC, it has to be applied at CAPTURE as well as at the import
-# model. Search surfacing a key the import model would reject is how one
-# unusual item turns into a 422 for the caller's whole batch, which is the
-# same trap `self_link_href` documents for item hrefs. An item whose key is
-# longer simply imports without one, exactly as every item did before asset
-# keys were tracked; the refresh then falls back to matching on the href.
+# STAC sets no length limit on an asset key, so this is GeoLens's own bound
+# on the string that ends up in `origin_ref`; applied at capture (here) as
+# well as at the import model, since a key too long for the model would
+# 422 the caller's whole search batch. An over-long key just imports
+# without one, and refresh falls back to matching on the href.
 MAX_ASSET_KEY_CHARS = 255
 
-# feat(#1692): the longest asset media type GeoLens will carry — the width of
-# ``DatasetAsset.media_type`` (String(100)), where an imported item's declared
-# type is persisted so the STAC items GeoLens serves can re-advertise it.
-# Same capture-side bound and for the same reason as MAX_ASSET_KEY_CHARS
-# above: search surfacing a type the import model would reject turns one
-# unusual item into a 422 for the whole batch. Registered media types are
-# nowhere near this long; an item whose type is longer simply imports
-# without one.
+# feat(#1692): width of DatasetAsset.media_type (String(100)); same
+# capture-side bound and reason as MAX_ASSET_KEY_CHARS above.
 MAX_ASSET_MEDIA_TYPE_CHARS = 100
 
 
 def storable_media_type(media_type: str | None) -> str | None:
     """The asset's declared media type if it fits the column, else None.
 
-    feat(#1692): applied at capture (search) and again where the refresh
-    reads a re-fetched item, so every writer of ``DatasetAsset.media_type``
-    carries the same bound the column enforces.
+    feat(#1692): applied here and again on refresh, so every writer of
+    ``DatasetAsset.media_type`` carries the column's bound.
     """
     if not isinstance(media_type, str) or len(media_type) > MAX_ASSET_MEDIA_TYPE_CHARS:
         return None
@@ -88,45 +72,31 @@ def storable_media_type(media_type: str | None) -> str | None:
 def storable_asset_key(key: str | None) -> str | None:
     """The asset key if it is short enough to carry, else None.
 
-    fix(#1331): ``""`` is a legal JSON property name and a legal STAC asset
-    key, and it is deliberately NOT refused here. Every consultation of a
-    stored key downstream (``stac_resolve.py``) now tests it with
-    ``is not None`` rather than truthiness, which is what makes a recorded
-    ``""`` mean something different from "no key recorded" — refusing it at
-    capture would defeat that: a resolve that used a stored ``""`` to
-    recover a moved asset would strip it back out on write-back, and the
-    dataset would need to guess again the next time the asset moved. Unlike
-    an over-long key, ``""`` runs into no length problem, so there is
-    nothing about it worth refusing once the truthiness reads are honest.
+    fix(#1331): ``""`` is a legal STAC asset key and is deliberately NOT
+    refused here — downstream (``stac_resolve.py``) tests a stored key with
+    ``is not None``, never truthiness, so ``""`` still means "recorded" and
+    a resolve can round-trip a moved asset without losing the key.
     """
     if key is None or len(key) > MAX_ASSET_KEY_CHARS:
         return None
     return key
 
 
-# The keys a published COG hides behind, in the order the import flow has
-# always tried them. `data` and `visual` are the STAC-common spellings,
-# `image` is the older one, and `B04` is Sentinel-2's red band — the asset a
-# single-band import of that collection wants.
+# Keys a published COG hides behind, in try order: `data`/`visual` are the
+# STAC-common spellings, `image` the older one, `B04` Sentinel-2's red band.
 _PREFERRED_ASSET_KEYS: tuple[str, ...] = ("data", "visual", "image", "B04")
 
 
 def pick_data_asset(assets: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
     """The item's primary data asset, as ``(key, asset)``, or None.
 
-    feat(#1266): extracted from ``search_stac_items`` when the refresh
-    strategy needed the same choice. Import picks an asset out of a searched
-    item; a refresh re-picks it out of the SAME item fetched again later, and
-    the two have to agree or a refresh would quietly re-point a dataset at a
-    different band. One implementation is what makes them agree.
+    feat(#1266): shared by search and by refresh re-picking from the same
+    item fetched again later, so both agree instead of drifting to a
+    different band. The key is returned alongside the asset because it is
+    the durable name that survives an href moving.
 
-    The KEY comes back as well as the asset because it is the durable name for
-    "which asset this dataset was imported from" — hrefs move, which is the
-    whole subject of #1266, and the key is what survives the move.
-
-    Non-dict entries are skipped rather than trusted. The inline version read
-    ``.get("roles")`` off every value, so a malformed catalog answering with a
-    scalar asset raised inside search; here it simply does not match.
+    Non-dict entries are skipped: a malformed catalog with a scalar asset
+    value must not raise inside search.
     """
     if not isinstance(assets, dict):
         return None
@@ -143,18 +113,14 @@ def pick_data_asset(assets: dict[str, Any]) -> tuple[str, dict[str, Any]] | None
 def storable_href(href: Any, base_url: str) -> str | None:
     """Resolve *href* against *base_url*, or None if it may not be STORED.
 
-    feat(#1266): lifted out of :func:`self_link_href` when the refresh
-    strategy needed the identical gate for an item's ASSET href. Both end up
-    in ``origin_ref``, so both have to clear the same bar, and the bar is not
-    a matter of taste: pydantic's ``HttpUrl`` is what the import request model
-    applies, the 4096 cap is that model's field limit, and the credential
-    refusal is ADR-002 invariant 4 — a signed URL must never reach the source
-    binding. Writing the check twice is how one copy ends up laxer than the
-    model it is supposed to mirror.
+    feat(#1266): shared by ``self_link_href`` for the item href and here for
+    the asset href — both end up in ``origin_ref`` and must clear the same
+    bar as the import request model: pydantic ``HttpUrl``, the model's 4096
+    cap, and the ADR-002 invariant-4 credential refusal (a signed URL must
+    never reach the source binding).
 
-    A relative href is legal STAC, so resolution happens BEFORE any check;
-    otherwise ``//user:pw@host/x`` would smuggle userinfo past a scan of the
-    raw value.
+    A relative href is legal STAC, so it is resolved BEFORE any check —
+    otherwise ``//user:pw@host/x`` could smuggle userinfo past a raw scan.
     """
     if not isinstance(href, str) or not href.strip():
         return None
@@ -171,42 +137,23 @@ def storable_href(href: Any, base_url: str) -> str | None:
 def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
     """The item's own canonical href, from its ``rel="self"`` link.
 
-    feat(#1222): search is the ONE place GeoLens ever holds a STAC item
-    document, so it is the only place the item's own href can be captured —
-    the import request carries an item id and an asset href, and neither
-    composes back into the item URL for a catalog that does not follow the
-    ``/collections/{c}/items/{id}`` layout. Without this, ``origin_ref``'s
-    reserved ``item_href`` key stays permanently unwritten and the health
-    probe can only ever check the asset, never whether the item was
-    withdrawn from the catalog.
+    feat(#1222): search is the ONE place GeoLens holds a STAC item document,
+    so it is the only place the item's own href can be captured — without
+    it, ``origin_ref``'s ``item_href`` stays unwritten and the health probe
+    can only ever check the asset, never a withdrawal from the catalog.
 
-    A relative href is legal STAC (the validation fixtures accept one), so it
-    is resolved against the URL the response actually came from before any
-    check runs — dropping it would leave ``item_href`` unwritten and the
-    health probe blind to a withdrawal on exactly the catalogs that publish
-    self links most carefully (fix #1271 review). After resolution, two ways
-    a link is still dropped rather than surfaced, and the second is the one
-    that matters. A non-http(s) href goes because the probe would have
-    nothing safe to fetch. A CREDENTIALED href goes because the import
-    request validator refuses one outright (a signed URL must never reach
-    ``origin_ref``, ADR-002 invariant 4) — and since search is what fills the
-    field the UI echoes back, surfacing one here would turn an optional
-    convenience into a 422 that fails the caller's whole import batch.
-    Dropping at capture keeps the refusal for hand-crafted clients, where it
-    is the right answer, and off the path GeoLens itself drives.
+    A relative href is legal STAC, so it is resolved against the response's
+    actual URL before any check (fix #1271 review). ``storable_href`` then
+    drops a non-http(s) or credentialed href rather than surfacing it: a
+    credentialed one would otherwise turn an optional convenience into a
+    422 for the caller's whole import batch.
     """
     links = feature.get("links")
-    # isinstance: a malformed scalar links value must cost only this optional
-    # field, not 502 the whole search (fix #1271 review).
+    # fix(#1271): a malformed scalar `links` must cost only this
+    # optional field, not 502 the whole search.
     for link in links if isinstance(links, list) else []:
         if not isinstance(link, dict) or link.get("rel") != "self":
             continue
-        # fix(#1271 review): a malformed href must be dropped, not surfaced —
-        # item_href is optional, and the frontend echoes search results into
-        # the import request, where StacImportItem applies HttpUrl, the
-        # credential refusal, and a 4096 cap. Surfacing anything that gate
-        # rejects turns one broken link into a 422 for the caller's whole
-        # batch. `storable_href` IS that gate.
         resolved = storable_href(link.get("href"), base_url)
         if resolved is not None:
             return resolved
@@ -214,23 +161,19 @@ def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
 
 
 def _make_client() -> httpx.AsyncClient:
-    """Shared httpx client configuration for STAC API requests.
+    """Shared httpx client for STAC API requests.
 
-    Phase 1061 SEC-S04: delegates to make_safe_client() so the per-hop SSRF
-    revalidation hook applies to every STAC API probe (including indirect
-    redirects from /stac/.well-known/* to internal CIDRs).
+    Phase 1061 SEC-S04: uses make_safe_client() so the per-hop SSRF
+    revalidation hook covers every redirect a STAC probe follows.
     """
     return make_safe_client(timeout=STAC_TIMEOUT)
 
 
 async def connect_stac_api(url: str) -> dict | None:
-    """Validate a STAC API URL and return landing page info.
+    """Validate a STAC API URL and return landing page info, or None.
 
-    Returns a dict with id, title, description, stac_version, conformsTo,
-    or None if the URL is not a valid STAC API.
-
-    fix(#1770 round 41 P1): the whole function runs under
-    ``DEFAULT_CHECK_TIMEOUT``, same reasoning as ``probe_ogcapi``.
+    fix(#1770): the whole function runs under ``DEFAULT_CHECK_TIMEOUT``,
+    same reasoning as ``probe_ogcapi``.
     """
     try:
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
@@ -241,14 +184,11 @@ async def connect_stac_api(url: str) -> dict | None:
 
 
 async def _connect_stac_api_within_deadline(url: str) -> dict | None:
-    """``connect_stac_api``'s body, split out so the deadline wraps all of it."""
     async with _make_client() as client:
         headers = {"Accept": "application/json"}
         try:
-            # fix(#1770 round 41 P1): bounded read, not a plain `client.get`
-            # -- see `bounded_probe_read`'s docstring. `EndpointCheckFailedError`
-            # joins the two httpx types this already caught: whatever the
-            # cause, this degrades to "not a STAC API" the same way.
+            # fix(#1770): bounded read, not a plain `client.get` — see
+            # `bounded_probe_read`'s docstring.
             body, _ = await bounded_probe_read(
                 client, url, headers=headers, accept=OGC_JSON_ACCEPT
             )
@@ -270,10 +210,9 @@ async def _connect_stac_api_within_deadline(url: str) -> dict | None:
             logger.debug("STAC connect: non-JSON response", url=url)
             return None
 
-        # fix(#1770 round 44 P2): a `200 []`/`200 null`/`200 "x"` response is
-        # valid JSON but not a dict, and `.get(...)` on a list/None/str
-        # raises `AttributeError` rather than the ordinary "not a STAC API"
-        # degrade below.
+        # fix(#1770): a `200 []`/`200 null`/`200 "x"` response is valid JSON
+        # but not a dict, and `.get(...)` on it raises `AttributeError`
+        # instead of degrading to "not a STAC API" below.
         if not isinstance(data, dict):
             logger.debug("STAC connect: non-dict response", url=url)
             return None
@@ -412,8 +351,8 @@ async def search_stac_items(
         dt_start = props.get("start_datetime") or dt
         dt_end = props.get("end_datetime") or dt
 
-        # EW-05: surface STAC file:size (when present) so the frontend can show
-        # an estimated download size before the user commits to a multi-GB fetch.
+        # EW-05: surface file:size so the frontend can show an estimated
+        # download size before the user commits to a multi-GB fetch.
         data_asset_size_bytes = data_asset.get("file:size") if data_asset else None
         if not isinstance(data_asset_size_bytes, int):
             data_asset_size_bytes = None  # be defensive — bad-shape values become None
@@ -422,10 +361,10 @@ async def search_stac_items(
             {
                 "id": f.get("id"),
                 "collection": f.get("collection"),
-                # resp.url is the LOGICAL post-redirect URL: the SSRF
+                # resp.url is the LOGICAL post-redirect URL — the SSRF
                 # transport restores the hostname after each pinned hop
-                # (see _SSRFGuardTransport), so relative self links resolve
-                # against the host the caller addressed, never the pinned IP.
+                # (_SSRFGuardTransport) — so a relative self link resolves
+                # against the caller's host, never the pinned IP.
                 "item_href": self_link_href(f, str(resp.url)),
                 "bbox": f.get("bbox"),
                 "datetime": dt,
@@ -436,16 +375,12 @@ async def search_stac_items(
                 "gsd": props.get("gsd"),
                 "cloud_cover": props.get("eo:cloud_cover"),
                 "data_asset_href": data_asset.get("href") if data_asset else None,
-                # feat(#1692): bounded at capture like the key below, so the
-                # echoed value always fits the import model and the
-                # DatasetAsset.media_type column it is persisted into.
+                # feat(#1692): bounded to fit DatasetAsset.media_type.
                 "data_asset_type": storable_media_type(
                     data_asset.get("type") if data_asset else None
                 ),
-                # feat(#1266): the durable half of the asset's identity. The
-                # href is what moves; this is what still names the same asset
-                # afterwards, so a refresh can follow the move instead of
-                # re-running the priority list and possibly picking another.
+                # feat(#1266): durable name that survives the href moving,
+                # so refresh can follow the move instead of re-picking.
                 "data_asset_key": storable_asset_key(data_asset_key),
                 "data_asset_size_bytes": data_asset_size_bytes,
                 "thumbnail_href": thumbnail.get("href") if thumbnail else None,

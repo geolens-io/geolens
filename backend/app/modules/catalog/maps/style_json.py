@@ -46,11 +46,9 @@ __all__ = ["ImportedStyleMap", "build_maplibre_style", "parse_maplibre_style_imp
 
 SPRITE_URL = "/maps/sprites/geolens"
 GLYPHS_URL = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"
-# builder-audit #338 STYLE-07 / DRY-06: GeoLens default fill/stroke palette and the
-# arrow/extrusion magic constants live here as named module constants and are
-# re-exported so `service_shared.generate_default_style` imports the same values
-# instead of hardcoding bare literals (which silently diverged on export vs
-# storage). The frontend mirrors these in `renderAs.ts`/`fill-adapter.ts`.
+# builder-audit #338 STYLE-07/DRY-06: GeoLens default palette + arrow/
+# extrusion constants, re-exported so `generate_default_style` shares
+# them instead of hardcoding bare literals that silently diverge.
 DEFAULT_FILL_COLOR = "#3b82f6"
 DEFAULT_STROKE_COLOR = "#1d4ed8"
 DEFAULT_OUTLINE_WIDTH = 1
@@ -82,13 +80,9 @@ _HILLSHADE_PAINT_KEYS = {
 # to also be constructed with `lineMetrics: true` (set by `build_maplibre_style`).
 _LINE_GRADIENT_SOURCE_TYPES = {"vector", "geojson"}
 _BUILDER_KEY_ALIASES = BUILDER_SNAKE_TO_CAMEL_KEYS
-# fix(#1069): what a malformed stored style value raises when a serializer
-# descends into it — iterating an int, unpacking a string, subscripting a
-# scalar, `.get`-ing a non-dict, hashing a list into a set membership test.
-# Deliberately NOT `Exception`: `_tile_url_for_layer` raises RuntimeError when a
-# hosted deployment has no tenant context, and that must stay fail-closed rather
-# than degrade into a quietly missing layer. Data-shape errors degrade; control
-# errors propagate.
+# fix(#1069): what a malformed stored style value raises when a
+# serializer descends into it. NOT `Exception`: `_tile_url_for_layer`'s
+# RuntimeError (no tenant context) must stay fail-closed, not degrade.
 _MALFORMED_STYLE_ERRORS = (AttributeError, IndexError, KeyError, TypeError, ValueError)
 logger = logging.getLogger(__name__)
 
@@ -112,12 +106,11 @@ def _extrusion_height_expression(height_column: str, height_scale: float) -> lis
 def _layer_uses_line_gradient(layer: MapLayerResponse) -> bool:
     """Return True if this layer needs `lineMetrics: true` on its backing source.
 
-    Detection rule (locked per .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-01):
-      1. `paint['line-gradient']` is set (any non-None value).
-      2. `style_config.builder.lineGradient` is a non-empty dict (Phase 256 builder intent).
-    Sticky lifecycle (D-02): once a source emits the flag, downstream paths do not
-    recompute it on subsequent saves; the source itself is torn down only when no
-    consumers remain.
+    Detection (D-01, .planning/phases/255-line-gradient-engine-foundation): a
+    non-None `paint['line-gradient']` or a non-empty
+    `style_config.builder.lineGradient` dict. Sticky (D-02): once a source
+    emits the flag, later saves don't recompute it; the source is torn down
+    only when no consumers remain.
     """
     paint = layer.paint or {}
     if paint.get("line-gradient") is not None:
@@ -190,28 +183,14 @@ def _append_cluster_source_metadata(
 ) -> None:
     """Annotate a cluster source with the resolved render strategy.
 
-    builder-audit #338 STYLE-09 (documentation, the lower-risk option vs dropping):
-    ``source.metadata.geolens.cluster_renderers`` is ADVISORY metadata with NO
-    backend consumer — ``parse_maplibre_style_import`` does not read it back, and a
-    grep across ``frontend/src`` finds no reader either. It is emitted purely so an
-    external introspector of the exported style.json can see which cluster fallback
-    strategy ('bounded-geojson' / 'server-tile' / 'fallback') was chosen per layer.
-    It is intentionally retained (not load-bearing for round-trip); if a future
-    cleanup confirms no consumer ever materializes, this whole block can be dropped
-    to shrink the cluster path. Kept here, documented, to avoid silently changing
-    the exported contract.
+    builder-audit #338 STYLE-09: ADVISORY only, no backend/frontend
+    reader — kept so an external introspector can see the chosen
+    fallback strategy. Not load-bearing; drop once confirmed unused.
 
-    fix(#394) ST-06 (documented limitation, the audit's "or document" option):
-    cluster rendering does NOT round-trip through style.json export. The
-    exported layer is a plain circle layer over the vector source — no
-    ``cluster: true`` source flags and no cluster-circle/cluster-count
-    companion layers are emitted, because GeoLens clustering is server-side
-    (authenticated cluster tile URLs + per-layer radius/max-zoom the plain
-    MapLibre style format cannot express). External consumers of an exported
-    style see every point unclustered; this metadata block is the only
-    cluster trace. Full fidelity would require emitting the cluster
-    companions + a GeoJSON source per layer — revisit only if an external
-    consumer materializes.
+    fix(#394) ST-06 (documented limitation): cluster rendering does NOT
+    round-trip through export — GeoLens clustering is server-side, which
+    plain MapLibre style.json can't express, so this metadata block is
+    the only trace an external consumer sees.
     """
     if (layer.style_config or {}).get("render_mode") != "cluster":
         return
@@ -266,14 +245,11 @@ def _mvt_source_layer(
 ) -> str:
     """Return the MVT ``source-layer`` name for a GeoLens vector layer.
 
-    builder-audit #338 P1-01: the runtime client (``map-sync.ts``) names the vector
-    tile layer ``data.<table>`` (matching the ``/tiles/data.<table>/...`` path the
-    tile server signs and serves). Style export MUST emit the SAME name or the
-    exported MapLibre style loads the source but renders no features because the
-    layer name inside the MVT payload does not match the exported ``source-layer``.
-    This is the single source of truth for that name; ``_tile_url_for_layer`` signs
-    the raw ``dataset_table_name`` as the scope, and the served layer is the
-    ``data.``-prefixed name — keep both in lockstep here.
+    builder-audit #338 P1-01: single source of truth for the ``data.<table>``
+    name the runtime client (``map-sync.ts``) and the tile server agree on.
+    Style export MUST emit the same name, or the exported style loads the
+    source but renders nothing — keep this and ``_tile_url_for_layer``'s
+    signed scope in lockstep.
     """
     return f"{mvt_source_layer_prefix}.{layer.dataset_table_name}"
 
@@ -281,11 +257,10 @@ def _mvt_source_layer(
 def _source_type_for_layer(layer: MapLayerResponse) -> str:
     """Return the MapLibre source ``type`` for a layer: raster-dem / raster / vector.
 
-    builder-audit #338 STYLE-03: this is the SINGLE 3-way branch consumed by both
-    ``_source_for_layer`` (which actually constructs the source dict) and the
-    line-gradient gating in ``_style_layer_for_map_layer``. Keeping one helper
-    prevents the two from silently desyncing when a new raster record_type is
-    added (which previously could drop or keep ``line-gradient`` incorrectly).
+    builder-audit #338 STYLE-03: the SINGLE 3-way branch consumed by both
+    ``_source_for_layer`` and the line-gradient gating in
+    ``_style_layer_for_map_layer`` — one helper prevents the two desyncing
+    when a new raster record_type is added.
     """
     if (layer.is_dem is True) and (
         (layer.style_config or {}).get("render_mode") == "hillshade"
@@ -316,21 +291,15 @@ def _walk_get_has_columns(node: Any, cols: set[str]) -> None:
 def _data_driven_columns_for_layer(layer: MapLayerResponse) -> list[str]:
     """Return the SORTED set of feature-property columns a vector layer references.
 
-    builder-audit #338 P1-02 / P1-03: ports the runtime ``getDataDrivenColumnsForLayer``
-    collector to the backend so exported tile URLs can request these columns via
-    ``cols=``. The tile server projects no attribute columns at z<10 unless asked,
-    which otherwise breaks categorical/graduated styling, labels, heatmap weights,
-    and 3D heights at low zoom in an exported style. Sources considered:
-
-      * ``style_config.column`` — categorical / graduated styling target;
-      * builder ``heatmapWeightColumn`` / ``heightColumn`` (and the legacy
-        ``_heatmap-weight-column`` / ``_height_column`` paint keys, in case a layer
-        is exported before the paint->builder split has run);
-      * ``label_config.column`` — drives the companion label's text-field LAYOUT
-        property the paint walk below cannot see;
-      * paint expression ``["get", col]`` references (generic catch-all);
-      * ``layer.filter`` ``["get"/"has", col]`` references (P1-03 — a filter-only
-        column would otherwise be dropped at low zoom).
+    builder-audit #338 P1-02/P1-03: ports the runtime
+    ``getDataDrivenColumnsForLayer`` collector so exported tile URLs can
+    request these columns via ``cols=`` — the tile server projects no
+    attribute columns at z<10 unless asked, breaking categorical/graduated
+    styling, labels, heatmap weights, and 3D heights at low zoom. Sources:
+    ``style_config.column``; builder ``heatmapWeightColumn``/``heightColumn``
+    (and their legacy paint-key forms); ``label_config.column`` (invisible
+    to the paint walk); paint ``["get", col]`` refs; and ``layer.filter``
+    ``["get"/"has", col]`` refs (else filter-only columns drop at low zoom).
     """
     cols: set[str] = set()
     style_config = layer.style_config or {}
@@ -357,10 +326,9 @@ def _data_driven_columns_for_layer(layer: MapLayerResponse) -> list[str]:
     for value in paint.values():
         _walk_get_has_columns(value, cols)
 
-    # builder-audit #338 P1-03/P1-04: normalize the filter through the SHARED validator
-    # first so legacy bare-field comparisons (["==", "field", v]) are rewritten to
-    # expression form (["==", ["get", "field"], v]) before the get/has walk — a
-    # filter-only column would otherwise be dropped at low zoom.
+    # builder-audit #338 P1-03/P1-04: normalize through the shared validator
+    # first so legacy bare-field comparisons rewrite to expression form
+    # before the get/has walk, or a filter-only column drops at low zoom.
     try:
         normalized_filter = validate_filter(layer.filter)
     except FilterValidationError:
@@ -398,7 +366,6 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
 
 
 def _raster_dem_source(layer: MapLayerResponse) -> dict[str, Any]:
-    """Build a ``raster-dem`` mesh source dict for a DEM layer (terrain/hillshade)."""
     return {
         "type": "raster-dem",
         "tiles": [_tile_url_for_layer(layer)],
@@ -419,11 +386,9 @@ def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
             "tileSize": 256,
         }
     else:
-        # fix(#394): source maxzoom mirrors the live builder (map-sync.ts) —
-        # 14 for plain vector sources so exported styles OVERZOOM z15+ instead
-        # of hammering the backend at deep zooms, and 22 for server-cluster
-        # sources because the backend only unclusters for z > cluster_max_zoom
-        # (default 14), so cluster clients must be able to fetch z15+ tiles.
+        # fix(#394): source maxzoom mirrors map-sync.ts — 14 for plain
+        # vector overzooms z15+ instead of hitting the backend; 22 for
+        # server-cluster, since unclustering only starts past z14.
         is_cluster = (layer.style_config or {}).get("render_mode") == "cluster"
         source = {
             "type": "vector",
@@ -431,23 +396,13 @@ def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
             "minzoom": 1,
             "maxzoom": 22 if is_cluster else 14,
         }
-    # fix(#1472 review): the dataset's required credit, on the common tail so
-    # vector, raster, and raster-dem all carry it and a fourth source type
-    # cannot be added without it. An exported style is a published artifact
-    # handed to third parties and rendered outside this instance entirely,
-    # which is precisely where a source's display obligation binds — MapLibre
-    # reads `attribution` off the source and shows it in whatever attribution
-    # control the consuming application mounts.
+    # fix(#1472): the dataset's required credit, on the common
+    # tail so vector/raster/raster-dem all carry it — MapLibre reads
+    # `attribution` off the source of a published, externally-rendered style.
     if layer.dataset_attribution and layer.dataset_attribution.strip():
-        # fix(#1472 review): HTML-escaped. The MapLibre style spec's
-        # `attribution` is an HTML string — every basemap uses it to carry a
-        # link — and the consuming application assigns it to innerHTML, so this
-        # export hands a third party a render context we do not control. The
-        # write paths already reject `<` and `>` (core.text.reject_html_markup),
-        # which leaves this escaping only the ampersand in a name like
-        # "Rand & McNally"; that is correct for the HTML target and is what
-        # keeps a value written before that guard, or by a direct database
-        # write, inert instead of live markup.
+        # fix(#1472): HTML-escaped — `attribution` is HTML the
+        # consuming app assigns to innerHTML. Write paths reject `<`/`>`,
+        # so this only escapes `&`, keeping a pre-guard value inert.
         source["attribution"] = html.escape(
             layer.dataset_attribution.strip(), quote=False
         )
@@ -509,7 +464,7 @@ def _symbol_layout_from_style(
         next_layout["icon-offset"] = symbol["iconOffset"]
     if label_config and label_config.get("column"):
         next_layout.update(_label_layout(label_config))
-    # fix(#527 B-054/LB-04): mirror the live adapter — the label overlap
+    # fix(#527): mirror the live adapter — the label overlap
     # toggle governs the icon too, gated on an active label column.
     next_layout["icon-allow-overlap"] = not (
         label_config
@@ -552,10 +507,9 @@ def _symbol_icon_expression(symbol: dict[str, Any]) -> Any:
             pairs.append(_symbol_match_label(entry.get("value")))
             pairs.append(_sprite_icon_id(entry["icon"]))
         if not pairs:
-            # fix(#394) ST-01: zero surviving pairs would emit
-            # ["match", input, fallback] (length 3 < the spec minimum 5) —
-            # MapLibre addLayer throws and the symbol layer silently never
-            # renders. Mirror of the frontend symbol-adapter guard.
+            # fix(#394) ST-01: zero surviving pairs would emit a 3-element
+            # match expression (below the spec minimum 5) — MapLibre
+            # throws and the symbol layer silently never renders.
             return _sprite_icon_id(fallback)
         # fix(#394) ST-04: to-string the input so numeric MVT values match the
         # stringified sample values the editor stores (numeric columns always
@@ -597,10 +551,9 @@ def _layer_metadata(layer: MapLayerResponse) -> dict[str, Any]:
             "show_in_legend": layer.show_in_legend,
             "style_config": _clean_style_metadata(layer.style_config),
             "label_config": _clean_label_metadata(layer.label_config),
-            # fix(#1778): popup_config had no export at all, so a map's popup
-            # configuration was dropped by any export/import cycle without a
-            # warning. It is a plain settings model (enabled + title template +
-            # visible-field allowlist), so it round-trips as its JSON dump.
+            # fix(#1778): popup_config had no export at all, silently
+            # dropping a map's popup config on any export/import cycle. A
+            # plain settings model, so it round-trips as its JSON dump.
             "popup_config": layer.popup_config.model_dump(mode="json")
             if layer.popup_config is not None
             else None,
@@ -664,22 +617,14 @@ def _fill_companion_layers(
 
     height_column = builder.get("heightColumn") or paint.get("_height_column")
     if isinstance(height_column, str) and height_column:
-        # fix(#910, codex P2): a patterned layer keeps no `fill-color` — EDIT-05 makes
-        # the two mutually exclusive and the colour moves to the builder stash. The
-        # extrusion companion is the one place that still needs a solid colour, so it
-        # reads the stash rather than falling to default blue, matching
-        # `fill-adapter.ts`. A `None` check, not `or`: an expression must pass through.
+        # fix(#910, codex P2): a patterned layer keeps no `fill-color`
+        # (EDIT-05); the extrusion companion reads the builder stash
+        # instead of defaulting to blue. A `None` check: an expression must pass.
         fill_color = paint.get("fill-color")
         if fill_color is None:
-            # `style_config` is an open dict that gets size validation only, so an
-            # API-authored layer can put a number or object in the stash. That never
-            # reaches consumers — `_strip_wrong_typed_values` pops any non-string
-            # `*-color` before the style ships — but being stripped is worse than
-            # being resolved: the companion loses the key entirely and MapLibre draws
-            # the spec default (black) instead of falling back to brand blue, and
-            # every export logs a wrong-typed-value warning for a layer nobody
-            # mistyped by hand. Resolve it here so only a real colour is offered,
-            # matching the frontend rule for what may be stashed at all.
+            # `style_config` has only size validation, so an API-authored
+            # layer can stash a non-string. Resolve here rather than let
+            # `_strip_wrong_typed_values` drop the key downstream (spec default black).
             stashed = builder.get("fillColorSaved")
             fill_color = stashed if isinstance(stashed, str) else None
         if fill_color is None:
@@ -771,11 +716,9 @@ def _line_arrow_companion_layer(
     return arrow_layer
 
 
-# builder-audit #338 P1-06: backend color-relief (hypsometric tint) companion support.
-# Representative 7-stop ramps mirroring the frontend chroma-js palettes used by
-# `color-relief-sync.ts`. Exact hex parity with chroma is not required (external
-# consumers render whatever stops we emit); unknown ramp names fall back to YlOrRd,
-# matching the frontend `getRampColors` fallback (threat T-1140-05).
+# builder-audit #338 P1-06: backend color-relief (hypsometric tint)
+# support, 7-stop ramps mirroring the frontend palettes; unknown ramp
+# names fall back to YlOrRd, matching frontend `getRampColors` (T-1140-05).
 _COLOR_RELIEF_RAMPS: dict[str, list[str]] = {
     "Viridis": [
         "#440154",
@@ -954,34 +897,18 @@ def _color_relief_companion_layer(
 def _fold_master_opacity(base: dict[str, Any], layer: MapLayerResponse) -> None:
     """Apply ``layer.opacity`` to the primary fill/line layer's exported paint.
 
-    fix(#1626): the primary layer copied ``layer.paint`` through verbatim and never
-    applied the master opacity, while every companion (outline, extrusion, icon)
-    did — so a faded layer in the builder exported fully opaque.
+    fix(#1626): the primary layer copied ``layer.paint`` verbatim, never
+    applying master opacity, unlike every companion layer.
 
-    fix(#1625) moved the live builder's master onto maplibre-gl v6's
-    ``fill-layer-opacity`` / ``line-layer-opacity``, but the export deliberately
-    does NOT emit those keys. An unknown paint property is a hard validation
-    error in every maplibre-gl before 6 (``validateProperty`` returns
-    ``unknown property`` as an error, ``emitValidationErrors`` has no severity
-    and reports any error, and ``Style._load`` returns before installing a
-    single source or layer — verified against the 5.24.0 build that shipped
-    until #1624), so a style.json carrying them would not load AT ALL on an
-    older consumer. The export therefore does what the pre-#1625 adapter did
-    and multiplies the master into the per-feature value: a number times the
-    master, an expression wrapped in ``["*", expr, master]``, and an absent or
-    wrong-typed value treated as the builder default the live adapter renders
-    (``BUILDER_FEATURE_OPACITY_DEFAULTS``: fill 0.3, line 1 — see
-    ``getFeatureOpacity`` in layer-adapters/shared.ts), not the spec default
-    of 1. The un-folded value is kept in ``metadata.geolens.feature_opacity``
-    so the import side can undo the fold and a GeoLens round trip does not
-    apply the master twice.
+    fix(#1625): export can't emit v6's ``*-layer-opacity`` (hard-fails
+    style load on pre-6 maplibre-gl), so it multiplies master into the
+    per-feature value instead, keeping the un-folded value in
+    ``metadata.geolens.feature_opacity`` for import to undo.
 
-    The v6 default of 1 takes the untouched path: with ``layer.opacity`` at 1
-    the emitted paint stays bit-identical to before. That deliberately leaves
-    one pre-existing divergence alone — absent per-feature opacity at master 1
-    exports nothing and renders at the spec default of 1 while the builder
-    draws 0.3 — because the bit-identical guarantee for untouched layers
-    matters more than fixing a defect this change did not create.
+    At master opacity 1 the emitted paint stays bit-identical to before —
+    deliberately leaving one pre-existing divergence alone (absent
+    per-feature opacity renders at spec default 1, not the builder's 0.3)
+    since bit-identical output for untouched layers matters more here.
     """
     feature_key = FOLDED_OPACITY_KEYS.get(str(base.get("type")))
     opacity = _finite_number(layer.opacity)
@@ -1007,12 +934,9 @@ def _style_layer_for_map_layer(
     mvt_source_layer_prefix: str = "data",
 ) -> list[dict[str, Any]]:
     style_config = layer.style_config or {}
-    # Codex P2 (#338): a DEM saved in "terrain" render mode is mesh-only — the
-    # builder/viewer suppress its visual raster and use it solely as the 3D
-    # terrain source. Emitting a visible `raster` layer here would put a flat DEM
-    # image on top of the map alongside the `terrain` block, contradicting the
-    # suppression and changing the exported appearance. The dedicated raster-dem
-    # mesh source is still added by the terrain block in build_maplibre_style.
+    # fix(Codex P2, #338): a DEM in "terrain" mode is mesh-only —
+    # emitting a visible raster here would put a flat DEM image over the
+    # `terrain` block; the mesh source is still added in build_maplibre_style.
     if bool(layer.is_dem) and style_config.get("render_mode") == "terrain":
         return []
     layer_type = _geometry_layer_type(
@@ -1054,11 +978,9 @@ def _style_layer_for_map_layer(
     if not layer.visible:
         base["layout"] = {**layout, "visibility": "none"}
 
-    # fix(#526 B-044): the builder stores the per-layer zoom range as
-    # builder-private layout keys (`_minzoom`/`_maxzoom`, applied live via
-    # setLayerZoomRange). `_clean_layout` strips underscore keys, so exported
-    # layers previously rendered at ALL zooms. Re-emit them as the spec-level
-    # layer `minzoom`/`maxzoom` (defaults 0/22 are omitted as no-ops).
+    # fix(#526): the builder stores zoom range as private layout
+    # keys, stripped by `_clean_layout` — re-emit as spec-level
+    # `minzoom`/`maxzoom` or exported layers render at ALL zooms.
     raw_layout = dict(layer.layout or {})
     export_minzoom = raw_layout.get("_minzoom")
     export_maxzoom = raw_layout.get("_maxzoom")
@@ -1072,25 +994,15 @@ def _style_layer_for_map_layer(
         builder = _builder_style_config(style_config)
         if builder.get("strokeDisabled") or (layer.paint or {}).get("_stroke-disabled"):
             base["paint"] = {**base["paint"], "fill-outline-color": "rgba(0,0,0,0)"}
-        # fix(#910): seed the export colour from the stash BEFORE
-        # `_strip_builtin_fill_pattern` (#917) runs at validate time. EDIT-05 makes
-        # `fill-color` and `fill-pattern` mutually exclusive, so a patterned layer keeps
-        # no colour in paint at all — the user's choice lives in `builder.fillColorSaved`.
-        # The stripper falls back to DEFAULT_FILL_COLOR when paint has no colour, which
-        # for every builder-patterned polygon is always, so the export repainted them
-        # brand blue and discarded the chosen colour. It cannot read the stash itself:
-        # it runs from `_validate_emitted_style`, which walks emitted layers with no
-        # access to the source layer. Seeding here — where the builder is already in
-        # scope — keeps that function untouched. A string only, matching every other
-        # reader of this stash; an expression in paint already wins on its own.
+        # fix(#910): seed from the stash before `_strip_builtin_fill_pattern`
+        # (#917) — a patterned layer keeps no `fill-color` (EDIT-05), so the
+        # stripper's blue fallback would otherwise repaint it.
         stashed_fill = builder.get("fillColorSaved")
         if (
             isinstance(stashed_fill, str)
-            # fix(#910, codex P2): absent OR explicitly null. An API-authored or imported
-            # layer can carry `fill-color: null`, which a presence test read as "a colour
-            # is already set" — #917 then stripped the pattern, left the null in place
-            # (`_strip_wrong_typed_values` does not pop it), and MapLibre resolved the
-            # null to its own default instead of the colour in the stash.
+            # fix(#910, codex P2): absent OR explicitly null — a null
+            # `fill-color` read as "already set," so #917 stripped the
+            # pattern but left the null, resolving to spec default.
             and base["paint"].get("fill-color") is None
             and _references_builtin_fill_pattern(base["paint"].get("fill-pattern"))
         ):
@@ -1125,7 +1037,7 @@ def _style_layer_for_map_layer(
         )
         base["paint"] = {
             **paint,
-            # fix(#527 B-054/S-05): the live adapter always drives icon-opacity
+            # fix(#527): the live adapter always drives icon-opacity
             # from the master opacity; export omitted it entirely.
             "icon-opacity": layer.opacity,
             **(_label_paint(label_config) if label_config else {}),
@@ -1155,15 +1067,13 @@ def _style_layer_for_map_layer(
             label_layer["filter"] = layer.filter
         above_companions.append(label_layer)
 
-    # fix(#526 codex on B-044): the zoom range applies to companions too — the
-    # live builder calls setLayerZoomRange on every companion id (outline/
-    # extrusion/arrow/label/color-relief), so export only tagging the primary
-    # left companions visible outside the range. Merge rather than clobber:
-    # the 3D extrusion companion emits its own (tighter) minzoom.
+    # fix(#526): the zoom range applies to companions too
+    # — merge rather than clobber, since the 3D extrusion companion
+    # emits its own (tighter) minzoom.
     emitted = [*below_companions, base, *above_companions]
-    # fix(#1778 round 3): 0 and 22 are the builder's substituted range, so they
-    # are the values that make a key a no-op here. Named rather than repeated as
-    # literals, and shared with the import that reads them back.
+    # fix(#1778): 0/22 are the builder's substituted range — the
+    # values that make a key a no-op here, named rather than repeated as
+    # literals and shared with the import that reads them back.
     if isinstance(export_minzoom, (int, float)) and export_minzoom > BUILDER_MIN_ZOOM:
         for style_layer in emitted:
             style_layer["minzoom"] = max(
@@ -1177,25 +1087,17 @@ def _style_layer_for_map_layer(
     return emitted
 
 
-# builder-audit #338 SPEC-01: per-layer-type MapLibre paint/layout property allow-lists.
-# `build_maplibre_style` copies stored paint/layout into the output verbatim (minus
-# `_`-prefixed builder keys), so without this a misspelled ('fill-colour') or
-# wrong-surface property would be persisted and re-emitted, producing a document
-# MapLibre's own validator rejects at load. We STRIP (rather than raise on) unknown
-# keys per layer type so a single bad property degrades gracefully instead of
-# 500-ing GET style.json. Unknown layer types are left untouched (forward-compat).
+# builder-audit #338 SPEC-01: per-layer-type MapLibre paint/layout
+# allow-lists — build_maplibre_style copies stored paint/layout verbatim,
+# so an unknown property would persist; STRIP (not raise) degrades gracefully.
 _COMMON_LAYOUT_PROPERTIES = frozenset({"visibility"})
 _PAINT_PROPERTIES_BY_TYPE: dict[str, frozenset[str]] = {
     "background": frozenset(
         {"background-color", "background-pattern", "background-opacity"}
     ),
-    # fix(#1625/#1626): `fill-layer-opacity` and `line-layer-opacity` are
-    # deliberately NOT listed. The export carries the master opacity by folding
-    # it into `*-opacity` (see `_fold_master_opacity` for why: the v6 keys abort
-    # the whole style load on maplibre-gl < 6), so a stored paint that happens to
-    # hold one (API-authored, or a v6 style pasted into the JSON editor) is
-    # stripped here instead of leaking into a document older consumers reject.
-    # Import maps the keys onto `layer.opacity` in `_restore_master_opacity`.
+    # fix(#1625/#1626): `*-layer-opacity` deliberately NOT listed — export
+    # folds master opacity into `*-opacity` instead (see
+    # `_fold_master_opacity`), so any stored value is stripped here.
     "fill": frozenset(
         {
             "fill-antialias",
@@ -1420,17 +1322,13 @@ def _strip_wrong_typed_values(layer: dict[str, Any], key: str) -> None:
         )
 
 
-# fix(#917): the builder's builtin fill patterns. Their images are generated and
-# registered in the browser by `layer-adapters/fill-pattern-images.ts`, so they
-# exist only inside a GeoLens session — the served sprite is indexed from the
-# `map_icons` table alone and has never contained them. Mirrors
-# `FILL_PATTERN_IDS` in that module; keep the two in step.
+# fix(#917): the builder's builtin fill patterns, registered in the
+# browser by `layer-adapters/fill-pattern-images.ts` — never in the
+# served `map_icons` sprite. Mirrors `FILL_PATTERN_IDS`; keep in step.
 #
-# fix(#917 codex r1): matched exactly, never by the `geolens-fill-` prefix.
-# `create_icon_asset` derives a sprite slug from the uploaded filename, so an
-# icon named `geolens-fill-logo.png` becomes a real `map_icons` entry whose slug
-# carries that prefix — reserving it would strip a working pattern from every
-# exported style.
+# fix(#917): matched exactly, never by prefix — a real
+# `map_icons` slug like `geolens-fill-logo.png` can carry the
+# `geolens-fill-` prefix, and reserving it would strip a working pattern.
 _BUILTIN_FILL_PATTERN_IDS = frozenset(
     {
         "geolens-fill-hatch",
@@ -1445,28 +1343,19 @@ _BUILTIN_FILL_PATTERN_IDS = frozenset(
 def _references_builtin_fill_pattern(value: Any) -> bool:
     """Whether a fill-pattern value is a builtin id.
 
-    A plain string only. A composite value — a data-driven expression or a
-    legacy function object — is left alone deliberately, and that is a design
-    decision rather than a coverage gap.
+    A plain string only — a composite value (expression, legacy function
+    object) is left alone deliberately, not a coverage gap.
 
-    fix(#917 codex r1-r6): eight review rounds built an expression reader here
-    and then established that it could not be made safe. MapLibre resolves a
-    missing pattern by SKIPPING it and firing `styleimagemissing`, which the
-    docs describe as the hook for supplying the image at runtime — so an export
-    that still names a builtin degrades and stays repairable by the consumer.
-    Stripping a working expression removes authored content that no downstream
-    hook can bring back. One failure is recoverable by design, the other is
-    permanent, and reading composites correctly was trading the permanent one
-    for the recoverable one: `["coalesce", ["image", builtin], ["image", other]]`
-    is MapLibre's own documented way to author a fallback, and the detector was
-    deleting it.
+    fix(#917): reading composites was tried and reverted.
+    MapLibre resolves a missing pattern by SKIPPING it (`styleimagemissing`
+    is the documented runtime hook), so a plain builtin degrades and stays
+    repairable — stripping a working expression would remove authored
+    content (a documented MapLibre fallback pattern) no hook can restore.
 
-    Coverage is unaffected for the bug #917 reports. The BUILDER writes a plain
-    string (`fill-pattern-images.ts`), which is all GeoLens itself produces;
-    every composite reaches the column through style import or the open-dict
-    `paint` API, which makes it authored and the author's to own. A correct
-    composite reader is a MapLibre expression evaluator — a real feature with a
-    real spec, tracked separately, not a stopgap in a serializer.
+    Coverage is unaffected: the builder only ever writes a plain string;
+    every composite arrives via import or the open `paint` API and is the
+    author's to own. A correct reader needs a real expression evaluator,
+    tracked separately.
     """
     return isinstance(value, str) and value in _BUILTIN_FILL_PATTERN_IDS
 
@@ -1474,20 +1363,17 @@ def _references_builtin_fill_pattern(value: Any) -> bool:
 def _strip_builtin_fill_pattern(layer: dict[str, Any]) -> None:
     """Drop a builtin fill-pattern from an emitted layer, falling back to a colour.
 
-    fix(#917): an external MapLibre client loading the exported document asked
-    the sprite for an id it does not contain, got a missing-image warning, and
-    rendered no fill at all — a polygon layer that silently disappeared. In-app
-    surfaces never hit this because they go through the client-side adapter
-    registry, which generates the images in the browser.
+    fix(#917): an external client asks the sprite for an id it doesn't
+    contain and renders no fill. In-app surfaces never hit this — they
+    use the client-side adapter registry that generates images in-browser.
 
-    A solid fill is the honest export of a pattern the document cannot carry.
-    Baking the five generators into the served sprite would keep exports
-    faithful, but a sprite is one shared atlas and cannot hold the per-layer
-    tint the client-side generator applies (#914), so that is not this fix.
+    A solid fill is the honest export of a pattern the document can't
+    carry; baking the generators into the sprite can't hold the
+    per-layer tint the client-side generator applies (#914).
 
-    Only the five builtin ids are stripped. They are a closed set this repo owns
-    and knows to be absent from the sprite; any other value may name a real
-    ``map_icons`` sprite entry, and dropping it would break a style that works.
+    Only the five builtin ids are stripped — a closed set known absent
+    from the sprite. Any other value may name a real ``map_icons`` entry,
+    and dropping it would break a working style.
     """
     paint = layer.get("paint")
     if not isinstance(paint, dict):
@@ -1530,16 +1416,9 @@ def _validate_emitted_style(style: dict[str, Any]) -> None:
             try:
                 _validate_emitted_layer(layer)
             except _MALFORMED_STYLE_ERRORS:
-                # fix(#1069): this pass reads stored paint, and a stored paint
-                # value can be structurally nonsense for the property it sits on
-                # (writes were only size-bounded until #1069). #1054's
-                # intermediate revision read `fill-pattern` composites here and
-                # would have turned every such row into a 500 on the SHARED
-                # style endpoint. One bad layer degrades the document it is in;
-                # it does not take the document down. Only the failing entry is
-                # dropped — a companion of a dropped primary is left in place
-                # rather than hunted down, since the document is already
-                # degraded and the companion still renders.
+                # fix(#1069): a nonsense stored paint value must degrade
+                # one layer, not 500 the whole style endpoint — a dropped
+                # primary's companion is left in place; it still renders.
                 logger.warning(
                     "Dropping emitted style layer %r: its stored paint/layout "
                     "could not be validated",
@@ -1565,12 +1444,9 @@ def build_maplibre_style(
     style_layers: list[dict[str, Any]] = []
     for layer in sorted(layers, key=lambda item: item.sort_order):
         source_id = f"geolens-{_safe_id(str(layer.dataset_id))}"
-        # fix(#1069): the same bound as `_validate_emitted_style`, one stage
-        # earlier. Serializing a row whose paint/layout is malformed for the
-        # property it sits on must not 500 `GET /maps/{id}/style.json` for every
-        # consumer of a shared map — the layer is dropped from the document and
-        # the rest of the map still exports. The source is only registered once
-        # its layer serializes, so a dropped layer leaves no orphan behind.
+        # fix(#1069): same bound as `_validate_emitted_style`, one stage
+        # earlier — a malformed layer is dropped, and its source stays
+        # unregistered until it serializes, so no orphan is left behind.
         try:
             emitted = _style_layer_for_map_layer(
                 layer, source_id, mvt_source_layer_prefix
@@ -1592,10 +1468,9 @@ def build_maplibre_style(
             sources[source_id] = new_source
         style_layers.extend(emitted)
 
-    # Set lineMetrics: true on vector sources whose layers need line-gradient rendering.
-    # Per D-01 detection rule, "needs" means paint['line-gradient'] OR builder.lineGradient.
-    # Track originating layer for each gradient-needing source so we can emit a precise
-    # warning when the backing source type is incompatible.
+    # Set lineMetrics: true on vector sources needing line-gradient (D-01:
+    # paint['line-gradient'] OR builder.lineGradient). Track the
+    # originating layer per source for a precise incompatibility warning.
     gradient_layer_by_source: dict[str, MapLayerResponse] = {}
     for layer in layers:
         if _layer_uses_line_gradient(layer):
@@ -1612,10 +1487,9 @@ def build_maplibre_style(
         if src_type in _LINE_GRADIENT_SOURCE_TYPES:
             src["lineMetrics"] = True
         else:
-            # Phase 20260526-builder-audit #338 BLD-20260526-11: builder-intent on incompatible source emits no warning otherwise. The
-            # paint-drop path warns when paint['line-gradient'] is present, but a builder-
-            # intent-only mismatch (e.g. raster layer with style_config.builder.lineGradient)
-            # would silently fail without this. Symmetric to _drop_unsupported_line_gradient.
+            # fix(BLD-20260526-11): builder-intent on an incompatible
+            # source needs its own warning — paint['line-gradient'] warns
+            # via the paint-drop path, but a builder-intent-only mismatch wouldn't.
             logger.warning(
                 "Skipping lineMetrics on source %s: type %r cannot support line-gradient "
                 "(originating layer %s)",
@@ -1639,12 +1513,9 @@ def build_maplibre_style(
             # the terrain root straight at it.
             terrain_block = {"source": terrain_source_id, "exaggeration": exaggeration}
         else:
-            # builder-audit #338 P1-05: the DEM dataset is rendered as a plain raster (e.g.
-            # the "image" DEM render mode) or has no visible layer, so the existing
-            # source is NOT a valid `raster-dem` for the MapLibre terrain root. Emit a
-            # DEDICATED raster-dem mesh source for the terrain dataset regardless of
-            # the visible render mode, so the exported terrain never points at a raster
-            # source. Visual terrain-mode layers stay suppressed; only the mesh is added.
+            # builder-audit #338 P1-05: the DEM renders as plain raster or
+            # has no visible layer, so the existing source isn't a valid
+            # `raster-dem` — emit a dedicated mesh source regardless.
             terrain_layer = next(
                 (
                     layer

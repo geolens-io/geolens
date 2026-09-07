@@ -11,17 +11,17 @@ from __future__ import annotations
 
 from sqlalchemy.exc import DBAPIError
 
-# The relation the query names does not exist. Not always damage: raster and VRT
-# datasets carry a synthetic `table_name` with no PostGIS table behind it.
+# The relation the query names does not exist. Not always damage: raster and
+# VRT datasets carry a synthetic `table_name` with no PostGIS table behind it.
 #
-# fix(#435 codex r1): `3F000` (invalid_schema_name) was in this set and is now not.
-# A `SELECT` against a missing schema reports `42P01`, so `3F000` never described the
-# benign case here; Postgres raises it from DDL paths, where it means the schema is
-# gone. Treating it as "empty dataset" would have hidden real provisioning drift.
+# fix(#435): `3F000` (invalid_schema_name) is deliberately NOT in this set —
+# a `SELECT` against a missing schema reports `42P01`, not `3F000`; Postgres
+# raises `3F000` from DDL paths, where it means the schema itself is gone.
+# Treating it as "empty dataset" would have hidden real provisioning drift.
 #
-# `42P01` alone cannot separate "raster dataset, no backing table" from "the tenant's
-# data schema was never provisioned" — both report it. Callers must probe the schema.
-# See `schema_exists()` and `get_dataset_rows()`.
+# `42P01` alone cannot separate "raster dataset, no backing table" from "the
+# tenant's data schema was never provisioned" — both report it. Callers must
+# probe the schema; see `schema_exists()` and `get_dataset_rows()`.
 TABLE_ABSENT = frozenset({"42P01"})  # undefined_table
 
 # The caller sent something the table cannot answer — a bad filter column or an
@@ -36,11 +36,11 @@ BAD_QUERY_INPUT = frozenset(
 )
 
 
-# SQLSTATE *classes* (first two characters) that mean "the database could not serve
-# this request", as opposed to "the request was wrong". Only these become a 503.
+# SQLSTATE *classes* (first two chars) meaning "the database could not serve
+# this request", as opposed to "the request was wrong". Only these become 503.
 #
-# Selecting by class rather than by exception type matters: SQLAlchemy's asyncpg
-# dialect wraps a statement timeout (57014) as a plain `DBAPIError`, not as
+# Selecting by class, not exception type, matters: SQLAlchemy's asyncpg
+# dialect wraps a statement timeout (57014) as a plain `DBAPIError`, not
 # `OperationalError`, so `except OperationalError` silently misses it.
 _OPERATIONAL_CLASSES = frozenset(
     {
@@ -53,18 +53,18 @@ _OPERATIONAL_CLASSES = frozenset(
 )
 
 
-# States that mean "the caller's value does not fit the column it was compared
-# against", as opposed to an outage or a bug in our own SQL.
+# States that mean "the caller's value does not fit the column it was
+# compared against", as opposed to an outage or a bug in our own SQL.
 #
-# fix(#1778 review r2): one definition, read by the OGC items handler and the
-# native features list, because they had drifted. The OGC router carried this
-# set inline while the native one tested a narrower `BAD_QUERY_INPUT`, so the
+# fix(#1778): one definition, read by the OGC items handler and the native
+# features list, since they had drifted — the OGC router carried this set
+# inline while the native one tested a narrower `BAD_QUERY_INPUT`, so the
 # same failure was a 400 through one endpoint and a 503 through the other.
 #
 # Class 22 is data_exception as a whole. asyncpg reports a client-side encode
 # failure (an int outside int8, say) as plain 22000 on a bare
-# ``sqlalchemy.exc.DBAPIError`` -- NOT a ``DataError``, which is why catching
-# ``DataError`` alone missed it and both routers 500'd.
+# ``sqlalchemy.exc.DBAPIError``, NOT a ``DataError`` — catching ``DataError``
+# alone missed it and both routers 500'd.
 TYPE_FAULT_SQLSTATES = frozenset(
     {
         "42883",  # undefined_function — no operator for the pair
@@ -109,13 +109,13 @@ def sqlstate(exc: DBAPIError) -> str | None:
 def is_operational(exc: DBAPIError) -> bool:
     """True when *exc* means the database failed us, not that the request was bad.
 
-    A missing SQLSTATE counts as operational: the driver raised before the server
-    answered, which is a connection failure by another name.
+    A missing SQLSTATE counts as operational: the driver raised before the
+    server answered, a connection failure by another name.
 
-    Integrity violations (class 23), syntax and access errors (class 42), and data
-    errors (class 22) are deliberately excluded — a unique-constraint collision is a
-    bug or a conflict, and reporting it as "database unavailable" would send callers
-    into a pointless retry loop.
+    Integrity violations (class 23), syntax/access errors (class 42), and
+    data errors (class 22) are deliberately excluded — a unique-constraint
+    collision is a bug or conflict, and reporting it as "database
+    unavailable" would send callers into a pointless retry loop.
     """
     code = sqlstate(exc)
     if code is None:

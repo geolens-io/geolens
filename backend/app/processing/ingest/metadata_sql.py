@@ -1,15 +1,8 @@
 """SQL identifier validation and quoting for the ingest metadata modules.
 
-Split out of ``metadata.py`` (#1042). Table names reach these helpers from
-source files and from tenant-schema derivation, and they are identifiers rather
-than parameterizable values, so every one is validated against a strict pattern
-before it is interpolated into a statement.
-
-This module is the base of the ``metadata_*`` import graph: each of the other
-modules needs these four, and nothing here needs anything from them. That is
-what lets the extent, geometry, mercator, projection, quality and attribute
-modules stay independent of one another instead of collapsing back into one
-file through a shared helper.
+Table/schema names are identifiers, not parameterizable values, so every one
+is validated against a strict pattern before interpolation into a statement.
+Base of the ``metadata_*`` import graph — nothing here depends on them.
 """
 
 import re
@@ -30,12 +23,10 @@ def _validate_table_name(table_name: str) -> None:
 def _qtable(table_name: str, schema: str = "data") -> str:
     """Return quoted '<schema>.table_name' identifier after validation.
 
-    In single_tenant, schema='data' (unchanged behavior).
-    In multi_tenant, callers pass the per-tenant schema from
-    ``tenant_data_schema(current_tenant_var.get())``.
-    Both table_name and schema are validated against the same safe-identifier
-    pattern (lowercase alphanumeric + underscore) before interpolation
-    (T-1209-05: SQL-identifier injection guard).
+    schema defaults to 'data' (single_tenant); multi_tenant callers pass the
+    per-tenant schema from ``tenant_data_schema(current_tenant_var.get())``.
+    Both are validated against the safe-identifier pattern before
+    interpolation (SQL-identifier injection guard).
     """
     _validate_table_name(table_name)
     _validate_table_name(schema)  # schema names follow the same safe pattern
@@ -45,16 +36,12 @@ def _qtable(table_name: str, schema: str = "data") -> str:
 def _sql_quote_ident(name: str) -> str:
     """Return a safely double-quoted SQL identifier for use inside text().
 
-    Handles embedded double-quotes by doubling them, which is the
-    PostgreSQL-standard escape. Centralizes the quoting logic that
-    previously lived inline at every call site (PERF-6, KISS).
+    Doubles embedded double-quotes (PostgreSQL-standard escape).
 
     fix(#640): colons are backslash-escaped because SQLAlchemy ``text()``
-    parses ``:name`` as a bind parameter even inside double-quoted
-    identifiers (Socrata exports ship columns literally named ``:id``,
-    ``:created_at``, ...). ``text()`` unescapes ``\\:`` back to ``:`` at
-    compile time, so the emitted SQL carries the literal identifier. The
-    output is therefore only valid inside ``text()`` — do not pass it to
-    ``exec_driver_sql`` or raw driver APIs.
+    parses ``:name`` as a bind parameter even inside quoted identifiers
+    (e.g. a column literally named ``:id``); ``text()`` unescapes ``\\:``
+    back to ``:`` at compile time. Valid only inside ``text()`` — do not
+    pass this to ``exec_driver_sql`` or raw driver APIs.
     """
     return '"' + name.replace('"', '""').replace(":", "\\:") + '"'

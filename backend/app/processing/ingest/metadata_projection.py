@@ -1,14 +1,13 @@
 """The 4326 render column and the reader grant.
 
-Split out of ``metadata.py`` (#1042): what ``_finalize_ingest`` does last, to
-make a landed table readable by the tile, feature and analysis surfaces.
-``add_4326_column`` writes the render column (2D and linear, with its GIST
-index); ``linearize_existing_4326`` enforces that same invariant on a column
-the pipeline never wrote, since registration skips ``add_4326_column`` when a
-BYO table already carries one; ``rederive_geom_4326`` re-applies the whole
-invariant to a registered table its owner has written to since (#1738), over
-the column state ``probe_geom_4326`` reads;
-``grant_reader_access`` hands the finished table to the reader role.
+What ``_finalize_ingest`` does last, to make a landed table readable by the
+tile, feature and analysis surfaces. ``add_4326_column`` writes the render
+column (2D, linear, with its GIST index); ``linearize_existing_4326``
+enforces that same invariant on a BYO column the pipeline never wrote;
+``rederive_geom_4326`` (fix(#1738)) re-applies the whole invariant to a
+registered table its owner has written to since, over the state
+``probe_geom_4326`` reads; ``grant_reader_access`` hands the finished table
+to the reader role.
 """
 
 from typing import NamedTuple
@@ -22,18 +21,17 @@ from app.processing.ingest.metadata_sql import _qtable
 def _geom_4326_expr(source_srid: int) -> str:
     """The expression that derives ``geom_4326`` from ``geom``.
 
-    One definition, because two paths write the column from the source
-    geometry — the registration/ingest write (:func:`add_4326_column`) and the
-    out-of-band repair (:func:`rederive_geom_4326`) — and a drift between them
-    would make a refresh rewrite every row of every table forever while
-    "fixing" nothing.
+    One definition: :func:`add_4326_column` and the out-of-band repair
+    :func:`rederive_geom_4326` both write this column, and a drift between
+    them would make a refresh rewrite every row of every table forever
+    while "fixing" nothing.
 
-    fix(#1113 review r16): linearize IN THE SOURCE CRS, then reproject. An
-    arc is defined by its control points, and CRS transforms are nonlinear:
-    transforming the control points first and densifying after traces the
-    arc in the wrong space, so ST_CurveToLine(ST_Transform(...)) yields a
+    fix(#1113): linearize IN THE SOURCE CRS, then reproject. An arc is
+    defined by its control points, and CRS transforms are nonlinear:
+    transforming the points first and densifying after traces the arc in
+    the wrong space, so ``ST_CurveToLine(ST_Transform(...))`` yields a
     materially different shape from the correct
-    ST_Transform(ST_CurveToLine(...)).
+    ``ST_Transform(ST_CurveToLine(...))``.
     """
     if source_srid == 4326:
         return "ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))"
@@ -49,22 +47,20 @@ async def add_4326_column(
 ) -> None:
     """Add a geom_4326 column with WGS84 geometry and spatial index.
 
-    If source_srid is 4326, copies geom directly (ensuring SRID is set).
-    Otherwise, reprojects via ST_Transform.
+    Copies geom directly if source_srid is 4326; otherwise reprojects via
+    ST_Transform.
 
-    The 4326 column is declared 2D (`geometry(Geometry, 4326)`) — it backs
-    tile/map rendering, which is inherently 2D. If the source `geom` is 3D
-    (e.g. SRID 4979 with elevation), `ST_Force2D` strips Z so the UPDATE
-    doesn't fail with `Geometry has Z dimension but column does not`. Z is
-    still preserved in the original `geom` column.
+    Declared 2D (`geometry(Geometry, 4326)`) since it backs tile/map
+    rendering. `ST_Force2D` strips any source Z (e.g. SRID 4979) so the
+    UPDATE doesn't fail with "Geometry has Z dimension but column does
+    not"; Z stays in the original `geom` column.
 
-    fix(#1104): the column is also always LINEAR. WFS ingest admits curved
-    geometries (MultiSurface/CompoundCurve), and every surface that reads
-    geom_4326 raises on them: ST_AsMVTGeom (vector tiles), ST_AsGeoJSON
-    (feature reads), ``::geography`` and ST_MakeValid (analysis).
-    `ST_CurveToLine` densifies arcs here, at the one boundary they all read
-    from; it is an exact no-op on already-linear input, and the curved
-    source stays in the original `geom` column, same as Z does.
+    fix(#1104): also always LINEAR. WFS ingest admits curved geometries
+    (MultiSurface/CompoundCurve), and every reader of geom_4326 raises on
+    them (ST_AsMVTGeom, ST_AsGeoJSON, ``::geography``, ST_MakeValid).
+    `ST_CurveToLine` densifies arcs here, at the one boundary they all
+    read from — a no-op on already-linear input, with the curved source
+    staying in `geom`, same as Z.
     """
     tref = _qtable(table_name, schema=schema)
 
@@ -85,15 +81,9 @@ async def add_4326_column(
 
     await ensure_geom_4326_gist_index(session, table_name, schema=schema)
 
-    # DBM-05 (Phase 271): the previously-created `idx_<table>_gid` btree
-    # was redundant with the PK btree on `gid SERIAL PRIMARY KEY`. Removed
-    # so new ingests no longer ship the duplicate. Migration 0001_baseline drops
-    # the leftovers from existing tables.
-
-    # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
-    # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
-    # boundary so a downstream failure rolls back the ALTER + UPDATE +
-    # CREATE INDEX above atomically.
+    # No internal commit: the caller (_finalize_ingest at
+    # tasks_common.py:821) owns the phase-2 commit boundary so a downstream
+    # failure rolls back the ALTER + UPDATE + CREATE INDEX above atomically.
 
 
 REPAIR_APPLIED = "applied"
@@ -104,12 +94,12 @@ REPAIR_GENERATED = "generated"
 class Geom4326State(NamedTuple):
     """What the two geometry columns look like right now.
 
-    Split out of :func:`rederive_geom_4326` (#1738 round 1) so the caller can
-    decide what to do BEFORE resolving the source SRID. ``get_table_srid``
-    wraps PostGIS ``Find_SRID``, which RAISES for a table with no registered
-    geometry column rather than returning NULL — so a registered non-spatial
-    table (#1359 admits them) reached the repair as an exception, was reported
-    as a failure, and skipped the reader grant that follows it.
+    Split out so the caller can decide what to do BEFORE resolving the
+    source SRID. fix(#1738): ``get_table_srid`` wraps PostGIS
+    ``Find_SRID``, which RAISES for a table with no registered geometry
+    column rather than returning NULL — a registered non-spatial table
+    (#1359 admits them) used to reach the repair as an exception and skip
+    the reader grant that follows it.
     """
 
     source_is_geometry: bool
@@ -175,61 +165,51 @@ async def rederive_geom_4326(
 ) -> Geom4326Repair:
     """Re-apply the geom_4326 invariant to a table written to outside GeoLens.
 
-    fix(#1738): ``geom_4326`` is a plain column, populated once — by
-    :func:`add_4326_column` at registration, and afterwards only by GeoLens's
-    own feature-edit writes. A registered table's owner keeps writing to it
-    directly (registration copies no data and serves from the live relation),
-    and nothing re-derives the column for those writes. An ``UPDATE geom``, a
-    ``DELETE`` plus re-``INSERT``, and ``ogr2ogr -overwrite`` (which drops the
-    table and recreates it without the column, its index, or the reader grant)
-    all leave rows whose render geometry is stale or NULL. Every reader
-    filters on ``geom_4326 && <envelope>`` and ``NULL && anything`` is NULL,
-    so those rows are silently invisible rather than visibly wrong.
+    fix(#1738): ``geom_4326`` is a plain column, populated once at
+    registration and afterwards only by GeoLens's own feature-edit writes.
+    A registered table's owner keeps writing to it directly, and nothing
+    re-derives the column for those writes — an ``UPDATE geom``, a
+    ``DELETE``+re-``INSERT``, or ``ogr2ogr -overwrite`` (which drops and
+    recreates the table without the column, index, or reader grant) leaves
+    rows whose render geometry is stale or NULL. Every reader filters on
+    ``geom_4326 && <envelope>``, and ``NULL && anything`` is NULL — so
+    those rows go silently invisible rather than visibly wrong.
 
-    This is that invariant re-applied from OUTSIDE the table, which is what
-    makes it survive ``-overwrite``: the same ADD COLUMN, the same expression
-    and the same index-if-absent registration uses, each idempotent, so a
-    recreated table gets its column and index back rather than needing the
-    dataset deleted and registered again.
+    Re-applied from OUTSIDE the table (same idempotent ADD COLUMN,
+    expression, and index-if-absent registration uses), which is what lets
+    it survive ``-overwrite`` without deleting and re-registering the
+    dataset.
 
-    **The UPDATE is scoped to rows whose stored value would actually change**,
-    compared through ``ST_AsBinary`` — that is what keeps a refresh of an
-    untouched table to one sequential scan with no writes and no bloat, which
-    in turn is what makes this safe to run on every refresh rather than behind
-    a separate button. The scope is deliberately NOT ``geom_4326 IS NULL OR
-    ...``: a row whose ``geom`` is NULL has a NULL render geometry that is
-    already correct, and the IS NULL disjunct would rewrite every such row
-    NULL-to-NULL on every pass — a write that changes nothing, and a drift
-    count that lies.
+    **The UPDATE is scoped to rows whose stored value would actually
+    change**, compared via ``ST_AsBinary`` — this keeps a refresh of an
+    untouched table to one sequential scan with no writes, which is what
+    makes it safe to run on every refresh. Deliberately NOT
+    ``geom_4326 IS NULL OR ...``: a row with NULL ``geom`` already has a
+    correct NULL render, and that disjunct would rewrite it NULL-to-NULL
+    every pass — a write that changes nothing and a drift count that lies.
 
-    A STORED GENERATED ``geom_4326`` is skipped for the reason
-    :func:`linearize_existing_4326` skips it: PostgreSQL rejects any
-    non-DEFAULT write to a generated column at parse time, and such a column
-    re-derives itself on every write anyway, so there is nothing to repair.
+    Skips a STORED GENERATED ``geom_4326`` (same reason as
+    :func:`linearize_existing_4326`: PostgreSQL rejects non-DEFAULT writes
+    to it at parse time, and it re-derives itself on every write anyway).
+    Skips a table with no ``geom`` column too — registration admits
+    non-spatial tables (#1359), and #1737 refuses geometry under another
+    name, so "no geom" here means an attribute table, not a broken one.
 
-    A table with no ``geom`` column is skipped too — registration admits
-    non-spatial tables (#1359), and #1737 refuses a spatial table whose
-    geometry lives under another name, so "no geom" here means an attribute
-    table rather than a broken one.
+    Benign interaction, not drift: feature edits write ``geom_4326``
+    straight from the request GeoJSON and ``geom`` by transforming that
+    into the dataset SRID (``features/service.py``), so on a projected
+    dataset the stored render value isn't a round trip. The first pass
+    after such an edit normalizes it to ``ST_Transform(geom, 4326)`` — a
+    sub-millimetre change counted as one drifted row — then converges.
 
-    One benign interaction, recorded because it looks like drift and is not:
-    GeoLens's own feature edits write ``geom_4326`` from the request's GeoJSON
-    and ``geom`` by transforming that into the dataset's SRID
-    (``features/service.py``), so on a projected dataset the stored render
-    value is the original rather than a round trip. The first pass after such
-    an edit normalizes it to ``ST_Transform(geom, 4326)`` — a sub-millimetre
-    change, counted as one drifted row — and then converges, because the next
-    pass compares that expression against itself.
-
-    The caller owns the transaction, the statement deadline and the reader
-    GRANT; this function only touches the column and its index.
+    The caller owns the transaction, statement deadline, and reader GRANT;
+    this function only touches the column and its index.
     """
     tref = _qtable(table_name, schema=schema)
 
-    # ``state`` is accepted rather than always probed because the caller has
-    # to know these answers first anyway: whether to resolve the source SRID
-    # at all depends on them (see Geom4326State). Probed here when absent so
-    # the function still stands on its own.
+    # ``state`` is accepted rather than always probed: the caller needs these
+    # answers first anyway to decide whether to resolve the source SRID at
+    # all. Probed here when absent so the function still stands on its own.
     if state is None:
         state = await probe_geom_4326(session, table_name, schema=schema)
 
@@ -240,12 +220,11 @@ async def rederive_geom_4326(
 
     if not state.has_render:
         # Gated on the probe, NOT left to ``IF NOT EXISTS``: ALTER TABLE takes
-        # ACCESS EXCLUSIVE whether or not it changes anything, and a lock
-        # request that is merely QUEUED already blocks every reader arriving
-        # behind it. Issuing it on the ordinary path — a registered table that
-        # still has its column — would put a brief stop-the-world on somebody
-        # else's table on every refresh. ``IF NOT EXISTS`` stays as the race
-        # guard for a column added between the probe and here.
+        # ACCESS EXCLUSIVE regardless, and a merely QUEUED lock request
+        # already blocks every reader behind it — issuing it on the ordinary
+        # path (a table that still has its column) would stop-the-world on
+        # every refresh. ``IF NOT EXISTS`` stays as the race guard for a
+        # column added between the probe and here.
         await session.execute(
             text(
                 # codeql[py/sql-injection] fix(#1738): identifiers validated by _qtable (metadata_sql.py)
@@ -277,31 +256,29 @@ async def linearize_existing_4326(
 ) -> None:
     """Enforce the geom_4326-is-always-linear invariant on a column we did not write.
 
-    fix(#1113 review): ``register_existing_table`` skips :func:`add_4326_column`
-    when the table already carries geom_4326, so a table created or copied into
-    the data schema AFTER migration 0034 ran could re-introduce curved values
-    the backfill can no longer see — and the per-read ST_CurveToLine wraps that
-    used to absorb them are gone. Registration is the app's write boundary for
-    such tables, so the invariant is enforced here, with the same predicate as
-    the migration: any arc, any top-level curve type, or any
-    GEOMETRYCOLLECTION (curve members cannot hide anywhere else — linear multi
-    types cannot contain them). Exact no-op on already-linear rows.
+    fix(#1113): ``register_existing_table`` skips :func:`add_4326_column`
+    when the table already carries geom_4326, so a table created or copied
+    into the data schema after migration 0034 could re-introduce curved
+    values the backfill can no longer see, with the per-read ST_CurveToLine
+    wraps that used to absorb them gone. Enforced here at registration with
+    the same predicate as the migration: any arc, top-level curve type, or
+    GEOMETRYCOLLECTION (curve members can't hide anywhere else — linear
+    multi types can't contain them). Exact no-op on already-linear rows.
 
-    A BYO column may also DECLARE a curved typmod — geometry(CurvePolygon,
-    4326) — which would reject the linear UPDATE result outright; such a
-    column is loosened to a generic typmod first, PRESERVING its Z/M flags
-    (geometry_columns reports M as a type suffix and Z only via
-    coord_dimension, and a plain Geometry typmod rejects Z values). Only the
-    concrete curve typmods need it (abstract CURVE/SURFACE accept their
-    linear subtypes); rtrim(type,'M') matches the M-suffixed variants — no
-    base curve name ends in M.
+    A BYO column may also DECLARE a curved typmod (e.g.
+    geometry(CurvePolygon, 4326)), which would reject the linear UPDATE
+    result outright; such a column is loosened to a generic typmod first,
+    PRESERVING its Z/M flags (geometry_columns reports M as a type suffix
+    and Z only via coord_dimension; a plain Geometry typmod rejects Z).
+    Only the concrete curve typmods need it — abstract CURVE/SURFACE accept
+    their linear subtypes; rtrim(type,'M') matches M-suffixed variants, since
+    no base curve name ends in M.
     """
     tref = _qtable(table_name, schema=schema)
-    # fix(#1113 review r7): a STORED GENERATED geom_4326 rejects any UPDATE at
-    # parse time (even one whose WHERE matches nothing), and its values are
-    # decided by its generation expression, so it can be neither repaired nor
-    # safely retyped here — skip it (#1114 tracks expressions that yield
-    # curves).
+    # fix(#1113): a STORED GENERATED geom_4326 rejects any UPDATE at parse
+    # time, decided instead by its generation expression, so it can be
+    # neither repaired nor retyped here — skip it (#1114 tracks
+    # expressions that yield curves).
     generated = (
         await session.execute(
             text(
@@ -312,18 +289,15 @@ async def linearize_existing_4326(
         )
     ).first()
     if generated is not None:
-        # fix(#1113 review r8): a generated column whose CURRENT rows are
-        # curved would register a dataset broken on every surface, and no
-        # later write of ours can fix it — refuse with the actionable cause
-        # instead. An empty or linear generated column registers fine; an
-        # expression that only yields curves for FUTURE rows is #1114's
-        # residue, same as any post-registration external write.
-        # fix(#1113 review r9): the test is "would linearization change the
-        # value", byte-for-byte — it catches arcs, top-level curve types, AND
-        # curve containers nested inside a GEOMETRYCOLLECTION with one
-        # comparison, while an all-linear collection (which ST_CurveToLine
-        # returns unchanged) stays registrable. A type list here would either
-        # miss the nested case or over-reject linear collections.
+        # fix(#1113): a generated column with CURRENTLY-curved rows would
+        # register a dataset broken on every surface with no later fix
+        # possible — refuse with the actionable cause. An empty or linear
+        # generated column registers fine; curves only for FUTURE rows is
+        # #1114's residue, same as any external write. The test — "would
+        # linearization change the value", byte-for-byte — catches arcs,
+        # top-level curve types, AND curve containers nested in a
+        # GEOMETRYCOLLECTION in one comparison; a type list would miss the
+        # nested case or over-reject linear collections.
         curved = (
             await session.execute(
                 text(
@@ -389,24 +363,23 @@ async def ensure_geom_4326_gist_index(
 ) -> bool:
     """Create the GIST index on geom_4326 if this table doesn't have one.
 
-    Returns whether an index was created. fix(#1738): the repair path reports
-    what it restored on a table recreated behind GeoLens's back, and "the
-    spatial index was missing" is the part of that report an operator can act
-    on. Every other caller ignores the value.
+    Returns whether an index was created — fix(#1738): the repair path
+    reports "the spatial index was missing" from this value; every other
+    caller ignores it.
 
-    fix(#448): the previous ``CREATE INDEX IF NOT EXISTS idx_<table>_geom_4326``
-    matched by NAME schema-wide, not per-table. On a second re-ingest the
-    previous swap's index (created against ``<table>_staging`` and carried
-    along by the RENAME) still held that name, so the new staging table
-    silently got NO spatial index — and the swap then dropped the only
-    indexed copy of the data. Check ``pg_indexes`` for a gist index on THIS
-    table instead, and let PostgreSQL pick a collision-free index name.
-    Called from both add_4326_column (staging load) and _apply_reupload_swap
-    (post-swap belt-and-braces), so any re-ingest self-heals a missing index.
+    fix(#448): the previous ``CREATE INDEX IF NOT EXISTS
+    idx_<table>_geom_4326`` matched by NAME schema-wide, not per-table. On a
+    second re-ingest the previous swap's index (created against
+    ``<table>_staging``, carried along by the RENAME) still held that name,
+    so the new staging table silently got NO spatial index and the swap
+    then dropped the only indexed copy. Check ``pg_indexes`` for a gist
+    index on THIS table instead, and let PostgreSQL pick a collision-free
+    name. Called from both add_4326_column and _apply_reupload_swap, so any
+    re-ingest self-heals a missing index.
 
-    The no-geom_4326 early return is defensive, not a reachable state (#1020):
-    add_4326_column has just added the column, and the swap call is gated on a
-    geometry_type that extract_metadata cannot report without reading geom_4326.
+    The no-geom_4326 early return is defensive, not reachable (#1020):
+    add_4326_column has just added the column, and the swap call is gated
+    on a geometry_type extract_metadata can't report without geom_4326.
     """
     has_col = await session.execute(
         text(
@@ -445,31 +418,17 @@ async def grant_reader_access(
 ) -> None:
     """Grant SELECT on the table to the appropriate reader role.
 
-    DBM-12 (Phase 271): Kept as a defense-in-depth measure alongside
-    ``ALTER DEFAULT PRIVILEGES`` in ``scripts/init-db.sh``. If the runtime
-    ingest role matches the init-db role, this call is redundant; if they
-    differ (some custom deployment topologies), this is the only path that
-    grants SELECT on freshly-created tables.
-
-    In single_tenant: schema='data', role='geolens_reader' (unchanged behavior).
-    In multi_tenant: callers pass schema=tenant_data_schema(tid),
-                     role=tenant_reader_role(tid).
-
-    Parameters
-    ----------
-    session:
-        Active async SQLAlchemy session (caller controls the transaction).
-    table_name:
-        The table to GRANT SELECT on. Validated by _qtable.
-    schema:
-        Schema containing the table. Defaults to 'data' (single_tenant).
-    role:
-        Reader role to grant to. Defaults to 'geolens_reader' (single_tenant).
+    DBM-12: defense-in-depth alongside ``ALTER DEFAULT PRIVILEGES`` in
+    ``scripts/init-db.sh``, redundant when the runtime ingest role matches
+    the init-db role but the only grant path when a deployment's roles
+    differ. ``schema``/``role`` default to single_tenant's 'data'/
+    'geolens_reader'; multi_tenant callers pass tenant_data_schema(tid)/
+    tenant_reader_role(tid).
     """
     await session.execute(
         # codeql[py/sql-injection] fix(#1615): table via _qtable (metadata_sql.py); role is server-derived (tenant_reader_role)
         text(f"GRANT SELECT ON {_qtable(table_name, schema)} TO {role}")
     )
-    # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
-    # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
-    # boundary so a downstream failure rolls back this GRANT atomically.
+    # No internal commit: the caller (_finalize_ingest at tasks_common.py:821)
+    # owns the phase-2 commit boundary so a downstream failure rolls back
+    # this GRANT atomically.

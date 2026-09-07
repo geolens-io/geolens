@@ -1,24 +1,19 @@
 """Cross-domain catalog access contract.
 
-Defines structural Protocols that processing/* uses to read and write
-catalog data without importing the concrete SQLAlchemy ORM from
-app.modules.catalog.*. Concrete ORM classes (Dataset, Record, Map,
-DatasetGrant, DatasetVersion, RecordKeyword, AttributeMetadata) satisfy
-the Protocols structurally (PEP 544); no inheritance is required.
+Defines structural Protocols that processing/* uses to read/write catalog
+data without importing the concrete SQLAlchemy ORM from
+app.modules.catalog.* — ORM classes satisfy them structurally (PEP 544).
 
-Uses only stdlib types (plus SQLAlchemy's AsyncSession for async method
-signatures) to avoid the core -> modules.catalog import edge that Phase 225
-(PROCESS-01..05) is closing. AsyncSession is an infrastructure type that
-does NOT live under app.modules.*. SearchFilters and IngestionResult are
-referenced as unresolved forward-reference strings only; their concrete
-types live in app.modules.* and are NOT imported here (Phase 214 IDENT-01:
-core/ is the lowest layer — modules depend on core, not the reverse).
+Uses only stdlib types (plus AsyncSession) to avoid a core -> modules.catalog
+import edge (Phase 225 PROCESS-01..05); core/ is the lowest layer and never
+imports from modules/ (Phase 214 IDENT-01). SearchFilters and
+IngestionResult are typed as unresolved forward-reference strings for the
+same reason.
 
-An enterprise overlay (e.g., geolens-enterprise) may replace the default
-implementation by registering a tier-aware or quota-enforcing port under
-the 'processing_port' key via the geolens.extensions entry-point group;
-get_processing_port() returns it on subsequent requests. Phase 226
-(AIProviderExtension) is the next consumer of this boundary.
+An enterprise overlay may replace the default implementation by
+registering a port under the 'processing_port' key via the
+geolens.extensions entry-point group; get_processing_port() returns it on
+subsequent requests.
 """
 
 from __future__ import annotations
@@ -155,33 +150,16 @@ class ProcessingPort(Protocol):
     """Comprehensive catalog accessor contract used by backend/app/processing/*.
 
     Mirrors Phase 214 IdentityProtocol's "single comprehensive Protocol"
-    shape (D-01). Every cross-domain catalog accessor processing/* needs
-    today is on this surface. Companion structural Protocols (DatasetProtocol,
-    etc.) above type the ORM-shaped return values without leaking SQLAlchemy
-    ORM into core/.
+    shape (D-01) — every cross-domain catalog accessor processing/* needs
+    is on this surface. Companion structural Protocols (DatasetProtocol,
+    etc.) above type the ORM-shaped return values without leaking
+    SQLAlchemy ORM into core/.
 
-    Read methods (D-06 + OQ-3 additions):
-    - get_dataset, get_record, search_datasets, apply_visibility_filter,
-      check_dataset_access, get_user_roles, get_column_stats, get_distinct_values,
-      extract_bbox, get_records_without_embeddings, get_datasets_meta_by_ids,
-      get_catalog_vocabulary, get_keywords_for_records, get_record_keyword_count,
-      get_attribute_metadata, get_dataset_version
-
-    Write methods (D-07):
-    - create_dataset, create_map, update_map, create_ingestion_result
-
-    Source preview helper (D-08):
-    - build_gdal_source
-
-    NOTE: SearchFilters and IngestionResult are typed as Any / unresolved
-    forward-reference strings — they live in app.modules.* and cannot be
-    imported here (Phase 214 IDENT-01 layering rule). DefaultProcessingPort
-    in platform/extensions/defaults.py has full typed access.
+    SearchFilters and IngestionResult are typed as Any / forward-reference
+    strings — they live in app.modules.* and can't be imported here (Phase
+    214 IDENT-01). DefaultProcessingPort in platform/extensions/defaults.py
+    has full typed access.
     """
-
-    # -------------------------------------------------------------------------
-    # Read-side (D-06)
-    # -------------------------------------------------------------------------
 
     async def get_dataset(
         self, session: AsyncSession, dataset_id: uuid.UUID
@@ -241,10 +219,9 @@ class ProcessingPort(Protocol):
         user_id: uuid.UUID,
         distance_meters: float | None = None,
         mask: dict[str, Any] | None = None,
-        # feat(#683): the clip mask can come from another DATASET, not just a
-        # drawn polygon. Passed as the loaded object rather than an id because
-        # the caller owns its visibility check, exactly as it owns the source
-        # dataset's — see the default implementation's contract.
+        # feat(#683): the clip mask can come from another dataset, not just a
+        # drawn polygon. Passed as the loaded object, not an id, because the
+        # caller owns its visibility check, as it owns the source dataset's.
         mask_dataset: Any | None = None,
     ) -> Any: ...  # -> AnalysisPreviewResponse
 
@@ -281,20 +258,15 @@ class ProcessingPort(Protocol):
 
     def extract_bbox(self, dataset: DatasetProtocol) -> list[float] | None: ...
 
-    # -------------------------------------------------------------------------
-    # OQ-3 InstrumentedAttribute encapsulators (Pitfall 3 / Pitfall 12 resolution)
-    # -------------------------------------------------------------------------
-
     # Implementations must eagerly populate both ``keywords`` and
-    # ``translations`` because embedding backfills consume them after query
+    # ``translations``: embedding backfills consume them after query
     # execution and the community ORM deliberately uses lazy="raise".
     #
     # fix(#1506): with ``force=False`` the contract is "records with no vector
     # under the ACTIVE embedding model", not "records with no vector at all" —
-    # rows from a superseded model are unusable to semantic search and so are
-    # missing. An implementation that cannot resolve the active model must
-    # return an empty list; returning everything would hand the whole catalog
-    # to a run that cannot store what it embeds.
+    # an implementation that can't resolve the active model must return an
+    # empty list; returning everything hands the whole catalog to a run that
+    # cannot store what it embeds.
     async def get_records_without_embeddings(
         self, session: AsyncSession, *, force: bool = False
     ) -> list[RecordProtocol]: ...
@@ -320,10 +292,6 @@ class ProcessingPort(Protocol):
     async def get_dataset_version(
         self, session: AsyncSession, dataset_id: uuid.UUID
     ) -> DatasetVersionProtocol | None: ...
-
-    # -------------------------------------------------------------------------
-    # Write-side (D-07)
-    # -------------------------------------------------------------------------
 
     async def create_dataset(
         self,
@@ -355,13 +323,12 @@ class ProcessingPort(Protocol):
 
     def create_ingestion_result(self, **kwargs: Any) -> Any: ...  # -> IngestionResult
 
-    # fix(#1314): the refresh and reupload paths can change a dataset's
-    # modality, and the auto-generated `record_distributions` rows have to
-    # follow. The reconcile — including its preservation policy for
-    # user-authored rows — belongs beside `generate_distributions` in the
-    # catalog domain, which processing/ may not import. Returns the rows
-    # created and the (distribution_type, format) pairs removed; the created
-    # rows are catalog ORM instances, typed Any for the same reason.
+    # fix(#1314): the refresh/reupload paths can change a dataset's modality,
+    # so the auto-generated `record_distributions` rows must be reconciled —
+    # that logic belongs beside `generate_distributions` in the catalog
+    # domain, which processing/ may not import. Returns the rows created and
+    # the (distribution_type, format) pairs removed, typed Any for the same
+    # reason.
     async def reconcile_distributions(
         self,
         session: AsyncSession,
@@ -370,10 +337,6 @@ class ProcessingPort(Protocol):
         table_name: str,
         geometry_type: str | None = None,
     ) -> tuple[list[Any], list[tuple[str, str]]]: ...
-
-    # -------------------------------------------------------------------------
-    # Source preview helper (D-08)
-    # -------------------------------------------------------------------------
 
     def build_gdal_source(
         self,
@@ -387,14 +350,10 @@ class ProcessingPort(Protocol):
         result_offset: int | None = None,
     ) -> tuple[str, str]: ...
 
-    # -------------------------------------------------------------------------
-    # ORM class helpers (Plans 02 + 03a — enable processing/* call sites
-    # to pass concrete ORM classes to select() / session.add() without
-    # importing from app.modules.catalog.* directly; Phase 214 IDENT-01
-    # guard compliant because the Protocol only declares `type` return,
-    # no modules.* import)
-    # -------------------------------------------------------------------------
-
+    # ORM class helpers: let processing/* call sites pass concrete ORM
+    # classes to select()/session.add() without importing app.modules.catalog.*
+    # directly — Phase 214 IDENT-01 compliant since the Protocol declares
+    # only a `type` return, no modules.* import.
     def get_record_orm_class(self) -> type: ...
 
     def get_grant_orm_class(self) -> type: ...
@@ -422,12 +381,11 @@ class ProcessingPort(Protocol):
     def get_attribute_metadata_orm_class(self) -> type: ...
 
     # feat(#1266): the STAC refresh strategy re-reads the item document its
-    # asset was published in. Every byte of that goes through Rule 2's safe
-    # client and the #1222 health classifier, both of which live in the
-    # catalog domain — so the strategy asks for the ANSWER through this port
-    # and holds no HTTP client of its own. Returns a
-    # ``catalog.sources.stac_resolve.StacResolution``, typed here as Any
-    # because core/ is the lowest layer and may not import modules.*.
+    # asset was published in, through Rule 2's safe client and the #1222
+    # health classifier — both live in the catalog domain, so the strategy
+    # asks for the answer through this port and holds no HTTP client of its
+    # own. Returns a ``StacResolution``, typed Any since core/ may not
+    # import modules.*.
     async def resolve_stac_binding(
         self,
         *,
@@ -438,11 +396,7 @@ class ProcessingPort(Protocol):
         asset_key: str | None,
     ) -> Any: ...
 
-    # -------------------------------------------------------------------------
-    # Dataset-with-attributes loader (Plan 02 — preserves joinedload semantics
-    # for metadata_service._build_dataset_context; Pitfall 2 mitigation)
-    # -------------------------------------------------------------------------
-
+    # Preserves joinedload semantics for metadata_service._build_dataset_context.
     async def get_dataset_with_attributes(
         self, session: AsyncSession, dataset_id: uuid.UUID
     ) -> DatasetProtocol | None: ...

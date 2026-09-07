@@ -1,9 +1,7 @@
 """Provenance written onto a materialized analysis output (feat(#765)).
 
-A materialized result used to land with empty lineage and no durable link to
-its source: ``source_dataset_id`` lived only in ``ingest_jobs.user_metadata``,
-which is purgeable. Everything needed is known at registration time, so it is
-written there.
+Everything needed is known at registration time, so it's written then
+rather than left in purgeable ``ingest_jobs.user_metadata``.
 
 Two products, kept in one place so a new operation adds a phrase here rather
 than editing the materialize path:
@@ -30,18 +28,11 @@ logger = structlog.get_logger(__name__)
 # Params carried into the sentence and the reference. Mirrors the analysis
 # metadata the router records on the job, minus the bookkeeping keys.
 #
-# fix(#1097 review): the spatial-join pair was missing. _materialize passes
-# join_dataset_id and join_fields to apply_analysis_provenance, and this filter
-# silently dropped both — so a join's durable lineage recorded the source and
-# the operation and neither the layer it joined against nor the columns it
-# transferred, which is most of what makes a join reproducible.
-#
-# This list is the STORAGE contract, and that has a consequence worth stating
-# where the keys are: anything added here becomes visible to every requester
+# STORAGE contract: anything added here becomes visible to every requester
 # who can see the output, so a key naming a dataset must also appear in
-# _DATASET_ID_PARAMS in catalog/authorization.py, which access-checks each one
-# per requester. test_every_dataset_id_param_is_redactable enforces exactly
-# that pairing, and it reads THIS tuple.
+# _DATASET_ID_PARAMS in catalog/authorization.py, which access-checks each
+# one per requester. test_every_dataset_id_param_is_redactable enforces
+# that pairing against THIS tuple.
 PARAM_KEYS = (
     "distance_meters",
     "by_field",
@@ -55,19 +46,14 @@ PARAM_KEYS = (
 def _format_metres(value: Any) -> str:
     """Metres as a person would write them: 500 m, 1609.34 m, 12345.678 m.
 
-    fix(#765 review): this used ``f"{number:g}"``, whose DEFAULT PRECISION IS
-    SIX SIGNIFICANT DIGITS — so it silently rounded, and the comment claiming
-    it did not was simply wrong. Measured: 12345.678 became "12345.7",
-    33.333333333 became "33.3333", and 99999.99 (a valid distance, just under
-    MAX_BUFFER_METERS) became "100000". The sentence is the human-readable
-    provenance shown to users and exported through DCAT, so it was recording a
-    distance the geometry had not been built with.
+    fix(#765): ``f"{number:g}"``'s default precision is SIX significant
+    digits, so it silently rounded (12345.678 -> "12345.7", 99999.99 ->
+    "100000") — a distance the geometry wasn't built with, shown as
+    provenance and exported through DCAT.
 
     ``repr`` of a float is the SHORTEST string that round-trips to the same
-    double, so it reproduces whatever the caller submitted exactly, by
-    construction rather than by choosing a precision that looks big enough.
-    Only the trailing ".0" on whole metres is trimmed, which is the one thing
-    the old formatting was actually wanted for.
+    double, so it reproduces whatever the caller submitted exactly. Only
+    the trailing ".0" on whole metres is trimmed.
     """
     try:
         number = float(value)
@@ -114,27 +100,19 @@ def _operation_phrase(
         if by_field:
             return f"Dissolved from {source} by {by_field}"
         return f"Dissolved from {source} into a single feature"
-    # fix(#1097 review): the four operations this branch adds had no branch, so
+    # fix(#1097): the four operations this branch adds had no branch, so
     # they fell through to the generic fallback and their sentences named only
     # the source. That sentence is a product surface — the dataset page shows
     # it, search indexes it, and DCAT exports it — so an overlay whose whole
     # point is the second layer was described without mentioning one.
     if operation == "spatial_join":
-        # fix(#1097 review): the transferred field names are NOT named here.
-        #
-        # This sentence is stored once on the record and served to every
-        # requester who can see the output — the dataset page returns it raw,
-        # search indexes it, and three DCAT services export it. None of them
-        # pass it through visible_derived_from, which is what access-checks the
-        # structured provenance per requester.
-        #
-        # So anything the redaction treats as sensitive cannot appear in this
-        # prose, because prose has no per-requester form. join_fields is listed
-        # in _DATASET_ID_PARAMS as a dependent of join_dataset_id precisely
-        # because it describes a layer the requester may not be allowed to see:
-        # a column list is most of a schema. The previous round put it here
-        # while making the sentence more useful, which routed it around the
-        # redaction added for exactly this.
+        # fix(#1097): join_fields (the transferred column list) is
+        # deliberately NOT named here. This sentence is stored once and
+        # served raw to every requester who can see the output — none of
+        # the export paths route it through visible_derived_from, which is
+        # what access-checks structured provenance per requester. A column
+        # list is most of a schema, so anything the redaction treats as
+        # sensitive can't appear in prose that has no per-requester form.
         target = _quoted(join_title) if join_title else "another layer"
         return f"Joined from {source} against {target}"
     if operation == "intersect":
@@ -242,32 +220,26 @@ async def apply_analysis_provenance(
 ) -> None:
     """Write lineage, the derived_from reference, and inherited keywords.
 
-    Called from the materialize path right after registration, inside the same
-    session, so the provenance commits with the dataset rather than in a second
-    transaction that could fail on its own.
+    Called from the materialize path right after registration, inside the
+    same session, so provenance commits with the dataset rather than in a
+    second transaction that could fail on its own.
 
-    Two things here are copied VALUES rather than gated references, and that
-    is deliberate (#765):
+    Two things are copied VALUES rather than gated references (#765):
 
-    * Inherited keywords. NOT because a keyword is harmless in itself: it can
-      be a project codename or a client name, and no geometry embodies those
-      (#1045 review). It rests on the same ground as the title below. The
-      output is registered ``visibility="private"`` and owned by the caller
-      who already held access to the source, so an inherited keyword reaches
-      anyone else only when that owner publishes or shares the dataset. That
-      is their deliberate act, on ordinary editable record metadata they can
-      delete first. The inherited set is derived back out of ``derived_from``
-      at read time (records/inherited.py, feat #1070), which is what marks the
-      keywords in the UI and warns the owner at the publish moment.
-    * The source (and mask) title inside the lineage sentence. The output is
-      registered private and owned by that same caller, so the title only
-      reaches anyone else if its owner publishes or shares the dataset —
-      a deliberate act, on prose they can read and edit, exactly like typing
-      the source's name into the summary field.
+    * Inherited keywords — not harmless in general (could be a project
+      codename or client name), but safe here because the output is
+      registered ``visibility="private"``, owned by a caller who already
+      had access to the source; an inherited keyword only reaches anyone
+      else when that owner deliberately publishes or shares. The inherited
+      set is re-derived from ``derived_from`` at read time
+      (records/inherited.py), which warns the owner at publish time.
+    * The source/mask title inside the lineage sentence — same private/
+      owned reasoning, and it's prose the owner can already read and edit,
+      like typing the source's name into the summary field.
 
-    Read paths gate the derived_from REFERENCE, where the disclosure would be
-    a dataset id the requester could act on rather than words in a sentence:
-    see visible_derived_from, which checks the source AND the mask id.
+    Read paths gate the derived_from REFERENCE instead, where disclosure
+    would hand a requester a dataset id they could act on: see
+    visible_derived_from, which checks the source AND the mask id.
     """
     params = params or {}
     now = datetime.now(timezone.utc)
@@ -281,7 +253,7 @@ async def apply_analysis_provenance(
         return
 
     source_title = await _record_title(session, source_dataset_id)
-    # fix(#1097 review): keyed off the ID being present, not off the
+    # fix(#1097): keyed off the ID being present, not off the
     # mask_source discriminator. intersect takes a layer and has no
     # mask_source — the discriminator only distinguishes drawn from layer for
     # the operations that can be either — so gating on it meant an overlay's

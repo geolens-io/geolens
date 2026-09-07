@@ -136,8 +136,7 @@ def _materialize_work_mem() -> str | None:
 # Buffer motivates it: the one amplifying operation, and vectors have no quota.
 MAX_OUTPUT_BYTES = 2 * 1024**3
 
-# Served by the worker's :8001 /metrics endpoint (default registry).
-# Analysis-only; generalize when another ingest job type needs it.
+# Served by the worker's :8001 /metrics; analysis-only for now.
 ANALYSIS_JOBS = Counter(
     "geolens_analysis_jobs_total",
     "Materialize-analysis job outcomes",
@@ -957,7 +956,6 @@ def _build_materialize_select(
     join_fields: list[str] | None = None,
     mask_carry_cols: list[str] | None = None,
 ) -> str:
-    """Render the SELECT that produces the output table's rows."""
     if operation == "intersect" and mask_table_ref is not None:
         # fix(#956): the only branch whose output rows are not 1:1 with
         # source rows, so it generates its own gid — ADD PRIMARY KEY (gid)
@@ -1330,10 +1328,10 @@ async def _materialize(
                         timeout=15,
                     )
                 )
-            except BaseException:  # broad: best-effort cleanup during shutdown; the raise below preserves the abort
+            except BaseException:  # broad: cleanup only; raise below keeps the abort
                 logger.warning("analysis.cancel_cleanup_failed", job_id=job_id)
             raise
-        except Exception as exc:  # broad: any failure must mark the job failed, not raise into the queue
+        except Exception as exc:  # broad: must mark job failed, not raise to the queue
             logger.warning(
                 "analysis.materialize_failed",
                 job_id=job_id,

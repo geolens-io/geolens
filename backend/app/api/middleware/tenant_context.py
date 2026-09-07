@@ -1,33 +1,20 @@
 """Tenant-context middleware.
 
-TSEAM-04 (Phase 1207-02): resolves a tenant signal (subdomain or JWT claim)
-into a request-scoped context stored on ``request.state.tenant_id``.
+TSEAM-04: resolves a tenant signal (subdomain or JWT claim) into
+``request.state.tenant_id``. Single-tenant (default): strict no-op, one
+boolean check, no DB lookup (T-1207-08 byte-identical guarantee).
 
-**Single-tenant (default) behavior:** strict no-op. The middleware returns
-immediately after a single boolean check — no state mutation, no DB lookup,
-zero measurable per-request cost. This preserves the single_tenant
-byte-identical guarantee (T-1207-08).
+Multi-tenant: reads the first ``Host`` subdomain label or a ``tid``
+claim from a verified GeoLens Bearer JWT, resolves it to the tenant
+**UUID** (slug looked up against ``catalog.tenants``; UUID claim passes
+through), and rejects unresolved explicit tenant hosts and host/token
+mismatches before the request reaches application code. A non-GeoLens
+bearer token may proceed only after the Host resolves a tenant; requests
+with neither signal stay unscoped so RLS fails closed.
 
-**Multi-tenant behavior:** verified resolution.
-  - Reads the first subdomain label from the ``Host`` header (e.g. ``acme``
-    from ``acme.geolens.app``).
-  - Alternatively reads a ``tid`` claim from a signature- and expiry-verified
-    GeoLens Bearer JWT if the Authorization header is present.
-  - Resolves the signal to the tenant **UUID** (a subdomain slug is looked up
-    against the core-owned ``catalog.tenants`` registry; a JWT claim that is
-    already a UUID passes through) and stores it on
-    ``request.state.tenant_id``, or ``None`` if unresolved.
-  - Rejects unresolved explicit tenant hosts and host/token tenant mismatches
-    before a request reaches application code. A bearer token that is not a
-    verified GeoLens JWT may proceed only after the Host has resolved a tenant;
-    the normal auth dependency then gives the registered identity extension a
-    chance to validate it. Requests carrying neither signal stay unscoped so
-    tenant RLS fails closed.
-
-Slug→UUID resolution happens here (not in the GUC layer): the Phase 1208 RLS
-GUC casts ``app.current_tenant::uuid`` and the per-tenant data-schema helpers
-validate UUIDs, so ``current_tenant_var`` must carry a UUID — never a slug.
-An unresolved slug yields ``None`` so RLS fail-closes the unscoped request.
+Slug→UUID resolution happens here, not in the GUC layer: the Phase 1208
+RLS GUC casts to ``::uuid``, so ``current_tenant_var`` must carry a UUID,
+never a slug.
 """
 
 from __future__ import annotations
@@ -183,17 +170,16 @@ def _extract_jwt_tenant_claim(authorization: str) -> str | None:
 async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
     """Resolve an untrusted Host signal against the tenant registry.
 
-    The Phase 1208 RLS GUC is cast to ``::uuid`` and the per-tenant data-schema
-    helpers validate UUIDs, so ``current_tenant_var`` must hold a UUID string,
-    never a slug (Gap A — Codex review of PR #256).
+    The Phase 1208 RLS GUC casts to ``::uuid``, so ``current_tenant_var``
+    must hold a UUID string, never a slug (Gap A, PR #256).
 
-    UUID-shaped host labels are not trusted tenant identities. Both UUIDs and
-    slugs are resolved against the core-owned ``catalog.tenants`` registry
-    (which has no RLS and therefore needs no tenant context). Only the verified
-    JWT ``tid`` path may skip this lookup.
+    UUID-shaped host labels are not trusted tenant identities. Both UUIDs
+    and slugs are resolved against ``catalog.tenants`` (no RLS, needs no
+    tenant context). Only the verified JWT ``tid`` path may skip this
+    lookup.
 
-    Resilient by design: any DB error resolves to ``None`` (logged) rather than
-    500-ing the request — enforcement is RLS, not this middleware.
+    Resilient by design: any DB error resolves to ``None`` (logged) rather
+    than 500-ing the request — enforcement is RLS, not this middleware.
     """
     if tenant_signal is None:
         return None
@@ -247,18 +233,16 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         if not is_multi_tenant():
             return await call_next(request)
 
-        # fix(#1778 codex r7): the liveness probe resolves no tenant. A probe
-        # sent to a tenant hostname reaches `_resolve_tenant_uuid` below, which
-        # reads the public host registry out of the database; with the database
-        # unreachable that returns None and this middleware answers 403. The
-        # orchestrator then restarts an API that is alive and would have served
-        # catalog reads, which is the restart loop `/health/live` exists to
-        # prevent. The handler returns a fixed payload and reads no tenant
-        # state, so there is nothing to resolve for it.
+        # fix(#1778): the liveness probe resolves no tenant. Sent to a
+        # tenant hostname, it would reach `_resolve_tenant_uuid` below,
+        # which reads the DB — with the DB unreachable that returns None
+        # and this middleware answers 403, restart-looping an API that
+        # would have served catalog reads (the loop `/health/live` exists
+        # to prevent).
         #
-        # Deliberately BEFORE the Host checks as well, not just before the
-        # registry lookup: `_classify_tenant_host` rejects an untrusted Host
-        # with a 400, and a kubelet probing by pod IP sends exactly that.
+        # Deliberately BEFORE the Host checks too: `_classify_tenant_host`
+        # rejects an untrusted Host with a 400, and a kubelet probing by
+        # pod IP sends exactly that.
         if is_liveness_request(request.scope):
             return await call_next(request)
 

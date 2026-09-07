@@ -1,24 +1,17 @@
 """AST-based WHERE-clause validator (SEC-S09).
 
-Wraps the user-supplied ``where`` fragment in ``SELECT 1 FROM _t WHERE <fragment>``
-and parses with sqlglot postgres dialect.  Walks the resulting WHERE node and
-raises ValueError if any expression type outside the strict allowlist appears.
+Wraps ``where`` in ``SELECT 1 FROM _t WHERE <fragment>``, parses with
+sqlglot postgres dialect, and walks the WHERE node — anything outside the
+strict allowlist raises ValueError.
 
-This is a peer-companion to ``app.platform.sandbox.validator.validate_sql`` —
-same parser, same dialect, but allowlist-based (statement-level validator is
-blocklist-based because the input shape is broader).  The two share no code
-paths; cross-cutting refactor not justified for SEC-S09 scope.
+Peer-companion to ``app.platform.sandbox.validator.validate_sql`` — same
+parser/dialect, but allowlist-based (that one is blocklist-based). No code
+paths shared.
 
-Allowed WHERE expression types (deny-by-default — anything not in this tuple raises):
-  - Column, Identifier   — column references
-  - Literal, Boolean, Null  — scalar values
-  - EQ, NEQ, LT, LTE, GT, GTE  — comparison operators
-  - And, Or, Not         — logical operators
-  - In, Is, Like, ILike  — containment / null-test / pattern
-  - Between              — range check
-  - Paren                — parenthesised sub-expression
-  - Neg                  — unary minus (e.g. -5)
-  - Where                — the top-level WHERE node itself
+Allowed types (deny-by-default): Column/Identifier (columns), Literal/
+Boolean/Null (scalars), EQ/NEQ/LT/LTE/GT/GTE (comparisons), And/Or/Not
+(logic), In/Is/Like/ILike/Between (containment/pattern/range), Paren, Neg
+(unary minus), Where (top-level node).
 """
 
 from __future__ import annotations
@@ -58,24 +51,20 @@ ALLOWED_EXPRESSIONS: tuple[type, ...] = (
     exp.Between,
     # Structural
     exp.Paren,
-    # exp.Neg is included ONLY for negative literal values like WHERE col = -5
-    # (unary minus on a numeric literal). Binary arithmetic operators
-    # (exp.Add, exp.Sub, exp.Mul, exp.Div) are intentionally EXCLUDED.
-    # Adding them would allow expression injection into IN-list or comparison
-    # arguments (e.g. WHERE 1+1=2 UNION ...). Do NOT add exp.Add by analogy
-    # with exp.Neg — they serve different purposes.
+    # exp.Neg is included ONLY for negative literal values (WHERE col = -5).
+    # Binary arithmetic operators (Add/Sub/Mul/Div) are intentionally
+    # EXCLUDED — allowing them would permit expression injection into
+    # IN-list or comparison arguments (e.g. WHERE 1+1=2 UNION ...). Do NOT
+    # add exp.Add by analogy with exp.Neg.
     exp.Neg,
-    # exp.Dot (table-qualified column like table.column or schema.table.column)
-    # is intentionally EXCLUDED from the allowlist. NOTE: sqlglot's postgres
-    # dialect parses `tbl.col` into an exp.Column node with .table / .db /
-    # .catalog args populated (not a separate exp.Dot node), so the rejection
-    # is enforced inside validate_where_ast by inspecting Column.table /
-    # Column.db / Column.catalog after the allowlist check (see KNOWN-10
-    # comment block below). Only unqualified column names are accepted; if
-    # table-qualified names are needed in a future version, remove the
-    # Column.table check after a security review, because the downstream
-    # identifier regex would then need to be updated to split on '.' and
-    # validate each component independently.
+    # exp.Dot (table-qualified column, `tbl.col`) is intentionally EXCLUDED.
+    # sqlglot's postgres dialect folds `tbl.col` into an exp.Column node's
+    # .table/.db/.catalog args rather than a separate exp.Dot node, so the
+    # rejection is enforced inside validate_where_ast by inspecting those
+    # args (see KNOWN-10 block below). Only unqualified column names are
+    # accepted; enabling qualified names would need a security review AND an
+    # update to the downstream identifier regex to split and validate each
+    # component.
     exp.Where,  # the top-level WHERE node itself
 )
 
@@ -83,15 +72,9 @@ ALLOWED_EXPRESSIONS: tuple[type, ...] = (
 def validate_where_ast(where: str) -> None:
     """Validate that ``where`` is a safe WHERE-clause fragment.
 
-    Parses ``SELECT 1 FROM _t WHERE <where>`` with the sqlglot postgres
-    dialect and walks the resulting WHERE node.  Raises ValueError if:
-
-    - ``where`` is empty or blank.
-    - sqlglot cannot parse the fragment (invalid SQL syntax).
-    - The wrapped statement is not a single SELECT (indicates multi-statement
-      injection or UNION grammar).
-    - Any node in the WHERE subtree is not in ALLOWED_EXPRESSIONS (catches
-      subqueries, function calls, DDL fragments, etc.).
+    Raises ValueError if empty/blank, unparseable, not a single SELECT
+    (multi-statement injection or UNION), or any WHERE-subtree node isn't
+    in ALLOWED_EXPRESSIONS (subqueries, function calls, DDL, etc.).
 
     Args:
         where: SQL WHERE-clause fragment supplied by the caller.
@@ -125,14 +108,11 @@ def validate_where_ast(where: str) -> None:
             raise ValueError(
                 f"Disallowed expression in WHERE clause: {type(node).__name__}"
             )
-        # Table-qualified column references (e.g. `tbl.col` or `cat.tbl.col`)
-        # are rejected even though `exp.Column` is in the allowlist. sqlglot
-        # folds the table/db/catalog parts into the Column node's args
-        # rather than emitting a separate exp.Dot, so the docstring's stated
-        # "exp.Dot rejected at AST level" only takes effect if we inspect
-        # Column.table / Column.db here. Closing this gap defends against a
-        # future refactor of the downstream identifier regex (Phase 1071
-        # KNOWN-10).
+        # Table-qualified columns (`tbl.col`, `cat.tbl.col`) are rejected
+        # even though `exp.Column` is allowed: sqlglot folds table/db/
+        # catalog into the Column node's args rather than a separate
+        # exp.Dot, so the check must inspect Column.table/.db here to match
+        # the module docstring's claim (Phase 1071 KNOWN-10).
         if isinstance(node, exp.Column) and (
             node.args.get("table") is not None
             or node.args.get("db") is not None
@@ -147,9 +127,8 @@ def validate_where_ast(where: str) -> None:
 def canonical_where(where: str) -> str:
     """Validate ``where`` and return its canonical sqlglot re-render.
 
-    fix(#430 BA-08): for callers that must interpolate the fragment into SQL
-    text (the export cap's bounded COUNT), the interpolated string is the
-    re-emission of the allowlist-validated AST — never the caller's raw bytes.
+    fix(#430): for callers that interpolate the fragment into SQL
+    text, the re-emission of the validated AST is used, never raw bytes.
 
     Raises ValueError via validate_where_ast on any disallowed construct.
     """
@@ -159,7 +138,7 @@ def canonical_where(where: str) -> str:
     return statements[0].args["where"].this.sql(dialect="postgres")
 
 
-# fix(#1870 audit r1): BOTH quote kinds are scanned in one pass, because a
+# fix(#1870): BOTH quote kinds are scanned in one pass, because a
 # single quote inside a double-quoted identifier opens no literal in Postgres
 # and must open none here either.
 _QUOTED_RUN_RE = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
@@ -168,23 +147,19 @@ _QUOTED_RUN_RE = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
 def mask_quoted_literals(where: str) -> str:
     """Blank every single-quoted literal in ``where``, preserving its length.
 
-    A caller that scans the clause for code (an identifier walk, a token
-    classifier) must not read the values as code. Each literal becomes a run
-    of spaces of the same width, so two identifiers separated by a literal
-    cannot fuse into a third.
-
-    A double-quoted identifier IS code, so it is scanned but returned
-    unchanged: consuming it in the same pass is what stops a quote inside it
-    from opening a literal that blanks the real code after it. Dollar-quoting
-    and E'' are rejected by the AST gate and are deliberately not modelled.
+    A caller scanning for code (identifier walk, token classifier) must not
+    read values as code. A double-quoted identifier IS code, so it's scanned
+    but returned unchanged — consuming it in the same pass stops a quote
+    inside it from opening a literal that blanks real code after it.
+    Dollar-quoting and E'' are rejected by the AST gate, not modelled here.
 
     Args:
         where: SQL WHERE-clause fragment.
 
     Returns:
-        The fragment with string-literal contents replaced by spaces. Trailing
-        text after an unterminated quote is returned unchanged; callers reject
-        an unbalanced clause before masking.
+        The fragment with string-literal contents replaced by spaces.
+        Trailing text after an unterminated quote is unchanged; callers
+        reject an unbalanced clause before masking.
     """
 
     def _blank_literals_only(match: re.Match[str]) -> str:

@@ -1,18 +1,14 @@
 """Public embed-shell framing-policy endpoint (builder-audit #338 P0-02).
 
-The ``/m/{token}`` embed HTML shell is served statically by the edge (nginx),
-so its per-token ``Content-Security-Policy: frame-ancestors`` directive cannot
-be set by the React SPA — it must be injected at the document response. This
-endpoint validates the token and returns the frame-ancestors directive both as:
+The ``/m/{token}`` shell is served statically by nginx, so its per-token
+frame-ancestors CSP can't be set by the SPA -- it's injected via an
+``auth_request`` subrequest to this endpoint, which returns both a full
+``Content-Security-Policy`` header and an ``X-Embed-Frame-Ancestors``
+header nginx copies onto the static response.
 
-  * a full ``Content-Security-Policy`` response header (directly testable, and
-    correct when the API is hit without the edge in front), and
-  * an ``X-Embed-Frame-Ancestors`` header that the nginx ``auth_request`` wiring
-    copies onto the static HTML response via ``auth_request_set``.
-
-The endpoint ALWAYS returns 200 (even for an invalid/revoked/expired token) so
-the ``auth_request`` subrequest allows the shell to load; an invalid token gets
-a fail-closed ``frame-ancestors 'none'`` so the shell cannot be framed anywhere.
+Always returns 200 (even for invalid/revoked/expired tokens) so
+auth_request lets the shell load; an invalid token gets a fail-closed
+``frame-ancestors 'none'`` instead.
 """
 
 import hashlib
@@ -28,10 +24,9 @@ from app.modules.embed_tokens.service import build_embed_frame_ancestors
 
 router = APIRouter(prefix="/embed", tags=["Embed Tokens"])
 
-# Base CSP for the embed shell — mirrors the static-shell CSP the edge serves
-# for /m/* (see frontend/nginx.conf). The per-token frame-ancestors directive is
-# appended below; X-Frame-Options is intentionally NOT set so it is omitted for
-# the embed route only (SecurityHeadersMiddleware skips XFO when CSP is present).
+# Base CSP for the embed shell -- mirrors the static-shell CSP nginx serves
+# for /m/* (frontend/nginx.conf). X-Frame-Options is intentionally omitted
+# here; SecurityHeadersMiddleware skips XFO when CSP is present.
 _BASE_EMBED_CSP = (
     "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; "
     "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; "
@@ -53,12 +48,10 @@ async def embed_frame_policy(
     ``Content-Security-Policy`` and ``X-Embed-Frame-Ancestors`` headers.
     """
     if not token:
-        # Codex P1 (#338): NO embed token on the request — a plain
-        # /m/<shareToken> share view, or a public map embed without a domain-
-        # locked embed token. No per-token domain restriction applies, so framing
-        # stays open (matching the pre-P0-02 behavior). Fail-closed 'none' is
-        # reserved for a token that is PRESENT but invalid/revoked/expired, so a
-        # normal shared-map iframe is never blocked. Private data remains
+        # Codex P1 (#338): no embed token present -- a plain share view or
+        # public embed without domain locking. Framing stays open (matches
+        # pre-P0-02 behavior); fail-closed 'none' is reserved for a token
+        # that IS present but invalid/revoked/expired. Private data stays
         # protected at the tile layer (X-Embed-Token validation).
         frame_ancestors = ""
     else:

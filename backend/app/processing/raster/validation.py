@@ -1,21 +1,10 @@
 """Source compatibility validation for VRT creation.
 
-Validates candidate COG sources for VRT creation by running a series of
-checks (CRS, dtype, nodata, rotation, band count, grid alignment, pixel
-geometry) and returning structured per-source errors.  All checks always
-run — no fail-fast.
+Validates candidate COG sources by running a series of checks (CRS, dtype,
+nodata, rotation, band count, grid alignment, pixel geometry) and returning
+structured per-source errors. All checks always run — no fail-fast.
 
-Usage::
-
-    from app.processing.raster.validation import validate_sources, SourceValidationError
-
-    errors = validate_sources("mosaic", list_of_raster_assets)
-    if errors:
-        raise SomeHTTPException(errors)
-
-Called by:
-- Phase 173: VRT creation endpoint
-- Phase 174: add-source endpoint
+Called by the VRT creation and add-source endpoints.
 """
 
 from __future__ import annotations
@@ -39,11 +28,6 @@ class SourceValidationError(BaseModel):
     message: str
     field: str
     severity: str = "error"
-
-
-# ---------------------------------------------------------------------------
-# Private helpers — each returns list[SourceValidationError]
-# ---------------------------------------------------------------------------
 
 
 def _check_crs(sources: list[Any]) -> list[SourceValidationError]:
@@ -199,12 +183,10 @@ def _check_pixel_geometry_known(sources: list[Any]) -> list[SourceValidationErro
 def _check_grid_alignment(sources: list[Any]) -> list[SourceValidationError]:
     """VAL-05: Band-stack sources must share identical grid dimensions and resolution.
 
-    Float comparison for res_x/res_y uses 1e-10 absolute tolerance.
-    Returns one error per mismatched dimension per source.
-
-    fix(#1385): a NULL res_x/res_y still skips the comparison here (it can't
-    be compared), but `_check_pixel_geometry_known` (VAL-08) now raises
-    `unknown_pixel_geometry` for that source instead of letting it pass.
+    res_x/res_y compared with 1e-10 absolute tolerance; one error per
+    mismatched dimension. fix(#1385): a NULL res_x/res_y skips comparison
+    here, but `_check_pixel_geometry_known` (VAL-08) now raises for it
+    instead of letting it pass.
     """
     _FLOAT_TOL = 1e-10
     errors: list[SourceValidationError] = []
@@ -253,11 +235,6 @@ def _check_grid_alignment(sources: list[Any]) -> list[SourceValidationError]:
     return errors
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
 def validate_sources(vrt_type: str, sources: list[Any]) -> list[SourceValidationError]:
     """Validate candidate sources for VRT creation.
 
@@ -269,10 +246,9 @@ def validate_sources(vrt_type: str, sources: list[Any]) -> list[SourceValidation
         list of SourceValidationError — empty list means all sources compatible.
 
     Notes:
-        - 0 or 1 sources: always returns empty list (minimum-count enforcement
-          is the responsibility of the caller, not the validator)
+        - 0 or 1 sources always returns empty (minimum-count is the
+          caller's responsibility)
         - All checks run exhaustively — no fail-fast
-        - CRS comparison uses rasterio.CRS equality; requires rasterio installed
     """
     if len(sources) < 2:
         return []

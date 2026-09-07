@@ -26,23 +26,9 @@ logger = structlog.stdlib.get_logger(__name__)
 EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class()
 
 
-# Phase 269 H-22: TTL LRU cache for query embeddings.
-# Per-query embedding generation calls the configured AI provider (e.g.,
-# OpenAI text-embedding-3-small at 200-800 ms per call). Repeated identical
-# queries within ~5 minutes are common during user sessions and should not
-# pay that cost on every request. The cache key is `(tenant-scoped query text,
-# model_name, configuration fingerprint)` so case variations and accidental
-# whitespace collide without sharing a provider result across tenants. TTL is
-# 300 seconds (matches audit recommendation), max 512 entries.
-#
-# fix(#1546): the fingerprint is part of the key, not decoration. This cache is
-# the third independent reader of the embedding configuration in one request —
-# the stored rows, the provider call, and this. Filtering rows by the live
-# configuration while serving a query vector generated under the previous one
-# would compare across spaces exactly as before, with the filter looking
-# correct: the bug would have moved into the cache rather than been fixed. A
-# configuration change makes every entry unreachable, which costs one provider
-# call per distinct query and is the point.
+# TTL LRU cache for query embeddings, keyed on (tenant-scoped text, model,
+# config fingerprint). fix(#1546): the fingerprint is load-bearing, not
+# decoration — omitting it lets a config change serve a stale-space vector.
 _EMBEDDING_CACHE_TTL_SECONDS = 300.0
 _EMBEDDING_CACHE_MAX_SIZE = 512
 
@@ -117,29 +103,12 @@ async def generate_embedding(
 ) -> list[float]:
     """Generate an embedding through the configured CatalogPort provider.
 
-    Phase 269 H-22: results are memoized in a TTL LRU cache keyed on
-    `(tenant-scoped text.strip().lower(), model_name, configuration
-    fingerprint)`, TTL 300s. Cache write only happens on the success path;
-    provider errors propagate to callers as before.
+    Memoized in the TTL LRU cache above. ``config`` is normally pre-resolved
+    once per search request by the caller; omit it to resolve here.
 
-    ``config`` is the live `(model, dimensions, endpoint, fingerprint)` from
-    `CatalogPort.resolve_embedding_config`, passed by a caller that already
-    resolved it so one search request resolves it once. Omit it and this
-    resolves its own.
-
-    fix(#1546 review r1, codex P1): the first three are handed to the PROVIDER,
-    not just used to key the cache. Without that the provider re-resolved the
-    live configuration for itself, so a settings change landing between the
-    identity read and the provider call produced a vector under configuration B
-    that was then cached under, and ranked against, configuration A's rows —
-    the cross-space comparison this whole change exists to prevent, inside a
-    single request.
-
-    Verifying afterwards instead was considered and rejected: it would catch
-    the divergence only once the vector existed, and the natural handling
-    (discard, do not cache) still leaves THIS request either ranking on a
-    wrong-space vector or silently losing its vector arm. Pinning removes the
-    divergence rather than detecting it.
+    fix(#1546): the first three config fields are handed to the PROVIDER,
+    not just used to key the cache, so a settings change mid-call can't
+    vector under one config while caching/ranking against another's rows.
     """
     normalized = text.strip().lower()
     if not normalized:
@@ -149,9 +118,7 @@ async def generate_embedding(
     if config is None:
         config = await get_catalog_port().resolve_embedding_config(session)
     if config is None:
-        # The configuration could not be resolved, so there is nothing to pin
-        # and nothing safe to key a cache entry on. Let the provider resolve
-        # and fail the way it did before any of this existed.
+        # Nothing to pin and nothing safe to key a cache entry on.
         return await _embed_with_deadline(text, session)
 
     model_name, dimensions, base_url, fingerprint = config
@@ -231,12 +198,10 @@ async def resolve_semantic_arm(
 ) -> SemanticArm | None:
     """Decide whether a query runs in semantic mode and resolve its vector arm.
 
-    Returns None (lexical mode) when semantic search is off, the query is
-    shorter than ``_MIN_SEMANTIC_QUERY_LEN``, no embeddings exist, the
-    configuration cannot be resolved, embedding or the vector query fails, or
-    no row of ``vet_stmt`` (a ``select(Record.id)``) is within the cosine
-    cutoff. ``depth`` is how many nearest ids the caller needs, at least 1;
-    below the row gate every match is fetched regardless.
+    Returns None (lexical mode) on any disqualifier: search disabled, query
+    too short, no embeddings, unresolvable config, an embedding/query
+    failure, or no row within the cosine cutoff. ``depth`` is how many
+    nearest ids the caller needs; below the row gate every match is fetched.
     """
     query_text = (filters.q or "").strip()
     if len(query_text) < _MIN_SEMANTIC_QUERY_LEN:
@@ -327,15 +292,12 @@ def _compute_rrf_scores(
     """
     scores: dict[str, float] = {}
 
-    # FTS contribution (positional rank 1-based)
     for rank, record_id in enumerate(fts_ids, start=1):
         scores[record_id] = scores.get(record_id, 0.0) + 1.0 / (k + rank)
 
-    # Vector contribution
     for record_id, v_rank in vector_ranks.items():
         scores[record_id] = scores.get(record_id, 0.0) + 1.0 / (k + v_rank)
 
-    # Sort by RRF score descending
     return sorted(scores.keys(), key=lambda rid: scores[rid], reverse=True)
 
 
@@ -389,7 +351,6 @@ async def _run_rrf_merge(
         datasets_by_id = {
             str(d.record_id): d for d in fetch_result.unique().scalars().all()
         }
-        # Preserve RRF order
         datasets = [datasets_by_id[rid] for rid in page_ids if rid in datasets_by_id]
     else:
         datasets = []

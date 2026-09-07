@@ -10,9 +10,9 @@ from app.core.tenancy import is_multi_tenant
 def tenant_cache_context_available() -> bool:
     """Return whether request-visible caches are safe in this context.
 
-    Trusted unscoped hosts can legitimately reach anonymous catalog routes in
-    hosted mode. Those requests query the RLS-protected database directly and
-    must never read or populate a fleet-shared fallback cache entry.
+    Trusted unscoped hosts can reach anonymous catalog routes in hosted mode;
+    those query the RLS-protected DB directly and must never read or
+    populate a fleet-shared fallback cache entry.
     """
     if not is_multi_tenant():
         return True
@@ -28,12 +28,10 @@ def tenant_cache_key(key: str) -> str:
     """Return *key* scoped to the verified request or worker tenant.
 
     Single-tenant deployments keep their historical keys byte-for-byte. In
-    multi-tenant mode the active tenant UUID is validated through the same
-    schema helper used by data-plane SQL, then appended to the key. Appending
-    preserves broad invalidation prefixes such as ``catalog:*``.
-
-    Missing or malformed multi-tenant context fails closed before a cache can
-    be read or populated.
+    multi-tenant mode the tenant UUID is validated via the same schema
+    helper used by data-plane SQL, then appended -- preserving broad
+    invalidation prefixes like ``catalog:*``. Missing or malformed context
+    fails closed before a cache can be read or populated.
     """
     if not is_multi_tenant():
         return key

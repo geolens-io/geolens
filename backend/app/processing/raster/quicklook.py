@@ -35,12 +35,10 @@ def _crop_to_valid(data, nodata):
 def generate_quicklook(cog_path: str, size: int) -> bytes:
     """Generate a square PNG thumbnail from a COG file.
 
-    Uses the lowest overview level for performance. Multi-band (>=3 bands) uses
-    bands 1-3 as RGB. Single-band uses 2nd/98th percentile stretch to 0-255 grayscale.
-    Crops to valid-data extent so thumbnails aren't dominated by nodata.
-    Aspect ratio is preserved with light letterboxing inside a square canvas.
-
-    Returns PNG bytes.
+    Uses the lowest overview level that meets `size`. Multi-band (>=3) uses
+    bands 1-3 as RGB; single-band uses a 2nd/98th percentile stretch.
+    Crops to valid-data extent first, so nodata doesn't dominate the
+    thumbnail; aspect ratio preserved with letterboxing.
     """
     import numpy as np
     import rasterio
@@ -59,24 +57,15 @@ def generate_quicklook(cog_path: str, size: int) -> bytes:
                     out_w, out_h = cand_w, cand_h
                     break
 
-        # fix(#1778): the selection above bounds nothing by itself. It takes the
-        # SMALLEST level whose long edge still reaches `size`, so when the
-        # ladder bottoms out above that (`gdaladdo` builds five levels, and
-        # `prepare_with_overviews` skips it entirely for a source that already
-        # carries its own) the smallest available level is the one read, at
-        # whatever size it happens to be. `out_shape` then drives the
-        # allocation, so a 200k x 200k source shipped with a single 2x internal
-        # overview asked for ~30 GB and took the worker with it, from a file
-        # inside the 500 MB upload cap.
+        # fix(#1778): the selection above bounds nothing alone — the
+        # smallest available level is read whatever size it is, so a
+        # sparse overview ladder let `out_shape` demand ~30GB from a
+        # 500MB-capped upload.
         #
-        # 2x is the bound a COMPLETE ladder already gives for free: when the
-        # levels reach below `size`, the chosen one is under twice it by
-        # construction, since the next smaller level would be half of it. So
-        # this changes nothing for a well-formed COG and only bites where the
-        # ladder stops short. The headroom is worth keeping rather than reading
-        # at `size` outright, because `_crop_to_valid` crops this array before
-        # it is resized, and cropping a quarter of a nodata-heavy raster at the
-        # target size upscales the result.
+        # 2x is free from a COMPLETE ladder (the chosen level is always
+        # under twice `size`) and only matters when the ladder stops
+        # short; kept because `_crop_to_valid` crops before resizing, and
+        # cropping at `size` outright upscales a nodata-heavy result.
         max_edge = size * 2
         if max(out_w, out_h) > max_edge:
             scale = max_edge / max(out_w, out_h)

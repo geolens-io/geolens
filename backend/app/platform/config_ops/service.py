@@ -53,11 +53,6 @@ _CONFIG_IMPORT_LOCK_SQL = text(
 _DIGEST_DOMAIN_PREFIX = b"geolens.config-preview.v1\0"
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _provider_to_dict(provider: Any) -> dict:
     """Convert an OAuthProvider ORM object to a dict, omitting encrypted secret."""
     return {
@@ -104,23 +99,17 @@ _OAUTH_ENDPOINT_FIELDS = frozenset(
 
 
 def _diff_provider(existing_dict: dict, imported: dict) -> list[str]:
-    """Return list of fields that differ between existing and imported provider."""
     changed = []
     for field in _PROVIDER_COMPARE_FIELDS:
         if field in imported and imported[field] != existing_dict.get(field):
             changed.append(field)
-    # Write-only credentials cannot be compared with their encrypted stored
-    # values, but their presence always means apply will rotate a credential.
-    # Return only field names; never expose either secret value.
+    # Write-only credentials can't be compared to their encrypted stored
+    # values; presence alone means apply will rotate one. Field names only —
+    # never expose either secret value.
     for field in ("client_secret", "idp_certificate"):
         if imported.get(field):
             changed.append(field)
     return changed
-
-
-# ---------------------------------------------------------------------------
-# Export
-# ---------------------------------------------------------------------------
 
 
 async def export_config(db: AsyncSession) -> dict:
@@ -131,12 +120,10 @@ async def export_config(db: AsyncSession) -> dict:
     from app.core.persistent_config import _registry
     from app.modules.auth.oauth import service as oauth_service
 
-    # Collect all setting values
     settings_dict: dict[str, Any] = {}
     for cfg in _registry:
         settings_dict[cfg.key] = await cfg.get(db)
 
-    # Collect OAuth providers (without secrets)
     providers = await oauth_service.list_providers(db, include_saml_fields=True)
     providers_list = [_provider_to_dict(p) for p in providers]
 
@@ -153,11 +140,6 @@ async def export_config(db: AsyncSession) -> dict:
         providers_count=len(providers_list),
     )
     return export
-
-
-# ---------------------------------------------------------------------------
-# Shared import preflight and overwrite confirmation
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -181,12 +163,10 @@ class ConfigImportPlan:
 async def acquire_config_import_lock(db: AsyncSession) -> None:
     """Freeze settings and OAuth writes for preflight-through-commit.
 
-    PostgreSQL's ``EXCLUSIVE`` table lock still permits ordinary reads, but it
-    conflicts with DML and ``SELECT .. FOR UPDATE``.  Therefore every existing
-    settings/OAuth writer is covered without relying on each route to opt into a
-    cooperative advisory lock.  OAuth is listed first to match the lock order of
-    the password-login/SSO lockout guards, which lock provider rows before
-    mutating ``app_settings``.
+    PostgreSQL's ``EXCLUSIVE`` lock still permits reads but conflicts with DML
+    and ``SELECT .. FOR UPDATE``, so every writer is covered without opting in.
+    OAuth listed first to match the lock order of the password-login/SSO
+    lockout guards (provider rows before ``app_settings``) to avoid deadlock.
     """
     await db.execute(_CONFIG_IMPORT_LOCK_SQL)
 
@@ -249,9 +229,8 @@ def _oauth_account_state(account: Any) -> dict[str, Any]:
 def _provider_state_dict(provider: Any) -> dict[str, Any]:
     """Project all provider state relevant to destructive overwrite approval.
 
-    Unlike the export projection, this internal structure binds provider
-    identity and write-only credential versions.  Credential material itself is
-    never placed in the token claims or returned by an API.
+    Unlike the export projection, binds provider identity and write-only
+    credential versions — never the credential material itself.
     """
     return {
         "id": str(provider.id),
@@ -314,8 +293,8 @@ def _safe_setting_validation_message(key: str, exc: Exception) -> str:
     from app.core.ai_credentials import OpenAICredentialDestinationError
 
     if isinstance(exc, OpenAICredentialDestinationError):
-        # This exception family contains only code-owned policy text and never
-        # interpolates the submitted endpoint or credential.
+        # Code-owned policy text only; never interpolates the submitted
+        # endpoint or credential.
         return f"Validation failed for setting '{key}': {exc}"
     if key == "role_permissions":
         message = str(exc)
@@ -367,9 +346,8 @@ def _validate_setting_value(key: str, value: Any, cfg: Any) -> Any:
     except ValidationError as exc:
         raise ConfigValidationError(_safe_setting_validation_message(key, exc)) from exc
 
-    # Apply-equivalent validation must inspect the canonical value. Otherwise
-    # a raw JSON string such as "false" passes a truthiness check and then
-    # canonicalizes to False, producing an administrator lockout matrix.
+    # Must inspect the canonical value: a raw JSON string like "false" passes
+    # a truthiness check but canonicalizes to False, producing a lockout matrix.
     if key == "role_permissions":
         try:
             validate_permission_matrix(validated_value)
@@ -387,7 +365,6 @@ def _validate_login_method_plan(
     normalized_providers: list[dict[str, Any]],
     mode: ImportMode,
 ) -> None:
-    """Reject a final import plan that would disable every login method."""
     if password_login_enabled:
         return
 
@@ -680,9 +657,9 @@ async def _load_oauth_account_rows(
         OAuthAccount.created_at,
     ).order_by(OAuthAccount.id)
     if lock_rows:
-        # The import already holds EXCLUSIVE on oauth_providers. Existing link
-        # rows are share-locked against update/delete, while FK-backed inserts
-        # must acquire a parent key-share lock and cannot pass the provider fence.
+        # Import already holds EXCLUSIVE on oauth_providers; share-lock link
+        # rows against update/delete (FK-backed inserts need a parent
+        # key-share lock and can't pass the provider fence).
         query = query.with_for_update(read=True)
     result = await db.execute(query)
     return list(result.all())
@@ -723,10 +700,9 @@ async def preflight_import(
     caller_is_enterprise = is_enterprise()
     registry_map = {cfg.key: cfg for cfg in _registry}
 
-    # Validate every recognized, writable input before touching database state.
-    # Besides keeping preview/apply identical, this guarantees malformed secret-
-    # bearing payloads take the sanitized validation path even with a failed or
-    # mocked database connection.
+    # Validate every recognized, writable input before touching database state,
+    # so a malformed secret-bearing payload always takes the sanitized
+    # validation path, even with a failed or mocked database connection.
     (
         validated_settings,
         normalized_payload_settings,
@@ -881,11 +857,6 @@ async def dry_run_import(
     )
 
 
-# ---------------------------------------------------------------------------
-# Import helpers
-# ---------------------------------------------------------------------------
-
-
 def _sanitized_provider_apply_error(
     index: int,
     exc: Exception,
@@ -933,8 +904,8 @@ async def _update_imported_provider(
 ) -> bool:
     from app.modules.auth.oauth import service as oauth_service
 
-    # Exported endpoint nulls explicitly clear the inactive OAuth mode. Other
-    # null values retain merge mode's "leave unchanged" semantics.
+    # Exported endpoint nulls explicitly clear the inactive OAuth mode; other
+    # nulls keep merge mode's "leave unchanged" semantics.
     update_fields = {
         key: value
         for key, value in provider.items()
@@ -963,8 +934,8 @@ async def _apply_oauth_providers(
 
     if mode == "overwrite":
         account_count = await db.scalar(select(func.count()).select_from(OAuthAccount))
-        # SQLAlchemy returns an int. Treat non-integer test doubles/fallbacks as
-        # zero instead of letting ``int(AsyncMock())`` invent a deletion count.
+        # Treat a non-integer test double/fallback as zero rather than let
+        # ``int(AsyncMock())`` invent a deletion count.
         accounts_deleted = account_count if isinstance(account_count, int) else 0
         existing = await oauth_service.list_providers(db)
         for provider in existing:
@@ -993,11 +964,6 @@ async def _apply_oauth_providers(
     return created, updated, deleted, accounts_deleted
 
 
-# ---------------------------------------------------------------------------
-# Import
-# ---------------------------------------------------------------------------
-
-
 async def import_config(
     db: AsyncSession,
     data: dict,
@@ -1009,11 +975,9 @@ async def import_config(
 ) -> ImportResult:
     """Import configuration, applying settings and OAuth provider changes.
 
-    In merge mode: upserts settings, matches OAuth by slug (update or create).
-    In overwrite mode: resets all settings then applies, deletes all OAuth then recreates.
-
-    Preview and apply consume the same preflight plan. Overwrite additionally
-    requires the signed token returned by a matching, current dry-run.
+    Merge upserts settings and matches OAuth by slug; overwrite resets then
+    reapplies both. Preview and apply share the same preflight plan; overwrite
+    additionally requires the signed token from a matching, current dry-run.
     """
     from app.core.persistent_config import (
         ENTERPRISE_ONLY_TABS,
@@ -1025,10 +989,9 @@ async def import_config(
         audit_emit,
     )  # LAZY — preserved per D-17
 
-    # Hold a database-enforced write fence while recomputing state, verifying
-    # the destructive confirmation, and applying the plan.  Without this, a
-    # concurrent settings/OAuth transaction could commit after the state read
-    # and be silently overwritten by a token that was already stale.
+    # Database-enforced write fence covering state recompute, confirmation
+    # check, and apply — otherwise a concurrent transaction could commit
+    # after the state read against an already-stale token.
     await acquire_config_import_lock(db)
     plan = await preflight_import(
         db,
@@ -1046,11 +1009,10 @@ async def import_config(
     )
     settings_applied = len(plan.settings_to_apply)
 
-    # fix(#430 codex r3): with commit=False, set()/reset() DEFER their side
-    # effects (cache invalidation, _on_change runtime hooks, sync rate-limit
-    # warm) — running them pre-commit flipped process-local runtime state that
-    # a rollback wouldn't restore. Collect (cfg, committed_value) pairs and
-    # apply side effects only after the terminal commit succeeds.
+    # fix(#430): with commit=False, set()/reset() DEFER their side effects
+    # (cache invalidation, _on_change hooks, rate-limit warm) — running them
+    # pre-commit flipped process-local state a rollback wouldn't restore.
+    # Apply side effects only after the terminal commit succeeds.
     deferred_side_effects: list = []
 
     if mode == "overwrite":
@@ -1074,16 +1036,15 @@ async def import_config(
         oauth_accounts_deleted,
     ) = await _apply_oauth_providers(db, plan.providers_to_apply, mode)
     if oauth_accounts_deleted != plan.oauth_accounts_deleted:
-        # The provider table fence plus dependent-row share locks should make
-        # this unreachable. Fail closed if a future write path bypasses those
-        # invariants rather than under-reporting a destructive cascade.
+        # Should be unreachable given the provider table fence plus dependent-
+        # row share locks. Fail closed rather than under-report a destructive
+        # cascade if a future write path bypasses those invariants.
         raise ConfigPreviewError(
             "OAuth account links changed during import; preview the configuration again."
         )
 
-    # Stage exactly one aggregate import event in the same transaction as the
-    # settings, per-setting audit rows, and OAuth mutations. Either all of them
-    # are durable or none of them are.
+    # One aggregate import event, same transaction as the settings, per-setting
+    # audit rows, and OAuth mutations: either all of them are durable or none.
     await audit_emit(
         db,
         AuditEvent(
@@ -1107,9 +1068,8 @@ async def import_config(
     # Single commit for config changes and all associated audit rows.
     await db.commit()
 
-    # fix(#1543): one eviction for the whole import. An import touches far more
-    # keys than a PUT, so the per-key loop here held the widest mismatch window
-    # of the three batch call sites.
+    # fix(#1543): one eviction for the whole import — a per-key loop here held
+    # the widest mismatch window of the three batch call sites.
     await apply_side_effects_batch(deferred_side_effects)
 
     logger.info(
@@ -1135,10 +1095,6 @@ async def import_config(
         oauth_accounts_deleted=oauth_accounts_deleted,
     )
 
-
-# ---------------------------------------------------------------------------
-# Connectivity validation
-# ---------------------------------------------------------------------------
 
 OIDC_PROBE_TIMEOUT = 5.0
 
@@ -1181,13 +1137,11 @@ async def validate_connectivity(db: AsyncSession) -> ConnectivityResult:
     from app.modules.auth.oauth import service as oauth_service
     from app.observability.health.service import _check_cache, _check_storage, _probe
 
-    # Run storage and cache probes concurrently
     storage_result, cache_result = await asyncio.gather(
         _probe("storage", _check_storage()),
         _probe("cache", _check_cache()),
     )
 
-    # Probe each enabled OIDC provider
     providers = await oauth_service.list_providers(db, enabled_only=True)
     oidc_results: dict[str, ServiceProbeResult] = {}
 

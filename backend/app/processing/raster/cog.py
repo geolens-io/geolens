@@ -30,27 +30,15 @@ _LON_DEGENERATE_TOL = 1e-9
 _WRAP_PROBE_MIN_DEGREES = 1.0
 
 
-# fix(#1290 review): compression profiles that reproduce every input sample
-# exactly. An ALLOWLIST, and the direction is the point: `compression` reaches
-# the worker straight off `RasterCommitRequest` with no server-side vocabulary
-# check, so a value nothing here recognises has to fall on the "assume lossy,
-# keep the original" side. Getting that backwards deletes the only lossless
-# copy of a raster. The import UI currently offers four of these plus JPEG and
-# WEBP, which are the two that must NOT appear here.
+# fix(#1290): compression profiles that reproduce every input sample
+# exactly. An ALLOWLIST: an unrecognized `compression` value (from
+# RasterCommitRequest, no server-side check) must fall on "assume lossy,
+# keep the original" — the wrong direction deletes the only lossless copy.
 #
-# LERC is here on a condition, and the condition is a fact about our own argv
-# rather than about the codec. LERC's error bound is the GTiff creation option
-# MAX_Z_ERROR, whose default is 0 — exact — and `convert_to_cog` never passes
-# it, so a LERC conversion reproduces the base samples bit for bit. Verified
-# three ways: the GDAL docs
-# (https://gdal.org/en/stable/drivers/raster/gtiff.html#creation-options), the
-# deployed GDAL 3.10.3's own declaration (`gdalinfo --format GTiff` reports
-# MAX_Z_ERROR and MAX_Z_ERROR_OVERVIEW with default="0"), and a float32
-# round-trip through this module's exact argv, which came back identical.
-# The moment someone passes a nonzero MAX_Z_ERROR this entry is wrong, so it
-# is pinned: `test_lerc_stays_lossless_only_while_no_error_bound_is_set` fails
-# on that edit rather than leaving it to be discovered after an original has
-# already been deleted.
+# LERC is here because `convert_to_cog` never passes MAX_Z_ERROR (default
+# 0, exact); verified against GDAL 3.10.3 and a round-trip. Pinned by
+# `test_lerc_stays_lossless_only_while_no_error_bound_is_set` so a future
+# nonzero MAX_Z_ERROR is caught, not discovered after an original is gone.
 LOSSLESS_COG_COMPRESSIONS: frozenset[str] = frozenset(
     {"NONE", "DEFLATE", "LZW", "ZSTD", "PACKBITS", "LZMA", "LERC"}
 )
@@ -64,60 +52,29 @@ def cog_preserves_source(
 ) -> bool:
     """True when the stored COG carries the samples the uploaded file did.
 
-    fix(#1290 review). ADR-002 Decision 7 licenses deleting the pre-conversion
-    upload on the stated grounds that "conversion is lossless". That is a claim
-    about what the conversion DID, and there is more than one way for it to be
-    false.
+    fix(#1290): ADR-002 Decision 7 licenses deleting the
+    pre-conversion upload on "conversion is lossless" — more than one way
+    for that claim to be false.
 
-    The audit of everything ``convert_to_cog`` can apply, so the next reader
-    does not have to redo it:
+    - **compression**: JPEG/WEBP discard detail; LERC doesn't, at the zero
+      error bound this pipeline leaves in place.
+    - **assign_crs** (fix(#1291)): ``-a_srs`` only writes a CRS tag, bands
+      pass through untouched — NOT sample-altering (unlike the old
+      ``gdalwarp -t_srs``, which resampled onto a new grid; hence
+      ``reprojected``).
+    - **resampling**: feeds ``gdaladdo`` only (overviews), never the base band.
+    - **nodata**: ``-a_nodata`` writes a metadata tag, not sample-altering.
+    - **overviews/tiling/COPY_SRC_OVERVIEWS**: add or rearrange, never discard.
 
-    - **compression** — JPEG and WEBP discard detail. Sample-altering. LERC
-      does not, at the zero error bound this pipeline leaves in place; the
-      condition that keeps that true is spelled out on
-      ``LOSSLESS_COG_COMPRESSIONS``.
-    - **assign_crs** — fix(#1291): ``gdal_translate -a_srs``, which writes a
-      CRS tag and nothing else. Exactly like ``-a_nodata`` below: the bands
-      pass through the translate untouched, so under a lossless codec the
-      output carries the uploaded samples bit for bit. Measured on the
-      deployed GDAL: a 32x32 source relabelled 4326 -> 3857 comes back 32x32,
-      same bounds numbers, array-equal to the input. NOT sample-altering.
-      Until #1291 this ran ``gdalwarp -t_srs``, which resampled onto a new
-      grid (the same 32x32 source came back 42x42 with different values) —
-      hence ``reprojected``, and hence this bullet's earlier reading.
-    - **resampling** — feeds ``gdaladdo`` only now (overviews are additional
-      data, the base band is untouched). It used to also feed ``gdalwarp -r``;
-      with the warp gone, no ``resampling`` value can reach the base samples.
-    - **nodata** — ``gdal_translate -a_nodata`` writes a metadata tag. Pixel
-      values are byte-identical, so this is not sample-altering; it changes how
-      the samples are interpreted, not what they are.
-    - **overviews / tiling / COPY_SRC_OVERVIEWS** — add or rearrange, never
-      discard.
+    Predicate: "no lossy codec AND no warp". A wrong True permanently loses
+    the only faithful copy; a wrong False only retains extra bytes — that
+    asymmetry is why #1291 moved ``assign_crs`` rather than changing it: a
+    relabel is REVERSIBLE (another ``-a_srs`` corrects it; the catalog keeps
+    the original in ``Dataset.original_srid``), a warp is not.
 
-    So the predicate is "no lossy codec AND no warp". Anything not proven
-    sample-preserving must return False: the cost of a wrong True is the
-    permanent loss of the only faithful copy, and the cost of a wrong False is
-    some retained bytes. That asymmetry is why #1291 argues the assign_crs move
-    rather than just making it: a relabel is the one conversion step that is
-    REVERSIBLE from the stored artifact. If the caller assigns the wrong EPSG,
-    every sample is still there and another ``-a_srs`` corrects it; the
-    catalog also keeps what the upload declared, in ``Dataset.original_srid``.
-    A warp is not reversible, which is what made the retained upload the only
-    faithful copy while one ran.
-
-    ``reprojected`` stays as the switch for that second axis even though no
-    pipeline path sets it today: a deliberate reproject-at-ingest field
-    (``target_srid``, if demand ever appears — #1291) has to pass it, and a
-    parameter that is already here and already tested is one fewer thing for
-    that change to forget. ``convert_to_cog`` running no ``gdalwarp`` is what
-    licenses the callers passing nothing, and that is pinned by
-    ``test_cog_subprocess_env.py``.
-
-    ``cog_status == "verified"`` short-circuits because nothing ran at all —
-    the bytes written to storage ARE the uploaded bytes, whatever codec they
-    already carried. A conversion cannot coexist with it:
-    ``check_and_prepare_cog`` treats any ``assign_crs`` as a custom option and
-    always converts.
+    ``cog_status == "verified"`` short-circuits: nothing ran, so the stored
+    bytes ARE the uploaded bytes. ``check_and_prepare_cog`` always converts
+    when ``assign_crs`` is set, so the two states can't coexist.
     """
     if cog_status == "verified":
         return True
@@ -131,26 +88,16 @@ def resolve_crs_assignment(
 ) -> int | None:
     """The EPSG code the conversion must apply, or None to keep the source's.
 
-    Which code, only. What "apply" DOES belongs to ``convert_to_cog``, and
-    since fix(#1291) it is assignment: the returned code is written onto the
-    output as a label (``-a_srs``) and no sample is touched. This function did
-    not change with that — it never knew whether the code would be warped to
-    or stamped on — but its callers' comments did.
+    Since fix(#1291) "apply" means assignment (``-a_srs``), not
+    reprojection — no sample is touched.
 
-    fix(#1290 review): an override applies whenever the caller supplies one,
-    not only when the source declares nothing. ``RasterCommitRequest``
-    documents this field as "EPSG code to use when source CRS is missing **or
-    incorrect**", and correcting a wrong declaration was precisely the case the
-    old ``if crs_missing`` guard dropped on the floor — the conversion ran
-    without the override and published a raster still carrying the CRS the
-    caller had just told us was wrong, with no error to say so.
+    fix(#1290): an override applies whenever the caller supplies
+    one, not only when the source declares nothing — ``RasterCommitRequest``
+    documents "missing **or incorrect**", and the old ``if crs_missing``
+    guard silently ignored a correction.
 
-    Shared by first ingest and replace deliberately. The two tails held
-    identical copies of the old predicate and were wrong in identical ways;
-    leaving them as two copies is how the next fix lands on one of them.
-
-    Raises ``ValueError`` when the source declares no CRS and no override was
-    given — the one case where the pipeline genuinely cannot proceed.
+    Raises ``ValueError`` when the source declares no CRS and no override
+    was given.
     """
     if srid_override:
         return srid_override
@@ -163,26 +110,20 @@ def resolve_crs_assignment(
 
 
 def _is_float_dtype(dtype: str) -> bool:
-    """Check if a raster dtype string represents a floating-point type."""
     return any(f in dtype.lower() for f in _FLOAT_DTYPES)
 
 
 def is_dem_candidate(band_count: int | None, dtype: str | None) -> bool:
     """Whether a raster of this shape is elevation data rather than imagery.
 
-    One band of floating-point values is what a DEM looks like and what
-    imagery does not. The rule is a heuristic, but it has to be the SAME
-    heuristic everywhere: ``raster_tile_proxy`` branches on the stored flag
-    before it looks at anything else, so a raster classified one way here and
-    another way there is served through the wrong renderer — terrainrgb over
-    RGB imagery, or ordinary imagery over an elevation model.
+    One band of floating-point values is what a DEM looks like. Must be
+    the SAME heuristic everywhere: ``raster_tile_proxy`` branches on the
+    stored flag, so a mismatch serves the wrong renderer (terrainrgb over
+    imagery, or vice versa).
 
-    feat(#1266): named and shared because a second caller needs it. The STAC
-    refresh strategy adopts a COG the publisher moved to, and the shape of
-    that object is a property of the object rather than of the row it
-    replaces. It reads band count and dtype through Titiler rather than
-    rasterio, which is why this takes the two values instead of a dataset
-    handle.
+    feat(#1266): shared with the STAC refresh strategy, which reads band
+    count/dtype through Titiler rather than rasterio — hence taking values,
+    not a dataset handle.
     """
     return bool(band_count == 1 and dtype and _is_float_dtype(dtype))
 
@@ -190,11 +131,9 @@ def is_dem_candidate(band_count: int | None, dtype: str | None) -> bool:
 def _scratch_dir() -> str | None:
     """Directory for COG temp copies (fix #448).
 
-    tempfile's default lands in /tmp — a 512 MB RAM-backed tmpfs in the
-    worker container — so a large raster both eats the memory cap and can
-    ENOSPC mid-conversion. Prefer the upload_staging volume (disk-backed,
-    shared mount). None falls back to the tempfile default for host runs
-    and tests where the staging dir doesn't exist.
+    tempfile's default (/tmp) is a 512MB RAM-backed tmpfs, so a large
+    raster can OOM or ENOSPC; prefer the disk-backed upload_staging volume.
+    None falls back to the tempfile default when staging doesn't exist.
     """
     from pathlib import Path as _Path
 
@@ -221,12 +160,9 @@ def _fold_geographic_bbox(
 ) -> tuple[float, float, float, float]:
     """Fold a geographic-CRS longitude range into the RFC 7946 §5.2 form.
 
-    fix(#887): GDAL passes geographic bounds through ``transform_bounds``
-    untouched, so a raster stored in the 0..360 longitude domain -- what plenty
-    of published global grids use, and what the seam-aware VRT builder in
-    ``vrt.py`` now emits for a straddling mosaic -- keeps an east past +180.
-    Wrap it, and let east fall *below* west when the footprint crosses the seam;
-    ``bbox_to_extent_wkt`` turns that pair into the two-ring extent.
+    fix(#887): a raster in the 0..360 domain keeps an east past +180; wrap
+    it, letting east fall *below* west at a seam crossing, for
+    ``bbox_to_extent_wkt`` to turn into the two-ring extent.
     """
     span = east - west
     if span >= 360.0 - LON_EPSILON_DEGREES:
@@ -236,15 +172,9 @@ def _fold_geographic_bbox(
         # otherwise fall through and be re-expressed as a west > east pair, i.e.
         # a domain flip decided by last-bit noise.
         return (-180.0, south, 180.0, north)
-    # fix(#887): reduce ARBITRARY wrap counts before folding. GDAL accepts a
-    # raster georeferenced well outside the adjacent domains, and wrap_longitude
-    # subtracts a single turn by design (#886), so a 720..730 source folded to
-    # 360..10 -- which bbox_to_extent_wkt reads as a crossing pair, drops the
-    # impossible 360..180 half from, and records as -180..10: a 10-degree
-    # footprint inflated to 190. The negative direction was worse: -730..-720
-    # recorded 37x its true area. fmod first, then the shared single-step fold,
-    # which keeps +180 as +180 -- bbox_to_extent_wkt relies on that to drop the
-    # zero-width 180..180 half and emit the -180..east ring alone.
+    # fix(#887): reduce ARBITRARY wrap counts before folding — a raster
+    # georeferenced multiple turns out (e.g. 720..730) would otherwise
+    # inflate or misplace the footprint (measured: 37x true area).
     west = wrap_longitude(math.fmod(west, 360.0))
     # `span` is under 360 by the branch above, so one step settles east.
     east = wrap_longitude(west + span)
@@ -254,16 +184,13 @@ def _fold_geographic_bbox(
 def _wgs84_bbox(src) -> tuple[float, float, float, float]:
     """Reproject a raster's bounds to a WGS84 RFC 7946 §5.2 bbox.
 
-    Returns ``(west, south, east, north)`` with ``west > east`` when the
-    footprint crosses the antimeridian -- feed it to
-    :func:`app.core.geo.bbox_to_extent_wkt`, never to a hand-built ring.
+    Returns ``(west, south, east, north)`` with ``west > east`` at an
+    antimeridian crossing — feed to :func:`app.core.geo.bbox_to_extent_wkt`,
+    never a hand-built ring.
 
-    fix(#887): the old code folded the reprojected bounds straight into a single
-    ``POLYGON``. GDAL's ``OCTTransformBounds`` already reports a seam-crossing
-    footprint as ``west > east`` (a Pacific COG in EPSG:3832 comes back as
-    175..-175), and a naive ring over that pair is a *valid* rectangle covering
-    the 350° on the wrong side of the world -- 35x the real footprint, not even
-    containing the data it describes.
+    fix(#887): GDAL's ``OCTTransformBounds`` reports a crossing footprint
+    as ``west > east``; a naive ring over that pair covers the wrong 350°
+    of the world (measured 35x the real footprint).
     """
     from rasterio.warp import transform, transform_bounds
 
@@ -315,22 +242,16 @@ def extract_raster_metadata(file_path: str) -> dict:
 
     with rasterio.open(file_path) as src:
         crs = src.crs
-        # fix(#1376): explicitly WKT2, because this value is what
-        # RasterAsset.to_stac_properties() publishes as the STAC Projection
-        # Extension's `proj:wkt2`. rasterio's default is WKT1_GDAL
-        # (`PROJCS[...]`), which a strict consumer of a wkt2-named field may
-        # reject. The remote-asset probe (catalog/sources/cog_info.py) asks
-        # for the same version, so the column is one dialect regardless of
-        # how the raster was ingested. WKT2 also expresses strictly more than
-        # WKT1 — nothing GDAL can open exports here but not there — so this
-        # narrows no input.
+        # fix(#1376): explicitly WKT2 — RasterAsset.to_stac_properties()
+        # publishes this as STAC's `proj:wkt2`, and rasterio's default
+        # WKT1_GDAL may be rejected by a strict consumer of that field.
         crs_wkt = crs.to_wkt(version="WKT2_2019") if crs else None
         epsg = crs.to_epsg() if crs else None
 
         bounds_wgs84 = _wgs84_bbox(src)
         bbox_wkt = bbox_to_extent_wkt(*bounds_wgs84)
 
-        # fix(#1375 review): the pixel VECTOR lengths, not their world-axis
+        # fix(#1375): the pixel VECTOR lengths, not their world-axis
         # components. Identical to the old abs(a)/abs(e) for the axis-aligned
         # rasters that are almost all of them, and correct for the rotated
         # ones those two silently understated. The remote-asset probe
@@ -457,14 +378,9 @@ def prepare_with_overviews(
 ) -> str:
     """Copy file to a temp path and add compressed overviews.
 
-    Returns the temp path with overviews added. If the source already has
-    internal overviews (e.g. an upstream COG produced by `-of COG` or by a
-    user pipeline that built them), `gdaladdo` is skipped: GDAL refuses to
-    add external overviews when internal overviews are present
-    ("ERROR 6: Cannot add external overviews when there are already
-    internal overviews"). `gdal_translate ... COPY_SRC_OVERVIEWS=YES`
-    downstream still picks up the existing overviews, so the COG output is
-    correct either way.
+    If the source already has internal overviews, `gdaladdo` is skipped:
+    GDAL refuses to add external ones when internal are present.
+    `gdal_translate COPY_SRC_OVERVIEWS=YES` picks up existing overviews.
     """
     import rasterio
     import shutil
@@ -476,7 +392,7 @@ def prepare_with_overviews(
 
     shutil.copy2(input_path, tmp_path)
 
-    # fix(#430 codex r15): run_gdal raises on timeout (BA-29), which bypassed
+    # fix(#430): run_gdal raises on timeout (BA-29), which bypassed
     # the old returncode-only unlink and leaked the staged temp copy; a
     # corrupt source raising inside rasterio.open leaked it the same way.
     # Any exception past this point must remove tmp_path.
@@ -514,12 +430,14 @@ def prepare_with_overviews(
             "16",
             "32",
         ]
-        result = run_gdal(cmd, env=env, tool="gdaladdo")  # fix(#430 BA-29)
+        result = run_gdal(cmd, env=env, tool="gdaladdo")  # fix(#430)
         if result.returncode != 0:
             raise RuntimeError(f"gdaladdo failed: {result.stderr}")
 
         return tmp_path
-    except Exception:  # broad: cleanup-and-reraise — tmp copy must not survive ANY failure (run_gdal timeout, corrupt-source rasterio error)
+    except (
+        Exception
+    ):  # broad: cleanup-and-reraise — tmp copy must not survive any failure
         Path(tmp_path).unlink(missing_ok=True)
         raise
 
@@ -527,12 +445,8 @@ def prepare_with_overviews(
 def _predictor_for_dtype(dtype: str, compression: str = "DEFLATE") -> str | None:
     """Return predictor based on dtype and compression.
 
-    Predictors only work for DEFLATE, ZSTD, and LZW.
-    Returns None for JPEG, WEBP, LERC (no predictor applicable).
-
-    A rasterio dtype string alone is not the whole story: see
-    ``_predictor_supported`` for the sample-width check ``convert_to_cog``
-    layers on top of this before it lets a predictor onto the argv.
+    Only DEFLATE/ZSTD/LZW support one; JPEG/WEBP/LERC get None. See
+    ``_predictor_supported`` for the sample-width check layered on top.
     """
     if compression.upper() not in ("DEFLATE", "ZSTD", "LZW"):
         return None
@@ -542,29 +456,17 @@ def _predictor_for_dtype(dtype: str, compression: str = "DEFLATE") -> str | None
 def _predictor_supported(file_path: str) -> bool:
     """Whether every band's actual sample width supports a GDAL PREDICTOR.
 
-    A rasterio dtype like ``uint8`` does not say how many bits a sample
-    occupies: GDAL's ``IMAGE_STRUCTURE`` ``NBITS`` tag sub-byte-packs 1/2/4-bit
-    samples (common for LULC/palette rasters) or non-standard widths (e.g.
-    12/14-bit sensor data) into a wider dtype container. gdal_translate's
-    ``PREDICTOR=2``/``PREDICTOR=3`` creation options hard-refuse anything
-    outside {8, 16, 32, 64} bits -- ``ERROR 1: ... PREDICTOR=2 is only
-    supported with 8/16/32/64 bit samples`` -- which fails the whole COG
-    conversion (observed in production on an NBITS=4 LULC raster).
+    A rasterio dtype like ``uint8`` doesn't reveal a sub-byte NBITS pack
+    (1/2/4-bit LULC/palette rasters, or 12/14-bit sensor data): gdal_
+    translate's PREDICTOR=2/3 hard-refuses anything outside {8,16,32,64}
+    bits, failing the whole conversion (observed on an NBITS=4 raster).
 
-    The tag lives at the BAND level, not the dataset level: calling
-    ``src.tags(ns="IMAGE_STRUCTURE")`` with no band index returns only
-    ``INTERLEAVE`` for a packed source and never sees ``NBITS`` at all, so
-    every band is probed individually via
-    ``src.tags(band, ns="IMAGE_STRUCTURE")``. A source that declares no
-    NBITS on any band is trusted at its rasterio dtype, which is always one
-    of 8/16/32/64; this only disables the predictor when a band explicitly
-    declares a narrower one.
+    The tag lives at the BAND level — probed per band via
+    ``src.tags(band, ns="IMAGE_STRUCTURE")``, since the dataset-level call
+    never sees NBITS on a packed source.
 
-    Fails closed: a probe that cannot complete (unreadable file, unexpected
-    tag value) reports "not supported" rather than risk reproducing the
-    gdal_translate failure this exists to prevent -- the cost of a wrong
-    False here is a slightly larger COG, the cost of a wrong True is a
-    failed ingest job.
+    Fails closed: an incomplete probe reports "not supported" — a wrong
+    False costs a slightly larger COG, a wrong True costs a failed job.
     """
     import rasterio
 
@@ -593,16 +495,12 @@ def convert_to_cog(
 
     Adds overviews first via gdaladdo, then translates with COPY_SRC_OVERVIEWS.
 
-    ``assign_crs`` ASSIGNS an EPSG code to the output (``-a_srs``) — it
-    relabels the raster where it already sits and reprojects nothing
-    (fix(#1291); see the decision on that issue). ``resampling`` therefore
-    reaches ``gdaladdo`` and nothing else: it decides how overviews are
-    built, never what the base band contains.
+    ``assign_crs`` ASSIGNS an EPSG code (``-a_srs``) — relabels in place,
+    reprojects nothing (fix(#1291)); ``resampling`` only affects ``gdaladdo``
+    overviews, never the base band.
 
-    ``dtype`` alone is not enough to pick a PREDICTOR: see
-    ``_predictor_supported`` for why a low-bit-depth source (NBITS < 8, e.g.
-    LULC/palette rasters) must skip it or gdal_translate refuses to run at
-    all.
+    ``dtype`` alone isn't enough to pick a PREDICTOR: see
+    ``_predictor_supported``.
 
     Raises RuntimeError on failure.
     """
@@ -653,7 +551,7 @@ def convert_to_cog(
             # kind of flag, writing a tag while every band passes through.
             cmd.extend(["-a_srs", f"EPSG:{assign_crs}"])
         cmd.extend([tmp_path, output_path])
-        result = run_gdal(cmd, env=env, tool="gdal_translate")  # fix(#430 BA-29)
+        result = run_gdal(cmd, env=env, tool="gdal_translate")  # fix(#430)
         if result.returncode != 0:
             raise RuntimeError(f"gdal_translate failed: {result.stderr}")
     finally:

@@ -8,11 +8,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-# fix(#1778): one redactor for every log line that carries a request path. It
-# moved to core/ so the two 5xx handlers can use it too -- they logged the raw
-# path, so a 500 or an operational-DB 503 on a shared-map request wrote the
-# capability the access-log line beside it had just redacted. Re-exported here
-# because this is where callers and tests have always imported it from.
+# fix(#1778): one redactor for every log line carrying a request path,
+# moved to core/ so the two 5xx handlers (which logged the raw path) can
+# use it too. Re-exported here since callers/tests import it from here.
 from app.core.logging_config import safe_access_log_path
 from app.core.service_tokens import reset_registered_credential_secrets
 
@@ -26,11 +24,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         structlog.contextvars.clear_contextvars()
-        # fix(#1770 round 43 P2): the credential-secret registry is scoped to
-        # one request the same way these contextvars are, and for the same
-        # reason -- a re-used worker/API process must not let one request's
-        # registered secrets scrub (or fail to scrub, if reused as a stale
-        # bound) another's log lines.
+        # fix(#1770): the credential-secret registry is scoped to one
+        # request like these contextvars — a reused worker must not let
+        # one request's secrets scrub (or fail to scrub) another's logs.
         reset_registered_credential_secrets()
 
         request_id = str(uuid.uuid4())
@@ -39,25 +35,22 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         # ID without parsing client-supplied headers (RESILIENCE-9).
         request.state.request_id = request_id
 
-        # fix(#1778 codex r2): the moment the request entered the app, on the
-        # same clock a handler can compare against. A route that must answer
-        # inside the edge proxy's read timeout cannot start its own clock at
-        # its function body: FastAPI resolves that route's dependencies first,
-        # and one of those can block on a database pool checkout for as long
-        # as ``db_pool_timeout``. Stamped here, beside the request id and for
-        # the same reason, so the handler measures from where the proxy's own
-        # clock started rather than from where it got control.
+        # fix(#1778): stamped the moment the request entered the app, on
+        # the same clock a handler can compare against — a route with a
+        # proxy read-timeout budget can't start its own clock in the
+        # function body, since FastAPI resolves dependencies first (one
+        # can block on a DB pool checkout up to db_pool_timeout).
         #
-        # ``monotonic`` rather than ``perf_counter``: both are monotonic and
-        # both are ns-resolution here, and one read serves both the deadline
-        # below and the duration this middleware already logs.
+        # ``monotonic``, not ``perf_counter``: both are monotonic and
+        # ns-resolution here, and one read serves both the deadline and
+        # the duration this middleware logs.
         started_at = time.monotonic()
         request.state.started_at_monotonic = started_at
         response: Response | None = None
 
         try:
             response = await call_next(request)
-        except Exception:  # broad: middleware boundary — log any unhandled exception with request context, then re-raise
+        except Exception:  # broad: log any unhandled exception with request context
             structlog.stdlib.get_logger("api.error").exception("Unhandled exception")
             raise
         finally:

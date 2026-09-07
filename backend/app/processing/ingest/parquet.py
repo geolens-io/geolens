@@ -1,16 +1,15 @@
 """GeoParquet ingest reader/loader (pyarrow).
 
-The Debian GDAL build ships without the Arrow/Parquet driver, so ogrinfo /
-ogr2ogr cannot read ``.parquet`` uploads. This module is the ingest-side
-mirror of ``processing/export/parquet.py``: preview metadata comes straight
+The Debian GDAL build ships without the Arrow/Parquet driver, so ogrinfo/
+ogr2ogr cannot read ``.parquet`` uploads. Preview metadata comes straight
 from pyarrow, and the loader writes rows into PostGIS through the app's own
 connection, producing the same table shape ``run_ogr2ogr`` creates (``gid``
-serial PK, laundered lowercase column names, a ``_geolens_geom`` geometry
-column that ``ensure_geom_column`` later renames to ``geom``) so the rest of
-the ingest pipeline runs unchanged.
+serial PK, laundered lowercase column names, a ``_geolens_geom`` column
+``ensure_geom_column`` later renames to ``geom``) so the rest of the ingest
+pipeline runs unchanged.
 
-Supports GeoParquet 1.0/1.1 with WKB geometry encoding. Parquet files without
-``geo`` metadata ingest as non-spatial tables (same as a CSV without geometry).
+Supports GeoParquet 1.0/1.1 with WKB geometry encoding. Files without ``geo``
+metadata ingest as non-spatial tables (same as a CSV without geometry).
 """
 
 import asyncio
@@ -29,33 +28,15 @@ if TYPE_CHECKING:
 
 _INSERT_BATCH_ROWS = 5000
 
-# fix(#948): ingest budget for this path.
-#
-# The 500 MB upload cap is a weak proxy for how much work a parquet file
-# represents, because parquet compresses well — a densely compressed file just
-# under the ceiling can still expand into an arbitrarily large table. That
-# matters more here than on the ogr2ogr path: a runaway ogr2ogr is a subprocess
-# killed on a timer (OGR2OGR_FILE_TIMEOUT_SECONDS and friends in ogr.py), while
-# this loader runs in-process in the worker with no backstop of any kind.
-#
-# Both ceilings are checked from the file footer before a single row is
-# written, not from a running counter — parquet carries the row count in its
-# metadata, so an oversized file is rejected in milliseconds and no table is
-# created.
-#
-# Deliberately module constants rather than Settings fields: a Settings knob is
-# four surfaces (field, validation, .env.example, docs site) for a limit no
-# operator has asked to tune. #1013 establishes the pattern for promoting
-# ingest and analysis constants to settings if these ever need it.
-#
-# Rows: well above any real upload seen so far, low enough that hitting it is a
-# genuine signal. Cells bound the work better than rows alone, because a
-# 400-column file is a very different load from a 4-column one at the same row
-# count — at the row cap this permits 20 columns, and a wider table trips the
-# cell cap sooner, which is the intent. Cells count every column the loader
-# actually inserts, geometry included: the geometry column is skipped from
-# ``plan`` but is the single most expensive value per row, so leaving it out
-# would let the loader write more values than the ceiling advertises.
+# fix(#948): the 500 MB upload cap is a weak proxy for the work a parquet
+# file represents — it compresses well, and this loader runs in-process
+# with no subprocess timeout backstop (unlike ogr2ogr's
+# OGR2OGR_FILE_TIMEOUT_SECONDS) — so both ceilings are checked from the
+# file footer's row count before a single row is written. Cells (not just
+# rows) bound the work because a wide table trips the cap sooner at the
+# same row count; geometry counts as a cell despite being skipped from
+# ``plan``, since omitting it would understate the ceiling.
+# Module constants, not Settings fields: no operator has asked to tune this.
 _MAX_TOTAL_ROWS = 5_000_000
 _MAX_TOTAL_CELLS = 100_000_000
 
@@ -63,8 +44,7 @@ _MAX_TOTAL_CELLS = 100_000_000
 def _check_ingest_budget(num_rows: int, num_columns: int) -> None:
     """Reject a parquet file whose footer already says it is too big.
 
-    fix(#948). Raises ``IngestionError`` naming the limit and the observed
-    value, the same way the geometry-only guard fails.
+    Raises ``IngestionError`` naming the limit and the observed value.
     """
     from app.processing.ingest.ogr import IngestBudgetExceededError
 
@@ -107,11 +87,10 @@ def _geometry_column(geo: dict | None) -> tuple[str | None, dict]:
 def _srid_from_geo(col_meta: dict) -> int | None:
     """SRID from GeoParquet column metadata.
 
-    Per spec, an OMITTED ``crs`` key means OGC:CRS84 (= lon/lat 4326), but an
-    explicit ``"crs": null`` means the CRS is unknown/unassigned — those (and
-    any PROJJSON without a resolvable EPSG id) return None so the pipeline's
-    Missing-CRS / srid_override handling applies. fix(#541): the two cases
-    were previously conflated, silently projecting unknown CRS data as 4326.
+    fix(#541): an OMITTED ``crs`` key means OGC:CRS84 (4326); explicit
+    ``"crs": null`` means unknown/unassigned. Either that or a PROJJSON
+    without a resolvable EPSG id returns None so Missing-CRS/srid_override
+    handling applies.
     """
     if "crs" not in col_meta:  # omitted -> OGC:CRS84
         return 4326
@@ -191,7 +170,7 @@ def _pg_type(t: pa.DataType) -> str:
         return "boolean"
     if pa.types.is_integer(t):
         # signed <=32-bit fits integer; int64/uint32 fit bigint; uint64 can
-        # exceed bigint's max so it gets numeric (fix(#541 review)).
+        # exceed bigint's max so it gets numeric (fix(#541)).
         if pa.types.is_unsigned_integer(t) and t.bit_width == 64:
             return "numeric"
         return (
@@ -235,7 +214,7 @@ def _launder(name: str) -> str:
 def _wkb_has_z(wkb: bytes) -> bool:
     """Header-only Z sniff: EWKB Z flag or ISO type in the Z/ZM ranges.
 
-    Reads the 5-byte WKB header instead of a full shapely parse so a
+    Reads the 5-byte header instead of a full shapely parse, so a
     whole-column scan stays cheap.
     """
     if not wkb or len(wkb) < 5:
@@ -250,12 +229,10 @@ def _wkb_has_z(wkb: bytes) -> bool:
 def _geometry_has_z(pf: "pq.ParquetFile", geom_col: str, col_meta: dict) -> bool:
     """True when the geometry column carries Z values (blocking).
 
-    GeoParquet metadata declares 3D variants with a " Z" suffix in
-    ``geometry_types``; files with an empty list (e.g. our own exporter)
-    are scanned row-by-row, short-circuiting on the first Z, so a
-    late-file Z row can't slip past a 2D typmod (codex P2 round 3 on
-    #646). Costs one extra pass over the geometry column for undeclared
-    all-2D files.
+    fix(#646): GeoParquet metadata marks 3D variants with a " Z" suffix in
+    ``geometry_types``; an empty list (e.g. our own exporter) is scanned
+    row-by-row, short-circuiting on the first Z, so a late-file Z row can't
+    slip past a 2D typmod.
     """
     declared = [g for g in (col_meta.get("geometry_types") or []) if g]
     if declared:
@@ -268,8 +245,8 @@ def _geometry_has_z(pf: "pq.ParquetFile", geom_col: str, col_meta: dict) -> bool
 
 
 def _json_safe(v: Any) -> Any:
-    # fix(#543 review): NaN/Infinity would 500 the preview response —
-    # Starlette serializes JSON with allow_nan=False. Render them as null.
+    # fix(#543): NaN/Infinity would 500 the preview response — Starlette
+    # serializes JSON with allow_nan=False. Render them as null.
     if isinstance(v, float) and not math.isfinite(v):
         return None
     if v is None or isinstance(v, (bool, int, float, str)):
@@ -285,17 +262,11 @@ def _open_and_inspect(file_path: str) -> tuple[pq.ParquetFile, dict]:
     skip = {geom_col, _covering_column(geo, geom_col)} - {None}
 
     # fix(#948): the same footer gate the loader applies, here too — this
-    # function runs BEFORE it (tasks_vector calls run_ogrinfo ahead of
-    # run_ogr2ogr), and the geometry probe below iterates batches until it finds
-    # the first non-NULL WKB. On a file with millions of leading NULL
-    # geometries that is an unbounded scan, so gating only in the loader would
-    # leave the worker exposed on the path that actually runs first. It also
-    # means an over-limit upload is rejected at preview rather than after.
-    #
-    # The column count matches the loader's: _column_plan keeps exactly the
-    # non-skipped fields, plus geometry when it is inserted. The preview does
-    # not know include_geometry, so it assumes the geometry column is there,
-    # which is the conservative direction for a gate.
+    # runs BEFORE the loader (run_ogrinfo ahead of run_ogr2ogr), and the
+    # geometry probe below scans batches until the first non-NULL WKB,
+    # unbounded on a file with millions of leading NULLs. Column count
+    # assumes the geometry column is present (preview doesn't know
+    # include_geometry) — the conservative direction for a gate.
     _check_ingest_budget(
         pf.metadata.num_rows,
         sum(1 for f in pf.schema_arrow if f.name not in skip)
@@ -430,12 +401,11 @@ async def load_parquet_to_postgis(
     skip = {source_geom_col, _covering_column(geo, source_geom_col)}
     plan = _column_plan(pf.schema_arrow, skip)
 
-    # fix(#948): the budget gate goes HERE, before anything reads row data.
-    # _geometry_has_z below decodes the whole geometry column when the
-    # GeoParquet metadata does not declare geometry_types — which includes
-    # files this repo's own exporter writes — so a check placed after it would
-    # let an over-limit file monopolize the worker for a full scan before being
-    # rejected. Everything above this line is footer metadata only.
+    # fix(#948): budget gate goes HERE, before anything reads row data —
+    # _geometry_has_z below decodes the whole geometry column when
+    # geometry_types isn't declared (true of our own exporter's files), so
+    # a check placed after it would let an over-limit file monopolize the
+    # worker for a full scan first. Everything above is footer metadata only.
     _check_ingest_budget(
         pf.metadata.num_rows, len(plan) + (1 if geom_col is not None else 0)
     )

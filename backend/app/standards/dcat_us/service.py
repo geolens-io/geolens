@@ -47,13 +47,11 @@ def record_to_dcat_us3(
 ) -> dict:
     """Serialize a GeoLens dataset to the DCAT-US Schema v3.0 profile.
 
-    ``lineage_summary`` arrives access-checked from the caller
-    (``visible_lineage_summary``) rather than off the record — fix(#1103): an
-    analysis output's lineage names the titles of the datasets it was derived
-    from, and this feed is served to anonymous requesters.
-
-    ``app_base_url`` is the public APP base URL, where the raster tile
-    template is served — fix(#1469), see ``app.standards.distributions``.
+    ``lineage_summary`` arrives access-checked from the caller rather
+    than off the record — fix(#1103): an analysis output's lineage names
+    datasets an anonymous requester may not see. ``app_base_url`` is the
+    public APP base URL, where the raster tile template is served
+    (fix(#1469)).
     """
     record = dataset.record
     result: dict = {}

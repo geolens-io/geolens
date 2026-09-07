@@ -61,18 +61,13 @@ def init_edition(loaded_extensions: list[str]) -> None:
     """Initialize the edition from a signed license, with backward-compatible
     env/extension auto-detection.
 
-    Resolution order:
-
-    1. A **valid signed license** (``GEOLENS_LICENSE_KEY``) → enterprise. This
-       is the real entitlement and the only path that should grant enterprise
-       in production.
-    2. Else, if ``GEOLENS_LICENSE_ENFORCE`` is truthy (**strict mode**), the
-       instance is community regardless of ``GEOLENS_EDITION`` / loaded
-       extensions — the honor-system bypass is closed.
-    3. Else (**default, backward-compatible**): the legacy signal —
-       ``GEOLENS_EDITION`` override, else enterprise if any extension loaded.
-       A warning is logged when this grants enterprise without a license,
-       because strict mode will reject it.
+    Resolution order: (1) a valid signed license (``GEOLENS_LICENSE_KEY``) →
+    enterprise, the only path that should grant it in production; (2) else,
+    if ``GEOLENS_LICENSE_ENFORCE`` is truthy, community regardless of
+    ``GEOLENS_EDITION``/loaded extensions — closing the honor-system bypass;
+    (3) else the legacy signal — ``GEOLENS_EDITION`` override, else
+    enterprise if any extension loaded, logged as a warning since strict
+    mode would reject it.
     """
     global _info
 
@@ -150,49 +145,25 @@ def is_enterprise() -> bool:
 def check_enterprise_overlay_requested(loaded_extensions: list[str]) -> None:
     """Fail loudly when Enterprise is explicitly requested but the overlay is absent.
 
-    BUG-003 — The silent OSS fallback was the root of the problem: an operator
-    sets ``GEOLENS_EDITION=enterprise`` (or relies on the env var path), mounts
-    the enterprise directory, but the ``read_only: true`` rootfs prevents
-    ``uv add --editable`` from writing into the baked venv. The entrypoint
-    silently continues; ``load_extensions()`` finds no entry-points; the app
-    boots as community edition with no visible error. Operators believe they are
-    running Enterprise while they are on OSS.
+    BUG-003: the silent OSS fallback was the root cause — an operator sets
+    ``GEOLENS_EDITION=enterprise`` and mounts the enterprise directory, but a
+    read-only rootfs blocks ``uv add --editable`` from installing it into
+    the baked venv; the entrypoint continues silently and the app boots as
+    community with no visible error. Called from the app lifespan after
+    ``load_extensions()``, so this checks operator intent alone — it
+    ignores ``GEOLENS_LICENSE_ENFORCE`` and license state, which decide the
+    final edition separately.
 
-    This check is called from the app lifespan *after* ``load_extensions()``
-    so the full set of loaded extensions is known before the check runs.
-
-    Resolution order (checked in priority):
-    1. No ``GEOLENS_EDITION`` env var set → default OSS → no error (silent, healthy).
-    2. ``GEOLENS_EDITION=community`` explicitly → no error.
-    3. ``GEOLENS_EDITION=enterprise`` → overlay MUST be loaded (non-empty
-       ``loaded_extensions``); if not, raise ``RuntimeError`` so the process
-       exits non-zero and the container scheduler marks the pod as failed
-       instead of silently serving community features.
-
-    The check intentionally ignores ``GEOLENS_LICENSE_ENFORCE`` and the license
-    path — those affect *which* edition is the *final* edition; this check fires
-    on the *operator intent signal* alone, before edition resolution.
-
-    Args:
-        loaded_extensions: The list of extension names discovered by
-            ``load_extensions()`` via the ``geolens.extensions`` entry-point
-            group. An empty list means no overlay package registered itself.
-
-    Raises:
-        RuntimeError: When Enterprise is explicitly requested via
-            ``GEOLENS_EDITION=enterprise`` but no overlay extension is loaded.
-            The correct remedy is to use the overlay repository's immutable
-            image build rather than attempting a runtime ``uv add`` under a
-            read-only rootfs.
+    Raises ``RuntimeError`` when ``GEOLENS_EDITION=enterprise`` but
+    ``loaded_extensions`` is empty; the remedy is the overlay repo's
+    immutable image build, not a runtime ``uv add`` under read-only rootfs.
     """
     env_val = _requested_edition()
 
     if env_val != "enterprise":
-        # Not explicitly requesting enterprise — OSS default or community explicit.
         return
 
     if loaded_extensions:
-        # Enterprise requested and at least one overlay extension is registered.
         return
 
     raise RuntimeError(
@@ -211,28 +182,14 @@ def check_tenancy_mode_supported(loaded_extensions: list[str]) -> None:
     """GUARD-01 edition-half: fail loudly when GEOLENS_TENANCY_MODE=multi_tenant
     but no tenancy-providing overlay is loaded.
 
-    Phase 1207 surface: a multi_tenant deploy without any overlay extension
-    registered means the isolation layer (1208 RLS + session GUC) cannot be
-    present. Boot must be refused — serving requests in multi_tenant mode
-    without the isolation layer is an elevation-of-privilege risk (T-1207-06).
+    Phase 1207: multi_tenant without an overlay means the isolation layer
+    (RLS + session GUC, Phase 1208) cannot be present — serving requests
+    without it is an elevation-of-privilege risk (T-1207-06). The full
+    RLS-present assertion is deferred to Phase 1208; this check is
+    minimal-but-correct for Phase 1207's surface.
 
-    Resolution order:
-    1. GEOLENS_TENANCY_MODE unset or ``single_tenant`` → no-op (safe default).
-    2. GEOLENS_TENANCY_MODE=``multi_tenant`` + at least one overlay loaded
-       → passes (the overlay is expected to provide the isolation layer
-       in Phase 1208).
-    3. GEOLENS_TENANCY_MODE=``multi_tenant`` + no overlays → ``RuntimeError``.
-
-    The full RLS-present assertion (confirming the overlay actually registered
-    a tenancy layer) is deferred to Phase 1208. This check is minimal-but-
-    correct for Phase 1207's surface.
-
-    Args:
-        loaded_extensions: Extension names discovered by ``load_extensions()``.
-
-    Raises:
-        RuntimeError: When multi_tenant mode is configured but no overlay is
-            loaded — the isolation layer cannot be present without an overlay.
+    Raises ``RuntimeError`` when multi_tenant mode is set but
+    ``loaded_extensions`` is empty.
 
     References: GUARD-01, TSEAM-03, T-1207-06
     """
@@ -244,12 +201,9 @@ def check_tenancy_mode_supported(loaded_extensions: list[str]) -> None:
     mode_val = (raw_mode or "").lower().strip()
 
     if mode_val != "multi_tenant":
-        # Not requesting multi_tenant — single_tenant default or not set.
         return
 
     if loaded_extensions:
-        # At least one overlay is registered; defer the RLS-layer assertion
-        # to Phase 1208 where the full tenancy isolation gate is enforced.
         return
 
     raise RuntimeError(

@@ -1,8 +1,8 @@
 """Dataset-scoped chat system prompt (dataset-chat v1).
 
-Sub-module of the chat_service facade (Phase 276 CODE-02 pattern): external
-callers import ``build_dataset_chat_system_prompt`` via
-``app.processing.ai.chat_service``, never from here.
+Sub-module of the chat_service facade: external callers import
+``build_dataset_chat_system_prompt`` via ``app.processing.ai.chat_service``,
+never from here.
 """
 
 from app.processing.ai.chat_constants import (

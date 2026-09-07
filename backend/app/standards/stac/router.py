@@ -129,7 +129,6 @@ def _published_raster_filters():
 
 
 def _unassigned_dataset_filter():
-    """Match datasets without changing their core Collection relationships."""
     return Dataset.id.not_in(select(CollectionDataset.dataset_id))
 
 
@@ -204,7 +203,6 @@ def _parse_extent_row(
 
 
 def _collapse_licenses(values: list[str | None] | None) -> str | None:
-    """Collapse member-record licenses into one STAC Collection license."""
     licenses = {v for v in (values or []) if v}
     if not licenses:
         return None
@@ -247,7 +245,7 @@ async def _fetch_raster_meta(
     return await get_catalog_port().fetch_raster_meta_bulk_without_vrt(db, dataset_ids)
 
 
-# fix(#1108 review): sentinel distinguishing "the page loop did not precompute
+# fix(#1108): sentinel distinguishing "the page loop did not precompute
 # lineage" from a precomputed None (a record with no lineage at all).
 _LINEAGE_UNRESOLVED: Any = object()
 
@@ -293,7 +291,7 @@ async def _dataset_to_stac_item(
         # fix(#1103): the prose names the same datasets the derived_from link
         # below points at, and is gated the same way — per requester, on each
         # referenced dataset rather than on the output they can already see.
-        # fix(#1108 review): page loops precompute the whole page through
+        # fix(#1108): page loops precompute the whole page through
         # visible_lineage_summaries (one query per page, mirroring PERF-5's
         # spatial_extent_geojson); only single-item callers resolve here.
         lineage_summary=(
@@ -492,7 +490,6 @@ async def _has_unassigned_items(
 
 
 def _collection_membership_filter(collection_uuid: uuid.UUID):
-    """Match datasets belonging to a stored Collection."""
     return Dataset.id.in_(
         select(CollectionDataset.dataset_id).where(
             CollectionDataset.collection_id == collection_uuid
@@ -649,14 +646,14 @@ async def conformance() -> StacConformance:
 async def get_collections(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    # fix(#430 codex): no-schema variant keeps this public endpoint anonymous in
+    # fix(#430): no-schema variant keeps this public endpoint anonymous in
     # the OpenAPI surface — the plain optional dep stamped bearer security here,
     # narrowing the generated SDK clients to AuthenticatedClient.
     user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCollectionListResponse:
     """List all STAC Collections."""
     stac_api_url, _ = await _resolve_urls(db, request)
-    # fix(#430 BA-05): aggregate extent/keyword/EPSG summaries must exclude
+    # fix(#430): aggregate extent/keyword/EPSG summaries must exclude
     # private-but-published rasters, matching the item-body visibility gate.
     user_roles = await _resolve_roles(db, user)
 
@@ -664,17 +661,17 @@ async def get_collections(
     coll_result = await db.execute(select(Collection))
     collections = coll_result.scalars().all()
 
-    # fix(#1778): these four aggregates used to asyncio.gather with each
-    # branch opening its own async_session() -- a nested pool checkout on
-    # top of the connection this request already holds via `db` (get_db
-    # never commits on the read path, so that connection stays checked out
-    # for the whole request). 5 checkouts per anonymous, uncached request
-    # exhausts the default 13-connection pool at 3 concurrent requests. Run
-    # them sequentially on the caller's own session instead, the same trade
-    # made in service_query.py's dataset-detail fetch (fix #1436 codex
-    # review): these are grouped-aggregate queries over the same joined
-    # set, so the wall-clock cost of sequencing them is negligible next to
-    # that risk, and unlike dataset-detail this endpoint is anonymous.
+    # fix(#1778): these four aggregates used to asyncio.gather, each branch
+    # opening its own async_session() — a nested pool checkout on top of
+    # the connection this request already holds via `db` (get_db never
+    # commits on the read path, so it stays checked out for the whole
+    # request). 5 checkouts per anonymous, uncached request exhausts the
+    # default 13-connection pool at 3 concurrent requests. Run them
+    # sequentially on the caller's own session instead, the same trade
+    # made in service_query.py's dataset-detail fetch (#1436): these are
+    # grouped-aggregate queries over the same joined set, so sequencing's
+    # wall-clock cost is negligible next to that risk, and unlike
+    # dataset-detail this endpoint is anonymous.
 
     async def _fetch_extents() -> dict[str, tuple]:
         extent_stmt = (
@@ -834,12 +831,12 @@ async def get_collection(
     collection_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    # fix(#430 codex): no-schema variant — see get_collections above.
+    # fix(#430): no-schema variant — see get_collections above.
     user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCollection:
     """Get a single STAC Collection."""
     stac_api_url, _ = await _resolve_urls(db, request)
-    # fix(#430 BA-05): scope aggregate summaries to visible rasters.
+    # fix(#430): scope aggregate summaries to visible rasters.
     user_roles = await _resolve_roles(db, user)
 
     is_unassigned = collection_id == STAC_UNASSIGNED_COLLECTION_ID
@@ -1009,7 +1006,7 @@ async def get_collection_items(
     # limit actually served.
     limit = min(limit, _STAC_MAX_LIMIT)
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    # fix(#315): raster_tiles assets are served at the public APP origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1083,7 +1080,7 @@ async def get_collection_items(
         _assets(), _raster(), _extents()
     )
 
-    # fix(#1108 review): lineage visibility for the whole page in one query
+    # fix(#1108): lineage visibility for the whole page in one query
     # instead of one visible_lineage_summary round trip per item.
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
@@ -1221,7 +1218,7 @@ async def get_collection_item(
 ) -> JSONResponse:
     """Get a single STAC Item within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    # fix(#315): raster_tiles assets are served at the public APP origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1268,7 +1265,7 @@ async def get_item(
 ) -> JSONResponse:
     """Get a single STAC Item by dataset ID."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    # fix(#315): raster_tiles assets are served at the public APP origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1583,7 +1580,7 @@ async def _execute_search(
         _assets(), _raster(), _coll_membership()
     )
 
-    # fix(#1108 review): lineage visibility for the whole page in one query
+    # fix(#1108): lineage visibility for the whole page in one query
     # instead of one visible_lineage_summary round trip per item.
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
@@ -1679,7 +1676,7 @@ async def search_get(
 ) -> JSONResponse:
     """STAC Item Search (GET)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    # fix(#315): raster_tiles assets are served at the public APP origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
     return await _execute_search(
@@ -1725,7 +1722,7 @@ class StacSearchBody(BaseModel):
     limit: int = Field(
         default=10,
         ge=1,
-        # WR-01 (Phase 1071 review) aligned GET/POST ceilings at le=200; the
+        # WR-01 (Phase 1071) aligned GET/POST ceilings at le=200; the
         # STAC hardening pass replaces the hard bound with clamping on all three
         # item-returning handlers — the Item Search spec (and stac-api-validator)
         # requires over-limit values to be clamped to the server maximum, not
@@ -1772,7 +1769,7 @@ async def search_post(
 ) -> JSONResponse:
     """STAC Item Search (POST with JSON body)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    # fix(#315): raster_tiles assets are served at the public APP origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1814,29 +1811,28 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     datetime_str = _validate_stac_datetime(datetime_str.strip())
     start, end = parse_ogc_datetime(datetime_str)
 
-    # fix(#430 BA-13): admit null-temporal records — dataset_to_ogc_record advertises
-    # datetime=created_at for them, so filter them by that SAME fallback instant.
-    # fix(#430 codex): unconditional NULL inclusion returned every null-temporal
-    # record for any datetime filter (e.g. datetime=1900-01-01 matched a record
-    # created in 2026); compare created_at against the requested bounds instead.
-    # parse_ogc_datetime truncates to whole DAYS, so created_at comparisons are
-    # day-granular: a bound day includes any created_at within that day
-    # (fix #430 codex round 2 — `created_at == start` only matched exact midnight).
+    # fix(#430): admit null-temporal records — dataset_to_ogc_record
+    # advertises datetime=created_at for them, so filter by that same
+    # fallback instant, comparing created_at against the requested bounds
+    # rather than unconditionally including every null-temporal record
+    # (which matched any datetime filter regardless of date).
+    # parse_ogc_datetime truncates to whole DAYS, so created_at comparisons
+    # are day-granular: a bound day includes any created_at within it
+    # (`created_at == start` alone only matched exact midnight).
     null_temporal = Record.temporal_start.is_(None) & Record.temporal_end.is_(None)
     if "/" in datetime_str:
         if start is not None:
             stmt = stmt.where(
                 (Record.temporal_end >= start)
                 # fix(#1778): a record with temporal_start set and
-                # temporal_end NULL (an open-ended/ongoing extent) fell
-                # through every arm here -- temporal_end >= start reads
-                # NULL, temporal_start >= start is false for any start in
-                # the past, and null_temporal is false since temporal_start
-                # IS set. The single-instant branch below already treats a
-                # NULL temporal_end as open (its range_contains OR-arm), so
-                # an interval query for a later instant matched fewer
-                # records than the instant alone. Mirror the end-bound
-                # clause's own open-start arm below, symmetrically.
+                # temporal_end NULL (open-ended/ongoing) fell through every
+                # arm here — temporal_end >= start reads NULL,
+                # temporal_start >= start is false for a past start, and
+                # null_temporal is false since temporal_start IS set. The
+                # single-instant branch already treats NULL temporal_end as
+                # open, so an interval query matched fewer records than the
+                # instant alone. Mirror the end-bound clause's open-start
+                # arm below, symmetrically.
                 | (Record.temporal_end.is_(None) & Record.temporal_start.isnot(None))
                 | (Record.temporal_start >= start)
                 | (null_temporal & (Record.created_at >= start))

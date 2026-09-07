@@ -1,13 +1,11 @@
 """Community-edition default implementations of extension protocols.
 
-Facade module (#836): the former 1,815-line single module is split by job into
-``defaults_extensions.py`` (extension-seam policy defaults),
-``defaults_processing_port.py`` (ProcessingPort), ``defaults_catalog_port.py``
-(CatalogPort), and ``defaults_ai_anthropic.py`` / ``defaults_ai_openai.py``
-(AI providers). External code — core, overlays, and tests — imports every
-``Default*`` name from THIS module; the sub-modules are private to the split
-(mirrors the ``datasets/domain/service.py`` facade convention enforced by
-``backend/tests/test_layering.py``).
+Facade module (#836): split by job into ``defaults_extensions.py``,
+``defaults_processing_port.py``, ``defaults_catalog_port.py``, and
+``defaults_ai_anthropic.py`` / ``defaults_ai_openai.py``. External code
+imports every ``Default*`` name from THIS module; the sub-modules are
+private (mirrors the ``datasets/domain/service.py`` facade convention
+enforced by ``backend/tests/test_layering.py``).
 
 Every re-exported name MUST be listed in ``__all__`` — ruff treats a facade
 import without an ``__all__`` entry as unused and deletes it under ``--fix``.
@@ -15,10 +13,8 @@ import without an ``__all__`` entry as unused and deletes it under ``--fix``.
 
 from __future__ import annotations
 
-# fix(#873 review r4): pre-#836, defaults.py imported these two helpers at
-# module scope, which made them incidentally importable from this path. The
-# canonical homes are unchanged; the redundant-alias re-exports keep the
-# pre-split import surface intact for any out-of-tree caller.
+# fix(#873): re-export as redundant aliases to keep the pre-split import
+# surface intact for out-of-tree callers that relied on it incidentally.
 from app.core.db.tenant_session import (
     defer_async_with_tenant as defer_async_with_tenant,
 )
@@ -63,9 +59,8 @@ __all__ = [
     "DefaultPermissionExtension",
     "DefaultProcessingPort",
     "DefaultWorkflowExtension",
-    # fix(#873 review r5): the pre-split module had no __all__, so a wildcard
-    # import exported the two incidental helper bindings too — they must stay
-    # wildcard-visible, not just directly importable.
+    # fix(#873): keep these two helper bindings wildcard-visible too, not
+    # just directly importable.
     "defer_async_with_tenant",
     "model_safe_tool_result",
 ]

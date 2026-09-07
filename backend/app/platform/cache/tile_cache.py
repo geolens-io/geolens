@@ -1,35 +1,25 @@
 """Binary tile cache: Redis-backed primary + in-memory LRU fallback.
 
-Stores gzip-compressed MVT tile bytes with configurable TTL.
-
-The primary path uses ``decode_responses=False`` for binary-safe storage
-(unlike the main RedisCacheProvider which uses JSON serialization).
-Graceful degradation: all Redis errors are caught and logged, never
+Stores gzip-compressed MVT tile bytes with configurable TTL, using
+``decode_responses=False`` for binary-safe storage (unlike the JSON-based
+RedisCacheProvider). All Redis errors are caught and logged, never
 propagated to callers.
 
-PERF-01 (Phase 274): when ``REDIS_URL`` is unset (zero-config or
-single-VPS deployment shape) ``InMemoryTileCacheProvider`` provides a
-bounded LRU fallback so tile responses still get cached. Capacity is
-sized at ~50k entries (~200MB at ~4KB / MVT tile) and TTL semantics
-match Redis (default 300s, per-call override accepted).
+PERF-01: when ``REDIS_URL`` is unset, ``InMemoryTileCacheProvider`` gives a
+bounded LRU fallback (~50k entries, ~200MB at ~4KB/tile) with matching TTL
+semantics (default 300s, per-call override).
 
-PERF-11 (Phase 274): the hit/miss counters carry a ``table_name`` label
-so per-dataset cache hit ratios are observable in Prometheus.
-Cardinality is bounded by ``_safe_label`` — any table identifier that
-does not match the documented ``data.*`` shape (lowercase, starts with
-a letter, ``[a-z0-9_]`` only, max 63 chars) is collapsed to the literal
-``"_other"`` so a malicious or unexpected caller cannot explode the
-metric label set.
+PERF-11: hit/miss counters carry a ``table_name`` label; ``_safe_label``
+bounds cardinality by collapsing anything not matching the documented
+``data.*`` shape to ``"_other"``.
 
-fix(#1429): the ``table`` argument is the tile router's composite table
-segment, not a bare table name. It carries the tenant id, the dataset id
-that makes a reused table name safe, and the cluster parameters, so it
-never matches ``_safe_label``'s shape — deriving the metric label from it
-collapsed every request to ``"_other"``. Readers now pass the bare table
-name as ``label``; ``_safe_label`` still bounds it, so an unexpected value
-cannot explode the label set. Invalidation is unaffected: the dataset id
-sits AFTER the table segment, so ``tile:{table}:*`` still matches every
-key for a table regardless of which dataset wrote it.
+fix(#1429): the ``table`` argument is the tile router's composite segment
+(tenant id, dataset id, cluster params) and never matches ``_safe_label``'s
+shape, so deriving the metric label from it collapsed everything to
+``"_other"``. Readers now pass the bare table name separately as ``label``.
+Invalidation is unaffected: the dataset id sits AFTER the table segment, so
+``tile:{table}:*`` still matches every key for a table regardless of which
+dataset wrote it.
 """
 
 import re
@@ -42,9 +32,7 @@ from prometheus_client import Counter
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# PERF-11 (Phase 274): per-table cache observability. Cardinality
-# protection: callers passing a table name not matching
-# _SAFE_TABLE_RE get the literal "_other" label (see _safe_label).
+# PERF-11: per-table cache observability (cardinality bounded by _safe_label).
 tile_cache_hits = Counter(
     "geolens_tile_cache_hits_total",
     "Total tile cache hits",
@@ -63,11 +51,9 @@ _SAFE_TABLE_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 
 def _safe_label(table: str) -> str:
-    """Bound Prometheus label cardinality (PERF-11).
-
-    Returns ``table`` if it matches the documented dataset table shape,
-    otherwise ``"_other"`` so an unsanitized identifier cannot pollute
-    the Prometheus label index.
+    """Bound Prometheus label cardinality (PERF-11): ``table`` if it matches
+    the documented dataset-table shape, else ``"_other"`` so an unsanitized
+    identifier can't pollute the Prometheus label index.
     """
     return table if _SAFE_TABLE_RE.match(table) else "_other"
 
@@ -107,13 +93,9 @@ class TileCacheProvider:
     ) -> bytes | None:
         """Return cached tile bytes or None on miss/error.
 
-        `cols_key` differentiates tiles for the same table/z/x/y but with
-        different additional column projections (data-driven styling).
-        Empty string preserves the original cache key shape for callers
-        that don't pass additional columns.
-
-        `label` is the bare table name for the PERF-11 metric; see
-        ``_safe_label``.
+        `cols_key` differentiates tiles for the same table/z/x/y with
+        different column projections; empty string preserves the original
+        key shape. `label` is the bare table name for the PERF-11 metric.
         """
         suffix = f":{cols_key}" if cols_key else ""
         key = f"tile:{table}:{z}:{x}:{y}{suffix}"
@@ -154,10 +136,8 @@ class TileCacheProvider:
     async def invalidate_table(self, table: str) -> None:
         """Delete all cached tiles for a table. Silent on failure.
 
-        In multi-tenant mode the tile router prefixes the table segment with
-        the tenant UUID. Invalidation uses that exact active-tenant prefix;
-        scanning ``tile:*:{table}:*`` would let one tenant evict every other
-        tenant's same-named dataset and create a noisy-neighbor channel.
+        Uses the exact active-tenant prefix; scanning ``tile:*:{table}:*``
+        would let one tenant evict another's same-named dataset.
         """
         try:
             scoped_table = _invalidation_table_segment(table)
@@ -179,24 +159,16 @@ class TileCacheProvider:
 class InMemoryTileCacheProvider:
     """In-memory LRU fallback for tile cache when REDIS_URL is unset.
 
-    PERF-01 (Phase 274): bounded LRU + per-entry TTL so smaller
-    single-VPS deployments get tile-cache benefits without running
-    Redis. Capacity sized at ~50k entries (~200MB at ~4KB / tile).
+    Bounded LRU + per-entry TTL (~50k entries, ~200MB at ~4KB/tile).
+    Interface matches ``TileCacheProvider`` -- same async
+    ``get/set/invalidate_table`` signatures, so callers need zero changes.
 
-    Interface is identical to ``TileCacheProvider`` so callers in
-    ``processing/tiles/router.py`` and ``modules/catalog/features/router.py``
-    need zero changes — both providers expose the same async
-    ``get/set/invalidate_table`` signatures.
-
-    TTL semantics: ``cachetools`` does not natively support per-key TTL
-    in ``LRUCache`` (and ``TTLCache`` only supports a single global TTL),
-    so we store ``(value, expires_at_monotonic)`` tuples and check
-    expiry on read. The cache itself bounds memory via ``maxsize``
-    eviction; expired entries are dropped lazily on next access.
+    ``cachetools`` has no per-key TTL (``TTLCache`` is one global TTL), so
+    entries are stored as ``(value, expires_at_monotonic)`` and checked on
+    read; ``maxsize`` bounds memory, expired entries drop lazily.
     """
 
     def __init__(self, max_entries: int = 50_000) -> None:
-        # Stores (data: bytes, expires_at_monotonic: float) tuples.
         self._cache: LRUCache[str, tuple[bytes, float]] = LRUCache(maxsize=max_entries)
 
     async def get(
@@ -218,7 +190,6 @@ class InMemoryTileCacheProvider:
             return None
         data, expires_at = entry
         if time.monotonic() > expires_at:
-            # Expired — drop and report miss
             self._cache.pop(key, None)
             tile_cache_misses.labels(table_name=label).inc()
             return None

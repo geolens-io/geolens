@@ -33,14 +33,11 @@ _MAX_COLUMNS = 50
 # Simple TTL cache for schema context (avoids rebuilding identical DDL across
 # consecutive chat turns when layers haven't changed).
 #
-# PERF-04 (Phase 274) + Pitfall #5 anchor (v1030 Phase 1135 AI-04): the cache
-# key is partitioned by (map_id, content_hash) so two different maps that
-# share an identical layer signature (e.g. both referencing the same Natural
-# Earth dataset) get independent cache entries. Without the map_id partition,
-# one map's prompt-context edits could be served back to a different map on
-# the next chat turn. Do NOT shortcut to a dataset_id-only key — the
-# (map_id, content_hash) tuple is load-bearing across multi-map chat sessions
-# and must NOT be relaxed without a Future Requirement entry first.
+# The key is partitioned by (map_id, content_hash) so two different maps
+# sharing an identical layer signature (e.g. both referencing the same
+# Natural Earth dataset) get independent entries -- without the map_id
+# partition, one map's prompt-context edits could be served back to a
+# different map on the next turn. Do NOT shortcut to a dataset_id-only key.
 _schema_cache: dict[tuple[str, str], tuple[float, str]] = {}
 _SCHEMA_CACHE_TTL = 60.0  # seconds
 _SCHEMA_CACHE_MAX = 64  # bounded so unbounded map_ids don't grow memory
@@ -51,9 +48,9 @@ def _schema_cache_key(
 ) -> tuple[str, str]:
     """Build a deterministic cache key partitioned by (map_id, content_hash).
 
-    PERF-04 (Phase 274) + Pitfall #5 (v1030 Phase 1135 AI-04): adding map_id
-    prevents cross-map cache pollution when two different maps reference the
-    same dataset. The (map_id, content_hash) tuple shape is load-bearing —
+    Adding map_id prevents cross-map cache pollution when two different maps
+    reference the same dataset. The (map_id, content_hash) tuple shape is
+    load-bearing —
     do NOT shortcut to (dataset_id,) only. Cache entries evict on either the
     60s TTL or when len(_schema_cache) >= _SCHEMA_CACHE_MAX.
     """
@@ -77,15 +74,13 @@ def build_sql_schema_context(
 ) -> str:
     """Build DDL schema context from map layers for the SQL generation LLM.
 
-    For each layer, generates a CREATE TABLE statement with column definitions
-    and metadata comments about geometry type and the geometry column.
-    Results are cached for 60s per (map_id, schema_content_hash) to avoid
+    Generates a CREATE TABLE statement per layer with column definitions and
+    geometry metadata. Cached 60s per (map_id, schema_content_hash) to avoid
     rebuilding identical DDL across consecutive chat turns.
 
     Args:
-        layers: List of ChatMapLayer objects from the frontend.
-        map_id: Active map identifier (PERF-04 partition key). When omitted
-            (e.g. unit tests / scripts), a sentinel partition is used.
+        map_id: partition key. When omitted (unit tests/scripts), a
+            sentinel partition is used.
 
     Returns:
         DDL string with all table definitions separated by blank lines.
@@ -165,13 +160,10 @@ def build_sql_user_message(
 ) -> str:
     """Build the per-call (dynamic) user message for the SQL generation call.
 
-    fix(#448): the schema DDL and the question used to be interpolated into
-    the SYSTEM prompt together with the ~3K-token static PostGIS reference,
-    so the Anthropic cache_control breakpoint never saw a stable prefix —
-    every query_data call paid a full cache miss on the app's largest prompt,
-    and the question was billed twice (it was also sent as the user message).
-    Static reference lives in SQL_SYSTEM_PROMPT (cacheable); everything
-    per-call goes here.
+    fix(#448): static reference lives in SQL_SYSTEM_PROMPT (cacheable);
+    everything per-call goes here, so the Anthropic cache_control breakpoint
+    sees a stable prefix and query_data avoids a full cache miss (and a
+    double-billed question) on every call.
     """
     layer_context = ""
     if layer_descriptions:
@@ -194,32 +186,17 @@ Respond with ONLY the SQL query (or an -- ERROR comment if the query cannot be g
 
 
 # fix(#935): the prompt must never hand-write a metric buffer. The bare
-# ``ST_Buffer(geom::geography, N)::geometry`` form silently degrades for
-# inputs spanning >= 6 degrees of longitude (PostGIS projects the whole input
-# into ONE planar SRID, falling back to world Mercator at a 45 degree span,
-# error 1/cos(latitude)) and produces corrupt geometry for buffers crossing
-# the antimeridian. The real analysis path fixed both (#883, #900, #902) in
-# ``render_geodesic_buffer``; the prompt previously restated the SQL as prose
-# in four places and inherited neither fix.
+# ``ST_Buffer(geom::geography, N)::geometry`` form silently degrades past
+# 6 degrees of longitude (world Mercator fallback, error 1/cos(latitude))
+# and corrupts geometry crossing the antimeridian; ``render_geodesic_buffer``
+# fixes both (#883, #900, #902).
 #
-# fix(#935) embedded ``render_geodesic_buffer``'s rendered output here at
-# import time, twice, and told the model to copy it: a 3 017-character
-# ``<GEOM>``/``<METERS>`` template plus a 3 073-character worked example, so
-# 6 090 of the prompt's 16 786 characters were rendered buffer. fix(#1589)
-# took both back out — the light model reproduced them correctly about half
-# the time, and six of nine nightly eval runs failed on a dropped parenthesis
-# or a paraphrase back to the bare form. The prompt is 11 595 characters now.
-# It teaches a marker, ``geolens_buffer(<geom>, <metres>)``, and
-# ``buffer_marker.expand_buffer_markers`` renders the real expression at the
-# tail of ``generate_sql`` before anything else sees the SQL.
-#
-# The anti-drift property #935 bought survives the change and is in fact
-# stronger: the prompt no longer states the expression at all, so there is
-# nothing left to drift. ``tests/test_ai_sql_prompt_935.py`` pins that the
-# expression is gone, that the marker is taught, and that the prompt's worked
-# example still expands into something the sandbox admits. The one import from
-# ``analysis_sql`` that remains is ``MAX_BUFFER_METERS``, so the distance
-# ceiling the prompt quotes is the one the expander enforces.
+# fix(#1589): the prompt teaches only a marker, ``geolens_buffer(<geom>,
+# <metres>)``; ``buffer_marker.expand_buffer_markers`` renders the real
+# expression before anything else sees the SQL, so it never drifts from
+# prose. The only import kept from ``analysis_sql`` is
+# ``MAX_BUFFER_METERS``, so the ceiling the prompt quotes is the one the
+# expander enforces.
 _MAX_BUFFER_METERS_TEXT = f"{MAX_BUFFER_METERS:.0f}"
 
 SQL_SYSTEM_PROMPT = f"""\
@@ -448,26 +425,19 @@ async def generate_sql(
 ) -> str:
     """Generate SQL from a natural language question using the configured LLM.
 
-    Makes a single LLM API call with the SQL generation prompt and extracts
-    the raw SQL from the response. Strips markdown code fences if present.
+    Single LLM call; strips markdown code fences from the response if present.
 
     Args:
-        db: Database session for reading persistent config.
-        question: The user's natural language question.
         schema_context: DDL schema context from build_sql_schema_context().
-        layer_descriptions: Optional one-line-per-layer summary appended to
-            the prompt for additional context.
-        user_id: Optional user UUID — when provided, the per-call input/output
-            token counts are persisted with subsystem="sql_gen" so SQL
-            generation cost can be attributed separately from the parent
-            chat loop's "chat" / "chat_stream" rows.
+        user_id: when provided, persists per-call token counts under
+            subsystem="sql_gen" so SQL generation cost is attributed
+            separately from the parent chat loop's "chat"/"chat_stream" rows.
 
     Returns:
         Raw SQL string ready for sandbox validation and execution.
 
     Raises:
-        ValueError: If the LLM provider is not configured or unknown.
-        Exception: LLM API errors propagate to the caller.
+        ValueError: if the LLM provider is not configured or unknown.
     """
     provider = await LLM_PROVIDER.get(db)
     model = await LLM_MODEL_LIGHT.get(db)
@@ -485,14 +455,14 @@ async def generate_sql(
         question=question,
     )
 
-    # Pull base_url from the provider's own runtime config (REVIEW.md WR-02)
-    # so future overlays receive provider-correct values instead of an
+    # Pull base_url from the provider's own runtime config so future
+    # overlays receive provider-correct values instead of an
     # OpenAI-shaped URL leaking into Anthropic-keyed providers.
     provider_ext = get_ai_provider(provider)
     runtime_config = await provider_ext.resolve_runtime_config(db)
     base_url = runtime_config.get("base_url")
 
-    # fix(#1778 round 2): a single-round call still spends a round. Same
+    # fix(#1778): a single-round call still spends a round. Same
     # accounting shape as the tool loops, so the structural gate does not
     # have to carve out an exception it would then have to justify.
     async with usage_accounting(db, user_id=user_id, subsystem="sql_gen", model=model):

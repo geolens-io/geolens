@@ -12,13 +12,12 @@ from app.core.async_io import run_in_thread_draining
 from app.platform.storage.provider import StoredObject
 
 
-# Chunk size for streaming reads (ING-03 / P2-03). 1 MiB is large enough to
-# amortize syscall overhead but small enough that worst-case resident memory
-# per concurrent download stays bounded.
+# Chunk size for streaming reads (ING-03/P2-03): balances syscall overhead
+# against per-download resident memory.
 _STREAM_CHUNK_BYTES = 1024 * 1024  # 1 MiB
 
-# Page size for ``iter_object_pages``. Matches the ListObjectsV2 default so a
-# consumer's per-page budget behaves the same on every backend (feat #1249).
+# Matches the ListObjectsV2 default so a consumer's per-page budget behaves
+# the same on every backend (feat #1249).
 _OBJECT_PAGE_SIZE = 1000
 
 
@@ -32,16 +31,9 @@ class LocalStorageProvider:
     def _resolve_contained(self, key: str) -> Path:
         """Return the resolved path for *key*, asserting it stays inside base_dir.
 
-        Rejects:
-        - Absolute keys (``/etc/passwd``).
-        - Keys containing a null byte (``foo\\x00bar``).
-        - Path-traversal sequences that escape base_dir (``../../etc/passwd``).
-
-        Raises ``ValueError`` for any rejected key.  The caller should map this
-        to a 400/403 HTTP response; the storage layer never reaches the
-        filesystem for disallowed keys.
-
-        SEC-026: called at the top of every IO method so none is a bypass.
+        Rejects absolute keys, null bytes, and path-traversal that escapes
+        base_dir, raising ``ValueError`` (caller maps to 400/403). SEC-026:
+        called at the top of every IO method so none is a bypass.
         """
         if "\x00" in key:
             raise ValueError(f"Storage key contains a null byte: {key!r}")
@@ -61,12 +53,10 @@ class LocalStorageProvider:
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
         """Store data at key. Returns the absolute path as a string.
 
-        fix(#435): a file-like `data` stays file-like. This used to call `data.read()`
-        on the event-loop thread before the handoff, materializing a whole COG, VRT,
-        or archived original as one `bytes` object — the raster/VRT/original ingest
-        paths all pass open file handles, and those artifacts can exceed the 2 GB
-        production container limit. The copy now streams in 1 MiB chunks inside the
-        worker thread, so resident memory is bounded and the loop never blocks.
+        fix(#435): a file-like ``data`` stays file-like, copied in 1 MiB
+        chunks inside the worker thread — not ``data.read()`` materializing a
+        whole COG/VRT/original (can exceed the 2 GB container limit) as one
+        ``bytes`` object.
         """
         dest = self._resolve_contained(key)
 
@@ -79,51 +69,32 @@ class LocalStorageProvider:
 
         def _put() -> str:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            # fix(#1532 review r5): write beside the destination and rename into
-            # place, so the key never names a partial object. This used to open
-            # the FINAL path with "wb" and stream into it, which means an ENOSPC
-            # or a hard kill mid-copy leaves a truncated file under the name
-            # every reader resolves — and a reader has no way to tell it from a
-            # complete one.
-            #
-            # The export cache is where that surfaced (its keys carry the size,
-            # so it DETECTS the truncation and rebuilds, leaving the partial
-            # occupying the volume), but the exposure is not its own: ingest
-            # writes multi-gigabyte COGs and originals through here too, and a
-            # worker killed mid-upload left the same residue under the real key.
-            # S3 and Azure have nothing to fix — an object appears at its key
-            # only when its put completes.
-            #
-            # Same directory, so os.replace is an atomic rename rather than a
-            # cross-filesystem copy, and the temp file costs no extra space.
+            # fix(#1532): write beside dest, then os.replace (atomic, same
+            # dir) — an ENOSPC or kill mid-copy must never leave a partial
+            # file visible under the real key, unlike S3/Azure puts.
             tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex}.tmp")
             try:
                 try:
                     _write(tmp, data)
                 except FileNotFoundError:
-                    # fix(#1532 review r7): the directory went between the mkdir
-                    # above and opening the file. A sweeper pruning empty
-                    # directories can do that, and this write is valid — so
-                    # rebuild the path and try once rather than failing a caller
-                    # (map assets, ingest) that has no retry of its own. Once:
-                    # a second disappearance is not a race, it is a broken
-                    # volume.
+                    # fix(#1532): the dir can vanish between mkdir and open if
+                    # the empty-dir sweeper runs concurrently. Retry ONCE — a
+                    # second disappearance means a broken volume, not a race.
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     if hasattr(data, "seek"):
                         data.seek(0)
                     _write(tmp, data)
                 os.replace(tmp, dest)
             except BaseException:
-                # BaseException for the reason the caller below drains on
-                # cancellation: a cancelled write must not leave its scratch
-                # file behind either.
+                # BaseException: a cancelled write (drained by the caller)
+                # must still clean up its scratch file.
                 tmp.unlink(missing_ok=True)
                 raise
             return str(dest)
 
-        # fix(#435 codex r2/r3/r4): drain the copy thread on cancellation so the caller
-        # cannot leave its `with open(...)` block and close `data` mid-`copyfileobj`,
-        # truncating the artifact. See app/core/async_io.py.
+        # fix(#435): drain the copy thread on cancellation — otherwise the
+        # caller's `with open(...)` can close `data` mid-copyfileobj and
+        # truncate the artifact. See app/core/async_io.py.
         return await run_in_thread_draining(_put)
 
     async def get(self, key: str) -> bytes:
@@ -154,18 +125,12 @@ class LocalStorageProvider:
         return await asyncio.to_thread(_read)
 
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
-        """Stream key bytes in 1 MiB chunks (ING-03 / P2-03).
+        """Stream key bytes in 1 MiB chunks (ING-03/P2-03).
 
-        Avoids the 5 GB resident-memory spike that ``get()`` would cause for
-        a large COG download — the full file is never materialized as a
-        single ``bytes`` object. Each chunk is read in a worker thread via
-        ``asyncio.to_thread`` so the event loop stays responsive.
-
-        The file handle is closed inside a ``finally:`` block so consumer
-        abort (e.g. client disconnect mid-stream) does not leak file
-        descriptors. Raises ``FileNotFoundError`` upfront if the key is
-        missing — matches the ``get()`` exception shape so the router's
-        existing ``except FileNotFoundError`` branch can stay unchanged.
+        Avoids materializing a large COG as one ``bytes`` object. Handle
+        closed in ``finally`` so a client disconnect mid-stream doesn't leak
+        an fd. Raises ``FileNotFoundError`` upfront to match ``get()``'s
+        exception shape.
         """
         path = self._resolve_contained(key)
         if not await asyncio.to_thread(path.exists):
@@ -186,13 +151,10 @@ class LocalStorageProvider:
     ) -> AsyncIterator[bytes]:
         """Stream ``length`` bytes from ``start`` off ONE open file handle.
 
-        fix(#1540 review P1): the interesting implementation is S3's, where the
-        alternative was a request per chunk. Local storage never paid that, but
-        it implements the same method so the route has one call to make and the
-        object stores are not a special case at the call site.
-
-        Handle closed in a ``finally`` for the reason ``get_stream`` gives:
-        a client disconnecting mid-range must not leak a descriptor.
+        fix(#1540): mirrors S3/Azure's one-call contract, though local never
+        paid the per-chunk-request cost they did — this keeps object stores
+        from being a special case at the call site. Handle closed in
+        ``finally`` for the same fd-leak reason as ``get_stream``.
         """
         path = self._resolve_contained(key)
         if not await asyncio.to_thread(path.exists):
@@ -229,14 +191,9 @@ class LocalStorageProvider:
     async def delete(self, key: str) -> None:
         """Delete a key. No error if missing.
 
-        Deliberately does NOT remove the directories it empties (fix(#1532
-        review r7)). It did for one round, to stop caller-controlled prefixes
-        accumulating, and that made an unrelated writer's ``mkdir`` race this
-        ``rmdir`` — a map or ingest write, neither of which retries, could lose
-        its directory between creating it and opening its file. Pruning belongs
-        to whichever subsystem owns a prefix and knows when it is finished; the
-        export cache does its own in ``artifact_cache.sweep`` through
-        ``prune_empty_dirs`` below.
+        Deliberately does not remove emptied directories (fix #1532):
+        pruning here raced a concurrent writer's mkdir/open. Pruning belongs
+        to the subsystem that owns the prefix — see ``prune_empty_dirs``.
         """
         path = self._resolve_contained(key)
         await asyncio.to_thread(path.unlink, True)  # missing_ok=True
@@ -244,15 +201,10 @@ class LocalStorageProvider:
     async def prune_empty_dirs(self, prefix: str) -> int:
         """Remove empty directories under ``prefix``. Returns how many went.
 
-        Offered only by this provider, and asked for by ``getattr`` rather than
-        declared on the protocol: an object store has no directories to prune,
-        so the honest answer there is not "zero" but "that question does not
-        apply".
-
-        Bottom-up, so a directory emptied by pruning its children is itself
-        collected in the same pass. Never removes ``base_dir`` or the prefix
-        root. Failures are ignored per directory — a concurrent writer creating
-        one is exactly the case this must not fight.
+        Offered via ``getattr``, not the Protocol — object stores have no
+        directories to prune. Bottom-up; skips ``base_dir``/the prefix root;
+        ignores per-directory failures (a concurrent writer using one is not
+        an error).
         """
         root = self._resolve_contained(prefix)
         base = self.base_dir.resolve()
@@ -304,9 +256,8 @@ class LocalStorageProvider:
 
     async def list(self, prefix: str) -> list[str]:
         """List keys matching a prefix, relative to base_dir."""
-        # SEC-026: resolve the caller-supplied prefix before touching the
-        # filesystem.  Keeping this check outside the worker also ensures a
-        # rejected key never reaches exists(), rglob(), or glob().
+        # SEC-026: resolve the prefix before touching the filesystem, outside
+        # the worker, so a rejected key never reaches exists()/rglob()/glob().
         resolved_prefix = self._resolve_contained(prefix)
         resolved_base = self.base_dir.resolve()
 
@@ -323,22 +274,16 @@ class LocalStorageProvider:
     ):
         """Lazily yield ``(path, key)`` under *root* in ascending key order.
 
-        Blocking, and a generator on purpose (fix(#1249) review r5): building
-        the whole list first would put an unbounded walk in front of the first
-        page, so a consumer's per-page budget bounded its SQL but neither the
-        filesystem traversal nor the memory it took to hold the result. Only
-        one directory level is materialized at a time, and a subtree entirely
-        below ``start_after`` is skipped without being entered at all.
+        Blocking; a generator (fix #1249) so an unbounded walk never sits in
+        front of the first page, and a subtree entirely below ``start_after``
+        is never entered.
 
-        Entries sort by ``name + "/"`` for directories so this matches the
-        lexicographic order of the FULL keys, which is what ``start_after``
-        and the S3 ``StartAfter`` it mirrors are defined against — plain name
-        order disagrees whenever a directory and a file share a stem (``/`` is
-        0x2F, so ``frozen/x`` sorts after ``frozen.txt``).
+        Directories sort by ``name + "/"`` to match full-key lexicographic
+        order (``frozen/x`` must sort after ``frozen.txt``, which plain name
+        order gets wrong).
 
-        Symlinks are not followed. A staging tree has none, and for a walk
-        that feeds a deleter, declining to leave the tree through one is the
-        posture to keep.
+        Symlinks are not followed — this feeds a deleter and must never leave
+        the tree through one.
         """
         try:
             with os.scandir(root) as entries:
@@ -380,8 +325,7 @@ class LocalStorageProvider:
                 resolved_prefix, resolved_base, start_after
             )
             return
-        # File prefix: one directory's glob, already bounded by construction.
-        # This is the pre-delete re-read's shape — a complete key.
+        # File prefix: one bounded directory glob — the pre-delete re-read's shape.
         parent = resolved_prefix.parent
         if not parent.exists():
             return
@@ -397,11 +341,10 @@ class LocalStorageProvider:
     ) -> AsyncIterator[list[StoredObject]]:
         """Yield keys matching a prefix with their mtimes (feat #1249).
 
-        Chunked into ``_OBJECT_PAGE_SIZE`` pages even though a local walk has
-        no service-side paging to mirror (fix(#1249) review r2): an unbounded
-        page defeats the between-pages budget the consumer relies on. The walk
-        behind it is lazy, so a consumer that stops after one page has not paid
-        for the rest of the tree either (review r5).
+        Chunked into ``_OBJECT_PAGE_SIZE`` pages so an unbounded page can't
+        defeat the consumer's between-pages budget, even though local has no
+        service-side paging to mirror. The walk is lazy, so stopping after
+        one page doesn't pay for the rest of the tree.
         """
         resolved_prefix = self._resolve_contained(prefix)
         resolved_base = self.base_dir.resolve()
@@ -415,9 +358,8 @@ class LocalStorageProvider:
                 try:
                     mtime = path.stat().st_mtime
                 except OSError:
-                    # Deleted between the walk and the stat. An entry that
-                    # cannot be dated must not reach the caller, which would
-                    # otherwise have to invent an age for it.
+                    # Deleted between walk and stat; an undatable entry must
+                    # never reach the caller.
                     continue
                 page.append(
                     StoredObject(
@@ -441,7 +383,7 @@ class LocalStorageProvider:
         if not exists:
             raise RuntimeError(f"Storage directory does not exist: {self.base_dir}")
 
-    # --- Presigned URL stubs (not supported for local storage) ---
+    # Presigned URLs are not supported for local storage.
 
     def generate_presigned_put_url(
         self,

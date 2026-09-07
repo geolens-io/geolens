@@ -47,10 +47,6 @@ __all__ = [
     "validate_permission_matrix",
 ]
 
-# ---------------------------------------------------------------------------
-# Lockout prevention
-# ---------------------------------------------------------------------------
-
 
 def validate_permission_matrix(matrix: Any) -> None:
     """Validate a permission matrix dict.
@@ -61,11 +57,10 @@ def validate_permission_matrix(matrix: Any) -> None:
     - any stored role has manage_tenants (fleet-control escalation prevention)
     - a non-admin role has manage_users or manage_settings (escalation prevention)
 
-    ``manage_tenants`` is intentionally unavailable to *every* database-stored
-    role, including ``admin``. Fleet operators receive that capability through
-    the deployment's out-of-band identity extension; allowing it in the
-    tenant-editable matrix would let a per-tenant admin promote themselves into
-    the fleet control plane.
+    ``manage_tenants`` is intentionally unavailable to every database-stored
+    role, including admin — fleet operators get it via the deployment's
+    out-of-band identity extension; allowing it here would let a per-tenant
+    admin promote themselves into the fleet control plane.
     """
     if not isinstance(matrix, dict):
         raise ValueError("Permission matrix must be a dict")
@@ -143,17 +138,10 @@ async def user_has_capability(db: AsyncSession, user: Any, capability: str) -> b
     """Return True if *user* holds *capability* via any of their assigned roles.
 
     Used for break-glass exemptions (e.g. DOMAIN-04 manage_settings bypass).
-    Resolves roles via get_user_roles above and checks the effective permission
-    matrix; does NOT add DB code to domain_validation.py (that module is DB-free
-    by contract, T-1235 purity gate).
-
-    Args:
-        db:         Async DB session.
-        user:       Any object with a ``.id`` UUID attribute (User ORM or Identity).
-        capability: Capability string constant, e.g. MANAGE_SETTINGS.
-
-    Returns:
-        True if any of the user's roles grant the requested capability.
+    Resolves roles via get_user_roles and checks the effective permission
+    matrix; does NOT add DB code to domain_validation.py (DB-free by contract,
+    T-1235 purity gate). *user* may be any object with a ``.id`` UUID
+    attribute (User ORM or Identity).
     """
     roles = await get_user_roles(db, user)
     matrix = await get_effective_permissions(db)

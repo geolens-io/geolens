@@ -1,22 +1,15 @@
 """Verify signed GeoLens Enterprise licenses without a network request.
 
-The token is an Ed25519 JWT with an Enterprise edition, a license ID, and a
-maintenance end date. A valid token grants perpetual use of the installed
-version. The maintenance date controls access to updates and support, not
-whether the application keeps running. Tokens issued before this contract used
-``exp`` for the same date; the verifier accepts that signed claim as a legacy
-maintenance date so upgrades do not invalidate an installed license.
+The token is an Ed25519 JWT (edition, license ID, maintenance end date). A
+valid token grants perpetual use of the installed version; the maintenance
+date gates updates/support only. A legacy token's ``exp`` claim is accepted as
+that same date so upgrades don't invalidate an installed license.
 
-The verifier trusts only the public key bundled at
-``app/core/license_public_key.pem``. The private signing key stays with the
-vendor. Operators cannot replace the verifier key through environment
-configuration. Verification works offline and allows a small amount of clock
-skew for issued-at and not-before claims.
-
-Set ``GEOLENS_LICENSE_KEY`` to the token or ``GEOLENS_LICENSE_FILE`` to a file
-that contains it. ``GEOLENS_LICENSE_AUDIENCE`` can bind a license to one
-deployment. Missing, malformed, forged, or mismatched tokens yield ``None`` so
-the caller can use the Community edition.
+Trusts only the public key bundled at ``app/core/license_public_key.pem`` —
+not replaceable via env config. Set ``GEOLENS_LICENSE_KEY`` (or
+``GEOLENS_LICENSE_FILE``) to the token; ``GEOLENS_LICENSE_AUDIENCE`` can bind
+it to one deployment. Any problem yields ``None`` so the caller falls back to
+Community.
 """
 
 from __future__ import annotations

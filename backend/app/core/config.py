@@ -62,91 +62,54 @@ def libpq_value(value: object) -> str:
 def validate_privacy_url_shape(v: str) -> str:
     r"""PRIV-1: shape check for the login/register privacy-policy link.
 
-    The value is rendered directly as an ``<a href>`` on an unauthenticated
-    page, so this is a security control, not a formatting nit: a
-    ``javascript:``/``data:``/scheme-relative value here is an XSS payload.
-    Deliberately does NOT reuse the admin settings' path-stripping
-    ``_normalize_absolute_url`` helper — a real operator policy page (Google
-    Docs, Notion, SharePoint) routinely carries a query string or a fragment,
-    and dropping either would silently point the link at the wrong document.
+    Security control, not a formatting nit: the value renders as an
+    unauthenticated ``<a href>``, so a ``javascript:``/``data:``/
+    scheme-relative value here is XSS. Does not reuse the admin settings'
+    path-stripping ``_normalize_absolute_url`` -- a real policy page needs
+    its query string/fragment, which pass through untouched here.
 
-    Shared by three entry points that all need to agree on what "safe"
-    means: this module's own env-value boot validator below, the admin-write
-    validator in ``app.modules.settings.schemas``, and the read-path defense
-    in ``app.modules.settings.router_public`` (a stored value written before
-    this check existed, or by any other path, must not reach the login page
-    unvalidated). It lives here rather than in ``app.core.public_urls``
-    because that module imports this one's ``settings`` singleton at import
-    time, and calling into it from a ``Settings`` field validator would be a
-    circular import -- which is also why the hostname check below is a
-    self-contained allowlist rather than a call to that module's
-    ``canonical_host_error``: it answers a near-identical question (is this
-    hostname spelled the way a browser would show it) and would otherwise be
-    the obvious thing to reuse.
+    Shared by three entry points that must agree on "safe": this module's
+    env-value boot validator, the admin-write validator in
+    ``app.modules.settings.schemas``, and the read-path defense in
+    ``app.modules.settings.router_public`` (a value stored before this
+    check existed must not reach the login page unvalidated). Lives here
+    rather than ``app.core.public_urls`` to avoid a circular import through
+    that module's ``settings`` singleton; the hostname check below is a
+    self-contained allowlist rather than a call to its
+    ``canonical_host_error``, which answers a near-identical question.
 
-    Deliberately stricter than a browser, all fail-closed -- read a report
-    that one of these refuses a value a browser would accept as a "browser
-    disagreement" finding against this list first, not as a new gap:
-
-    * STD3 rules (``std3_rules=True`` below): rejects ``_`` and a leading
-      or trailing hyphen. A browser's own UTS46 call sets
-      ``CheckHyphens=false`` and ``UseSTD3ASCIIRules=false``, so it accepts
-      both; an operator who needs one has a malformed host, not a policy
-      page.
-    * A percent-encoded byte in the host (``exa%6dple.com``): refused
-      outright rather than decoded. A browser percent-decodes the host
-      before applying UTS46; decoding here first would need to also decide
-      what a decoded ``%2e`` or ``%00`` means to a DNS label, which is
-      exactly the ambiguity ``is_usable_public_origin`` (app.core.public_urls)
-      already refuses for the same reason on a different field.
-    * A backslash in the authority: a browser's WHATWG parser treats
-      ``\`` as ``/`` for an http(s) URL, so ``https://example.com\@evil.com/x``
-      reads as host ``example.com`` with path ``/@evil.com/x`` to a
-      browser, while Python's ``urlsplit`` does not special-case the
-      backslash and finds a userinfo component instead -- rejected here via
-      the userinfo check below, for a different reason than a browser would
-      have accepted it, but rejected either way.
-    * Userinfo (``user:pass@``) anywhere in the authority: refused outright,
-      never stripped and retried.
-    * Whitespace anywhere in the raw string: refused outright. A browser
-      strips a tab/LF/CR from anywhere and percent-encodes a literal space
-      in the path or query instead of refusing the URL.
-    * An IPvFuture literal (``[v1.foo]``) or a scoped/zoned IPv6 literal
-      (``[fe80::1%eth0]``): refused. Neither is a browser rejection --
-      IPvFuture has no browser implementation to compare against, and a
-      zoned address is a real, resolvable thing on the machine that set the
-      zone, just never the machine rendering this login page.
-    * A non-canonical IPv4 spelling (``0x7f.1``, ``192.168.1``, a
-      fullwidth-digit form that maps to one of these): only the exact
-      canonical dotted-quad is accepted, even where a browser's legacy
-      parser would expand a short or hex/octal form to a real address --
-      the point is that what gets stored must be what a browser resolves,
-      and a form that gets silently rewritten on navigation fails that by
-      definition.
-
-    The fragment and query string are the one place this list runs the
-    other way: passed through completely untouched, because a real
-    operator policy page routinely needs one (see the top of this
-    docstring) and a browser does too.
+    Deliberately stricter than a browser everywhere below (fail-closed, not
+    a gap): STD3 rules reject ``_`` and a leading/trailing hyphen (a
+    browser's UTS46 call disables both checks). A percent-encoded host byte
+    (``exa%6dple.com``) is refused outright, never decoded -- decoding
+    first raises the same ``%2e``/``%00`` ambiguity ``is_usable_public_origin``
+    already refuses elsewhere. A backslash in the authority is rejected via
+    the userinfo check below (Python's ``urlsplit`` reads it as userinfo;
+    a browser's WHATWG parser treats it as a path separator instead, but
+    both reject it). Userinfo (``user:pass@``) anywhere is refused outright,
+    never stripped and retried. Whitespace anywhere in the raw string is
+    refused outright (a browser silently strips/re-encodes it instead). An
+    IPvFuture literal (``[v1.foo]``) or a scoped/zoned IPv6 literal
+    (``[fe80::1%eth0]``) is refused, though neither is a browser rejection.
+    A non-canonical IPv4 spelling (``0x7f.1``, ``192.168.1``, or a
+    fullwidth-digit equivalent) is refused -- only the exact canonical
+    dotted-quad is accepted, since a form a browser silently rewrites on
+    navigation would no longer match what was stored.
     """
     stripped = v.strip()
-    # Whitespace ANYWHERE in the string (not just the ends `.strip()` already
-    # removed) is a known scheme-check bypass: the WHATWG URL parser strips
-    # tabs and newlines from any position before tokenizing, and silently
-    # drops a plain space from inside a host, so "java\tscript:alert(1)" and
-    # "https://exa mple.com/x" both resolve differently in a browser than
-    # `urlsplit` reads them here.
+    # Whitespace anywhere (not just the ends `.strip()` removed) is a known
+    # scheme-check bypass: WHATWG strips tabs/newlines and drops a bare
+    # space from a host before tokenizing, so `urlsplit` reads the same
+    # string differently than a browser does.
     if any(c.isspace() for c in stripped):
         raise ValueError("must not contain whitespace")
     try:
         parsed = urlsplit(stripped)
     except ValueError as exc:
-        # Newer CPython (3.13+) already raises here for some malformed
-        # bracketed authorities, e.g. "https://[1.2.3.4]/x" ("An IPv4
-        # address cannot be in brackets") -- but not for every shape
-        # `_is_valid_privacy_url_host` below rejects, so this is a
-        # convenience early-exit on some interpreters, not a substitute for
-        # that check.
+        # CPython 3.13+ already raises here for some malformed bracketed
+        # authorities (e.g. IPv4-in-brackets), but not every shape
+        # `_is_valid_privacy_url_host` rejects -- an early-exit, not a
+        # substitute for that check.
         raise ValueError(f"is not a valid URL ({exc})") from exc
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("must be an absolute http(s) URL")
@@ -160,10 +123,8 @@ def validate_privacy_url_shape(v: str) -> str:
         parsed.hostname, bracketed=parsed.netloc.startswith("[")
     ):
         raise ValueError("must have a valid DNS hostname or IP literal")
-    # Accessing .port validates both syntax and the 1-65535 range; a bad port
-    # such as "https://example.com:not-a-port/x" would otherwise sail through
-    # (urlsplit leaves the junk sitting in netloc) and pass this check while
-    # remaining a link no browser will follow.
+    # Accessing .port validates syntax and the 1-65535 range; a bad port
+    # otherwise sits unparsed in netloc and passes silently.
     try:
         parsed.port
     except ValueError:
@@ -189,68 +150,40 @@ def _is_unscoped_ipv6_literal(hostname: str) -> bool:
 def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
     """Hostname validity = idna (UTS46) + our IP/numeric rules.
 
-    ``bracketed`` is True when the URL wrote this host inside ``[...]``.
-    ``urlsplit(...).hostname`` strips the brackets unconditionally, so this
-    flag is the caller's only remaining signal that they were there --
-    ``parsed.netloc.startswith("[")``, checked before ``.hostname`` throws
-    the brackets away. Per RFC 3986, bracketed authority syntax means "this
-    is an IP literal", never a DNS name, whatever the contents look like,
-    so a bracketed host skips every case below: it is accepted ONLY as a
-    plain, unscoped ``ipaddress.IPv6Address``, with no ``%`` zone ID.
-    Without this, ``"[v1.foo]"`` (an IPvFuture literal no browser
-    implements) would fall through to case 2 and look like the ordinary
-    DNS name "v1.foo", ``"[1.2.3.4]"`` (an IPv4 literal, invalid in
-    brackets) would fall through to case 3 and look like a bracket-stripped
-    numeric-last-label host, and ``"[fe80::1%eth0]"`` (a scoped IPv6 zone
-    ID) parses fine under plain ``ipaddress.ip_address`` even though no
-    browser resolves a zone ID from a stored config value.
+    ``bracketed`` records whether the URL wrote this host inside ``[...]``
+    (``urlsplit().hostname`` strips brackets, so the caller must pass this
+    separately via ``parsed.netloc.startswith("[")``). Per RFC 3986 a
+    bracketed authority is always an IP literal, so it is accepted ONLY as
+    a plain, unscoped ``ipaddress.IPv6Address`` (no ``%`` zone ID) --
+    otherwise ``[v1.foo]`` (IPvFuture, no browser implements it),
+    ``[1.2.3.4]`` (invalid IPv4-in-brackets), and ``[fe80::1%eth0]`` (a
+    zone ID no browser resolves from stored config) would each be wrongly
+    accepted by the checks below.
 
-    Otherwise, a plain, unbracketed IP literal that parses with
-    ``ipaddress.ip_address`` is accepted outright (case 1). Everything else
-    is UTS46-mapped to ASCII FIRST, the same order a browser's own host
-    parser uses, via the ``idna`` package (already a direct backend
-    dependency, pinned in pyproject.toml for a CVE):
-    ``idna.encode(hostname, uts46=True, std3_rules=True)``. This one call
-    replaces what used to be three hand-rolled pieces -- a DNS-label
-    regex, a bespoke Unicode-label validity check, and a manual punycode
-    decode-and-round-trip for an operator-typed "xn--" label -- and covers
-    everything those existed for: STD3 character restrictions (rejects
-    "_", "[", and similar), hyphen placement, the 63-char label and
-    253-char total length limits (verified: idna accepts exactly 253,
-    rejects 254, matching the length check kept below as a second line of
-    defense), empty labels, and the full disallowed/combining-mark
-    code-point set for both a raw Unicode label and an operator-typed
-    "xn--" A-label, since the package decodes and validates that content
-    the same way -- a host's native and punycode spellings can no longer
-    disagree with each other. It also performs the Unicode-to-ASCII
-    mapping a browser applies before deciding whether a host "ends in a
-    number": an ideographic full stop (U+3002, "。") maps to ".", and a
-    fullwidth digit ("１") maps to "1".
+    An unbracketed literal that parses via ``ipaddress.ip_address`` is
+    accepted outright. Everything else is UTS46-mapped to ASCII first via
+    ``idna.encode(hostname, uts46=True, std3_rules=True)`` (idna is pinned
+    in pyproject.toml for a CVE) -- the same order a browser's host parser
+    uses. This one call replaces a former hand-rolled DNS-label regex,
+    Unicode-label check, and punycode round-trip, and covers STD3
+    restrictions, hyphen placement, the 63/253-char length limits (idna
+    accepts 253, rejects 254, matching the length check kept below as a
+    second line of defense), empty labels, and the disallowed/combining-mark
+    set for both a raw Unicode label and an operator "xn--" label. It also
+    performs the Unicode-to-ASCII mapping a browser applies before deciding
+    whether a host "ends in a number" (e.g. fullwidth "１" maps to "1").
 
-    THEN, on that mapped ASCII result (never on the raw hostname -- a
-    fullwidth digit satisfies Python's ``str.isdigit()`` too, so checking
-    the raw string looks right and hands ``ipaddress.IPv4Address`` a string
-    it cannot parse, rejecting a host a browser accepts as plain
-    ``127.0.0.1``), one case is carved out:
-
-    3. A hostname whose LAST label is numeric (all digits) or 0x-prefixed
-       hex: per the WHATWG URL "ends in a number" rule, a browser reads a
-       host in this shape as an attempted IPv4 address, not a DNS name --
-       whether or not it would otherwise look like an ordinary DNS name
-       (case 2). It is accepted ONLY if it is the exact, canonical
-       dotted-quad spelling. "999.999.999.999" and "1.2.3.4.5" have
-       per-label characters that look like an ordinary DNS name but fail a
-       browser's IPv4 parse outright; "192.168.1" succeeds under a
-       browser's legacy 3-part parser but silently becomes 192.168.0.1, a
-       host that does not match what was stored. All three are rejected
-       here, not treated as case 2. Checked with a single trailing DNS
-       root dot already stripped from the mapped form -- otherwise
-       "999.999.999.999." and "192.168.1." would have skipped this case
-       entirely and been accepted as an ordinary (if nonsensical) DNS name,
-       since case 2 has no opinion on IPv4 semantics.
-
-    Everything idna accepted that is not case 3 is case 2, an ordinary DNS
-    name.
+    On that MAPPED result (never the raw hostname -- a fullwidth digit
+    passes ``str.isdigit()`` too but breaks ``ipaddress.IPv4Address``): if
+    the last label is numeric or 0x-hex, a browser reads it as an attempted
+    IPv4 address (WHATWG "ends in a number"), accepted only as the exact
+    canonical dotted-quad -- "999.999.999.999" and "1.2.3.4.5" fail a
+    browser's IPv4 parse outright, "192.168.1" silently becomes
+    192.168.0.1 under a browser's legacy 3-part parser, so all three are
+    rejected rather than treated as an ordinary DNS name. Checked with one
+    trailing root dot already stripped, or "999.999.999.999." would skip
+    this case and be accepted as an ordinary (nonsensical) DNS name.
+    Everything else idna accepts is an ordinary DNS name.
     """
     if bracketed:
         return _is_unscoped_ipv6_literal(hostname)
@@ -260,62 +193,50 @@ def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
     except ValueError:
         pass
     # UTS46-map FIRST, THEN look for "ends in a number" -- a browser's own
-    # order. Doing it on the raw hostname instead (the previous version of
-    # this check) has two failure directions: a raw label already ASCII
-    # digits, but reached only after an ideographic full stop (U+3002) maps
-    # to ".", was still invisible to the check ("999。999。999。999" has no
-    # ASCII "." at all, so rsplit(".", 1) never splits it, and the browser
-    # sees "ends in a number" only after mapping); and str.isdigit() is
-    # true for a fullwidth digit ("１２７.０.０.１"), so the OLD check
-    # thought it recognized "ends in a number" and then handed the raw,
-    # un-mapped string to ipaddress.IPv4Address, which does not understand
-    # fullwidth digits and rejected a host a browser accepts as 127.0.0.1.
+    # order. Checking the raw hostname breaks two ways: an ideographic full
+    # stop (U+3002) is not ASCII ".", so rsplit never splits it; and
+    # str.isdigit() is true for fullwidth digits, which ipaddress.IPv4Address
+    # then can't parse, rejecting a host a browser accepts as 127.0.0.1.
     try:
         ascii_host = idna.encode(hostname, uts46=True, std3_rules=True).decode("ascii")
     except idna.IDNAError:
         return False
-    # A single trailing dot is the valid DNS "root" separator
-    # ("https://example.com./x" navigates identically to the same URL
-    # without it); idna.encode leaves it in ascii_host rather than raising,
-    # so it is stripped here -- after mapping, same as WHATWG -- before the
-    # ends-in-a-number check. Two or more is an empty label, which
-    # idna.encode already refused above ("a.." -> "Empty Label").
+    # A single trailing dot is the valid DNS root separator; idna.encode
+    # leaves it in rather than raising, so strip it here before the
+    # ends-in-a-number check. Two+ dots is an empty label, already refused
+    # above by idna.encode.
     h = ascii_host.removesuffix(".")
     if not h:
         return False
     last = h.rsplit(".", 1)[-1]
-    # ascii_host is already lowercase (idna's ToASCII normalizes case), and
-    # is guaranteed pure ASCII by the .decode("ascii") above, so a plain
-    # ASCII character class replaces the old str.isdigit()/str.startswith()
-    # pair -- str.isdigit() is true for non-ASCII digit code points too,
-    # which is exactly the fullwidth-digit failure this rewrite fixes.
-    # "0x" with no hex digits after it still reads as "a number" to a
-    # browser's host parser.
+    # ascii_host is lowercase and pure ASCII (idna's ToASCII + the
+    # .decode("ascii") above), so a plain ASCII class is safe here --
+    # str.isdigit() would also match non-ASCII digit code points. "0x"
+    # with no hex digits after it still reads as "a number" to a browser.
     if re.fullmatch(r"[0-9]+|0x[0-9a-f]*", last):
         try:
             return str(ipaddress.IPv4Address(h)) == h
         except ValueError:
             return False
-    # Belt and braces: idna.encode already enforces this length limit
-    # itself (verified by hand: 253 accepted, 254 "Domain too long"), but a
-    # future idna release relaxing that should not silently loosen ours.
+    # Second line of defense: idna.encode already enforces 253 (254 raises
+    # "Domain too long"), but a future idna release relaxing that should
+    # not silently loosen ours.
     return len(ascii_host) <= 253
 
 
 _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
 # Known-public credential literals that leaked through the project's git
-# history. The values live in `git log` forever, so refuse them at boot — a
-# deployment using these strings is trivially exploitable by anyone with read
-# access to the repo.
+# history and live in `git log` forever; refuse them at boot (Rule 3) since
+# any deployment using one is trivially exploitable by anyone who can read
+# the repo.
 KNOWN_BAD_JWT_SECRET = "demo-only-do-not-use-in-production-change-me"
 KNOWN_BAD_ADMIN_PASSWORD = "demodemo"
 KNOWN_BAD_POSTGRES_PASSWORD = "geolens-demo-2026"
 
-# Phase 268 H-28: known-public example values that the JWT length validator
-# would otherwise accept. Any of these strings on a real deployment lets an
-# attacker forge tokens trivially. The validator rejects them in all modes
-# (no demo opt-in — these are documentation defaults, not demo credentials).
+# Phase 268 H-28: documentation-default values the JWT length validator would
+# otherwise accept; rejected in all modes, no demo opt-in, since any of these
+# on a real deployment lets an attacker forge tokens trivially.
 KNOWN_BAD_JWT_SECRETS = frozenset(
     {
         "dev-only-change-me-in-production",  # .env.example default (32 chars)
@@ -342,29 +263,23 @@ FERNET_KEY_HINT = (
     " Generate a fresh value with `openssl rand -base64 32 | tr '+/' '-_'`."
 )
 
-# fix(#1778): bcrypt's input limit, restated here because `core/` may not import
-# from `app.modules.*` (tests/test_layering.py::test_core_does_not_import_from_
-# any_module) and the canonical definition lives beside the hasher, in
-# app/modules/auth/password_policy.py. tests/test_password_policy.py pins the
-# two to the same number so they cannot drift.
+# fix(#1778): bcrypt's input limit, restated here since `core/` may not import
+# `app.modules.*` (test_layering.py); canonical definition is beside the
+# hasher in app/modules/auth/password_policy.py, pinned equal by test_password_policy.py.
 BCRYPT_MAX_PASSWORD_BYTES = 72
 
 
-# fix(#1235 review r6): the shortest presigned-upload window worth issuing.
-# Lives HERE, not next to its only consumer in processing/ingest/presigned.py,
-# because `pending_job_timeout_seconds`'s lower bound has to be this exact
-# number — a bound one edit away from the margin it guards is how the dead
-# zone opened in the first place — and core must never import from processing.
-# Consumer: `require_signable_job_lifetime`.
+# fix(#1235): shortest presigned-upload window worth issuing; must be this
+# exact number since it's `pending_job_timeout_seconds`'s lower bound.
+# Lives here, not by its consumer `require_signable_job_lifetime` in
+# processing/ingest/presigned.py, because core must never import processing.
 MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
 
-# fix(#1236): the SigV4 ceiling. No presigned URL, issued under any past or
-# present value of `pending_job_timeout_seconds`, can outlive `created_at`
-# plus this many seconds — it is that field's own upper bound below. The
-# post-expiry sweep's re-check pass uses it as the age past which a
-# marked-reaped row is safe to consider settled for good, regardless of which
-# setting was in force when its URL was signed.
-# Consumer: `_sweep_expired_presigned_staging` in platform/jobs/router.py.
+# fix(#1236): the SigV4 ceiling. No presigned URL can outlive `created_at`
+# plus this many seconds, whatever `pending_job_timeout_seconds` was set to
+# when it was signed; the post-expiry sweep in
+# `_sweep_expired_presigned_staging` (platform/jobs/router.py) uses it as the
+# age past which a marked-reaped row is safe to consider settled for good.
 MAX_PRESIGNED_URL_LIFETIME_SECONDS = 604800
 
 
@@ -392,11 +307,8 @@ class Settings(BaseSettings):
     # The key it replaced. Read-only, until rotate_secrets.py has swept the rows.
     secret_encryption_key_previous: SecretStr | None = None
 
-    # SEC-S16 (Phase 1062-01): password complexity policy.
-    # PASSWORD_MIN_LENGTH controls the minimum character count (default 12).
-    # PASSWORD_REQUIRE_CLASSES controls how many of the four character classes
-    # (lowercase, uppercase, digit, symbol) must be present (default 3).
-    # Operators can relax both in dev/test via environment variables.
+    # SEC-S16: password_require_classes counts how many of the four character
+    # classes (lowercase, uppercase, digit, symbol) must be present.
     password_min_length: int = Field(default=12, ge=8)
     password_require_classes: int = Field(default=3, ge=1, le=4)
     geolens_admin_username: str
@@ -406,9 +318,8 @@ class Settings(BaseSettings):
     # visitors to the login page as the product landing surface.
     # Default False — self-hosters see zero change on upgrade.
     landing_first: bool = False
-    # fix(#838): site-banner env defaults. With ENV_ONLY_CONFIG=true the
-    # admin UI cannot store overrides, so these env vars are the only way
-    # to show the banner there (they replaced the env-backed DEMO_MODE).
+    # fix(#838): with ENV_ONLY_CONFIG=true the admin UI cannot store
+    # overrides, so these env vars are the only way to show the banner.
     banner_enabled: bool = False
     banner_text: str = ""
     banner_color: str = "warning"
@@ -422,46 +333,27 @@ class Settings(BaseSettings):
     upload_allowed_extensions: str = (
         ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet,.fgb,.kml,.kmz"
     )
-    # fix(second-opinion review on #1236 review r3): capped at S3's own
-    # single-PUT hard limit (5GiB). Belt-and-suspenders — the invariant that
-    # actually matters is enforced in code, not config: see the clamp in
-    # `recheck_transfer_margin_seconds()` (platform/jobs/router.py), which
-    # a bound here cannot substitute for since that function must also stay
-    # safe against a value read before this bound ever applied.
+    # fix(#1236): capped at S3's single-PUT hard limit (5GiB). The invariant
+    # that actually matters is enforced in code, not config -- see the clamp
+    # in `recheck_transfer_margin_seconds()` (platform/jobs/router.py).
     presigned_multipart_threshold_mb: int = Field(default=100, gt=0, le=5120)
-    # fix(#1234): a presigned job is abandoned after this long, and the part
-    # URLs it hands out must not outlive it — the server was selling 7200s
-    # URLs against a 3600s job lifetime. Lives here rather than in
-    # platform/jobs because platform/storage has to read it too, and
-    # platform/jobs already imports platform/storage, so the reverse import
-    # would cycle.
+    # fix(#1234): a presigned job is abandoned after this long, and its part
+    # URLs must not outlive it. Lives here (not platform/jobs) because
+    # platform/storage must read it too and platform/jobs already imports
+    # platform/storage, so the reverse import would cycle.
     #
-    # fix(#1235 review r5): bounded at the SigV4 ceiling. A presigned URL's
-    # X-Amz-Expires may not exceed MAX_PRESIGNED_URL_LIFETIME_SECONDS (7 days);
-    # above that boto still signs happily and S3 rejects every request, so an
-    # unbounded setting produced a deployment that booted clean and could not
-    # upload at all.
+    # fix(#1235): bounded at MAX_PRESIGNED_URL_LIFETIME_SECONDS (the SigV4
+    # ceiling) and floored above MIN_SIGNABLE_JOB_LIFETIME_SECONDS (where
+    # `require_signable_job_lifetime` always refuses to sign) -- either
+    # extreme boots clean but makes every upload fail. The floor only
+    # guarantees no value is self-defeating by construction; a slow request
+    # can still eat the remaining lifetime at any setting.
     #
-    # fix(#1235 review r6): and floored past the dead zone at the other end.
-    # `require_signable_job_lifetime` refuses to sign when fewer than
-    # MIN_SIGNABLE_JOB_LIFETIME_SECONDS remain, so a timeout at or below that
-    # was an accepted setting under which every presign 409s — the same
-    # boots-clean-cannot-upload shape as the ceiling, and it belongs in boot
-    # validation rather than in per-request behaviour.
-    #
-    # What the floor promises is narrow and worth stating: the accepted range
-    # contains no value that is self-defeating BY CONSTRUCTION. It cannot
-    # promise a presign never refuses, because the remaining lifetime is
-    # measured from the job INSERT and a sufficiently slow request eats into
-    # it at any setting.
-    #
-    # Lowering it while presigned uploads are in flight is no longer a
-    # permanent leak: URLs already issued keep the old, longer life, and the
-    # post-expiry staging sweep starts using the new, shorter window
-    # immediately — but its re-check pass (fix #1236) revisits anything it
-    # marked reaped once MAX_PRESIGNED_URL_LIFETIME_SECONDS has passed since
-    # creation, which is the latest any such URL can still be live. See
-    # `_sweep_expired_presigned_staging` in platform/jobs/router.py.
+    # Lowering it mid-flight is not a leak: issued URLs keep their old
+    # lifetime, and the sweep's re-check pass (fix #1236,
+    # `_sweep_expired_presigned_staging` in platform/jobs/router.py)
+    # revisits anything reaped once MAX_PRESIGNED_URL_LIFETIME_SECONDS has
+    # passed since creation -- the latest any such URL can still be live.
     pending_job_timeout_seconds: int = Field(
         default=3600,
         gt=MIN_SIGNABLE_JOB_LIFETIME_SECONDS,
@@ -488,17 +380,12 @@ class Settings(BaseSettings):
     log_json: bool = False
     log_level: str = "INFO"
 
-    # SEC-005: explicit deployment environment. Controls security-sensitive
-    # behaviors — API docs exposure (/docs, /redoc) and the Secure flag on the
-    # OAuth session cookie (SessionMiddleware https_only). Previously these were
-    # keyed off LOG_JSON, an innocuously-documented log-format flag.
-    # fix(#1485): also selects plain traceback rendering, because rich's
-    # frame-locals tables made one exception a multi-minute event-loop stall.
-    #   "production"  -> hardened posture (docs hidden, Secure cookie,
-    #                    plain tracebacks)
-    #   "development" -> open posture (docs shown, no Secure cookie)
-    #   unset (None)  -> fall back to LOG_JSON for backward compatibility
-    # Set ENVIRONMENT=production on any public, TLS-terminated deployment.
+    # SEC-005: explicit deployment environment, controlling API docs exposure
+    # (/docs, /redoc), the Secure flag on the OAuth session cookie
+    # (SessionMiddleware https_only), and, fix(#1485), plain traceback
+    # rendering (rich's frame-locals tables made one exception a
+    # multi-minute event-loop stall). Unset falls back to LOG_JSON. Set
+    # ENVIRONMENT=production on any public, TLS-terminated deployment.
     environment: Literal["development", "production"] | None = None
 
     # Explicit edition request. None preserves extension auto-detection, while
@@ -521,10 +408,10 @@ class Settings(BaseSettings):
 
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o"
-    # Light model for SQL generation / metadata (cheaper, high-volume). When unset,
-    # the light model defaults to openai_model so it always points at a model the
-    # provider actually serves — important for Azure OpenAI / gateways where the
-    # model name must match a real deployment (a hardcoded default 404s there).
+    # Light model for SQL generation / metadata. Unset defaults to openai_model
+    # so it always points at a model the provider actually serves -- for Azure
+    # OpenAI / gateways a hardcoded default 404s if it doesn't match a real
+    # deployment name.
     openai_model_light: str | None = None
     openai_base_url: str | None = None
 
@@ -541,13 +428,11 @@ class Settings(BaseSettings):
     s3_allow_http: bool = False
     s3_addressing_style: Literal["auto", "path", "virtual"] = "auto"
 
-    # Ambient AWS credential markers, injected by the runtime rather than by an
-    # operator: EKS IRSA / Pod Identity set AWS_ROLE_ARN +
-    # AWS_WEB_IDENTITY_TOKEN_FILE, and the ECS/EKS container credential
-    # providers set one of the AWS_CONTAINER_CREDENTIALS_* pair. Modelled as
-    # fields rather than read through os.environ, matching CONF-03/CONF-04.
-    # Read only by has_ambient_aws_credentials below; boto3 and GDAL resolve
-    # the actual credentials from these themselves.
+    # Ambient AWS credential markers, injected by the runtime not an operator:
+    # EKS IRSA/Pod Identity set AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE;
+    # ECS/EKS container providers set one of the AWS_CONTAINER_CREDENTIALS_*
+    # pair. Fields (not os.environ) per CONF-03/CONF-04; read only by
+    # has_ambient_aws_credentials below -- boto3/GDAL resolve credentials themselves.
     aws_role_arn: str | None = None
     aws_web_identity_token_file: str | None = None
     aws_container_credentials_full_uri: str | None = None
@@ -561,18 +446,16 @@ class Settings(BaseSettings):
     azure_storage_account_url: str | None = (
         None  # for live: "https://<account>.blob.core.windows.net"
     )
-    # CR-04 (Phase 1210): storage account access key for account_url + key auth.
-    # When connection_string is absent and only account_url is provided,
-    # AzureBlobStorageProvider needs an explicit key to authenticate (otherwise
-    # BlobServiceClient(account_url=..., credential=None) falls through to Entra ID
-    # which silently fails for most deployments). Set via AZURE_STORAGE_ACCOUNT_KEY.
+    # CR-04: when connection_string is absent and only account_url is given,
+    # AzureBlobStorageProvider needs this key to authenticate --
+    # BlobServiceClient(account_url=..., credential=None) otherwise falls
+    # through to Entra ID, which silently fails for most deployments.
     # Revealed only at the SDK boundary in init_storage(); never logged.
     azure_storage_account_key: SecretStr | None = None
 
-    # IN-01 (Phase 1210): env-overridable Titiler base URL.  The module docstring
-    # in titiler_url.py promised an env override but it was never wired up.
-    # Default matches the Docker Compose service name; override via TITILER_BASE_URL
-    # for non-compose deployments (e.g. bare-metal, alternative service names).
+    # IN-01: env-overridable Titiler base URL, matching the Docker Compose
+    # service name by default; override via TITILER_BASE_URL for bare-metal
+    # or alternative service names.
     titiler_base_url: str = "http://titiler:8000"
 
     redis_url: str | None = None
@@ -598,17 +481,14 @@ class Settings(BaseSettings):
     # CONF-03 (Phase 277 / M-38): replaces raw os.environ.get("WORKER_SHUTDOWN_TIMEOUT") in worker.py
     worker_shutdown_timeout: int = Field(default=30, gt=0)
 
-    # fix(#448): Procrastinate parallel job slots per worker process. The
-    # implicit default of 1 head-of-line-blocked every queued upload behind a
-    # long COG conversion. 2-3 suits multi-core hosts; keep 1 on 2-vCPU boxes.
+    # fix(#448): Procrastinate parallel job slots per worker process. A
+    # default of 1 head-of-line-blocks every queued upload behind a long COG
+    # conversion; 2-3 suits multi-core hosts, keep 1 on 2-vCPU boxes.
     worker_concurrency: int = Field(default=1, ge=1)
-    # fix(#448): queues this worker listens to. Lets a deployment run a second
-    # worker service dedicated to e.g. WORKER_QUEUES=raster so long raster jobs
-    # never stall vector ingests.
-    #
-    # fix(#1812): "ingest-auth-v2" is consumer-only. Nothing enqueues there since
-    # #1812, the worker drains what v1.18.0/1.18.1 left, and the release after
-    # 1.18.2 drops the name. Both compose fallbacks and .env.example match this.
+    # fix(#448): queues this worker listens to, so a deployment can run a
+    # second worker dedicated to e.g. WORKER_QUEUES=raster so long raster
+    # jobs never stall vector ingests. fix(#1812): "ingest-auth-v2" is
+    # consumer-only -- nothing enqueues there; drop the name once drained.
     worker_queues: str = "priority,ingest,raster,ingest-auth-v2"
 
     # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
@@ -632,113 +512,82 @@ class Settings(BaseSettings):
     ingest_http_timeout_seconds: int = Field(default=300, gt=0)
 
     # fix(#1013): the materialize CTAS budget, applied as SET LOCAL
-    # statement_timeout before the CREATE TABLE AS. It was a module constant
-    # carrying a comment that already said "promote to persistent-config if
-    # operators hit it" — 300 seconds covers roughly 150k to 600k buffered
-    # polygon rows, so an ordinary one-million-parcel buffer fails and the only
-    # recourse was editing Python and rebuilding the image.
+    # statement_timeout before the CREATE TABLE AS. 300 seconds covers
+    # roughly 150k-600k buffered polygon rows, so a one-million-parcel
+    # buffer fails.
     #
-    # gt=0 is load-bearing rather than tidiness: PostgreSQL reads
-    # statement_timeout = '0' as "no timeout at all", so a zero here would
-    # silently produce the unbounded statement the budget exists to prevent.
-    # Rejecting it at boot is the difference between a startup failure and an
-    # ingest queue held open indefinitely.
+    # gt=0 is load-bearing: PostgreSQL reads statement_timeout='0' as no
+    # timeout, so 0 here would silently produce the unbounded statement the
+    # budget exists to prevent -- rejected at boot instead.
     #
-    # Worth being clear about what raising it buys: without an admission gate a
-    # longer budget just holds the job slot longer. The work still runs, it
-    # fails later. It pairs with #691's heartbeat lease and #701's pre-flight
-    # gates; on its own it converts "fails at 5 minutes" into "occupies the
-    # worker slot for 20 minutes and then maybe fails". Per-operation budgets
-    # are the natural follow-up — a centroid needs seconds and a dissolve far
-    # more, so one scalar for all operations is a deliberate compromise.
+    # Without an admission gate a longer budget just holds the job slot
+    # longer; the work still runs, it fails later. Pairs with #691's
+    # heartbeat lease and #701's pre-flight gates. One scalar for all
+    # operations (a centroid needs seconds, a dissolve far more) is a
+    # deliberate compromise; per-operation budgets are the natural follow-up.
     analysis_materialize_timeout_seconds: int = Field(default=300, gt=0)
 
-    # fix(#1013): promoted alongside the CTAS budget rather than left as the odd
-    # one out. It exists because the commit that makes the output durable ends
-    # the transaction and its SET LOCAL with it, so registration needs its own
-    # budget (#692) for the full-scan metadata extraction. An operator who
-    # raises the CTAS ceiling for a large dataset needs to raise this too;
-    # promoting one and not the other is the kind of inconsistency that costs
-    # someone an afternoon.
+    # fix(#1013): promoted alongside the CTAS budget -- the commit that makes
+    # the output durable ends the transaction (and its SET LOCAL) with it, so
+    # registration needs its own budget (#692) for the full-scan metadata
+    # extraction. Raising the CTAS ceiling for a large dataset needs this
+    # raised too.
     analysis_registration_timeout_seconds: int = Field(default=600, gt=0)
 
     # fix(#1012): per-slot work_mem budget for the materialize CTAS, in MB.
-    #
     # Configurable because the safe value depends on two things this process
-    # cannot see. DB_MEM_LIMIT is a compose `mem_limit` and is never passed into
-    # the api or worker environment, so the backend cannot read the database's
-    # actual ceiling — and it is operator-tunable (docker-compose.prod.yml
-    # documents 1.5g, and an external PostgreSQL may be smaller still). Nor can
-    # a per-process divisor bound a deployment that runs more than one worker
-    # service against the `ingest` queue: each replica would claim this budget
+    # cannot see: DB_MEM_LIMIT (a compose `mem_limit`, never passed into the
+    # api/worker env, and operator-tunable -- prod compose documents 1.5g, an
+    # external PostgreSQL may be smaller) and how many worker replicas run
+    # against the `ingest` queue, since each would claim the budget
     # independently.
     #
-    # The default is deliberately conservative rather than optimal. work_mem is
-    # per operation AND per backend, so one materialize can allocate this value
-    # times the memory-hungry nodes in its plan (at most 2 for these shapes)
-    # times the backends running it (2, since max_parallel_workers_per_gather is
-    # 1). At 64MB that is 256MB per worker replica, so even two replicas stay
-    # inside the default 2 GB alongside shared_buffers (512MB) and
-    # maintenance_work_mem (128MB).
+    # The default is conservative, not optimal: work_mem is per operation AND
+    # per backend, so one materialize can allocate this value times the
+    # memory-hungry plan nodes (at most 2 for these shapes) times the backends
+    # running it (2, since max_parallel_workers_per_gather is 1). At 64MB
+    # that's 256MB per replica, so two replicas stay inside the default 2GB
+    # alongside shared_buffers (512MB) and maintenance_work_mem (128MB).
+    # Raise it only with checked headroom (a larger DB_MEM_LIMIT or a single
+    # worker service); lower it for a smaller DB container or more replicas.
     #
-    # RAISE IT only with headroom you have checked: a larger DB_MEM_LIMIT, or a
-    # single worker service. LOWER IT for a smaller database container or more
-    # worker replicas.
-    #
-    # 0 disables the override: no SET LOCAL is issued and the CTAS runs on
-    # whatever work_mem the cluster is configured with, which is the pre-#1012
-    # behaviour. That sentinel exists because this process cannot read the
-    # connected cluster's work_mem, so it cannot know whether any particular
-    # floor would preserve that value or quietly raise it — an external cluster
-    # tuned below the bundled 8MB would have been raised by a clamp that
-    # claimed to leave it alone. Positive values are applied as given.
+    # 0 disables the override (no SET LOCAL; pre-#1012 behaviour), since this
+    # process cannot read the connected cluster's work_mem and so cannot know
+    # whether a floor would preserve it or quietly raise it. Positive values
+    # are applied as given.
     analysis_materialize_work_mem_mb: int = Field(default=64, ge=0)
 
-    # fix(#434): finished ingest_jobs rows previously lived forever, so the
-    # admin Jobs page accumulated stale test junk with no cleanup affordance.
-    # Terminal jobs (complete/failed/cancelled/fanned_out) older than this many
-    # days are purged by the 5-minute lifespan sweeper, except each dataset's
-    # most recent complete job (it backs /jobs/by-dataset warning metadata).
-    # 0 disables the purge (keep history forever).
+    # fix(#434): terminal jobs (complete/failed/cancelled/fanned_out) older
+    # than this many days are purged by the 5-minute lifespan sweeper, except
+    # each dataset's most recent complete job (backs /jobs/by-dataset
+    # warning metadata). 0 disables the purge (keep history forever).
     ingest_jobs_retention_days: int = Field(default=30, ge=0)
 
-    # fix(#1778): statement deadline for the API, in seconds. 0 disables it.
-    # fix(#1778 codex r2): applied to every transaction the API process opens,
-    # not just the get_db dependency -- handlers open request-scoped sessions
-    # directly in more than twenty modules. fix(#1778 codex r3): as SET LOCAL,
-    # never as a startup parameter, so DB_USE_EXTERNAL_POOLER=true still
-    # connects. The worker is a separate process and is excluded; see
-    # app/core/statement_timeout.py. 300 sits well inside
-    # the edge proxy's 600s read timeout, so a query that would trip it has
-    # already lost its client; before this, nothing bounded execution on the
-    # main engine at any layer, and the query outlived the request.
+    # fix(#1778): statement deadline for the API, in seconds; 0 disables it.
+    # Applied to every transaction the API process opens (handlers open
+    # request-scoped sessions directly in 20+ modules, not just get_db), as
+    # SET LOCAL never a startup parameter so DB_USE_EXTERNAL_POOLER=true
+    # still connects. The worker is excluded; see app/core/statement_timeout.py.
+    # 300 sits inside the edge proxy's 600s read timeout, so a query that
+    # would trip it has already lost its client.
     db_statement_timeout_seconds: int = Field(default=300, ge=0)
 
-    # fix(#1249): how old an object under the `staging/` prefix must be before
-    # the reconciliation sweep will delete it for having no ingest_jobs row.
-    # Not a guess at how long an upload takes — the row check is what decides
-    # whether an object is owned, and this only has to be far enough past a
-    # LISTING that no object can be reported old while its own tracking row is
-    # still being written. A day is orders of magnitude past that and costs
-    # nothing but a day of leaked bytes in the rare orphan case.
-    # Floored at an hour so a misconfiguration cannot turn the sweep into a
-    # deleter of objects whose uploads are still landing.
-    # Consumer: `reconcile_orphaned_staging_objects` in
-    # platform/jobs/staging_reconcile.py.
+    # fix(#1249): how old an object under the `staging/` prefix must be
+    # before the reconciliation sweep deletes it for having no ingest_jobs
+    # row. Not a guess at upload duration -- the row check decides
+    # ownership, so this only needs to outlast a LISTING racing the row's
+    # own write. Floored at an hour so misconfiguration can't turn the
+    # sweep into a deleter of objects still landing. Consumer:
+    # `reconcile_orphaned_staging_objects` in platform/jobs/staging_reconcile.py.
     staging_orphan_min_age_seconds: int = Field(default=86400, ge=3600)
 
-    # ---------------------------------------------------------------------------
-    # Outbound Notification channels (Phase 1229 NOTIF-02 / NOTIF-03 / NOTIF-05)
-    # ---------------------------------------------------------------------------
-    # All defaults are OFF / None so existing deployments are byte-identical on
-    # upgrade (NOTIF-04). Secrets are SecretStr so they never render in logs or
-    # repr(). Plan 02 channel implementations read these fields directly at
-    # send time; Plan 03 reads bool(smtp_host) / bool(notification_webhook_url)
-    # for a status GET. These are REAL wired fields — not inert knobs.
+    # Outbound Notification channels (NOTIF-02/03/05). All defaults are
+    # OFF/None so existing deployments are byte-identical on upgrade
+    # (NOTIF-04). Secrets are SecretStr so they never render in logs/repr().
+    # These are real wired fields, not inert knobs.
     #
     # NOT registered in persistent_config.py: notification secrets must NOT live
     # in the app_settings DB table (persistent_config.py:80-83 prohibition).
-    # ---------------------------------------------------------------------------
 
     # Master toggle: when False (default), notify() is a fast no-op regardless
     # of whether SMTP / webhook env vars are set. Set NOTIFICATIONS_ENABLED=true
@@ -760,11 +609,9 @@ class Settings(BaseSettings):
     notification_webhook_url: str | None = None
     notification_webhook_secret: SecretStr | None = None
 
-    # EVENT-05 per-event opt-in toggles (default OFF). Each toggle enables the
-    # corresponding notification; the whole feature is still gated behind
-    # notifications_enabled=True + at least one configured channel (SMTP or webhook).
-    # Set e.g. NOTIFY_ON_SIGNUP=true to enable signup/lead-capture alerts.
-    # NOT registered in persistent_config.py (these are env knobs, not DB settings).
+    # EVENT-05 per-event opt-in toggles (default OFF), still gated behind
+    # notifications_enabled=True + at least one configured channel. Not
+    # registered in persistent_config.py -- env knobs, not DB settings.
     notify_on_signup: bool = False
     notify_on_ingest_complete: bool = False
     notify_on_ingest_failed: bool = False
@@ -930,11 +777,10 @@ class Settings(BaseSettings):
         if not parsed.path or parsed.path == "/":
             raise ValueError("DATABASE_URL_OVERRIDE must include a database name")
 
-        # fix(#1770 round 47b P2 class): DATABASE_URL_OVERRIDE is an
-        # operator-supplied BOOT-TIME env var, never a runtime
-        # service-advertised value -- see `bounded_parse_qsl`'s docstring
-        # (`platform/service_endpoints.py`) for the sites that DO need the
-        # field-count bound.
+        # fix(#1770): DATABASE_URL_OVERRIDE is an operator-supplied BOOT-TIME
+        # env var, never a runtime service-advertised value -- see
+        # `bounded_parse_qsl`'s docstring (`platform/service_endpoints.py`)
+        # for the sites that DO need the field-count bound.
         query_hosts = parse_qs(  # parse_qs: unbounded
             parsed.query, keep_blank_values=True
         ).get("host", [])
@@ -1156,16 +1002,12 @@ class Settings(BaseSettings):
             missing: list[str] = []
             if not self.s3_bucket:
                 missing.append("S3_BUCKET")
-            # A static key pair is one of two supported credential sources. The
-            # other is ambient (IRSA / Pod Identity / container credentials),
-            # which S3StorageProvider and derive_gdal_s3_env already support:
-            # both omit the explicit key arguments when unset, leaving boto3 and
-            # GDAL to resolve the role themselves. Requiring the pair here was
-            # the ONLY thing forcing long-lived IAM user keys into a Kubernetes
-            # Secret on EKS.
-            #
-            # A HALF-configured pair stays an error under either source: it is
-            # always a mistake, and boto3 fails it far less legibly at runtime.
+            # A static key pair is one of two supported credential sources; the
+            # other is ambient (IRSA/Pod Identity/container credentials),
+            # which S3StorageProvider and derive_gdal_s3_env already support
+            # by omitting explicit key args and leaving boto3/GDAL to resolve
+            # the role themselves. A HALF-configured pair stays an error under
+            # either source -- it is always a mistake.
             if not self.s3_access_key_id and not self.s3_secret_access_key:
                 if not self.has_ambient_aws_credentials:
                     missing.append("S3_ACCESS_KEY_ID")
@@ -1212,9 +1054,7 @@ class Settings(BaseSettings):
     def validate_admin_credentials_nonempty(self) -> "Settings":
         # fix(#668): .env.example ships these keys empty and compose passes
         # "" straight through, so without this guard a verbatim-template
-        # install silently seeds the initial admin with an empty username
-        # and empty password. .env.example documents that empty values
-        # refuse to boot; enforce that here.
+        # install silently seeds the initial admin with empty credentials.
         if not self.geolens_admin_username.strip():
             raise ValueError(
                 "GEOLENS_ADMIN_USERNAME must not be empty. The initial "
@@ -1226,13 +1066,11 @@ class Settings(BaseSettings):
                 "GEOLENS_ADMIN_PASSWORD must not be empty. Generate one "
                 "with `openssl rand -base64 16` and set it in your .env."
             )
-        # fix(#1778): bound it at boot, where the message can name the variable.
-        # seed_initial_admin() hashes this value with bcrypt, which refuses an
-        # input over 72 bytes, and nothing upstream of the seed validates it:
-        # an operator who generated the value with something like
-        # `openssl rand -base64 64` (88 characters) got a bare bcrypt
-        # ValueError from inside application startup and an API container that
-        # restart-looped on a message naming nothing about GeoLens config.
+        # fix(#1778): bound it at boot, where the message can name the
+        # variable. seed_initial_admin() hashes this with bcrypt, which
+        # refuses input over 72 bytes, and nothing upstream validates it --
+        # an unbounded value produced a bare bcrypt ValueError inside a
+        # restart-looping container instead.
         admin_password_bytes = len(
             self.geolens_admin_password.get_secret_value().encode("utf-8")
         )
@@ -1352,11 +1190,9 @@ class Settings(BaseSettings):
         """Whether to enforce the production posture (API docs hidden, Secure
         session cookie, plain tracebacks).
 
-        SEC-005: driven by the explicit ENVIRONMENT setting. When ENVIRONMENT is
-        unset, fall back to LOG_JSON (the de-facto production switch before this
-        setting) so no existing deployment silently loses its hardened posture.
-        An explicit ENVIRONMENT (development or production) decouples fully —
-        LOG_JSON no longer affects security.
+        SEC-005: driven by the explicit ENVIRONMENT setting; when unset, falls
+        back to LOG_JSON so no existing deployment silently loses its
+        hardened posture. An explicit ENVIRONMENT decouples fully.
         """
         if self.environment is not None:
             return self.environment == "production"
@@ -1367,8 +1203,8 @@ class Settings(BaseSettings):
         from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
         parts = urlsplit(url)
-        # fix(#1770 round 47b P2 class): same reasoning as `database_url_
-        # override`'s validator above -- operator-supplied boot-time config.
+        # fix(#1770): same reasoning as `database_url_override`'s validator
+        # above -- operator-supplied boot-time config.
         params = parse_qs(parts.query, keep_blank_values=True)  # parse_qs: unbounded
         params.pop("sslmode", None)
         new_query = urlencode(params, doseq=True)
@@ -1475,8 +1311,8 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = []
-            # fix(#1770 round 47b P2 class): same reasoning as
-            # `database_url_override`'s validator -- operator boot-time config.
+            # fix(#1770): same reasoning as `database_url_override`'s
+            # validator -- operator boot-time config.
             host = (
                 parsed.hostname
                 or parse_qs(parsed.query).get(  # parse_qs: unbounded
@@ -1492,31 +1328,26 @@ class Settings(BaseSettings):
             # unquote on the credentials ONLY: SQLAlchemy decodes username and
             # password but leaves the database name percent-encoded, so decoding
             # dbname here would make these two clients target a DIFFERENT
-            # database than the API (codex review on #1617).
+            # database than the API (#1617).
             if parsed.username:
                 parts.append(f"user={libpq_value(unquote(parsed.username))}")
             if parsed.password:
                 parts.append(f"password={libpq_value(unquote(parsed.password))}")
             if self.database_ssl_mode != "disable":
                 parts.append(f"sslmode={self.database_ssl_mode}")
-            # verify-full ONLY. libpq treats sslmode=require as verify-ca as
-            # soon as a root CA file is present, so emitting this under
-            # `require` would make ogr2ogr and Procrastinate verify the server
-            # certificate while database_connect_args explicitly disables that
-            # check for the API — the same divergence between clients this
-            # property exists to remove (codex review on #1617).
+            # verify-full ONLY: libpq treats sslmode=require as verify-ca once
+            # a root CA file is present, so emitting this under `require`
+            # would verify the server cert here while database_connect_args
+            # disables that check for the API (#1617).
             if self.database_ssl_mode == "verify-full" and self.database_ssl_ca_cert:
                 parts.append(f"sslrootcert={libpq_value(self.database_ssl_ca_cert)}")
-            # BUG-002: the non-override branch sets
-            # options='-c search_path=<schema>,public' so procrastinate's
-            # unqualified objects resolve in the catalog schema. The override
-            # branch dropped it entirely, breaking the job queue on managed
-            # Postgres (UndefinedTable/UndefinedFunction on every defer and
-            # worker start). Re-add it, preserving any caller-supplied
-            # ?options= — our search_path is applied last so it always wins.
+            # BUG-002: the override branch had dropped this search_path
+            # option, breaking the job queue on managed Postgres. Re-add it,
+            # preserving any caller-supplied ?options= -- ours applied last
+            # so it always wins.
             search_path_opt = f"-c search_path={self.procrastinate_schema},public"
-            # fix(#1770 round 47b P2 class): same reasoning -- operator
-            # boot-time config, not a runtime service-advertised value.
+            # fix(#1770): same reasoning -- operator boot-time config, not a
+            # runtime service-advertised value.
             caller_options = parse_qs(parsed.query).get(  # parse_qs: unbounded
                 "options", [""]
             )[0]
@@ -1552,8 +1383,8 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = ["PG:"]
-            # fix(#1770 round 47b P2 class): same reasoning as
-            # `database_url_override`'s validator -- operator boot-time config.
+            # fix(#1770): same reasoning as `database_url_override`'s
+            # validator -- operator boot-time config.
             host = (
                 parsed.hostname
                 or parse_qs(parsed.query).get(  # parse_qs: unbounded
@@ -1569,30 +1400,25 @@ class Settings(BaseSettings):
             # unquote on the credentials ONLY: SQLAlchemy decodes username and
             # password but leaves the database name percent-encoded, so decoding
             # dbname here would make these two clients target a DIFFERENT
-            # database than the API (codex review on #1617).
+            # database than the API (#1617).
             if parsed.username:
                 parts.append(f"user={libpq_value(unquote(parsed.username))}")
             if parsed.password:
                 parts.append(f"password={libpq_value(unquote(parsed.password))}")
             if self.database_ssl_mode not in ("disable", "prefer"):
                 parts.append(f"sslmode={self.database_ssl_mode}")
-            # ogr2ogr reaches PostGIS through libpq, which resolves the CA from
-            # the DSN or from its own ~/.postgresql/root.crt — it cannot see
-            # DATABASE_SSL_CA_CERT, which only reaches asyncpg as an SSLContext.
-            # Without this, sslmode=verify-full above sends libpq looking for a
-            # root.crt that is not in the image, and EVERY vector ingest fails
-            # ("root certificate file ... does not exist") while the api, the
-            # worker's own queue connection and raster ingest all stay healthy,
-            # because those paths never shell out. procrastinate_conninfo has
-            # always emitted this pair together; this is the sibling that did
-            # not. Emitted whenever a CA is configured: libpq ignores it under
-            # the modes that do not verify.
-            # verify-full ONLY. libpq treats sslmode=require as verify-ca as
-            # soon as a root CA file is present, so emitting this under
-            # `require` would make ogr2ogr and Procrastinate verify the server
-            # certificate while database_connect_args explicitly disables that
-            # check for the API — the same divergence between clients this
-            # property exists to remove (codex review on #1617).
+            # ogr2ogr reaches PostGIS through libpq, which resolves the CA
+            # from the DSN or ~/.postgresql/root.crt -- it cannot see
+            # DATABASE_SSL_CA_CERT, which only reaches asyncpg as an
+            # SSLContext. Without this, verify-full sends libpq looking for
+            # a root.crt not in the image, and every vector ingest fails
+            # while other paths (which never shell out) stay healthy.
+            # Emitted whenever a CA is configured; libpq ignores it under
+            # the modes that don't verify.
+            # verify-full ONLY: libpq treats sslmode=require as verify-ca once
+            # a root CA file is present, so emitting this under `require`
+            # would verify the server cert here while database_connect_args
+            # disables that check for the API (#1617).
             if self.database_ssl_mode == "verify-full" and self.database_ssl_ca_cert:
                 parts.append(f"sslrootcert={libpq_value(self.database_ssl_ca_cert)}")
             return " ".join(parts)

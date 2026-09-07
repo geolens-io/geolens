@@ -3,7 +3,7 @@
 Split from the former single-module ``defaults.py`` (#836): this sub-module
 owns the policy/no-op defaults for the extension seams (branding, auth,
 permission, workflow, identity, audit sink, notification sink, billing,
-connectors, data serving, entitlement). Import these names via the
+connectors, data serving, entitlement). Import via the
 ``app.platform.extensions.defaults`` facade, never from this sub-module.
 """
 
@@ -25,11 +25,11 @@ class DefaultAuthExtension:
 
 
 class DefaultPermissionExtension:
-    """Community-edition default permission policy (Phase 232 / PERM-02).
+    """Community-edition default permission policy.
 
-    This class owns the baseline behavior for the PermissionExtension seam.
-    Imports stay inside methods so the platform extension package does not
-    take module-layer dependencies at import time.
+    Owns the baseline behavior for the PermissionExtension seam. Imports
+    stay inside methods so the platform extension package does not take
+    module-layer dependencies at import time.
     """
 
     async def check_permission(
@@ -70,31 +70,28 @@ class DefaultPermissionExtension:
                 record_cls.visibility == "private",
                 record_cls.created_by == user.id,
             ),
-            # fix(#930): internal = any signed-in user, on a published record.
-            # Bare like `public` above, and for the same reason: `status_filter`
-            # below is ANDed over every condition and already carries the
-            # published gate. Adding an inner `record_status == "published"`
-            # here looks stricter and is wrong — `status_filter` is an OR with
-            # `created_by == <caller>`, so it already hides someone else's
-            # unpublished internal record from the team, while the inner check
-            # would additionally hide an owner's own draft from the owner. That
-            # is the list/detail split this issue exists to close, and private
-            # and public drafts stay visible to their owner today.
+            # fix(#930): internal = any signed-in user, bare like `public`,
+            # because `status_filter` below already ANDs the published gate.
+            # An inner `record_status == "published"` here looks stricter
+            # but is wrong: `status_filter` ORs with `created_by == <caller>`,
+            # so it already hides an unpublished internal record from the
+            # team while still letting an owner see their own draft — an
+            # inner check would additionally hide the owner's own draft.
             record_cls.visibility == "internal",
         ]
 
         if grant_cls is not None:
-            # fix(#515): grants key catalog.datasets.id, not records.id — route
-            # through Dataset.record_id so granted restricted records resolve.
+            # fix(#515): grants key catalog.datasets.id, not records.id —
+            # route through Dataset.record_id so granted records resolve.
             from app.modules.catalog.datasets.domain.models import Dataset
 
             conditions.append(
                 and_(
                     record_cls.visibility == "restricted",
                     or_(
-                        # fix(#929): creator exemption — without it, a non-admin
-                        # owner who sets their own dataset to restricted loses
-                        # read access to it (grants have no write path).
+                        # fix(#929): creator exemption — without it, a
+                        # non-admin owner who restricts their own dataset
+                        # loses read access (grants have no write path).
                         record_cls.created_by == user.id,
                         record_cls.id.in_(
                             select(Dataset.record_id)
@@ -141,9 +138,8 @@ class DefaultPermissionExtension:
             return False
 
         if record.visibility == "restricted":
-            # fix(#929): creator exemption — restricted means "owner, admins,
-            # and grant holders"; the owner must never be locked out of their
-            # own dataset.
+            # fix(#929): creator exemption — restricted means "owner,
+            # admins, and grant holders"; the owner is never locked out.
             if record.created_by == user.id:
                 return True
             grant_result = await db.execute(
@@ -157,12 +153,12 @@ class DefaultPermissionExtension:
             return grant_result.scalar_one_or_none() is not None
 
         if record.visibility == "internal":
-            # fix(#930): internal = any signed-in user, matching MapVisibility.
-            # Behaviourally this is what the fall-through below already did, so
-            # it looks deletable; it is not. Before this branch existed the
-            # outcome was an accident of an unhandled value rather than a
-            # policy, and nothing pinned it. The `record_status` gate above
-            # keeps unpublished internal records owner-only.
+            # fix(#930): internal = any signed-in user, matching
+            # MapVisibility. Looks deletable since the fall-through below
+            # does the same thing, but before this branch existed that
+            # outcome was an accident of an unhandled value, not a pinned
+            # policy. The `record_status` gate above keeps unpublished
+            # internal records owner-only.
             return True
 
         return True
@@ -170,41 +166,40 @@ class DefaultPermissionExtension:
     async def record_audience(self, query, user_cls, *, grant_cls=None):  # type: ignore[no-untyped-def]
         """The same ladder as ``filter_visible``, read from the user end.
 
-        ``filter_visible`` asks which RECORDS a user may read; this asks which
-        USERS may read a record, at whatever visibility the caller names. One
-        rule, two directions, changed as a pair — ``test_permission_audience.py``
-        compares them account by account across every visibility, status and
-        role, so a change to one that is not mirrored here fails there instead of
-        quietly making the shared-map guard disagree with what viewers see.
+        ``filter_visible`` asks which RECORDS a user may read; this asks
+        which USERS may read a record. One rule, two directions, changed as
+        a pair — ``test_permission_audience.py`` compares them account by
+        account across every visibility/status/role, so a change to one that
+        isn't mirrored here fails there instead of quietly disagreeing with
+        what viewers see.
         """
         from sqlalchemy import and_, false, or_, select, true
 
         from app.modules.auth.models import Role, UserRole
         from app.platform.extensions.protocols import RecordAudience
 
-        # `filter_visible` returns the statement unchanged for an admin, so an
-        # admin is in every audience. Resolved against the role table because
-        # there is no user here to read a `user_roles` set off.
+        # `filter_visible` returns the statement unchanged for an admin, so
+        # an admin is in every audience. Resolved against the role table
+        # since there's no user here to read a `user_roles` set off.
         is_admin = user_cls.id.in_(
             select(UserRole.user_id)
             .join(Role, Role.id == UserRole.role_id)
             .where(Role.name == "admin")
         )
-        # A record with no recorded owner matches no owner branch: over there
-        # `created_by == user.id` is NULL for every row.
+        # No recorded owner matches no owner branch: `created_by == user.id`
+        # is NULL for every row.
         is_owner = false() if query.owner_id is None else user_cls.id == query.owner_id
 
         if query.visibility in ("public", "internal"):
-            # fix(#930): internal = any signed-in user. Bare, like `public`, for
-            # the reason spelled out over there — the status gate below is ANDed
-            # across every rung and already carries the published check.
+            # fix(#930): internal = any signed-in user, bare like `public` —
+            # the status gate below already ANDs the published check.
             reaches = true()
         elif query.visibility == "private":
             reaches = is_owner
         elif query.visibility == "restricted" and grant_cls is not None:
-            # fix(#929): creator exemption, then the grant. `filter_visible`
-            # walks record -> dataset -> grant -> role -> user; this is the same
-            # edge traversed from the user end.
+            # fix(#929): creator exemption, then the grant — the same edge
+            # `filter_visible` walks (record -> dataset -> grant -> role ->
+            # user), traversed from the user end.
             reaches = or_(
                 is_owner,
                 user_cls.id.in_(
@@ -214,9 +209,9 @@ class DefaultPermissionExtension:
                 ),
             )
         else:
-            # Restricted without a grant class, and any value the ladder does
-            # not name: both reach nobody in `filter_visible` too, where the
-            # condition is simply absent rather than denied.
+            # Restricted without a grant class, or any unnamed value: both
+            # reach nobody in `filter_visible` too, where the condition is
+            # simply absent rather than denied.
             reaches = false()
 
         # `record_status == "published" OR created_by == <caller>`.
@@ -259,18 +254,16 @@ class DefaultWorkflowExtension:
 
 
 class DefaultIdentityExtension:
-    """Default identity: no alternate backend registered (Phase 214 D-14).
+    """Default identity: no alternate backend registered.
 
     Returning None from ``resolve_identity_from_token`` signals the auth
-    dep chain (``get_optional_user`` / ``get_current_user``, retyped in
-    Plan 02) to fall through to the existing JWT decode + DB lookup path.
-    Community edition behavior is exactly today's behavior — one async
-    method call returning None per request.
+    dep chain (``get_optional_user`` / ``get_current_user``) to fall
+    through to the existing JWT decode + DB lookup path.
 
-    The async signature is intentional (Pitfall 8). Enterprise auth
-    overlays may perform DB lookups; the dep wire-in does
-    ``await ext.resolve_identity_from_token(token, request, db)``, so
-    all implementations — community and enterprise — MUST be async.
+    The async signature is required, not incidental: the dep wire-in does
+    ``await ext.resolve_identity_from_token(token, request, db)``, so an
+    enterprise overlay performing DB lookups needs it too — all
+    implementations, community and enterprise, MUST be async.
     """
 
     async def resolve_identity_from_token(self, token, request, db):  # type: ignore[no-untyped-def]
@@ -280,23 +273,20 @@ class DefaultIdentityExtension:
 class DefaultAuditSink:
     """Community-edition default: writes one audit_logs row via log_action().
 
-    log_action() is preserved as an internal helper (Phase 222 D-04 / AUDIT-02
-    option a). Application code does NOT call log_action() directly post-Phase-222;
-    only this sink does.
+    Application code does NOT call log_action() directly; only this sink
+    does.
 
-    Does NOT swallow exceptions internally (D-07) — only the audit_emit() facade
-    swallows. Internal swallowing would silently lose session.flush() constraint
-    failures that today's tests expect to surface.
+    Does NOT swallow exceptions internally — only the audit_emit() facade
+    does. Swallowing here would silently lose session.flush() constraint
+    failures that tests expect to surface.
 
-    The async signature is intentional: enterprise overlays may perform non-blocking
-    I/O (S3 PutObject, SIEM HTTP POST). All sinks — community and enterprise — are
-    awaited by ``audit_emit()``.
+    The async signature lets enterprise overlays perform non-blocking I/O
+    (S3 PutObject, SIEM HTTP POST); all sinks are awaited by ``audit_emit()``.
     """
 
     async def emit(self, session, event) -> None:  # type: ignore[no-untyped-def]
-        # Deferred import: log_action lives in app.modules.audit.service.
-        # extensions/ is platform-level and should not pull modules-level
-        # imports at module load (Phase 214 deferred-import discipline).
+        # Deferred import: extensions/ is platform-level and must not pull
+        # modules-level imports at module load.
         from app.modules.audit.service import log_action
 
         await log_action(
@@ -311,15 +301,13 @@ class DefaultAuditSink:
 
 
 class DefaultNotificationSink:
-    """Community-edition default: no-op notification delivery (Phase 1229 NOTIF-04).
+    """Community-edition default: no-op notification delivery.
 
-    Mirrors ``DefaultBillingExtension``: an async ``deliver`` whose entire body
-    is ``return`` (literal no-op). Docstring: community-edition default is
-    byte-identical to today — zero outbound send, zero side effects.
+    Mirrors ``DefaultBillingExtension``: an async ``deliver`` whose entire
+    body is ``return`` — zero outbound send, zero side effects.
 
-    The async signature is intentional so enterprise overlays may perform
-    non-blocking I/O (SMTP STARTTLS handshake, HTTP POST to webhook URL).
-    All sink implementations — community and enterprise — are awaited by
+    The async signature lets enterprise overlays perform non-blocking I/O
+    (SMTP STARTTLS, HTTP POST to a webhook URL); all sinks are awaited by
     ``notify()`` in ``app.platform.notifications``.
     """
 
@@ -328,18 +316,14 @@ class DefaultNotificationSink:
 
 
 class DefaultBillingExtension:
-    """Community-edition default — no-op startup hook (Phase 223 D-07 / BILLING-01).
+    """Community-edition default — no-op startup hook.
 
-    Mirrors ``DefaultIdentityExtension``: an async no-op that lets the dispatch
-    loop iterate over a non-empty ``[DefaultBillingExtension()]`` list when no
-    overlay is registered. Empty-list-as-default would also work but breaks
-    symmetry with the four existing single-slot Protocols (each has a
-    ``Default*`` class).
+    An async no-op that lets the dispatch loop iterate over a non-empty
+    ``[DefaultBillingExtension()]`` list when no overlay is registered.
 
-    The async signature is intentional (D-08): enterprise overlays may perform
-    non-blocking I/O (HTTP calls to billing APIs, async DB writes for audit).
-    All extensions — community and enterprise — are awaited by the lifespan
-    dispatch loop (Plan 02).
+    The async signature lets enterprise overlays perform non-blocking I/O
+    (billing API calls, async audit writes); all extensions are awaited by
+    the lifespan dispatch loop.
     """
 
     async def on_startup(self, app) -> None:  # type: ignore[no-untyped-def]
@@ -393,25 +377,20 @@ class DefaultDataServingExtension:
 
 
 class DefaultEntitlementPort:
-    """Community/Enterprise default: grant-all entitlement port (Phase 1207 / ENTSEAM-01).
+    """Community/Enterprise default: grant-all entitlement port.
 
-    This is intentionally fail-OPEN — ``has_feature`` returns ``True`` for any
-    feature and ``enforce_limit`` never raises. This is CORRECT for OSS and
-    Enterprise because neither has per-tenant tiering; real enforcement is the
-    cloud overlay's job (Phase 1213) backed by the ``tenant_entitlements`` table
-    (webhook-synced from Stripe). Deploying this default in OSS/Enterprise does
-    NOT weaken security because:
+    Intentionally fail-OPEN — ``has_feature`` returns ``True`` for any
+    feature and ``enforce_limit`` never raises. Correct for OSS and
+    Enterprise, which aren't per-tenant-tiered; real enforcement is the
+    cloud overlay's job, backed by the ``tenant_entitlements`` table
+    (webhook-synced from Stripe). This default doesn't weaken security:
+    ``require_enterprise()`` (edition gate) and ``PermissionExtension``
+    (RBAC) remain orthogonal and guard independently.
 
-    1. ``require_enterprise()`` (binary edition gate) remains orthogonal and
-       guards all enterprise-only endpoints independently.
-    2. ``PermissionExtension`` (per-user RBAC) remains orthogonal and guards
-       all capability checks independently.
-    3. OSS/Enterprise are not multi-tenant-tiered; there is no plan to enforce.
-
-    The cloud overlay (Phase 1213) REPLACES this with a real implementation
-    by registering under the ``"entitlement"`` single-slot key. The
-    ExtensionSlotConflictError guard prevents two overlays from claiming the
-    same slot (SLOT-01). See ``protocols.EntitlementPort`` for the full contract.
+    The cloud overlay REPLACES this by registering under the
+    ``"entitlement"`` single-slot key; ExtensionSlotConflictError (SLOT-01)
+    prevents two overlays from claiming it. See ``protocols.EntitlementPort``
+    for the full contract.
     """
 
     async def has_feature(self, feature: str) -> bool:

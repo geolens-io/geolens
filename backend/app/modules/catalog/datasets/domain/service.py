@@ -1,31 +1,10 @@
-"""Dataset domain service — thin re-export façade (Phase 224).
+"""Dataset domain service — thin re-export façade.
 
-The 1407-LOC orchestration god-module that previously lived here was split
-into 5 cohesive sub-modules along responsibility lines:
-
-- service_analysis.py      -- parameterized PostGIS analysis (preview SQL)
-- service_create.py        -- dataset creation paths (empty, materialized)
-- service_query.py         -- read-side queries (lookup, list, detail, rows)
-- service_lifecycle.py     -- delete, version history, DependentVrtError
-- service_metadata.py      -- user metadata, auto metadata, attribute CRUD,
-                              schema diffing, _normalize_col_type helper
-- service_relationships.py -- dataset relationships + related records
-- _sql_safety.py           -- SAFE_TABLE_NAME_RE, SAFE_COLUMN_NAME_RE,
-                              _safe_table_ref (single source of truth for
-                              SQL-injection-prevention regexes)
-
-External callers MUST import from this façade
-(`app.modules.catalog.datasets.domain.service`), NOT from the sub-modules
-directly. The architecture-guard test
+Logic lives in the service_* sub-modules plus _sql_safety; cross-imports
+between them are fine. External callers MUST import from this façade, never
+a sub-module directly — enforced by
 `test_no_external_imports_of_dataset_domain_submodules` in
-`backend/tests/test_layering.py` enforces this in CI (DECOUPLE-04).
-Cross-imports BETWEEN the 5 sub-modules are permitted.
-
-Rationale: the previous god-module concentrated dataset creation, querying,
-lifecycle, metadata, and relationship logic in one 1407-LOC file, which made the
-open-core boundary impossible to enforce and any change high-risk. Splitting
-along responsibility lines keeps each surface independently reviewable while the
-façade preserves a single public import path for callers.
+`backend/tests/test_layering.py` (DECOUPLE-04).
 """
 
 from app.modules.catalog.datasets.domain._sql_safety import (

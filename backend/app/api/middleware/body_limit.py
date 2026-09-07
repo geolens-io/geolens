@@ -1,36 +1,17 @@
 """Request body size limit middleware.
 
-Rejects requests whose body exceeds the configured maximum, returning
-413 Payload Too Large. Handles both Content-Length and chunked
-Transfer-Encoding requests via stream byte counting.
+Rejects requests whose body exceeds the configured maximum (413), via
+stream byte counting on Content-Length or chunked Transfer-Encoding.
 
-BUG-007 (Phase 1181): The effective limit is resolved PER-REQUEST from the
-cached PersistentConfig value instead of the boot-time env value, so an
-admin-raised UPLOAD_MAX_SIZE_MB takes effect without a process restart.
-
-GAP-001 (Phase 1184): Per-route body cap. Non-upload routes get a small
-default cap (DEFAULT_BODY_LIMIT_BYTES = 10 MB). Only the two endpoints that
-stream a multipart file body — POST /ingest/upload and POST
-/datasets/{id}/reupload — get the admin-configurable UPLOAD_MAX_SIZE_MB
-(500 MB default) resolved via _get_upload_limit(). GeoJSON feature mutations
-get a stricter 1 MB cap before JSON decoding; everything else, including the
-JSON-only presigned / commit / preview sub-routes of upload flows, stays on the
-10 MB default so a large JSON body cannot slip past the DoS cap (PR #249 review).
-
-GAP-001 fix: the app runs with root_path="/api", but every deployment fronts
-it with a proxy that STRIPS the /api prefix before the request reaches the
-ASGI app (prod nginx `rewrite ^/api/(.*) /$1`; dev Vite proxy
-`rewrite: p.replace(/^\\/api/, '')`). So scope["path"] is the un-prefixed
-form (/ingest/upload) in real deployments, and matching against a literal
-/api/ingest/upload prefix never fired — every upload was silently capped at
-the 10 MB default. _is_upload_route normalises away the optional /api prefix
-so the limit applies whether or not the proxy stripped it.
-
-The resolution helper `_get_upload_limit` accepts a `route_override` seam:
-
-    route_override or _get_upload_limit() or _FALLBACK_LIMIT_BYTES
-
-`route_override=DEFAULT_BODY_LIMIT_BYTES` is passed for non-upload routes.
+BUG-007: the limit is resolved PER-REQUEST from cached PersistentConfig,
+not the boot-time env value, so a raised UPLOAD_MAX_SIZE_MB takes effect
+without a restart. GAP-001: per-route cap — only POST /ingest/upload and
+POST /datasets/{id}/reupload get UPLOAD_MAX_SIZE_MB (500 MB); GeoJSON
+feature mutations get a 1 MB pre-decode cap; everything else gets
+DEFAULT_BODY_LIMIT_BYTES (10 MB). Every deployment strips the app's
+`/api` prefix before this middleware sees the path, so a literal-prefix
+match once silently capped every upload at 10 MB until
+`_is_upload_route` normalised it away.
 """
 
 import time
@@ -65,11 +46,10 @@ FEATURE_WRITE_BODY_LIMIT_BYTES = 1 * 1024 * 1024  # 1 MB
 def _too_large_response(max_bytes: int) -> JSONResponse:
     """Build the 413 response in the app-wide RFC 7807 ProblemDetail shape.
 
-    GAP-032: this middleware fires before ``register_error_handlers`` installs
-    the shared exception handlers, so it must build the ProblemDetail body
-    itself. Mirror that convention exactly — the ``type/title/status/detail``
-    envelope and the ``application/problem+json`` media type — so SDK consumers
-    that branch on the uniform error shape parse 413 like every other error.
+    GAP-032: fires before ``register_error_handlers`` installs the shared
+    handlers, so it builds the ProblemDetail body itself — mirror that
+    shape (`type/title/status/detail`, `application/problem+json`) so SDKs
+    parse 413 like every other error.
     """
     return JSONResponse(
         status_code=413,
@@ -87,14 +67,11 @@ def _too_large_response(max_bytes: int) -> JSONResponse:
 def _strip_api_prefix(path: str) -> str:
     """Strip the optional ``/api`` root_path prefix from *path*.
 
-    The app is mounted with ``root_path="/api"``, but every deployment fronts it
-    with a proxy that removes ``/api`` before the request reaches the ASGI app
-    (prod nginx ``rewrite ^/api/(.*) /$1``; dev Vite proxy
-    ``rewrite: p.replace(/^\\/api/, '')``). So ``scope["path"]`` is the
-    un-prefixed form in production, while a direct hit on the API container keeps
-    the prefix. Normalising both to the un-prefixed form lets the upload-route
-    classifier fire in every case. The prefix match is case-sensitive, mirroring
-    the proxy rewrites and FastAPI's case-sensitive routing.
+    Every deployment fronts the app with a proxy that removes ``/api``
+    before the ASGI app sees it (prod nginx, dev Vite), so
+    ``scope["path"]`` is un-prefixed in production while a direct
+    container hit keeps it. Normalising both lets the upload-route
+    classifier fire either way, case-sensitively.
     """
     if path.startswith("/api/"):
         return path[len("/api") :]  # drop "/api", keep the leading slash
@@ -116,33 +93,18 @@ def _is_uuid(value: str) -> bool:
 def _is_upload_route(path: str, method: str = "POST") -> bool:
     """Return True only for the two POST endpoints that receive file BYTES.
 
-    GAP-001: file-upload routes need the large UPLOAD_MAX_SIZE_MB limit; every
-    other route gets DEFAULT_BODY_LIMIT_BYTES so a large body cannot slip past
-    the DoS cap. Exactly two endpoints stream a multipart file body:
+    GAP-001: only these two stream a multipart file body and need the
+    large UPLOAD_MAX_SIZE_MB limit; everything else gets
+    DEFAULT_BODY_LIMIT_BYTES:
 
         POST /ingest/upload                   (ingest.upload_file)
         POST /datasets/{dataset_id}/reupload  (datasets.reupload_dataset)
 
-    The presigned initiate/complete, commit and preview sub-routes of those two
-    flows carry only small JSON — the bytes go straight to object storage — so
-    they stay on the default cap (PR #249 review: the previous /ingest/upload*
-    prefix and "/reupload"-substring match let a 500 MB JSON body through on
-    those routes).
-
-    Both upload endpoints are POST-only, so the method is part of the match: a
-    non-POST request to the same path (e.g. PUT /ingest/upload) would otherwise
-    get the large cap and be rejected only as 405 *after* the large body was
-    allowed through (PR #249 review).
-
-    The optional ``/api`` prefix is normalised away first (see _strip_api_prefix)
-    so the classifier fires on the proxy-stripped paths real deployments produce,
-    not just on a direct hit against the API container. The match mirrors FastAPI
-    routing EXACTLY so the large cap is never handed to a request routing will
-    reject anyway: case-sensitive, no trailing slash (the routes are registered
-    no-slash with redirect_slashes=False and no reverse alias), and the reupload
-    dataset_id must parse as a UUID (the path param is typed uuid.UUID). Each
-    otherwise let a variant that 404s/422s receive the large allowance (PR #249
-    review rounds).
+    Their presigned/commit/preview sub-routes carry only small JSON (PR
+    #249: a prefix/substring match once let a 500 MB body through
+    there). Mirrors FastAPI routing EXACTLY — method, case-sensitivity,
+    no trailing slash, UUID-parsed dataset_id — so the cap is never
+    handed to a request routing would reject anyway.
     """
     if method.upper() != "POST":
         return False
@@ -242,8 +204,7 @@ async def _refresh_limit_cache() -> int:
             mb = await UPLOAD_MAX_SIZE_MB.get(db)
 
         limit_bytes = mb * 1024 * 1024
-    except Exception:  # broad: dynamic UPLOAD_MAX_SIZE_MB read can fail during startup/test isolation; fall back to cached/default limit
-        # Cache unavailable (startup, test isolation) — keep current or use fallback
+    except Exception:  # broad: config read can fail at startup/test isolation
         limit_bytes = cached_bytes or _FALLBACK_LIMIT_BYTES
 
     _limit_cache = (now, limit_bytes)
@@ -274,19 +235,16 @@ class RequestBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Resolve limit per-request (async cache refresh, TTL 30 s).
-        # _refresh_limit_cache populates the sync _limit_cache; _get_upload_limit
-        # reads it.  Per GAP-001, non-upload routes use DEFAULT_BODY_LIMIT_BYTES
-        # as the route_override so the large upload limit never applies to them.
+        # Resolve limit per-request (async cache refresh, TTL 30s);
+        # non-upload routes pass DEFAULT_BODY_LIMIT_BYTES as route_override
+        # so the large upload limit never applies to them.
         #
-        # fix(#1778 codex r7): skipped for the liveness probe. The refresh is
-        # already failure-tolerant -- it catches everything and falls back to
-        # the cached or boot-time limit -- so an outage does not FAIL the probe,
-        # but it does make it WAIT: once the 30s cache expires, every request
-        # pays a connection attempt, and against a blackholed database that is
-        # the probe's whole timeout budget spent before the handler runs. A
-        # probe that answers too late is indistinguishable from a dead process.
-        # The size cap still applies, from the cached or fallback value.
+        # fix(#1778): skipped for the liveness probe. The refresh is
+        # failure-tolerant (falls back to cached/boot-time limit on error),
+        # but once the cache expires it makes every request pay a DB
+        # connection attempt — against a blackholed database that eats the
+        # probe's whole timeout, making it indistinguishable from a dead
+        # process. The size cap still applies from the cached/fallback value.
         if not is_liveness_request(scope):
             await _refresh_limit_cache()
 

@@ -28,10 +28,8 @@ class OAuthProvider(Base):
         CheckConstraint(
             # 'saml' is co-owned by enterprise migration e002_add_saml_columns;
             # 'github' is added by OSS migration 0010_oauth_github_provider_type.
-            # The literal here matches the widest constraint so the model and DB
-            # stay in sync when either overlay is loaded. Community deployments
-            # still see only oidc/google/microsoft/github rows in practice because
-            # SAML rows require the enterprise overlay (e002 + is_enterprise() gate).
+            # Literal matches the widest constraint so model and DB stay in
+            # sync regardless of which overlay is loaded.
             "provider_type IN ('oidc', 'google', 'microsoft', 'saml', 'github')",
             name="chk_oauth_providers_type",
         ),
@@ -50,19 +48,10 @@ class OAuthProvider(Base):
     authorize_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     token_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     userinfo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # SAML provider columns. All four are nullable; only populated when
-    # provider_type='saml' and the enterprise overlay is loaded.
-    #
-    # fix(#435): these are core-owned columns now. Community databases DO have them
-    # — core migration ``0008_oauth_saml_columns`` adds all four (``ADD COLUMN IF
-    # NOT EXISTS``, so the enterprise overlay's ``e002_add_saml_columns`` stays a
-    # compatible no-op). They simply sit NULL for OSS OAuth/OIDC providers, and the
-    # ``'saml'`` provider_type CHECK constraint remains enterprise-only.
-    #
-    # ``deferred=True`` is kept for the original reason it was added: the columns stay
-    # out of the default ``SELECT`` against ``oauth_providers``. Grouped under
-    # ``deferred_group="saml"`` so the SAML router can ``undefer_group("saml")`` to
-    # load all four in a single query when needed.
+    # fix(#435): core-owned columns — core migration 0008_oauth_saml_columns
+    # adds all four (IF NOT EXISTS, so enterprise's e002 stays a no-op); NULL
+    # for OSS providers. deferred_group="saml" lets the SAML router undefer
+    # all four together, out of the default SELECT.
     idp_entity_id: Mapped[str | None] = mapped_column(
         String(512), nullable=True, deferred=True, deferred_group="saml"
     )

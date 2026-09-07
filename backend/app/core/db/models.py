@@ -27,19 +27,19 @@ class AppSetting(Base):
 class SecurityRevocationGeneration(Base):
     """One row, one number: the cluster-global revocation generation.
 
-    fix(#1778 codex r3/r4). Declared here rather than in a domain package
-    because no domain owns it: it is the counter every worker consults to decide
-    whether a cached AUTHORIZATION decision predates the latest revocation, and
-    ``app/platform/cache/revocation.py`` (which may not import from
+    fix(#1778): declared here rather than in a domain package because no
+    domain owns it — it is the counter every worker consults to decide
+    whether a cached AUTHORIZATION decision predates the latest revocation,
+    and ``app/platform/cache/revocation.py`` (which may not import from
     ``app.modules.*``) is what reads and advances it.
 
     The model exists so ``alembic check`` can see the table migration 0057
-    creates; the reads and writes themselves are raw SQL in that module, because
-    a single-row counter wants an ``UPDATE ... RETURNING`` rather than an ORM
+    creates; the reads and writes are raw SQL in that module, since a
+    single-row counter wants an ``UPDATE ... RETURNING`` rather than an ORM
     round-trip.
 
-    ``id`` is a boolean pinned TRUE by a CHECK plus the primary key, so a second
-    row cannot be inserted and no reader has to say which row it means.
+    ``id`` is a boolean pinned TRUE by a CHECK plus the primary key, so a
+    second row cannot be inserted and no reader has to say which row it means.
     """
 
     __tablename__ = "security_revocation_generation"

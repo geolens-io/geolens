@@ -8,14 +8,11 @@ Adds standard security headers to all API responses:
 - Content-Security-Policy: frame-ancestors 'self' -- prevents clickjacking
   (skipped if the route already set Content-Security-Policy, e.g. the icon
   GET endpoint uses `default-src 'none'; sandbox` for SVG per SEC-01)
-- X-Frame-Options: DENY -- legacy clickjacking protection
-  (skipped when the route already set Content-Security-Policy with
-  frame-ancestors, per SEC-S08 / Phase 1062-05: routes that emit a
-  permissive frame-ancestors value own both clickjacking-defense headers;
-  modern browsers (CSP Level 2+) honor frame-ancestors over XFO, but the
-  unconditional XFO=DENY would still win on legacy browsers if not suppressed)
-- Permissions-Policy: camera=(), microphone=(), geolocation=() -- restricts browser features
-- Strict-Transport-Security (conditional) -- enforces HTTPS when behind TLS terminator
+- X-Frame-Options: DENY -- legacy clickjacking protection (skipped when
+  the route set its own CSP frame-ancestors, per SEC-S08: legacy
+  browsers apply XFO=DENY unconditionally and reject a permitted embed)
+- Permissions-Policy: camera=(), microphone=(), geolocation=()
+- Strict-Transport-Security (conditional) -- when behind a TLS terminator
 """
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -35,19 +32,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # routes still get the global strict-origin-when-cross-origin default.
         if "referrer-policy" not in (h.lower() for h in response.headers.keys()):
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # SEC-01: only set the global Content-Security-Policy if the route did
-        # NOT already set it. The icon GET handler uses `default-src 'none';
-        # sandbox` for SVGs; the shared-map endpoint (SEC-S08) emits a
-        # per-token `frame-ancestors 'self' <origins>` value; non-overriding
-        # routes still get the global frame-ancestors 'self' default.
+        # SEC-01: only set the global CSP if the route hasn't already (the
+        # icon GET handler uses `default-src 'none'; sandbox`; the
+        # shared-map endpoint (SEC-S08) emits a per-token frame-ancestors).
         #
-        # SEC-S08 (Phase 1062-05): skip X-Frame-Options: DENY when the route
-        # already set its own CSP. When both CSP frame-ancestors and
-        # X-Frame-Options are present, modern browsers (CSP Level 2+) honor
-        # frame-ancestors — but legacy browsers apply the unconditional
-        # XFO=DENY and would reject the embed regardless. Suppressing XFO on
-        # routes that own their own CSP lets the per-token allowed_origins
-        # policy take effect on all browsers.
+        # SEC-S08: skip X-Frame-Options: DENY when the route owns its own
+        # CSP — modern browsers honor frame-ancestors over XFO, but legacy
+        # browsers apply the unconditional XFO=DENY and would reject the
+        # embed regardless of the route's per-token policy.
         route_set_csp = "content-security-policy" in (
             h.lower() for h in response.headers.keys()
         )

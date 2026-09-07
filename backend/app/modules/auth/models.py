@@ -61,12 +61,10 @@ class User(Base):
             postgresql_ops={"lower(catalog.immutable_unaccent(email))": "gin_trgm_ops"},
         ),
         # TSEAM-02: Two-partial-index uniqueness pattern (Phase 1207).
-        # Migration 0005_dormant_tenancy drops the global unique constraints
-        # (users_username_key / users_email_key) and replaces them with these
-        # four partial unique indexes so:
-        #   - single_tenant (tenant_id IS NULL): global uniqueness is preserved
-        #   - multi_tenant  (tenant_id IS NOT NULL): per-tenant uniqueness
-        # A naive composite unique on nullable tenant_id is forbidden because
+        # Migration 0005_dormant_tenancy replaces the global unique
+        # constraints with these four partial unique indexes: global
+        # uniqueness when tenant_id IS NULL, per-tenant when NOT NULL. A
+        # naive composite unique on nullable tenant_id is forbidden because
         # Postgres treats NULLs as DISTINCT, silently breaking single_tenant.
         Index(
             "uq_users_username_global",
@@ -114,34 +112,31 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )
-    # SIGNUP-03 (Phase 1231): email verification flag. Set to True by
-    # redeem_verification_token() when the user clicks the verification link.
-    # server_default="false" so every new user starts as unverified.
+    # SIGNUP-03 (Phase 1231): set to True by redeem_verification_token() on
+    # verification-link click; server_default="false" so new users start unverified.
     email_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
-    # SEC-S15 (Phase 1062-01): JWT revocation primitive. Bumped on logout and
-    # on password change. Any access JWT whose token_version claim is less
-    # than this value is rejected on the next authenticated request.
+    # SEC-S15 (Phase 1062-01): JWT revocation primitive, bumped on logout
+    # and password change. An access JWT whose token_version is less than
+    # this value is rejected on the next authenticated request.
     token_version: Mapped[int] = mapped_column(
         Integer, default=1, server_default="1", nullable=False
     )
-    # fix(#821): API-key revocation primitive, deliberately separate from
-    # token_version. Bumped only on security events (password change, role
-    # change, SAML-to-local conversion) — NOT on logout, so a web logout does
-    # not kill long-lived API keys (CI, MCP, tile URLs). Keys snapshot this
-    # value at mint and stop resolving when it no longer matches.
+    # fix(#821): API-key revocation primitive, separate from token_version.
+    # Bumped only on security events (password/role change, SAML-to-local),
+    # NOT logout, so long-lived API keys (CI, MCP, tile URLs) survive a web
+    # sign-out. Keys snapshot this at mint and stop resolving on mismatch.
     key_epoch: Mapped[int] = mapped_column(
         Integer, default=1, server_default="1", nullable=False
     )
-    # fix(#1455): revocation horizon — every session credential (refresh row or
-    # access JWT) issued at or before this instant is dead, whatever its own
-    # state says. token_version and the refresh-row UPDATE revoke the rows one
-    # statement's snapshot can see, which cannot express "everything issued up
-    # to now": a rotation committing just after that snapshot leaves a live
-    # refresh row behind. Read at use time by both refresh lookups and both JWT
-    # dependencies. NULL until the user's first revocation. Stamped from the DB
-    # clock, the same clock that stamps RefreshToken.created_at.
+    # fix(#1455): revocation horizon — every session credential issued at or
+    # before this instant is dead, regardless of its own state. token_version
+    # and the refresh-row UPDATE only revoke what one statement's snapshot
+    # sees, which can't express "everything issued up to now"; this covers a
+    # rotation committing just after that snapshot. Read at use time by both
+    # refresh lookups and both JWT dependencies. NULL until first
+    # revocation; stamped from the DB clock (matches RefreshToken.created_at).
     sessions_revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -211,9 +206,8 @@ class ApiKey(Base):
         ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     key_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    # Non-secret operator identifier. Existing keys pre-dating migration 0016
-    # remain NULL; new keys store an 8-character prefix plus last four so users
-    # can identify a credential without exposing the raw secret.
+    # Non-secret operator identifier. Keys pre-dating migration 0016 are
+    # NULL; new keys store an 8-char prefix plus last four for identification.
     fingerprint: Mapped[str | None] = mapped_column(String(20), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(
@@ -224,16 +218,14 @@ class ApiKey(Base):
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # fix(#821): snapshot of the owner's key_epoch at mint time. When the
-    # owner's key_epoch is bumped (password change, role change, SAML-to-local
-    # conversion — NOT logout), keys minted before the bump stop resolving.
-    # Migration 0029 backfills pre-existing keys with each owner's
-    # then-current epoch.
+    # fix(#821): snapshot of owner's key_epoch at mint. When key_epoch is
+    # bumped (password/role change, SAML-to-local — NOT logout), keys minted
+    # before the bump stop resolving. Migration 0029 backfilled existing keys.
     key_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
-    # fix(#875): least-privilege machine credentials. "read_only" authenticates
-    # GET/HEAD/OPTIONS only; anything else is refused at the resolution
-    # chokepoint (see _resolve_api_key). The server_default backfills every
-    # pre-0032 key as "full", so existing keys behave exactly as before.
+    # fix(#875): least-privilege machine credentials. "read_only"
+    # authenticates GET/HEAD/OPTIONS only, refused elsewhere at the
+    # resolution chokepoint (_resolve_api_key). server_default backfills
+    # pre-0032 keys as "full" (no behavior change).
     scope: Mapped[str] = mapped_column(
         String(20), server_default="full", nullable=False
     )
@@ -282,11 +274,11 @@ class RefreshToken(Base):
 class EmailVerificationToken(Base):
     """Single-use expiring verification token for email confirmation (SIGNUP-03).
 
-    Mirrors the ``RefreshToken`` opaque-token pattern: the raw token is returned
-    to the caller once and never persisted; only its sha256 hex digest is stored
-    here.  Redeeming sets ``consumed_at`` (single-use gate); expired or consumed
-    tokens are rejected by the same query filter so the caller cannot distinguish
-    them (enumeration-safe, SIGNUP-05).
+    Mirrors the ``RefreshToken`` opaque-token pattern: the raw token is
+    returned once and never persisted, only its sha256 digest is stored.
+    Redeeming sets ``consumed_at`` (single-use gate); expired or consumed
+    tokens are rejected by the same query filter, so the caller can't
+    distinguish them (enumeration-safe, SIGNUP-05).
     """
 
     __tablename__ = "email_verification_tokens"

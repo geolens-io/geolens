@@ -54,7 +54,7 @@ _SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
 _SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS = 5.0
 _SERVICE_IMPORT_HEARTBEAT_INCREMENT = 0.05
 _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
-# fix(#1778 codex r3): the PRIMARY bound on one heartbeat tick's own database
+# fix(#1778): the PRIMARY bound on one heartbeat tick's own database
 # wait. Set as `SET LOCAL lock_timeout` / `SET LOCAL statement_timeout` on the
 # tick's own transaction (see _service_import_heartbeat_tick), so a commit
 # blocked on another transaction's row lock fails on its own, INSIDE the
@@ -63,7 +63,7 @@ _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
 # still checked out and blocked, exhausting the worker's pool under repeated
 # stalled imports even though their parent tasks continued.
 _SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS = 3.0
-# fix(#1778 codex r2, revised r3): a SAFETY NET above the DB timeout above,
+# fix(#1778): a SAFETY NET above the DB timeout above,
 # not the primary mechanism -- see _heartbeat_service_import_progress. Covers
 # only what a DB-side timeout cannot: a connection stuck before it ever
 # reaches Postgres (e.g. a network partition), where `SET LOCAL` never runs.
@@ -132,7 +132,7 @@ async def _service_import_heartbeat_tick(
     ``_heartbeat_service_import_progress`` so that function can ``shield`` the
     whole tick from cancellation (fix(#1778)) — see that function's docstring.
 
-    fix(#1778 codex r3): sets ``lock_timeout``/``statement_timeout`` on this
+    fix(#1778): sets ``lock_timeout``/``statement_timeout`` on this
     transaction before touching the job row, so a commit blocked on another
     transaction's row lock raises INSIDE Postgres within a few seconds
     instead of waiting on whatever holds the lock. ``_job_phase_session``'s
@@ -141,7 +141,7 @@ async def _service_import_heartbeat_tick(
     the caller no longer has to choose between waiting on a stuck connection
     forever and abandoning one it can never reclaim.
 
-    fix(#1778 codex r6): those timeouts are now passed INTO
+    fix(#1778): those timeouts are now passed INTO
     ``_job_phase_session`` (``lock_and_statement_timeout_ms``) rather than
     set after entering it, so they cover the SELECT the helper runs
     internally too -- issuing them after the ``async with`` line left that
@@ -149,7 +149,7 @@ async def _service_import_heartbeat_tick(
     the later UPDATE would never even see (e.g. another session's ACCESS
     EXCLUSIVE on the table).
 
-    fix(#1778 codex r11): the SELECT above (run inside ``_job_phase_session``)
+    fix(#1778): the SELECT above (run inside ``_job_phase_session``)
     is a snapshot, not a lock. If THIS tick's own connection then stalls --
     for whatever reason the DB timeout above does not itself close, e.g. a
     connection stuck before it ever reaches Postgres -- long enough for the
@@ -247,7 +247,7 @@ async def _heartbeat_service_import_progress(
     same trade a clean subprocess kill/reap already makes elsewhere in this
     package.
 
-    fix(#1778 codex r2, revised r3): the drain that lets a shielded tick
+    fix(#1778): the drain that lets a shielded tick
     finish is bounded by ``_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS``,
     a SAFETY NET, not the primary mechanism. The shield bounds WHERE a cancel
     can land, not HOW LONG draining one can take, and round 2 covered that
@@ -291,7 +291,7 @@ async def _heartbeat_service_import_progress(
                             timeout=_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS,
                         )
                     except asyncio.TimeoutError:
-                        # Expected to be rare after fix(#1778 codex r3): the
+                        # Expected to be rare after fix(#1778): the
                         # tick's own DB-level timeout should have already
                         # resolved it well within this window. Reaching this
                         # means something OUTSIDE the database's own timeout
@@ -534,7 +534,7 @@ async def ingest_file(
                     },
                 )
                 await session.commit()
-                # fix(#1778): NO unlink here — fix(#1290 review)'s correction,
+                # fix(#1778): NO unlink here — fix(#1290)'s correction,
                 # which reached the two raster tails and not this copy of the
                 # same block. This exit deleted the local file unconditionally,
                 # which on a local-storage install is the durable original: a
@@ -677,7 +677,7 @@ async def ingest_file(
         # session — its attributes were already snapshotted into
         # ``um`` / ``source_filename`` / ``layer_name`` above.
         #
-        # fix(#1778 audit r11): require_status="running". _finalize_ingest's
+        # fix(#1778): require_status="running". _finalize_ingest's
         # own terminal write already fences on status via
         # require_ingest_job_update (default expected_status="running"), so a
         # fenced-out attempt cannot resurrect a row the sweep failed -- the
@@ -907,13 +907,13 @@ async def ingest_file(
         # child — no sibling shares it — so it is always safe to unlink even
         # for fan-out children. Previously the is_fan_out_child guard skipped
         # cleanup unconditionally, leaking every child's S3 download on disk.
-        # fix(#430 review): default TRUE (treat unknown as fan-out child) so a
+        # fix(#430): default TRUE (treat unknown as fan-out child) so a
         # failed/absent lookup SKIPS destructive cleanup — deleting the shared
         # S3 staging original on a misdetected child would break every sibling
         # (retry=0). Cost of the fail-safe: an orphaned staging object the
         # retention policy reaps later.
         is_fan_out_child = True
-        # fix(#1202 review r5): the presigned staging key, swept below.
+        # fix(#1202): the presigned staging key, swept below.
         owned_staging_key: str | None = None
         try:
             # REMED-03 / P2-05: route through _job_phase_session. The helper
@@ -945,7 +945,7 @@ async def ingest_file(
             ):
                 Path(file_path).unlink(missing_ok=True)
 
-        # fix(#1213 review r2): shared with the reupload tail — after a
+        # fix(#1213): shared with the reupload tail — after a
         # presigned completion this reaps the FROZEN copy the job is bound to.
         async with cleanup_step("ingest_file downloaded source", job_id=job_id):
             await reap_downloaded_staging_source(
@@ -959,7 +959,7 @@ async def ingest_file(
                 is_fan_out_child=is_fan_out_child,
             )
 
-        # fix(#1202 review r5): sweep the presigned staging key too. The block
+        # fix(#1202): sweep the presigned staging key too. The block
         # above only reaps `original_file_path`, which after a presigned
         # completion is the FROZEN copy — so the key the client still holds a
         # PUT URL for was never touched. Shared with the raster tail so the
@@ -1225,7 +1225,7 @@ async def ingest_service(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): post-ogr2ogr finalization.
         #
-        # fix(#1778 audit r11): require_status="running", same reasoning as
+        # fix(#1778): require_status="running", same reasoning as
         # the sibling in ingest_file above -- this phase's own terminal write
         # is already fenced by status through require_ingest_job_update, this
         # closes the door earlier rather than wasting the finalize work.
@@ -1291,7 +1291,7 @@ async def ingest_service(
                     # without re-parsing the enriched URI. No token: it is
                     # per-call and transient.
                     #
-                    # fix(#1218 review r3): layer_id carries the SERVICE-NATIVE
+                    # fix(#1218): layer_id carries the SERVICE-NATIVE
                     # identifier, which is a different field per service type.
                     # build_gdal_source is the authority: its ArcGIS branch
                     # requires layer_id and ignores the layer name, while its
@@ -1314,7 +1314,7 @@ async def ingest_service(
                         # so this cannot be that claim, and a public service
                         # imported while holding a token is marked too.
                         #
-                        # fix(#1746 codex r1): which is why the refresh door
+                        # fix(#1746): which is why the refresh door
                         # treats the marker as a GATE and not a verdict — it
                         # runs one token-less probe before refusing, so a false
                         # marker costs a probe and never a refusal.
@@ -1388,7 +1388,7 @@ async def ingest_service(
             )
         raise
     finally:
-        # fix(#1755 item 11): `purge_token_on_failure` (`tasks_common.py`), the
+        # fix(#1755): `purge_token_on_failure` (`tasks_common.py`), the
         # decorator around this task, must still see whatever exception
         # `ingest_service` itself raised, not one from a cleanup step.
         async with cleanup_step("ingest_service heartbeat", job_id=job_id):

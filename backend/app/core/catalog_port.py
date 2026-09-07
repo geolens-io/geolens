@@ -54,15 +54,14 @@ class CatalogPort(Protocol):
     ) -> None: ...
 
     # Here and on `finalize_presigned_object`, `user_id` is the dataset OWNER
-    # when the flow is a replacement and the uploader when it is a creation, so
-    # it is nullable: an ownerless dataset has no owner to name (#1293 — the
-    # policy is stated in app.modules.quota.service).
+    # on a replacement and the uploader on a creation, so it is nullable: an
+    # ownerless dataset has no owner to name (#1293, policy in
+    # app.modules.quota.service).
     #
-    # fix(#1590): DefaultCatalogPort.verify_completed_presigned_upload also
-    # accepts `replacing_dataset_id: uuid.UUID | None = None` — the same
-    # deferred addition as `finalize_presigned_object` later in this file,
-    # which forwards it here internally. See that method's comment for why
-    # it is not declared on the Protocol yet.
+    # fix(#1590): DefaultCatalogPort also accepts
+    # `replacing_dataset_id: uuid.UUID | None = None` here, forwarded
+    # internally from `finalize_presigned_object` — not yet on the Protocol;
+    # see that method's comment for why.
     async def verify_completed_presigned_upload(
         self,
         *,
@@ -95,16 +94,11 @@ class CatalogPort(Protocol):
     ) -> str: ...
 
     # fix(#1590): DefaultCatalogPort.finalize_presigned_object also accepts
-    # `replacing_dataset_id: uuid.UUID | None = None`, which the reupload
-    # door (router_reupload.py, #1290 admission parity) already passes
-    # through this port. It is not declared here because version.py's
-    # 2 -> 3 precedent holds: an overlay that implements a method must
-    # accept a keyword the Protocol adds, so adding it is a signature change
-    # and therefore an EXTENSION_API_VERSION bump, not a no-op optional
-    # addition — and a signature-drift cleanup does not get to force that
-    # bump on its own. A full-replacement `catalog_port` overlay would
-    # TypeError on `replacing_dataset_id` today; add the keyword here at the
-    # next bump and drop this comment.
+    # `replacing_dataset_id: uuid.UUID | None = None` (reupload door,
+    # router_reupload.py, #1290), not yet declared here: version.py's 2->3
+    # precedent says adding a Protocol keyword is an EXTENSION_API_VERSION
+    # bump, not a no-op — a full-replacement overlay would TypeError on it
+    # today. Add the keyword here at the next bump.
     async def finalize_presigned_object(
         self,
         *,
@@ -248,20 +242,16 @@ class CatalogPort(Protocol):
 
     async def set_hnsw_recall(self, session: AsyncSession) -> None: ...
 
-    # fix(#1580): returns ``(embedding, model_name, config_fingerprint)`` rather
-    # than a bare vector. Related-items compares two STORED rows, so the caller
-    # has to be able to name the space the anchor is in and hold every later
-    # read to it; a list of floats cannot say which model or endpoint produced
-    # it. ``config_fingerprint`` is None for a row written before that column
-    # existed, and ``RecordEmbedding.usable_by_config`` grandfathers it.
+    # fix(#1580): returns ``(embedding, model_name, config_fingerprint)``, not a
+    # bare vector — related-items compares two STORED rows and must be able to
+    # name the space the anchor is in. ``config_fingerprint`` is None for a
+    # pre-column row; ``RecordEmbedding.usable_by_config`` grandfathers it.
     async def get_record_embedding(
         self, session: AsyncSession, record_id: uuid.UUID
     ) -> tuple[list[float], str, str | None] | None: ...
 
-    # fix(#1580 review r2): the anchor is a required keyword. The caller reads
-    # it once and hands the same row to the ranking and the scoring, so the two
-    # cannot straddle a commit under READ COMMITTED — and an overlay cannot
-    # re-read and pick a different one.
+    # fix(#1580): anchor is a required keyword so ranking and scoring
+    # share one read and can't straddle a commit under READ COMMITTED.
     async def get_nearest_record_ids(
         self,
         session: AsyncSession,
@@ -272,11 +262,9 @@ class CatalogPort(Protocol):
         max_distance: float = 0.7,
     ) -> list[uuid.UUID]: ...
 
-    # fix(#1580): the anchor's ``(model_name, config_fingerprint)`` are required
-    # keywords, not optional refinements. A neighbour record may hold a row in
-    # more than one space, and scoring it in the wrong one produces a similarity
-    # number that is well-formed and meaningless — the same failure as the
-    # selection above, one layer out.
+    # fix(#1580): ``(model_name, config_fingerprint)`` are required keywords —
+    # a neighbour record may hold a row in more than one space, and scoring in
+    # the wrong one gives a well-formed, meaningless number.
     async def get_embedding_distances(
         self,
         session: AsyncSession,
@@ -313,18 +301,13 @@ class CatalogPort(Protocol):
         self, session: AsyncSession, dataset_ids: list[uuid.UUID]
     ) -> dict[str, dict[str, Any]]: ...
 
-    # The same rows without the VRT assembly fields. `vrt_type` is forwarded to
-    # a record's properties when present (search/service_records.py), and the
-    # STAC item surface must not grow that property — so its reader asks for
-    # the narrower answer rather than trimming the wider one.
+    # The same rows without the VRT assembly fields — `vrt_type` reaches record
+    # properties when present, and the STAC item surface must not gain it, so
+    # its reader asks for the narrower answer instead of trimming the wider one.
     #
-    # REQUIRED, which is why EXTENSION_API_VERSION went 5 -> 6: every STAC
-    # item and item-page response calls it, so an overlay that replaces the
-    # `catalog_port` slot without it serves AttributeError instead of a page.
-    # A separate method rather than an `include_vrt` keyword on the call above
-    # because widening an existing port method's signature is a bump under the
-    # same rule (the 2 -> 3 entry), and this shape keeps the wider reading
-    # working unchanged for the callers that need `vrt_type`.
+    # REQUIRED (EXTENSION_API_VERSION 5 -> 6): every STAC item/item-page
+    # response calls it. A separate method rather than an `include_vrt`
+    # keyword above, since widening an existing signature is itself a bump.
     async def fetch_raster_meta_bulk_without_vrt(
         self, session: AsyncSession, dataset_ids: list[uuid.UUID]
     ) -> dict[str, dict[str, Any]]: ...

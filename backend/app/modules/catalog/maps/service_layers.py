@@ -26,15 +26,10 @@ async def bulk_check_dataset_access(
 ) -> set[uuid.UUID]:
     """Return the subset of dataset_ids the user can access. Single round-trip.
 
-    fix(#929 review): visibility policy lives in the permission extension —
-    this used to be an inline mirror of DefaultPermissionExtension, which
-    meant an overlay policy (e.g. one that deliberately denies a dataset's
-    creator) was bypassed on the map-attach paths. Routing the batch through
-    apply_visibility_filter keeps it one round-trip while letting whatever
-    extension is registered decide, creator exemption included.
-
-    Unlike the old inline mirror, admins now also get an existence check: an
-    id that matches no dataset is never reported accessible.
+    fix(#929): routes through apply_visibility_filter (not an inline
+    policy mirror) so an overlay permission extension's decision, creator
+    exemption included, is honored on map-attach paths. Unlike the old
+    mirror, an id matching no dataset is never reported accessible.
     """
     if not dataset_ids:
         return set()
@@ -58,7 +53,6 @@ async def add_layer(
 
     Does NOT commit.
     """
-    # Single query for record_type + geometry_type (replaces two separate queries)
     meta = await get_dataset_meta(session, body.dataset_id)
     record_type = meta.record_type if meta else None
     geometry_type = meta.geometry_type if meta else None
@@ -108,7 +102,7 @@ async def add_layer(
         paint=paint,
         layout=layout,
         layer_type=resolved_layer_type,
-        # fix(#430 V-12): dialog-added layers POST no display_name; persist the dataset
+        # fix(#430): dialog-added layers POST no display_name; persist the dataset
         # title so API consumers don't see null.
         display_name=body.display_name or (meta.title if meta else None),
         filter=body.filter,
@@ -145,24 +139,14 @@ async def remove_layers_bulk(
 ) -> tuple[list[str], list[tuple[str, str]]]:
     """Batch-delete multiple layers from a map in a single transaction.
 
-    Fetches all matching MapLayer rows in one SELECT, then removes them
-    with a single DELETE WHERE id=ANY(...) AND map_id=:map_id. Layer ids
-    that were not found in the SELECT are returned in the failure list.
-
-    Returns:
-        (deleted_ids, failed_pairs) where:
-        - deleted_ids: list[str] — UUIDs of successfully deleted layers.
-        - failed_pairs: list[(str, str)] — (layer_id_str, reason) for each
-          layer that could not be found (reason="not_found").
-
-    NOTE: The caller is responsible for committing the transaction. This
-    function does NOT call session.commit() so that audit/history can be
-    written in the same transaction before the commit.
+    One SELECT to discover existing ids, then one DELETE. Returns
+    (deleted_ids, failed_pairs); failed_pairs entries are
+    (layer_id_str, "not_found"). Does NOT commit — caller commits so
+    audit/history can share the transaction.
     """
     if not layer_ids:
         return [], []
 
-    # Fetch all matching rows in one round-trip to discover which ids exist
     existing_result = await session.execute(
         select(MapLayer.id).where(
             MapLayer.map_id == map_id,
@@ -171,7 +155,6 @@ async def remove_layers_bulk(
     )
     existing_ids: set[uuid.UUID] = set(existing_result.scalars().all())
 
-    # Determine failures (ids not in the map)
     failed_pairs: list[tuple[str, str]] = [
         (str(lid), "not_found") for lid in layer_ids if lid not in existing_ids
     ]
@@ -179,7 +162,6 @@ async def remove_layers_bulk(
     if not existing_ids:
         return [], failed_pairs
 
-    # Single DELETE for all found rows
     await session.execute(
         delete(MapLayer).where(
             MapLayer.map_id == map_id,

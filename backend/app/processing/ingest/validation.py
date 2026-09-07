@@ -318,14 +318,14 @@ def _handle_unreadable_database(exc: sqlite3.Error, source: str | None) -> None:
     """Decide whether an open failure is this check's to report.
 
     A file whose bytes are not a database has no schema to name an outside
-    source, and GDAL -- reading it through the same SQLite -- will not read it
-    either. `validate_file_content` already refuses a `.gpkg` whose magic bytes
-    are not a database, and `ingest/ogr.py` has a carefully worded message for
-    the open failure that follows. Answering "not a database" here would only
-    replace that message with a worse one, so those two codes stand aside.
+    source, and GDAL -- reading it through the same SQLite -- won't read it
+    either. `validate_file_content` already refuses a `.gpkg` with non-database
+    magic bytes, and `ingest/ogr.py` has its own message for the open failure
+    that follows, so these two codes stand aside rather than replace it with
+    a worse one.
 
-    Anything else -- a permission problem, an encrypted file, a code this does
-    not recognise -- is a file this cannot vouch for, and it refuses.
+    Anything else -- permission problem, encrypted file, unrecognised code --
+    is a file this cannot vouch for, and it refuses.
     """
     if getattr(exc, "sqlite_errorcode", None) in _NOT_A_READABLE_DATABASE:
         return
@@ -337,24 +337,23 @@ def _handle_unreadable_database(exc: sqlite3.Error, source: str | None) -> None:
 def _scan_sqlite_schema(db_path: str, source: str | None) -> None:
     """Refuse a SQLite database whose schema names an outside source.
 
-    Opened through the stdlib driver in read-only immutable mode, so no page is
-    written, no journal is replayed, and nothing in the schema is instantiated
-    -- a virtual table's module is loaded on first ACCESS to the table, and
-    reading ``sqlite_master`` is not that. The raw ``sql`` column is what is
-    inspected: ``PRAGMA`` output reports a virtual table as an ordinary one and
-    would show none of this.
+    Opened through the stdlib driver in read-only immutable mode, so no page
+    is written, no journal is replayed, and nothing in the schema is
+    instantiated -- a virtual table's module loads on first ACCESS to the
+    table, and reading ``sqlite_master`` is not that. The raw ``sql`` column
+    is inspected, never ``PRAGMA`` output, which reports a virtual table as
+    an ordinary one.
 
-    ``immutable=1`` also means a sidecar ``-wal``/``-journal`` is ignored rather
-    than replayed, so in principle this could read an older schema than a
-    replaying reader would. It cannot here: a top-level upload is one staged
-    file with no sidecar, and an archive member is copied out on its own.
+    ``immutable=1`` also means a sidecar ``-wal``/``-journal`` is ignored
+    rather than replayed, which could in principle read an older schema than
+    a replaying reader would -- but can't here: a top-level upload is one
+    staged file with no sidecar, and an archive member is copied out on its
+    own.
     """
     if not os.path.isfile(db_path):
-        # Not a refusal: there is no content to judge. A staged file that is
-        # gone is an operational failure the callers already report in their
-        # own words ("Staging file no longer available", or GDAL's friendly
-        # open failure), and answering "not a database" here would replace a
-        # true message with a misleading one.
+        # Not a refusal: a gone staged file is an operational failure the
+        # callers already report in their own words; "not a database" here
+        # would replace a true message with a misleading one.
         return
     # as_uri() percent-encodes, so a staging path containing ? or # cannot
     # smuggle extra URI parameters past the two set here.
@@ -417,22 +416,18 @@ def _scan_sqlite_schema(db_path: str, source: str | None) -> None:
             _refuse_virtual_table(entry, module, source)
 
 
-# Reading a member to its end makes zipfile verify the CRC, and a member whose
-# compressed bytes are damaged raises from the archive rather than from us.
-# None of these is a ValueError, and every door above maps ValueError -- the
-# upload gauntlet's docstring promises it and `tasks_vector` catches exactly
-# that -- so an ordinary truncated upload would fail its job with an uncaught
-# exception instead of the refusal the caller is meant to see.
-#
-# `validate_zip_safety` never reads member DATA (it works from the central
-# directory), so it cannot have caught this on the way past: the conversion has
-# to live at the reads.
-# RuntimeError is what zipfile raises for a password-protected member and
-# NotImplementedError for a compression method it does not implement. Neither
-# is a ValueError, `validate_zip_safety` passes both (it never reads member
-# data), and both are ordinary things to find in an upload rather than bugs --
-# so both belong here with the corruption cases. The tuple is narrow and only
-# wraps the member reads, so a genuine RuntimeError from elsewhere is untouched.
+# Reading a member to its end makes zipfile verify the CRC, and damaged
+# compressed bytes raise from the archive rather than from us. None of these
+# is a ValueError -- the upload gauntlet's docstring promises one and
+# `tasks_vector` catches exactly that -- so an ordinary truncated upload
+# would fail its job with an uncaught exception instead of a refusal.
+# `validate_zip_safety` never reads member DATA (central directory only), so
+# it can't have caught this on the way past; the conversion lives at the reads.
+# RuntimeError (password-protected member) and NotImplementedError
+# (unsupported compression method) are ordinary things to find in an upload
+# rather than bugs, so they join the corruption cases here. The tuple is
+# narrow and only wraps the member reads, so a genuine RuntimeError from
+# elsewhere is untouched.
 _CORRUPT_MEMBER_ERRORS = (
     zipfile.BadZipFile,
     zlib.error,
@@ -549,9 +544,8 @@ def _scan_archive_members(file_path: str, filename: str | None) -> None:
     try:
         archive = zipfile.ZipFile(file_path, "r")
     except zipfile.BadZipFile as exc:
-        # `validate_zip_safety` above would normally have refused this already;
-        # kept because the guard belongs with the open, not with whatever ran
-        # before it (a previous revision had it and the rewrite dropped it).
+        # validate_zip_safety above would normally refuse this already; kept
+        # here because the guard belongs with the open, not upstream of it.
         raise UnsafeUploadError("File is not a valid ZIP container.") from exc
     with archive:
         for info in archive.infolist():
@@ -981,8 +975,7 @@ def validate_file_content(file_path: str, filename: str) -> None:
     if detected in allowed:
         return
 
-    # Text-based formats may not be detected by puremagic.
-    # Allow if content appears to be text (no null bytes).
+    # puremagic may not detect text-based formats; allow if no null bytes.
     if suffix in (".geojson", ".json", ".csv") and _is_text_content(header):
         return
 
@@ -1025,7 +1018,6 @@ def validate_zip_safety(file_path: str) -> None:
             for info in zf.infolist():
                 total_uncompressed += info.file_size
 
-                # Per-entry compression ratio check
                 if info.compress_size > 0:
                     ratio = info.file_size / info.compress_size
                     if ratio > MAX_COMPRESSION_RATIO:
@@ -1045,7 +1037,6 @@ def validate_zip_safety(file_path: str) -> None:
 
                 entry_ext = Path(info.filename).suffix.lower()
 
-                # Driver-metadata check (see DRIVER_METADATA_EXTENSIONS)
                 if entry_ext in DRIVER_METADATA_EXTENSIONS:
                     logger.warning(
                         "ZIP contains a GDAL driver-metadata member",
@@ -1061,7 +1052,6 @@ def validate_zip_safety(file_path: str) -> None:
                         "upload. Upload the data files themselves."
                     )
 
-                # Nested archive check
                 if entry_ext in ARCHIVE_EXTENSIONS:
                     logger.warning(
                         "ZIP contains nested archive",
@@ -1075,7 +1065,6 @@ def validate_zip_safety(file_path: str) -> None:
                         f"Nested archives are not supported for geospatial uploads."
                     )
 
-            # Total decompressed size check
             if total_uncompressed > MAX_DECOMPRESSED_BYTES:
                 size_gb = total_uncompressed / (1024**3)
                 limit_gb = MAX_DECOMPRESSED_BYTES // (1024**3)

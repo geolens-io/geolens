@@ -6,9 +6,8 @@ from pathlib import Path
 
 import structlog
 
-# Must run BEFORE FastAPI/Starlette imports — see redirect_tempfile_to_staging
-# docstring. Originally added inline for gh #101 (260508-rr5), now shared with
-# the worker (which had the same /tmp tmpfs problem during COG conversion).
+# Must run before FastAPI/Starlette imports (gh #101); shared with worker for
+# the /tmp tmpfs issue during COG conversion.
 from app.core.config import settings
 from app.core.runtime.gdal_env import configure_gdal_s3_env
 from app.core.runtime.staging import redirect_tempfile_to_staging
@@ -31,11 +30,8 @@ from app.observability.metrics import (
     sweep_dead_worker_metrics,
 )
 
-# settings already imported above for the tempdir override — do NOT reimport
-# fix(#909): async_session/engine are late-bound inside each function that
-# uses them. A module-scope `from app.core.db import ...` snapshots the
-# dev-DB objects before the test fixture rebinds app.core.db, so lifespan
-# seed functions in tests would silently hit the dev database.
+# fix(#909): don't reimport settings/async_session/engine at module scope —
+# tests rebind app.core.db, and a snapshot import would hit the dev DB.
 from app.core.async_io import run_in_thread_draining
 from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
@@ -79,13 +75,11 @@ structlog.contextvars.bind_contextvars(service="api")
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Arbitrary stable key for the boot-time seed advisory lock (pg_advisory_xact_lock).
-# Serializes seed_roles + seed_initial_admin so concurrent uvicorn workers don't
-# race the SELECT-then-INSERT on a fresh DB. Any constant works; it only needs to
-# be unique among advisory locks we take (conftest uses a different key).
+# Advisory-lock key for boot-time seeding (pg_advisory_xact_lock); serializes
+# seed_roles + seed_initial_admin so concurrent uvicorn workers don't race the
+# SELECT-then-INSERT on a fresh DB. Any constant works; must be unique.
 _SEED_LOCK_KEY = 0x6C656E73  # "lens"
 
-# Default roles to seed if they don't exist
 DEFAULT_ROLES = [
     {"name": "admin", "description": "Full system access"},
     {"name": "editor", "description": "Can create and edit datasets"},
@@ -96,11 +90,8 @@ DEFAULT_ROLES = [
 async def seed_roles() -> None:
     """Ensure default roles exist in the database (defensive safety net).
 
-    Concurrency-safe (see _SEED_LOCK_KEY): runs in the lifespan before
-    seed_initial_admin, so under `uvicorn --workers N` two workers on a fresh DB
-    would otherwise both SELECT-miss and both INSERT, colliding on the roles.name
-    unique constraint and crashing the loser's startup *before* the admin-seed
-    lock is ever reached.
+    Concurrency-safe via _SEED_LOCK_KEY: without it, concurrent uvicorn
+    workers on a fresh DB would race SELECT-then-INSERT on roles.name.
     """
     from app.core.db import async_session  # fix(#909): late-bind for tests
 
@@ -110,11 +101,9 @@ async def seed_roles() -> None:
         )
         for role_data in DEFAULT_ROLES:
             result = await session.execute(
-                # Select the scalar id, not the Role entity. Role.users uses
-                # select-in loading, and materializing a Role would therefore
-                # issue an unscoped catalog.users query during hosted startup.
-                # The runtime role is correctly subject to FORCE RLS, so that
-                # accidental query fails closed when no request tenant exists.
+                # Select the scalar id, not the Role entity: Role.users
+                # select-in loading would issue an unscoped catalog.users
+                # query, which fails closed under FORCE RLS with no tenant.
                 select(Role.id).where(Role.name == role_data["name"])
             )
             if result.scalar_one_or_none() is None:
@@ -124,14 +113,11 @@ async def seed_roles() -> None:
 
 
 def _warn_if_cors_unset(settings_obj, log) -> None:
-    """SEC-08 / M-72: warn loudly when CORS_ALLOWED_ORIGINS is unset in
-    production. Anonymous standards and catalog search reads remain
-    browser-accessible, while credentialed application routes require an
-    explicit origin allowlist.
+    """SEC-08/M-72/SEC-005: warn when CORS_ALLOWED_ORIGINS is unset in prod.
 
-    Gated on is_production so dev/test runs don't get the warning. SEC-005:
-    previously gated on log_json (the de-facto production indicator); now uses
-    the explicit settings.is_production.
+    Anonymous standards/catalog reads stay browser-accessible regardless;
+    credentialed routes need an explicit origin allowlist. Gated on
+    is_production, not log_json.
     """
     if settings_obj.is_production and not settings_obj.cors_allowed_origins:
         log.warning(
@@ -147,18 +133,12 @@ def _warn_if_cors_unset(settings_obj, log) -> None:
 
 
 async def seed_initial_admin() -> None:
-    """Create an initial admin user if no users exist.
+    """Create an initial admin user if none exist.
 
-    Uses GEOLENS_ADMIN_USERNAME and GEOLENS_ADMIN_PASSWORD from settings
-    (configurable via environment variables).
-
-    Concurrency-safe: prod runs `uvicorn --workers N`, so every worker runs the
-    lifespan and races the count-check + INSERT on a fresh DB. Without
-    serialization two workers both see count==0 and both INSERT → one hits
-    `UniqueViolationError` on uq_users_username_global → the admin row never
-    commits → admin login 401 on every fresh self-hosted install. An
-    xact-scoped advisory lock makes exactly one worker seed; the rest see
-    count>0 and no-op. The lock releases when the session's transaction ends.
+    Uses GEOLENS_ADMIN_USERNAME/_PASSWORD from settings. Concurrency-safe via
+    the xact-scoped advisory lock: without it, concurrent uvicorn workers on
+    a fresh DB would race the INSERT and the loser's UniqueViolationError
+    would leave admin login 401 on every fresh install.
     """
     from app.core.db import async_session  # fix(#909): late-bind for tests
 
@@ -193,11 +173,10 @@ async def seed_initial_admin() -> None:
 
 
 async def seed_bootstrap_identity() -> None:
-    """Seed global RBAC roles and, only for single-tenant installs, an admin.
+    """Seed global RBAC roles and, for single-tenant installs only, an admin.
 
-    A multi-tenant admin must be created through the Cloud signup transaction,
-    after that transaction provisions and binds its tenant.  A global NULL-
-    tenant user is both unusable and rejected by FORCE RLS.
+    Multi-tenant admins are created via the Cloud signup transaction after
+    tenant provisioning; a global NULL-tenant user is rejected by FORCE RLS.
     """
     await seed_roles()
     if is_multi_tenant():
@@ -209,26 +188,19 @@ async def seed_bootstrap_identity() -> None:
 async def sweep_stale_jobs_once(
     *, detailed: bool = False
 ) -> tuple[int, int] | dict[str, int]:
-    """Run one stale-ingest sweep without issuing an unscoped hosted query.
+    """Run one stale-ingest sweep without an unscoped hosted-mode query.
 
-    Single-tenant mode preserves the historical one-session, one-call path.
-    Hosted mode reads the unprotected tenant registry, then gives every tenant
-    a fresh transaction under ``tenant_job_context`` so FORCE RLS scopes all
-    ``ingest_jobs`` reads and writes. Recovery is best-effort per tenant: one
-    broken tenant must not prevent the remaining tenants from being swept.
+    Single-tenant keeps the one-session path. Hosted mode reads the tenant
+    registry, then runs each tenant under ``tenant_job_context`` so FORCE RLS
+    scopes ``ingest_jobs`` access. A broken tenant doesn't block the rest.
     """
     from app.core.db import async_session  # fix(#909): late-bind for tests
     from app.platform.jobs.router import fail_stale_jobs
     from app.platform.jobs.sweep import purge_terminal_job_tokens
 
-    # fix(#1746 codex r1): once per PASS, not once per tenant.
-    # `catalog.procrastinate_jobs` is shared queue infrastructure with no
-    # tenant column, so this belongs to the sweep rather than to any tenant —
-    # inside the loop below it would repeat one unscoped UPDATE tenants-many
-    # times every cadence, per API process. A bare session on purpose: the
-    # statement is tenant-agnostic and needs no GUC, exactly like the tenant
-    # registry read below. Best-effort like the per-tenant branch — a purge
-    # that cannot run must not cost the sweep that can.
+    # fix(#1746): purge once per pass, not per tenant — procrastinate_jobs has
+    # no tenant column. Bare session is intentional (tenant-agnostic, no GUC);
+    # best-effort like the per-tenant sweep below.
     try:
         async with async_session() as purge_session:
             await purge_terminal_job_tokens(purge_session)
@@ -301,20 +273,12 @@ async def sweep_stale_jobs_once(
 
 
 def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
-    """Thin positional-only wrapper around ``sweep_orphaned_exports`` binding
-    the periodic threshold, so it can be handed to ``run_in_thread_draining``
-    (which forwards ``*args`` only — ``age_threshold_seconds`` is keyword-only
-    on the wrapped function).
+    """Positional-only wrapper around ``sweep_orphaned_exports`` binding the
+    periodic threshold, for ``run_in_thread_draining`` (``*args``-only).
 
-    fix(#1532 review r7): it also reclaims atomic-write scratch files, over the
-    whole staging root rather than just ``exports/``.
-    ``LocalStorageProvider.put`` writes through ``<name>.<hex>.tmp`` and renames,
-    so a process killed mid-write leaves one behind under whatever prefix it was
-    writing — COGs, originals, VRTs, map assets. This sweeper is the right home
-    because it already walks the staging tree on a schedule and, unlike anything
-    storage-backed, needs no ``init_storage`` to run. It rides this loop's 300 s
-    cadence but keeps its own (fix(#1532 review r14)): the exports pass below
-    scans one directory, the scratch pass walks everything stored.
+    fix(#1532): also reclaims orphaned atomic-write scratch files across the
+    whole staging root (``LocalStorageProvider.put``'s ``<name>.<hex>.tmp``
+    left behind by a mid-write kill), not just ``exports/``.
     """
     scratch = sweep_orphaned_write_scratch_occasionally(
         Path(settings.upload_staging_dir),
@@ -322,16 +286,9 @@ def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
     )
     if scratch:
         logger.info("orphaned_write_scratch_swept", removed=scratch)
-    # fix(#1746): reclaim GDAL bearer-header tempfiles a SIGKILL/OOM left
-    # behind (see sweep_stale_gdal_header_files docstring). Rides this same
-    # periodic cadence; the default 1-hour age matches EXPORTS_SWEEP_AGE_SECONDS
-    # (boot-time), not the wider periodic export threshold, since a header file
-    # is only ever alive for a single ogr2ogr subprocess run, not an
-    # in-flight multi-hour export.
-    # fix(#1746 codex r2): defaults to the container tmpfs now, not the
-    # staging volume — see gdal_header_dir(). No argument because the sweep
-    # reclaims rather than provisions: a container that has never written a
-    # header has no directory and nothing to reclaim.
+    # fix(#1746): reclaim GDAL bearer-header tempfiles a SIGKILL/OOM left on
+    # the container tmpfs (gdal_header_dir()). Uses the boot-time 1-hour age,
+    # not the wider export threshold — a header lives for one ogr2ogr run.
     gdal_headers = sweep_stale_gdal_header_files()
     if gdal_headers:
         logger.info("stale_gdal_header_files_swept", removed=gdal_headers)
@@ -341,30 +298,18 @@ def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
 
 
 async def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
-    """Sweep exports/ in a worker thread and log only when something was
-    actually removed — mirrors the pending_failed/running_failed and
-    renewed-credentials branches in ``_stale_jobs_sweeper``, which stay quiet
-    on a no-op cycle.
-
-    Split out of that loop body so this one extra branch does not push
+    """Sweep exports/ in a worker thread; log only when something was removed
+    (quiet on a no-op cycle, like the sibling branches in
+    ``_stale_jobs_sweeper``). Split out so this branch doesn't push
     ``lifespan``'s McCabe complexity over its gate.
 
-    fix(#1435 codex round 1): uses ``EXPORTS_PERIODIC_SWEEP_AGE_SECONDS``, not
-    the boot-time callers' default — this runs continuously on a short
-    cadence rather than only at a restart, so it needs a wider safety margin
-    (see that constant's docstring in ``staging.py``) before treating an
-    export directory as abandoned rather than merely slow.
-
-    fix(#1435 codex round 5): runs via ``run_in_thread_draining`` rather than
-    inline. ``sweep_orphaned_exports`` does synchronous directory traversal
-    and ``shutil.rmtree``; unlike the two boot-time callers, which run before
-    the event loop is serving traffic, this one runs on a live server every
-    few minutes, so calling it inline would stall request handling for the
-    duration — worst case exactly when a crash left large or many-file
-    residue, since that is what gives the sweep real work to do. Draining
-    (rather than a bare ``asyncio.to_thread``) means a cancellation
-    (graceful shutdown) waits for an in-flight ``rmtree`` to finish instead
-    of abandoning a background thread still mutating the filesystem.
+    fix(#1435): uses ``EXPORTS_PERIODIC_SWEEP_AGE_SECONDS``, not the
+    boot-time callers' default — this runs continuously on a short cadence,
+    so it needs a wider safety margin before treating a directory as
+    abandoned. Runs via ``run_in_thread_draining``, not inline and not a bare
+    ``asyncio.to_thread``: this runs on a live server, so inline would stall
+    request handling during ``shutil.rmtree``; draining lets a graceful
+    shutdown wait for an in-flight rmtree instead of abandoning it mid-write.
     """
     deleted, _ = await run_in_thread_draining(
         _sweep_orphaned_exports_periodic, exports_dir
@@ -376,25 +321,15 @@ async def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
 def install_api_query_deadline() -> None:
     """Put the API's statement deadline on the engine this process uses.
 
-    fix(#1778 codex r2): on the engine rather than on one dependency. Handlers
-    open request-scoped sessions directly through ``async_session()`` in more
-    than twenty modules -- ``GET /stac/collections`` runs three aggregates that
-    way -- so binding it inside ``get_db`` left every one of those pinning a
-    pool slot with no deadline.
+    fix(#1778): on the engine, not one dependency — handlers open sessions
+    directly via ``async_session()`` in 20+ modules, so binding it in
+    ``get_db`` would leave those with no deadline. Called at import
+    (covers transactions before lifespan runs) and again from the
+    lifespan (idempotent; covers a rebound test engine). Engine is
+    late-bound per fix(#909) for the same reason.
 
-    Called at import of this module, and not only from the lifespan, because
-    the listener fires for transactions begun after it is registered and the
-    lifespan's own boot probe opens one. Called AGAIN from the lifespan so a
-    test fixture that has rebound ``app.core.db.engine`` to the test engine
-    gets it too; the installer is idempotent.
-
-    The engine is late-bound per fix(#909) -- the client fixture reassigns
-    ``db_module.engine``, and a module-scope binding here would snapshot the
-    dev engine past that patch.
-
-    The worker entrypoint never imports this module, so its engine keeps no
-    deadline. That is the point: it runs single statements for minutes while
-    building a spatial index over a freshly ingested table.
+    The worker never imports this module, so its engine keeps no
+    deadline on purpose — it runs single statements for minutes.
     """
     from app.core.db import engine
     from app.core.statement_timeout import install_api_statement_timeout
@@ -409,9 +344,8 @@ install_api_query_deadline()
 async def lifespan(app: FastAPI):
     from app.core.db import engine  # fix(#909): late-bind for tests
 
-    # fix(#1778 codex r2): again, against whatever `app.core.db.engine` is NOW.
-    # Import time covers the real process; this covers a test fixture that has
-    # rebound the attribute to the test engine since. Idempotent.
+    # fix(#1778): idempotent re-install against `app.core.db.engine` now —
+    # covers a test fixture that rebound it since import time.
     install_api_query_deadline()
 
     for attempt in range(1, 4):
@@ -419,7 +353,7 @@ async def lifespan(app: FastAPI):
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
             break
-        except Exception as exc:  # broad: boot DB connectivity probe — any asyncpg/sqlalchemy/network error retries up to 3x
+        except Exception as exc:  # broad: DB probe — retries any connect error up to 3x
             if attempt < 3:
                 logger.warning(
                     "Database not ready, retrying",
@@ -434,11 +368,9 @@ async def lifespan(app: FastAPI):
                 )
                 raise
 
-    # MIG-02: fail closed if the DB's applied migration heads do not match the
-    # heads this image's migration scripts declare (skew in EITHER direction —
-    # DB behind = migrate service didn't run / empty DB; DB ahead = image
-    # rolled back below the DB schema). Runs after the connectivity probe so a
-    # transient DB outage retries above instead of surfacing here.
+    # MIG-02: fail closed on migration-head skew in EITHER direction (DB
+    # behind = migrate didn't run; DB ahead = image rolled back below schema).
+    # Runs after the connectivity probe so a transient outage retries above.
     from app.core.db.schema_skew import assert_schema_in_sync
 
     await assert_schema_in_sync()
@@ -464,16 +396,13 @@ async def lifespan(app: FastAPI):
     staging_root = ensure_staging_ready(settings.upload_staging_dir)
     exports_dir = ensure_staging_ready(staging_root / "exports")
 
-    # fix(#435): this used to delete every entry unconditionally. Production runs
-    # two Uvicorn workers over one staging volume, so a restarting worker could
-    # truncate an export a surviving sibling was still writing or streaming. Share
-    # the worker's age-aware sweeper instead.
+    # fix(#435): two Uvicorn workers share one staging volume, so an
+    # unconditional sweep could truncate an export a sibling is still
+    # writing. Share the worker's age-aware sweeper instead.
     sweep_orphaned_exports(exports_dir)
     # fix(#1746): reclaim GDAL bearer-header tempfiles orphaned by a crash
-    # before this boot (see sweep_stale_gdal_header_files docstring).
-    # fix(#1746 codex r2): from the container tmpfs, NOT staging_root. A
-    # container restart normally empties /tmp on its own; this covers the case
-    # where the process died without the container going with it.
+    # before this boot, from the container tmpfs (not staging_root) — this
+    # covers a process death that didn't take the container with it.
     sweep_stale_gdal_header_files()
 
     await init_tile_pool()
@@ -484,18 +413,16 @@ async def lifespan(app: FastAPI):
     from app.observability.metrics.refresh import update_refresh_metrics
 
     pool_metrics_task = asyncio.create_task(update_pool_metrics())
-    # feat(#1268): the refresh lifecycle is observed HERE rather than in the
-    # worker that executes it — the worker serves no /metrics endpoint. The
-    # gauges are derived from catalog.dataset_refresh_runs and published in
-    # livemostrecent mode, so every uvicorn worker running this same loop
-    # reports one answer instead of N summed ones.
+    # feat(#1268): observed HERE, not in the worker — the worker serves no
+    # /metrics endpoint. Gauges derive from catalog.dataset_refresh_runs in
+    # livemostrecent mode, so every uvicorn worker reports one answer.
     refresh_metrics_task = asyncio.create_task(update_refresh_metrics())
     # fix(#643): per-worker RSS gauge + log watermark so an OOM-bound worker
     # is visible in normal logs before the kernel kills it.
     memory_metrics_task = asyncio.create_task(update_memory_metrics())
-    # fix(#1240, #651 review round 2): reap gauge_live*.db files left by a
-    # sibling worker that was OOM-killed/SIGKILLed rather than shut down
-    # gracefully -- shutdown_worker_metrics() below never runs for that case.
+    # fix(#1240, #651): reap gauge_live*.db files left by a sibling worker
+    # that was OOM/SIGKILLed rather than shut down — shutdown_worker_metrics
+    # below never runs for that case.
     metrics_sweep_task = asyncio.create_task(sweep_dead_worker_metrics())
 
     async def _stale_jobs_sweeper() -> None:
@@ -513,12 +440,9 @@ async def lifespan(app: FastAPI):
         sweeper_log = structlog.stdlib.get_logger("stale_jobs_sweeper")
         while True:
             try:
-                # feat(#1277 review round 2): the interval is the credential
-                # module's, because the refresh credential TTL is derived from
-                # it — three cycles, so a single skipped pass cannot expire a
-                # credential whose task is still queued. One constant, owned
-                # where the arithmetic that depends on it lives, rather than a
-                # 300 here and a mirror there.
+                # feat(#1277): interval is the credential module's — the
+                # renewal TTL derives from it (three cycles), so one skipped
+                # pass can't expire a still-queued credential.
                 await asyncio.sleep(CREDENTIAL_RENEWAL_INTERVAL_SECONDS)
                 pending_failed, running_failed = await sweep_stale_jobs_once()
                 if pending_failed or running_failed:
@@ -527,26 +451,19 @@ async def lifespan(app: FastAPI):
                         pending_failed=pending_failed,
                         running_failed=running_failed,
                     )
-                # Re-arm credentials whose dispatch is still waiting for
-                # a worker. Tenant-scoped, and hosted in the WORKER too — see
-                # renew_credentials_periodically for why one host was not
-                # enough. EXPIRE is idempotent, so both running in the same
-                # cycle is free.
+                # Re-arm credentials still waiting for a worker; also hosted
+                # in the WORKER (renew_credentials_periodically) — EXPIRE is
+                # idempotent so both running the same cycle is free.
                 renewed = await renew_queued_credentials_once()
                 if renewed:
                     sweeper_log.debug("Renewed queued credentials", count=renewed)
-                # exports/ residue from a hard process death (SIGKILL, OOM) used
-                # to sit until the next restart — sweep_orphaned_exports only
-                # ran once at boot (above) and once at worker boot (worker.py).
-                # It is idempotent and age-thresholded, so it is safe to run on
-                # every sweeper cycle too. The two boot-time callers deliberately
-                # stay synchronous — boot wants the sweep done before the app
-                # serves traffic, and nothing else contends for the loop yet;
-                # this caller threads it because it runs while the loop is live.
+                # Reclaims exports/ residue from a hard process death;
+                # idempotent/age-thresholded so safe every cycle. Threaded
+                # here (loop is live) vs. synchronous at the boot-time callers.
                 await _sweep_orphaned_exports_and_log(exports_dir, sweeper_log)
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:  # broad: sweeper-loop must survive any DB/transient error to keep running
+            except Exception as exc:  # broad: sweeper loop must survive to keep running
                 sweeper_log.warning(
                     "Stale jobs sweeper iteration failed",
                     error=str(exc),
@@ -556,12 +473,10 @@ async def lifespan(app: FastAPI):
     stale_jobs_task = asyncio.create_task(_stale_jobs_sweeper())
 
     async def _rate_limit_warmer() -> None:
-        """fix(#430 BA-03): the slowapi sync accessors only read a per-process cache that
-        set()/reset() seed for 30s on the ONE worker that handled the write. No
-        request path re-resolves them, so the four runtime-tunable limits revert to
-        their hardcoded defaults after the TTL and admin changes never propagate
-        fleet-wide. Periodically re-resolve them from the DB (get() warms the sync
-        cache) on every worker, at an interval below _CACHE_TTL.
+        """fix(#430): slowapi's sync accessors read a per-process cache that
+        set()/reset() seeds for 30s on the ONE worker that wrote it — admin
+        changes never propagate fleet-wide. Re-resolve from the DB (get()
+        warms the cache) on every worker, below _CACHE_TTL.
         """
         from app.core.db import async_session
         from app.core.persistent_config import (
@@ -825,17 +740,13 @@ _OPENAPI_TAGS = [
 _is_production = settings.is_production
 
 
-# REL-03: single version source of truth. The app version is derived from the
-# installed backend distribution metadata (backend/pyproject.toml [project].version,
-# distribution name "geolens-backend") instead of a hand-maintained literal that
-# silently drifts from pyproject/openapi/SDKs. `make version-check` enforces that
-# all version sites agree; this is the runtime arm of that contract.
+# REL-03: version is read from the installed backend distribution metadata
+# (backend/pyproject.toml [project].version) rather than a hand-maintained
+# literal, so `make version-check` can enforce that all version sites agree.
 #
-# Fallback: when the package is not installed as a distribution (e.g. running
-# from a source checkout with PYTHONPATH but no `uv pip install -e .`), there is
-# no metadata to read. We fall back to the current published line so import never
-# crashes. Keep this fallback in lockstep with backend/pyproject.toml — it is one
-# of the sites `make bump` rewrites.
+# Fallback below covers running from a source checkout with no `uv pip
+# install -e .` (no metadata to read); keep it in lockstep with
+# pyproject.toml — `make bump` rewrites it.
 _FALLBACK_APP_VERSION = "1.18.1"
 
 
@@ -866,31 +777,12 @@ app = FastAPI(
         "url": "https://github.com/geolens-io/geolens",
     },
     terms_of_service="https://github.com/geolens-io/geolens/blob/main/LICENSE",
-    # === Routing config ===
-    # ROUTE-01 (Phase 1092): redirect_slashes=False at the app level.
-    #
-    # Security: with redirect_slashes=True (the default), trailing-slash
-    # callers receive a 307 whose Location header carries the relative URL
-    # of the canonical form. Behind docker-compose the request Host
-    # resolves to the in-container ``api:8000`` hostname, leaking that
-    # internal name to external curl / SDK callers.
-    #
-    # All trailing-slash-only routes register a no-slash alias via
-    # stacked decorators (see backend/app/modules/auth/router.py,
-    # settings/router.py, admin/router.py, etc. — every router under
-    # backend/app/modules/ that uses the trailing-slash form). The
-    # canonical decorator stays in OpenAPI; the alias is hidden via
-    # ``include_in_schema=False``. This means BOTH URL shapes resolve to
-    # the same handler with the same status code, and no Location header
-    # is ever produced for the routing dispatch.
-    #
-    # See .planning/phases/1092-routing-infra-hygiene/1092-CONTEXT.md for
-    # the (c) hybrid rationale. The Phase 280 catalog/maps/router.py
-    # precedent (v13.14-followup `32d1d2e7`) established the stacked-
-    # decorator pattern this app-level flag now relies on across all
-    # affected routes.
+    # ROUTE-01: redirect_slashes=False — with the default True, a
+    # trailing-slash 307's Location header leaks the in-container
+    # ``api:8000`` hostname to external callers. Trailing-slash routes
+    # instead register a no-slash alias via stacked decorators
+    # (``include_in_schema=False``), so both shapes resolve identically.
     redirect_slashes=False,
-    # === End routing config ===
     lifespan=lifespan,
 )
 
@@ -910,22 +802,13 @@ app.state.limiter = limiter
 
 
 def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    # fix(#315): advertise the retry window (exc.limit.limit.get_expiry(), seconds).
-    #
-    # fix(#1778): a plain def, not a coroutine, and it must stay one. slowapi's
-    # SlowAPIMiddleware enforces the GLOBAL default limit inside a synchronous
-    # BaseHTTPMiddleware dispatch and resolves this handler through
-    # `sync_check_limits`, which silently swaps a coroutine handler for
-    # slowapi's own `_rate_limit_exceeded_handler` ("cannot execute
-    # asynchronous code in a synchronous middleware"). That fallback returns a
-    # bare {"error": ...} in application/json with no Retry-After, because the
-    # Limiter is not built with headers_enabled. Only routes carrying an
-    # explicit @limiter.limit decorator take the exception-handler path
-    # instead, which is why every test of this contract passed while the
-    # majority of routes -- the undecorated ones -- answered a rate-limit
-    # rejection with a shape no SDK, CLI or apiFetch caller can parse. Nothing
-    # here awaits, so a sync handler serves both paths identically; Starlette
-    # runs it in a threadpool on the exception-handler path.
+    # fix(#315): advertise the retry window (exc.limit.limit.get_expiry()).
+    # fix(#1778): must stay a plain def, not a coroutine — slowapi's
+    # SlowAPIMiddleware runs inside a sync BaseHTTPMiddleware dispatch and
+    # silently swaps a coroutine handler for its own handler, which returns
+    # a bare {"error": ...} with no Retry-After (unparseable by SDK/CLI/
+    # apiFetch). Only @limiter.limit-decorated routes take this path;
+    # nothing here awaits, so one sync def serves both.
     headers = {}
     try:
         headers["Retry-After"] = str(int(exc.limit.limit.get_expiry()))
@@ -984,7 +867,7 @@ async def _dataset_quota_handler(
 async def _storage_quota_handler(
     request: Request, exc: StorageQuotaExceededError
 ) -> JSONResponse:
-    # fix(#430 BA-23): reserve_storage_bytes raises a plain exception in the worker;
+    # fix(#430): reserve_storage_bytes raises a plain exception in the worker;
     # API-side callers get a 413 matching the check_upload_quota byte-cap contract.
     return JSONResponse(
         status_code=status.HTTP_413_CONTENT_TOO_LARGE,
@@ -1029,20 +912,15 @@ async def _catalog_lock_conflict_handler(
 async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResponse:
     """Map an operational database failure to a 503 (fix(#435)).
 
-    Connection loss, statement timeout, cancellation, and serialization failures used
-    to be caught per-handler and reported as domain data — a dataset with zero rows,
-    say — which hid ingest corruption and infrastructure incidents from users and from
-    health monitoring. Handlers now re-raise what they cannot legitimately answer.
+    Connection loss, timeout, cancellation, and serialization failures used to
+    be caught per-handler and reported as domain data, hiding infrastructure
+    incidents; handlers now re-raise what they can't legitimately answer.
+    Non-operational errors (integrity/syntax/access) keep their 500 path.
 
-    Non-operational errors (integrity violations, syntax and access errors) are
-    re-raised so they keep their existing 500 path; calling a unique-constraint
-    collision "database unavailable" would just invite a retry loop.
+    fix(#1847): a lock conflict raised post-acquisition, while this request's
+    catalog lock timeout is installed, is answered 409 like one at acquisition.
 
-    fix(#1847): a lock conflict raised after the acquisition, while this
-    request's catalog lock timeout is installed, is answered 409 like one at
-    the acquisition; without that timeout it keeps its operational class.
-
-    The detail is deliberately generic: the SQLSTATE and statement go to the log.
+    Detail is deliberately generic; SQLSTATE and statement go to the log.
     """
     if is_lock_conflict(exc) and catalog_timeout_installed.get():
         return _catalog_lock_conflict_response(
@@ -1074,24 +952,18 @@ app.add_exception_handler(StorageQuotaExceededError, _storage_quota_handler)
 app.add_exception_handler(CatalogLockConflict, _catalog_lock_conflict_handler)
 app.add_exception_handler(DBAPIError, _database_error_handler)
 
-# fix(#1770 round 44 P2): registered FIRST, so it ends up INNERMOST --
-# `add_middleware` prepends, so the earliest call is closest to the router
-# (see the ordering comment further down this file). It has to be, and it
-# has to be a plain ASGI callable rather than a `BaseHTTPMiddleware`
-# subclass: every `BaseHTTPMiddleware` below runs the rest of the stack in a
-# separately spawned task, and a `ContextVar` a route handler sets (the
-# credential-secret registry, `core/service_tokens.py`) never propagates
-# back out of one. This is the one layer that shares the handler's own task,
-# so it is the one place an unhandled exception can still be scrubbed of a
-# registered credential before anything outside that task reads it. See its
-# own module docstring for the measured proof.
+# fix(#1770): registered FIRST so it ends up INNERMOST (add_middleware
+# prepends; closest to the router). Must be a plain ASGI callable, not
+# BaseHTTPMiddleware — that spawns a separate task, so a route handler's
+# ContextVar (credential-secret registry, core/service_tokens.py) never
+# propagates back out. This is the only layer sharing the handler's task,
+# so the only place an unhandled exception can be scrubbed before anything
+# outside that task reads it. See this middleware's own docstring.
 app.add_middleware(CredentialScrubASGIMiddleware)
 
-# SEC-02 / M-64 / SEC-005: gate https_only on the production indicator. Local-dev
-# and test runs use the development posture (no TLS terminator), so
-# https_only=True would cause SessionMiddleware to silently strip the cookie.
-# Production (ENVIRONMENT=production, or legacy LOG_JSON=true) sets
-# https_only=True. Same settings.is_production used for docs gating above.
+# SEC-02/M-64/SEC-005: gate https_only on the production indicator — dev/test
+# have no TLS terminator, so https_only=True would silently strip the
+# session cookie. Same settings.is_production used for docs gating above.
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.jwt_secret_key.get_secret_value(),
@@ -1105,24 +977,21 @@ app.add_middleware(TenantContextMiddleware)
 
 
 def _find_route_handler_with_lazy_includes(routes, scope):
-    """slowapi <= 0.1.10 resolves the handler by scanning ``app.routes`` for a
-    matching route with an ``endpoint``. fastapi 0.140 keeps included-router
-    routes nested (lazy ``include_router``), so that scan finds nothing and the
-    middleware silently stops enforcing the GLOBAL default rate limit
-    (per-route ``@limiter.limit`` decorators are unaffected). Until a slowapi
-    release understands the nested table, resolve misses through the flattened
-    route contexts, whose ``path_regex``/``methods`` carry the effective full
-    path. Guarded by tests/test_middleware.py::test_rate_limiting."""
+    """slowapi <= 0.1.10 scans ``app.routes`` for a matching route with an
+    ``endpoint``; fastapi 0.140 keeps included-router routes nested, so the
+    scan finds nothing and GLOBAL rate limiting silently stops enforcing
+    (per-route ``@limiter.limit`` is unaffected). Resolve misses through the
+    flattened route contexts instead. Guarded by
+    tests/test_middleware.py::test_rate_limiting."""
     handler = _slowapi_find_route_handler(routes, scope)
     if handler is not None:
         return handler
     from fastapi.routing import iter_route_contexts
 
-    # Route regexes never include the ASGI root_path, and starlette's own
-    # matching strips it (starlette._utils.get_route_path — mirrored here to
-    # avoid the private import). Without this, rewrite-less deployments that
-    # keep the /api prefix via ROOT_PATH would silently lose the global
-    # default rate limit again (Codex P2 on #747).
+    # Route regexes never include the ASGI root_path; starlette's own
+    # matching strips it too (starlette._utils.get_route_path — mirrored
+    # here to avoid the private import). Without this, ROOT_PATH
+    # deployments would silently lose the global rate limit again (#747).
     path = scope.get("path", "")
     root_path = scope.get("root_path", "")
     if root_path and path.startswith(root_path):
@@ -1150,53 +1019,36 @@ app.add_middleware(
     RequestBodyLimitMiddleware,
     max_bytes=settings.upload_max_size_mb * 1024 * 1024,
 )
-# SEC-17 / L-63: middleware mount order is significant.
-# add_middleware PREPENDS to the chain — later calls wrap as the OUTER layer.
-# On the RESPONSE path, OUTER runs LAST. We need SecurityHeadersMiddleware to
-# run FIRST on the response (so headers are added BEFORE compression), then
-# GZipMiddleware to compress, so the order is:
-#   1. SecurityHeadersMiddleware (added FIRST → INNER → runs FIRST on response)
-#   2. GZipMiddleware            (added SECOND → OUTER → runs SECOND on response)
-# Pinned by tests/test_phase_273_middleware_order.py — do not flip without
-# updating that regression test.
+# SEC-17/L-63: mount order matters — add_middleware PREPENDS, so later calls
+# wrap OUTER and run LAST on the response. SecurityHeaders must run before
+# GZip compresses, so: 1) SecurityHeadersMiddleware (added first, inner,
+# runs first on response) 2) GZipMiddleware (added second, outer, runs
+# second). Pinned by tests/test_phase_273_middleware_order.py.
 app.add_middleware(SecurityHeadersMiddleware)
-# fix(#1540 review P2): image/tiff joins starlette's default exclusions, which
-# already cover avif/gif/jpeg/png/webp and simply predate anyone serving TIFF.
-#
-# Not a CPU optimization, though it is that too — a COG is internally compressed
-# already, so DEFLATE over a multi-GB one buys close to nothing. It is a
-# CORRECTNESS fix for the strong ETag the COG download route publishes. A strong
-# validator must identify one representation including its content coding, and
-# this middleware compresses a 200 while skipping a 206 by design
-# (`self.partial_response = status == 206`). One ETag therefore named two
-# different byte streams: gzip bytes on the full download, raw bytes on every
-# range. A client resuming the encoded representation could have its validator
-# accepted and splice raw bytes at encoded offsets — doing everything right and
-# still assembling a corrupt file. Excluding the type restores the invariant
-# without variant-specific validators, which would need their own HEAD metadata
-# and Vary story.
+# fix(#1540): image/tiff joins starlette's default exclusions (avif/gif/
+# jpeg/png/webp) — a CORRECTNESS fix, not just a CPU one. This middleware
+# compresses a 200 but skips a 206, so a COG's strong ETag would identify
+# gzip bytes on the full download but raw bytes on a range: a client
+# resuming the encoded representation could splice raw bytes at encoded
+# offsets and assemble a corrupt file. Excluding the type restores the
+# invariant without variant-specific validators.
 app.add_middleware(
     GZipMiddleware,
     minimum_size=256,
     compresslevel=4,
     exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES + ("image/tiff",),
 )
-# fix(#1532 review r11): the export route is excluded by PATH, not by media
-# type. Excluding `application/geo+json` and `text/csv` app-wide — which is what
-# r9 did — also stopped compressing feature GeoJSON and the admin and audit CSV
-# streams, endpoints that serve one representation and never a range, so the
-# safety bought nothing there and the bandwidth was a straight regression.
+# fix(#1532): export route excluded by PATH, not media type — excluding
+# `application/geo+json`/`text/csv` app-wide also stopped compressing
+# feature GeoJSON and admin/audit CSV, a straight bandwidth regression for
+# endpoints that never serve a range. `image/tiff` stays a type exclusion
+# since the COG download is its only producer.
 #
-# `image/tiff` stays a media-type exclusion because it is the right shape for
-# THAT case: the COG download is the only producer of it, so the type and the
-# route are the same set.
-#
-# Implemented by dropping gzip from the request's Accept-Encoding before
-# GZipMiddleware reads it, which is the documented way to opt a request out —
-# the alternative, a `Content-Encoding: identity` on the responses, puts a token
-# on the wire that RFC 9110 defines for Accept-Encoding rather than for
-# Content-Encoding. Added AFTER the middleware above so it wraps it: starlette
-# runs the most recently added outermost.
+# Implemented by dropping gzip from Accept-Encoding before GZipMiddleware
+# reads it (the documented opt-out) rather than `Content-Encoding: identity`,
+# which RFC 9110 defines for Accept-Encoding, not Content-Encoding. Added
+# AFTER the middleware above so it wraps it (starlette runs the most
+# recently added outermost).
 app.add_middleware(NoCompressionForExportMiddleware)
 app.add_middleware(DynamicCORSMiddleware)
 
@@ -1270,39 +1122,16 @@ def _clone_api_route(
 
 
 def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
-    """ROUTE-01 (Phase 1092 review CR-01): register a hidden no-slash alias
-    for every trailing-slash route in the app.
+    """ROUTE-01: register a hidden no-slash alias for every trailing-slash
+    route in the app.
 
-    With ``redirect_slashes=False`` at the app level, routes registered
-    ONLY with a trailing slash silently 404 when called without it.
-    Pre-sweep this affected ~100 routes. The 13 routers under
-    ``backend/app/modules/`` got explicit stacked-decorator aliases on
-    ~28 high-traffic routes (see CR-01 sweep commit). This function
-    closes the remaining ~72 routes (datasets/api/router_metadata,
-    catalog/records, processing/ai, processing/ingest,
-    platform/config_ops, etc.) without further per-file edits.
-
-    For every existing trailing-slash APIRoute, register an equivalent
-    no-slash route that calls the same endpoint function with the same
-    response model, dependencies, and status code. The alias is hidden
-    from OpenAPI via ``include_in_schema=False`` — the canonical
-    trailing-slash form stays the documented surface.
-
-    Future trailing-slash routes added to the app are picked up
-    automatically — this hook runs once on app construction, after all
-    routers have been included. Adding the same route twice (once
-    manually via stacked decorator, once via this function) is
-    structurally safe because we check ``existing_paths`` before
-    registering.
-
-    Method+path collisions (alias would shadow an existing no-slash
-    registration) are skipped, preserving the explicit registration as
-    canonical. This means the 28 manual stacked-decorator aliases from
-    the CR-01 sweep remain authoritative — this function only adds
-    aliases for routes that lack one.
+    With ``redirect_slashes=False`` at the app level, a trailing-slash-
+    only route silently 404s without it. Clones each such route to a
+    no-slash equivalent with the same handler/response model, hidden
+    from OpenAPI — the trailing-slash form stays documented. Runs once
+    at app construction; a method+path collision (an existing manual
+    stacked-decorator alias) is skipped so explicit registrations win.
     """
-
-    # Snapshot existing (method, path) pairs to avoid double-registration.
     existing_paths: set[tuple[str, str]] = set()
     for ctx in _iter_api_routes(target_app):
         for method in ctx.route.methods:
@@ -1315,17 +1144,12 @@ def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
             continue
         no_slash = ctx.path.rstrip("/")
 
-        # Skip if ANY method already has a no-slash sibling registered
-        # (i.e. a manual stacked decorator already covers this surface).
-        # We check method-by-method below.
+        # Skip if a no-slash sibling is already registered for this method.
         for method in route.methods:
             if method in ("HEAD", "OPTIONS"):
                 continue
             if (method, no_slash) in existing_paths:
                 continue
-            # Register the alias. Inherit response_model, dependencies,
-            # status_code, etc. from the canonical route — APIRoute
-            # exposes these directly.
             _clone_api_route(
                 target_app,
                 route,
@@ -1337,40 +1161,24 @@ def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
             added += 1
 
     if added > 0:
-        # Re-build the FastAPI route table cache by clearing any cached
-        # OpenAPI spec — the next /openapi.json request rebuilds from
-        # the current app.routes state.
+        # Clear the cached OpenAPI spec so the next /openapi.json rebuilds.
         target_app.openapi_schema = None
 
 
 def _register_standards_head_routes(target_app: FastAPI) -> None:
     """fix(#1470): serve HEAD wherever the CORS preflight says we do.
 
-    ``DynamicCORSMiddleware._set_public_cors_headers`` answers a preflight on
-    the anonymous standards surface with
-    ``Access-Control-Allow-Methods: GET, HEAD, POST, OPTIONS``, and
-    ``_anonymous_public_methods`` accepts ``HEAD`` as a requested method for
-    that surface — but FastAPI's ``APIRoute`` does not add HEAD alongside GET the
-    way starlette's plain ``Route`` does, so every one of these routes
-    answered ``405 allow: GET``. A browser client that trusts the preflight
-    was told HEAD was fine and then refused. HEAD-probing a landing page or a
-    collection before fetching it is ordinary OGC client behaviour.
+    ``DynamicCORSMiddleware`` advertises HEAD on standards preflights, but
+    FastAPI's ``APIRoute`` doesn't add HEAD alongside GET the way
+    starlette's ``Route`` does, so these routes 405'd on HEAD despite the
+    preflight promising it. Derived here (not ~48 per-router decorators)
+    so the answering set can't drift from the advertised set — both read
+    ``standards_api_path``. fix(#1596)'s catalog search routes don't need
+    HEAD: that surface advertises ``GET, OPTIONS`` only.
 
-    Derived here rather than by editing ~48 decorators across five routers.
-    Both surfaces read the same ``standards_api_path`` classifier, so the set
-    that answers HEAD and the set advertised as answering it cannot drift —
-    which is the actual bug, not the missing routes.
-
-    fix(#1596) gave the anonymous wildcard a second surface, the catalog search
-    routes, which this pass does not cover. That does not reopen the drift: the
-    middleware advertises ``GET, OPTIONS`` there, matching the GET-only routes,
-    rather than being extended to promise a HEAD nothing registers.
-
-    Runs after ``_add_trailing_slash_aliases`` so the no-slash aliases are
-    covered too. Registering a route rather than adding to
-    ``route.methods``: fastapi 0.140 keeps included-router routes nested and
-    matches through ``RouteContext``, whose ``methods`` is a COPY of the
-    route's, so an in-place mutation would leave the matcher answering 405.
+    Runs after ``_add_trailing_slash_aliases``, and registers a route
+    rather than mutating ``route.methods`` (a copy on ``RouteContext``,
+    so an in-place mutation wouldn't reach the matcher).
     """
     existing: set[tuple[str, str]] = set()
     for ctx in _iter_api_routes(target_app):
@@ -1447,16 +1255,14 @@ def _normalize_security_contract(schema: dict) -> None:
         ),
     }
 
-    # ``get_optional_user_no_security_schema`` deliberately keeps public STAC
-    # operations credential-aware at runtime without stamping authentication
-    # onto their generated clients. Only the normal optional dependencies
-    # should gain the anonymous-or-credential security alternatives here.
+    # ``get_optional_user_no_security_schema`` stays credential-aware at
+    # runtime without stamping auth onto generated clients; only the normal
+    # optional dependencies gain security alternatives here.
     #
-    # fix(#1518): both optional dependencies belong in this set. They differ in
-    # what an unresolvable credential does (401 vs anonymous), not in whether
-    # the operation accepts one, and the published contract is the latter — a
-    # fail-open handler left out of this set would lose its ``{}`` anonymous
-    # alternative and be documented as requiring authentication.
+    # fix(#1518): both optional dependencies belong in this set — they differ
+    # in what an unresolvable credential does (401 vs anonymous), not in
+    # whether the operation accepts one, and the published contract is the
+    # latter.
     optional_targets = {get_optional_user, get_optional_user_fail_open}
     credential_alternatives = [
         {"OAuth2PasswordBearer": []},
@@ -1512,31 +1318,19 @@ def _document_rate_limits(schema: dict) -> None:
 
 
 def _document_unresolvable_credential_401(schema: dict) -> None:
-    """Publish the #1518 401 on every operation that can now raise it.
+    """Publish the #1518 401 on every operation that can raise it.
 
-    ``get_optional_user`` refuses a supplied-but-unresolvable credential, so a
-    401 is normal runtime behaviour on routes that were previously documented as
-    only ever answering anonymously. Generated SDK error unions are built from
-    these response blocks, so an undocumented 401 is one a typed client cannot
-    represent (codex P2 on #1524). #1518 asked for the docs to state what an
-    unresolvable credential does; the ``info.description`` prose is the human
-    half and this is the half the SDKs consume.
+    ``get_optional_user`` refuses a supplied-but-unresolvable credential,
+    so a 401 is now normal on routes documented as anonymous-only; SDK
+    error unions need it or a typed client can't represent it.
 
-    All THREE optional dependencies are targeted, which is one more than
-    ``_normalize_security_contract`` uses:
-
-    - ``get_optional_user`` raises it directly.
-    - ``get_optional_user_fail_open`` defers rather than waives — its CAPABILITY
-      handlers call ``reject_unresolvable_credentials`` themselves, and the
-      RECOVERY one (logout) raises its own 401, so both can answer 401.
-    - ``get_optional_user_no_security_schema`` delegates to
-      ``get_optional_user`` and answers identically. It is EXCLUDED from the
-      security-marker set on purpose (fix(#430): no bearer markers on genuinely
-      public STAC operations), and it belongs here anyway. A 401 *response* is
-      not a security *requirement*: this function only writes into
-      ``responses``, never into ``security``, so documenting the status cannot
-      stamp an auth block back onto those operations.
-      ``test_no_security_schema_ops_get_401_without_security`` pins that.
+    Targets all three optional dependencies — one more than
+    ``_normalize_security_contract`` — since ``get_optional_user_fail_open``
+    defers to its own handlers, and ``get_optional_user_no_security_schema``
+    answers identically to ``get_optional_user`` despite being excluded
+    from the security-marker set (fix(#430)). Only writes ``responses``,
+    never ``security``, so it can't stamp an auth requirement back on.
+    Pinned by ``test_no_security_schema_ops_get_401_without_security``.
     """
 
     from app.modules.auth.dependencies import (
@@ -1591,28 +1385,18 @@ def _document_global_failures(schema: dict) -> None:
 def _repair_depends_bound_query_model(schema: dict) -> None:
     """Publish the query parameters a ``Depends()``-bound model fails to declare.
 
-    fix(#1666): ``SearchQueryParams`` reaches ``collection_items`` through
-    ``Depends()``, and two of its fields do not survive that binding.
-    ``keywords`` is a ``list[str]``, which FastAPI reads as a JSON request body
-    — on a GET. ``cql2_filter_lang`` carries the alias ``filter-lang``, which
-    pydantic's synthesized ``__init__`` cannot name, so the contract advertises
-    the field name instead. Either way a generated client sends something the
-    handler never reads and is silently unfiltered.
+    fix(#1666): ``SearchQueryParams`` reaches ``collection_items`` via
+    ``Depends()``, and two fields don't survive — ``keywords`` reads as a
+    GET JSON body, and ``cql2_filter_lang``'s alias ``filter-lang`` can't
+    be named by pydantic's synthesized ``__init__``. Copies the correct
+    definitions from ``search_datasets_endpoint`` rather than restating
+    them (a hand-written mirror drifts); ``collection_items`` can't use
+    that form itself since its five OGC parameters collapse a query
+    model to one scalar.
 
-    ``search_datasets_endpoint`` takes the same model as
-    ``Annotated[SearchQueryParams, Query()]``, which declares both correctly, so
-    the repair COPIES those definitions rather than restating them — a
-    hand-written mirror of a model's parameters is the thing that drifts.
-    ``collection_items`` cannot use that form itself: FastAPI expands a query
-    model only when it is the operation's ONLY query-parameter source, and
-    alongside this route's five OGC parameters it collapses to one scalar.
-
-    One asymmetry this leaves, deliberately: the operation still BINDS the
-    legacy GET body at runtime, because that is inseparable from ``Depends()``.
-    Removing it from the published contract is the point — a request body on a
-    GET should be sunset, not advertised — but it means a caller that sends a
-    malformed JSON body sees a validation 400 the contract does not describe.
-    Sending no body, which is every correct client, is unaffected.
+    Deliberate asymmetry: still BINDS the legacy GET body at runtime,
+    just doesn't advertise it — a malformed body gets a 400 the contract
+    doesn't describe. Sending none, as every correct client does, is fine.
     """
     paths = schema.get("paths", {})
     donor = paths.get("/search/datasets/", {}).get("get")
@@ -1677,21 +1461,16 @@ def _normalize_validation_error_contract(schema: dict) -> None:
 def _drop_unreferenced_validation_models(schema: dict) -> None:
     """Drop FastAPI's validation models once nothing references them.
 
-    Checked rather than popped unconditionally: a route is free to name
-    ``HTTPValidationError`` in an explicit ``responses=`` block, and removing a
-    component that is still referenced leaves a dangling ``$ref`` that breaks
-    SDK generation instead of tidying it.
+    Checked, not popped unconditionally: a route may declare
+    ``HTTPValidationError`` in ``responses=``, and dropping a still-
+    referenced component breaks SDK generation with a dangling ``$ref``.
 
-    fix(#1666 codex P2): the search excludes only the candidate, never both
-    targets. ``HTTPValidationError`` holds the sole ``$ref`` to
-    ``ValidationError``, so hiding it while deciding ``ValidationError`` reads
-    the container's own reference as absent — and a run where an operation kept
-    ``HTTPValidationError`` alive would then delete the schema it points at.
-
-    Order matters with it: the container is considered before the leaf, so
-    dropping the container in the first pass makes the leaf unreferenced in the
-    second and both go. Reversed, the leaf would be held alive by a container
-    that is itself about to be removed.
+    fix(#1666): excludes only the candidate from the search, not both —
+    ``HTTPValidationError`` holds the sole ``$ref`` to
+    ``ValidationError``, so excluding both would delete a schema a
+    surviving operation still points at. Container checked before leaf,
+    so dropping it makes the leaf unreferenced next pass; reversed, the
+    leaf would be held alive by a container about to go.
     """
     schemas = schema.get("components", {}).get("schemas", {})
     for name in ("HTTPValidationError", "ValidationError"):
@@ -1796,17 +1575,14 @@ app.openapi = _standards_aware_openapi  # type: ignore[method-assign]
 init_metrics(app)
 
 
-# Phase 1230 EVENT-04: health-alert cooldown state.
-# Module-level so it persists across requests within a single API process.
-# _last_health_alert_at: time.monotonic() of the most recent degraded alert
-#   sent, or None if no alert has been sent since boot/recovery. None means
-#   "alert immediately" — a 0.0 sentinel was wrong because monotonic() is
-#   seconds-since-boot, so `now - 0.0 >= COOLDOWN` suppressed the very first
-#   alert during the first 5 minutes of process uptime (exactly when a DB is
-#   most likely down after a deploy).
-# _last_health_status:   last observed status ("healthy" or "degraded"); a
-#   transition back to "healthy" resets _last_health_alert_at so the NEXT
-#   degraded event produces a fresh alert after recovery (T-1230-06).
+# Phase 1230 EVENT-04: health-alert cooldown state, module-level so it
+# persists across requests in one API process.
+# _last_health_alert_at: monotonic() of the last degraded alert, or None if
+#   none sent since boot/recovery. None (not 0.0) means "alert immediately"
+#   — monotonic() is seconds-since-boot, so a 0.0 sentinel would suppress
+#   the first alert during the process's first 5 minutes.
+# _last_health_status: last observed status; a transition back to
+#   "healthy" resets _last_health_alert_at so recovery gets a fresh alert.
 _last_health_alert_at: float | None = None
 _last_health_status: str = "healthy"
 # Cooldown window: emit at most one health alert per 5 minutes (T-1230-06
@@ -1815,31 +1591,17 @@ _last_health_status: str = "healthy"
 _HEALTH_ALERT_COOLDOWN_SECS: float = 300.0
 
 
-# fix(#1778): liveness, split out from readiness. `/health` probes the database,
-# the object store AND the cache, and 503s if any of them is down -- but the
-# cache path is explicitly engineered to survive a Valkey outage (it falls back
-# to an in-memory cache behind a circuit breaker), so a dependency the API can
-# serve straight through still marked the container unhealthy. That is the
-# Docker healthcheck AND the gate on `frontend: depends_on: api:
-# service_healthy`, so a restart during a Valkey or MinIO outage left the whole
-# UI down because the cache was down; under an orchestrator with an HTTP
-# liveness probe on `/health` the pod is killed and restarted in a loop while
-# the API is perfectly able to serve catalog reads.
+# fix(#1778): liveness, split out from readiness. `/health` 503s if the
+# DB, object store, or cache is down — but the cache path survives a
+# Valkey outage (in-memory fallback behind a circuit breaker), so a
+# dependency the API serves fine still marked the container unhealthy,
+# restart-looping `frontend: depends_on: api: service_healthy`.
 #
-# `/health` keeps its meaning (readiness: every dependency answered). This route
-# answers only "the process is up and the event loop is turning", mirroring the
-# worker's own split in observability/health/worker.py, and is what the
-# container healthcheck and any liveness probe should target.
-#
-# `include_in_schema=False` for the same reason the worker's probes are absent
-# from the contract: it is infrastructure surface, not API surface, and no SDK
-# or CLI caller has a use for it.
-#
-# Exempt from the limiter rather than capped at 60/min like `/health`: a
-# kubelet probing every second from one source address is already at that cap
-# before any other traffic, and a liveness probe that answers 429 gets the pod
-# killed. GAP-016 capped `/health` because it probes dependencies on every
-# call; this handler touches nothing and allocates one dict.
+# This answers only "the process is up" (mirrors worker's split in
+# observability/health/worker.py); `include_in_schema=False` since it's
+# infrastructure, not API surface. Exempt from the limiter (unlike
+# `/health`, GAP-016): a kubelet probing every second is already at that
+# cap, and a 429'd liveness probe gets the pod killed.
 @app.get("/health/live", include_in_schema=False, tags=["Health"])
 @limiter.exempt
 async def health_live(request: Request):
@@ -1847,15 +1609,13 @@ async def health_live(request: Request):
     return {"status": "ok"}
 
 
-# GAP-016: /health is rate-limited (60/min per IP) rather than fully exempt, to
-# bound abuse of this unauthenticated, dependency-probing endpoint. The limit is
-# deliberately generous: the Docker container healthcheck polls every 10s
-# (~6/min) and a reverse proxy/LB adds only a small constant on top, so
-# legitimate infra never trips it. The response also omits raw provider exception
-# strings (`check_health` defaults to `include_errors=False`) so anonymous callers
-# never see DB/S3/cache internals — those are logged server-side and exposed only
-# on the authenticated admin view. (Kept as a comment, not a docstring, so the
-# rationale + finding ID stay out of the public OpenAPI description.)
+# GAP-016: /health is rate-limited (60/min per IP), not exempt, to bound
+# abuse of this unauthenticated, dependency-probing endpoint. Generous on
+# purpose: Docker's healthcheck polls every 10s (~6/min) plus a small LB
+# constant, so legitimate infra never trips it. Response omits raw
+# provider exception strings (`check_health(include_errors=False)`) so
+# anonymous callers never see DB/S3/cache internals. Kept as a comment,
+# not a docstring, so this stays out of the public OpenAPI description.
 @app.get(
     "/health",
     response_model=HealthResponse,
@@ -1876,23 +1636,20 @@ async def health(request: Request):
     from fastapi.responses import JSONResponse
 
     result = await check_health()
-    # fix(#441): report the running version + build commit so a deployment can
-    # be verified over HTTP (production disables /docs, which was the only
-    # surface exposing the version). GEOLENS_BUILD_SHA is stamped into release
-    # images by publish.yml; local and source builds report null.
+    # fix(#441): report version + build commit so a deployment can be
+    # verified over HTTP (prod disables /docs). GEOLENS_BUILD_SHA is
+    # stamped by publish.yml; local/source builds report null.
     import os
 
     result["version"] = app.version
     result["build"] = os.environ.get("GEOLENS_BUILD_SHA") or None
     status_code = 200 if result["status"] == "healthy" else 503
 
-    # Phase 1230 EVENT-04: emit a health-alert notification when the result is
-    # degraded and the per-event toggle is on, with cooldown de-duplication so
-    # repeated unhealthy polls do not spam the admin (T-1230-06 low-noise).
-    # The emit runs as a Starlette BackgroundTask so the /health response is
-    # returned FIRST and is never delayed by a slow/unreachable notification
-    # channel (WR-01) — Docker/ALB healthchecks have short timeouts and must not
-    # flap during an SMTP outage. The emit is also fail-safe (never raises).
+    # Phase 1230 EVENT-04: emit a health-alert when degraded and the toggle
+    # is on, cooldown-deduped so repeated unhealthy polls don't spam admin
+    # (T-1230-06). Runs as a BackgroundTask so the response returns FIRST
+    # and is never delayed by a slow notification channel (WR-01) — the
+    # emit is also fail-safe (never raises).
     from starlette.background import BackgroundTask
 
     global _last_health_alert_at, _last_health_status  # noqa: PLW0603

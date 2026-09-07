@@ -59,18 +59,16 @@ async def record_token_usage(
 ) -> None:
     """Persist a token usage record durably, best-effort (errors logged, not raised).
 
-    Writes in an INDEPENDENT, self-committing session rather than the caller's
-    (``_db``, kept for call-site stability but intentionally unused).
+    Writes in an INDEPENDENT, self-committing session, not the caller's
+    (``_db``, kept for call-site stability but unused).
 
-    Why independent: ``MAX_AI_TOKENS_PER_USER_PER_DAY`` enforcement reads this
-    table, but the gated AI paths commit inconsistently — ``get_db()`` does not
-    commit on success, the streaming/chat handlers never commit, and only the
-    non-stream map handler does. A prior savepoint-only write was therefore
-    dropped on those paths, so the cap under-counted and was bypassable
-    (codex P1 on #402). Committing the caller's session here instead would flush
-    partial handler state. Its own short-lived transaction is durable regardless
-    of the request lifecycle and is semantically correct — the tokens were
-    already spent, so the record must survive even a later request rollback.
+    Why independent: ``MAX_AI_TOKENS_PER_USER_PER_DAY`` reads this table,
+    but gated AI paths commit inconsistently — ``get_db()`` doesn't commit
+    on success, streaming/chat never commit, only the non-stream map
+    handler does (fix(#402)) — so a savepoint-only write is dropped on
+    the rest, under-counting the cap. This transaction is durable
+    regardless of the request lifecycle: tokens already spent must
+    survive even a later rollback.
     """
     # fix(#909): late-bind so the test fixture's rebinding of
     # app.core.db.async_session is honored; a module-scope import snapshots
@@ -103,13 +101,13 @@ async def record_token_usage_from_error(
 ) -> None:
     """Persist what a failed tool loop had already spent (fix(#1778)).
 
-    Reads the counts ``attach_token_usage`` stamped onto the exception, or onto
-    the exception that caused it: ``asyncio.wait_for`` raises ``TimeoutError``
-    ``from`` the ``CancelledError`` the coroutine actually saw, so the stamp
-    arrives one hop down the chain. Does nothing when they are absent or zero,
-    so a failure that never reached the provider writes no row.
+    Reads the counts ``attach_token_usage`` stamped onto the exception (or
+    its cause: ``asyncio.wait_for`` raises ``TimeoutError`` ``from`` the
+    ``CancelledError`` the coroutine saw, so the stamp arrives one hop
+    down). Does nothing when absent or zero, so a failure that never
+    reached the provider writes no row.
 
-    The reader is imported lazily to keep this module free of a processing/ai
+    Lazily imported reader to keep this module free of a processing/ai
     import cycle.
     """
     from app.processing.ai.llm_loop import token_usage_from_error
@@ -123,7 +121,7 @@ async def record_token_usage_from_error(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
     )
-    # fix(#1778 round 2): shielded. This is called from the handler that is
+    # fix(#1778): shielded. This is called from the handler that is
     # about to re-raise, and when that exception IS the cancellation, a plain
     # await here would be cancelled before the row lands.
     await _await_write_even_if_cancelled(
@@ -154,16 +152,14 @@ async def usage_accounting(
 ) -> AsyncIterator[None]:
     """Bill a provider tool loop for what it spent, however it ends.
 
-    fix(#1778 round 2): the callers each had their own ``except Exception``
-    block, and cancellation is not an ``Exception``. An SSE client that
-    disconnects after a completed round left the spent tokens unrecorded, and
-    the same hole sat in every caller because each one spelled the accounting
-    out for itself. One context manager is the shape, so a caller added later
-    gets it by construction rather than by remembering; a structural test pins
-    that every provider ``complete()`` sits inside one.
+    fix(#1778): each caller had its own ``except Exception``, and
+    cancellation isn't one — an SSE client disconnecting after a
+    completed round left tokens unrecorded. One context manager instead,
+    so a caller added later gets it by construction; a structural test
+    pins that every provider ``complete()`` sits inside one.
 
     ``BaseException``, not ``Exception``: ``CancelledError`` derives from
-    ``BaseException``, and it is exactly the shape a disconnect takes.
+    it, and that's exactly the shape a disconnect takes.
     """
     try:
         yield
@@ -177,12 +173,11 @@ async def usage_accounting(
 async def _await_write_even_if_cancelled(coro) -> None:  # type: ignore[no-untyped-def]
     """Await a usage write that must survive the cancellation that triggered it.
 
-    Under cancellation every ``await`` in this task raises ``CancelledError``
-    immediately, so awaiting the write directly would drop exactly the row the
-    cancellation makes valuable. The write runs as its own shielded task: this
-    coroutine stops waiting when it is cancelled, the task does not, and
-    ``record_token_usage`` commits on an independent session so it needs
-    nothing from the request that started it.
+    Under cancellation every ``await`` here raises ``CancelledError``
+    immediately, so awaiting the write directly would drop the row the
+    cancellation makes valuable. The write runs as its own shielded task:
+    this coroutine stops waiting when cancelled, the task doesn't, and
+    ``record_token_usage`` commits on an independent session.
     """
     task = asyncio.ensure_future(coro)
     _PENDING_USAGE_WRITES.add(task)

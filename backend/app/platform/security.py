@@ -20,28 +20,17 @@ class SSRFError(ValueError):
 class SSRFResolutionError(SSRFError):
     """The hostname did not resolve at all.
 
-    fix(#1271 review): a subclass rather than a sibling because every
-    existing SSRFError handler must keep refusing the fetch — but the two
-    are different facts. NXDOMAIN is a property of the ORIGIN (expired
-    domain, dead DNS) and belongs to the ``network_error`` class of probe
-    outcomes; a policy refusal is a property of GEOLENS and reports
-    ``blocked_by_policy``. Collapsing them sends an operator to audit
-    egress policy for a domain that simply no longer exists.
+    fix(#1271): a subclass, not a sibling — NXDOMAIN reports
+    ``network_error`` (dead DNS), a policy refusal reports
+    ``blocked_by_policy``; collapsing them misdirects an operator to audit
+    egress policy for a domain that no longer exists.
     """
 
 
-# SEC-013: additional ranges that Python's ipaddress module does NOT flag via
-# the standard is_private / is_reserved predicates but must be blocked for SSRF.
-#
-# RFC 6598 CGNAT shared address space — 100.64.0.0/10
-#   ip.is_private returns False for this range in Python ≤ 3.10; Python 3.11+
-#   includes it via the updated RFC 1918 list, but we guard explicitly so the
-#   check is correct regardless of Python version.
-# IPv6 ULA — fc00::/7
-#   ip.is_private includes this on Python 3.11+ but not all older builds.
-# NAT64 well-known prefix — 64:ff9b::/96
-#   Used to embed IPv4 addresses in IPv6 (RFC 6146); targets an IPv4 private IP
-#   when the embedded address is in a blocked range.
+# SEC-013: ranges is_private/is_reserved miss but must be blocked for SSRF.
+# CGNAT 100.64.0.0/10 (not flagged by is_private on Python <=3.10); IPv6 ULA
+# fc00::/7 (missed on some older builds); NAT64 64:ff9b::/96 (embeds an IPv4
+# address that may itself be private).
 _EXTRA_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
     ipaddress.ip_network("100.64.0.0/10"),  # RFC 6598 CGNAT
     ipaddress.ip_network("fc00::/7"),  # IPv6 ULA
@@ -52,7 +41,6 @@ _EXTRA_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ..
 def _is_blocked_ip(
     ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
-    """Check if an IP address falls within a blocked range."""
     if (
         ip.is_private
         or ip.is_loopback
@@ -71,10 +59,9 @@ def _is_blocked_ip(
 async def _resolve_and_validate(host: str, port: int | None) -> str:
     """Resolve *host*, validate every resolved IP, and return one validated IP.
 
-    SEC-008: returns the exact address the connection should use so the caller
-    can PIN it — eliminating the gap between validation-time DNS and connect-time
-    DNS. Raises SSRFError if resolution fails or ANY resolved address is blocked
-    (matching validate_url_for_ssrf's conservative semantics).
+    SEC-008: the caller pins the connection to this address, closing the gap
+    between validation-time and connect-time DNS. Raises SSRFError if
+    resolution fails or any resolved address is blocked.
     """
     try:
         results = await asyncio.to_thread(
@@ -110,8 +97,7 @@ async def validate_url_for_ssrf(url: str) -> None:
     if not hostname:
         raise SSRFError("Invalid URL: no hostname found")
 
-    # Resolve hostname to IP(s) before making any request
-    # Use asyncio.to_thread to avoid blocking the event loop on slow DNS
+    # asyncio.to_thread avoids blocking the event loop on slow DNS.
     try:
         results = await asyncio.to_thread(
             socket.getaddrinfo, hostname, parsed.port, proto=socket.IPPROTO_TCP
@@ -128,23 +114,20 @@ async def validate_url_for_ssrf(url: str) -> None:
             raise SSRFError("URLs targeting private/internal networks are not allowed")
 
 
-# HYG-03 (Phase 1070, v1014 IN-01): include HTTP 305 (Use Proxy) for
-# completeness even though RFC 7231 deprecated it and httpx does not follow
-# 305 redirects by default. Cheap defense-in-depth.
+# HYG-03: include 305 (Use Proxy) for completeness even though RFC 7231
+# deprecated it and httpx doesn't follow it by default. Cheap defense-in-depth.
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 305, 307, 308})
 
-# Ports the scheme already implies, so `https://host` and `https://host:443`
-# read as one origin rather than two.
+# Default ports so `https://host` and `https://host:443` are one origin.
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
-# Header names that ARE a credential whatever the caller declared. httpx drops
-# `Authorization` itself when a redirect crosses origins, so that one needs
-# nothing here; this one it would forward.
+# Headers that ARE a credential regardless of caller declaration. httpx
+# strips `Authorization` on a cross-origin redirect already; it forwards
+# this one unless refused explicitly.
 _ALWAYS_CREDENTIAL_HEADERS = frozenset({"x-esri-authorization"})
 
-# Describes the policy and never the header value, on the same reasoning as the
-# messages in core/service_tokens.py: this reaches an API response body, a log
-# line and a job row.
+# Names the policy, never the header value: this reaches a response body, a
+# log line, and a job row.
 CROSS_ORIGIN_CREDENTIAL_POLICY = (
     "Refusing to send a credential header to a different origin after a "
     "redirect. Point the source at the address that answers directly, or ask "
@@ -161,22 +144,11 @@ def _origin(url: httpx.URL) -> tuple[str, str, int | None]:
 def same_origin(first: str, second: str) -> bool:
     """Whether two URLs address the same origin: scheme, host and port.
 
-    fix(#1746 B2b review r5): the public spelling of the rule the redirect
-    hook below applies, because a redirect is not the only way a credential
-    can leave the service it was given to. An adapter that follows a link the
-    RESPONSE DOCUMENT chose issues a fresh request, which no redirect hook
-    sees, so it has to ask this question itself.
-
-    Default ports are filled in, so ``https://host`` and ``https://host:443``
-    are one origin and a real service does not break over a spelling.
-
-    fix(#1746 B2b review r6): total. Either side can come out of an untrusted
-    document, and ``httpx.URL`` raises on a syntactically invalid one such as
-    ``http://example.com:notaport/`` -- which would have turned a probe into a
-    500 where the old path degraded. An unparseable URL is not the same origin
-    as anything, including itself, so False is both the safe answer and the
-    correct one: a caller asking this question is deciding whether to send a
-    credential, and it must not send one to an address it cannot even parse.
+    fix(#1746): the public form of the redirect hook's rule, for callers
+    (e.g. an adapter following a link from a response document) that issue
+    a fresh request no redirect hook ever sees. Total: an unparseable URL
+    is never the same origin as anything, including itself, so a caller
+    deciding whether to send a credential never sends one on a parse error.
     """
     try:
         return _origin(httpx.URL(first)) == _origin(httpx.URL(second))
@@ -189,16 +161,12 @@ def _refuse_cross_origin_credential(
 ) -> None:
     """Keep a credential on the origin it was given to.
 
-    fix(#1746): httpx strips `Authorization` when a redirect changes origin and
-    forwards every other header unchanged, so an API key sent under a name of
-    the service's choosing -- `X-API-Key`, Ordnance Survey's `key`, Azure's
-    `Ocp-Apim-Subscription-Key` -- is handed to whatever origin a 302 names.
-    The SSRF revalidation beside this does not close it: the redirect target
-    can be an entirely ordinary public host that simply is not the service the
-    user gave a credential to.
-
-    Called from the response hook, which httpx runs BEFORE it follows the
-    redirect, so raising here means the second request is never issued.
+    fix(#1746): httpx strips `Authorization` on a cross-origin redirect but
+    forwards any other header unchanged, so a caller-named key (`X-API-Key`,
+    `Ocp-Apim-Subscription-Key`) follows a 302 to an origin that is public
+    and SSRF-valid but not the service it was issued to. Runs from the
+    response hook, before httpx follows the redirect, so the second request
+    is never issued.
     """
     if response.status_code not in _REDIRECT_STATUSES:
         return
@@ -206,8 +174,7 @@ def _refuse_cross_origin_credential(
     if not location:
         return
     request = response.request
-    # httpx.Headers membership is case-insensitive, which is the point: the
-    # caller may declare `X-API-Key` and the request may spell it `x-api-key`.
+    # Headers membership is case-insensitive: `X-API-Key` matches `x-api-key`.
     if not any(name in request.headers for name in watched):
         return
     if _origin(httpx.URL(response.url).join(location)) == _origin(request.url):
@@ -218,18 +185,14 @@ def _refuse_cross_origin_credential(
 async def _revalidate_redirect(response: httpx.Response) -> None:
     """httpx response hook: re-validate the Location target on every redirect hop.
 
-    Phase 1061 SEC-S04: httpx follow_redirects=True silently retargets to
-    attacker-controlled internal IPs (169.254.169.254 / 127.x / 10.x) when the
-    first hop returns 302. validate_url_for_ssrf is called at submission time
-    but not per-hop. This hook closes the gap.
+    SEC-S04: `follow_redirects=True` silently retargets to attacker-controlled
+    internal IPs on a 302; `validate_url_for_ssrf` runs at submission time but
+    not per-hop, so this hook closes the gap. Raising SSRFError here aborts
+    further redirect-following.
 
-    Raising SSRFError from a response hook aborts further redirect-following
-    and propagates the exception to the awaiting caller.
-
-    fix(#1746): also refuses a hop that would carry a credential header to a
-    different origin. That check runs first because it needs no DNS lookup, and
-    because its message names the actual problem: the Location can be a public
-    host this validator is perfectly happy with.
+    fix(#1746): also refuses a hop carrying a credential header to a
+    different origin, checked first since it needs no DNS lookup and the
+    Location may otherwise be a perfectly SSRF-valid public host.
     """
     _refuse_cross_origin_credential(response, _ALWAYS_CREDENTIAL_HEADERS)
     if response.status_code not in _REDIRECT_STATUSES:
@@ -243,12 +206,11 @@ async def _revalidate_redirect(response: httpx.Response) -> None:
 
 
 def _redirect_hook(credential_header: str | None):
-    """The response hook one client installs, for the header it declared.
+    """Response hook a client installs, for the header it declared.
 
-    A closure rather than another parameter on ``_revalidate_redirect``,
-    because that function is named in AGENTS.md Rule 2 and is called directly
-    by several tests, so it stays a plain single-argument coroutine that
-    already covers the always-credential names on its own.
+    A closure rather than another parameter on ``_revalidate_redirect``:
+    that function is named directly by AGENTS.md Rule 2 and by tests, so it
+    stays a plain single-argument coroutine.
     """
     if not credential_header:
         return _revalidate_redirect
@@ -265,48 +227,38 @@ def _redirect_hook(credential_header: str | None):
 class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
     """Transport that re-resolves, re-validates, and PINS the IP at connect time.
 
-    SEC-008: validate_url_for_ssrf resolves DNS once at submission time, but the
-    client performs its OWN DNS lookup when it actually connects. A low-TTL
-    attacker domain can answer with a public IP at validation and a private IP
-    (169.254.169.254 / 127.x / 10.x) at connect — DNS rebinding. This transport
-    resolves + validates immediately before connecting and pins the connection
-    to the exact validated IP by rewriting the URL host to that IP while keeping
-    the original hostname for the Host header and TLS SNI/verification. httpx
-    builds a fresh request per redirect hop, so every hop is independently
-    re-resolved, re-validated, and re-pinned.
+    SEC-008: `validate_url_for_ssrf` resolves DNS once at submission time,
+    but the client does its own lookup at connect time — a low-TTL attacker
+    domain can answer public at validation and private at connect (DNS
+    rebinding). This transport resolves + validates immediately before
+    connecting and pins by rewriting the URL host to the validated IP, while
+    keeping the original hostname for the Host header and TLS SNI. httpx
+    builds a fresh request per redirect hop, so every hop is re-pinned.
     """
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         original_url = request.url
         host = original_url.host
         validated_ip = await _resolve_and_validate(host, original_url.port)
-        # Pin to the validated address. The Host header was already set from the
-        # original URL at request-build time (left intact); sni_hostname keeps
-        # the hostname for TLS SNI and certificate verification.
+        # sni_hostname keeps the hostname for TLS SNI/verification.
         request.url = original_url.copy_with(host=validated_ip)
         request.extensions["sni_hostname"] = host
         try:
             return await super().handle_async_request(request)
         finally:
-            # fix(#1271 review): the pinned URL is consumed at connect time
-            # inside the super() call; leaving it on the request afterwards
-            # leaks the IP into everything downstream that reads it back —
-            # httpx resolves a RELATIVE Location against response.request.url,
-            # so the next hop would connect to the IP with SNI set to the IP
-            # (certificate failure on HTTPS), and _revalidate_redirect,
-            # response.url, cookies, and any caller-side URL derivation would
-            # all see the IP instead of the hostname the caller addressed.
-            # Restoring here removes the entire class: the mutation never
-            # outlives the one call that needs it.
+            # fix(#1271): restore the hostname after connect — leaving the
+            # pinned IP would break relative-redirect resolution (next hop's
+            # SNI would be the IP, failing TLS) and leak the IP into
+            # response.url, cookies, and caller-side URL derivation.
             request.url = original_url
 
 
 def make_safe_transport() -> httpx.AsyncBaseTransport:
     """Return an HTTP transport that blocks SSRF and DNS rebinding.
 
-    This is the transport-level counterpart to :func:`make_safe_client` for
-    libraries (such as Authlib) that construct their own ``httpx`` client but
-    accept a transport through client kwargs.
+    Transport-level counterpart to :func:`make_safe_client`, for libraries
+    (e.g. Authlib) that build their own ``httpx`` client but accept a
+    transport via kwargs.
     """
     return _SSRFGuardTransport()
 
@@ -317,24 +269,17 @@ def make_safe_client(
 ) -> httpx.AsyncClient:
     """Construct an httpx.AsyncClient with SSRF IP-pinning and per-hop revalidation.
 
-    Phase 1061 SEC-S04: use this factory instead of `httpx.AsyncClient(
-    follow_redirects=True, ...)` for any request handler that fetches
-    user-supplied URLs (service probes, STAC adapters, OGC API adapters).
+    SEC-S04: use this factory instead of `httpx.AsyncClient(
+    follow_redirects=True, ...)` for any handler that fetches user-supplied
+    URLs. SEC-008: uses `_SSRFGuardTransport`, which re-resolves, validates,
+    and pins at connect time, so a DNS-rebinding answer after submission-time
+    validation can't reach an internal IP; `_revalidate_redirect` re-validates
+    each 3xx Location and the transport re-pins each hop.
 
-    SEC-008: the client uses _SSRFGuardTransport, which re-resolves and validates
-    the host at connect time and pins the connection to the validated IP — so a
-    DNS-rebinding answer between submission-time validation and connect cannot
-    reach an internal IP. The response hook _revalidate_redirect additionally
-    re-validates each 3xx Location, and the transport re-pins each redirect hop.
-
-    fix(#1746): pass ``credential_header`` when the request carries a service
-    credential under a name the service chose. httpx drops ``Authorization``
-    across a cross-origin redirect and forwards everything else, so without
-    this an API key follows a 302 to whatever origin it names. The refusal
-    lands on the hop, before the second request is issued.
-    ``X-Esri-Authorization`` is refused whether or not it was declared, since
-    that name is a credential by definition. A caller that passes nothing gets
-    exactly today's behaviour.
+    fix(#1746): pass ``credential_header`` when the request carries a
+    service-chosen credential name, so a 302 can't carry it cross-origin.
+    ``X-Esri-Authorization`` is always refused. A caller passing nothing gets
+    today's behaviour.
     """
     return httpx.AsyncClient(
         timeout=timeout,
