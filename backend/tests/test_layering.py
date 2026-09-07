@@ -3624,10 +3624,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950): +25 — the shared failure helper arms the job-row budget after
     # its own rollback, and an expiry there is logged and swallowed so the caller
     # re-raises the ingest failure instead. Cap 2643 -> 2668, exact.
-    # fix(#1950 codex r2, r3): +46 — `load_job_for_error_write`, the guarded job
+    # fix(#1950 codex r2-r5): +55 — `load_job_for_error_write`, the guarded job
     # load the two re-upload tails share, which also ends the transaction on a
-    # miss so the run row they write next is unbudgeted. Cap 2668 -> 2714, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2714,
+    # miss so the run row they write next is unbudgeted. Cap 2668 -> 2723, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2723,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

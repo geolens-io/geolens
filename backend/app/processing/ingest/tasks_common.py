@@ -11,7 +11,7 @@ import functools
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1285,6 +1285,12 @@ async def load_job_for_error_write(
     )
     from app.platform.jobs.models import IngestJob
 
+    async def _end_transaction() -> None:
+        # A rollback on a connection that is already gone raises, and this
+        # helper's whole job is to not raise.
+        with suppress(Exception):  # broad: best-effort, the caller re-raises
+            await session.rollback()
+
     filters = [IngestJob.id == job_uuid]
     if attempt_uuid is not None:
         filters.append(IngestJob.attempt_id == attempt_uuid)
@@ -1293,10 +1299,10 @@ async def load_job_for_error_write(
         result = await session.execute(select(IngestJob).where(*filters))
         job = result.scalar_one_or_none()
         if job is None:
-            await session.rollback()
+            await _end_transaction()
         return job
     except DBAPIError as write_failure:
-        await session.rollback()
+        await _end_transaction()
         log_job_error_write_failure(write_failure, job_id=str(job_uuid), task=task_name)
         return None
 
@@ -1398,7 +1404,10 @@ async def _cleanup_staging_on_failure(
         await session.commit()
         written = True
     except DBAPIError as write_failure:
-        await session.rollback()
+        # Same reason as the loader's: the callers below re-raise the ingest
+        # failure, and a rollback that raises would take its place.
+        with suppress(Exception):  # broad: best-effort, the caller re-raises
+            await session.rollback()
         log_job_error_write_failure(write_failure, job_id=str(job_id), task=task_name)
 
     # fix(#1778 codex r2): the DROP runs AFTER the failure row is committed,

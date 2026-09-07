@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 import structlog.testing
-from asyncpg.exceptions import QueryCanceledError
+from asyncpg.exceptions import ConnectionDoesNotExistError, QueryCanceledError
 from sqlalchemy import delete, select, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, InterfaceError
 
 import app.processing.ingest.tasks_raster as tasks_raster
 from app.core.db.sqlstate import sqlstate
@@ -562,10 +562,11 @@ class _IngestFailed(RuntimeError):
 class _LoaderSession:
     """Records what `load_job_for_error_write` does to the session it is given."""
 
-    def __init__(self, *, raises: bool) -> None:
+    def __init__(self, *, raises: bool, rollback_raises: bool = False) -> None:
         self.armed = 0
         self.rolled_back = 0
         self._raises = raises
+        self._rollback_raises = rollback_raises
 
     async def execute(self, statement):
         if "SET LOCAL" in str(statement):
@@ -577,6 +578,8 @@ class _LoaderSession:
 
     async def rollback(self) -> None:
         self.rolled_back += 1
+        if self._rollback_raises:
+            raise InterfaceError("ROLLBACK", {}, ConnectionDoesNotExistError("gone"))
 
 
 class _NoRows:
@@ -612,6 +615,20 @@ class TestTheTimeoutDoesNotReplaceTheCause:
         )
         assert timeouts[0]["task"] == "reupload_file"
         assert timeouts[0]["sqlstate"] == "57014"
+
+    async def test_a_lost_connection_cannot_raise_out_of_the_loader(self) -> None:
+        """Its `Never raises` contract has to hold when the recovery fails too."""
+        session = _LoaderSession(raises=True, rollback_raises=True)
+        with structlog.testing.capture_logs() as captured:
+            loaded = await load_job_for_error_write(
+                session, uuid.uuid4(), uuid.uuid4(), task_name="ingest_vrt"
+            )
+
+        assert loaded is None
+        assert session.rolled_back == 1
+        assert [r for r in captured if r.get("event") == "job_error_write_timeout"], (
+            f"the rollback's own failure skipped the log; got {captured}"
+        )
 
     async def test_a_missed_lookup_does_not_leave_the_budget_armed(self) -> None:
         """The callers write the run row next, on this session, out of scope."""
