@@ -5773,7 +5773,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1926, #1928, #1929): +19. The two published tile descriptions now
     # state the authorization, malformed-path and 429 answers the code gives
     # after those three changes. Cap 2414 -> 2433, exact.
-    "backend/app/processing/tiles/router.py": 2433,
+    # fix(#1959 review): +2. Those descriptions name all three 429 cases, and
+    # no longer claim every query failure is a 503 or that the cold-storage 202
+    # reaches a deployment without it. Cap 2433 -> 2435, exact.
+    "backend/app/processing/tiles/router.py": 2435,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

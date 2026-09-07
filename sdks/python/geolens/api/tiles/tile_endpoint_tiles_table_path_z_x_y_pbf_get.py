@@ -170,11 +170,12 @@ def sync_detailed(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. A dataset still being restored from
-    cold storage answers 202 with a job id to poll. A request that cannot get a
-    tile-pool connection while the pool is saturated answers 429 with
-    ``Retry-After``, as does exceeding a configured per-tenant concurrency
-    limit. A failure running the tile query answers 503.
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
 
     Args:
         table_path (str):
@@ -253,11 +254,12 @@ def sync(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. A dataset still being restored from
-    cold storage answers 202 with a job id to poll. A request that cannot get a
-    tile-pool connection while the pool is saturated answers 429 with
-    ``Retry-After``, as does exceeding a configured per-tenant concurrency
-    limit. A failure running the tile query answers 503.
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
 
     Args:
         table_path (str):
@@ -331,11 +333,12 @@ async def asyncio_detailed(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. A dataset still being restored from
-    cold storage answers 202 with a job id to poll. A request that cannot get a
-    tile-pool connection while the pool is saturated answers 429 with
-    ``Retry-After``, as does exceeding a configured per-tenant concurrency
-    limit. A failure running the tile query answers 503.
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
 
     Args:
         table_path (str):
@@ -412,11 +415,12 @@ async def asyncio(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. A dataset still being restored from
-    cold storage answers 202 with a job id to poll. A request that cannot get a
-    tile-pool connection while the pool is saturated answers 429 with
-    ``Retry-After``, as does exceeding a configured per-tenant concurrency
-    limit. A failure running the tile query answers 503.
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
 
     Args:
         table_path (str):

@@ -5669,11 +5669,12 @@ export const searchPostStacSearchPost = <ThrowOnError extends boolean = false>(o
  * a malformed table path or an out-of-range tile coordinate.
  *
  * A tile holding no features answers 204, and a repeat request whose
- * ``If-None-Match`` matches answers 304. A dataset still being restored from
- * cold storage answers 202 with a job id to poll. A request that cannot get a
- * tile-pool connection while the pool is saturated answers 429 with
- * ``Retry-After``, as does exceeding a configured per-tenant concurrency
- * limit. A failure running the tile query answers 503.
+ * ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+ * a dataset still being restored answers 202 with a job id to poll. Three
+ * cases answer 429 with ``Retry-After``: waiting past the tile pool's
+ * connection budget, a tile query that outruns the pool's per-command
+ * timeout, and exceeding a configured per-tenant concurrency limit. Any other
+ * failure serving the tile answers 503.
  */
 export const clusterTileEndpointTilesClustersTablePathZXYPbfGet = <ThrowOnError extends boolean = false>(options: Options<ClusterTileEndpointTilesClustersTablePathZxyPbfGetData, ThrowOnError>): RequestResult<ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses, ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors, ThrowOnError> => (options.client ?? client).get<ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses, ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors, ThrowOnError>({
     security: [
@@ -5846,11 +5847,12 @@ export const getTileTokensBatchTilesTokensPost = <ThrowOnError extends boolean =
  *
  * A malformed table path or an out-of-range tile coordinate answers 400. A
  * tile holding no features answers 204, and a repeat request whose
- * ``If-None-Match`` matches answers 304. A dataset still being restored from
- * cold storage answers 202 with a job id to poll. A request that cannot get a
- * tile-pool connection while the pool is saturated answers 429 with
- * ``Retry-After``, as does exceeding a configured per-tenant concurrency
- * limit. A failure running the tile query answers 503.
+ * ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+ * a dataset still being restored answers 202 with a job id to poll. Three
+ * cases answer 429 with ``Retry-After``: waiting past the tile pool's
+ * connection budget, a tile query that outruns the pool's per-command
+ * timeout, and exceeding a configured per-tenant concurrency limit. Any other
+ * failure serving the tile answers 503.
  */
 export const tileEndpointTilesTablePathZXYPbfGet = <ThrowOnError extends boolean = false>(options: Options<TileEndpointTilesTablePathZxyPbfGetData, ThrowOnError>): RequestResult<TileEndpointTilesTablePathZxyPbfGetResponses, TileEndpointTilesTablePathZxyPbfGetErrors, ThrowOnError> => (options.client ?? client).get<TileEndpointTilesTablePathZxyPbfGetResponses, TileEndpointTilesTablePathZxyPbfGetErrors, ThrowOnError>({
     security: [
