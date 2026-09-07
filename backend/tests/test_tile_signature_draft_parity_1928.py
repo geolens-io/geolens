@@ -214,6 +214,32 @@ class TestSignedDraftParity:
         finally:
             await _drop_table(test_db_session, dataset.table_name)
 
+    async def test_a_valid_signature_outranks_an_unresolvable_credential(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The credential rule answers a request no capability authorized.
+
+        A valid signature is such a capability, so it decides the request the
+        way it does on the raster route; without one the same header is 401.
+        """
+        dataset = await _make_vector(
+            test_db_session,
+            created_by=await _admin_id(test_db_session),
+            record_status="published",
+        )
+        try:
+            params = await _mint(client, dataset.id, admin_auth_header)
+            url = f"/tiles/data.{dataset.table_name}/0/0/0.pbf"
+            headers = {"Authorization": "Bearer not-a-real-credential-1518"}
+
+            signed = await client.get(url, params=params, headers=headers)
+            bare = await client.get(url, headers=headers)
+
+            assert signed.status_code == 200, signed.text
+            assert bare.status_code == 401, bare.text
+        finally:
+            await _drop_table(test_db_session, dataset.table_name)
+
     async def test_an_expired_signature_still_falls_through(
         self, client: AsyncClient, test_db_session
     ):
