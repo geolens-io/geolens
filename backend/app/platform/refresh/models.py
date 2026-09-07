@@ -1,5 +1,7 @@
 """``catalog.dataset_refresh_runs`` — one row per refresh attempt.
 
+feat(#1219), ADR-002 Decision 4.
+
 A sibling table rather than extra columns on ``DatasetVersion``: that table
 is a SUCCESS ledger with ``UNIQUE (dataset_id, version_number)``, and a
 failed refresh has no Nth good state, so a nullable counter would destroy

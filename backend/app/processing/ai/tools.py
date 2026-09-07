@@ -2,8 +2,8 @@
 
 The JSON-schema contract the LLM sees for each tool (search the catalog,
 add/remove a layer, set a filter, change a paint property, generate a
-data-driven style, etc.); execution lives in `app.ai.service` and
-`app.ai.chat_service`. Add tools via the schema constants and
+data-driven style, etc.); execution lives in `app.processing.ai.service` and
+`app.processing.ai.chat_service`. Add tools via the schema constants and
 `get_anthropic_tools`/`get_openai_tools` below, not inline in service.py.
 Malformed JSON Schema fails silently -- the request succeeds with no tool
 calls.

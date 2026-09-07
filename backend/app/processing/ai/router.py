@@ -226,7 +226,8 @@ async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
     slowapi's per-IP limits cap request *frequency*, not cumulative token
     spend, so an editor can sustain heavy multi-round tool loops
     indefinitely. Reads back ``catalog.ai_token_usage`` and 429s once the
-    user's 24h input+output tokens reach the operator-set cap.
+    user's 24h input+output tokens reach the operator-set cap, over
+    ``ix_ai_token_usage_user_created``.
     ``MAX_AI_TOKENS_PER_USER_PER_DAY`` defaults to 0 (unlimited).
     """
     cap = await MAX_AI_TOKENS_PER_USER_PER_DAY.get(db)

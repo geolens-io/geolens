@@ -125,9 +125,11 @@ class RasterAsset(Base):
             # res_x/res_y overstated resolution (measured 3.28x for
             # foot-based state-plane CRSs). PROJ's metres-per-unit converts it.
             #
-            # A geographic CRS yields None and OMITS the field — an angular
-            # resolution has no fixed length without a latitude, unlike the
-            # OGC Records serializer's CRS-unit value (fix(#569)).
+            # A geographic CRS yields None and OMITS the field: an angular
+            # resolution has no fixed length without a latitude. The OGC Records
+            # serializer instead keeps the CRS-unit value, because it ships a
+            # companion `crs_is_geographic` flag that STAC has no room for
+            # (fix(#569)).
             metres_per_unit = wkt_metres_per_unit(self.crs_wkt)
             if metres_per_unit is not None:
                 props["gsd"] = min(abs(self.res_x), abs(self.res_y)) * metres_per_unit

@@ -213,7 +213,8 @@ async def _download_http_source(
     )
 
     bytes_seen = 0
-    # SEC-S04: make_safe_client for per-hop SSRF revalidation on manifest
+    # Rule 2 (AGENTS.md): make_safe_client for per-hop SSRF revalidation on
+    # manifest
     # HTTP downloads. Lazy import: `processing/` may not import
     # `app.modules.catalog.*` at module level (layering invariant).
     from app.platform.security import make_safe_client

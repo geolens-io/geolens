@@ -50,8 +50,7 @@ def _schema_cache_key(
 
     Adding map_id prevents cross-map cache pollution when two different maps
     reference the same dataset. The (map_id, content_hash) tuple shape is
-    load-bearing —
-    do NOT shortcut to (dataset_id,) only. Cache entries evict on either the
+    load-bearing: do NOT shortcut to (dataset_id,) only. Cache entries evict on either the
     60s TTL or when len(_schema_cache) >= _SCHEMA_CACHE_MAX.
     """
     parts = []

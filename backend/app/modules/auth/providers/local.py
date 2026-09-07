@@ -32,8 +32,9 @@ def verify_password(plain: str, hashed: str) -> bool:
     has no length cap) turned that into an uncaught 500 that also skipped
     the user.login.failure audit row.
 
-    Refusing rather than truncating is correct: every password-setting path
-    runs validate_password_complexity, capping the stored credential at
+    Refusing rather than truncating is correct: signup, password reset and
+    change-password all run validate_password_complexity, capping the stored
+    credential at
     BCRYPT_MAX_PASSWORD_BYTES, so no correct password can be rejected here,
     and truncating would instead accept the first 72 bytes of a longer
     string as the whole password.
@@ -64,7 +65,8 @@ class LocalAuthProvider:
         # reset holds FOR UPDATE on this row while writing the new hash and
         # revoking credentials; without a lock here, a login reading the row
         # before that commit could verify the STALE hash and then mint
-        # tokens carrying the POST-reset token_version/horizon — surviving
+        # tokens carrying the POST-reset token_version and revocation
+        # horizon, surviving
         # the revocation. Blocking here means the verify runs against
         # whatever the reset committed, so the old password fails.
         #

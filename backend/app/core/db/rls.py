@@ -339,8 +339,9 @@ async def apply_tenancy_rls_from_engine(*, verify_runtime_role: bool = True) -> 
     Called by ``bootstrap()`` so mode flips require no new migration — the
     policies are already in the schema and this call enables them at boot.
 
-    single_tenant: RLS and the role check both remain a no-op unless
-    ``GEOLENS_RUNTIME_DB_ROLE`` opts into the non-superuser path. multi_tenant:
+    single_tenant: RLS is a no-op regardless (``apply_tenancy_rls`` returns
+    before any SQL); only the role check waits on ``GEOLENS_RUNTIME_DB_ROLE``.
+    multi_tenant:
     opens an AUTOCOMMIT connection, calls ``apply_tenancy_rls(conn)``,
     verifies the runtime role cannot bypass RLS, then closes it. A privileged
     migration process may pass ``verify_runtime_role=False`` while preparing

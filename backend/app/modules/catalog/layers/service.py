@@ -93,7 +93,8 @@ async def create_layer(
     ddl = f"CREATE TABLE {table_ref} ({col_defs})"
     await session.execute(text(ddl))
 
-    # source geometry is already 4326; add_4326_column is a passthrough here
+    # Adds geom_4326 and its index; source is already 4326, so the copy needs
+    # no ST_Transform.
     await get_catalog_port().add_4326_column(
         session, table_name, 4326, schema=data_schema
     )

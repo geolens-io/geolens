@@ -90,8 +90,7 @@ async def _propagate_record_write(
     """Keep downstream surfaces coherent after a record sub-resource write.
 
     fix(#458): busts the catalog cache and re-embeds on keyword change,
-    like the top-level metadata PATCH; best-effort, post-commit. fix(#458
-    E-47): when db/user/details are passed, also emits a metadata.edit
+    like the top-level metadata PATCH; best-effort, post-commit. fix(#458): when db/user/details are passed, also emits a metadata.edit
     audit event against the backing dataset, if there is one.
     """
     try:
@@ -416,7 +415,7 @@ async def update_contact_endpoint(
     await _check_record_ownership(db, record_id, user)
     try:
         # fix(#458): exclude_unset, not exclude_none — an explicitly-set
-        # null clears the field (dataset E-04 contract); the schema already
+        # null clears the field (the dataset contract); the schema already
         # 422s nulls on non-clearable fields.
         contact = await update_contact(
             db, contact_id, record_id, **body.model_dump(exclude_unset=True)

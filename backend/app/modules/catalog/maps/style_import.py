@@ -357,6 +357,10 @@ def _restore_zoom_range(
     maximum is clamped with a warning — MapLibre's visible band is
     ``[minzoom, maxzoom)``, and the builder can't render past
     ``BUILDER_MAX_ZOOM`` to honor a minimum written past it.
+
+    Writes ``raw``, not the parsed number, so an integer zoom stays an integer
+    in JSONB. The predicates exclude the builder defaults: export omits them as
+    no-ops, so reading them back would write keys the builder treats as unset.
     """
     for spec_key, layout_key, is_meaningful in (
         ("minzoom", "_minzoom", lambda z: BUILDER_MIN_ZOOM < z <= 24),

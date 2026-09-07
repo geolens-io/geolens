@@ -888,11 +888,11 @@ async def stream_generate_map(
             )
             return result
 
-        # fix(#1778): without this, a timeout or client disconnect (which
-        # cancels the task) bills the provider round but never reaches
-        # catalog.ai_token_usage. Covers both: timeout counts arrive on
-        # __cause__; disconnect arrives as CancelledError, which `except
-        # Exception` would miss.
+        # fix(#1778): without this, an exhaustion, a timeout or a client
+        # disconnect (which cancels the task) bills the provider round but
+        # never reaches catalog.ai_token_usage. Covers all three: timeout
+        # counts arrive on __cause__; disconnect arrives as CancelledError,
+        # which `except Exception` would miss.
         async with usage_accounting(
             session, user_id=user.id, subsystem="map_generation", model=model
         ):

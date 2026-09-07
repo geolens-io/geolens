@@ -1,10 +1,10 @@
 """Bounded reads for a service-type probe's own request.
 
 fix(#1770): `probe_ogcapi`/`probe_wfs`/`probe_arcgis_service`/
-`connect_stac_api` used a plain `client.get` with no byte cap, no
-decoded-size cap, and `assert_endpoints_stay_on_origin()` only runs AFTER
-`detect_service_type()` returns -- so a probe's own read could exhaust the
-API process before that check ever got a turn.
+`connect_stac_api` used a plain `client.get` with no byte cap and no
+decoded-size cap. `assert_endpoints_stay_on_origin()` only runs AFTER
+`detect_service_type()` returns, so a probe's own read could exhaust the API
+process before that check ever got a turn.
 
 A separate module, not a second function in `service_endpoints.py`:
 `test_service_auth_transport_1746.py` asserts, structurally, that

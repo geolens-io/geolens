@@ -513,7 +513,7 @@ async def _fetch_target_rows(
 ) -> list[dict]:
     """Window-fetch matching target rows as gid+properties dicts."""
     # fix(#1104): project the row before to_jsonb -- serializing t.* first
-    # passes the source `geom` through the geometry->jsonb cast, which
+    # passes a curved source `geom` through the geometry->jsonb cast, which
     # raises even though the subtraction then discards it.
     from app.modules.catalog.features.service import live_property_columns
 

@@ -498,7 +498,7 @@ async def get_column_ddl_feed(
         )
 
     # Owner-or-admin gate, matching the column-DDL write endpoints this feed
-    # reports on (fix #458 E-37).
+    # reports on fix(#458).
     await port.check_dataset_write_access(db, dataset, dataset_id, user)
 
     # Preserves the old `offset` param while new clients converge on the

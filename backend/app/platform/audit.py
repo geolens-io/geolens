@@ -25,9 +25,8 @@ class AuditEvent:
     """Immutable audit event passed to every registered AuditSink.
 
     ``user_id`` is nullable (FK ON DELETE SET NULL to catalog.users): used by
-    SAML JIT-provisioning rows that pre-date user creation, and anonymous-
-    download rows where user_id=NULL rather than a fabricated
-    actor.
+    SAML JIT-provisioning rows that pre-date user creation, and anonymous
+    download rows where user_id=NULL rather than a fabricated actor.
     """
 
     user_id: uuid.UUID | None

@@ -2299,7 +2299,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # or above the substituted 22 imported cleanly into a layer that could never
     # be drawn, and clamping is the only repair the builder can honour.
     # Cap 580 -> 637, exact.
-    "backend/app/modules/catalog/maps/style_import.py": 601,
+    "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 192,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
     # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they
@@ -2552,7 +2552,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1888): +16. The staged-entry settlement reads the row's status on
     # its own transaction and reaps the staged copy once a committed attempt
     # left the row failed, best effort. Cap 1130 -> 1146, exact.
-    "backend/app/processing/ingest/manifest_service.py": 1135,
+    "backend/app/processing/ingest/manifest_service.py": 1136,
     # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
     # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
     # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/

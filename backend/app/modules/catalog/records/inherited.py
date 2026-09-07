@@ -5,8 +5,9 @@ marking them; recovered at read time by intersecting keyword sets via
 ``Record.derived_from``. Access gates on ``visible_derived_from``;
 audience-widening checks route through ``record_audience`` (#1068).
 
-Accepted limitation (#1178): deleting a source keyword silently drops it
-here too, even though the copy still exists.
+Accepted limitation (#1178): deleting a source keyword leaves the copied row
+in place but drops it from the inherited set, losing its badge and the
+publish-moment warning.
 """
 
 from __future__ import annotations

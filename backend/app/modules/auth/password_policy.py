@@ -65,7 +65,6 @@ def validate_password_complexity(
     has_lower = any(c.islower() for c in password)
     has_upper = any(c.isupper() for c in password)
     has_digit = any(c.isdigit() for c in password)
-    # Symbol class defined in the docstring above.
     has_symbol = any(not c.isalpha() and not c.isdigit() for c in password)
 
     classes_present = sum([has_lower, has_upper, has_digit, has_symbol])
