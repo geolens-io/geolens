@@ -44,7 +44,8 @@ _registry: list[PersistentConfig] = []
 
 # fix(#435): ADMIN-03 (M-03) — single source of truth for enterprise-only
 # Settings tabs; the backend `_require_enterprise_for_key` gate, config
-# import/export, and the frontend AdminSidebar all consult this set.
+# import/export, and the frontend AdminSidebar all consult this set. Lives
+# here so config_ops need not import settings/router.py at import time.
 ENTERPRISE_ONLY_TABS = frozenset({"branding", "appearance"})
 
 

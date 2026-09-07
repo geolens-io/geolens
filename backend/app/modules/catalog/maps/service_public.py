@@ -365,7 +365,7 @@ def _build_shared_layer_dict(
         if ds_tile_version:
             tile_url = f"{tile_url}?v={ds_tile_version}"
     else:
-        # fix(Phase 273 SEC-16/L-62): no `/tiles/public/...` route exists
+        # No `/tiles/public/...` route exists
         # — the single `/tiles` catch-all does its own auth check
         # (visibility + HMAC-or-anonymous), so every consumer uses one URL.
         tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"

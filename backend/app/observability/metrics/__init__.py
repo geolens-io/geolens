@@ -50,8 +50,8 @@ def _sweep_lock_path(multiproc_dir: str) -> str:
 # 1) + implicit +Inf — clamps p95 at 1.0, since histogram_quantile
 # returns the highest FINITE bound when the quantile lands in +Inf;
 # GeoLensApiInteractiveLatencyP95 fired on that ceiling, not real
-# latency. Kept short despite the cost (each bound roughly doubles this
-# histogram's series count, since it's also labelled by `method`)
+# latency. Kept short despite the cost (each bound adds one series per
+# `method` label value)
 # because the unlabelled sibling can't answer "p95 excluding tiles".
 LATENCY_LOWR_BUCKETS = (0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 
@@ -208,6 +208,8 @@ def _consolidate_dead_cumulative_metric_files() -> None:
                 claimed_paths = []
                 for _pid, path in _iter_dead_pid_files(prefix, multiproc_dir):
                     claimed_path = f"{path}.claimed"
+                    # A kill after the rename but before the merge orphans the claimed
+                    # file, invisible to scrapes and sweeps: an accepted residual.
                     try:
                         os.rename(path, claimed_path)
                     except FileNotFoundError:

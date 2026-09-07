@@ -87,7 +87,7 @@ logger = structlog.get_logger(__name__)
 # sweep only fails rows whose heartbeat has gone stale, so that constant
 # bounds a DEAD worker's lease, not a healthy long import — a legitimate
 # multi-hour ingest at the queue head would outlive any fixed constant, and
-# raising it is a step toward durable storage, which A7 forbids.
+# raising it is a step toward durable storage, which ADR-002 Amendment A7 forbids.
 #
 # So the lifetime tracks the real queue wait instead: the TTL stays short,
 # and `renew_queued_refresh_credentials` re-arms it every sweep cycle for
@@ -445,8 +445,6 @@ async def discard_service_credential(ref: str | None) -> None:
 
 # The credentials whose dispatch is still genuinely waiting to be picked up.
 #
-# TWO stops, and both are the abandonment sweep's own definition of "still
-# alive" rather than a second opinion about it. Round 5 made the RUN side
 # Two liveness stops, both deferring to the abandonment sweep's own
 # definition of "still alive" rather than a second opinion:
 #
@@ -472,7 +470,7 @@ async def discard_service_credential(ref: str | None) -> None:
 # either answer, so this defers to the sweep instead. A task no worker
 # subscribes to sits 'todo' forever (docker-compose.yml, #695) and would be
 # renewed forever — but while a claimant-reachable task exists the
-# credential IS legitimately in flight (the A7 window, not durable
+# credential IS legitimately in flight (the ADR-002 A7 window, not durable
 # storage), and it still dies the instant either the task or the run leaves
 # its state, since renewal keys on both.
 #

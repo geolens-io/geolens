@@ -379,6 +379,8 @@ async def generate_and_store_embedding(
     # may UPDATE — a lookup under one model and a pin under another would
     # write the new model's vector into the old model's row (the #1511
     # bug by another route).
+    # Costs the resolution on the record-touched, text-unchanged path; reading
+    # the model first is what made the pin composable from two instants.
     resolved = await resolve_live_embedding_config(session, uncached=True, verify=True)
     if resolved is None:
         logger.warning(

@@ -806,7 +806,9 @@ async def reconcile_distributions(
     fix(#1314): merges rather than replaces — inserts what the modality adds
     and DELETES auto-generated rows it excludes, taking user edits with
     them. ``auto_generated=False`` rows and rows outside
-    ``_GENERATED_PAIRS`` are untouched. fix(#1383): normalizes
+    ``_GENERATED_PAIRS`` are never inserted or deleted here, though the
+    ``is_primary`` demote below still reaches them (it is scoped to
+    ``auto_generated``, not to the pair set). fix(#1383): normalizes
     ``is_primary`` unless a USER-authored primary already holds it. Returns
     ``(created, removed)``.
     """

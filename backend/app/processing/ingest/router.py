@@ -429,6 +429,8 @@ async def complete_presigned_upload(
     # fix(#1202): skip assembly when it already happened — the staging object
     # exists IFF CompleteMultipartUpload succeeded, so its presence alone is a
     # sound record, and a retry can't re-call complete with a SPENT upload id.
+    # The parts-required 400 is skipped with it: a retrying client has nothing
+    # left to resend.
     if await should_assemble_multipart(storage, um, physical_s3_key):
         if not request.parts:
             await abort_presigned_multipart_upload(
@@ -496,6 +498,8 @@ async def complete_presigned_upload(
     # failed commit with the staging object already gone and the frozen copy
     # orphaned. Swept later by reapers resolving the key via
     # `owned_presigned_staging_key`; grep that name rather than trusting a list here.
+    # S3 cannot revoke a presigned URL, so reaping is the only remedy; the purge
+    # is a backstop that exempts the newest complete job.
     await _cleanup_saved_upload(s3_key, str(job.id))
 
     return UploadResponse(

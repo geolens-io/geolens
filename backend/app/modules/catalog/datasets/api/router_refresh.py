@@ -238,7 +238,10 @@ async def _recheck_service_token_after_reservation(
     read it unmarked, sending dispatch token-less into the worker
     failure the guard exists to prevent. The post-reservation
     ``_ServiceOrigin`` equality check can't catch it (auth state
-    changed, not the source), so the decision is re-applied here.
+    changed, not the source), and the marker must not be folded into
+    that dataclass either -- it would answer ``origin_changed``, whose
+    copy tells the caller to check the new source when the fix is a
+    token. So the decision is re-applied here instead.
 
     No probe: a marker that just appeared was written by an
     authenticated pull seconds ago -- the strongest evidence possible.
@@ -277,6 +280,10 @@ async def _require_service_token_if_marked(db, dataset, dataset_id, token):
     and OGC API Features are refused outright, no probe: their
     capabilities/landing-page resource is DIFFERENT from what the
     worker fetches, so a healthy answer there is evidence of nothing.
+    Probing the feature endpoint anonymously is not on the table either:
+    composing a GetFeature/``/items`` request means reproducing the
+    worker's URL-building path, and a wrong one answers 400 and reads
+    as "not an auth problem".
 
     Escape hatch for both: a successful token-less pull rebuilds the ref
     without the key, and the re-upload dialog still allows one. Only an

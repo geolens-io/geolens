@@ -1131,7 +1131,7 @@ def _managed_key(raster_asset) -> str:
     )
 
 
-# fix(#1778): the presigned redirect used to flat 3600 seconds,
+# fix(#1778): the presigned redirect used to be a flat 3600 seconds,
 # exchanging a 120s revocable capability (SEC-04) for an hour-long
 # bearer URL that authenticates nobody -- SigV4 is bound to neither
 # caller nor grant, so revoking access does nothing to it, and the URL

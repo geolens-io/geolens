@@ -320,7 +320,7 @@ def _operation_hrefs(root: Element) -> list[str]:
         tag = _local_name(element.tag)
         if tag == "Operation":
             # 1.1/2.0: missing/blank name leaves context unattributed
-            # rather than guessed, per the fail-closed default above.
+            # rather than guessed; a None operation is kept below (fail closed).
             operation = (element.get("name") or "").strip().lower() or None
         elif tag in _WFS_1_0_OPERATION_TAGS:
             operation = tag.lower()  # 1.0: the element itself names it

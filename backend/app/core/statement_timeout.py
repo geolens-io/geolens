@@ -9,7 +9,13 @@ engine, which legitimately runs long single statements (index builds, extent
 derivation) that must stay unbounded. `SET LOCAL` (not asyncpg
 `server_settings`) because a startup-packet deadline breaks PgBouncer's
 `DB_USE_EXTERNAL_POOLER=true` topology, and a session-level `SET` would leak
-across clients under transaction-mode pooling.
+across clients under transaction-mode pooling. A later `SET LOCAL` in the
+same transaction still wins, which is how routes that need longer keep
+working. Never add `statement_timeout` to PgBouncer's
+`ignore_startup_parameters`: the deadline is then dropped in silence. The
+plain `SET LOCAL` form matters for `tasks_postgis_refresh.py`, which sets
+REPEATABLE READ after begin; a `SELECT set_config(...)` would take the
+snapshot first and Postgres would refuse it (25001).
 
 Deliberately not set: `idle_in_transaction_session_timeout`. The ingest job
 route holds a transaction open across a ~300s `ogrinfo` subprocess, so any

@@ -397,9 +397,9 @@ class Dataset(Base):
         # ::text casts and inner parens are what postgres reflects for a
         # ->>' expression index -- see ix_records_title_trgm for the trap.
         #
-        # USING hash, single-column only: a btree's ~2704-byte tuple-size
-        # ceiling can't hold origin_ref->>'url' plus ->>'layer_id'
-        # together, so layer_id stays a residual Filter, not indexed.
+        # USING hash, which cannot be composite (and a btree's ~2704-byte tuple
+        # ceiling couldn't hold url plus layer_id anyway), so layer_id stays a
+        # residual Filter, not indexed.
         Index(
             "ix_datasets_origin_ref_url",
             text("(origin_ref ->> 'url'::text)"),

@@ -325,7 +325,8 @@ async def run_analysis_preview(
     connection expires EVERY ORM instance, including ``User``, whose next
     attribute read raises ``MissingGreenlet``. Only pass it from a caller
     reading nothing off the session afterwards -- the REST endpoint
-    qualifies; the AI chat tool does NOT (reads ``user.id`` again after).
+    qualifies, and no middleware reads the ORM user after the handler; the AI
+    chat tool does NOT (reads ``user.id`` again after).
 
     ``request.bbox`` (fix(#727)), when present, scopes the row cap to the
     viewport before ``ORDER BY gid`` applies; the AI chat tool never sets it.

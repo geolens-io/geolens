@@ -934,7 +934,7 @@ def _style_layer_for_map_layer(
     mvt_source_layer_prefix: str = "data",
 ) -> list[dict[str, Any]]:
     style_config = layer.style_config or {}
-    # fix(Codex P2, #338): a DEM in "terrain" mode is mesh-only —
+    # fix(#338): a DEM in "terrain" mode is mesh-only —
     # emitting a visible raster here would put a flat DEM image over the
     # `terrain` block; the mesh source is still added in build_maplibre_style.
     if bool(layer.is_dem) and style_config.get("render_mode") == "terrain":
@@ -1487,7 +1487,7 @@ def build_maplibre_style(
         if src_type in _LINE_GRADIENT_SOURCE_TYPES:
             src["lineMetrics"] = True
         else:
-            # fix(BLD-20260526-11): builder-intent on an incompatible
+            # fix(#338): builder-intent on an incompatible
             # source needs its own warning — paint['line-gradient'] warns
             # via the paint-drop path, but a builder-intent-only mismatch wouldn't.
             logger.warning(

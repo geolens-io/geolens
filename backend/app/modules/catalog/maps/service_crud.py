@@ -59,6 +59,9 @@ def _is_lock_timeout_error(exc: BaseException) -> bool:
 async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:
     """Take the row lock that serializes one map's asset replacements.
 
+    Callers take it AFTER validating the payload, so no decode or image
+    verification runs under the lock.
+
     fix(#1778): overlapping uploads can race their cleanup and
     strand the row on an object the other just deleted (404 on read).
     Held through the caller's commit; ``discard_map_asset_objects``

@@ -3387,7 +3387,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#1711): -459. The URL-import staging cluster — budget, bounded
     # put, settlement — lives in url_import_staging.py; the route handler and
     # its filename/metadata helpers stay. Cap 2639 -> 2180, exact.
-    "backend/app/processing/ingest/router.py": 1965,
+    "backend/app/processing/ingest/router.py": 1969,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3827,7 +3827,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `build_arcgis_count_query_url`. Cap 1374 -> 1376, exact.
     # chore(#1812): -9, the refresh door no longer judges a queue on the composed line
     # or configures the deferred task with it. Cap 1376 -> 1367, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1214,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1221,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,
@@ -4260,7 +4260,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # apply_http_logger_levels() (logging_config.py) after raising root's
     # level, so httpx/httpcore's WARNING floor tracks a LOG_LEVEL change made
     # through the admin settings UI, not just one made at boot.
-    "backend/app/core/persistent_config.py": 942,
+    "backend/app/core/persistent_config.py": 943,
     # fix(#1533): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that made the run notice the embedding column moving under it. Two
     # guards, both small: _live_column_dims (one pg_attribute read, shared with
@@ -5901,7 +5901,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1778): +3 -- RecordContact.id tiebreaker on the paginated contacts
     # list, sort_order being a non-unique server-default. Cap 1026 -> 1029,
     # exact.
-    "backend/app/modules/catalog/records/service.py": 881,
+    "backend/app/modules/catalog/records/service.py": 883,
     # fix(#1528): crossed the inclusion threshold, and this is the file the
     # inclusion rule's own comment named as one of the two "routers-by-role the
     # glob's filename match cannot see ... watched by nothing until they cross

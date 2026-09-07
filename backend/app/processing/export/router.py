@@ -175,9 +175,11 @@ async def _count_selected_features(
         safe_where = safe_where.replace(":", "\\:")
         clauses.append(f"({safe_where})")
     if bbox is not None and has_geometry:
-        # fix(#905): crossing bboxes must count with the SAME predicate the
-        # export runs (bbox_where_sql), not && alone — -spat's envelope
-        # overlap can pass counts && would miss, so && errs toward 413.
+        # fix(#905): a crossing bbox counts with the SAME predicate the export
+        # runs (bbox_where_sql). An ordinary bbox counts with && only, NOT
+        # bbox_where_sql: ogr2ogr -spat permits envelope false positives, so an
+        # exact ST_Intersects count could pass <=cap while -spat exports more.
+        # && errs toward 413, the safe direction.
         if bbox[0] > bbox[2]:
             clauses.append(bbox_where_sql(bbox))
         else:
@@ -197,6 +199,9 @@ async def _count_selected_features(
 
 def _head_export_response(dataset_title: str, format_key: str) -> Response:
     """fix(#1513): the HEAD half of the export route.
+
+    Not `_register_standards_head_routes` (app/api/main.py): that clones the
+    route and would run the full conversion on HEAD.
 
     Every status-deciding check already ran in the shared handler; the
     conversion itself is skipped, so an anonymous caller can't spend a
@@ -599,8 +604,8 @@ async def export_dataset_endpoint(
     # fix(#1532): preconditions run against NO validator on
     # the cold path, in RFC 9110 13.2.2 order (If-Match before
     # If-None-Match). HEAD refuses a specific If-Match rather than guessing
-    # (`If-Match: *` still passes); GET proceeds to the build, which
-    # evaluates both exactly.
+    # (`If-Match: *` still passes). A wildcard If-None-Match against no
+    # validator answers 304 for BOTH verbs, for GET before the conversion.
     if_match_ok_unbuilt = if_match_passes(request.headers.get("if-match"), None)
     if request.method == "HEAD" and not if_match_ok_unbuilt:
         raise HTTPException(
