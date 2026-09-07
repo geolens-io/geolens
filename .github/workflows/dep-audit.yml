@@ -116,7 +116,7 @@ jobs:
             enforce: "1"
           - image: "python:3.14.6-slim"
             enforce: "1"
-          - image: "nginxinc/nginx-unprivileged:1.31.4-alpine"
+          - image: "nginxinc/nginx-unprivileged:1.31.5-alpine"
             enforce: "1"
           - image: "postgis/postgis:18-3.6"
             enforce: "0"
