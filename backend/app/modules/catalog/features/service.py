@@ -974,6 +974,7 @@ async def update_feature(
     sql = _update_capturing_prior_bounds(
         get_catalog_port().quote_table(table_name), sets
     )
+    # codeql[py/sql-injection] fix(#1615): every assigned column is an existing column_info name matching _COLUMN_NAME_RE; values travel as bound params; table via quote_table
     result = await db.execute(text(sql).bindparams(**params))
     prior = result.first()
     if prior is None:

@@ -6237,7 +6237,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # prove only the rows in hand. That reasoning is most of the added lines.
     # Cap 1507 -> 1541, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1560, exact.
-    "backend/app/modules/catalog/features/service.py": 1388,
+    # fix(#1988): +1. The `# codeql[py/sql-injection]` marker above the
+    # feature-update sink. Cap 1388 -> 1389, exact.
+    "backend/app/modules/catalog/features/service.py": 1389,
 }
 
 
