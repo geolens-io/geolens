@@ -471,3 +471,24 @@ class TestCreateLayerAllGeometryTypes:
 
         # Cleanup
         await _cleanup_layer(client, admin_auth_header, data["id"], name)
+
+
+@pytest.mark.anyio
+async def test_create_layer_service_rejects_unallowlisted_geometry_type(
+    test_db_session,
+):
+    """fix(#1988): the guard is on the service, not only the request schema.
+
+    ``geometry_type`` is interpolated into the CREATE TABLE statement. The
+    schema validator only covers the one route that reaches this function
+    today, so a second caller would otherwise interpolate an unchecked string.
+    """
+    from app.modules.catalog.layers.service import create_layer
+
+    with pytest.raises(ValueError, match="is not allowed"):
+        await create_layer(
+            test_db_session,
+            name="guard probe",
+            geometry_type="Point); DROP TABLE catalog.datasets; --",
+            created_by=uuid.uuid4(),
+        )

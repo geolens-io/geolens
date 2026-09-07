@@ -16,6 +16,7 @@ from app.modules.catalog.datasets.domain.models import AttributeMetadata, Datase
 from app.modules.catalog.datasets.domain.service import create_dataset
 from app.modules.catalog.layers.schemas import (
     ALLOWED_COLUMN_TYPES,
+    ALLOWED_GEOMETRY_TYPES,
     COLUMN_NAME_RE,
     RESERVED_COLUMNS,
 )
@@ -80,6 +81,12 @@ async def create_layer(
     reader_role = tenant_reader_role(tenant_id)
     table_ref = get_catalog_port().quote_table(table_name, schema=data_schema)
 
+    # fix(#1988): checked HERE, not only in the request schema. This value is
+    # interpolated into DDL, and the schema validator only guards the one route
+    # that reaches this function today.
+    if geometry_type not in ALLOWED_GEOMETRY_TYPES:
+        raise ValueError(f"Geometry type {geometry_type!r} is not allowed.")
+
     col_defs = "gid SERIAL PRIMARY KEY, geom geometry({geom_type}, 4326)".format(
         geom_type=geometry_type,
     )
@@ -91,6 +98,7 @@ async def create_layer(
             col_defs += f", {_qcol(col.name)} {pg_type}"
 
     ddl = f"CREATE TABLE {table_ref} ({col_defs})"
+    # codeql[py/sql-injection] fix(#1615): geometry_type is allowlisted above; column names match COLUMN_NAME_RE and types come from ALLOWED_COLUMN_TYPES; table via quote_table
     await session.execute(text(ddl))
 
     # Adds geom_4326 and its index; source is already 4326, so the copy needs
@@ -358,6 +366,7 @@ async def alter_column_type(
         f"ALTER TABLE {table_ref} ALTER COLUMN {_qcol(column_name)} TYPE {pg_type} "
         f"USING {_qcol(column_name)}::{pg_type}"
     )
+    # codeql[py/sql-injection] fix(#1615): column exists on the layer and is quoted by _qcol; pg_type comes from ALLOWED_COLUMN_TYPES; table via quote_table
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
@@ -413,6 +422,7 @@ async def drop_column(
 
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} DROP COLUMN {_qcol(column_name)}"
+    # codeql[py/sql-injection] fix(#1615): column matches COLUMN_NAME_RE, is not reserved, exists on the layer, and is quoted by _qcol; table via quote_table
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
