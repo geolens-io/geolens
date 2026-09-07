@@ -5761,7 +5761,22 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # params recovered" rather than a raw 500. Cap 2707 -> 2721, exact.
     # chore(#1873): review-history comments trimmed, and the route docstrings
     # rewritten as published API descriptions. Cap 2721 -> 2386, exact.
-    "backend/app/processing/tiles/router.py": 2386,
+    # fix(#1928): +18. The signed-template check moved ahead of the vector
+    # path's visibility split, so one signature answers alike on every tile
+    # route and the dataset decides cache scope. Cap 2386 -> 2404, exact.
+    # fix(#1926): +6. The tile-pool acquire is bounded by the pool's command
+    # timeout, so an exhausted pool reaches the 429 the handler already
+    # carries instead of waiting forever. Cap 2404 -> 2410, exact.
+    # fix(#1929): +4. Every malformed tile path answers 400, and the parser
+    # docstring says why a syntactically invalid path discloses nothing the
+    # route's 404s keep back. Cap 2410 -> 2414, exact.
+    # fix(#1926, #1928, #1929): +19. The two published tile descriptions now
+    # state the authorization, malformed-path and 429 answers the code gives
+    # after those three changes. Cap 2414 -> 2433, exact.
+    # fix(#1959 review): +2. Those descriptions name all three 429 cases, and
+    # no longer claim every query failure is a 503 or that the cold-storage 202
+    # reaches a deployment without it. Cap 2433 -> 2435, exact.
+    "backend/app/processing/tiles/router.py": 2435,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

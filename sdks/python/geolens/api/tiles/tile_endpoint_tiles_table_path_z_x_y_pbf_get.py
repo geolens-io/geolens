@@ -145,10 +145,19 @@ def sync_detailed(
 
      Serve a vector tile as gzipped MVT binary.
 
-    URL pattern: /tiles/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    Non-public datasets require valid HMAC signature params (sig, exp, scope).
-    Public datasets can be accessed without any signature.
+    A public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, with an embed token, or with valid signature parameters, and answers
+    404 to other callers, so a refusal keeps its existence undisclosed. An
+    unknown table is 404 too.
+
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read. A request sending no credential is served normally.
 
     `cols` is a runtime opt-in for additional attribute columns the client
     needs at all zooms (e.g. data-driven styling columns referenced by
@@ -158,6 +167,15 @@ def sync_detailed(
     Does not need to be signed — `sig` already authorizes dataset
     access and `cols` can only project columns the caller already has
     REST access to.
+
+    A malformed table path or an out-of-range tile coordinate answers 400. A
+    tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
 
     Args:
         table_path (str):
@@ -211,10 +229,19 @@ def sync(
 
      Serve a vector tile as gzipped MVT binary.
 
-    URL pattern: /tiles/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    Non-public datasets require valid HMAC signature params (sig, exp, scope).
-    Public datasets can be accessed without any signature.
+    A public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, with an embed token, or with valid signature parameters, and answers
+    404 to other callers, so a refusal keeps its existence undisclosed. An
+    unknown table is 404 too.
+
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read. A request sending no credential is served normally.
 
     `cols` is a runtime opt-in for additional attribute columns the client
     needs at all zooms (e.g. data-driven styling columns referenced by
@@ -224,6 +251,15 @@ def sync(
     Does not need to be signed — `sig` already authorizes dataset
     access and `cols` can only project columns the caller already has
     REST access to.
+
+    A malformed table path or an out-of-range tile coordinate answers 400. A
+    tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
 
     Args:
         table_path (str):
@@ -272,10 +308,19 @@ async def asyncio_detailed(
 
      Serve a vector tile as gzipped MVT binary.
 
-    URL pattern: /tiles/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    Non-public datasets require valid HMAC signature params (sig, exp, scope).
-    Public datasets can be accessed without any signature.
+    A public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, with an embed token, or with valid signature parameters, and answers
+    404 to other callers, so a refusal keeps its existence undisclosed. An
+    unknown table is 404 too.
+
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read. A request sending no credential is served normally.
 
     `cols` is a runtime opt-in for additional attribute columns the client
     needs at all zooms (e.g. data-driven styling columns referenced by
@@ -285,6 +330,15 @@ async def asyncio_detailed(
     Does not need to be signed — `sig` already authorizes dataset
     access and `cols` can only project columns the caller already has
     REST access to.
+
+    A malformed table path or an out-of-range tile coordinate answers 400. A
+    tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
 
     Args:
         table_path (str):
@@ -336,10 +390,19 @@ async def asyncio(
 
      Serve a vector tile as gzipped MVT binary.
 
-    URL pattern: /tiles/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    Non-public datasets require valid HMAC signature params (sig, exp, scope).
-    Public datasets can be accessed without any signature.
+    A public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, with an embed token, or with valid signature parameters, and answers
+    404 to other callers, so a refusal keeps its existence undisclosed. An
+    unknown table is 404 too.
+
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read. A request sending no credential is served normally.
 
     `cols` is a runtime opt-in for additional attribute columns the client
     needs at all zooms (e.g. data-driven styling columns referenced by
@@ -349,6 +412,15 @@ async def asyncio(
     Does not need to be signed — `sig` already authorizes dataset
     access and `cols` can only project columns the caller already has
     REST access to.
+
+    A malformed table path or an out-of-range tile coordinate answers 400. A
+    tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
 
     Args:
         table_path (str):

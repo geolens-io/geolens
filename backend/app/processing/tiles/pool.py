@@ -14,6 +14,15 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _tile_pool: asyncpg.Pool | None = None
 
+# Bounds ONE command. A tile request issues several on the connection it holds,
+# so this is not a bound on how long any holder keeps one.
+TILE_POOL_COMMAND_TIMEOUT_SECONDS = 10
+
+# fix(#1926): CHOSEN, not derived -- nothing the pool declares bounds queue
+# depth. Paired with the handler's `Retry-After: 2` so a shed caller retries
+# inside a map viewer's patience. Also bounds asyncpg's connection release.
+TILE_POOL_ACQUIRE_TIMEOUT_SECONDS = 3.0
+
 
 def _validate_tile_database_isolation() -> None:
     """Require a distinct tile login whenever tenant isolation is active."""
@@ -245,7 +254,7 @@ async def init_tile_pool() -> asyncpg.Pool:
         "dsn": dsn,
         "min_size": settings.tile_pool_min_size,
         "max_size": settings.tile_pool_max_size,
-        "command_timeout": 10,
+        "command_timeout": TILE_POOL_COMMAND_TIMEOUT_SECONDS,
         # H-10: drop privileges to geolens_reader on every fresh connection
         # so tile-path SQL runs read-only against the data schema.
         "setup": _setup_tile_connection,

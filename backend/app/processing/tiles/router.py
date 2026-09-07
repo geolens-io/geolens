@@ -59,7 +59,11 @@ from app.processing.raster.models import RasterAsset
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
-from app.processing.tiles.pool import get_tile_pool, set_tenant_role_for_tile_request
+from app.processing.tiles.pool import (
+    TILE_POOL_ACQUIRE_TIMEOUT_SECONDS,
+    get_tile_pool,
+    set_tenant_role_for_tile_request,
+)
 from app.processing.tiles.responses import (
     _empty_tile_headers as _empty_tile_headers,
     _if_none_match_satisfied as _if_none_match_satisfied,
@@ -1555,17 +1559,21 @@ async def get_tile_tokens_batch(
 
 
 def _parse_vector_tile_table(table_path: str) -> str:
-    """Extract and validate the data-table name from a tile route path."""
+    """Extract and validate the data-table name from a tile route path.
+
+    Every malformed path is 400: it names no dataset, so refusing it discloses
+    nothing that the route's 404s keep back.
+    """
     if not table_path.startswith("data."):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Table path must start with 'data.'",
         )
 
     table_name = table_path[5:]  # Strip "data." prefix
     if not table_name:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table name is required"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Table name is required"
         )
     if not _TABLE_NAME_RE.match(table_name):
         raise HTTPException(
@@ -1759,7 +1767,12 @@ async def _authorize_vector_tile_request(
     scope: str | None,
     user: Identity | None,
 ) -> str:
-    """Authorize direct vector-tile access and return cache scope."""
+    """Authorize direct vector-tile access and return cache scope.
+
+    A valid signature authorizes ahead of the visibility split, so it carries
+    the minter's access to an unpublished draft as the raster route does. The
+    dataset alone decides cache scope: only public + published is shared.
+    """
     embed_token_header = request.headers.get("X-Embed-Token")
     if embed_token_header:
         is_valid = await validate_embed_token_access(
@@ -1776,6 +1789,30 @@ async def _authorize_vector_tile_request(
             )
         return "private"
 
+    # The expected scope mirrors `_build_tile_token_for_dataset` --
+    # `{tid}:{table_name}` in multi_tenant to prevent cross-tenant replay,
+    # the bare table_name in single_tenant.
+    from app.core.tenancy import tenant_bound_scope
+
+    _expected_scope = (
+        tenant_bound_scope(meta.table_name) if sig and exp and scope else None
+    )
+    if (
+        sig
+        and exp
+        and scope
+        and scope == _expected_scope
+        and verify_tile_signature(scope, exp, sig)
+    ):
+        # fix(#1928): ahead of the visibility split, as on the raster route.
+        # Every minter gates a draft to its owner or an admin, so a signature
+        # for one delegates access its holder already had.
+        return (
+            "public"
+            if _is_publicly_cacheable(meta.visibility, meta.record_status)
+            else "private"
+        )
+
     if meta.visibility != "public":
         if not sig or not exp or not scope:
             capability_declined(
@@ -1786,12 +1823,6 @@ async def _authorize_vector_tile_request(
                     detail="Signature required for non-public tiles",
                 ),
             )
-        # The expected scope mirrors `_build_tile_token_for_dataset` --
-        # `{tid}:{table_name}` in multi_tenant to prevent cross-tenant replay,
-        # the bare table_name in single_tenant.
-        from app.core.tenancy import tenant_bound_scope
-
-        _expected_scope = tenant_bound_scope(meta.table_name)
         if scope != _expected_scope:
             capability_declined(
                 request,
@@ -1800,19 +1831,14 @@ async def _authorize_vector_tile_request(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
                 ),
             )
-        if not verify_tile_signature(scope, exp, sig):
-            capability_declined(
-                request,
-                user,
-                HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Invalid or expired signature",
-                ),
-            )
-        # A valid signature authorizes a single caller for a
-        # non-public dataset, so the bytes must not be retained by a shared
-        # cache. "private" rather than "public" is what says so.
-        return "private"
+        capability_declined(
+            request,
+            user,
+            HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid or expired signature",
+            ),
+        )
 
     # fix(#1518): CAPABILITY obligation. Both capability arms above have
     # declined, so everything from here is decided by WHO is asking and a
@@ -1913,7 +1939,7 @@ async def _acquire_and_serve_tile(
 
     Both the vector and cluster endpoints supply a ``query_callable`` (async
     ``(pool, conn) -> bytes | None``) plus a cache key; this helper owns the
-    shared scaffold: the tile-pool acquire (503 on failure), the optional
+    shared scaffold: the bounded tile-pool acquire, the optional
     per-tenant semaphore (a no-op when ``tenant_sem`` is None), the
     single-connection transaction with the per-tenant role/search_path bind,
     error mapping (``asyncio.TimeoutError`` -> 429, broad ``Exception`` ->
@@ -1955,7 +1981,9 @@ async def _acquire_and_serve_tile(
     # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
     # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
     try:
-        async with pool.acquire() as tile_conn:
+        # fix(#1926): bounded, so an exhausted pool sheds through the 429 below
+        # rather than parking the request until the client gives up.
+        async with pool.acquire(timeout=TILE_POOL_ACQUIRE_TIMEOUT_SECONDS) as tile_conn:
             async with tile_conn.transaction():
                 # Bind per-tenant role + search_path BEFORE the tile query.
                 # No-op in single_tenant or when tid is None.
@@ -2054,8 +2082,9 @@ async def cluster_tile_endpoint(
     dataset needs either valid signature parameters (``sig``, ``exp``,
     ``scope``) or an embed token scoped to it, and answers 403 without one. A
     public dataset that is not yet published is readable by its owner, by an
-    admin, or with an embed token, and answers 404 to other callers, so a
-    refusal keeps its existence undisclosed. An unknown table is 404 too.
+    admin, with an embed token, or with valid signature parameters, and answers
+    404 to other callers, so a refusal keeps its existence undisclosed. An
+    unknown table is 404 too.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -2069,13 +2098,15 @@ async def cluster_tile_endpoint(
     data-driven styling and popups keep working here too.
 
     Requires a vector point dataset; another record type responds 400, as does
-    a malformed table name or an out-of-range tile coordinate.
+    a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. A dataset still being restored from
-    cold storage answers 202 with a job id to poll. Where a per-tenant
-    concurrency limit is configured, exceeding it answers 429 with
-    ``Retry-After``. A failure running the tile query answers 503.
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2234,10 +2265,19 @@ async def tile_endpoint(
 ) -> Response:
     """Serve a vector tile as gzipped MVT binary.
 
-    URL pattern: /tiles/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    Non-public datasets require valid HMAC signature params (sig, exp, scope).
-    Public datasets can be accessed without any signature.
+    A public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, with an embed token, or with valid signature parameters, and answers
+    404 to other callers, so a refusal keeps its existence undisclosed. An
+    unknown table is 404 too.
+
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read. A request sending no credential is served normally.
 
     `cols` is a runtime opt-in for additional attribute columns the client
     needs at all zooms (e.g. data-driven styling columns referenced by
@@ -2247,6 +2287,15 @@ async def tile_endpoint(
     Does not need to be signed — `sig` already authorizes dataset
     access and `cols` can only project columns the caller already has
     REST access to.
+
+    A malformed table path or an out-of-range tile coordinate answers 400. A
+    tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    a dataset still being restored answers 202 with a job id to poll. Three
+    cases answer 429 with ``Retry-After``: waiting past the tile pool's
+    connection budget, a tile query that outruns the pool's per-command
+    timeout, and exceeding a configured per-tenant concurrency limit. Any other
+    failure serving the tile answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)

@@ -55,6 +55,15 @@ and releases use semantic versioning.
   step, with no length limit, while on a service import the server reads that field as the service
   credential and caps it at 1000 characters. The API document, both SDKs and the generated
   TypeScript types now describe and declare what the server reads. (#1931)
+- A tile signature minted for a dataset now authorizes its vector and cluster tiles the way it
+  already authorized its raster tiles, so a signed link to a dataset that is not yet published
+  renders instead of answering 404 on two of the three tile routes. (#1928)
+- Vector and cluster tile requests no longer queue without limit when every tile-pool connection
+  is busy: a request that waits more than three seconds for one answers 429 with `Retry-After`
+  instead of waiting for as long as the client allows. (#1926)
+- A malformed vector-tile path now answers 400 however it is malformed. A path missing the `data.`
+  prefix, or carrying an empty table name, previously answered 404, which read as a missing
+  dataset rather than a bad request. (#1929)
 
 ## [1.18.1] - 2026-09-05
 
