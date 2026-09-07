@@ -99,7 +99,7 @@ class _FakeTilePool:
         self.acquire_count = 0
         self.connection = _FakeTileConnection()
 
-    def acquire(self) -> _AsyncContext:
+    def acquire(self, *, timeout: float | None = None) -> _AsyncContext:
         self.acquire_count += 1
         return _AsyncContext(self.connection)
 
