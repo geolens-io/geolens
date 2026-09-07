@@ -581,6 +581,19 @@ async def test_authlib_sessions_receive_fresh_safe_transports(
     assert len(set(id(transport) for transport in transports)) == 4
 
 
+def test_authlib_oauth_client_is_httpx_backed() -> None:
+    """The SSRF transport pin holds only while authlib builds on httpx.
+
+    fix(#1990): authlib 1.8 deprecated its httpx integration in favour
+    of httpx2 and will drop the fallback. ``_SSRFSafeOAuth2Client`` hands
+    ``make_safe_transport()``'s httpx transport to that client, so the switch
+    would leave the pin type-mismatched instead of failing loudly.
+    """
+    from app.modules.auth.oauth.router import _SSRFSafeOAuth2Client
+
+    assert issubclass(_SSRFSafeOAuth2Client, httpx.AsyncClient)
+
+
 async def _client_for(db: AsyncSession, provider) -> tuple:
     """Build the router's authlib client with the row-level check stubbed out.
 
