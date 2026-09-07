@@ -922,6 +922,7 @@ export interface CommitImportRequest {
   compression?: string | null;
   resampling?: string | null;
   nodata_override?: number | string | null;
+  strict_cog?: boolean;
   layer_name?: string;
   x_column?: string | null;
   y_column?: string | null;

@@ -2334,7 +2334,7 @@ export type CommitRequest = {
     /**
      * Strict Cog
      *
-     * Raster only: reject a non-COG TIFF instead of converting it. False (the default) converts the source to a COG during ingest; True fails the job before the conversion runs. Use it when ingesting an externally-produced COG catalog where rewriting is undesirable.
+     * Raster only: reject a non-COG TIFF instead of converting it. False (the default) converts the source to a COG during ingest. True fails the job when the source is not already a compliant COG. Setting compression, resampling, nodata_override or srid_override still rewrites the file even when the strict check passes, because each of those is applied by a conversion.
      */
     strict_cog?: boolean;
 };
