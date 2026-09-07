@@ -83,8 +83,10 @@ async def create_layer(
 
     # fix(#1988): checked HERE, not only in the request schema. This value is
     # interpolated into DDL, and the schema validator only guards the one route
-    # that reaches this function today.
-    if geometry_type not in ALLOWED_GEOMETRY_TYPES:
+    # that reaches this function today. Case-insensitive because direct callers
+    # pass the PostGIS spelling ("POINT") while the route passes the schema's
+    # ("Point"); both reach the same six tokens.
+    if geometry_type.upper() not in {t.upper() for t in ALLOWED_GEOMETRY_TYPES}:
         raise ValueError(f"Geometry type {geometry_type!r} is not allowed.")
 
     col_defs = "gid SERIAL PRIMARY KEY, geom geometry({geom_type}, 4326)".format(
