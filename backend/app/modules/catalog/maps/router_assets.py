@@ -84,7 +84,7 @@ async def get_map_icon_asset_endpoint(
 ) -> Response:
     """Serve an uploaded or bundled icon asset by stable icon ID.
 
-    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    SVG responses carry Content-Security-Policy
     ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
     origins, run scripts, or read auth cookies even if validation is bypassed
     in the future. Browsers (Chromium, Firefox) honor the sandbox directive on

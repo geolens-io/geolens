@@ -167,7 +167,7 @@ _require_ai_chat = require_permission("use_ai_chat")
 
 
 class AIAvailabilityResponse(BaseModel):
-    """Public-safe AI readiness signal (builder-audit #338 P1-11).
+    """Public-safe AI readiness signal (#338).
 
     Carries a single boolean and intentionally exposes NO provider name, model,
     or key detail — it is readable by any non-admin editor holding
@@ -266,7 +266,7 @@ async def ai_availability_endpoint(
     user: Identity = Depends(_require_ai_chat),
     db: AsyncSession = Depends(get_db),
 ) -> AIAvailabilityResponse:
-    """Report whether builder AI chat is usable (builder-audit #338 P1-11).
+    """Report whether builder AI chat is usable (#338).
 
     Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
     ``/admin/ai-status``) can learn availability. Returns ``available=false``

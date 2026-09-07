@@ -243,8 +243,7 @@ async def import_map_style_endpoint(
 ) -> MapStyleImportResponse:
     """Import a MapLibre style JSON document into a new GeoLens map.
 
-    API-01 (M-05): the request body is now a typed Pydantic model instead of
-    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    The request body is a typed Pydantic model rather than a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
     spec top-level keys with ``extra="allow"``, so existing payloads keep
     working byte-identically while the OpenAPI schema gains a named class
     and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
@@ -1128,7 +1127,7 @@ async def upload_og_image(
     ``maps/og-images/{map_id}.{ext}``, and persists the storage key to
     ``catalog.maps.og_image_uri``.
 
-    Intended for 1200x630 JPEG captures (SHARE-08). The payload cap
+    Intended for 1200x630 JPEG captures. The payload cap
     (750KB) is larger than the thumbnail cap (100KB) to accommodate the
     larger canvas export — they are separate schemas (OgImageUploadRequest
     vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
@@ -1437,9 +1436,8 @@ async def bulk_delete_layers_endpoint(
 ) -> BulkDeleteLayersResponse:
     """Batch-delete multiple layers from a map in a single request.
 
-    Milestone exception (v1010 Phase 1047): one additive endpoint permitted
-    per REQUIREMENTS.md Out-of-Scope to reduce N sequential DELETEs to one
-    batched call for bulk-delete UX (PB-03 / PERF-03).
+    One additive endpoint that reduces N sequential DELETEs to a single
+    batched call for bulk-delete UX.
 
     Returns 200 with deleted/failed arrays in all cases (partial failures
     surface inline, not as HTTP errors).  Full rollback is the caller's

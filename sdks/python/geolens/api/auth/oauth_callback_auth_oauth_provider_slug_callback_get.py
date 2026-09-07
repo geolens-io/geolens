@@ -98,7 +98,7 @@ def sync_detailed(
 
      Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
 
-    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    The frontend redirect carries access tokens in the URL
     fragment. Without explicit-config resolution, an attacker controlling
     ``X-Forwarded-Host`` could steer the post-callback redirect to
     attacker.com and capture the tokens. Force explicit-config resolution
@@ -135,7 +135,7 @@ def sync(
 
      Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
 
-    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    The frontend redirect carries access tokens in the URL
     fragment. Without explicit-config resolution, an attacker controlling
     ``X-Forwarded-Host`` could steer the post-callback redirect to
     attacker.com and capture the tokens. Force explicit-config resolution
@@ -167,7 +167,7 @@ async def asyncio_detailed(
 
      Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
 
-    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    The frontend redirect carries access tokens in the URL
     fragment. Without explicit-config resolution, an attacker controlling
     ``X-Forwarded-Host`` could steer the post-callback redirect to
     attacker.com and capture the tokens. Force explicit-config resolution
@@ -202,7 +202,7 @@ async def asyncio(
 
      Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
 
-    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    The frontend redirect carries access tokens in the URL
     fragment. Without explicit-config resolution, an attacker controlling
     ``X-Forwarded-Host`` could steer the post-callback redirect to
     attacker.com and capture the tokens. Force explicit-config resolution

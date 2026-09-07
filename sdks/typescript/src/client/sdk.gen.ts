@@ -617,7 +617,7 @@ export const resetUserPasswordAdminUsersUserIdResetPasswordPost = <ThrowOnError 
 /**
  * Ai Availability Endpoint
  *
- * Report whether builder AI chat is usable (builder-audit #338 P1-11).
+ * Report whether builder AI chat is usable (#338).
  *
  * Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
  * ``/admin/ai-status``) can learn availability. Returns ``available=false``
@@ -857,14 +857,14 @@ export const generateMetadataSummaryAiMetadataSummaryPost = <ThrowOnError extend
  *
  * Return the column-DDL audit history for a dataset.
  *
- * SEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)
- * to dataset owners so they can detect editor-initiated schema changes.
+ * Surfaces the column-DDL events to dataset owners so they can detect
+ * editor-initiated schema changes.
  *
  * Access control (AGENTS.md Pre-Commit Checklist Rule 1):
  * - Owner: 200 with their own dataset's DDL history
  * - Admin: 200 (admin access is always allowed)
  * - Anyone else — including authenticated readers of a PUBLIC dataset: 404
- * via check_dataset_write_access. fix(#458 E-37): the feed previously used
+ * via check_dataset_write_access. fix(#458): the feed previously used
  * check_dataset_access (read visibility), which let any logged-in user
  * enumerate editor usernames/user_ids on public datasets, contradicting
  * this owner-facing contract.
@@ -985,7 +985,7 @@ export const configAuthConfigGet = <ThrowOnError extends boolean = false>(option
  *
  * Mint a short-lived download-scoped JWT for a single dataset.
  *
- * IA-P0-01 / SEC-04: the existing COG download URL path requires a
+ * The COG download URL path requires a
  * ``typ='download'`` JWT on the ``?token=`` query parameter — session JWTs
  * are rejected. This endpoint issues that token after verifying the caller
  * has read access to the dataset.
@@ -1032,7 +1032,7 @@ export const loginAuthLoginPost = <ThrowOnError extends boolean = false>(options
  *
  * Revoke all refresh tokens and bump token_version for the current user.
  *
- * SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+ * revoke_all_tokens bumps User.token_version so the
  * access JWT used for this logout call (and any other outstanding access JWTs)
  * are rejected on the next authenticated request — closing the
  * "logout doesn't invalidate the access JWT" gap.
@@ -1135,7 +1135,7 @@ export const listPublicProvidersAuthOauthProvidersGet = <ThrowOnError extends bo
  *
  * Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
  *
- * Phase 268 H-27: the frontend redirect carries access tokens in the URL
+ * The frontend redirect carries access tokens in the URL
  * fragment. Without explicit-config resolution, an attacker controlling
  * ``X-Forwarded-Host`` could steer the post-callback redirect to
  * attacker.com and capture the tokens. Force explicit-config resolution
@@ -1148,7 +1148,7 @@ export const oauthCallbackAuthOauthProviderSlugCallbackGet = <ThrowOnError exten
  *
  * Redirect user to the IdP authorization URL with PKCE parameters.
  *
- * Phase 268 H-27: the redirect_uri is handed to the IdP, where an
+ * The redirect_uri is handed to the IdP, where an
  * attacker-controlled origin (via ``X-Forwarded-Host``) would otherwise
  * enable auth-code theft. We force explicit-config resolution by
  * passing ``for_external_use=True``; falling back to the request-origin
@@ -1202,7 +1202,7 @@ export const registerAuthRegisterPost = <ThrowOnError extends boolean = false>(o
  *
  * Re-issue and re-send a verification email.
  *
- * SIGNUP-05 / T-1231-05 (enumeration-safe): ALWAYS returns the same 200 body
+ * Enumeration-safe: ALWAYS returns the same 200 body
  * regardless of whether the email exists, is unknown, or is already verified.
  * Send errors are logged server-side only and never branch the HTTP response.
  */
@@ -1220,12 +1220,12 @@ export const resendVerificationAuthResendVerificationPost = <ThrowOnError extend
  *
  * Redeem a verification token to activate the account.
  *
- * SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+ * A valid single-use expiring token flips email_verified=True,
  * is_active=True, and status="active" so the user can log in via the
  * existing auth gate in dependencies.py.
  *
  * Expired, unknown, and already-consumed tokens all return the same
- * "Invalid or expired" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+ * "Invalid or expired" error (enumeration-safe).
  */
 export const verifyEmailAuthVerifyEmailPost = <ThrowOnError extends boolean = false>(options: Options<VerifyEmailAuthVerifyEmailPostData, ThrowOnError>): RequestResult<VerifyEmailAuthVerifyEmailPostResponses, VerifyEmailAuthVerifyEmailPostErrors, ThrowOnError> => (options.client ?? client).post<VerifyEmailAuthVerifyEmailPostResponses, VerifyEmailAuthVerifyEmailPostErrors, ThrowOnError>({
     url: '/auth/verify-email/',
@@ -1620,7 +1620,7 @@ export const dryRunConfigurationConfigOpsDryRunPost = <ThrowOnError extends bool
  * Returns a downloadable JSON payload with Content-Disposition header. This is a
  * file-download endpoint — the previous ``response_model=ConfigExportResponse``
  * was silently ignored because the handler returns a raw JSONResponse with custom
- * headers (TYPE-N3). Using ``response_class=JSONResponse`` is the correct way to
+ * headers. Using ``response_class=JSONResponse`` is the correct way to
  * document a download endpoint in OpenAPI.
  */
 export const exportConfigurationConfigOpsExportGet = <ThrowOnError extends boolean = false>(options?: Options<ExportConfigurationConfigOpsExportGetData, ThrowOnError>): RequestResult<ExportConfigurationConfigOpsExportGetResponses, ExportConfigurationConfigOpsExportGetErrors, ThrowOnError> => (options?.client ?? client).get<ExportConfigurationConfigOpsExportGetResponses, ExportConfigurationConfigOpsExportGetErrors, ThrowOnError>({
@@ -2215,7 +2215,7 @@ export const validateDcat3RecordDatasetsDatasetIdDcatValidationGet = <ThrowOnErr
  * S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
  * Accepts standard auth or ?token= JWT query parameter for browser downloads.
  *
- * KNOWN-01 (Phase 1071): ``user`` may be None when a no-sub anonymous
+ * ``user`` may be None when a no-sub anonymous
  * download token (issued by POST /auth/download-token/{id} for a public
  * dataset) is presented on ``?token=``. The function branches on
  * user-None to enforce public visibility and emit the audit row with
@@ -2265,7 +2265,7 @@ export const exportDatasetEndpointDatasetsDatasetIdExportGet = <ThrowOnError ext
  * Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
  *
  * fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
- * eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+ * eligible cluster layers) already sends ``X-Embed-Token``, and the
  * shared-map union now exposes embed-scoped private layers to embeds — so
  * this endpoint accepts the token as fallback authorization via the SAME
  * ``validate_embed_token_access`` capability check as tile serving.
@@ -2301,7 +2301,7 @@ export const getFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGet = <T
  *
  * Get paginated GeoJSON features for a dataset.
  *
- * Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+ * Pagination is OFFSET-based (fix(#458), documented limitation): rows can
  * skip or duplicate across pages under concurrent writes, though feature ids
  * stay stable (ORDER BY gid, the primary key). Clients that need stable
  * cursoring should use the OGC API Features endpoint, which supports keyset
@@ -2649,7 +2649,7 @@ export const listRelatedDatasetsDatasetsDatasetIdRelatedGet = <ThrowOnError exte
  * Paginated via ``skip`` and ``limit`` to bound response size for datasets
  * with large numbers of auto-detected relationships. Returns the standard
  * list envelope (``relationships`` + ``total``) so callers can detect whether
- * more pages exist (GAP-033); ``total`` counts the visible relationships before
+ * more pages exist; ``total`` counts the visible relationships before
  * pagination.
  */
 export const listDatasetRelationshipsDatasetsDatasetIdRelationshipsGet = <ThrowOnError extends boolean = false>(options: Options<ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetData, ThrowOnError>): RequestResult<ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetResponses, ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetErrors, ThrowOnError> => (options.client ?? client).get<ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetResponses, ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetErrors, ThrowOnError>({
@@ -3240,7 +3240,7 @@ export const registerTableIngestRegisterPost = <ThrowOnError extends boolean = f
  * Each table is registered independently -- one failure does not block
  * others. Tables are processed in parallel via ``asyncio.gather`` with
  * a fresh session per task, which keeps transaction isolation while
- * removing the sequential per-table latency (PERF-3).
+ * removing the sequential per-table latency.
  */
 export const bulkRegisterTablesIngestRegisterBulkPost = <ThrowOnError extends boolean = false>(options: Options<BulkRegisterTablesIngestRegisterBulkPostData, ThrowOnError>): RequestResult<BulkRegisterTablesIngestRegisterBulkPostResponses, BulkRegisterTablesIngestRegisterBulkPostErrors, ThrowOnError> => (options.client ?? client).post<BulkRegisterTablesIngestRegisterBulkPostResponses, BulkRegisterTablesIngestRegisterBulkPostErrors, ThrowOnError>({
     security: [
@@ -3418,7 +3418,7 @@ export const createVrtIngestVrtCreatePost = <ThrowOnError extends boolean = fals
  *
  * Validates the new source against existing sources synchronously.
  * Returns 202 Accepted with a job_id for polling.
- * Returns 409 if the VRT is currently regenerating (SRC-05) or source already linked.
+ * Returns 409 if the VRT is currently regenerating or the source is already linked.
  * Returns 422 if the source is incompatible with existing sources.
  */
 export const addVrtSourceIngestVrtDatasetIdSourcesPost = <ThrowOnError extends boolean = false>(options: Options<AddVrtSourceIngestVrtDatasetIdSourcesPostData, ThrowOnError>): RequestResult<AddVrtSourceIngestVrtDatasetIdSourcesPostResponses, AddVrtSourceIngestVrtDatasetIdSourcesPostErrors, ThrowOnError> => (options.client ?? client).post<AddVrtSourceIngestVrtDatasetIdSourcesPostResponses, AddVrtSourceIngestVrtDatasetIdSourcesPostErrors, ThrowOnError>({
@@ -3445,7 +3445,7 @@ export const addVrtSourceIngestVrtDatasetIdSourcesPost = <ThrowOnError extends b
  * Remove a COG source from an existing VRT and trigger async regeneration.
  *
  * Returns 202 Accepted with a job_id for polling.
- * Returns 409 if the VRT is currently regenerating (SRC-05).
+ * Returns 409 if the VRT is currently regenerating.
  * Returns 422 if removing would leave fewer than 2 sources.
  * Returns 404 if the source is not linked to the VRT.
  */
@@ -3706,7 +3706,7 @@ export const renameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatch = <Th
  *
  * Count saved maps whose layer config references a column.
  *
- * fix(#458 E-06): surfaced in the schema editor before a rename/drop so the
+ * fix(#458): surfaced in the schema editor before a rename/drop so the
  * editor knows how many saved maps depend on the column. Count only — map
  * titles may belong to other users and are not exposed here.
  */
@@ -3843,7 +3843,7 @@ export const uploadMapIconEndpointMapsIconsPost = <ThrowOnError extends boolean 
  *
  * Serve an uploaded or bundled icon asset by stable icon ID.
  *
- * SEC-01 / M-63: SVG responses carry Content-Security-Policy
+ * SVG responses carry Content-Security-Policy
  * ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
  * origins, run scripts, or read auth cookies even if validation is bypassed
  * in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
@@ -3857,8 +3857,7 @@ export const getMapIconAssetEndpointMapsIconsIconIdAssetGet = <ThrowOnError exte
  *
  * Import a MapLibre style JSON document into a new GeoLens map.
  *
- * API-01 (M-05): the request body is now a typed Pydantic model instead of
- * a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+ * The request body is a typed Pydantic model rather than a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
  * spec top-level keys with ``extra="allow"``, so existing payloads keep
  * working byte-identically while the OpenAPI schema gains a named class
  * and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
@@ -3887,14 +3886,14 @@ export const importMapStyleEndpointMapsImportPost = <ThrowOnError extends boolea
  *
  * Get a shared map by token. Optionally authenticated for non-public layers.
  *
- * SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+ * Emits ``Content-Security-Policy: frame-ancestors
  * 'self' [<allowed_origins>...]`` on the response, derived from the active
  * EmbedToken for this map. When no EmbedToken exists or allowed_origins is
  * empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
  * respects this route-level CSP and skips emitting X-Frame-Options: DENY.
  *
- * fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
- * layers the token's scope authorizes (SEC-022 capability posture).
+ * fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
+ * token's scope authorizes, as a capability rather than a role.
  */
 export const getSharedMapEndpointMapsSharedTokenGet = <ThrowOnError extends boolean = false>(options: Options<GetSharedMapEndpointMapsSharedTokenGetData, ThrowOnError>): RequestResult<GetSharedMapEndpointMapsSharedTokenGetResponses, GetSharedMapEndpointMapsSharedTokenGetErrors, ThrowOnError> => (options.client ?? client).get<GetSharedMapEndpointMapsSharedTokenGetResponses, GetSharedMapEndpointMapsSharedTokenGetErrors, ThrowOnError>({
     security: [
@@ -4200,9 +4199,8 @@ export const addLayerEndpointMapsMapIdLayersPost = <ThrowOnError extends boolean
  *
  * Batch-delete multiple layers from a map in a single request.
  *
- * Milestone exception (v1010 Phase 1047): one additive endpoint permitted
- * per REQUIREMENTS.md Out-of-Scope to reduce N sequential DELETEs to one
- * batched call for bulk-delete UX (PB-03 / PERF-03).
+ * One additive endpoint that reduces N sequential DELETEs to a single
+ * batched call for bulk-delete UX.
  *
  * Returns 200 with deleted/failed arrays in all cases (partial failures
  * surface inline, not as HTTP errors).  Full rollback is the caller's
@@ -4278,7 +4276,7 @@ export const getOgImageMapsMapIdOgImageGet = <ThrowOnError extends boolean = fal
  * ``maps/og-images/{map_id}.{ext}``, and persists the storage key to
  * ``catalog.maps.og_image_uri``.
  *
- * Intended for 1200x630 JPEG captures (SHARE-08). The payload cap
+ * Intended for 1200x630 JPEG captures. The payload cap
  * (750KB) is larger than the thumbnail cap (100KB) to accommodate the
  * larger canvas export — they are separate schemas (OgImageUploadRequest
  * vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
@@ -4460,7 +4458,7 @@ export const uploadThumbnailMapsMapIdThumbnailPut = <ThrowOnError extends boolea
  * Owner-or-admin like the other sharing mutations: the response names
  * non-public dataset titles, which read access alone must not reveal.
  * Read access is checked first so unreadable maps keep answering 404
- * (SEC-007 existence-hiding); readable non-owners get 403.
+ * (existence-hiding); readable non-owners get 403.
  */
 export const visibilityCheckEndpointMapsMapIdVisibilityCheckGet = <ThrowOnError extends boolean = false>(options: Options<VisibilityCheckEndpointMapsMapIdVisibilityCheckGetData, ThrowOnError>): RequestResult<VisibilityCheckEndpointMapsMapIdVisibilityCheckGetResponses, VisibilityCheckEndpointMapsMapIdVisibilityCheckGetErrors, ThrowOnError> => (options.client ?? client).get<VisibilityCheckEndpointMapsMapIdVisibilityCheckGetResponses, VisibilityCheckEndpointMapsMapIdVisibilityCheckGetErrors, ThrowOnError>({
     security: [
@@ -5232,7 +5230,7 @@ export const getApiKeyStatusSettingsApiKeyStatusGet = <ThrowOnError extends bool
  * configured.  When a key IS set the placeholder is resolved server-side.
  * The response uses ``BasemapPublicResponse`` which excludes ``api_key``.
  *
- * SEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally
+ * The resolved ``url`` field intentionally
  * includes the substituted ``api_key`` value when configured. Client-side
  * tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
  * exposure and the frontend MUST receive them to load tiles. Do NOT put a
@@ -5339,7 +5337,7 @@ export const getMapDefaultsSettingsMapDefaultsGet = <ThrowOnError extends boolea
  *
  * Mirrors get_api_key_status: returns presence flags derived from env/settings
  * without ever echoing the SMTP password, webhook URL, or webhook secret
- * (NOTIF-05 / T-1229-09).
+ * without secrets.
  */
 export const getNotificationStatusSettingsNotificationsStatusGet = <ThrowOnError extends boolean = false>(options?: Options<GetNotificationStatusSettingsNotificationsStatusGetData, ThrowOnError>): RequestResult<GetNotificationStatusSettingsNotificationsStatusGetResponses, GetNotificationStatusSettingsNotificationsStatusGetErrors, ThrowOnError> => (options?.client ?? client).get<GetNotificationStatusSettingsNotificationsStatusGetResponses, GetNotificationStatusSettingsNotificationsStatusGetErrors, ThrowOnError>({
     security: [
@@ -5362,7 +5360,7 @@ export const getNotificationStatusSettingsNotificationsStatusGet = <ThrowOnError
  *
  * Mirrors detect_embedding_dims: admin-gated probe that reports per-channel
  * reachable/error in a 200 body without leaking secrets or raising 5xx on a
- * bad channel (NOTIF-06 / T-1229-08 / T-1229-09 / T-1229-10).
+ * bad channel.
  *
  * Per-channel approach (not EnvConfiguredNotificationSink.deliver) is used so
  * each channel's success/failure is captured in its own
@@ -5408,7 +5406,7 @@ export const listOauthProvidersSettingsOauthProvidersGet = <ThrowOnError extends
  *
  * Audit-log payload includes the full ``created`` snapshot with non-secret
  * fields verbatim and ``<redacted>`` markers for secrets that were submitted
- * in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
+ * in the request body.
  */
 export const createOauthProviderSettingsOauthProvidersPost = <ThrowOnError extends boolean = false>(options: Options<CreateOauthProviderSettingsOauthProvidersPostData, ThrowOnError>): RequestResult<CreateOauthProviderSettingsOauthProvidersPostResponses, CreateOauthProviderSettingsOauthProvidersPostErrors, ThrowOnError> => (options.client ?? client).post<CreateOauthProviderSettingsOauthProvidersPostResponses, CreateOauthProviderSettingsOauthProvidersPostErrors, ThrowOnError>({
     security: [
@@ -5435,8 +5433,7 @@ export const createOauthProviderSettingsOauthProvidersPost = <ThrowOnError exten
  *
  * Audit-log payload contains a ``deleted`` snapshot with the pre-delete
  * state — non-secret fields verbatim, secret fields marked ``<redacted>``
- * if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
- * delete events too).
+ * if they were previously set; the same redaction applies to delete events.
  */
 export const deleteOauthProviderSettingsOauthProvidersProviderIdDelete = <ThrowOnError extends boolean = false>(options: Options<DeleteOauthProviderSettingsOauthProvidersProviderIdDeleteData, ThrowOnError>): RequestResult<DeleteOauthProviderSettingsOauthProvidersProviderIdDeleteResponses, DeleteOauthProviderSettingsOauthProvidersProviderIdDeleteErrors, ThrowOnError> => (options.client ?? client).delete<DeleteOauthProviderSettingsOauthProvidersProviderIdDeleteResponses, DeleteOauthProviderSettingsOauthProvidersProviderIdDeleteErrors, ThrowOnError>({
     security: [
@@ -5460,8 +5457,7 @@ export const deleteOauthProviderSettingsOauthProvidersProviderIdDelete = <ThrowO
  * Audit-log payload contains ``details.changes`` with per-field
  * ``{"old": ..., "new": ...}`` diffs. Secret fields (idp_certificate,
  * client_secret_encrypted, client_secret) are redacted as
- * ``{"old": "<redacted>", "new": "<redacted>"}`` (Pitfall 9 / SAML-12 /
- * T-217-03-AUDIT-LEAK HIGH severity).
+ * ``{"old": "<redacted>", "new": "<redacted>"}``.
  */
 export const updateOauthProviderSettingsOauthProvidersProviderIdPut = <ThrowOnError extends boolean = false>(options: Options<UpdateOauthProviderSettingsOauthProvidersProviderIdPutData, ThrowOnError>): RequestResult<UpdateOauthProviderSettingsOauthProvidersProviderIdPutResponses, UpdateOauthProviderSettingsOauthProvidersProviderIdPutErrors, ThrowOnError> => (options.client ?? client).put<UpdateOauthProviderSettingsOauthProvidersProviderIdPutResponses, UpdateOauthProviderSettingsOauthProvidersProviderIdPutErrors, ThrowOnError>({
     security: [

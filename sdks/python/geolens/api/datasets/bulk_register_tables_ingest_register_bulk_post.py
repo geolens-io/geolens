@@ -113,7 +113,7 @@ def sync_detailed(
     Each table is registered independently -- one failure does not block
     others. Tables are processed in parallel via ``asyncio.gather`` with
     a fresh session per task, which keeps transaction isolation while
-    removing the sequential per-table latency (PERF-3).
+    removing the sequential per-table latency.
 
     Args:
         body (BulkRegisterRequest):
@@ -149,7 +149,7 @@ def sync(
     Each table is registered independently -- one failure does not block
     others. Tables are processed in parallel via ``asyncio.gather`` with
     a fresh session per task, which keeps transaction isolation while
-    removing the sequential per-table latency (PERF-3).
+    removing the sequential per-table latency.
 
     Args:
         body (BulkRegisterRequest):
@@ -180,7 +180,7 @@ async def asyncio_detailed(
     Each table is registered independently -- one failure does not block
     others. Tables are processed in parallel via ``asyncio.gather`` with
     a fresh session per task, which keeps transaction isolation while
-    removing the sequential per-table latency (PERF-3).
+    removing the sequential per-table latency.
 
     Args:
         body (BulkRegisterRequest):
@@ -214,7 +214,7 @@ async def asyncio(
     Each table is registered independently -- one failure does not block
     others. Tables are processed in parallel via ``asyncio.gather`` with
     a fresh session per task, which keeps transaction isolation while
-    removing the sequential per-table latency (PERF-3).
+    removing the sequential per-table latency.
 
     Args:
         body (BulkRegisterRequest):

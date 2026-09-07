@@ -16,7 +16,7 @@ T = TypeVar("T", bound="DatasetRelationshipListResponse")
 
 @_attrs_define
 class DatasetRelationshipListResponse:
-    """Paginated list envelope for dataset FK relationships (GAP-033).
+    """Paginated list envelope for dataset FK relationships.
 
     Mirrors the ``{<entity>: [...], total: int}`` convention used by every other
     paginated list endpoint (e.g. AttributeMetadataListResponse,

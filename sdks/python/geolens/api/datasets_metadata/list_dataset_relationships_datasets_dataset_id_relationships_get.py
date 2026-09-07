@@ -124,7 +124,7 @@ def sync_detailed(
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
     with large numbers of auto-detected relationships. Returns the standard
     list envelope (``relationships`` + ``total``) so callers can detect whether
-    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    more pages exist; ``total`` counts the visible relationships before
     pagination.
 
     Args:
@@ -168,7 +168,7 @@ def sync(
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
     with large numbers of auto-detected relationships. Returns the standard
     list envelope (``relationships`` + ``total``) so callers can detect whether
-    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    more pages exist; ``total`` counts the visible relationships before
     pagination.
 
     Args:
@@ -207,7 +207,7 @@ async def asyncio_detailed(
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
     with large numbers of auto-detected relationships. Returns the standard
     list envelope (``relationships`` + ``total``) so callers can detect whether
-    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    more pages exist; ``total`` counts the visible relationships before
     pagination.
 
     Args:
@@ -249,7 +249,7 @@ async def asyncio(
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
     with large numbers of auto-detected relationships. Returns the standard
     list envelope (``relationships`` + ``total``) so callers can detect whether
-    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    more pages exist; ``total`` counts the visible relationships before
     pagination.
 
     Args:

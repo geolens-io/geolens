@@ -105,12 +105,12 @@ def sync_detailed(
 
      Redeem a verification token to activate the account.
 
-    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    A valid single-use expiring token flips email_verified=True,
     is_active=True, and status=\"active\" so the user can log in via the
     existing auth gate in dependencies.py.
 
     Expired, unknown, and already-consumed tokens all return the same
-    \"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+    \"Invalid or expired\" error (enumeration-safe).
 
     Args:
         body (VerifyEmailRequest):
@@ -143,12 +143,12 @@ def sync(
 
      Redeem a verification token to activate the account.
 
-    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    A valid single-use expiring token flips email_verified=True,
     is_active=True, and status=\"active\" so the user can log in via the
     existing auth gate in dependencies.py.
 
     Expired, unknown, and already-consumed tokens all return the same
-    \"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+    \"Invalid or expired\" error (enumeration-safe).
 
     Args:
         body (VerifyEmailRequest):
@@ -176,12 +176,12 @@ async def asyncio_detailed(
 
      Redeem a verification token to activate the account.
 
-    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    A valid single-use expiring token flips email_verified=True,
     is_active=True, and status=\"active\" so the user can log in via the
     existing auth gate in dependencies.py.
 
     Expired, unknown, and already-consumed tokens all return the same
-    \"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+    \"Invalid or expired\" error (enumeration-safe).
 
     Args:
         body (VerifyEmailRequest):
@@ -212,12 +212,12 @@ async def asyncio(
 
      Redeem a verification token to activate the account.
 
-    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    A valid single-use expiring token flips email_verified=True,
     is_active=True, and status=\"active\" so the user can log in via the
     existing auth gate in dependencies.py.
 
     Expired, unknown, and already-consumed tokens all return the same
-    \"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+    \"Invalid or expired\" error (enumeration-safe).
 
     Args:
         body (VerifyEmailRequest):

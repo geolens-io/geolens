@@ -125,14 +125,14 @@ def sync_detailed(
 
      Return the column-DDL audit history for a dataset.
 
-    SEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)
-    to dataset owners so they can detect editor-initiated schema changes.
+    Surfaces the column-DDL events to dataset owners so they can detect
+    editor-initiated schema changes.
 
     Access control (AGENTS.md Pre-Commit Checklist Rule 1):
     - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
     - Anyone else — including authenticated readers of a PUBLIC dataset: 404
-      via check_dataset_write_access. fix(#458 E-37): the feed previously used
+      via check_dataset_write_access. fix(#458): the feed previously used
       check_dataset_access (read visibility), which let any logged-in user
       enumerate editor usernames/user_ids on public datasets, contradicting
       this owner-facing contract.
@@ -181,14 +181,14 @@ def sync(
 
      Return the column-DDL audit history for a dataset.
 
-    SEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)
-    to dataset owners so they can detect editor-initiated schema changes.
+    Surfaces the column-DDL events to dataset owners so they can detect
+    editor-initiated schema changes.
 
     Access control (AGENTS.md Pre-Commit Checklist Rule 1):
     - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
     - Anyone else — including authenticated readers of a PUBLIC dataset: 404
-      via check_dataset_write_access. fix(#458 E-37): the feed previously used
+      via check_dataset_write_access. fix(#458): the feed previously used
       check_dataset_access (read visibility), which let any logged-in user
       enumerate editor usernames/user_ids on public datasets, contradicting
       this owner-facing contract.
@@ -232,14 +232,14 @@ async def asyncio_detailed(
 
      Return the column-DDL audit history for a dataset.
 
-    SEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)
-    to dataset owners so they can detect editor-initiated schema changes.
+    Surfaces the column-DDL events to dataset owners so they can detect
+    editor-initiated schema changes.
 
     Access control (AGENTS.md Pre-Commit Checklist Rule 1):
     - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
     - Anyone else — including authenticated readers of a PUBLIC dataset: 404
-      via check_dataset_write_access. fix(#458 E-37): the feed previously used
+      via check_dataset_write_access. fix(#458): the feed previously used
       check_dataset_access (read visibility), which let any logged-in user
       enumerate editor usernames/user_ids on public datasets, contradicting
       this owner-facing contract.
@@ -286,14 +286,14 @@ async def asyncio(
 
      Return the column-DDL audit history for a dataset.
 
-    SEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)
-    to dataset owners so they can detect editor-initiated schema changes.
+    Surfaces the column-DDL events to dataset owners so they can detect
+    editor-initiated schema changes.
 
     Access control (AGENTS.md Pre-Commit Checklist Rule 1):
     - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
     - Anyone else — including authenticated readers of a PUBLIC dataset: 404
-      via check_dataset_write_access. fix(#458 E-37): the feed previously used
+      via check_dataset_write_access. fix(#458): the feed previously used
       check_dataset_access (read visibility), which let any logged-in user
       enumerate editor usernames/user_ids on public datasets, contradicting
       this owner-facing contract.

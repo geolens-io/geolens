@@ -659,7 +659,7 @@ async def get_notification_status(
 
     Mirrors get_api_key_status: returns presence flags derived from env/settings
     without ever echoing the SMTP password, webhook URL, or webhook secret
-    (NOTIF-05 / T-1229-09).
+    without secrets.
     """
     return NotificationStatusResponse(
         notifications_enabled=app_settings.notifications_enabled,
@@ -684,7 +684,7 @@ async def send_test_notification(
 
     Mirrors detect_embedding_dims: admin-gated probe that reports per-channel
     reachable/error in a 200 body without leaking secrets or raising 5xx on a
-    bad channel (NOTIF-06 / T-1229-08 / T-1229-09 / T-1229-10).
+    bad channel.
 
     Per-channel approach (not EnvConfiguredNotificationSink.deliver) is used so
     each channel's success/failure is captured in its own
@@ -849,7 +849,7 @@ async def create_oauth_provider(
 
     Audit-log payload includes the full ``created`` snapshot with non-secret
     fields verbatim and ``<redacted>`` markers for secrets that were submitted
-    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
+    in the request body.
     """
     try:
         provider = await oauth_service.create_provider(db, body)
@@ -915,8 +915,7 @@ async def update_oauth_provider(
     Audit-log payload contains ``details.changes`` with per-field
     ``{"old": ..., "new": ...}`` diffs. Secret fields (idp_certificate,
     client_secret_encrypted, client_secret) are redacted as
-    ``{"old": "<redacted>", "new": "<redacted>"}`` (Pitfall 9 / SAML-12 /
-    T-217-03-AUDIT-LEAK HIGH severity).
+    ``{"old": "<redacted>", "new": "<redacted>"}``.
     """
     provider = await oauth_service.get_provider_by_id(db, provider_id)
     if provider is None:
@@ -1018,8 +1017,7 @@ async def delete_oauth_provider(
 
     Audit-log payload contains a ``deleted`` snapshot with the pre-delete
     state — non-secret fields verbatim, secret fields marked ``<redacted>``
-    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
-    delete events too).
+    if they were previously set; the same redaction applies to delete events.
     """
     provider = await oauth_service.get_provider_by_id(db, provider_id)
     if provider is None:

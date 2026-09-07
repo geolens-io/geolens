@@ -118,14 +118,14 @@ def sync_detailed(
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 
-    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    Emits ``Content-Security-Policy: frame-ancestors
     'self' [<allowed_origins>...]`` on the response, derived from the active
     EmbedToken for this map. When no EmbedToken exists or allowed_origins is
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
-    layers the token's scope authorizes (SEC-022 capability posture).
+    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
+    token's scope authorizes, as a capability rather than a role.
 
     Args:
         token (str):
@@ -162,14 +162,14 @@ def sync(
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 
-    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    Emits ``Content-Security-Policy: frame-ancestors
     'self' [<allowed_origins>...]`` on the response, derived from the active
     EmbedToken for this map. When no EmbedToken exists or allowed_origins is
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
-    layers the token's scope authorizes (SEC-022 capability posture).
+    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
+    token's scope authorizes, as a capability rather than a role.
 
     Args:
         token (str):
@@ -201,14 +201,14 @@ async def asyncio_detailed(
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 
-    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    Emits ``Content-Security-Policy: frame-ancestors
     'self' [<allowed_origins>...]`` on the response, derived from the active
     EmbedToken for this map. When no EmbedToken exists or allowed_origins is
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
-    layers the token's scope authorizes (SEC-022 capability posture).
+    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
+    token's scope authorizes, as a capability rather than a role.
 
     Args:
         token (str):
@@ -243,14 +243,14 @@ async def asyncio(
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 
-    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    Emits ``Content-Security-Policy: frame-ancestors
     'self' [<allowed_origins>...]`` on the response, derived from the active
     EmbedToken for this map. When no EmbedToken exists or allowed_origins is
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
-    layers the token's scope authorizes (SEC-022 capability posture).
+    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
+    token's scope authorizes, as a capability rather than a role.
 
     Args:
         token (str):

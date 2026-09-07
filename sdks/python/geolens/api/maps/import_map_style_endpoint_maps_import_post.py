@@ -110,15 +110,15 @@ def sync_detailed(
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
-    API-01 (M-05): the request body is now a typed Pydantic model instead of
-    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    The request body is a typed Pydantic model rather than a bare ``dict``. ``MapStyleImportRequest``
+    mirrors the MapLibre style
     spec top-level keys with ``extra=\"allow\"``, so existing payloads keep
     working byte-identically while the OpenAPI schema gains a named class
     and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
     request type.
 
     Args:
-        body (MapStyleImportRequest): Typed request body for POST /maps/import — API-01 / M-05.
+        body (MapStyleImportRequest): Typed request body for POST /maps/import.
 
             Mirrors the top-level keys of the MapLibre Style Specification that
             ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
@@ -158,15 +158,15 @@ def sync(
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
-    API-01 (M-05): the request body is now a typed Pydantic model instead of
-    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    The request body is a typed Pydantic model rather than a bare ``dict``. ``MapStyleImportRequest``
+    mirrors the MapLibre style
     spec top-level keys with ``extra=\"allow\"``, so existing payloads keep
     working byte-identically while the OpenAPI schema gains a named class
     and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
     request type.
 
     Args:
-        body (MapStyleImportRequest): Typed request body for POST /maps/import — API-01 / M-05.
+        body (MapStyleImportRequest): Typed request body for POST /maps/import.
 
             Mirrors the top-level keys of the MapLibre Style Specification that
             ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
@@ -201,15 +201,15 @@ async def asyncio_detailed(
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
-    API-01 (M-05): the request body is now a typed Pydantic model instead of
-    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    The request body is a typed Pydantic model rather than a bare ``dict``. ``MapStyleImportRequest``
+    mirrors the MapLibre style
     spec top-level keys with ``extra=\"allow\"``, so existing payloads keep
     working byte-identically while the OpenAPI schema gains a named class
     and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
     request type.
 
     Args:
-        body (MapStyleImportRequest): Typed request body for POST /maps/import — API-01 / M-05.
+        body (MapStyleImportRequest): Typed request body for POST /maps/import.
 
             Mirrors the top-level keys of the MapLibre Style Specification that
             ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
@@ -247,15 +247,15 @@ async def asyncio(
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
-    API-01 (M-05): the request body is now a typed Pydantic model instead of
-    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    The request body is a typed Pydantic model rather than a bare ``dict``. ``MapStyleImportRequest``
+    mirrors the MapLibre style
     spec top-level keys with ``extra=\"allow\"``, so existing payloads keep
     working byte-identically while the OpenAPI schema gains a named class
     and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
     request type.
 
     Args:
-        body (MapStyleImportRequest): Typed request body for POST /maps/import — API-01 / M-05.
+        body (MapStyleImportRequest): Typed request body for POST /maps/import.
 
             Mirrors the top-level keys of the MapLibre Style Specification that
             ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps

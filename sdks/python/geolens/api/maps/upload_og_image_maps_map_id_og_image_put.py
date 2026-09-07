@@ -124,7 +124,7 @@ def sync_detailed(
     ``maps/og-images/{map_id}.{ext}``, and persists the storage key to
     ``catalog.maps.og_image_uri``.
 
-    Intended for 1200x630 JPEG captures (SHARE-08). The payload cap
+    Intended for 1200x630 JPEG captures. The payload cap
     (750KB) is larger than the thumbnail cap (100KB) to accommodate the
     larger canvas export — they are separate schemas (OgImageUploadRequest
     vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
@@ -132,7 +132,7 @@ def sync_detailed(
 
     Args:
         map_id (UUID):
-        body (OgImageUploadRequest): JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).
+        body (OgImageUploadRequest): JSON body for PUT /maps/{map_id}/og-image/.
 
             Accepts a base64 data URI up to 750 KB (as a string). This generous
             ceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes
@@ -142,7 +142,7 @@ def sync_detailed(
               empty/clearly-malformed URIs without false-positives.
             - ``max_length=750_000``: ~562 KB decoded — generous for 1200x630 JPEG.
               DO NOT raise ThumbnailUploadRequest.max_length to match this value;
-              the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).
+              the 100KB thumbnail cap is a locked contract.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -179,7 +179,7 @@ def sync(
     ``maps/og-images/{map_id}.{ext}``, and persists the storage key to
     ``catalog.maps.og_image_uri``.
 
-    Intended for 1200x630 JPEG captures (SHARE-08). The payload cap
+    Intended for 1200x630 JPEG captures. The payload cap
     (750KB) is larger than the thumbnail cap (100KB) to accommodate the
     larger canvas export — they are separate schemas (OgImageUploadRequest
     vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
@@ -187,7 +187,7 @@ def sync(
 
     Args:
         map_id (UUID):
-        body (OgImageUploadRequest): JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).
+        body (OgImageUploadRequest): JSON body for PUT /maps/{map_id}/og-image/.
 
             Accepts a base64 data URI up to 750 KB (as a string). This generous
             ceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes
@@ -197,7 +197,7 @@ def sync(
               empty/clearly-malformed URIs without false-positives.
             - ``max_length=750_000``: ~562 KB decoded — generous for 1200x630 JPEG.
               DO NOT raise ThumbnailUploadRequest.max_length to match this value;
-              the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).
+              the 100KB thumbnail cap is a locked contract.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -229,7 +229,7 @@ async def asyncio_detailed(
     ``maps/og-images/{map_id}.{ext}``, and persists the storage key to
     ``catalog.maps.og_image_uri``.
 
-    Intended for 1200x630 JPEG captures (SHARE-08). The payload cap
+    Intended for 1200x630 JPEG captures. The payload cap
     (750KB) is larger than the thumbnail cap (100KB) to accommodate the
     larger canvas export — they are separate schemas (OgImageUploadRequest
     vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
@@ -237,7 +237,7 @@ async def asyncio_detailed(
 
     Args:
         map_id (UUID):
-        body (OgImageUploadRequest): JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).
+        body (OgImageUploadRequest): JSON body for PUT /maps/{map_id}/og-image/.
 
             Accepts a base64 data URI up to 750 KB (as a string). This generous
             ceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes
@@ -247,7 +247,7 @@ async def asyncio_detailed(
               empty/clearly-malformed URIs without false-positives.
             - ``max_length=750_000``: ~562 KB decoded — generous for 1200x630 JPEG.
               DO NOT raise ThumbnailUploadRequest.max_length to match this value;
-              the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).
+              the 100KB thumbnail cap is a locked contract.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -282,7 +282,7 @@ async def asyncio(
     ``maps/og-images/{map_id}.{ext}``, and persists the storage key to
     ``catalog.maps.og_image_uri``.
 
-    Intended for 1200x630 JPEG captures (SHARE-08). The payload cap
+    Intended for 1200x630 JPEG captures. The payload cap
     (750KB) is larger than the thumbnail cap (100KB) to accommodate the
     larger canvas export — they are separate schemas (OgImageUploadRequest
     vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
@@ -290,7 +290,7 @@ async def asyncio(
 
     Args:
         map_id (UUID):
-        body (OgImageUploadRequest): JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).
+        body (OgImageUploadRequest): JSON body for PUT /maps/{map_id}/og-image/.
 
             Accepts a base64 data URI up to 750 KB (as a string). This generous
             ceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes
@@ -300,7 +300,7 @@ async def asyncio(
               empty/clearly-malformed URIs without false-positives.
             - ``max_length=750_000``: ~562 KB decoded — generous for 1200x630 JPEG.
               DO NOT raise ThumbnailUploadRequest.max_length to match this value;
-              the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).
+              the 100KB thumbnail cap is a locked contract.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

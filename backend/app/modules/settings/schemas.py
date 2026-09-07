@@ -291,7 +291,7 @@ class DetectEmbeddingDimsResponse(BaseModel):
 
 
 class NotificationStatusResponse(BaseModel):
-    """Response for GET /settings/notifications/status/ (NOTIF-05 / NOTIF-06).
+    """Response for GET /settings/notifications/status/.
 
     Returns only boolean presence flags — never a secret value (SMTP password,
     webhook URL, or webhook secret).
@@ -312,8 +312,7 @@ class NotificationTestChannelResult(BaseModel):
     """Per-channel result from POST /settings/notifications/test/.
 
     The ``error`` field contains only the exception type name and a short
-    safe message — never the SMTP password, webhook URL, or webhook secret
-    (T-1229-09 / NOTIF-05).
+    safe message — never the SMTP password, webhook URL, or webhook secret.
     """
 
     channel: str = Field(description="Channel name, e.g. 'smtp' or 'webhook'.")
@@ -327,11 +326,11 @@ class NotificationTestChannelResult(BaseModel):
 
 
 class NotificationTestResponse(BaseModel):
-    """Response for POST /settings/notifications/test/ (NOTIF-06).
+    """Response for POST /settings/notifications/test/.
 
     Always returns HTTP 200 — a channel delivery failure is captured in the
     per-channel ``channels`` list rather than as a 5xx. Never contains secret
-    values (T-1229-09 / NOTIF-05).
+    values.
     """
 
     sent: bool = Field(

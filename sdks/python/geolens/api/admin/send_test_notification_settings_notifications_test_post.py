@@ -96,7 +96,7 @@ def sync_detailed(
 
     Mirrors detect_embedding_dims: admin-gated probe that reports per-channel
     reachable/error in a 200 body without leaking secrets or raising 5xx on a
-    bad channel (NOTIF-06 / T-1229-08 / T-1229-09 / T-1229-10).
+    bad channel.
 
     Per-channel approach (not EnvConfiguredNotificationSink.deliver) is used so
     each channel's success/failure is captured in its own
@@ -129,7 +129,7 @@ def sync(
 
     Mirrors detect_embedding_dims: admin-gated probe that reports per-channel
     reachable/error in a 200 body without leaking secrets or raising 5xx on a
-    bad channel (NOTIF-06 / T-1229-08 / T-1229-09 / T-1229-10).
+    bad channel.
 
     Per-channel approach (not EnvConfiguredNotificationSink.deliver) is used so
     each channel's success/failure is captured in its own
@@ -158,7 +158,7 @@ async def asyncio_detailed(
 
     Mirrors detect_embedding_dims: admin-gated probe that reports per-channel
     reachable/error in a 200 body without leaking secrets or raising 5xx on a
-    bad channel (NOTIF-06 / T-1229-08 / T-1229-09 / T-1229-10).
+    bad channel.
 
     Per-channel approach (not EnvConfiguredNotificationSink.deliver) is used so
     each channel's success/failure is captured in its own
@@ -189,7 +189,7 @@ async def asyncio(
 
     Mirrors detect_embedding_dims: admin-gated probe that reports per-channel
     reachable/error in a 200 body without leaking secrets or raising 5xx on a
-    bad channel (NOTIF-06 / T-1229-08 / T-1229-09 / T-1229-10).
+    bad channel.
 
     Per-channel approach (not EnvConfiguredNotificationSink.deliver) is used so
     each channel's success/failure is captured in its own

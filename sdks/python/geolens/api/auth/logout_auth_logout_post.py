@@ -111,7 +111,7 @@ def sync_detailed(
 
      Revoke all refresh tokens and bump token_version for the current user.
 
-    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    revoke_all_tokens bumps User.token_version so the
     access JWT used for this logout call (and any other outstanding access JWTs)
     are rejected on the next authenticated request — closing the
     \"logout doesn't invalidate the access JWT\" gap.
@@ -164,7 +164,7 @@ def sync(
 
      Revoke all refresh tokens and bump token_version for the current user.
 
-    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    revoke_all_tokens bumps User.token_version so the
     access JWT used for this logout call (and any other outstanding access JWTs)
     are rejected on the next authenticated request — closing the
     \"logout doesn't invalidate the access JWT\" gap.
@@ -212,7 +212,7 @@ async def asyncio_detailed(
 
      Revoke all refresh tokens and bump token_version for the current user.
 
-    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    revoke_all_tokens bumps User.token_version so the
     access JWT used for this logout call (and any other outstanding access JWTs)
     are rejected on the next authenticated request — closing the
     \"logout doesn't invalidate the access JWT\" gap.
@@ -263,7 +263,7 @@ async def asyncio(
 
      Revoke all refresh tokens and bump token_version for the current user.
 
-    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    revoke_all_tokens bumps User.token_version so the
     access JWT used for this logout call (and any other outstanding access JWTs)
     are rejected on the next authenticated request — closing the
     \"logout doesn't invalidate the access JWT\" gap.

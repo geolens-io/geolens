@@ -145,14 +145,14 @@ async def get_shared_map_endpoint(
 ) -> SharedMapResponse:
     """Get a shared map by token. Optionally authenticated for non-public layers.
 
-    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    Emits ``Content-Security-Policy: frame-ancestors
     'self' [<allowed_origins>...]`` on the response, derived from the active
     EmbedToken for this map. When no EmbedToken exists or allowed_origins is
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
-    layers the token's scope authorizes (SEC-022 capability posture).
+    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
+    token's scope authorizes, as a capability rather than a role.
     """
     user_roles = await get_user_roles(db, user) if user is not None else set()
     result = await get_shared_map(
@@ -198,7 +198,7 @@ async def visibility_check_endpoint(
     Owner-or-admin like the other sharing mutations: the response names
     non-public dataset titles, which read access alone must not reveal.
     Read access is checked first so unreadable maps keep answering 404
-    (SEC-007 existence-hiding); readable non-owners get 403.
+    (existence-hiding); readable non-owners get 403.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:

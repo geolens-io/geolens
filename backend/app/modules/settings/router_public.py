@@ -131,7 +131,7 @@ async def get_basemaps(
     configured.  When a key IS set the placeholder is resolved server-side.
     The response uses ``BasemapPublicResponse`` which excludes ``api_key``.
 
-    SEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally
+    The resolved ``url`` field intentionally
     includes the substituted ``api_key`` value when configured. Client-side
     tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
     exposure and the frontend MUST receive them to load tiles. Do NOT put a

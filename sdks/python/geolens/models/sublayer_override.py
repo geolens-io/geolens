@@ -23,12 +23,12 @@ class SublayerOverride:
     validation time (Pydantic ``ge``/``le`` constraints).
 
     The key set of ``BasemapConfig.sublayer_overrides`` is treated as opaque
-    (forward-compatible with future sublayer IDs) — see CONTEXT.md D-01.
+    (forward-compatible with future sublayer IDs).
 
     Security:
-        extra="forbid" locks the D-14 scope guardrail: unknown style axes such
-        as dash patterns, line caps, halo blur, and text-font are rejected at
-        validation time (T-1059A-03).
+        extra="forbid" locks the scope guardrail: unknown style axes such as
+        dash patterns, line caps, halo blur, and text-font are rejected at
+        validation time.
 
         Attributes:
             stroke_color (None | str | Unset): Stroke color in #RRGGBB hex format, or null to use the basemap default.
@@ -41,9 +41,9 @@ class SublayerOverride:
                 default.
             opacity (float | None | Unset): Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top
                 of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity *
-                master_opacity (builder-audit #338 CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists
-                through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity ->
-                updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.
+                master_opacity (#338). The UI opacity slider in BasemapSublayerEditorScene persists through this field:
+                MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes
+                config.sublayer_overrides[key].opacity.
     """
 
     stroke_color: None | str | Unset = UNSET

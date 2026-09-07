@@ -272,7 +272,7 @@ async def oauth_login(
 ) -> RedirectResponse:
     """Redirect user to the IdP authorization URL with PKCE parameters.
 
-    Phase 268 H-27: the redirect_uri is handed to the IdP, where an
+    The redirect_uri is handed to the IdP, where an
     attacker-controlled origin (via ``X-Forwarded-Host``) would otherwise
     enable auth-code theft. We force explicit-config resolution by
     passing ``for_external_use=True``; falling back to the request-origin
@@ -335,7 +335,7 @@ async def oauth_callback(
 ) -> Response:
     """Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
 
-    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    The frontend redirect carries access tokens in the URL
     fragment. Without explicit-config resolution, an attacker controlling
     ``X-Forwarded-Host`` could steer the post-callback redirect to
     attacker.com and capture the tokens. Force explicit-config resolution
