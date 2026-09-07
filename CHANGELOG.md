@@ -64,10 +64,11 @@ and releases use semantic versioning.
 - A malformed vector-tile path now answers 400 however it is malformed. A path missing the `data.`
   prefix, or carrying an empty table name, previously answered 404, which read as a missing
   dataset rather than a bad request. (#1929)
-- A file import, service import, reupload or raster import that failed while another operation
-  held its job row hung there instead of recording the failure, with the heartbeat still
-  reporting the job alive. That write is now capped at 10 seconds; a job whose write gives up
-  records nothing and is settled by the stale-job sweep once its heartbeat stops. (#1950)
+- A file import, service import, reupload, raster import or VRT regeneration that failed while
+  another operation held its job row hung there instead of recording the failure, with the
+  heartbeat still reporting the job alive. That write is now capped at 10 seconds. A job whose
+  write gives up records nothing, is settled by the stale-job sweep once its heartbeat stops,
+  and for a refresh leaves its history row to be closed by the refresh sweep instead. (#1950)
 
 ## [1.18.1] - 2026-09-05
 

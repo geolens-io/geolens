@@ -3621,11 +3621,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1921): +66 — the post-swap catalog wait gets its own budget, a
     # restore, and events telling an expired budget from a lost deadlock.
     # Cap 2577 -> 2643, exact.
-    # fix(#1950): +14 — the shared failure helper arms the job-row budget after
-    # its own rollback, which would discard one installed upstream, and the
-    # docstring states what an expired budget leaves behind.
-    # Cap 2643 -> 2657, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2657,
+    # fix(#1950): +9 — the shared failure helper arms the job-row budget after
+    # its own rollback, and its docstring states what an expired budget leaves.
+    # Cap 2643 -> 2652, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2652,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3729,7 +3728,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1921): +15 — the file path gets the exception-to-error_code mapper
     # its service sibling already had, and both name a contended catalog row.
     # Cap 1310 -> 1325, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1325,
+    # fix(#1950): +4 — both failure tails bound their job-row load, and
+    # reupload_file's terminal status moved into a `finally` so a bounded write
+    # that raises still reaches the reapers. Cap 1325 -> 1329, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1329,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4630,7 +4632,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1938): +58 — the publish's catalog.records wait gets a budget, a
     # restore after it, and a classified failure report whose SQLSTATE table
     # lives in catalog_locks instead. Cap 1640 -> 1698, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1698,
+    # fix(#1950): +5 — regenerate_vrt's failure handler bounds its three writes,
+    # which is where its own 15s publish wait lands when it gives up.
+    # Cap 1698 -> 1703, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1703,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait
@@ -4770,7 +4775,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # nested one that stops the service-import progress heartbeat, where
     # awaiting the cancelled task re-raises anything the heartbeat body itself
     # failed with. Cap 1392 -> 1368, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1368,
+    # fix(#1950): +12 — both error-write brackets pass the job-row budget, and
+    # the terminal status moved into a `finally` so a bounded write that raises
+    # still reaches the reapers. Cap 1368 -> 1380, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1380,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

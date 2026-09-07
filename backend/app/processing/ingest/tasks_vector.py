@@ -13,6 +13,7 @@ from app.core.db.tenant_session import tenant_task
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.dataset_origin import service_layer_identity
 from app.platform.jobs.heartbeat import (
+    JOB_ERROR_WRITE_TIMEOUT_MS,
     attempt_scoped_staging_table,
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
@@ -843,28 +844,36 @@ async def ingest_file(
         # It mutates the ORM row it is given, so a NULL job (race with a row
         # delete) skips it: there is no row left to fail, and the re-raise
         # below still records the failure on the queue row.
-        async with _job_phase_session(
-            job_uuid, phase="error_write", attempt_id=attempt_uuid
-        ) as (
-            err_session,
-            err_job,
-        ):
-            if err_job is not None:
-                await _cleanup_staging_on_failure(
-                    err_session,
-                    staging_table=staging_table_name,
-                    job=err_job,
-                    exc=exc,
-                    task_name="ingest_file",
-                    attempt_id=attempt_uuid,
-                )
-            else:
-                structlog.get_logger().exception(
-                    "Ingest task failed",
-                    job_id=job_id,
-                    task="ingest_file",
-                )
-        final_status = "failed"
+        try:
+            async with _job_phase_session(
+                job_uuid,
+                phase="error_write",
+                attempt_id=attempt_uuid,
+                lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
+            ) as (
+                err_session,
+                err_job,
+            ):
+                if err_job is not None:
+                    await _cleanup_staging_on_failure(
+                        err_session,
+                        staging_table=staging_table_name,
+                        job=err_job,
+                        exc=exc,
+                        task_name="ingest_file",
+                        attempt_id=attempt_uuid,
+                    )
+                else:
+                    structlog.get_logger().exception(
+                        "Ingest task failed",
+                        job_id=job_id,
+                        task="ingest_file",
+                    )
+        finally:
+            # fix(#1213 review r1, #1950): the `finally` reapers gate on THIS
+            # variable, so every exit from this handler sets it — the bounded
+            # error write above can raise past a positional assignment.
+            final_status = "failed"
         raise
     finally:
         async with cleanup_step("ingest_file heartbeat", job_id=job_id):
@@ -1337,7 +1346,10 @@ async def ingest_service(
         # so the helper's pattern-based redaction is layered on an exception
         # that no longer carries this attempt's token in any shape.
         async with _job_phase_session(
-            job_uuid, phase="error_write", attempt_id=attempt_uuid
+            job_uuid,
+            phase="error_write",
+            attempt_id=attempt_uuid,
+            lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
         ) as (
             err_session,
             err_job,

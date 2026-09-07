@@ -799,32 +799,37 @@ async def ingest_raster(
         # fix(#1950): the budget covers the UPDATE below, the statement that
         # blocks on a contended job row. If it expires the job records nothing
         # and stays `running` until the stale sweep reaps it.
-        async with _job_phase_session(
-            job_uuid,
-            phase="error_write",
-            attempt_id=attempt_uuid,
-            lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
-        ) as (
-            err_session,
-            _err_job,
-        ):
-            from sqlalchemy import update as sa_update
+        try:
+            async with _job_phase_session(
+                job_uuid,
+                phase="error_write",
+                attempt_id=attempt_uuid,
+                lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
+            ) as (
+                err_session,
+                _err_job,
+            ):
+                from sqlalchemy import update as sa_update
 
-            await err_session.execute(
-                sa_update(IngestJob)
-                .where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                    IngestJob.status == "running",
+                await err_session.execute(
+                    sa_update(IngestJob)
+                    .where(
+                        IngestJob.id == job_uuid,
+                        IngestJob.attempt_id == attempt_uuid,
+                        IngestJob.status == "running",
+                    )
+                    .values(
+                        status="failed",
+                        error_message=str(exc),
+                        completed_at=datetime.now(timezone.utc),
+                    )
                 )
-                .values(
-                    status="failed",
-                    error_message=str(exc),
-                    completed_at=datetime.now(timezone.utc),
-                )
-            )
-            await err_session.commit()
-        final_status = "failed"
+                await err_session.commit()
+        finally:
+            # fix(#1213 review r1, #1950): the `finally` reapers gate on THIS
+            # variable, so every exit from this handler sets it — the bounded
+            # error write above can raise past a positional assignment.
+            final_status = "failed"
         # EVENT-03: notify on ingest failed (non-fatal, after commit — deferred import).
         # status="failed" is already committed above (err_session.commit) so a
         # notification error cannot roll back or alter the terminal job write

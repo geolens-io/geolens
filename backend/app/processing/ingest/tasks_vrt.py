@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
+    arm_job_error_write_budget,
     claim_job_attempt_and_start_heartbeat,
     maintain_vrt_generation_heartbeat,
     require_ingest_job_update,
@@ -1590,6 +1591,10 @@ async def regenerate_vrt(
         async with async_session() as err_session:
             from sqlalchemy import update as sa_update
 
+            # fix(#1950): the publish wait above raises CatalogLockConflict on a
+            # held catalog row, so this handler runs while the job row may be
+            # contended too. All three writes below share the budget.
+            await arm_job_error_write_budget(err_session)
             await update_ingest_job_for_attempt(
                 err_session,
                 job_uuid,

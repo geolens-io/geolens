@@ -1,6 +1,6 @@
 """fix(#1950): the bound on a worker's terminal failure write.
 
-Five ingest tails settle a failed job by UPDATEing its ``ingest_jobs`` row on a
+Six ingest tails settle a failed job by UPDATEing its ``ingest_jobs`` row on a
 fresh session. That UPDATE runs under a 10-second budget, so a held row ends it
 instead of parking the worker while the heartbeat reports the job alive.
 """
@@ -34,26 +34,72 @@ pytestmark = pytest.mark.anyio
 _TEST_BUDGET_MS = 400
 
 
-def _error_write_bracket_budget() -> str | None:
-    """The name ``ingest_raster``'s error-write bracket passes as its budget."""
-    tree = ast.parse(Path(tasks_raster.__file__).read_text())
+def _arm_call_lines(tree: ast.AST) -> list[int]:
+    """Line numbers of every ``arm_job_error_write_budget`` call in *tree*."""
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "arm_job_error_write_budget"
+    ]
+
+
+def _method_call_lines(tree: ast.AST, attr: str) -> list[int]:
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == attr
+    ]
+
+
+def _failed_status_lines(tree: ast.AST) -> list[int]:
+    """Line numbers of every ``status="failed"`` keyword or dict entry."""
+    lines = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.keyword)
+        and node.arg == "status"
+        and isinstance(node.value, ast.Constant)
+        and node.value.value == "failed"
+    ]
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
+        if not isinstance(node, ast.Dict):
             continue
-        if getattr(node.func, "id", None) != "_job_phase_session":
-            continue
-        phases = [
-            kw.value.value
+        for key, value in zip(node.keys, node.values):
+            if (
+                isinstance(key, ast.Constant)
+                and key.value == "status"
+                and isinstance(value, ast.Constant)
+                and value.value == "failed"
+            ):
+                lines.append(key.lineno)
+    return lines
+
+
+def _is_error_write_bracket(node: ast.AST) -> bool:
+    """Whether *node* is a ``_job_phase_session(phase="error_write")`` call."""
+    return (
+        isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "_job_phase_session"
+        and any(
+            kw.arg == "phase"
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value == "error_write"
             for kw in node.keywords
-            if kw.arg == "phase" and isinstance(kw.value, ast.Constant)
-        ]
-        if phases != ["error_write"]:
-            continue
-        for kw in node.keywords:
-            if kw.arg == "lock_and_statement_timeout_ms":
-                return getattr(kw.value, "id", None)
-        return None
-    raise AssertionError("ingest_raster no longer opens an error_write bracket")
+        )
+    )
+
+
+def _bracket_budget(module) -> str | None:
+    """The name *module*'s error-write bracket passes as its budget."""
+    tree = ast.parse(Path(module.__file__).read_text())
+    for node in ast.walk(tree):
+        if _is_error_write_bracket(node):
+            for kw in node.keywords:
+                if kw.arg == "lock_and_statement_timeout_ms":
+                    return getattr(kw.value, "id", None)
+            return None
+    raise AssertionError(f"{module.__name__} opens no error_write bracket")
 
 
 class TestTheBoundIsWhereTheBlockingStatementIs:
@@ -61,33 +107,12 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
 
     def test_the_shared_helper_arms_between_its_rollback_and_its_update(self) -> None:
         tree = ast.parse(inspect.getsource(_cleanup_staging_on_failure))
-        rollbacks = [
-            node.lineno
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and getattr(node.func, "attr", None) == "rollback"
-        ]
-        arms = [
-            node.lineno
-            for node in ast.walk(tree)
-            if isinstance(node, ast.JoinedStr)
-            and any(
-                isinstance(part, ast.Constant)
-                and isinstance(part.value, str)
-                and "SET LOCAL" in part.value
-                for part in node.values
-            )
-        ]
-        failure_update = [
-            node.lineno
-            for node in ast.walk(tree)
-            if isinstance(node, ast.keyword)
-            and node.arg == "status"
-            and isinstance(node.value, ast.Constant)
-            and node.value.value == "failed"
-        ]
-        assert len(arms) == 2, (
-            f"expected a lock_timeout and a statement_timeout arm; found {len(arms)}"
+        rollbacks = _method_call_lines(tree, "rollback")
+        commits = _method_call_lines(tree, "commit")
+        arms = _arm_call_lines(tree)
+        failure_update = _failed_status_lines(tree)
+        assert len(arms) == 1, (
+            f"expected one arm_job_error_write_budget call; found {len(arms)}"
         )
         assert min(rollbacks) < min(arms), (
             "the budget is installed before the helper's rollback, which ends "
@@ -97,12 +122,104 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
             "the failure UPDATE runs before the budget is armed, so the "
             "statement that blocks on a contended job row is still unbounded"
         )
+        stranded = [
+            line
+            for line in rollbacks + commits
+            if min(arms) < line < min(failure_update)
+        ]
+        assert not stranded, (
+            f"a rollback or commit at {stranded} ends the transaction between "
+            "the arm and the failure UPDATE, so the UPDATE runs on a "
+            "transaction that carries no SET LOCAL"
+        )
 
-    def test_the_raster_tail_names_the_shared_budget(self) -> None:
-        assert _error_write_bracket_budget() == "JOB_ERROR_WRITE_TIMEOUT_MS", (
-            "ingest_raster's error-write bracket passes no "
+    @pytest.mark.parametrize(
+        "module_name", ["tasks_raster", "tasks_vector"], ids=["raster", "vector"]
+    )
+    def test_the_bracketed_tails_name_the_shared_budget(self, module_name: str) -> None:
+        import importlib
+
+        module = importlib.import_module(f"app.processing.ingest.{module_name}")
+        assert _bracket_budget(module) == "JOB_ERROR_WRITE_TIMEOUT_MS", (
+            f"{module_name}'s error-write bracket passes no "
             "lock_and_statement_timeout_ms, so _job_phase_session issues "
-            "neither SET LOCAL and the UPDATE inside it waits without end"
+            "neither SET LOCAL and the SELECT it runs before the caller gets "
+            "control can stall behind a table lock"
+        )
+
+    def test_the_raster_failure_update_is_inside_the_bounded_bracket(self) -> None:
+        """The budget belongs to a transaction, so the UPDATE's position is the gate."""
+        tree = ast.parse(Path(tasks_raster.__file__).read_text())
+        brackets = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncWith)
+            and any(_is_error_write_bracket(item.context_expr) for item in node.items)
+        ]
+        assert len(brackets) == 1, f"expected one bracket; found {len(brackets)}"
+        bracket = brackets[0]
+        inside = [
+            line
+            for line in _failed_status_lines(tree)
+            if bracket.lineno < line <= bracket.end_lineno
+        ]
+        assert inside, (
+            "ingest_raster's status=failed UPDATE is no longer inside the "
+            "bracket that installs the budget, so it runs on a transaction "
+            "carrying no SET LOCAL while the kwarg gate stays green"
+        )
+
+    def test_the_vrt_regeneration_tail_arms_before_its_writes(self) -> None:
+        """`regenerate_vrt` reaches this handler from its own bounded publish wait."""
+        import app.processing.ingest.tasks_vrt as tasks_vrt
+
+        tree = ast.parse(inspect.getsource(tasks_vrt.regenerate_vrt.func))
+        arms = _arm_call_lines(tree)
+        assert len(arms) == 1, (
+            "regenerate_vrt's failure handler opens a bare async_session() with "
+            "no budget, so a contended job row parks the worker there — and the "
+            "publish wait above it gives up after 15s and lands exactly here"
+        )
+        assert min(arms) < min(_failed_status_lines(tree)), (
+            "the budget is armed after the writes it exists to bound"
+        )
+
+    @pytest.mark.parametrize(
+        ("module_name", "task_name"),
+        [
+            ("tasks_vector", "ingest_file"),
+            ("tasks_raster", "ingest_raster"),
+            ("tasks_reupload", "reupload_file"),
+        ],
+    )
+    def test_the_terminal_status_survives_a_raised_error_write(
+        self, module_name: str, task_name: str
+    ) -> None:
+        """The reapers in each `finally` gate on it, and the error write can raise."""
+        import importlib
+
+        module = importlib.import_module(f"app.processing.ingest.{module_name}")
+        target = getattr(module, task_name)
+        tree = ast.parse(inspect.getsource(getattr(target, "func", target)))
+        protected = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Try)
+            and any(
+                isinstance(stmt, ast.Assign)
+                and any(
+                    isinstance(t, ast.Name) and t.id == "final_status"
+                    for t in stmt.targets
+                )
+                and isinstance(stmt.value, ast.Constant)
+                and stmt.value.value == "failed"
+                for stmt in node.finalbody
+            )
+        ]
+        assert protected, (
+            f"{task_name} sets final_status='failed' positionally after its "
+            "error write. That write is bounded now and can raise, leaving the "
+            "status 'pending' so the finally-block reapers return early"
         )
 
     @pytest.mark.parametrize(
@@ -159,6 +276,9 @@ class TestAHeldJobRowEndsTheFailureWrite:
         self, running_job, monkeypatch, test_db_session
     ) -> None:
         job_id, _attempt_id = running_job
+        # `arm_job_error_write_budget` reads this as a global of its OWN module,
+        # resolved per call, so no import placement elsewhere can sever the
+        # patch. The upper bound below is what proves the patch was read.
         monkeypatch.setattr(
             "app.platform.jobs.heartbeat.JOB_ERROR_WRITE_TIMEOUT_MS", _TEST_BUDGET_MS
         )
@@ -196,6 +316,12 @@ class TestAHeldJobRowEndsTheFailureWrite:
             f"the failure write gave up after {round(waited_ms)}ms against a "
             f"{_TEST_BUDGET_MS}ms budget, so this run proves nothing about it"
         )
+        assert waited_ms < _TEST_BUDGET_MS * 5, (
+            f"the failure write waited {round(waited_ms)}ms, far past the "
+            f"{_TEST_BUDGET_MS}ms this test installs. The monkeypatch did not "
+            "reach the budget the code read, so this run measures the shipped "
+            "10s constant and would pass with the patch severed entirely"
+        )
         assert sqlstate(excinfo.value) == "57014", (
             f"the held row ended the failure write with {sqlstate(excinfo.value)!r}. "
             "Both GUCs are armed at the same value and the blocking statement is "
@@ -220,7 +346,7 @@ class TestAHeldJobRowEndsTheFailureWrite:
         job_id, attempt_id = running_job
         # The budget comes from the real call site, so a bracket that stops
         # passing one fails here as well as in the structural gate.
-        budget_name = _error_write_bracket_budget()
+        budget_name = _bracket_budget(tasks_raster)
         assert budget_name is not None, "the error-write bracket passes no budget"
         monkeypatch.setattr(tasks_raster, budget_name, _TEST_BUDGET_MS)
         import app.core.db as db_module
@@ -234,7 +360,11 @@ class TestAHeldJobRowEndsTheFailureWrite:
             ) as (err_session, _err_job):
                 await err_session.execute(
                     sa_update(IngestJob)
-                    .where(IngestJob.id == job_id, IngestJob.status == "running")
+                    .where(
+                        IngestJob.id == job_id,
+                        IngestJob.attempt_id == attempt_id,
+                        IngestJob.status == "running",
+                    )
                     .values(status="failed", error_message="cog build failed")
                 )
                 await err_session.commit()
@@ -253,6 +383,11 @@ class TestAHeldJobRowEndsTheFailureWrite:
         assert waited_ms >= _TEST_BUDGET_MS * 0.8, (
             f"the failure write gave up after {round(waited_ms)}ms against a "
             f"{_TEST_BUDGET_MS}ms budget, so this run proves nothing about it"
+        )
+        assert waited_ms < _TEST_BUDGET_MS * 5, (
+            f"the failure write waited {round(waited_ms)}ms, far past the "
+            f"{_TEST_BUDGET_MS}ms this test installs, so it is measuring some "
+            "budget other than the one it set"
         )
         assert sqlstate(excinfo.value) == "57014", (
             f"the held row ended the failure write with {sqlstate(excinfo.value)!r}; "

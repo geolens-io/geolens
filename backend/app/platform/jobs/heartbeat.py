@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import update
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.jobs.models import IngestJob
@@ -122,10 +122,25 @@ async def claim_ingest_job_attempt(
     return bool(result.rowcount)  # type: ignore[attr-defined]
 
 
-# fix(#1950): the budget a worker's terminal failure write spends on its own
-# ingest_jobs row. Holders self-cap far below it (`cancel_job` at 2s; the sweep
-# and startup recovery take candidates SKIP LOCKED), so a longer wait is stuck.
+# fix(#1950): the budget an attempt-fenced failure write spends on its own
+# ingest_jobs row. A long holder is a LATER attempt's phase bracket, whose id
+# the fence no longer matches, so no wait starts and a wait past this is stuck.
 JOB_ERROR_WRITE_TIMEOUT_MS = 10_000
+
+
+async def arm_job_error_write_budget(session: AsyncSession) -> None:
+    """Bound this transaction's wait on the job row at the error-write budget.
+
+    Issue it on the transaction that carries the failure UPDATE and after any
+    rollback on that session: ``SET LOCAL`` dies with the transaction, so an
+    arm placed before a rollback or a commit is gone by the next statement.
+    """
+    await session.execute(
+        text(f"SET LOCAL lock_timeout = {JOB_ERROR_WRITE_TIMEOUT_MS}")
+    )
+    await session.execute(
+        text(f"SET LOCAL statement_timeout = {JOB_ERROR_WRITE_TIMEOUT_MS}")
+    )
 
 
 async def update_ingest_job_for_attempt(
