@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, Link, useNavigate, useLocation } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Database } from 'lucide-react';
@@ -183,6 +183,8 @@ export function DatasetPage() {
   const { data: validationData } = useValidation(token ? id : undefined);
   const { data: featureFlags } = useFeatureFlags();
   const [activeTab, setActiveTab] = useState(getInitialTab);
+  const navigate = useNavigate();
+  const location = useLocation();
   const [pendingNavigationAnchor, setPendingNavigationAnchor] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const { effectiveGid, setReadOnlyFeatureGid } = useFeatureGid();
@@ -249,13 +251,20 @@ export function DatasetPage() {
   // or created via a non-ingest path.
   const { data: datasetJob } = useDatasetJobStatus(id ?? null);
 
-  const handleTabChange = useCallback((value: string) => {
-    setActiveTab(value);
-    window.location.hash = value;
-    if (value !== 'data') {
-      setIsDataTabExpanded(false);
-    }
-  }, []);
+  const handleTabChange = useCallback(
+    (value: string) => {
+      setActiveTab(value);
+      // fix(#1991): router navigation, not a raw `window.location.hash` write.
+      // The raw write is a POP the data router did not create, which disarms
+      // useUnsavedGuard's blocker. `search` is passed because a partial `to`
+      // defaults it to empty and would drop the query string.
+      navigate({ search: location.search, hash: value });
+      if (value !== 'data') {
+        setIsDataTabExpanded(false);
+      }
+    },
+    [navigate, location.search],
+  );
 
   const updateDataset = useUpdateDataset();
   const hasUnsavedChanges = metadataPendingCount > 0 || isGeometryEditDirty;
