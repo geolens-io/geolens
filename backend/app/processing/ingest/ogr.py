@@ -804,7 +804,8 @@ async def run_ogrinfo_preview(
 
     source = _resolve_source_path(file_path)
     # fix(#1846, GHSA-hrf5-v3cq-frx5): preview returns rows to the caller, so
-    # it must not ask an unrestricted driver set what the file is.
+    # it must not ask an unrestricted driver set what the file is, and a
+    # database whose schema reads from outside the file must not reach it.
     await run_in_thread_draining(validate_content_directives, file_path)
     driver_args = local_input_driver_args(file_path)
 
@@ -1125,7 +1126,8 @@ async def run_ogr2ogr_service(
         # MultiCurve) in their schema; ogr2ogr honours that, but when
         # concrete features (MultiPolygon) arrive, the post-ingest
         # bounds-clip UPDATE in clip_to_mercator_bounds
-        # (metadata_mercator.py) fails on a type mismatch. -nlt GEOMETRY
+        # (metadata_mercator.py) fails with "Geometry type (MultiPolygon)
+        # does not match column type (MultiSurface)". -nlt GEOMETRY
         # emits a constraint-free `geometry(Geometry, 4326)` column instead,
         # so any concrete subtype is accepted. The concrete
         # Dataset.geometry_type is derived post-ingest via

@@ -73,8 +73,9 @@ def gdal_vector_safe_env() -> dict[str, str]:
     that allowlist decides what MAY open the file, this decides what never
     can, and the two are independent so a gap in either isn't a way through.
 
-    Deliberately omits the raster ``_VRT_SAFE_ENV`` clamps — they gate the
-    ``/vsicurl`` handler and raster pyramids, neither of which apply here.
+    Deliberately omits the raster ``_VRT_SAFE_ENV`` clamps: they gate the
+    ``/vsicurl`` handler, which the OGR service drivers do not go through, so
+    carrying them here would read as protection on paths that have none.
     """
     return _gdal_skip_env(_NETWORK_AND_POINTER_DRIVERS)
 

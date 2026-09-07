@@ -48,7 +48,7 @@ class Map(Base):
             "forked_from",
             postgresql_where=text("forked_from IS NOT NULL"),
         ),
-        # DBM-06: no composite (visibility, created_by) index — db-audit M-18
+        # DBM-06: no composite Map.visibility + created_by index; db-audit M-18
         # suggested one, but EXPLAIN showed no seq scan below ~10k rows; the
         # write + disk cost isn't worth it until row count crosses that.
         {"schema": "catalog"},

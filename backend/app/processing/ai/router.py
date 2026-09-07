@@ -296,10 +296,10 @@ async def _validate_chat_layers(
     (owner-or-admin) selects the AI tool set — a view-only caller gets
     read-only tools.
 
-    **Visibility:** does NOT filter by ``visible`` — that's a viewer-only
-    decluttering signal, not "do not analyze this". A future visible-only
-    scope needs an explicit ``include_hidden: bool``, not a silent change
-    here.
+    **Visibility (Pitfall #5, AI-04):** does NOT filter by ``visible``;
+    analysis sees every layer regardless of visibility state, which is a
+    viewer-only decluttering signal. A future visible-only scope needs an
+    explicit ``include_hidden: bool``, not a silent change here.
 
     Returns (validated_layers, basemap_style, can_edit).
     """

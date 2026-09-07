@@ -489,10 +489,12 @@ async def _job_phase_session(
     resume after a stale-job sweep has failed the row — a worker that was
     only paused (not dead) can still hold a matching ``attempt_id`` and
     resume into a terminal row otherwise. This also switches the SELECT to
-    ``FOR NO KEY UPDATE``, holding the row lock until commit so the sweep's
-    ``SELECT ... FOR UPDATE SKIP LOCKED`` pass excludes this row instead of
-    racing it. Leave ``None`` for phase 1 (before the row reaches
-    ``running``) or ``error_write`` (must record regardless of status).
+    ``FOR NO KEY UPDATE``, holding the row lock until commit so the
+    ``SELECT ... FOR UPDATE SKIP LOCKED`` passes in sweep.py and worker.py's
+    startup recovery exclude this row instead of racing it. Leave ``None`` for
+    phase 1 (before the row reaches ``running``) or ``error_write`` (must
+    record regardless of status: a raster tail's object-storage put is not
+    undone by any rollback).
     """
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob

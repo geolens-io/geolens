@@ -545,9 +545,9 @@ async def revoke_embed_tokens_by_map(
     visibility-downgrade paths used to flip only MapShareToken.is_active,
     never EmbedToken, so a copied embed token kept serving tiles until its
     natural expiry. Wired into the share-revoke, public->non-public
-    downgrade, and layer-change paths. Deletes the positive-cache entry
-    too, so the 5-minute TTL cannot extend access past revocation. Returns
-    the number of tokens revoked.
+    downgrade, and layer-change paths. Writes a denial over the positive
+    cache entry (#1778), so the 5-minute TTL cannot extend access past
+    revocation. Returns the number of tokens revoked.
     """
     result = await db.execute(
         select(EmbedToken).where(
@@ -666,6 +666,10 @@ async def resolve_embed_scope_for_map(
     inactive, expired, wrong-map, or origin-denied token -- same rules as
     validate_embed_token_access. No caching or usage tracking: this
     endpoint is low-QPS, called once per viewer load.
+
+    The ``map_id`` equality pins the tenant: map ids are globally unique and
+    callers resolve ``map_id`` from their own share token, so there is no
+    separate tenant re-check.
     """
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     result = await db.execute(

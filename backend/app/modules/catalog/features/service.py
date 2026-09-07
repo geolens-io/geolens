@@ -1183,10 +1183,13 @@ async def lock_catalog_rows_for_write(
     """Take this dataset's catalog rows in the house order, then read its extent.
 
     Entry point to `platform.catalog_locks.lock_catalog_rows` — call from
-    ANY request path that dirties either row. Returns None unless the
-    extent is a simple POLYGON (#934). fix(#1778): the lock must be taken
-    before either metadata path reads the extent, or interleaved
-    read-decide-write could shrink it from a stale aggregate.
+    ANY request path that dirties either row. Returns None unless the extent
+    is a simple POLYGON (#934): an antimeridian-crossing dataset stores a
+    two-ring MULTIPOLYGON whose ST_XMin/ST_XMax are -180/180, so a longitude
+    in the gap would test inside a box the geometry never occupies.
+    fix(#1778): the lock must be taken before either metadata path reads the
+    extent, or interleaved read-decide-write could shrink it from a stale
+    aggregate.
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
     from app.modules.catalog.datasets.domain.models import Record

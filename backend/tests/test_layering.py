@@ -3629,7 +3629,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r2-r5): +55 — `load_job_for_error_write`, the guarded job
     # load the two re-upload tails share, which also ends the transaction on a
     # miss so the run row they write next is unbudgeted. Cap 2668 -> 2723, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2419,
+    "backend/app/processing/ingest/tasks_common.py": 2421,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4940,7 +4940,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # file. Cap 1428 -> 1433, exact.
     # fix(#1828): +6. `run_ogr2ogr_service` refuses a credentialed WFS that
     # names no layer before the origin check and the spawn. Cap 1433 -> 1439.
-    "backend/app/processing/ingest/ogr.py": 1305,
+    "backend/app/processing/ingest/ogr.py": 1307,
     # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
     # 1000-line threshold when the content check landed: the SQLite schema
     # reader, the archive member walk that identifies members by their bytes
@@ -6146,7 +6146,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # from answer 403, and the licensing refusal on the same handler answers
     # 400, so the status is what separates "your deployment cannot do that"
     # from "you cannot see that data". Cap 1254 -> 1255, exact.
-    "backend/app/modules/embed_tokens/service.py": 1026,
+    "backend/app/modules/embed_tokens/service.py": 1030,
     # fix(#1778): first entry for this module — it crossed the 1000-line
     # inclusion threshold on the property-filter typing. Property filters used
     # to bind the raw query-string value, so PostgreSQL had no
@@ -6237,7 +6237,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # prove only the rows in hand. That reasoning is most of the added lines.
     # Cap 1507 -> 1541, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1560, exact.
-    "backend/app/modules/catalog/features/service.py": 1385,
+    "backend/app/modules/catalog/features/service.py": 1388,
 }
 
 

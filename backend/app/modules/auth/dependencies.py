@@ -42,7 +42,8 @@ def _predates_revocation_horizon(payload: Mapping, user: User) -> bool:
     same-second case; rounding the other way breaks logout-then-immediate
     re-login.
 
-    Missing/non-numeric ``iat`` is treated as 0 (always rejected). Coerced
+    Runs alongside the version check and never replaces it. Missing or
+    non-numeric ``iat`` is treated as 0 (rejected once a horizon exists). Coerced
     rather than compared directly because PyJWT leaves ``iat`` as a numeric
     STRING after validation, and ``"1" < 1`` raises instead of comparing.
     """
@@ -502,7 +503,9 @@ async def get_optional_user_no_security_schema(
     anonymous.
 
     fix(#1518): delegates to ``get_optional_user``, so it still inherits the
-    fail-closed rule; only the schema marker is opted out of.
+    fail-closed rule; only the schema marker is opted out of. Pointing it at
+    ``_resolve_optional_identity`` would restore the split on the public STAC
+    routes without tripping the fail-open allowlist test.
     """
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else None
