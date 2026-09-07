@@ -14,12 +14,14 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _tile_pool: asyncpg.Pool | None = None
 
-# The longest one tile query may hold a connection before asyncpg cancels it.
+# Bounds ONE command. A tile request issues several on the connection it holds,
+# so this is not a bound on how long any holder keeps one.
 TILE_POOL_COMMAND_TIMEOUT_SECONDS = 10
 
-# fix(#1926): a waiter this long has outlasted every holder's own deadline, so
-# the pool is saturated rather than busy and the request is shed with a 429.
-TILE_POOL_ACQUIRE_TIMEOUT_SECONDS = TILE_POOL_COMMAND_TIMEOUT_SECONDS
+# fix(#1926): CHOSEN, not derived -- nothing the pool declares bounds queue
+# depth. Paired with the handler's `Retry-After: 2` so a shed caller retries
+# inside a map viewer's patience. Also bounds asyncpg's connection release.
+TILE_POOL_ACQUIRE_TIMEOUT_SECONDS = 3.0
 
 
 def _validate_tile_database_isolation() -> None:
