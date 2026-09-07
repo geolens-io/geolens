@@ -1,7 +1,7 @@
-"""Per-user upload and storage quota enforcement service (QUOTA-01..03).
+"""Per-user upload and storage quota enforcement service.
 
 Core check is authoritative for community and enterprise editions. The
-EntitlementPort enforce_limit calls are an additive cloud seam (QUOTA-03):
+EntitlementPort enforce_limit calls are an additive cloud seam:
 in OSS/Enterprise the DefaultEntitlementPort is grant-all and never raises.
 
 Ownerless datasets (policy, #1293): every seam here resolves the billed
@@ -69,7 +69,7 @@ async def get_user_quota_usage(
     a NULL ``user_id`` reads zero and every other seam inherits that
     through this function.
 
-    T-1224-01: user_id is bound via SQLAlchemy parameterisation, never
+    user_id is bound via SQLAlchemy parameterisation, never
     string-formatted into the SQL text.
     """
     sql = text(
@@ -180,11 +180,11 @@ async def check_upload_quota(
     Never raises when either cap is 0 (the default unlimited config).
 
     After the core checks, calls enforce_limit as the EntitlementPort cloud
-    extension seam (QUOTA-03).  In OSS/Enterprise the seam is a no-op.
+    extension seam.  In OSS/Enterprise the seam is a no-op.
     """
     usage = await get_user_quota_usage(db, user_id)
 
-    # QUOTA-01: byte cap enforcement (CORE — no entitlement port required)
+    # Byte cap enforcement (CORE, no entitlement port required)
     if (
         usage.storage_cap > 0
         and (usage.bytes_used + incoming_bytes) > usage.storage_cap
@@ -197,7 +197,7 @@ async def check_upload_quota(
             ),
         )
 
-    # QUOTA-02: dataset-count cap enforcement (CORE)
+    # Dataset-count cap enforcement (CORE)
     if usage.count_cap > 0 and usage.dataset_count >= usage.count_cap:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -207,7 +207,7 @@ async def check_upload_quota(
             ),
         )
 
-    # QUOTA-03: EntitlementPort cloud extension seam (OSS/Enterprise = no-op)
+    # EntitlementPort cloud extension seam (OSS/Enterprise = no-op)
     await enforce_limit(request, "storage_bytes", usage.bytes_used + incoming_bytes)
     await enforce_limit(request, "dataset_count", usage.dataset_count + 1)
 
@@ -332,7 +332,7 @@ class StorageQuotaExceededError(Exception):
 async def reserve_storage_bytes(
     db: AsyncSession, user_id: uuid.UUID | None, incoming_bytes: int
 ) -> None:
-    """Atomically reserve ``incoming_bytes`` against the per-user byte cap (BA-23).
+    """Atomically reserve ``incoming_bytes`` against the per-user byte cap.
 
     ``check_upload_quota`` checks at upload time with no serialization, so N
     concurrent uploads can all read the same pre-upload usage, all pass,

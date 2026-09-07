@@ -90,21 +90,19 @@ def _log_publish_wait_failure(
 def read_vrt_metadata(vrt_path: str) -> dict:
     """``extract_raster_metadata`` on a built VRT, under the safe open env.
 
-    fix(#1778). Steps 6 and 8 below open every ``/vsis3`` source the assembled
-    VRT names, in-process rather than through a subprocess, so they are the one
-    place in this task that ``GDAL_SUBPROCESS_TIMEOUT_SECONDS`` does not reach.
-    ``_VRT_SAFE_ENV`` carries the ``GDAL_HTTP_*`` clamps that bound them, and a
-    rasterio ``Env`` sets thread-local GDAL config, so the env has to be entered
-    INSIDE the ``asyncio.to_thread`` call rather than around it. That is the
-    whole reason this is a function and not a ``with`` block at the call site.
+    fix(#1778): steps 6 and 8 below open every ``/vsis3`` source the
+    assembled VRT names in-process rather than through a subprocess, so
+    they're the one place ``GDAL_SUBPROCESS_TIMEOUT_SECONDS`` doesn't
+    reach. A rasterio ``Env`` sets thread-local GDAL config, so
+    ``_VRT_SAFE_ENV`` must be entered INSIDE the ``asyncio.to_thread`` call
+    rather than around it — the whole reason this is a function, not a
+    ``with`` block at the call site.
 
-    fix(#1778 codex r3): it lives in THIS module, and calls
-    ``extract_raster_metadata`` through the module global rather than a local
-    import, because that name is a patch target
-    (``test_regenerate_vrt_integration``'s ``quicklook_stub`` patches its peer
-    the same way). An earlier revision put both wrappers in ``raster/vrt.py``
-    with function-level imports, which removed the attribute the fixture
-    patches and made the patch a no-op in the same stroke.
+    fix(#1778): lives in THIS module and calls
+    ``extract_raster_metadata`` through the module global (not a local
+    import) because that name is a patch target for
+    ``test_regenerate_vrt_integration``; a function-level import there
+    made the patch a no-op.
     """
     with gdal_safe_open_env():
         return extract_raster_metadata(vrt_path)
@@ -129,15 +127,13 @@ async def _reap_superseded_generation_objects(
 ) -> None:
     """Delete the objects the published generation superseded.
 
-    fix(#1778 codex r2): named and shared because ``regenerate_vrt`` reaches
-    it from two places now, the ordinary success path and the stand-down a
-    lost commit acknowledgement takes. It is the ONLY deletion of the previous
-    generation's artifact, and the committed asset already names the new one,
-    so a path that skips it strands bytes no row references and no quota
-    counts.
+    fix(#1778): shared because ``regenerate_vrt`` reaches it from
+    two places (the success path and the stand-down for a lost commit ack)
+    — the ONLY deletion of the previous generation's artifact, so a path
+    that skips it strands bytes no row references and no quota counts.
 
-    The ``not in written`` filter is what makes a regeneration that produced
-    byte-identical output a no-op rather than a self-inflicted delete.
+    The ``not in written`` filter makes a byte-identical regeneration a
+    no-op rather than a self-inflicted delete.
     """
     from app.processing.ingest.tasks_raster import _cleanup_orphaned_storage_keys
 
@@ -172,24 +168,15 @@ async def snapshot_member_sources(
 ):
     """Stamp the instant, THEN read the members. Returns ``(snapshot_at, assets)``.
 
-    fix(#1290 review). ``last_regenerated_at`` names the state a VRT was built
-    FROM, and that only works if the instant predates the read it describes.
-    Both VRT tails need that ordering and neither could be trusted to keep it:
-    the creation tail had no snapshot at all, and the regenerate tail captured
-    one AFTER its member query. So the ordering lives here, inside the only
-    function that does the read, where writing it the wrong way round is not
-    possible rather than merely discouraged. Third instance of the two-tails
-    class on this PR — after reserve-before-upsert and the COG policy — and the
-    durable fix each time was one authority both tails must cross.
+    fix(#1290): ``last_regenerated_at`` names the state a VRT was
+    built FROM, which only holds if the instant predates the read — shared
+    by both VRT tails so neither can get the order wrong.
 
-    The direction of the remaining error is the point. Stamping BEFORE the read
-    means a replacement landing in the (tiny) stamp→read window is already
-    visible to the read, so the build uses the NEW URI while ``ingested_at``
-    postdates the stamp: the parent reports ``stale`` when it is in fact fine,
-    and an operator regenerates once for nothing. Stamping after the read
-    inverts that into a parent whose stored VRT references a reaped COG being
-    reported ``healthy``. A needless regenerate is cheap and self-correcting; a
-    masked broken mosaic is neither.
+    Direction matters: stamping BEFORE the read means a replacement
+    landing in the tiny stamp-to-read window is already visible, so at
+    worst the parent reports `stale` when it's fine (a cheap, self-
+    correcting extra regenerate). Stamping after would let a parent whose
+    VRT references a reaped COG report `healthy` — a masked broken mosaic.
     """
     snapshot_at = datetime.now(timezone.utc)
     result = await session.execute(
@@ -205,7 +192,7 @@ async def snapshot_member_sources(
 def built_from_map(ordered_assets) -> dict:
     """``{dataset_id: asset_uri}`` for the members a build is assembling.
 
-    fix(#1290 review). This is what makes staleness a STATE question. The
+    fix(#1290). This is what makes staleness a STATE question. The
     health endpoint compares each member's current committed ``asset_uri``
     against the entry recorded here, so "the stored VRT references a superseded
     COG" is answered by comparing what-is to what-was-built-from rather than by
@@ -218,21 +205,17 @@ def built_from_map(ordered_assets) -> dict:
 def staged_source_ids_or_none(generation) -> list[uuid.UUID] | None:
     """The generation's staged member set as UUIDs, or None when it stages none.
 
-    fix(#1327). NULL means "this generation changes no membership" — a plain
-    regenerate, or any generation queued before ``staged_source_ids`` existed.
-    Both build from the live link rows and apply nothing, so the caller gets one
-    fallback with two producers rather than a version check.
+    fix(#1327): NULL means "this generation changes no membership" — a
+    plain regenerate, or one queued before ``staged_source_ids`` existed.
+    Both build from the live link rows, so one fallback covers two
+    producers. A JSONB ``null`` also reads back as Python ``None``
+    (the same trap #1322 hit in SQL), and a non-list value falls to the
+    same None answer.
 
-    A JSONB column also reads back Python ``None`` when it holds the JSON scalar
-    ``null`` (SQLAlchemy's plain JSONB serializes an assigned ``None`` that way
-    rather than as SQL NULL — the same trap #1322 hit in SQL), and a non-list
-    value cannot be a member set either. Both fall to the same None answer as a
-    genuinely absent one.
-
-    Everything else about the value is checked HERE, at claim time, before a
-    single byte is built: an empty set, an unparseable id or a repeated id is a
-    staged intent that cannot be published, and failing on it now costs a job
-    instead of a GDAL build plus an obscure ON CONFLICT error at apply time.
+    Everything else about the value is checked HERE, at claim time,
+    before a single byte is built: an empty set, an unparseable id, or a
+    repeated id fails now (costing a job) rather than at apply time
+    (costing a GDAL build plus an obscure ON CONFLICT error).
     """
     staged = getattr(generation, "staged_source_ids", None)
     if not isinstance(staged, list):
@@ -251,21 +234,16 @@ def staged_source_ids_or_none(generation) -> list[uuid.UUID] | None:
 async def apply_staged_source_links(session, vrt_dataset_id, source_ids) -> None:
     """Make ``vrt_source_links`` equal ``source_ids``, positions from order.
 
-    fix(#1327). Called only from the publish transaction — the same one that
-    swaps ``asset_uri`` and writes ``built_from`` — so the catalog's declared
-    composition becomes visible at the instant the artifact built from it does,
-    and never before.
+    fix(#1327): called only from the publish transaction that also swaps
+    ``asset_uri`` and writes ``built_from``, so the declared composition
+    becomes visible at the instant the built artifact does.
 
-    A replace, not a diff: an upsert over the whole staged set followed by a
-    delete of everything else for this VRT. Re-running it is a no-op, which is
-    what makes a retry safe, and it needs no knowledge of what the links held
-    when the set was staged. The upsert (rather than delete-then-insert)
-    preserves ``created_at`` on rows that survive the change, so a member's
-    "linked since" is not reset by an unrelated add or remove.
-
-    The empty guard is a precondition, not a second validation: the caller
-    already refuses an empty staged set at claim time. Here it stops an empty
-    list from compiling into ``NOT IN ()`` and deleting every link a VRT has.
+    A replace, not a diff: upsert the whole staged set, then delete
+    everything else for this VRT — idempotent (safe to retry), and the
+    upsert preserves ``created_at`` on surviving rows. The empty guard
+    stops an empty list from compiling into ``NOT IN ()`` and deleting
+    every link a VRT has (the caller already refuses an empty staged set
+    at claim time; this is a precondition, not a second validation).
     """
     from sqlalchemy import delete
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -352,12 +330,9 @@ async def create_vrt_dataset(
         summary=summary,
         record_type="vrt_dataset",
         visibility=visibility,
-        # Mirror the vector ingest path (datasets/service.py
-        # `create_dataset_record`) and the raster ingest helper above, which
-        # commit directly to `published`.
-        # Without this a public VRT stayed in `draft`, and the anonymous
-        # raster tile-access check at tiles/router.py `_resolve_raster_access`
-        # returned 404 for every public VRT tile request.
+        # Mirrors the vector ingest path and the raster ingest helper
+        # above, which commit directly to `published` — otherwise a public
+        # VRT stayed in `draft` and 404'd on public tile access.
         record_status=record_status,
         # fix(#302): created_by was never set on VRT records, leaving them
         # NULL and invisible to the per-user quota count and owner checks.
@@ -377,12 +352,9 @@ async def create_vrt_dataset(
         source_format=None,  # VRT datasets have no source_format (avoids chk constraint)
         source_filename=source_filename,
         srid=meta.get("epsg"),
-        # fix(#1218 review): stamped like every other creation path. A VRT has
-        # no origin (it is composed from other datasets), but assembling it IS
-        # a successful materialization, and migration 0036 backfills a
-        # timestamp onto pre-existing VRTs the same way. Python value, not
-        # func.now(): a SQL expression leaves the attribute expired and the
-        # next read lazy-loads.
+        # fix(#1218): stamped like every other creation path —
+        # assembling a VRT IS a successful materialization. Python value,
+        # not func.now(): a SQL expression leaves the attribute expired.
         last_refreshed_at=datetime.now(timezone.utc),
     )
     session.add(dataset)
@@ -399,13 +371,13 @@ async def create_vrt_dataset(
         driver="VRT",
         storage_backend="local",
         ingested_at=datetime.now(timezone.utc),
-        # fix(#1290 review): the instant the members were READ, so a
-        # never-regenerated parent does not fall back to a publish-time
-        # `ingested_at` in the staleness comparison. Optional only because the
-        # manifest-VRT caller has no snapshot of its own; the build path always
+        # fix(#1290): the instant the members were READ, so a
+        # never-regenerated parent doesn't fall back to publish-time
+        # `ingested_at` in the staleness comparison. Optional only because
+        # the manifest-VRT caller has no snapshot; the build path always
         # supplies it.
         last_regenerated_at=snapshot_at,
-        # fix(#1290 review): the authoritative staleness input. The timestamp
+        # fix(#1290): the authoritative staleness input. The timestamp
         # above stays for legacy rows that have no built-from set.
         built_from=built_from,
         crs_wkt=meta.get("crs_wkt"),
@@ -476,11 +448,9 @@ async def ingest_vrt(
     12. Set job.dataset_id on completion
     13. Invalidate cache, defer embedding
 
-    Session lifecycle (gh #100): the AsyncSession is split into two short-lived
-    blocks so it is NOT held open across the long-running CPU work in steps 5-8
-    (gdalbuildvrt subprocess, rasterio metadata extraction, sha256, quicklook
-    generation — each runs via ``asyncio.to_thread``). See
-    ``.planning/debug/worker-missing-greenlet-100.md`` for the full diagnosis.
+    Session lifecycle (gh #100): the AsyncSession is split into two
+    short-lived blocks so it is NOT held open across the long-running CPU
+    work in steps 5-8 (each runs via ``asyncio.to_thread``).
     """
     _bind_task_log_context(task_name="ingest_vrt", job_id=job_id)
     import asyncio
@@ -508,7 +478,7 @@ async def ingest_vrt(
         return
     job_uuid, attempt_uuid = resolved
     tmp_dir: str | None = None
-    # fix(#430 BA-30): track storage puts so a failure after put (terminal commit /
+    # fix(#430): track storage puts so a failure after put (terminal commit /
     # later phase-2 step) reaps the VRT + quicklook bytes instead of orphaning
     # them forever — the GAP-017 guard ingest_raster already has.
     written_storage_keys: list[str] = []
@@ -551,7 +521,7 @@ async def ingest_vrt(
             ids = [uuid.UUID(sid) for sid in _json.loads(source_dataset_ids)]
 
             # 3. Load RasterAsset rows for source datasets, stamped first.
-            # fix(#1290 review): the creation tail had NO snapshot instant, so
+            # fix(#1290): the creation tail had NO snapshot instant, so
             # a member replaced during the initial build was masked exactly as
             # it was on regenerate — the status comparison falls back to the
             # parent's `ingested_at` when `last_regenerated_at` is NULL, and
@@ -594,21 +564,16 @@ async def ingest_vrt(
         asset_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
         vrt_size = os.path.getsize(vrt_path)
 
-        # fix(#1778 codex r4): the same treatment `ingest_raster` gets, and for
-        # the same reason. Steps 10 and 11 put the VRT and its quicklooks
-        # before the terminal commit, and `written_storage_keys` is a local
-        # list: a kill between the put and that commit loses it with the
-        # process AND rolls back the dataset row whose id the keys embed, so
-        # nothing left alive could reconstruct them. Recording the intended
-        # keys on the durable job row before the first put is what makes them
-        # nameable, and both stale-job passes reap what no live row references.
-        #
-        # The id is decided here rather than by the phase-2 INSERT because the
-        # keys embed it and the job row has to be able to name them before the
-        # transaction that can roll it away opens. It is generated per task
-        # invocation, so a retry cannot reproduce one: that is this tail's
-        # attempt fence, the same one `ingest_raster` relies on, and the reason
-        # these keys need no `attempts/` segment of their own.
+        # fix(#1778): same treatment as `ingest_raster`. Steps 10-11
+        # put the VRT/quicklooks before the terminal commit, and
+        # `written_storage_keys` is a local list — a kill between put and
+        # commit loses it with the process and rolls back the dataset row
+        # whose id the keys embed. Recording the intended keys on the
+        # durable job row first is what makes both stale-job sweeps able to
+        # reap them. The id is decided here (not the phase-2 INSERT) since
+        # the keys embed it before the transaction that could roll it away
+        # opens, and it's generated per invocation so a retry can't
+        # reproduce one — this tail's attempt fence, same as `ingest_raster`.
         planned_dataset_id = uuid.uuid4()
         _vrt_base_key = f"rasters/{planned_dataset_id}/{asset_sha256}"
         if not await record_unpublished_storage_keys(
@@ -625,7 +590,7 @@ async def ingest_vrt(
             job_id=job_id,
             task="ingest_vrt",
         ):
-            # fix(#1778 audit): a confirmed fence miss. Phase 2's own
+            # fix(#1778): a confirmed fence miss. Phase 2's own
             # attempt-fenced load below would catch this too, but stopping
             # here is what actually keeps the recorder's contract ("do not
             # write what nothing records") rather than depending on a second
@@ -639,33 +604,20 @@ async def ingest_vrt(
         try:
             ql256 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 256)
             ql512 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 512)
-        except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
+        except Exception:  # broad: quicklook generation is non-fatal
             logger_vrt.warning(
                 "Quicklook generation failed for VRT %s", job_id, exc_info=True
             )
 
-        # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): create DB records, store assets,
-        # commit job.
-        #
-        # fix(#1778 audit r11): status == "running" joins the attempt fence.
-        # A stale sweep can fail this job on heartbeat timeout WITHOUT a
-        # retry ever rotating the attempt token, so an (id, attempt)-only
-        # match still passed for a worker that was merely paused, not dead --
-        # and this phase puts the VRT and its quicklooks to storage, which no
-        # rollback can undo. This does not use `_job_phase_session` (the
-        # shared helper other tails go through) because it never adopted the
-        # helper in the first place; the fence has to match by hand here for
-        # the same reason.
-        #
-        # fix(#1778 audit r12): `.with_for_update(key_share=True)` closes the
-        # window a plain status check leaves open -- a SELECT is not a lock,
-        # so the sweep could still fail this row between this read and the
-        # puts below completing (see the sibling fix in `_job_phase_session`'s
-        # docstring for the full shape). The lock is held for as long as this
-        # session stays open, which is through the puts and up to the commit
-        # below.
-        # ----------------------------------------------------------------- #
+        # commit job. This tail never adopted `_job_phase_session`, so the
+        # fence is matched by hand: fix(#1778) joins status ==
+        # "running" to the attempt fence (same require_status trap as
+        # `_job_phase_session`'s docstring — a paused, not dead, worker can
+        # still match an (id, attempt)-only fence and put the VRT/quicklooks
+        # to storage, which no rollback can undo); fix(#1778)
+        # adds `.with_for_update(key_share=True)` to close the SELECT-is-
+        # not-a-lock window between this read and the puts completing.
         async with async_session() as session:
             result = await session.execute(
                 select(IngestJob)
@@ -711,7 +663,7 @@ async def ingest_vrt(
                 from app.platform.storage import get_storage
 
                 storage = get_storage()
-                # fix(#1778 codex r4): the same value the durable record above
+                # fix(#1778): the same value the durable record above
                 # named, since `dataset.id` IS `planned_dataset_id`. Written as
                 # the dataset's own id rather than the local so the key still
                 # reads as a property of the row it belongs to.
@@ -805,16 +757,13 @@ async def ingest_vrt(
                         job_uuid, attempt_uuid, job_id=job_id, task="ingest_vrt"
                     ):
                         raise
-                    # fix(#1778 codex r1): stand down rather than re-raise, the
-                    # same decision `regenerate_vrt` makes below. The dataset
-                    # and its VRT object are durable, so the failure handler
-                    # would be writing about a job that succeeded.
-                    #
-                    # fix(#1778 codex r2): and unlike `regenerate_vrt` there is
-                    # nothing to reap on the way out. A first build supersedes
-                    # no generation, so the followups this skips are the cache
-                    # purge and the embedding defer: both recoverable, neither
-                    # holding bytes that no row references.
+                    # fix(#1778): stand down rather than re-raise
+                    # (same decision `regenerate_vrt` makes below) — the
+                    # dataset and its VRT object are durable, so the failure
+                    # handler would be writing about a job that succeeded.
+                    # fix(#1778): unlike `regenerate_vrt` there's
+                    # nothing to reap here; the skipped followups (cache
+                    # purge, embedding defer) are both recoverable.
                     publish_committed = True
                     absorb_cancellation(exc)
                     return
@@ -835,7 +784,7 @@ async def ingest_vrt(
 
     except Exception as exc:  # broad: VRT pipeline includes GDAL subprocesses and rasterio — any step can fail
         if publish_committed:
-            # fix(#1778 codex r1): the second way this handler is reached with
+            # fix(#1778): the second way this handler is reached with
             # a durable publish behind it, and the one the stand-down above
             # cannot cover: `invalidate_catalog_cache` and `defer_embedding`
             # run inside the same try, so a Valkey outage or a busy queue lands
@@ -880,7 +829,7 @@ async def ingest_vrt(
         async with cleanup_step("ingest_vrt temp dir", job_id=job_id):
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
-        # fix(#430 BA-30): reap storage bytes written before a terminal commit
+        # fix(#430): reap storage bytes written before a terminal commit
         # that never became durable (mirrors ingest_raster's GAP-017 guard).
         async with cleanup_step("ingest_vrt orphaned storage keys", job_id=job_id):
             if not publish_committed and written_storage_keys:
@@ -905,17 +854,17 @@ async def regenerate_vrt(
 ) -> None:
     """Background task: rebuild a VRT file after source add/remove and update metadata.
 
-    Atomic publish: the rebuilt VRT is written to generation-specific immutable
-    keys. The RasterAsset pointer changes only in the same transaction that verifies
-    the job attempt and generation ownership, then prior objects are reaped.
+    Atomic publish: the rebuilt VRT is written to generation-specific
+    immutable keys. The RasterAsset pointer changes only in the same
+    transaction that verifies job attempt and generation ownership, then
+    prior objects are reaped.
 
     Composition source (fix(#1327)): the generation's ``staged_source_ids``
-    when it carries one — ``add_vrt_source``/``remove_vrt_source`` record the
-    intended post-mutation member set there instead of writing it into
-    ``vrt_source_links`` up front — otherwise the live link rows. The staged set
-    is applied to ``vrt_source_links`` in step 12, inside the publish
-    transaction, so the catalog's declared composition and the artifact built
-    from it become visible in the same commit.
+    when it carries one (``add_vrt_source``/``remove_vrt_source`` record
+    the intended post-mutation member set there rather than writing
+    ``vrt_source_links`` up front), else the live link rows. Applied to
+    ``vrt_source_links`` in step 12, inside the publish transaction, so
+    declared composition and built artifact become visible in one commit.
 
     Full pipeline:
     1. Mark job running
@@ -1113,15 +1062,12 @@ async def regenerate_vrt(
                     raise ValueError("VRT generation ownership changed before claim")
 
             # 3c. fix(#1327): build from the STAGED member set when this
-            # generation carries one. add_vrt_source / remove_vrt_source no
-            # longer touch vrt_source_links — they record the FULL intended
-            # post-mutation set here — so the live link rows read above still
-            # describe the VRT currently being served, not the one this attempt
-            # is being asked to publish. Building from the links would rebuild
-            # the existing composition and then apply a set the artifact does
-            # not contain, which is the exact drift this pattern removes.
-            # A generation that stages nothing (plain regenerate, or one queued
-            # before the column existed) keeps the live links.
+            # generation carries one — the live link rows read above still
+            # describe the VRT currently being served, not the one this
+            # attempt is being asked to publish. Building from the links
+            # would rebuild the existing composition and then apply a set
+            # the artifact doesn't contain. A generation that stages
+            # nothing (plain regenerate) keeps the live links.
             staged_source_ids = staged_source_ids_or_none(generation)
             if staged_source_ids is not None:
                 source_ids = staged_source_ids
@@ -1193,7 +1139,7 @@ async def regenerate_vrt(
         try:
             ql256 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 256)
             ql512 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 512)
-        except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
+        except Exception:  # broad: quicklook generation is non-fatal
             logger_regen.warning(
                 "Quicklook regeneration failed for VRT %s",
                 vrt_dataset_id,
@@ -1206,16 +1152,16 @@ async def regenerate_vrt(
         next_ql256_uri = f"{generation_base_key}/quicklook_256.png"
         next_ql512_uri = f"{generation_base_key}/quicklook_512.png"
 
-        # 10. Write immutable generation objects. The catalog pointer is switched
-        # only after the job lease and current_generation_id are checked together
-        # in phase 2, so a stale worker can never overwrite the live generation.
+        # 10. Write immutable generation objects. The catalog pointer switches
+        # only after the job lease and current_generation_id are checked
+        # together in phase 2, so a stale worker can never overwrite the
+        # live generation.
         #
-        # ORDERING: rewrite_vrt_sources runs AFTER metadata extraction (step 6/7)
-        # and quicklook generation (step 9) — the in-flight tmp .vrt must hold
-        # concrete resolvable paths for GDAL to open. Only the STORED copy is
-        # rewritten to logical relativeToVRT="1" keys (STOR-03).
-        # CR-01: supply vrt_storage_key so the rewrite computes paths relative
-        # to the VRT's own directory (not the full logical key).
+        # ORDERING: rewrite_vrt_sources runs AFTER metadata extraction and
+        # quicklook generation — the in-flight tmp .vrt must hold concrete
+        # resolvable paths for GDAL; only the STORED copy is rewritten to
+        # logical relativeToVRT="1" keys (STOR-03). CR-01: vrt_storage_key
+        # is supplied so paths compute relative to the VRT's own directory.
         import pathlib as _pathlib
 
         from app.core.db.tenant_session import current_tenant_var as _ctv
@@ -1270,26 +1216,21 @@ async def regenerate_vrt(
             tenant_id=_ctv.get(),
         )
 
-        # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): update RasterAsset metadata, mark
         # job complete, update dataset footprint.
         #
-        # fix(#1778 audit r11): status == "running" joins the attempt fence.
-        # The `current_generation_id` check below already refuses a NEWER
-        # generation's publish from overwriting this one, but says nothing
-        # about a job the stale sweep already failed without any newer
-        # generation existing yet -- `vrt_asset.current_generation_id` lives
-        # on a different row than `ingest_jobs.status` and the sweep never
-        # touches it. Without this, a worker only paused, not dead, could
-        # still complete the job and switch the live pointer onto this
-        # generation's objects after the sweep declared it dead. The objects
-        # written above are unaffected either way: they are reaped by the
-        # separate stale-generation mechanism (`sweep_stale_vrt_assets`) on
-        # their own timeout, independent of this fence.
+        # fix(#1778): status == "running" joins the attempt fence.
+        # The `current_generation_id` check below refuses a NEWER
+        # generation's publish, but says nothing about a job the stale
+        # sweep already failed with no newer generation existing yet — that
+        # sweep never touches `vrt_asset.current_generation_id`. Without
+        # this, a worker only paused (not dead) could still complete the
+        # job and switch the live pointer after the sweep declared it dead.
+        # The objects written above are unaffected either way — reaped by
+        # `sweep_stale_vrt_assets` on its own timeout.
         #
-        # fix(#1847): the job row first, then the asset: the order every
-        # worker phase, `cancel_job` and the dataset delete hold.
-        # ----------------------------------------------------------------- #
+        # fix(#1847): job row first, then asset — the order every worker
+        # phase, `cancel_job`, and the dataset delete hold.
         async with async_session() as session:
             result = await session.execute(
                 select(IngestJob)
@@ -1359,11 +1300,11 @@ async def regenerate_vrt(
 
                 # 12. Status transitions
                 vrt_asset.status = "ready"
-                # fix(#1290 review): the snapshot instant, NOT now(). See the
+                # fix(#1290): the snapshot instant, NOT now(). See the
                 # capture site in phase 1 for why the field names the state the
                 # artifact was built from.
                 vrt_asset.last_regenerated_at = snapshot_at
-                # fix(#1290 review): recorded from the SAME ordered_assets the
+                # fix(#1290): recorded from the SAME ordered_assets the
                 # build used, in the publish transaction, so the stored set and
                 # the stored VRT always describe each other.
                 vrt_asset.built_from = built_from_map(ordered_assets)
@@ -1377,17 +1318,11 @@ async def regenerate_vrt(
 
                 # 12a. fix(#1327): the staged member set lands HERE, in the
                 # transaction that publishes the artifact built from it and
-                # writes built_from — never at request time. That is the whole
-                # invariant: vrt_source_links can never describe a composition
-                # the served bytes do not have, because both become visible in
-                # one commit. Death anywhere upstream leaves the links alone.
-                #
-                # Applies the SAME list phase 1 built from, not a re-read of
-                # the generation row — the link set and the artifact then
-                # cannot disagree even in principle, exactly as built_from is
-                # derived from the ordered_assets the build used. Fenced by the
-                # current_generation_id check above: a zombie worker whose
-                # attempt the sweep already reconciled cannot reach this line.
+                # writes built_from — never at request time — so
+                # vrt_source_links can never describe a composition the
+                # served bytes don't have. Applies the SAME list phase 1
+                # built from, not a re-read of the generation row, so the
+                # link set and artifact can't disagree even in principle.
                 if staged_source_ids is not None:
                     await apply_staged_source_links(session, vrt_id, staged_source_ids)
 
@@ -1457,7 +1392,7 @@ async def regenerate_vrt(
                     # now() — one swap, one timestamp, no clock skew between
                     # the two records of it.
                     vrt_dataset.last_refreshed_at = generation.completed_at
-                    # fix(#1329 follow-up): the VRT swap is the third
+                    # fix(#1329): the VRT swap is the third
                     # pointer-swap door and never rolled the version the way
                     # raster replace does (tasks_raster_swap). Without the
                     # bump, pre-swap tiles stay valid in every version-keyed
@@ -1522,14 +1457,14 @@ async def regenerate_vrt(
                         job_uuid, attempt_uuid, job_id=job_id, task="regenerate_vrt"
                     ):
                         raise
-                    # fix(#1778 codex r1): stand down rather than re-raise. The
+                    # fix(#1778): stand down rather than re-raise. The
                     # generation swap is durable, so every write the failure
                     # handler would make is a statement about a job that
                     # succeeded, and the generation row it stamps `failed` is
                     # not fenced the way the job and asset writes are.
                     publish_committed = True
                     absorb_cancellation(exc)
-                    # fix(#1778 codex r2): standing down from the FAILURE
+                    # fix(#1778): standing down from the FAILURE
                     # handler is not standing down from the success work. This
                     # is the only deletion of the superseded generation's
                     # objects, and the committed asset already names the new
@@ -1563,7 +1498,7 @@ async def regenerate_vrt(
 
     except Exception as exc:  # broad: VRT regeneration includes GDAL subprocesses and rasterio — any step can fail
         if publish_committed:
-            # fix(#1778 codex r1): the second way this handler is reached with
+            # fix(#1778): the second way this handler is reached with
             # a durable publish behind it, and the one the stand-down above
             # cannot cover: the prior-key reap, `invalidate_catalog_cache` and
             # `defer_embedding` all run inside the same try. The generation
@@ -1621,7 +1556,7 @@ async def regenerate_vrt(
                         select(VrtGeneration).where(VrtGeneration.id == generation_uuid)
                     )
                     gen = gen_result.scalar_one_or_none()
-                    # fix(#1778 codex r1): fenced at the statement, not only
+                    # fix(#1778): fenced at the statement, not only
                     # at the caller — a future path into this handler cannot
                     # relabel a generation whose artifact is published.
                     if gen and gen.status != "completed":
@@ -1661,37 +1596,23 @@ async def regenerate_vrt(
                 )
 
 
-# fix(#1327 codex P1): a SECOND registered name for the SAME regeneration, used
-# only by the staged mutations (add source / remove source).
+# fix(#1327): a SECOND registered name for the SAME regeneration,
+# used only by staged mutations (add/remove source), to close a rolling-
+# upgrade skew: a pre-#1327 worker doesn't know `staged_source_ids`, would
+# rebuild from the live links, and mark the generation COMPLETE — silently
+# losing an accepted add/remove. A kwarg can't fence this off (the pre-#1327
+# signature ends in `**kwargs`, swallowed silently), but the task NAME can:
+# a worker without it raises TaskNotFound and fails the job (status
+# 'failed', attempts 1, no retry — see tests/test_vrt_staged_task_skew.py).
 #
-# The skew it closes: during a rolling upgrade the API can be new while a worker
-# is still pre-#1327. The new API records the membership change only in
-# `staged_source_ids`; a pre-#1327 worker does not know that column, rebuilds
-# from the live links, and marks the generation COMPLETE. An accepted add or
-# remove is silently lost, with every state machine reporting success.
+# That failure leaves a state the existing machinery already handles: the
+# task never ran, so vrt_source_links is untouched, the generation stays
+# 'pending', and the asset stays 'regenerating' until
+# `sweep_stale_vrt_assets` restores 'ready'. The mutation is refused
+# rather than half-applied; the caller re-issues it once the roll finishes.
 #
-# Why the name and not a marker kwarg. The pre-#1327 task signature ends in
-# `**kwargs`, and so does `tenant_task`'s wrapper, so an unknown keyword is
-# swallowed rather than raising TypeError: a kwarg cannot fence a consumer that
-# accepts anything. The task NAME can. Procrastinate resolves the name against
-# the worker's own registry, and a worker without it raises TaskNotFound, which
-# fails the job. Measured against the pinned procrastinate in
-# tests/test_vrt_staged_task_skew.py: status 'failed', attempts 1, no retry
-# scheduled (TaskNotFound never consults a retry strategy, because there is no
-# task object to ask one for).
-#
-# What that failure leaves behind is deliberately a state the existing
-# machinery already handles rather than a new one: the task never ran, so
-# vrt_source_links is untouched, the generation stays 'pending' with a NULL
-# heartbeat, and the asset stays 'regenerating' until `sweep_stale_vrt_assets`
-# reconciles it. Composition is preserved, which is the whole point of staging,
-# so the sweep restores 'ready' and the VRT keeps serving what it was serving.
-# The mutation is refused rather than half-applied, and the caller re-issues it
-# once the roll finishes.
-#
-# Plain regeneration deliberately keeps the legacy name: it changes no
-# membership, so a pre-#1327 worker executes it correctly and those deliveries
-# keep flowing during the roll.
+# Plain regeneration keeps the legacy name — it changes no membership, so
+# a pre-#1327 worker executes it correctly during the roll.
 @task_app.task(queue="raster", retry=0)
 async def regenerate_vrt_staged(**kwargs) -> None:
     """Regenerate a VRT whose generation carries a staged member set.

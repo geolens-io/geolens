@@ -2270,7 +2270,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # fix(#1778 round 3): +9 — the export's zoom no-op conditions read the
     # shared BUILDER_MIN_ZOOM / BUILDER_MAX_ZOOM instead of repeating 0 and 22,
     # so the two directions of the round trip cannot drift. Cap 1710 -> 1719.
-    "backend/app/modules/catalog/maps/style_json.py": 1719,
+    "backend/app/modules/catalog/maps/style_json.py": 1590,
     # fix(#1626): +50 — `_restore_master_opacity` undoes the export fold from
     # `metadata.geolens.feature_opacity` and maps a v6 `-layer-opacity` key onto
     # `layer.opacity` (number) or drops it with a warning (expression); plus
@@ -2299,8 +2299,8 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # or above the substituted 22 imported cleanly into a layer that could never
     # be drawn, and clamping is the only repair the builder can honour.
     # Cap 580 -> 637, exact.
-    "backend/app/modules/catalog/maps/style_import.py": 637,
-    "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
+    "backend/app/modules/catalog/maps/style_import.py": 601,
+    "backend/app/modules/catalog/maps/style_sanitizers.py": 192,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
     # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they
     # are read-gated (icon asset) or unauthenticated (sprite index), so the
@@ -2326,7 +2326,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # bug. Cap 149 -> 153.
     # fix(#1778 round 6): +3 — the icon commit is marked before it is awaited,
     # the same as the two image handlers. Cap 153 -> 156.
-    "backend/app/modules/catalog/maps/router_assets.py": 156,
+    "backend/app/modules/catalog/maps/router_assets.py": 149,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
     # fix(#1518 codex P2 round 3): 398 -> 404. +6 to apply the rule once, ahead
@@ -2347,9 +2347,9 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # array). Deliberately description-heavy, zero logic added. Then +4
     # (codex r1): additionalProperties: true, or openapi-typescript closes
     # the open object to Record<string, never>. Cap 436 -> 440, exact.
-    "backend/app/modules/catalog/maps/router_sharing.py": 440,
-    "backend/app/modules/catalog/search/query_params.py": 225,
-    "backend/app/modules/catalog/search/router_saved.py": 100,
+    "backend/app/modules/catalog/maps/router_sharing.py": 430,
+    "backend/app/modules/catalog/search/query_params.py": 205,
+    "backend/app/modules/catalog/search/router_saved.py": 97,
     # fix(#821): +14 lines — admin key mint accepts expires_at (audit
     # detail + response) and maps the inactive-owner mint refusal to 409.
     # fix(#875): +7 lines — admin key mint accepts scope, and surfaces it
@@ -2365,7 +2365,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # fix(#1805 review round 4 P2): +5 lines — created_at DESC alone ties on
     # equal timestamps and each page is a separate query; id DESC added as a
     # secondary key for a total, reproducible order across pages.
-    "backend/app/modules/admin/router_operations.py": 329,
+    "backend/app/modules/admin/router_operations.py": 323,
     # PRIV-1: +7 lines — GET /settings/branding/ also resolves and returns
     # PRIVACY_URL, so the login/register privacy-policy link is admin
     # configurable instead of a hardcoded getgeolens.com URL.
@@ -2376,7 +2376,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # feat(#1691): +2 — restrict_public_visibility rides the public
     # feature-flags bundle so the UI can hide the Public option for
     # non-admins. Cap 175 -> 177.
-    "backend/app/modules/settings/router_public.py": 177,
+    "backend/app/modules/settings/router_public.py": 175,
 }
 
 
@@ -2544,13 +2544,15 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     generated). Leaving them was the worse option — a reader who trusts a
 #     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#1873): every cap below re-ratcheted to the file's exact LOC after
+    # the tree-wide comment trim; no code moved.
     # fix(#1814): first entry. The lines bought the reserve/stage/bind split of
     # one create-and-queue function, its two fenced settlement exits, the quota
     # preflight, the staging deadline, and the reset-and-retry settlement.
     # fix(#1888): +16. The staged-entry settlement reads the row's status on
     # its own transaction and reaps the staged copy once a committed attempt
     # left the row failed, best effort. Cap 1130 -> 1146, exact.
-    "backend/app/processing/ingest/manifest_service.py": 1146,
+    "backend/app/processing/ingest/manifest_service.py": 1135,
     # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
     # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
     # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/
@@ -2617,7 +2619,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # built byte for byte as the driver builds it, and refuses a schema
     # `include` off the origin; `require_wfs_layer` at the spawn points. 1881.
     # chore(#1873): review-history comments trimmed. Cap 1881 -> 1385, exact.
-    "backend/app/platform/service_endpoints.py": 1385,
+    "backend/app/platform/service_endpoints.py": 1360,
     # fix(#1770): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -2643,7 +2645,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # distinct from the generic "unparseable" refusal. Cap 1090 -> 1106,
     # exact.
     # chore(#1873): review-history comments trimmed. Cap 1106 -> 797, exact.
-    "backend/app/platform/service_items.py": 797,
+    "backend/app/platform/service_items.py": 777,
     # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
     # nine review rounds. What the growth bought, in order: the two-phase
     # split that resolves WHERE a password would go before any lock or budget
@@ -2699,7 +2701,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # of the two bounds actually holds. A duplicated, unreachable copy of the
     # same try/except is deleted in the same edit, which is why the net is
     # smaller than the comment. Cap 1301 -> 1312, exact.
-    "backend/app/modules/catalog/sources/arcgis_signin.py": 1312,
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1151,
     # feat(C2) / fix(#1840): crossed _RATCHET_INCLUSION_LOC when the ArcGIS
     # credential moved out of the request URL and into a header. What the
     # growth bought, in one list: the version gate Esri's own `currentVersion`
@@ -2727,7 +2729,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # establishes one optional fact and the adapter answers without it. The
     # rule and its converse are stated once at `_fetch_count` and referred to
     # from the other three. Cap 1048 -> 1074, exact.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1074,
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 887,
     # feat(#1746 B2b): first explicit entry for this file, which rode the 1500
     # default until the service-auth wave. #1758 added the ArcGIS sign-in
     # endpoint and its rate-limit wiring, and this lane added the credential
@@ -2808,7 +2810,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1825): +52. A cancellation clause on both settlement writes, and
     # the reservation id threaded to all three finaliser call sites.
     # Cap 1849 -> 1901, exact.
-    "backend/app/modules/catalog/sources/router.py": 1901,
+    "backend/app/modules/catalog/sources/router.py": 1736,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -2830,7 +2832,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1913): +2 — the anchor on the member-judgement clause, which now
     # resolves a gateway member by oid so a role dropped since the scan is
     # skipped rather than raised.
-    "backend/app/core/db/tenant_adoption_sql.py": 2104,
+    "backend/app/core/db/tenant_adoption_sql.py": 2093,
     # fix(#998): the tool the DDL above serves — the catalog reads that decide
     # whether anything is left to do, the steps that close the gap, and the
     # operator CLI. Already decomposed three ways (report types and the success
@@ -2843,7 +2845,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # schema-less default-privilege refusals on the read side so the dry run
     # cannot call adopted what --apply stops on.
     # chore(#1873): review-history comments trimmed. Cap 1303 -> 1276, exact.
-    "backend/app/core/db/tenant_adoption.py": 1276,
+    "backend/app/core/db/tenant_adoption.py": 1258,
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
@@ -2994,7 +2996,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # 1903 -> 1912, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1962, exact.
     # fix(#1847): the handler docstring states its contract. Cap 1962 -> 1959.
-    "backend/app/api/main.py": 1959,
+    "backend/app/api/main.py": 1716,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3041,7 +3043,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The lines are the derivation: four style layers per logical layer, worst
     # case, measured, times the per-map cap, plus headroom for the layers an
     # import skips. Cap 1451 -> 1465, exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1465,
+    "backend/app/modules/catalog/maps/schemas.py": 1390,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip
@@ -3070,7 +3072,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1738 round 1): +4 — probe_geom_4326 and the Geom4326State it
     # returns, split out so the caller can tell a non-spatial table from a
     # repairable one BEFORE resolving the SRID. Cap 154 -> 158, exact.
-    "backend/app/processing/ingest/metadata.py": 158,
+    "backend/app/processing/ingest/metadata.py": 153,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining runway to the cliff
     # cannot be spent silently.
@@ -3385,7 +3387,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#1711): -459. The URL-import staging cluster — budget, bounded
     # put, settlement — lives in url_import_staging.py; the route handler and
     # its filename/metadata helpers stay. Cap 2639 -> 2180, exact.
-    "backend/app/processing/ingest/router.py": 2180,
+    "backend/app/processing/ingest/router.py": 1965,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3627,7 +3629,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r2-r5): +55 — `load_job_for_error_write`, the guarded job
     # load the two re-upload tails share, which also ends the transaction on a
     # miss so the run row they write next is unbudgeted. Cap 2668 -> 2723, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2723,
+    "backend/app/processing/ingest/tasks_common.py": 2419,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3737,7 +3739,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r2): -12 — each tail's pre-helper job load moved to
     # `tasks_common.load_job_for_error_write`, which arms the budget and
     # swallows an expiry there. Cap 1329 -> 1317, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1317,
+    "backend/app/processing/ingest/tasks_reupload.py": 1245,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3825,7 +3827,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `build_arcgis_count_query_url`. Cap 1374 -> 1376, exact.
     # chore(#1812): -9, the refresh door no longer judges a queue on the composed line
     # or configures the deferred task with it. Cap 1376 -> 1367, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1367,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1214,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,
@@ -3845,7 +3847,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # other two say why the loop is gone, which matters most here: an import
     # touches far more keys than a settings PUT, so it held the widest version
     # of the mismatch window. Cap 1201 -> 1207, exact.
-    "backend/app/platform/config_ops/service.py": 1207,
+    "backend/app/platform/config_ops/service.py": 1161,
     # fix(#1335): jobs/router.py's 2047 lines carried the sweep SQL
     # constants and every stale-job recovery/sweep handler alongside the
     # plain CRUD routes. The two were split along that seam: the sweep
@@ -4037,7 +4039,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is the comment stating why a set-based UPDATE cannot use `lock_timeout`
     # the way a single-row write does. Cap 2374 -> 2392, exact.
     # chore(#1873): review-history comments trimmed. Cap 2392 -> 1506, exact.
-    "backend/app/platform/jobs/sweep.py": 1506,
+    "backend/app/platform/jobs/sweep.py": 1472,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -4047,7 +4049,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # why the dispatcher's identity belongs to refresh.dispatch instead).
     # The module also carries #1677's cancel machinery from earlier rounds:
     # USER_CANCELLED codes, _emit_refresh_cancelled, cancel_active_run_for_job.
-    "backend/app/platform/refresh/service.py": 1010,
+    "backend/app/platform/refresh/service.py": 929,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
@@ -4229,7 +4231,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # already use and then say to retire it. Cap 1659 -> 1674, exact.
     # fix(#1812): -21. Production on ingest-auth-v2 stops; the default keeps it
     # as a consumer for one release and the two round comments go. 1674 -> 1653.
-    "backend/app/core/config.py": 1653,
+    "backend/app/core/config.py": 1479,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
@@ -4258,7 +4260,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # apply_http_logger_levels() (logging_config.py) after raising root's
     # level, so httpx/httpcore's WARNING floor tracks a LOG_LEVEL change made
     # through the admin settings UI, not just one made at boot.
-    "backend/app/core/persistent_config.py": 1047,
+    "backend/app/core/persistent_config.py": 942,
     # fix(#1533): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that made the run notice the embedding column moving under it. Two
     # guards, both small: _live_column_dims (one pg_attribute read, shared with
@@ -4385,7 +4387,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # caller passes a fenced job-row read) because this module knows records
     # and vectors, not jobs. Cap 1555 -> 1588, exact.
     # chore(#1873): review-history comments trimmed. Cap 1588 -> 922, exact.
-    "backend/app/processing/embeddings/backfill.py": 922,
+    "backend/app/processing/embeddings/backfill.py": 918,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
@@ -4514,7 +4516,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # bind are helpers the direct door now shares. Cap 1455 -> 1506, exact.
     # chore(#1812): -18, the reupload door and _dispatch_reupload_task lose the
     # service_queue verdict, its parameter and the configure() branch. Cap 1506 -> 1488, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1488,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1427,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -4644,7 +4646,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r4): -4 — `ingest_vrt`'s failure tail loads its job row
     # through `tasks_common.load_job_for_error_write` instead of an inline
     # unbounded SELECT. Cap 1709 -> 1705, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1705,
+    "backend/app/processing/ingest/tasks_vrt.py": 1626,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait
@@ -4654,7 +4656,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # unbounded. The reporter is a context manager so the acquisition stays a
     # direct call the #1847 gates can see, and the failure write carries a bound
     # of its own so phase 2's contention cannot move onto it. Cap 1056, exact.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 1056,
+    "backend/app/processing/ingest/tasks_raster_replace.py": 997,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -4790,7 +4792,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r2): +17 — the budget also bounds the job load
     # `_job_phase_session` runs before the helper, so both tails grew the
     # DBAPIError handler that swallows an expiry. Cap 1380 -> 1397, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1397,
+    "backend/app/processing/ingest/tasks_vector.py": 1277,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
@@ -4938,7 +4940,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # file. Cap 1428 -> 1433, exact.
     # fix(#1828): +6. `run_ogr2ogr_service` refuses a credentialed WFS that
     # names no layer before the origin check and the spawn. Cap 1433 -> 1439.
-    "backend/app/processing/ingest/ogr.py": 1441,
+    "backend/app/processing/ingest/ogr.py": 1305,
     # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
     # 1000-line threshold when the content check landed: the SQLite schema
     # reader, the archive member walk that identifies members by their bytes
@@ -4962,7 +4964,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # like it should. The rest is the schema byte cap and the two
     # archive-member error classes (password-protected, unsupported method)
     # that were escaping uncaught. Cap 1052 -> 1115, exact.
-    "backend/app/processing/ingest/validation.py": 1115,
+    "backend/app/processing/ingest/validation.py": 1104,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while
@@ -4985,7 +4987,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and carries the previous roles the role update actually started from,
     # rather than a snapshot this coroutine took before waiting for the lock.
     # Cap 1249 -> 1261, exact.
-    "backend/app/modules/auth/oauth/service.py": 1261,
+    "backend/app/modules/auth/oauth/service.py": 1111,
     # fix(#1778 codex r1): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # change that added set_role_from_identity_provider, the public seam the
     # OAuth group-role reconciliation applies a mapped role through. It exists
@@ -5007,7 +5009,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # concurrent promotions reported a change it had not made. It now reports
     # applied/changed plus the previous roles read UNDER the lock, which is what
     # lets the caller audit only a real transition. Cap 1055 -> 1098, exact.
-    "backend/app/modules/admin/service.py": 1098,
+    "backend/app/modules/admin/service.py": 1010,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the
     # add_4326_column branch beside it); see linearize_existing_4326.
@@ -5196,7 +5198,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # chore(#1940): -9, the fan-out error path no longer re-imports structlog or
     # guards on the result; the module binds `logger` unconditionally.
     # Cap 1622 -> 1613, exact.
-    "backend/app/processing/ingest/service.py": 1613,
+    "backend/app/processing/ingest/service.py": 1390,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and
@@ -5241,7 +5243,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): phase 3 takes the job row before the datasets row. Cap
     # 1134 -> 1141, exact.
     # fix(#1902): the atomic bump comment states its contract. Cap 1141 -> 1137.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1137,
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 975,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -5411,7 +5413,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # single-delete 409 carries. Cap 1536 -> 1540, exact.
     # fix(#1755 item 3): -5. The module-local copy of the token rule is gone;
     # the three models import the shared one. Cap 1540 -> 1535, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1535,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1510,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch
@@ -5551,7 +5553,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # computation as the scope, the idiom `generate_table_name`'s own
     # `_with_collision_suffix` already uses. Cap 1702 -> 1725, exact.
     # chore(#1873): review-history comments trimmed. Cap 1725 -> 1392, exact.
-    "backend/app/processing/analysis/tasks.py": 1392,
+    "backend/app/processing/analysis/tasks.py": 1390,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
@@ -5613,7 +5615,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a stale read. Most of the growth is the docstring explaining why the
     # lock has to move rather than just gaining a shorter timeout of its own.
     # Cap 1554 -> 1572, exact.
-    "backend/app/modules/catalog/maps/router.py": 1572,
+    "backend/app/modules/catalog/maps/router.py": 1509,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
@@ -5650,7 +5652,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # per-dataset OGC collections query. Cap 1489 -> 1493, exact.
     # fix(#1855): -1. The facets rate-limit note shrank when the endpoint
     # gained the SEC-S11 limiter. Cap 1493 -> 1492, exact.
-    "backend/app/modules/catalog/search/router.py": 1492,
+    "backend/app/modules/catalog/search/router.py": 1380,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -5685,7 +5687,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # replacing the four nested async_session() pool checkouts in
     # get_collections with sequential reuse of the caller's own session.
     # Cap 1854 -> 1869, exact.
-    "backend/app/standards/stac/router.py": 1869,
+    "backend/app/standards/stac/router.py": 1865,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.
@@ -5800,7 +5802,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1959 review): +2. Those descriptions name all three 429 cases, and
     # no longer claim every query failure is a 503 or that the cold-storage 202
     # reaches a deployment without it. Cap 2433 -> 2435, exact.
-    "backend/app/processing/tiles/router.py": 2435,
+    "backend/app/processing/tiles/router.py": 2392,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
@@ -5862,7 +5864,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reopen it. The rest is the TokenError note at the parse site. Cap
     # 1871 -> 1934, exact.
     # chore(#1873): review-history comments trimmed. Cap 1934 -> 1673, exact.
-    "backend/app/platform/sandbox/validator.py": 1673,
+    "backend/app/platform/sandbox/validator.py": 1670,
     # fix(#1778): crossed the 1000-line inclusion threshold, so it joins
     # the ratchet at its exact size. The growth is the token accounting on
     # the two map-generation failure exits (an exhausted or timed-out loop
@@ -5877,7 +5879,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # usage_accounting context manager, including the two single-round repair
     # calls that had no failure accounting at all, and the map prompt gained
     # the tool-result protocol that says what the fence markers mean.
-    "backend/app/processing/ai/service.py": 1019,
+    "backend/app/processing/ai/service.py": 999,
     # fix(#1463): crossed the inclusion threshold. The growth is the vector-tile
     # protocol constants and the stale-label repair in generate_distributions,
     # plus the comment recording why the repair has to exist at all: migration
@@ -5899,7 +5901,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1778): +3 -- RecordContact.id tiebreaker on the paginated contacts
     # list, sort_order being a non-unique server-default. Cap 1026 -> 1029,
     # exact.
-    "backend/app/modules/catalog/records/service.py": 1029,
+    "backend/app/modules/catalog/records/service.py": 881,
     # fix(#1528): crossed the inclusion threshold, and this is the file the
     # inclusion rule's own comment named as one of the two "routers-by-role the
     # glob's filename match cannot see ... watched by nothing until they cross
@@ -6040,7 +6042,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # are the refusal that replaced it and the reason it has to be a refusal,
     # quoting `require_signable_job_lifetime`, which settled the same question
     # for the upload doors under #1235.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1632,
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1484,
     # fix(#1532 review r29): first entry — crossed _RATCHET_INCLUSION_LOC. The
     # export artifact cache: everything is in the key (stamp, size, digest,
     # nonce), freshness and reclamation read one publication bound that is a
@@ -6057,7 +6059,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Range of a cold GDAL open without reopening the splice, on the hit path
     # too. Cap 1020 -> 1090, exact.
     # chore(#1873): review-history comments trimmed. Cap 1090 -> 616, exact.
-    "backend/app/processing/export/artifact_cache.py": 616,
+    "backend/app/processing/export/artifact_cache.py": 559,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because
@@ -6144,7 +6146,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # from answer 403, and the licensing refusal on the same handler answers
     # 400, so the status is what separates "your deployment cannot do that"
     # from "you cannot see that data". Cap 1254 -> 1255, exact.
-    "backend/app/modules/embed_tokens/service.py": 1255,
+    "backend/app/modules/embed_tokens/service.py": 1026,
     # fix(#1778): first entry for this module — it crossed the 1000-line
     # inclusion threshold on the property-filter typing. Property filters used
     # to bind the raw query-string value, so PostgreSQL had no
@@ -6235,7 +6237,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # prove only the rows in hand. That reasoning is most of the added lines.
     # Cap 1507 -> 1541, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1560, exact.
-    "backend/app/modules/catalog/features/service.py": 1560,
+    "backend/app/modules/catalog/features/service.py": 1385,
 }
 
 

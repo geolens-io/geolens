@@ -90,7 +90,7 @@ _FALSEY_QUERY_VALUES: frozenset[str] = frozenset({"false", "0", "off", "no", "f"
 # Starlette strips before route matching, so no route template starts with
 # `/api/`.
 #
-# Both trailing-slash and bare spellings, because ROUTE-01 registers both
+# Both trailing-slash and bare spellings, because the routes register both
 # forms for the same handler and `redirect_slashes` is off.
 _READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
@@ -382,9 +382,9 @@ async def _resolve_optional_identity(
     if user is not None:
         return user
 
-    # IdentityExtension hook (Phase 214 D-15): lets an enterprise overlay
+    # IdentityExtension hook: lets an enterprise overlay
     # resolve the bearer token before the JWT decode path; default impl
-    # returns None. Bearer-token only (D-17 — API keys stay community).
+    # returns None. Bearer-token only (API keys stay community).
     if token is not None:
         ext_identity = await get_identity_extension().resolve_identity_from_token(
             token, request, db
@@ -417,7 +417,7 @@ async def _resolve_optional_identity(
     if user is None or not user.is_active or user.status != "active":
         return None
 
-    # SEC-S15 (Phase 1062-01): reject stale access JWTs; missing token_version
+    # Reject stale access JWTs; missing token_version
     # (legacy/forged tokens) is treated as 0, always below the min stored 1.
     jwt_token_version: int = payload.get("token_version", 0)
     if jwt_token_version < user.token_version:
@@ -524,7 +524,7 @@ async def get_current_user(
     if user is not None:
         return user
 
-    # IdentityExtension hook (Phase 214 D-15), same pattern as
+    # IdentityExtension hook, same pattern as
     # get_optional_user. Duplicated here (not delegated) to preserve the
     # expired-token 401 UX below (RFC 6750 silent-refresh hint).
     if token is not None:
@@ -579,7 +579,7 @@ async def get_current_user(
     if user is None or not user.is_active or user.status != "active":
         raise credentials_exception
 
-    # SEC-S15 (Phase 1062-01): reject stale access JWTs; missing token_version
+    # Reject stale access JWTs; missing token_version
     # (legacy/forged tokens) is treated as 0, always below the min stored 1.
     jwt_token_version: int = payload.get("token_version", 0)
     if jwt_token_version < user.token_version:

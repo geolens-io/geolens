@@ -129,7 +129,7 @@ BoundedGeoJSONGeometry = Annotated[
 class GeoJSONGeometryCollection(BaseModel):
     """A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
 
-    fix(#430): carries ``geometries`` instead of ``coordinates``, so
+    fix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so
     it needs its own model — only generic-GEOMETRY datasets accept it on write
     (enforced in the service), and any stored collection must serialize back
     out on read.

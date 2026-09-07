@@ -34,7 +34,7 @@ from app.modules.catalog.maps.service import MapAssetPublication
 from app.modules.catalog.maps.schemas import MapIconResponse
 from app.platform.storage import get_storage
 
-# SEC-09: register the SVG namespace as the empty prefix so
+# Register the SVG namespace as the empty prefix so
 # re-serialized SVGs emit `<svg xmlns="...">`, keeping the
 # active-content denylist matching `<script` after round-trip.
 _stdlib_ET.register_namespace("", "http://www.w3.org/2000/svg")
@@ -187,9 +187,9 @@ def validate_icon_upload(
         if b"<svg" not in prefix:
             raise ValueError("SVG icon content is invalid")
 
-        # SEC-09/M-71: re-serialize via defusedxml so entity-encoded
+        # Re-serialize via defusedxml so entity-encoded
         # payloads normalize into canonical bytes before the denylist
-        # matches; CSP sandbox (SEC-01) is the 2nd layer for encoded text.
+        # matches; the CSP sandbox is the 2nd layer for encoded text.
         try:
             root = fromstring(content)
         except Exception as exc:  # broad: lxml fromstring can throw varied parser errors on malformed SVG; map to ValueError

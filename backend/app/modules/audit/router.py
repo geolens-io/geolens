@@ -478,7 +478,7 @@ async def get_column_ddl_feed(
     - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
     - Anyone else — including authenticated readers of a PUBLIC dataset: 404
-      via check_dataset_write_access. fix(#458): the feed previously used
+      via check_dataset_write_access. fix(#458 E-37): the feed previously used
       check_dataset_access (read visibility), which let any logged-in user
       enumerate editor usernames/user_ids on public datasets, contradicting
       this owner-facing contract.

@@ -116,7 +116,7 @@ router.include_router(assets_router)
 router.include_router(sharing_router)
 
 
-# fix(ROUTE-01): dual-shape decorator so both trailing-slash (canonical) and
+# Dual-shape decorator so both trailing-slash (canonical) and
 # no-slash variants hit this handler, closing the 404 from
 # redirect_slashes=False.
 @router.post(
@@ -179,7 +179,7 @@ async def create_map_endpoint(
     return _build_map_response(map_obj, [], created_by_username=user.username)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see POST /maps above.
+# Dual-shape decorator, see POST /maps above.
 @router.get(
     "",
     response_model=MapListResponse,
@@ -464,7 +464,7 @@ async def update_map_endpoint(
     if body.visibility is not None and body.visibility != MapVisibility.public:
         if map_obj.visibility == "public":
             await revoke_share_token_by_map(db, map_id)
-            # fix(P0-01): a public->non-public downgrade must also revoke
+            # A public->non-public downgrade must also revoke
             # embed tokens (previously only the share token was flipped),
             # or they keep serving tiles for a now-private map.
             await revoke_embed_tokens_by_map(db, map_id)
@@ -544,7 +544,7 @@ async def update_map_endpoint(
             ip_address=request.client.host if request.client else None,
         ),
     )
-    # fix(STYLE-06): drives the per-field history events from one table of
+    # Drives the per-field history events from one table of
     # (changed, action, summary, details), looped uniformly, instead of six
     # near-identical hand-copied record_map_history_event blocks.
     new_visibility = (
@@ -981,7 +981,7 @@ async def upload_thumbnail(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Body must be a data:image/ URI",
         )
-    # fix(Phase 254 IN-02): the 100KB bound lives on
+    # The 100KB bound lives on
     # ThumbnailUploadRequest.data_uri (max_length), rejected by Pydantic
     # before this handler runs — no manual length check needed here.
 
@@ -1001,7 +1001,7 @@ async def upload_thumbnail(
             detail="Invalid data URI or base64 encoding",
         )
 
-    # SEC-12/L-65: validate the decoded bytes are a real image, not
+    # Validate the decoded bytes are a real image, not
     # attacker-controlled content — Image.verify() catches random bytes,
     # truncated images, and mismatched MIME without storing a tampering primitive.
     try:
@@ -1107,7 +1107,6 @@ async def get_thumbnail(
 
 
 # ---------------------------------------------------------------------------
-# OG-image upload/serve — SHARE-08 Path A
 # ---------------------------------------------------------------------------
 
 
@@ -1458,7 +1457,7 @@ async def bulk_delete_layers_endpoint(
 
     deleted_count = len(deleted_ids)
 
-    # fix(BLD-20260526-11): only emit audit/history when something was
+    # Only emit audit/history when something was
     # actually deleted, or an all-not-found request creates a false-positive
     # audit row.
     if deleted_count > 0:
@@ -1477,7 +1476,7 @@ async def bulk_delete_layers_endpoint(
             ),
         )
 
-        # fix(BLD-20260526-11): target_type="map" — no single layer target
+        # target_type="map": no single layer target
         # for a bulk op; mirrors layer.replace so "jump to layer" links
         # don't break.
         await record_map_history_event(

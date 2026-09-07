@@ -217,7 +217,7 @@ class CollectionRef(BaseModel):
 class DerivedFromResponse(BaseModel):
     """Provenance for an analysis output: what it came from, and how.
 
-    fix(#765): declared as a model rather than ``dict[str, Any]``. The
+    fix(#765 review): declared as a model rather than ``dict[str, Any]``. The
     dict spelled itself into the checked-in OpenAPI as bare
     ``additionalProperties: true``, so both generated SDKs lost the shape — the
     TypeScript one degraded to an index signature and the Python one to an

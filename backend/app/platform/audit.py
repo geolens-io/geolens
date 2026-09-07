@@ -26,7 +26,7 @@ class AuditEvent:
 
     ``user_id`` is nullable (FK ON DELETE SET NULL to catalog.users): used by
     SAML JIT-provisioning rows that pre-date user creation, and anonymous-
-    download rows (KNOWN-01) where user_id=NULL rather than a fabricated
+    download rows where user_id=NULL rather than a fabricated
     actor.
     """
 
@@ -84,7 +84,7 @@ async def audit_emit(
 
     ``sinks`` narrows the dispatch; by default every registered sink is used.
 
-    AUDIT-03: an audit sink must never break the operation it records. The
+    An audit sink must never break the operation it records. The
     try/except alone is not enough — the default sink's ``emit()`` bottoms
     out in ``session.add()``, which cannot fail; the INSERT it stages runs
     at the CALLER's flush/commit, outside any guard here.
@@ -102,7 +102,7 @@ async def audit_emit(
     if not sinks:
         return
 
-    # A missing session is an audit-infrastructure fault (AUDIT-03: must not
+    # A missing session is an audit-infrastructure fault (must not
     # break the caller) — concretely, on the OAuth generic-error path, whose
     # only job here is a clean 302 with Referrer-Policy: no-referrer.
     # Logged at error, not swallowed: this should never happen in a

@@ -311,7 +311,7 @@ async def _audit_query(
         await audit_emit_durable(AuditEvent(action="query.reject", **common))
 
 
-# ROUTE-01 dual-shape: trailing-slash is canonical/OpenAPI-visible;
+# Dual-shape: trailing-slash is canonical/OpenAPI-visible;
 # no-slash is a hidden alias registered here too so both carry
 # `_LoggedRejectionRoute` (the app's alias builder would otherwise
 # re-register a missing no-slash route as a plain APIRoute and drop

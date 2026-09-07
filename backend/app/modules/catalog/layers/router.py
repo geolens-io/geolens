@@ -388,7 +388,7 @@ async def column_references_endpoint(
 ) -> ColumnReferencesResponse:
     """Count saved maps whose layer config references a column.
 
-    fix(#458): surfaced in the schema editor before a rename/drop so the
+    fix(#458 E-06): surfaced in the schema editor before a rename/drop so the
     editor knows how many saved maps depend on the column. Count only — map
     titles may belong to other users and are not exposed here.
     """
