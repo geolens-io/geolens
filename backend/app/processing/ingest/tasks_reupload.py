@@ -46,6 +46,7 @@ from app.processing.ingest.tasks_common import (
     _archive_original_file,
     _bind_task_log_context,
     _cleanup_staging_on_failure,
+    load_job_for_error_write,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
     _current_tenant_role,
@@ -541,45 +542,38 @@ async def reupload_file(
         # Phase 1/2 sessions are already closed (or rolled back) by the time
         # we get here. Open a fresh session, re-load the job, and run the
         # shared cleanup helper.
-        async with async_session() as err_session:
-            err_job_result = await err_session.execute(
-                select(IngestJob).where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
+        try:
+            async with async_session() as err_session:
+                # fix(#1950 codex r2): arms the budget, loads the row, and
+                # swallows an expiry — the failure below is the task's outcome.
+                err_job = await load_job_for_error_write(
+                    err_session, job_uuid, attempt_uuid, task_name="reupload_file"
                 )
-            )
-            err_job = err_job_result.scalar_one_or_none()
-            if err_job is not None:
-                await _cleanup_staging_on_failure(
+                if err_job is not None:
+                    await _cleanup_staging_on_failure(
+                        err_session,
+                        staging_table=staging_tn,
+                        job=err_job,
+                        exc=exc,
+                        task_name="reupload_file",
+                        attempt_id=attempt_uuid,
+                    )
+                # feat(#1219): outside the err_job guard on purpose — the run
+                # is keyed on the job id, which is known even when the job row
+                # itself has gone, and a failure is history too.
+                await record_refresh_failure(
                     err_session,
-                    staging_table=staging_tn,
-                    job=err_job,
-                    exc=exc,
-                    task_name="reupload_file",
-                    attempt_id=attempt_uuid,
+                    ingest_job_id=job_uuid,
+                    error_code=_file_refresh_error_code(exc),
+                    error_message=str(exc),
+                    contacted_origin=False,
                 )
-            # feat(#1219): failures are history too — "a refresh that silently
-            # vanishes from history is worse than one that visibly failed".
-            # Outside the err_job guard on purpose: the run is keyed on the job
-            # id, which is known even when the row itself has gone.
-            await record_refresh_failure(
-                err_session,
-                ingest_job_id=job_uuid,
-                error_code=_file_refresh_error_code(exc),
-                error_message=str(exc),
-                contacted_origin=False,
-            )
-            await err_session.commit()
-        # fix(#1213 review r1): mark the local status terminal before
-        # re-raising. `_cleanup_staging_on_failure` above writes status=failed
-        # to the DB row, but the `finally` reap reads THIS variable, and it was
-        # still "pending" — so the terminal-status guard returned early and the
-        # client-writable staging object survived every failure past the early
-        # validation block (CRS detection, ogr2ogr, staging-table work). The
-        # task is retry=0, so every exception here is terminal, and the stale
-        # purge is no backstop for reupload jobs (see the reap comment below).
-        # Mirrors tasks_vector.py's broad-except handler.
-        final_status = "failed"
+                await err_session.commit()
+        finally:
+            # fix(#1213 review r1, #1950): the `finally` reapers gate on THIS
+            # variable, so every exit from this handler sets it — the bounded
+            # error write above can raise past a positional assignment.
+            final_status = "failed"
         raise
     finally:
         async with cleanup_step("reupload_file heartbeat", job_id=job_id):
@@ -1263,13 +1257,11 @@ async def reupload_service(
         scrub_secret_from_exception(exc, token)
         # Phase 1/2 sessions are already closed by the time we get here.
         async with async_session() as err_session:
-            err_job_result = await err_session.execute(
-                select(IngestJob).where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                )
+            # fix(#1950 codex r2): arms the budget, loads the row, and
+            # swallows an expiry — the failure below is the task's outcome.
+            err_job = await load_job_for_error_write(
+                err_session, job_uuid, attempt_uuid, task_name="reupload_service"
             )
-            err_job = err_job_result.scalar_one_or_none()
             if err_job is not None:
                 await _cleanup_staging_on_failure(
                     err_session,

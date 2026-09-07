@@ -4,12 +4,15 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
+from sqlalchemy.exc import DBAPIError
 
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
+    JOB_ERROR_WRITE_TIMEOUT_MS,
     claim_job_attempt_and_start_heartbeat,
+    log_job_error_write_failure,
     require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
@@ -794,29 +797,48 @@ async def ingest_raster(
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
         # REMED-03 / P2-05: route through _job_phase_session.
-        async with _job_phase_session(
-            job_uuid, phase="error_write", attempt_id=attempt_uuid
-        ) as (
-            err_session,
-            _err_job,
-        ):
-            from sqlalchemy import update as sa_update
+        #
+        # fix(#1950): the budget covers the UPDATE below, the statement that
+        # blocks on a contended job row. An expiry leaves the job `running` for
+        # the stale sweep; the handler below keeps the cause as the outcome.
+        try:
+            async with _job_phase_session(
+                job_uuid,
+                phase="error_write",
+                attempt_id=attempt_uuid,
+                lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
+            ) as (
+                err_session,
+                _err_job,
+            ):
+                from sqlalchemy import update as sa_update
 
-            await err_session.execute(
-                sa_update(IngestJob)
-                .where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                    IngestJob.status == "running",
+                await err_session.execute(
+                    sa_update(IngestJob)
+                    .where(
+                        IngestJob.id == job_uuid,
+                        IngestJob.attempt_id == attempt_uuid,
+                        IngestJob.status == "running",
+                    )
+                    .values(
+                        status="failed",
+                        error_message=str(exc),
+                        completed_at=datetime.now(timezone.utc),
+                    )
                 )
-                .values(
-                    status="failed",
-                    error_message=str(exc),
-                    completed_at=datetime.now(timezone.utc),
-                )
+                await err_session.commit()
+        except DBAPIError as write_failure:
+            # fix(#1950): swallowed so the `raise` below re-raises the ingest
+            # failure. Letting an expiry out would hand the operator a lock
+            # timeout in place of the cause, and skip the notification.
+            log_job_error_write_failure(
+                write_failure, job_id=job_id, task="ingest_raster"
             )
-            await err_session.commit()
-        final_status = "failed"
+        finally:
+            # fix(#1213 review r1, #1950): the `finally` reapers gate on THIS
+            # variable, so every exit from this handler sets it — the bounded
+            # error write above can raise past a positional assignment.
+            final_status = "failed"
         # EVENT-03: notify on ingest failed (non-fatal, after commit — deferred import).
         # status="failed" is already committed above (err_session.commit) so a
         # notification error cannot roll back or alter the terminal job write

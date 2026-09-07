@@ -3621,7 +3621,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1921): +66 — the post-swap catalog wait gets its own budget, a
     # restore, and events telling an expired budget from a lost deadlock.
     # Cap 2577 -> 2643, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2643,
+    # fix(#1950): +25 — the shared failure helper arms the job-row budget after
+    # its own rollback, and an expiry there is logged and swallowed so the caller
+    # re-raises the ingest failure instead. Cap 2643 -> 2668, exact.
+    # fix(#1950 codex r2-r5): +55 — `load_job_for_error_write`, the guarded job
+    # load the two re-upload tails share, which also ends the transaction on a
+    # miss so the run row they write next is unbudgeted. Cap 2668 -> 2723, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2723,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3725,7 +3731,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1921): +15 — the file path gets the exception-to-error_code mapper
     # its service sibling already had, and both name a contended catalog row.
     # Cap 1310 -> 1325, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1325,
+    # fix(#1950): +4 — both failure tails bound their job-row load, and
+    # reupload_file's terminal status moved into a `finally` so a bounded write
+    # that raises still reaches the reapers. Cap 1325 -> 1329, exact.
+    # fix(#1950 codex r2): -12 — each tail's pre-helper job load moved to
+    # `tasks_common.load_job_for_error_write`, which arms the budget and
+    # swallows an expiry there. Cap 1329 -> 1317, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1317,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4626,7 +4638,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1938): +58 — the publish's catalog.records wait gets a budget, a
     # restore after it, and a classified failure report whose SQLSTATE table
     # lives in catalog_locks instead. Cap 1640 -> 1698, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1698,
+    # fix(#1950): +11 — regenerate_vrt's failure handler bounds its three writes,
+    # which is where its own 15s publish wait lands, and keeps the build failure
+    # as the task's outcome when that bound expires. Cap 1698 -> 1709, exact.
+    # fix(#1950 codex r4): -4 — `ingest_vrt`'s failure tail loads its job row
+    # through `tasks_common.load_job_for_error_write` instead of an inline
+    # unbounded SELECT. Cap 1709 -> 1705, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1705,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait
@@ -4766,7 +4784,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # nested one that stops the service-import progress heartbeat, where
     # awaiting the cancelled task re-raises anything the heartbeat body itself
     # failed with. Cap 1392 -> 1368, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1368,
+    # fix(#1950): +12 — both error-write brackets pass the job-row budget, and
+    # the terminal status moved into a `finally` so a bounded write that raises
+    # still reaches the reapers. Cap 1368 -> 1380, exact.
+    # fix(#1950 codex r2): +17 — the budget also bounds the job load
+    # `_job_phase_session` runs before the helper, so both tails grew the
+    # DBAPIError handler that swallows an expiry. Cap 1380 -> 1397, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1397,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

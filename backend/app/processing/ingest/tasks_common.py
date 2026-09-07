@@ -11,7 +11,7 @@ import functools
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1255,6 +1255,58 @@ async def stamp_failed_origin_health(
         await invalidate_catalog_cache()
 
 
+async def load_job_for_error_write(
+    session,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID | None,
+    *,
+    task_name: str,
+):
+    """Load the job row a failure tail is about to settle, under the shared budget.
+
+    Never raises. Every caller reaches it from inside an ``except``, where a
+    raise would replace the ingest failure with a lock timeout.
+
+    Returns ``None`` when the row is gone, when a newer attempt owns it, or when
+    the budget expired; the expiry is logged as its own event. On every ``None``
+    the transaction is ended, so the caller's remaining writes run unbudgeted on
+    a clean session rather than inheriting a budget meant for the job row.
+
+    On a hit the transaction stays open and budgeted, and the returned row is
+    live: ending it here would expire the instance the caller is about to pass
+    to ``_cleanup_staging_on_failure``.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.exc import DBAPIError
+
+    from app.platform.jobs.heartbeat import (
+        arm_job_error_write_budget,
+        log_job_error_write_failure,
+    )
+    from app.platform.jobs.models import IngestJob
+
+    async def _end_transaction() -> None:
+        # A rollback on a connection that is already gone raises, and this
+        # helper's whole job is to not raise.
+        with suppress(Exception):  # broad: best-effort, the caller re-raises
+            await session.rollback()
+
+    filters = [IngestJob.id == job_uuid]
+    if attempt_uuid is not None:
+        filters.append(IngestJob.attempt_id == attempt_uuid)
+    try:
+        await arm_job_error_write_budget(session)
+        result = await session.execute(select(IngestJob).where(*filters))
+        job = result.scalar_one_or_none()
+        if job is None:
+            await _end_transaction()
+        return job
+    except DBAPIError as write_failure:
+        await _end_transaction()
+        log_job_error_write_failure(write_failure, job_id=str(job_uuid), task=task_name)
+        return None
+
+
 async def _cleanup_staging_on_failure(
     session,
     *,
@@ -1291,10 +1343,20 @@ async def _cleanup_staging_on_failure(
     the job sat `running` with no reason recorded. Anything added here that
     can fail belongs after the commit, in its own guarded block, with a
     rollback of its own wreckage.
+
+    fix(#1950): the failure UPDATE runs under ``JOB_ERROR_WRITE_TIMEOUT_MS``. On
+    a contended job row it gives up rather than waiting, logs
+    ``job_error_write_timeout``, and returns — the job stays ``running`` and the
+    caller re-raises the failure it was already handling.
     """
     from sqlalchemy import text
     from sqlalchemy import update as sa_update
+    from sqlalchemy.exc import DBAPIError
 
+    from app.platform.jobs.heartbeat import (
+        arm_job_error_write_budget,
+        log_job_error_write_failure,
+    )
     from app.processing.ingest.metadata import _qtable
 
     job_id = job.id
@@ -1322,14 +1384,31 @@ async def _cleanup_staging_on_failure(
             type(job).attempt_id == attempt_id,
             type(job).status.in_(("pending", "running")),
         )
-    result = await session.execute(
-        failure_update.values(
-            status="failed",
-            error_message=error_message,
-            completed_at=completed_at,
+    # fix(#1950): an expired budget must not become the task's outcome. Swallowed
+    # and logged as its own event, so the caller re-raises the ingest failure and
+    # the report below still runs; `written` gates what the write earned.
+    written = False
+    result = None
+    try:
+        # fix(#1950): armed AFTER the rollback that would discard it and before
+        # the UPDATE, which is the statement that blocks on a contended job row;
+        # inside the guard because arming can fail on a lost connection too.
+        await arm_job_error_write_budget(session)
+        result = await session.execute(
+            failure_update.values(
+                status="failed",
+                error_message=error_message,
+                completed_at=completed_at,
+            )
         )
-    )
-    await session.commit()
+        await session.commit()
+        written = True
+    except DBAPIError as write_failure:
+        # Same reason as the loader's: the callers below re-raise the ingest
+        # failure, and a rollback that raises would take its place.
+        with suppress(Exception):  # broad: best-effort, the caller re-raises
+            await session.rollback()
+        log_job_error_write_failure(write_failure, job_id=str(job_id), task=task_name)
 
     # fix(#1778 codex r2): the DROP runs AFTER the failure row is committed,
     # not before it. PostgreSQL aborts the whole transaction on any statement
@@ -1367,11 +1446,12 @@ async def _cleanup_staging_on_failure(
                     task=task_name,
                 )
 
-    if attempt_id is not None and not result.rowcount:
+    if written and attempt_id is not None and not result.rowcount:
         return
-    job.status = "failed"
-    job.error_message = error_message
-    job.completed_at = completed_at
+    if written:
+        job.status = "failed"
+        job.error_message = error_message
+        job.completed_at = completed_at
     structlog.get_logger().exception(
         "Ingest task failed",
         job_id=str(job_id),

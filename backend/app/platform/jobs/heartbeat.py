@@ -6,9 +6,10 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import update
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.sqlstate import sqlstate
 from app.platform.jobs.models import IngestJob
 
 HEARTBEAT_INTERVAL_SECONDS = 30.0
@@ -120,6 +121,52 @@ async def claim_ingest_job_attempt(
         .values(status="running", started_at=now, heartbeat_at=now)
     )
     return bool(result.rowcount)  # type: ignore[attr-defined]
+
+
+# fix(#1950): the budget an attempt-fenced failure write spends on its own
+# ingest_jobs row. A long holder is a LATER attempt's phase bracket, whose id
+# the fence no longer matches, so no wait starts and a wait past this is stuck.
+JOB_ERROR_WRITE_TIMEOUT_MS = 10_000
+
+
+# fix(#1950): the two SQLSTATEs the budget itself produces — statement_timeout
+# and lock_timeout. Any other DBAPIError out of the failure write is a database
+# problem, reported under the sibling event rather than as an expiry.
+ERROR_WRITE_EXPIRY_CODES = ("57014", "55P03")
+
+
+def log_job_error_write_failure(exc: BaseException, *, job_id: str, task: str) -> None:
+    """Record a failed terminal job write as its own event.
+
+    The caller must swallow *exc* and re-raise whatever it was already handling:
+    this write is secondary, and letting it out replaces the cause the operator
+    needs with a lock timeout.
+    """
+    code = sqlstate(exc)
+    structlog.get_logger().warning(
+        "job_error_write_timeout"
+        if code in ERROR_WRITE_EXPIRY_CODES
+        else "job_error_write_failed",
+        job_id=job_id,
+        task=task,
+        sqlstate=code,
+        budget_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
+    )
+
+
+async def arm_job_error_write_budget(session: AsyncSession) -> None:
+    """Bound this transaction's wait on the job row at the error-write budget.
+
+    Issue it on the transaction that carries the failure UPDATE and after any
+    rollback on that session: ``SET LOCAL`` dies with the transaction, so an
+    arm placed before a rollback or a commit is gone by the next statement.
+    """
+    await session.execute(
+        text(f"SET LOCAL lock_timeout = {JOB_ERROR_WRITE_TIMEOUT_MS}")
+    )
+    await session.execute(
+        text(f"SET LOCAL statement_timeout = {JOB_ERROR_WRITE_TIMEOUT_MS}")
+    )
 
 
 async def update_ingest_job_for_attempt(

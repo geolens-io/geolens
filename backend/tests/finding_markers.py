@@ -400,7 +400,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "processing/ingest/service.py": 20,
     "processing/ingest/tasks_common.py": 47,
     "processing/ingest/tasks_postgis_refresh.py": 2,
-    "processing/ingest/tasks_raster.py": 37,
+    "processing/ingest/tasks_raster.py": 35,
     "processing/ingest/tasks_raster_common.py": 6,
     "processing/ingest/tasks_raster_replace.py": 4,
     "processing/ingest/tasks_reupload.py": 7,
