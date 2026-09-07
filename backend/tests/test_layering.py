@@ -4641,7 +4641,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950): +11 — regenerate_vrt's failure handler bounds its three writes,
     # which is where its own 15s publish wait lands, and keeps the build failure
     # as the task's outcome when that bound expires. Cap 1698 -> 1709, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1709,
+    # fix(#1950 codex r4): -4 — `ingest_vrt`'s failure tail loads its job row
+    # through `tasks_common.load_job_for_error_write` instead of an inline
+    # unbounded SELECT. Cap 1709 -> 1705, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1705,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait

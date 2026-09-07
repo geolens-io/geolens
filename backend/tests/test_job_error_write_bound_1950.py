@@ -36,6 +36,17 @@ pytestmark = pytest.mark.anyio
 # uncontended write never reaches it.
 _TEST_BUDGET_MS = 400
 
+# Every tail that settles a failed job through `_cleanup_staging_on_failure`,
+# mapped to the budgeted loader that reads its job row first. The membership is
+# checked against the tree, not trusted.
+_HELPER_ROUTED_TAILS = {
+    ("tasks_vector", "ingest_file"): "_job_phase_session",
+    ("tasks_vector", "ingest_service"): "_job_phase_session",
+    ("tasks_reupload", "reupload_file"): "load_job_for_error_write",
+    ("tasks_reupload", "reupload_service"): "load_job_for_error_write",
+    ("tasks_vrt", "ingest_vrt"): "load_job_for_error_write",
+}
+
 
 def _arm_call_lines(tree: ast.AST) -> list[int]:
     """Line numbers of every ``arm_job_error_write_budget`` call in *tree*."""
@@ -288,16 +299,24 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
             "status 'pending' so the finally-block reapers return early"
         )
 
-    @pytest.mark.parametrize(
-        ("module_name", "task_name"),
-        [
-            ("tasks_vector", "ingest_file"),
-            ("tasks_vector", "ingest_service"),
-            ("tasks_reupload", "reupload_file"),
-            ("tasks_reupload", "reupload_service"),
-        ],
-    )
-    def test_the_four_helper_routed_tails_still_route_there(
+    def test_every_helper_routed_tail_is_named_here(self) -> None:
+        """The list below was hand-written and missed `ingest_vrt` twice."""
+        found = set()
+        for path in Path(tasks_raster.__file__).parent.glob("tasks*.py"):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.AsyncFunctionDef):
+                    continue
+                if "_cleanup_staging_on_failure" in _call_names([node]):
+                    found.add((path.stem, node.name))
+        assert found == set(_HELPER_ROUTED_TAILS), (
+            f"the helper-routed tails are {sorted(found)}, and this file "
+            f"bounds {sorted(_HELPER_ROUTED_TAILS)}. A tail nobody listed "
+            "loads its job row unbounded and hangs with its heartbeat running"
+        )
+
+    @pytest.mark.parametrize(("module_name", "task_name"), sorted(_HELPER_ROUTED_TAILS))
+    def test_every_helper_routed_tail_still_routes_there(
         self, module_name: str, task_name: str
     ) -> None:
         """Each tail's bound is the shared helper's, so it must still call it."""
@@ -310,11 +329,7 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
             f"{module_name}.{task_name} writes its own terminal failure row "
             "again, so the budget in the shared helper no longer covers it"
         )
-        loader = (
-            "load_job_for_error_write"
-            if module_name == "tasks_reupload"
-            else "_job_phase_session"
-        )
+        loader = _HELPER_ROUTED_TAILS[(module_name, task_name)]
         assert loader in source, (
             f"{module_name}.{task_name} loads the job row for its error write "
             f"without {loader}, so the guarded load that swallows an expired "

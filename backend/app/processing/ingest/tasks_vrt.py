@@ -48,6 +48,7 @@ from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
     _cleanup_staging_on_failure,
+    load_job_for_error_write,
     task_app,
 )
 from app.processing.ingest.tasks_raster_common import (
@@ -855,14 +856,9 @@ async def ingest_vrt(
         # staging table — its artifacts are the object keys the `finally`
         # below reaps.
         async with async_session() as err_session:
-            err_job = (
-                await err_session.execute(
-                    select(IngestJob).where(
-                        IngestJob.id == job_uuid,
-                        IngestJob.attempt_id == attempt_uuid,
-                    )
-                )
-            ).scalar_one_or_none()
+            err_job = await load_job_for_error_write(
+                err_session, job_uuid, attempt_uuid, task_name="ingest_vrt"
+            )
             if err_job is not None:
                 await _cleanup_staging_on_failure(
                     err_session,
