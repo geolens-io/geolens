@@ -796,7 +796,7 @@ async def ingest_raster(
                 write_failure, job_id=job_id, task="ingest_raster"
             )
         finally:
-            # fix(#1213): the `finally` reapers gate on THIS
+            # fix(#1213, #1950): the `finally` reapers gate on THIS
             # variable, so every exit from this handler sets it — the bounded
             # error write above can raise past a positional assignment.
             final_status = "failed"

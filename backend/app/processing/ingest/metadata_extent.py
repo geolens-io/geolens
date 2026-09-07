@@ -70,12 +70,12 @@ async def get_table_srid(
     return int(row) if row is not None else None
 
 
-# fix(#1057): map abstract OGC GML 3 geometry types (returned by
+# Phase 1057 WFS-04: map abstract OGC GML 3 geometry types (returned by
 # PostGIS GeometryType() when the source WFS stores them, e.g. GeoServer's
 # opengeo:countries) to the closest concrete subtype, since
 # chk_datasets_geometry_type only allows the 7 concrete types (POINT,
 # LINESTRING, POLYGON, MULTIPOINT, MULTILINESTRING, MULTIPOLYGON,
-# GEOMETRYCOLLECTION). ``-nlt GEOMETRY`` (also #1057) relaxed the column
+# GEOMETRYCOLLECTION). ``-nlt GEOMETRY`` (same phase) relaxed the column
 # type so ogr2ogr can load these, but leaves the stored subtype
 # (MULTISURFACE / MULTICURVE / ...) as GeometryType(geom)'s answer.
 _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE: dict[str, str] = {

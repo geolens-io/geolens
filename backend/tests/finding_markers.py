@@ -353,6 +353,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "processing/export/service.py": 3,
     "processing/export/where_validator.py": 3,
     "processing/ingest/manifest_service.py": 2,
+    "processing/ingest/metadata_extent.py": 1,
     "processing/ingest/metadata_mercator.py": 2,
     "processing/ingest/metadata_projection.py": 1,
     "processing/ingest/ogr.py": 13,
