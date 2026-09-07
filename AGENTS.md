@@ -1,180 +1,109 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Project Structure
 
-GeoLens mixes Python and TypeScript. Backend source is in `backend/app/`: `modules/` holds domain areas, `platform/` shared services, `processing/` ingest/export/tile work, and `standards/` OGC/STAC/DCAT integrations. Migrations are in `backend/alembic/`; tests are in `backend/tests/`.
-
-The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`, `stores/`, `api/`, `assets/`, `i18n/`, and colocated `__tests__/`. Playwright specs are in `e2e/`. The CLI is in `cli/geolens_cli/`; the read-only MCP server is in `mcp/geolens_mcp/`; generated SDKs are in `sdks/`; operations files are in `scripts/`, `db/`, and `.github/`.
-
-## Build, Test, and Development Commands
-
-- `make dev` / `make down`: start or stop the Docker Compose development stack.
-- `make migrate`: run Alembic migrations in the API container. `make alembic-check` fails if the ORM models have drifted from the migration scripts (run it for schema-adjacent changes).
-- `make test` / `make test-cov`: run backend pytest and coverage.
-- `make ai-evals`: live-provider NL→SQL regression evals in `backend/tests/evals/` (skipped in normal test runs; costs provider tokens, needs `ANTHROPIC_API_KEY` and the dev DB).
-- `npm run e2e` or `npm run e2e:smoke`: run Playwright suites.
-- `cd frontend && npm ci && npm run dev`: install frontend dependencies and start Vite.
-- `cd frontend && npm run build && npm run lint && npm run typecheck && npm run test:coverage`: run frontend gates (`npx tsc --noEmit` is a no-op here; `npm run typecheck` is the real type gate).
-- `make openapi-check`, `make sdks-check`, `make cli-test`: validate API snapshots and SDK/CLI drift.
-- `make bump VERSION=X.Y.Z`: rewrite every version site atomically. Never edit a version string by hand; `make version-check` is the CI gate.
-
-### Running a single test
-
-- Backend, in-container: mirror `make test`'s env (the container's default uv cache is read-only), e.g. `docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache tests/test_foo.py::test_bar -v`.
-- Backend, on the host (needs Postgres at localhost:5434): `cd backend && set -a && source ../.env.test && set +a && uv run pytest tests/test_foo.py -v`.
-- Frontend: `cd frontend && npx vitest run src/path/foo.test.ts`.
-- E2E: `npx playwright test e2e/foo.spec.ts --project=chromium` (stack must be running).
-
-A focused selection is blind to the module-size gates. `backend/tests/test_layering.py` caps the size of the largest backend modules, and CI runs it on every PR that triggers `backend-test`, so a change that adds lines to a ratcheted file passes locally and fails there.
-
-If you touched anything under `backend/app/`, finish with:
-
-```bash
-cd backend && set -a && source ../.env.test && set +a && uv run pytest tests/test_layering.py -q
-```
-
-- It needs no database.
-- It does boot `app.core.config`, so a bare run dies on missing env vars with a non-zero exit before collecting anything. That reads exactly like a gate failure and is not one.
-- In a fresh clone `.env.test` does not exist yet (it is gitignored). Create it once with `make env-test` from the repo root.
-- Growth is allowed. Raise the file's cap in `_MODULE_LOC_CAPS` in the same commit, with a comment saying what the lines bought.
-
-### Working from a git worktree
-
-The dev stack bind-mounts the MAIN checkout (`./frontend` → `/app`, and `backend/app` → `/app/app` with `--reload`), so `localhost:8080` always serves `main` no matter which branch your worktree is on. Running `npx playwright test` from a worktree therefore validates code you did not write. Treat the result as meaningless: it has produced a false FAILURE, and the symmetric case is worse, because a worktree change that breaks e2e passes when the stack never had it. `playwright.config.ts` and `playwright.builder-hardening.config.ts` both call `assertWorktreeMatchesStack()` (`playwright.worktree-guard.ts`), which refuses to run from a linked worktree unless you set `E2E_ALLOW_WORKTREE=1`. It does not try to work out whether your changes are in the stack — that question spans git reporting, filesystem semantics and compose configuration, and an earlier revision got it wrong eleven different ways. Acknowledging costs one variable; a silent false pass costs an answer you cannot see.
-
-To exercise worktree **frontend** code, run Vite on the host at `:5174` with `API_PROXY_TARGET=http://localhost:8001`, then `E2E_ALLOW_WORKTREE=1 E2E_BASE_URL=http://localhost:5174 npx playwright test`. That recipe is frontend-only: `:8001` is the MAIN checkout's API container (`docker-compose.yml`, `host :8001 -> api:8000`), so a change under `backend/app/` or `backend/alembic/` still would not be under test. Exercising a worktree **backend** change needs a stack built from that worktree — a separate compose project with its own ports, or a host-run API serving the worktree's backend.
-
-A spec-only change (editing `e2e/*.spec.ts` with no app-code change) is the one case where running against the shared stack from a worktree is genuinely valid, because Playwright reads the specs from your worktree while the app code is whatever the main checkout is serving. That still needs `E2E_ALLOW_WORKTREE=1`: the guard cannot tell a spec-only branch from any other, and deliberately does not try.
-
-The host backend recipe above is also unrunnable verbatim from a worktree — the sandbox refuses `source` on a path outside the worktree and denies reading `.env*`. Run `make env-test` inside the worktree instead (it is gitignored; delete it when you are done) and run pytest from a wrapper script.
+GeoLens mixes Python and TypeScript. Backend source is `backend/app/`: `modules/` (domain areas), `platform/` (shared services), `processing/` (ingest/export/tiles), `standards/` (OGC/STAC/DCAT), `core/` (config, DB, permissions, edition). Migrations are in `backend/alembic/`, tests in `backend/tests/`. The React/Vite frontend is `frontend/src/` (`components/`, `pages/`, `hooks/`, `stores/`, `api/`, `i18n/`, colocated `__tests__/`); Playwright specs are in `e2e/`. The CLI is `cli/geolens_cli/`, the read-only MCP server `mcp/geolens_mcp/`, generated SDKs `sdks/`, operations files `scripts/`, `db/`, `.github/`.
 
 ## Architecture
 
-Services (`docker-compose.yml`): Nginx (prod proxy; Vite proxy in dev) fronts the FastAPI `api` (catalog, search, OGC/STAC, vector tiles) and Titiler (COG raster tiles). A `worker` runs GDAL/ogr2ogr ingestion, dispatched via the Procrastinate job queue that lives *inside* PostgreSQL (no separate broker). PostgreSQL 18 (PostGIS + pgvector + pg_trgm) is the single source of truth; object storage is MinIO/S3; Valkey is the tile/query cache.
+Nginx (Vite proxy in dev) fronts the FastAPI `api` (catalog, search, OGC/STAC, vector tiles) and Titiler (COG raster tiles). A `worker` runs GDAL/ogr2ogr ingestion via the Procrastinate queue, which lives inside PostgreSQL. PostgreSQL 18 (PostGIS, pgvector, pg_trgm) is the single source of truth; MinIO/S3 holds objects; Valkey caches tiles and queries.
 
-Backend `backend/app/`: `modules/` (domain areas — `catalog` is the core, with `datasets`/`collections`/`records`/`features`/`maps`/`layers`/`search`/`sources`/`validation`), `platform/` (shared services), `processing/` (ingest/export/raster/tiles/embeddings/ai), `standards/` (OGC/STAC/DCAT), `core/` (config, DB, permissions, edition). Access control is in `catalog/authorization.py`. The `datasets` domain is split into `api/` (routers) and `domain/`, where service logic lives in `service_X` sub-modules behind a re-export façade in `domain/service.py` — import via the façade, never the sub-modules (`backend/tests/test_layering.py` enforces this).
+Backend: `catalog` is the core module (`datasets`/`collections`/`records`/`features`/`maps`/`layers`/`search`/`sources`/`validation`); access control is `catalog/authorization.py`. The `datasets` domain splits into `api/` (routers) and `domain/`, where `service_X` sub-modules sit behind the façade `domain/service.py`. Import the façade, never a sub-module; `backend/tests/test_layering.py` enforces this and the other layer boundaries.
 
-Frontend `frontend/src/` (React 19, `@vis.gl/react-maplibre` v8 / maplibre-gl v6, TanStack Query, zustand, Tailwind): the map builder is `builder/`; all API calls go through `apiFetch()` in `api/client.ts`; the auth token lives in `useAuthStore` (persisted `geolens-auth`, read outside React via `useAuthStore.getState().token`); reuse UI primitives from `components/ui/`.
+Frontend (React 19, `@vis.gl/react-maplibre` v8, maplibre-gl v6, TanStack Query, zustand, Tailwind): the map builder is `builder/`; every API call goes through `apiFetch()` in `api/client.ts`; the auth token lives in `useAuthStore` (persisted `geolens-auth`; outside React read `useAuthStore.getState().token`); reuse `components/ui/`.
 
-CLI (`cli/geolens_cli/`) and SDKs (`sdks/`) wrap the API. SDKs are generated from `backend/openapi.json` — regenerate with `make sdks`, never hand-edit generated files (only `auth.*`/`__init__`/`index` wrappers are hand-maintained). The read-only MCP server (`mcp/geolens_mcp/`) is a hand-maintained package (like the CLI) that exposes catalog/feature/map reads to coding agents; it depends on the `geolens` SDK and is NOT generated.
+SDKs are generated from `backend/openapi.json` with `make sdks`; never hand-edit generated files (only the `auth.*`, `__init__` and `index` wrappers are hand-maintained). The CLI and MCP server are hand-maintained and wrap the SDK.
 
-## Coding Style & Naming Conventions
+## Commands
 
-Use 4 spaces for Python and keep code inside existing backend domain boundaries. Run `cd backend && uv run ruff check .` and `uv run ruff format --check .` before backend changes are complete.
+- `make dev` / `make down`: start or stop the Docker Compose stack.
+- `make migrate`: run Alembic migrations in the API container; `make alembic-check` catches model/migration drift (run it for schema changes).
+- `make test` / `make test-cov`: backend pytest and coverage. `make ai-evals`: live NL→SQL evals (costs tokens, needs `ANTHROPIC_API_KEY` and the dev DB).
+- `cd frontend && npm ci && npm run dev`; gates: `npm run build && npm run lint && npm run typecheck && npm run test:coverage` (`npx tsc --noEmit` is a no-op; `typecheck` is the real gate).
+- `npm run e2e` / `npm run e2e:smoke`: Playwright.
+- `make openapi-check`, `make sdks-check`, `make cli-test`: API snapshot and SDK/CLI drift.
+- `make bump VERSION=X.Y.Z` rewrites every version site; never edit one by hand (`make version-check` is the CI gate).
 
-Frontend code uses TypeScript, React, ESLint, React Hooks rules, and JSX accessibility checks. Prefer `PascalCase` components, `use*` hooks, and existing primitives from `frontend/src/components/ui/`. Prefix intentionally unused variables or parameters with `_`.
+Single tests: host backend `cd backend && set -a && source ../.env.test && set +a && uv run pytest tests/test_foo.py -v` (Postgres at localhost:5434); in-container `docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache tests/test_foo.py::test_bar -v`; frontend `cd frontend && npx vitest run src/path/foo.test.ts`; e2e `npx playwright test e2e/foo.spec.ts --project=chromium`.
+
+After touching anything under `backend/app/`, run the tree-wide gates a focused run cannot see:
+
+```bash
+cd backend && set -a && source ../.env.test && set +a && uv run pytest tests/test_layering.py -q
+python3 backend/tests/finding_markers.py
+```
+
+Neither needs a database. A missing `.env.test` (gitignored; `make env-test` creates it) kills `test_layering.py` before collection, which looks like a gate failure and is not. Two ledgers are exact in both directions: `_MODULE_LOC_CAPS` (module line counts) and `UNANCHORED_MARKER_DEBT` (bare tracker ids per module). When a file grows or shrinks, set its entry to the new value in the same commit with a line saying what the change bought.
+
+### Worktrees
+
+The dev stack bind-mounts the main checkout, so `localhost:8080` and the API on `:8001` always serve `main`. Playwright refuses to run from a linked worktree unless `E2E_ALLOW_WORKTREE=1`; it does not try to detect whether your change is in the stack. Frontend change: run Vite on the host at `:5174` with `API_PROXY_TARGET=http://localhost:8001`, then `E2E_ALLOW_WORKTREE=1 E2E_BASE_URL=http://localhost:5174 npx playwright test` (backend is still main's). Backend change: build a stack from the worktree (own compose project or a host-run API). Spec-only change: the shared stack is valid with the flag set. The host pytest recipe cannot `source` outside the worktree, so run `make env-test` inside it and call pytest from a wrapper script.
+
+## Coding Principles
+
+- Build what was asked, nothing speculative. The shortest correct diff wins; deletion beats addition; boring beats clever.
+- Reach for what exists, in order: the standard library, a native platform feature (a Postgres constraint over an application check, HTML and CSS over JavaScript), a dependency already installed, then new code. Never add a dependency for what a few lines do.
+- Keep it simple: no interface with one implementation, no factory for one product, no configuration for a value that never changes, no scaffolding for later.
+- One definition per fact inside a domain. Reuse `platform/` helpers, the service façades, `components/ui/` and `apiFetch()` before writing a sibling. Where a layer boundary forbids the import, a small copy beats a violation.
+- Never simplify away a trust boundary: input validation, access checks, SSRF gating, error handling that prevents data loss, accessibility basics.
+- Non-trivial logic ships with the one test that fails if it breaks, and no fixtures or suites the change does not need.
+
+## Style
+
+Python: 4 spaces, `cd backend && uv run ruff check . && uv run ruff format --check .` before a change is complete. The McCabe gate is 15; the `per-file-ignores` baseline in `backend/pyproject.toml` may shrink, never grow. Frontend: TypeScript, ESLint, React Hooks and JSX a11y rules; `PascalCase` components, `use*` hooks, `_` prefix for intentionally unused names.
+
+### Comments and docstrings
+
+Every comment and docstring is read by every agent on every turn, so each line has a recurring token cost. Write the fewest lines that stop a reader from making a mistake.
+
+- A comment says why, never what. If the code needs a what, rename or split the code.
+- A docstring is the contract: one summary line, then only what a caller cannot infer from the signature (a non-obvious input, output or error, and the one trap). No narrative, motivation or history. A private helper whose name says it all gets none; a module docstring is a few lines on what the module holds.
+- A trap comment naming a concrete failure the code guards against (a lock order, a race, a driver quirk) stays, in one to three lines.
+- Route handler docstrings and Pydantic `Field(description=...)` strings are the published OpenAPI text. Editing one changes `backend/openapi.json`, both SDKs and `frontend/src/types/api.generated.ts`, so regenerate all four, and never write an absolute you cannot trace to a line.
+- Pinned markers: `# codeql[...]` on its own line directly above the line it covers (prose goes above the marker); `# broad: <reason>` on the same line as every `except Exception`.
 
 ### Inline review-comment convention
 
-When an in-source comment references a finding from a code review or audit, anchor it to a stable, lookup-able reference (a PR or issue number) plus the invariant the code now holds, so future readers can find the rationale:
+A comment that references a review or audit finding carries a stable anchor (a PR or issue number) plus the invariant the code now holds, three lines at most:
 
 ```
 // fix(#1234): suppress basemap row click during multi-selection
 ```
 
-Keep it to the anchor and the invariant, three lines at most. The history behind it (what the review said, what was tried, which alternative was rejected and why) goes in the PR body or the issue the anchor names, not in the source. Docstrings state the contract (inputs, outputs, errors, the one trap a caller must know) and do not carry review history either. Do not write a comment that restates what the next line does. When you edit a file, trim any comment you touch to this rule.
+The history behind it goes in the PR or issue the anchor names. Never write a comment that restates the next line, and trim any comment you touch to this rule. Bare tracker ids that only resolve in a private tracker are refused by the `no-unscoped-finding-markers` hook and `backend/tests/finding_markers.py`.
 
-Avoid bare, unscoped finding ids that only resolve in a private tracker.
+## Testing
 
-**Enforcement.** `backend/tests/finding_markers.py` parses every module under `backend/app/` and reads its comments and docstrings — never code, so a string literal cannot trip it. It reports a coded finding id (`SEC-002`, `T-1214-17`, `PERF-N5`, `IA-P0-01`) or a denylisted agent tag with no `#issue` anchor within two lines. A published-standard token (`UTF-8`, `ISO-8601`) is exempt by name, in a literal list rather than a prefix family, because `ISO-8601` is vocabulary and `ISO-01` is a finding id. `backend/tests/test_unscoped_finding_markers.py` runs it in CI and pins the detector's behaviour; the `no-unscoped-finding-markers` pre-commit hook runs the same detector. `backend/app/` is the whole of its scope: `frontend/`, `e2e/`, `cli/` and `mcp/` are covered only by the `no-agent-tag-markers` hook, which greps one literal tag.
+Backend: pytest with AnyIO, `test_*.py`, 80% coverage floor (`fail_under` in `backend/pyproject.toml`); DB-backed tests need `docker compose up -d --wait db` and the variables in `.env.test.example`. Frontend: Vitest and Testing Library, `*.test.ts(x)` or `__tests__/`. E2E: Playwright, `e2e/*.spec.ts`.
 
-The markers that were already on `main` when the gate landed are frozen per module in `UNANCHORED_MARKER_DEBT`, counted per marker and EXACT in both directions: a new marker fails — including a second one on a line that already carries one — and so does removing one without lowering the number. The gate refuses new debt; those numbers only go down.
+New `t()` keys go in all four locales (en/es/fr/de); a `defaultValue` alone fails `npm run test:i18n`. Plural suffixes follow the same all-four-or-none rule: there is no `_many`→`_other` fallback, and French resolves count 0 to `_one`, so `_one` values interpolate `{{count}}` rather than hardcoding "1".
 
-## Testing Guidelines
+## Commits, PRs and Docs
 
-Backend tests use pytest with AnyIO; files follow `test_*.py`. Coverage in `backend/pyproject.toml` has an 80% minimum (`fail_under`). For DB-backed tests, start Postgres with `docker compose up -d --wait db`; follow `.env.test.example` and `.github/workflows/ci.yml` for CI-style variables.
+Conventional Commit subjects with a meaningful scope, e.g. `feat(sharing): add schema gates for advanced sharing`. PRs describe the change, call out schema/API/config impacts, link issues, include screenshots for UI work and list verification commands. Commit `backend/openapi.json` or SDK output only when the source change requires it.
 
-Frontend tests use Vitest and Testing Library as `*.test.ts(x)` files or under `__tests__/`. E2E tests use Playwright and follow `*.spec.ts` in `e2e/`.
+Root docs are single-purpose: `README.md` (public overview), `SUPPORT.md`, `CHANGELOG.md` (release-note source of truth), `EDITIONS.md` (open-core boundary, REL-01) and `RUNBOOK.md` (operator recovery, BKP-04). README images live in `.github/assets/`, contributor docs under `.github/`, product docs on docs.getgeolens.com, private notes in ignored `docs-internal/`. Do not reintroduce a root `docs/` directory or narrative feature docs that duplicate the docs site. Brand assets come from a tagged release of the sibling `geolens-io/branding` repo, never re-authored here; changes propagate branding → this repo → marketing → docs.
 
-New `t()` translation keys must be added to all four locales (en/es/fr/de); a `defaultValue` alone fails the `npm run test:i18n` locale-parity CI gate.
+## Security & Configuration
 
-Plural-suffix keys follow the same all-four-or-none rule, with two i18next facts to respect: there is no `_many`→`_other` fallback (a `_many` added to es/fr alone renders the raw key or English for exact millions), and French resolves count 0 to `_one` — so `_one` values must interpolate `{{count}}`, never hardcode "1".
-
-## Commit & Pull Request Guidelines
-
-History follows a Conventional Commit-like pattern, for example `feat(sharing): add schema gates for advanced sharing` or `docs(readme): clarify the install steps`. Use an imperative subject and meaningful scope.
-
-Pull requests should describe the change, call out schema/API/config impacts, link issues, include screenshots for UI work, and list verification commands. Commit `backend/openapi.json` or SDK output only when the source change requires it.
-
-## Cross-Repo Brand Assets
-
-Brand assets (logos, color tokens, font references, brand-usage rules, press materials) live in the sibling [`geolens-io/branding`](https://github.com/geolens-io/branding) repository — not here. When an app feature needs a logo, palette token, or identity element, copy from a tagged branding release rather than re-authoring locally. The propagation order for any change that touches brand identity is **branding → this repo → marketing → docs**. Cross-surface brand canon lives in branding's `BRAND-GUIDE.md`.
-
-## Repository Docs Policy
-
-Keep root repository docs single-purpose:
-
-- `README.md` is the public overview.
-- `SUPPORT.md` is support routing.
-- `CHANGELOG.md` is the release-note source of truth.
-- `EDITIONS.md` is the open-core/commercial boundary. Sanctioned at the root because licensing transparency requires it in-repo (REL-01).
-- `RUNBOOK.md` is the operator backup/restore and disaster-recovery runbook. Sanctioned at the root because a self-hoster must be able to recover offline (BKP-04).
-
-Everything else has a home:
-
-- README images live in `.github/assets/`.
-- Detailed product docs live on docs.getgeolens.com.
-- Contributor-facing architecture and onboarding docs live under `.github/` (e.g. `.github/CONTRIBUTING.md`, `.github/ARCHITECTURE.md`).
-- Private and internal notes stay in ignored `docs-internal/`.
-
-Do not reintroduce a root `docs/` directory, and do not add standalone narrative feature docs that duplicate the docs site.
-
-## Security & Configuration Tips
-
-Use `.env.example` and `.env.test.example` as templates. Never commit secrets, coverage output, Playwright reports, virtual environments, or dependency directories.
-
-Keep assistant and internal-notes state out of git. `.gitignore` covers AI-assistant and internal directories (e.g. `.claude/`, `.planning/`, `docs-internal/`); if any of those become tracked, untrack them before committing.
+Use `.env.example` and `.env.test.example` as templates. Never commit secrets, coverage output, Playwright reports, virtual environments or dependency directories. `.gitignore` covers assistant and internal-notes directories (`.claude/`, `.planning/`, `docs-internal/`); untrack any that slip in before committing.
 
 ### Security pre-commit checklist
 
-The rules below codify recurring security-review patterns. Any code change that touches catalog data access, external URL fetching, or boot-time credential validation must satisfy them.
+Any change touching catalog data access, external URL fetching or boot-time credential validation must satisfy these.
 
-**Rule 1 — Visibility-filter coverage** *(the most common access-control regression surface)*
+**Rule 1: Visibility-filter coverage.** Any new FastAPI handler that fetches a `Record`, `Dataset`, `Map` or `RecordEmbedding` by ID does ONE of: `check_dataset_access_or_anonymous(db, dataset, dataset_id, user)` (reads), `check_dataset_access(...)` (writes; 404 on denial), `check_dataset_write_access(...)` (owner-or-admin mutations), all from `backend/app/modules/catalog/authorization.py`, or `apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)` on its own `Select` (list endpoints). Reference: `standards/ogc/router.py`, `standards/stac/router.py` (read), `catalog/datasets/api/router_metadata.py` (write). Enforced by a pre-commit grep and, per handler, by `backend/tests/test_rule1_structural.py` (#822).
 
-Any new FastAPI handler that fetches a `Record`, `Dataset`, `Map`, or `RecordEmbedding` by ID must do ONE of:
+**Rule 2: SSRF redirect-revalidation.** Any `httpx.AsyncClient` with `follow_redirects=True` comes from `make_safe_client()` in `backend/app/platform/security.py`, which re-runs `validate_url_for_ssrf` on every 3xx `Location`. A pre-commit grep enforces this half. `security.py`, `gdal_env.py` and `gdal_drivers.py` stay in `platform/`: their callers span auth, config_ops, catalog and processing, and `modules/catalog/` may not import `app.processing.*` (#435, #1857).
 
-- Call `check_dataset_access_or_anonymous(db, dataset, dataset_id, user)` from `backend/app/modules/catalog/authorization.py` (read-side endpoints), OR
-- Call `check_dataset_access(db, dataset, dataset_id, user)` from the same module (write/destructive endpoints; raises 404 on access denial), OR
-- Call `check_dataset_write_access(db, dataset, dataset_id, user)` from the same module (owner-or-admin mutation endpoints), OR
-- Apply `apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)` to the underlying SQLAlchemy `Select` (list endpoints with their own query construction).
+GDAL, ogr2ogr and rasterio cannot be made redirect-safe from the inside. `GDAL_HTTP_FOLLOWLOCATION` is not a GDAL option, setting it does nothing (#937), and no test catches it: never re-add it. The defenses are structural, in this order, and `backend/tests/test_rule2_structural.py` (#936) enforces them per call and per argv with an EMPTY allowlist (#1857):
 
-Reference implementations:
-- `backend/app/standards/ogc/router.py` — OGC Features peer router (read path).
-- `backend/app/standards/stac/router.py` — STAC router (read path).
-- `backend/app/modules/catalog/datasets/api/router_metadata.py` — 5 sibling mutation handlers (write path).
+1. Never hand a caller-controlled URL to GDAL. Read managed storage only (`/vsis3/`, `/vsiaz/`, validated local keys); never probe remote sources in-process.
+2. Where a user-supplied service URL must be fetched, `validate_url_for_ssrf` gates it at submission; the worker egress firewall bounds the rest.
+3. Subprocess envs come from `gdal_safe_env()` / `gdal_safe_open_env()` (`backend/app/processing/raster/vrt.py`).
+4. A vector argv also bounds WHICH driver may open its source, because several OGR drivers treat the document as instructions naming somewhere else to read. Both halves are required: `local_input_driver_args()` (`backend/app/processing/ingest/gdal_drivers.py`) adds `-if <driver>` arguments from the declared extension, and `gdal_vector_safe_env()` / `gdal_service_safe_env()` (`backend/app/platform/gdal_env.py`) set `GDAL_SKIP` so pointer-following and network drivers never register. Traps: `GDAL_SKIP` tokenises on spaces, and an unrecognised driver name is a silent warning (#1846). `backend/tests/test_gdal_driver_clamp_1846.py` measures both halves against a real GDAL.
+5. `GPKG` and `SQLite` are pointer-following through virtual tables and cannot be clamped, because GeoPackage is the primary upload format. `validate_content_directives()` (`backend/app/processing/ingest/validation.py`) reads `sqlite_master` through the stdlib driver (read-only, immutable) and refuses any virtual-table module outside a small allowlist, for top-level databases and for every archive member whose BYTES are one. Identify members by content, never by name (GDAL never reads the name; the OGR VRT driver finds its root by substring search, so a BOM hides nothing). It also refuses VRT-shaped members, runs `validate_zip_safety` first under one byte budget, and runs at the upload doors AND the three staged-upload GDAL entry points. Read the raw `sql` column, never `PRAGMA`. Measured ineffective: `SPATIALITE_SECURITY=strict`, `OGR_SQLITE_LOAD_EXTENSIONS=NONE`, `OGR_SQLITE_LIST_ALL_TABLES=NO` (#1846).
 
-**Rule 2 — SSRF redirect-revalidation**
+**Rule 3: Known-public credential literals.** A few demo credentials leaked through git history and are public knowledge; never reintroduce one as a default, fallback, example or test value. `validate_known_bad_credentials` in `backend/app/core/config.py` holds the list and refuses to boot when `JWT_SECRET_KEY`, `GEOLENS_ADMIN_PASSWORD` or `POSTGRES_PASSWORD` matches. MinIO credentials are not `Settings` fields; the minio entrypoint in `docker-compose.yml` refuses blank `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` instead, referenced as parse-safe `${MINIO_ROOT_USER:-}` because `:?required` broke `compose config` even with the profile inactive (INST-01).
 
-Any new `httpx.AsyncClient` configured with `follow_redirects=True` MUST be constructed via `make_safe_client()` from `backend/app/platform/security.py` — never directly with `httpx.AsyncClient(follow_redirects=True, ...)`. The factory installs the per-hop `_revalidate_redirect` event hook that re-runs `validate_url_for_ssrf` against every 3xx `Location` header.
-
-*Keep `security.py` in `platform/`; do not move it back under a product domain.* It is cross-cutting infrastructure that auth, config_ops, catalog, and processing all depend on, and it contains no catalog logic. While it lived at `modules/catalog/sources/security.py` this rule contradicted the layering burndown installed by #435, which listed each `processing/` importer as debt to be routed through `ProcessingPort`, and that indirection would stop the Rule 2 grep hook from matching.
-
-*GDAL and ogr2ogr CANNOT be made redirect-safe from the inside.* `GDAL_HTTP_FOLLOWLOCATION` is not a GDAL option, so setting it does nothing (#937), and GDAL exposes no option that disables redirect-following. **Never re-add `GDAL_HTTP_FOLLOWLOCATION` anywhere: it reads as a defense and is a no-op.** No structural test catches this one, so the rule is the only guard.
-
-For any GDAL/ogr2ogr/rasterio path the defenses are structural, in this order:
-
-1. Prefer never handing a caller-controlled URL to GDAL at all. Fetch only managed storage (`/vsis3/`, `/vsiaz/`, local paths with validated keys) and never probe remote sources in-process.
-2. Where a user-supplied service URL must be fetched (service ingest/preview), `validate_url_for_ssrf` gates it at submission time, and residual redirect/DNS-rebinding exposure is bounded operationally (worker egress firewall).
-3. Subprocess envs come from `gdal_safe_env()` / `gdal_safe_open_env()` in `backend/app/processing/raster/vrt.py`, which apply the real clamps (`CPL_VSIL_CURL_ALLOWED_EXTENSIONS`, `VRT_VIRTUAL_OVERVIEWS`).
-4. A vector GDAL subprocess also has to bound WHICH DRIVER may open its source, because several OGR drivers read the document they are handed as instructions naming somewhere else to read from, and a staged upload is bytes a caller chose. Two independent answers, and a staged-upload argv needs both: `local_input_driver_args()` in `backend/app/processing/ingest/gdal_drivers.py` turns the declared upload extension into repeated `-if <driver>` arguments, and `gdal_vector_safe_env()` (service variant `gdal_service_safe_env()`) in `backend/app/platform/gdal_env.py` sets `GDAL_SKIP` so the pointer-following and network drivers are never registered. *Those two live in `platform/` for the same reason `security.py` does, and moving them back under a product domain would put them out of reach of their own callers:* `modules/catalog/sources/preview.py` spawns `ogrinfo` on a caller-supplied service URL and `modules/catalog/` may not import `app.processing.*`, so while they lived in `raster/vrt.py` that site carried a written justification for having no clamp at all (#1857). `processing/raster/vrt.py` re-exports both, and the Rule 2 gate names both import paths, so either spelling is credited. `backend/tests/test_rule2_structural.py::test_vector_gdal_argv_restricts_input_drivers` enforces it per argv, and `backend/tests/test_gdal_driver_clamp_1846.py` measures both halves against a real GDAL. Two traps this cost a finding to learn: `GDAL_SKIP` tokenises on spaces, so a driver short name containing a space cannot be named there at all, and an unrecognised name in either list is a GDAL *warning* rather than an error, so a typo is silent. A justification that describes the input as a local file is not a statement about the driver set and never was (#1846).
-5. Neither of those reaches the SQLite family, and it is the same class. `GPKG` and `SQLite` are pointer-following drivers: a schema row can declare a virtual table whose rows come from a file outside the database, and the shipped GDAL links the extension that provides those modules. Neither clamp can exclude them, because GeoPackage is the primary supported upload format and the uploaded file really is one, so the third layer is a content check: `validate_content_directives()` in `backend/app/processing/ingest/validation.py` reads `sqlite_master` through the stdlib driver in read-only immutable mode and refuses any virtual-table module outside a small allowlist, for a top-level `.gpkg`/`.sqlite`/`.sqlite3`/`.db` and for every archive member whose BYTES say it is one. **Identify an archive member by its content, never by its name**: GDAL never reads the name, so an extension filter over members is not a filter — a database called `evil.bak`, `evil` or `data/evil.dat` is opened as SQLite exactly as `inner.gpkg` is, and the OGR VRT driver finds its root element by substring search, so a BOM, an XML declaration or leading junk do not hide it. The same walk refuses a VRT-shaped member under any name, and runs `validate_zip_safety` before decompressing anything, under one shared byte budget. It runs at the upload doors AND at the three staged-upload GDAL entry points, because the preview runs before the door that validates a presigned upload's whole body. Read the raw `sql` column, never `PRAGMA` output, which reports a virtual table as an ordinary one. Measured ineffective as alternatives, do not reach for them: `SPATIALITE_SECURITY=strict`, `OGR_SQLITE_LOAD_EXTENSIONS=NONE`, `OGR_SQLITE_LIST_ALL_TABLES=NO` (#1846).
-
-**Rule 3 — Never reintroduce known-public credential literals**
-
-A handful of demo credential literals leaked through git history when an early demo deployment template shipped, so they must be treated as public knowledge. Never reintroduce a known-leaked credential as a default, fallback, example, or test value. The canonical list and the boot-time check live in `validate_known_bad_credentials` in `backend/app/core/config.py`.
-
-**Two distinct enforcement layers:**
-
-- **Python boot guard** (`validate_known_bad_credentials` in `backend/app/core/config.py`): refuses to boot if `JWT_SECRET_KEY`, `GEOLENS_ADMIN_PASSWORD`, or `POSTGRES_PASSWORD` matches a known-public literal. MinIO credentials are **not** `Settings` fields and are **not** inspected by this guard.
-- **MinIO runtime entrypoint guard** (`docker-compose.yml`, minio service): the entrypoint refuses to start MinIO when `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` are blank, so it can never silently boot with the well-known `minioadmin` defaults. The operator must supply a non-default value (e.g. via `openssl rand -base64 24`). The compose file references them as parse-safe `${MINIO_ROOT_USER:-}`; the older `:?required` syntax aborted `compose config` at parse time even when the cloud-dev profile was inactive, which broke a verbatim-`.env.example` install (INST-01).
-
-**Enforcement.** Both Rule 1 and Rule 2 have pre-commit grep hooks in `.pre-commit-config.yaml`.
-
-- **Rule 1** — the hook matches any `@*router.<verb>` handler that calls `get_dataset(` and greps the file for an access/visibility check (it has no `exclude:` clause). The authoritative per-handler layer is `backend/tests/test_rule1_structural.py` (#822), which walks the FastAPI route table and also covers `db.get`/`select`/service-layer fetch paths plus `processing/` routes.
-- **Rule 2, httpx half** — the hook fails any non-excluded file that constructs `httpx.AsyncClient(` while `follow_redirects=True` appears in the file. This is the ONLY half the hook covers.
-- **Rule 2, GDAL/rasterio half** — `backend/tests/test_rule2_structural.py` (#936) walks `backend/app/` ASTs and requires every `rasterio.open`/`rasterio.Env` and every GDAL CLI argv to go through the safe-env helpers in `backend/app/processing/raster/vrt.py` and `backend/app/platform/gdal_env.py`, or to carry an explicit allowlisted justification. Its CLI allowlist is EMPTY as of #1857: every GDAL CLI argv in `backend/app/` carries a safe env, so a new entry there is a claim that needs the review, not a formality.
-- **Rule 3** — enforced at backend boot; boot-failure is the signal.
-
-Standing CodeQL policy (decided 2026-08-03): if the validated-identifier `py/sql-injection` class fires again on an ingest-adjacent PR, adopt the alert-suppression query pack (workflow config plus `# codeql[py/sql-injection]` comments at the `_qtable` sites) instead of another round of manual dismissals. It fired again on 2026-08-11 (12 alerts across `metadata_projection.py` and `metadata_extent.py`) and the pack was adopted in #1615. A `# codeql[py/sql-injection]` comment on its own line directly above a dynamic `text()` site suppresses that site; `.github/codeql/python-suppression/` holds the query that reads those comments, and `.github/workflows/codeql.yml` runs it and dismisses what it marks.
-
-Three parts of that mechanism are easy to get wrong. First, GitHub does not honour SARIF `suppressions[]` by itself: the property is absent from the supported-properties list, `github/codeql-action` carries no suppression handling, and GitHub staff confirmed the gap in May 2025. Without the dismissal step in the workflow, the markers are inert. Second, the query is vendored rather than pulled from `codeql/python-queries`, because the stock one reads every `# noqa` as a bare `lgtm` covering the whole line, and a bare annotation suppresses every rule on that line rather than one named rule. `backend/` has 332 of those, written for ruff by people deciding nothing about code scanning. Third, placement is exact: a marker on its own line above the alert works, a trailing marker on the flagged line is silently ignored. `backend/tests/test_codeql_qtable_suppressions.py` pins all three, plus the marker at every dynamic `text()` site in the two modules.
+**Standing CodeQL policy** (2026-08-03, adopted in #1615): a validated-identifier `py/sql-injection` alert on a dynamic `text()` site is suppressed with `# codeql[py/sql-injection]` on its own line directly above the site; a trailing marker is silently ignored. `.github/codeql/python-suppression/` holds the vendored query (the stock one reads every `# noqa` as a bare `lgtm`) and `.github/workflows/codeql.yml` dismisses what it marks, because GitHub does not honour SARIF `suppressions[]` on its own. `backend/tests/test_codeql_qtable_suppressions.py` pins all of it.
