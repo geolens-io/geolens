@@ -1264,14 +1264,17 @@ async def load_job_for_error_write(
 ):
     """Load the job row a failure tail is about to settle, under the shared budget.
 
-    Returns ``None`` when the row is gone, when a newer attempt owns it, or when
-    the budget expired: an expiry is logged as its own event and the session is
-    rolled back, so the caller's remaining writes still run and the ingest
-    failure it was handling stays the task's outcome.
+    Never raises. Every caller reaches it from inside an ``except``, where a
+    raise would replace the ingest failure with a lock timeout.
 
-    fix(#1950 codex r2): the budget bounds this SELECT, which is what makes the
-    load itself able to fail. Every caller reaches it from inside an ``except``,
-    where a raise here would replace the cause with a lock timeout.
+    Returns ``None`` when the row is gone, when a newer attempt owns it, or when
+    the budget expired; the expiry is logged as its own event. On every ``None``
+    the transaction is ended, so the caller's remaining writes run unbudgeted on
+    a clean session rather than inheriting a budget meant for the job row.
+
+    On a hit the transaction stays open and budgeted, and the returned row is
+    live: ending it here would expire the instance the caller is about to pass
+    to ``_cleanup_staging_on_failure``.
     """
     from sqlalchemy import select
     from sqlalchemy.exc import DBAPIError
@@ -1288,7 +1291,10 @@ async def load_job_for_error_write(
     try:
         await arm_job_error_write_budget(session)
         result = await session.execute(select(IngestJob).where(*filters))
-        return result.scalar_one_or_none()
+        job = result.scalar_one_or_none()
+        if job is None:
+            await session.rollback()
+        return job
     except DBAPIError as write_failure:
         await session.rollback()
         log_job_error_write_failure(write_failure, job_id=str(job_uuid), task=task_name)
@@ -1359,10 +1365,6 @@ async def _cleanup_staging_on_failure(
     # that dispatch on its type or re-raise it are unaffected.
     error_message = redact_url_credentials(str(exc))
     await session.rollback()
-    # fix(#1950): armed AFTER the rollback that would discard it and before the
-    # UPDATE, which is the statement that blocks on a contended job row. It
-    # expires with the commit below, so the DROP stays unbounded as before.
-    await arm_job_error_write_budget(session)
 
     failure_update = sa_update(type(job)).where(type(job).id == job_id)
     if attempt_id is not None:
@@ -1382,6 +1384,10 @@ async def _cleanup_staging_on_failure(
     written = False
     result = None
     try:
+        # fix(#1950): armed AFTER the rollback that would discard it and before
+        # the UPDATE, which is the statement that blocks on a contended job row;
+        # inside the guard because arming can fail on a lost connection too.
+        await arm_job_error_write_budget(session)
         result = await session.execute(
             failure_update.values(
                 status="failed",

@@ -544,29 +544,39 @@ class _IngestFailed(RuntimeError):
     """A recognisable stand-in for whatever the pipeline actually raised."""
 
 
+class _LoaderSession:
+    """Records what `load_job_for_error_write` does to the session it is given."""
+
+    def __init__(self, *, raises: bool) -> None:
+        self.armed = 0
+        self.rolled_back = 0
+        self._raises = raises
+
+    async def execute(self, statement):
+        if "SET LOCAL" in str(statement):
+            self.armed += 1
+            return None
+        if self._raises:
+            raise DBAPIError("SELECT", {}, QueryCanceledError("canceling statement"))
+        return _NoRows()
+
+    async def rollback(self) -> None:
+        self.rolled_back += 1
+
+
+class _NoRows:
+    @staticmethod
+    def scalar_one_or_none():
+        return None
+
+
 class TestTheTimeoutDoesNotReplaceTheCause:
     """The bound must not trade a hang for the wrong diagnosis."""
 
     async def test_the_shared_loader_swallows_its_own_expiry(self) -> None:
         """The re-upload tails call it from inside `except`, so it must return."""
 
-        class _Session:
-            def __init__(self) -> None:
-                self.armed = 0
-                self.rolled_back = 0
-
-            async def execute(self, statement):
-                if "SET LOCAL" in str(statement):
-                    self.armed += 1
-                    return None
-                raise DBAPIError(
-                    "SELECT", {}, QueryCanceledError("canceling statement")
-                )
-
-            async def rollback(self) -> None:
-                self.rolled_back += 1
-
-        session = _Session()
+        session = _LoaderSession(raises=True)
         with structlog.testing.capture_logs() as captured:
             loaded = await load_job_for_error_write(
                 session, uuid.uuid4(), uuid.uuid4(), task_name="reupload_file"
@@ -587,6 +597,20 @@ class TestTheTimeoutDoesNotReplaceTheCause:
         )
         assert timeouts[0]["task"] == "reupload_file"
         assert timeouts[0]["sqlstate"] == "57014"
+
+    async def test_a_missed_lookup_does_not_leave_the_budget_armed(self) -> None:
+        """The callers write the run row next, on this session, out of scope."""
+        session = _LoaderSession(raises=False)
+        loaded = await load_job_for_error_write(
+            session, uuid.uuid4(), uuid.uuid4(), task_name="reupload_service"
+        )
+
+        assert loaded is None
+        assert session.rolled_back == 1, (
+            "a superseded attempt leaves the SET LOCALs in force, so the run "
+            "row the caller still writes inherits the job row's budget and an "
+            "expiry there replaces the ingest failure"
+        )
 
     @staticmethod
     async def _tail_shape(session, job, cause: BaseException, seen: list) -> None:
