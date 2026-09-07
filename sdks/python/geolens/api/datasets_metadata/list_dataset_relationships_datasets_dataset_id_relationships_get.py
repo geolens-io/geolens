@@ -130,7 +130,8 @@ def sync_detailed(
     Args:
         dataset_id (UUID):
         skip (int | Unset): Number of relationships to skip. Default: 0.
-        limit (int | Unset): Maximum number of relationships to return (PERF-N16). Default: 100.
+        limit (int | Unset): Maximum number of relationships to return. Capped at 1000. Default:
+            100.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -173,7 +174,8 @@ def sync(
     Args:
         dataset_id (UUID):
         skip (int | Unset): Number of relationships to skip. Default: 0.
-        limit (int | Unset): Maximum number of relationships to return (PERF-N16). Default: 100.
+        limit (int | Unset): Maximum number of relationships to return. Capped at 1000. Default:
+            100.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -211,7 +213,8 @@ async def asyncio_detailed(
     Args:
         dataset_id (UUID):
         skip (int | Unset): Number of relationships to skip. Default: 0.
-        limit (int | Unset): Maximum number of relationships to return (PERF-N16). Default: 100.
+        limit (int | Unset): Maximum number of relationships to return. Capped at 1000. Default:
+            100.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -252,7 +255,8 @@ async def asyncio(
     Args:
         dataset_id (UUID):
         skip (int | Unset): Number of relationships to skip. Default: 0.
-        limit (int | Unset): Maximum number of relationships to return (PERF-N16). Default: 100.
+        limit (int | Unset): Maximum number of relationships to return. Capped at 1000. Default:
+            100.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

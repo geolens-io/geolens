@@ -129,8 +129,9 @@ def sync_detailed(
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
             200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
-        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
-            to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. The page size is capped at 200; the
+            rel=next link advances one page at a time, and a high offset is costly to serve. Default:
+            0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -174,8 +175,9 @@ def sync(
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
             200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
-        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
-            to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. The page size is capped at 200; the
+            rel=next link advances one page at a time, and a high offset is costly to serve. Default:
+            0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -214,8 +216,9 @@ async def asyncio_detailed(
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
             200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
-        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
-            to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. The page size is capped at 200; the
+            rel=next link advances one page at a time, and a high offset is costly to serve. Default:
+            0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -257,8 +260,9 @@ async def asyncio(
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
             200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
-        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
-            to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. The page size is capped at 200; the
+            rel=next link advances one page at a time, and a high offset is costly to serve. Default:
+            0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

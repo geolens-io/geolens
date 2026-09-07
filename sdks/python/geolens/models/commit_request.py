@@ -64,6 +64,10 @@ class CommitRequest:
                 x_column/y_column).
             auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
                 the token field.
+            strict_cog (bool | Unset): Raster only: reject a non-COG TIFF instead of converting it. False (the default)
+                converts the source to a COG during ingest. True fails the job when the source is not already a compliant COG.
+                Setting compression, resampling, nodata_override or srid_override still rewrites the file even when the strict
+                check passes, because each of those is applied by a conversion. Default: False.
     """
 
     title: str
@@ -81,6 +85,7 @@ class CommitRequest:
     y_column: None | str | Unset = UNSET
     geom_column: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
+    strict_cog: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -176,6 +181,8 @@ class CommitRequest:
         else:
             auth = self.auth
 
+        strict_cog = self.strict_cog
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -211,6 +218,8 @@ class CommitRequest:
             field_dict["geom_column"] = geom_column
         if auth is not UNSET:
             field_dict["auth"] = auth
+        if strict_cog is not UNSET:
+            field_dict["strict_cog"] = strict_cog
 
         return field_dict
 
@@ -369,6 +378,8 @@ class CommitRequest:
 
         auth = _parse_auth(d.pop("auth", UNSET))
 
+        strict_cog = d.pop("strict_cog", UNSET)
+
         commit_request = cls(
             title=title,
             summary=summary,
@@ -385,6 +396,7 @@ class CommitRequest:
             y_column=y_column,
             geom_column=geom_column,
             auth=auth,
+            strict_cog=strict_cog,
         )
 
         commit_request.additional_properties = d

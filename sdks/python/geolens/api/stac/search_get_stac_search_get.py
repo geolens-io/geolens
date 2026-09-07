@@ -150,13 +150,13 @@ def sync_detailed(
         datetime_ (None | str | Unset): OGC datetime interval
         collections (None | str | Unset): Comma-separated collection IDs
         ids (None | str | Unset): Comma-separated item IDs
-        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
-            (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
-            fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
+        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. At most 10000
+            characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon
+            coordinates.
         limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
             200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
-        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
-            to 200 from 1000 to bound deep-paging cost. Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. The page size is capped at 200; a
+            high offset is costly to serve. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -203,13 +203,13 @@ def sync(
         datetime_ (None | str | Unset): OGC datetime interval
         collections (None | str | Unset): Comma-separated collection IDs
         ids (None | str | Unset): Comma-separated item IDs
-        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
-            (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
-            fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
+        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. At most 10000
+            characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon
+            coordinates.
         limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
             200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
-        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
-            to 200 from 1000 to bound deep-paging cost. Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. The page size is capped at 200; a
+            high offset is costly to serve. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -251,13 +251,13 @@ async def asyncio_detailed(
         datetime_ (None | str | Unset): OGC datetime interval
         collections (None | str | Unset): Comma-separated collection IDs
         ids (None | str | Unset): Comma-separated item IDs
-        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
-            (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
-            fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
+        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. At most 10000
+            characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon
+            coordinates.
         limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
             200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
-        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
-            to 200 from 1000 to bound deep-paging cost. Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. The page size is capped at 200; a
+            high offset is costly to serve. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -302,13 +302,13 @@ async def asyncio(
         datetime_ (None | str | Unset): OGC datetime interval
         collections (None | str | Unset): Comma-separated collection IDs
         ids (None | str | Unset): Comma-separated item IDs
-        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
-            (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
-            fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
+        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. At most 10000
+            characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon
+            coordinates.
         limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
             200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
-        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
-            to 200 from 1000 to bound deep-paging cost. Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. The page size is capped at 200; a
+            high offset is costly to serve. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

@@ -1693,7 +1693,7 @@ async def discover_tables(
         1000,
         ge=1,
         le=5000,
-        description="Maximum number of tables to return (PERF-11 bound).",
+        description="Maximum number of tables to return. Capped at 5000.",
     ),
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),

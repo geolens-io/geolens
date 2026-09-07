@@ -40,8 +40,8 @@ class MapUpdate:
         visibility (MapVisibility | None | Unset): private, internal, or public
         layers (list[MapLayerInput] | None | Unset): Full replacement layer list (max 200 layers)
         plugins (list[str] | None | Unset): Enabled plugin IDs, e.g. ['measurement']
-        legend_title (None | str | Unset): Custom map-level legend title. Null/empty leaves the legend without a heading
-            override (ENH-06).
+        legend_title (None | str | Unset): Custom map-level legend title. Null or empty leaves the legend without a
+            heading override. At most 120 characters.
     """
 
     name: None | str | Unset = UNSET

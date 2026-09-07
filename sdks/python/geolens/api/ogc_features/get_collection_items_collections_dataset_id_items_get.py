@@ -213,8 +213,8 @@ def sync_detailed(
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
-        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid.
-            Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.
+        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
+            preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
             start/..
@@ -298,8 +298,8 @@ def sync(
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
-        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid.
-            Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.
+        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
+            preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
             start/..
@@ -377,8 +377,8 @@ async def asyncio_detailed(
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
-        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid.
-            Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.
+        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
+            preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
             start/..
@@ -460,8 +460,8 @@ async def asyncio(
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
-        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid.
-            Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.
+        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
+            preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
             start/..

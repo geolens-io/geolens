@@ -29,9 +29,9 @@ class LayerInfo:
         layer_id (int | None | str | Unset): Numeric or string layer ID used by ArcGIS services.
         object_id_field (None | str | Unset): ArcGIS object ID field name, used for stable pagination.
         kind (LayerInfoKind | Unset): Backend-classified layer kind. 'vector' = point/line/polygon feature data.
-            'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type
-            contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image/*. Everything else
-            (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'. Default: 'vector'.
+            'raster' = imagery/coverage. Classified as 'raster' when geometry_type contains 'raster', the adapter is STAC,
+            the layer declares coverage_format or bands, or one of its links has a media type of image/*. Everything else,
+            including a layer with no geometry_type at all, defaults to 'vector'. Default: 'vector'.
     """
 
     name: str

@@ -223,12 +223,12 @@ class RasterCommitRequest(BaseCommitRequest):
     strict_cog: bool = Field(
         default=False,
         description=(
-            "Raster only: reject non-COG TIFFs at commit time instead of "
-            "converting them. Default False preserves the existing "
-            "auto-convert behavior. When True, the ingest job fails fast "
-            "with a clear error before the COG conversion subprocess runs. "
-            "Use this when ingesting an externally-produced COG catalog "
-            "where on-the-fly rewriting is undesirable. (ING-07 / P2-09)"
+            "Raster only: reject a non-COG TIFF instead of converting it. "
+            "False (the default) converts the source to a COG during ingest. "
+            "True fails the job when the source is not already a compliant "
+            "COG. Setting compression, resampling, nodata_override or "
+            "srid_override still rewrites the file even when the strict "
+            "check passes, because each of those is applied by a conversion."
         ),
     )
 
@@ -343,9 +343,22 @@ class CommitRequest(BaseModel):
     )
     # feat(#1746 B2b): the handler re-validates ServiceCommitRequest from THIS
     # model's dump, so a field absent here is dropped before the subclass ever
-    # sees it. Declared last for the positional-slot reason above.
+    # sees it. Appended, never inserted, for the positional-slot reason above.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    # fix(#1949): appended for that same reason rather than placed beside the
+    # other raster fields, which would move five existing positional slots.
+    strict_cog: bool = Field(
+        default=False,
+        description=(
+            "Raster only: reject a non-COG TIFF instead of converting it. "
+            "False (the default) converts the source to a COG during ingest. "
+            "True fails the job when the source is not already a compliant "
+            "COG. Setting compression, resampling, nodata_override or "
+            "srid_override still rewrites the file even when the strict "
+            "check passes, because each of those is applied by a conversion."
+        ),
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 

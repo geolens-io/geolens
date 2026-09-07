@@ -46,11 +46,10 @@ class BasemapConfig:
         background_color (None | str | Unset): Map canvas background color in #RRGGBB hex format, or null to use the
             basemap default.
         sublayer_overrides (BasemapConfigSublayerOverridesType0 | None | Unset): Per-sublayer style overrides keyed by
-            semantic sublayer ID (e.g. 'road', 'boundary', 'building'). Key set is opaque — unknown future sublayer IDs are
-            accepted without rejection. See CONTEXT.md D-01.
+            semantic sublayer ID (e.g. 'road', 'boundary', 'building'). The key set is opaque: a sublayer ID this release
+            does not know is accepted and stored rather than rejected.
         basemap_position (BasemapPosition | None | Unset): Whether the basemap renders above ('top') or below ('bottom',
-            default) the data layers. null/undefined loads as 'bottom' on the client. Phase 1051 UX-03 (jsonb-additive, no
-            migration).
+            default) the data layers. null/undefined loads as 'bottom' on the client.
         projection (BasemapProjection | None | Unset): Map projection: 'mercator' (default) or experimental 'globe'.
             null/undefined loads as 'mercator' on the client.
     """

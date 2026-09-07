@@ -336,8 +336,8 @@ async def list_features(
         0,
         ge=0,
         description=(
-            "Legacy offset-based pagination. Phase 269 H-24 lowered the "
-            "max limit to 200 from 1000."
+            "Legacy offset-based pagination. The companion limit is capped "
+            "at 200 per page, and a high offset is costly to serve."
         ),
     ),
     bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy"),
