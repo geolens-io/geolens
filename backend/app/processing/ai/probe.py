@@ -1,4 +1,4 @@
-"""Live AI provider probe (fix #627).
+"""Live AI provider probe (fix(#627)).
 
 The admin ai-status endpoint reports whether a provider key is CONFIGURED;
 this module answers whether it WORKS. A key rotated or expired upstream

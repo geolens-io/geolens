@@ -85,20 +85,20 @@ SCHEMA_DRIFT_STATUS_VALUES: tuple[str, ...] = ("none", "drifted")
 ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # `layer_id` is the SERVICE-NATIVE layer identifier; which field applies
     # depends on service_type per `build_gdal_source`
-    # (catalog/sources/preview.py, fix #1218 review r3): arcgis_featureserver
+    # (catalog/sources/preview.py, fix(#1218) review r3): arcgis_featureserver
     # uses the numeric layer id (layer NAME ignored); wfs/ogcapi_features use
     # the typename/collection id (layer_id ignored). Exactly one applies per
     # service, so a refresh needs only that one key — do not add a second key
     # for the name.
     #
-    # THE INVARIANT (fix #1218 review r4): `url` is the service BASE for
+    # THE INVARIANT (fix(#1218) review r4): `url` is the service BASE for
     # every service_type and NEVER embeds the layer; `layer_id` is the
     # layer. A refresh composes the two — never strips a layer back out of
     # `url`. This is why `url` differs from `datasets.origin_uri`, which
     # keeps ingest's enriched form as provenance.
     #
-    # `auth_required` (fix #1746): the last SUCCESSFUL pull used a service
-    # token — NOT "the origin demands one" (fix #1746 codex r1). The worker
+    # `auth_required` (fix(#1746)): the last SUCCESSFUL pull used a service
+    # token — NOT "the origin demands one" (fix(#1746) codex r1). The worker
     # writes it from the credential it actually used, so a public service
     # imported while the user held a token is marked too; the refresh door
     # treats the key as a gate (one token-less probe before refusing), not a
@@ -117,7 +117,7 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # `item_id` is the item's identity per the CATALOG, stored here (not
     # read from `datasets.source_filename`, the same string) because that
     # field is in the metadata PATCH's map — a user-editable rebind target
-    # is a rebinding primitive, not a pointer (fix #1266 review round 9).
+    # is a rebinding primitive, not a pointer (fix(#1266) review round 9).
     # With it stored, a refresh can refuse a document answering for a
     # different item even when the item's URL states no identity of its own.
     "stac": frozenset(
@@ -246,7 +246,7 @@ def service_auth_required(origin_ref: Any) -> bool:
 
     A token was USED, not demanded: no caller may read this as "the origin
     requires authentication" — the refresh door checks that separately
-    (fix #1746 codex r1).
+    (fix(#1746) codex r1).
 
     fix(#1746): ``is True``, not truthiness, same reason as
     ``geolens_owns_table`` — this gates an outbound request/refusal, and a
@@ -269,7 +269,7 @@ def service_layer_identity(
     service.
 
     Lives here, not at the two ingest call sites, so both spell the rule the
-    same way (fix #1218 review r3).
+    same way (fix(#1218) review r3).
     """
     if service_type == "arcgis_featureserver":
         return None if layer_id is None else str(layer_id)

@@ -350,7 +350,7 @@ class Settings(BaseSettings):
     # can still eat the remaining lifetime at any setting.
     #
     # Lowering it mid-flight is not a leak: issued URLs keep their old
-    # lifetime, and the sweep's re-check pass (fix #1236,
+    # lifetime, and the sweep's re-check pass (fix(#1236),
     # `_sweep_expired_presigned_staging` in platform/jobs/router.py)
     # revisits anything reaped once MAX_PRESIGNED_URL_LIFETIME_SECONDS has
     # passed since creation -- the latest any such URL can still be live.

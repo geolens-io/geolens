@@ -274,7 +274,7 @@ async def check_replacement_quota(
 
 
 class DatasetQuotaExceededError(Exception):
-    """Dataset-count cap exceeded at Record-creation time (fix #302).
+    """Dataset-count cap exceeded at Record-creation time (fix(#302)).
 
     Plain exception rather than HTTPException because the authoritative
     check runs inside the ingest worker, where there is no HTTP response
@@ -284,7 +284,7 @@ class DatasetQuotaExceededError(Exception):
 
 
 async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID | None) -> None:
-    """Atomically reserve a dataset-count slot for ``user_id`` (fix #302).
+    """Atomically reserve a dataset-count slot for ``user_id`` (fix(#302)).
 
     ``check_upload_quota`` runs at upload time, but the ``Record`` row it
     counts is created later by the ingest worker, so N concurrent uploads
@@ -321,7 +321,7 @@ async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID | None) -> N
 
 
 class StorageQuotaExceededError(Exception):
-    """Per-user storage byte cap exceeded at asset-commit time (fix #430 BA-23).
+    """Per-user storage byte cap exceeded at asset-commit time (fix(#430) BA-23).
 
     Plain exception (not HTTPException) because the authoritative check runs
     inside the ingest worker; API-side callers get a 413 via the handler

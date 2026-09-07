@@ -75,7 +75,7 @@ async def _deny_revoked_embed_tokens(db: AsyncSession, *token_hashes: str) -> No
 
     Best-effort: a cache failure must not break the revocation (the DB row
     is authoritative). Also bumps the cluster-wide revocation generation in
-    the SAME transaction as the caller's is_active flip (fix #1778 codex
+    the SAME transaction as the caller's is_active flip (fix(#1778) codex
     r3/r4) -- that is what lets a worker cut off from Redis during the
     outage still see the revocation once it reads the generation. The bump
     is NOT wrapped in its own try/except: a failure there must poison the
@@ -685,7 +685,7 @@ async def resolve_embed_scope_for_map(
         return set()
 
     # Domain-locking check — shares ONE policy reader with
-    # validate_embed_token_access so the two cannot drift (fix #1531).
+    # validate_embed_token_access so the two cannot drift (fix(#1531)).
     if not await _request_origin_is_allowed(db, request, token.allowed_origins):
         return set()
 
@@ -814,7 +814,7 @@ async def validate_embed_token_access(
                     "map_id": str(token.map_id),
                     "expires_at": token.expires_at.isoformat(),
                     "tenant_id": str(token.tenant_id) if token.tenant_id else None,
-                    # generation this decision was made under (fix #1778 r3).
+                    # generation this decision was made under (fix(#1778) r3).
                     "generation": generation,
                 },
                 ttl=cache_ttl,
@@ -822,7 +822,7 @@ async def validate_embed_token_access(
             )
 
     # Domain-locking check, before dataset scope. Shares ONE reader with
-    # resolve_embed_scope_for_map (fix #1531) so the two cannot drift.
+    # resolve_embed_scope_for_map (fix(#1531)) so the two cannot drift.
     if not await _request_origin_is_allowed(db, request, allowed_origins):
         return False
 

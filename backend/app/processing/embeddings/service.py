@@ -55,7 +55,7 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
 
     The 130s provider timeout suits background paths (ingest, backfill);
     request-hot-path callers (semantic search) wrap this call in a short
-    ``asyncio.wait_for`` instead — see service_semantic (fix #448).
+    ``asyncio.wait_for`` instead — see service_semantic (fix(#448)).
 
     Raises:
         EmbeddingUnavailableError: if no OpenAI-compatible API key is configured.

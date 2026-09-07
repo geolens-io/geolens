@@ -302,7 +302,7 @@ class S3StorageProvider:
     ) -> AsyncIterator[list[StoredObject]]:
         """Yield ListObjectsV2 pages, each entry with its last-modified time.
 
-        One request per page (fix #1249), not drain-then-return, so a
+        One request per page (fix(#1249)), not drain-then-return, so a
         consumer that stops early pays for a bounded number of round trips
         against an arbitrarily large prefix. ``start_after`` becomes S3's
         ``StartAfter`` on the FIRST request only — ListObjectsV2 ignores it

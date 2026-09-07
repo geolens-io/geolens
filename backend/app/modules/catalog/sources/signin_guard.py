@@ -74,7 +74,7 @@ class SignInTarget:
     another.
 
     ``host`` is the canonical ``host:port/webadaptor`` of the destination
-    that receives the password (fix #1758 codex r7/r11), or the synthetic
+    that receives the password (fix(#1758) codex r7/r11), or the synthetic
     ``"unknown"`` for outcomes that precede discovery, where nothing was sent.
     """
 
@@ -322,7 +322,7 @@ async def _write_settled_outcome(
     Only the `audit_logs` row is written here; :func:`_forward_settled_outcome`
     reaches every other registered sink.
 
-    Late-bound import (fix #909, per `test_layering.py`): a module-scope
+    Late-bound import (fix(#909), per `test_layering.py`): a module-scope
     binding would snapshot the dev-DB factory before the test fixture
     rebinds `app.core.db.async_session`.
     """

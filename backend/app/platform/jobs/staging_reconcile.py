@@ -1,4 +1,4 @@
-"""Reconcile real staging objects against ingest-job rows (fix #1249).
+"""Reconcile real staging objects against ingest-job rows (fix(#1249)).
 
 Every other staging reaper starts from a ROW and asks what object it owns.
 This one starts from the OBJECT and asks whether any row still owns it — the

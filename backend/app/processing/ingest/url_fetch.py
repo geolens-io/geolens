@@ -87,7 +87,7 @@ STAGE_TOTAL_CEILING_SECONDS = 510
 # Every point where this handler's session BEGINS a transaction after a
 # release. Each is a pool checkout that can block up to db_pool_timeout,
 # none inside the joint stage clock, so the budget must reserve room for
-# every one. Enumerated from ``upload_from_url`` (fix #1708 codex r18,
+# every one. Enumerated from ``upload_from_url`` (fix(#1708) codex r18,
 # which caught a prior count of 2):
 #
 #   1. Auth/dependency phase — require_permission -> get_current_user;
@@ -179,7 +179,7 @@ PREFLIGHT_DNS_MAX_SECONDS = 30
 # The least remaining joint budget worth starting a fetch with. Below this a
 # download cannot plausibly connect, transfer and stage, so the request is
 # refused promptly with the ordinary timeout shape instead of opening a
-# doomed connection (fix #1708 codex r13).
+# doomed connection (fix(#1708) codex r13).
 MIN_FETCH_BUDGET_SECONDS = 5
 
 # Wall-clock ceiling for one fetch. The per-chunk read timeout above cannot
@@ -198,7 +198,7 @@ FETCH_MAX_SECONDS = 480
 _CHUNK_SIZE = 65536
 
 # Batch threaded writes, mirroring manifest_service._download_http_source
-# (fix #435): a thread handoff per 64 KiB httpx chunk is pure overhead, so
+# (fix(#435)): a thread handoff per 64 KiB httpx chunk is pure overhead, so
 # buffer up to 4 MiB between writes.
 _WRITE_BUFFER_BYTES = 4 * 1024 * 1024
 

@@ -447,7 +447,7 @@ async def _repair_map_spec(
     session: AsyncSession,
     user_id: uuid.UUID | None,
 ) -> LLMMapSpec:
-    """One repair round for schema-invalid specs (fix #642).
+    """One repair round for schema-invalid specs (fix(#642)).
 
     Parse failures already get _retry_parse_map_spec; this is the sibling
     for valid-JSON-wrong-shape output. Feed the pydantic errors back to the
@@ -818,7 +818,7 @@ async def generate_map_from_prompt(
     if "error" in spec_dict:
         raise UserFacingAIError(spec_dict["error"])
 
-    # Validate with pydantic, with one LLM repair round (fix #642)
+    # Validate with pydantic, with one LLM repair round (fix(#642))
     try:
         spec = LLMMapSpec(**spec_dict)
     except ValidationError as ve:

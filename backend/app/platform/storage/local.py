@@ -191,7 +191,7 @@ class LocalStorageProvider:
     async def delete(self, key: str) -> None:
         """Delete a key. No error if missing.
 
-        Deliberately does not remove emptied directories (fix #1532):
+        Deliberately does not remove emptied directories (fix(#1532)):
         pruning here raced a concurrent writer's mkdir/open. Pruning belongs
         to the subsystem that owns the prefix — see ``prune_empty_dirs``.
         """
@@ -274,7 +274,7 @@ class LocalStorageProvider:
     ):
         """Lazily yield ``(path, key)`` under *root* in ascending key order.
 
-        Blocking; a generator (fix #1249) so an unbounded walk never sits in
+        Blocking; a generator (fix(#1249)) so an unbounded walk never sits in
         front of the first page, and a subtree entirely below ``start_after``
         is never entered.
 

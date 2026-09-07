@@ -114,7 +114,7 @@ class StorageProvider(Protocol):
         feat(#1249): also answers how old each key is, distinguishing an
         abandoned staging object from one whose upload just landed.
 
-        Paged (fix #1249) so a caller with a bounded per-pass budget never
+        Paged (fix(#1249)) so a caller with a bounded per-pass budget never
         has to materialize an unbounded prefix first; stopping early stops
         the provider's paging with it.
 
@@ -142,7 +142,7 @@ class StorageProvider(Protocol):
         """Generate a presigned PUT URL for direct upload.
 
         MUST clamp ``expiration`` to ``settings.pending_job_timeout_seconds``
-        (fix #1234), as for part URLs below — a longer-lived URL is usable
+        (fix(#1234)), as for part URLs below — a longer-lived URL is usable
         against a row the pending sweep already failed. Raises
         NotImplementedError for local storage.
         """
@@ -180,7 +180,7 @@ class StorageProvider(Protocol):
         """Generate a presigned URL for uploading a single part.
 
         MUST clamp ``expiration`` to ``settings.pending_job_timeout_seconds``
-        (fix #1234), same reason as the put URL above. Raises
+        (fix(#1234)), same reason as the put URL above. Raises
         NotImplementedError for local storage.
         """
         ...

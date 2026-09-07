@@ -765,7 +765,7 @@ async def upload_from_url(
     from app.platform.jobs.models import IngestJob
     from app.platform.security import SSRFError, validate_url_for_ssrf
 
-    # Exception-safe on malformed input by design (fix #1119) — safe to run
+    # Exception-safe on malformed input by design (fix(#1119)) — safe to run
     # before the guarded block below.
     safe_url = redact_url_credentials(body.url)
     try:

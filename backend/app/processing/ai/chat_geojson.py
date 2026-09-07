@@ -207,7 +207,7 @@ def _is_geom_value(val: object) -> bool:
 
 
 def _first_non_null(rows: list[list], i: int) -> object:
-    """First non-null value in column i (fix #556 review P2: probing only
+    """First non-null value in column i (fix(#556) review P2: probing only
     rows[0] made a NULL leading geometry break detection and stripping)."""
     for row in rows:
         val = row[i] if i < len(row) else None
@@ -219,7 +219,7 @@ def _first_non_null(rows: list[list], i: int) -> object:
 def strip_geometry_columns(
     columns: list[str], rows: list[list]
 ) -> tuple[list[str], list[list]]:
-    """Drop geometry-valued columns from tabular chat output (fix #544).
+    """Drop geometry-valued columns from tabular chat output (fix(#544)).
 
     Raw WKB hex / GeoJSON strings are noise in a result table; geometry
     travels via the geojson payload instead. Value-based, not name-based:
@@ -243,7 +243,7 @@ def _detect_geom_column(columns: list[str], rows: list[list]) -> int | None:
     """Find the index of a geometry column.
 
     A geometry-*named* column that actually parses is preferred; otherwise
-    fall back to any column whose value parses as geometry (fix #556 review:
+    fall back to any column whose value parses as geometry (fix(#556) review:
     aliased computed geometry such as ``ST_Buffer(...) AS buffer``). Both
     phases use the strict, parse-verified _is_geom_value so a geometry-named
     hash column cannot shadow the real geometry, and values are probed at the

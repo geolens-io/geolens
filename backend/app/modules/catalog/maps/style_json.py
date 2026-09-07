@@ -617,7 +617,7 @@ def _fill_companion_layers(
 
     height_column = builder.get("heightColumn") or paint.get("_height_column")
     if isinstance(height_column, str) and height_column:
-        # fix(#910, codex P2): a patterned layer keeps no `fill-color`
+        # fix(#910): a patterned layer keeps no `fill-color`
         # (EDIT-05); the extrusion companion reads the builder stash
         # instead of defaulting to blue. A `None` check: an expression must pass.
         fill_color = paint.get("fill-color")
@@ -1000,7 +1000,7 @@ def _style_layer_for_map_layer(
         stashed_fill = builder.get("fillColorSaved")
         if (
             isinstance(stashed_fill, str)
-            # fix(#910, codex P2): absent OR explicitly null — a null
+            # fix(#910): absent OR explicitly null — a null
             # `fill-color` read as "already set," so #917 stripped the
             # pattern but left the null, resolving to spec default.
             and base["paint"].get("fill-color") is None

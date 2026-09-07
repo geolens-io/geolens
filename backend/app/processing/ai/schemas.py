@@ -222,7 +222,7 @@ def validate_paint_with_feedback(
     Used by the chat service to feed validation feedback back to the LLM.
 
     render_mode: when 'heatmap', geometry-type filtering is skipped so
-    heatmap-* properties are kept instead of dropped (fix #392) — mirrors
+    heatmap-* properties are kept instead of dropped (fix(#392)) — mirrors
     the frontend's validateChatPaint render-mode awareness.
     """
     if not paint or (not geometry_type and render_mode != "heatmap"):
@@ -260,7 +260,7 @@ def validate_paint_property_names_with_feedback(
 ) -> tuple[list[str], list[str]]:
     """Validate paint property names for explicit style-clear actions.
 
-    render_mode: see validate_paint_with_feedback (fix #392, audit WR-01).
+    render_mode: see validate_paint_with_feedback (fix(#392), audit WR-01).
     """
     if not properties or (not geometry_type and render_mode != "heatmap"):
         return [], []
@@ -544,7 +544,7 @@ class ChatResponse(BaseModel):
     actions: list[ChatAction]
 
 
-# Live provider probe (fix #627)
+# Live provider probe (fix(#627))
 
 
 class AIProbeCheck(BaseModel):

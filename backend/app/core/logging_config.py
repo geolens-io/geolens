@@ -324,7 +324,7 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
     """Deep-redact denylisted keys and scrub nested strings in a payload.
 
     Two callers, one policy. ``platform/audit.py`` uses it for the audit event
-    logged when a sink drops a row (fix #1491): a ``basemaps`` setting can
+    logged when a sink drops a row (fix(#1491)): a ``basemaps`` setting can
     carry an ``api_key`` nested two levels inside ``details``, where a shallow
     pass can't see it. ``_redact_sensitive_fields`` uses it for any container
     reaching the event dict, covering a third-party library's stdlib

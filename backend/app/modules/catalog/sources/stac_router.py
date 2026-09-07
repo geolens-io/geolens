@@ -565,7 +565,7 @@ async def stac_import(
                     last_refreshed_at=datetime.now(timezone.utc),
                 )
                 # feat(#1218): asset_href is also what the duplicate-source
-                # guard keys on (fix #1286: origin_ref.asset_href), so
+                # guard keys on (fix(#1286): origin_ref.asset_href), so
                 # writing it here keeps both in agreement by construction.
                 # feat(#1222): item_href is the only stored value that can
                 # answer "was this item withdrawn?" — a 200 on the asset href

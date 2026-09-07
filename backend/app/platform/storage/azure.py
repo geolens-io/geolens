@@ -260,7 +260,7 @@ class AzureBlobStorageProvider:
     ) -> AsyncIterator[list[StoredObject]]:
         """Yield blob pages under a prefix, each entry with its last-modified.
 
-        ``by_page()`` (fix #1249) so a consumer that stops early stops the
+        ``by_page()`` (fix(#1249)) so a consumer that stops early stops the
         service round trips with it. ``start_after`` is filtered client-side:
         Azure's flat listing takes a name prefix, not a start marker, and its
         continuation tokens can't be reconstructed as a key by a later pass.

@@ -1188,7 +1188,7 @@ async def _cleanup_staging_on_failure(
 
     The single terminal-write site for ``reupload_file``/``reupload_service``
     and the import tasks: applies the ``redact_url_credentials`` backstop,
-    the ``pending``-inclusive attempt fence (fix #1274: a worker-time refusal
+    the ``pending``-inclusive attempt fence (fix(#1274): a worker-time refusal
     that raises before the claim must still finalize the job it owns rather
     than leave it for the stale sweep), and the ``ingest_failed`` notification.
 
@@ -1233,7 +1233,7 @@ async def _cleanup_staging_on_failure(
     if attempt_id is not None:
         # The fence is the attempt-id equality — a superseded attempt carries
         # a different token and can never match. `pending` is included
-        # because a failure BEFORE the claim (fix #1274 review: the worker-
+        # because a failure BEFORE the claim (fix(#1274) review: the worker-
         # time SSRF refusal) must still finalize the job it owns; requiring
         # `running` made the legitimate attempt's pre-claim failures
         # invisible, leaving the job pending until the stale sweep.

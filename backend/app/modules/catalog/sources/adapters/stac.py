@@ -143,7 +143,7 @@ def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
     can only ever check the asset, never a withdrawal from the catalog.
 
     A relative href is legal STAC, so it is resolved against the response's
-    actual URL before any check (fix #1271 review). ``storable_href`` then
+    actual URL before any check (fix(#1271) review). ``storable_href`` then
     drops a non-http(s) or credentialed href rather than surfacing it: a
     credentialed one would otherwise turn an optional convenience into a
     422 for the caller's whole import batch.

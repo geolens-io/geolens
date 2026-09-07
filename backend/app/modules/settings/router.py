@@ -486,7 +486,7 @@ async def update_settings(
         except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
             # Roll the published pair back in ONE transaction, same reason as
             # the forward publish. Side effects follow the commit, never
-            # precede it (fix #430): invalidating the cache first would let a
+            # precede it (fix(#430)): invalidating the cache first would let a
             # concurrent reader repopulate it with the value being rolled back.
             await EMBEDDING_DIMS.set(
                 db, old_dims_value, user_id=user.id, ip_address=ip, commit=False
@@ -581,7 +581,7 @@ async def reset_settings(
 
     # The setting deletes and their audit rows form one transaction. Runtime
     # caches/hooks are changed only after that transaction is durable, and in
-    # one step so no reader sees a half-reset batch (fix #1543).
+    # one step so no reader sees a half-reset batch (fix(#1543)).
     await db.commit()
     await apply_side_effects_batch([(cfg, cfg.env_default) for cfg in configs_to_reset])
 

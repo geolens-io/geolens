@@ -214,7 +214,7 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     extension routers (API mode only); init storage (after extensions, so
     overlay storage providers register first); S3 health probe; billing
     extensions' ``on_startup(app)`` dispatch (API mode only); init cache;
-    init the binary tile cache (in-memory fallback is API-only, fix #1315).
+    init the binary tile cache (in-memory fallback is API-only, fix(#1315)).
 
     Returns the ``EditionInfo`` from ``get_edition()``.
 
@@ -320,7 +320,7 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
 
     # fix(#1315): initialize the binary tile cache here too. It used to live
     # in the API lifespan alone, so get_tile_cache() returned None in the
-    # worker and every post-swap MVT purge (fix #394 B-019 — reupload_file,
+    # worker and every post-swap MVT purge (fix(#394) B-019 — reupload_file,
     # reupload_service, refresh_postgis) evicted nothing from the worker.
     # The worker gets no in-memory fallback: it never reads tiles, so a
     # process-local LRU there would be a purge that evicts nothing and says

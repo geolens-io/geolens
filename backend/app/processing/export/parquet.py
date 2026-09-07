@@ -158,7 +158,7 @@ async def plan_parquet_export(
 ) -> ParquetExportPlan:
     """Everything that decides a parquet export's STATUS, producing no file.
 
-    fix(#1513, codex P2 on #1522): split out so the route can run this
+    fix(#1513): split out so the route can run this
     BEFORE answering a HEAD — introspection, filter validation and the
     bounded count are reads a HEAD can afford; left inside
     ``export_parquet``, a HEAD answered 200 while the GET later failed

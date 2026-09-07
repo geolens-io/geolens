@@ -326,7 +326,7 @@ async def _repoint_remote_asset(
             # `proj:code` and read by VRT compatibility checks, so a
             # reprojected replacement described by the old EPSG is wrong for
             # both. Already reconciled with the probe's own CRS in
-            # `stac_resolve.py` (fix #1334).
+            # `stac_resolve.py` (fix(#1334)).
             epsg=epsg,
             # fix(#1334): `crs_wkt` moves for the same reason — `fetch_cog_
             # info` already reads it off the moved object, and the STAC
@@ -575,7 +575,7 @@ async def refresh_stac(
                     resolution.epsg,
                 )
                 # Dataset-level mirror of the same fact. `resolution.epsg` is
-                # already reconciled with the probe's own CRS (fix #1334), so
+                # already reconciled with the probe's own CRS (fix(#1334)), so
                 # this and the raster row `_repoint_remote_asset` just wrote
                 # agree by construction.
                 dataset.srid = resolution.epsg

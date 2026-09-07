@@ -183,7 +183,7 @@ def _consolidate_dead_cumulative_metric_files() -> None:
     """Fold dead workers' counter/histogram/summary files into one
     running total per type ("<type>_archived.db") instead of letting
     them accumulate forever. mark_process_dead() never touches these
-    (fix #1240, #651): their values are cumulative, summed across every
+    (fix(#1240), #651): their values are cumulative, summed across every
     pid's file, so deleting one would silently subtract its contribution.
 
     Runs under one exclusive hold of the same lock the /metrics scrape

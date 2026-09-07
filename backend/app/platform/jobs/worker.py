@@ -210,7 +210,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # before ownership-restoring reconciliation is durable can orphan a
         # 'ready' asset against bytes a rolled-back commit never freed.
         await _reap_stale_generation_storage(stale_generation_storage_keys)
-        # fix(#1778, codex r1): the same treatment for a killed raster
+        # fix(#1778): the same treatment for a killed raster
         # ingest/replace's pre-commit objects, through the shared reaper
         # (survivor check + tenant resolution) so this pass can't delete a
         # key a live row still names. Matters more than the periodic sweep:
@@ -222,7 +222,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
                 for key in unpublished_storage_keys_from_metadata(job.user_metadata)
             )
         )
-        # fix(#1778, codex r7/r10): the analysis peer, same pass/ordering.
+        # fix(#1778): the analysis peer, same pass/ordering.
         # (job, table) pairs so a drop can refuse a table the job it's
         # reaping didn't create; ALL names a row records, since it
         # accumulates across attempts.
@@ -671,7 +671,7 @@ async def main() -> None:
     exports_dir = Path(settings.upload_staging_dir) / "exports"
     sweep_orphaned_exports(exports_dir)
 
-    # fix(#1746, codex r2): reclaim GDAL bearer-header tempfiles a
+    # fix(#1746): reclaim GDAL bearer-header tempfiles a
     # SIGKILL/OOM left on the container tmpfs (not the staging volume — see
     # gdal_header_dir()); boot-time is the only hook, no periodic sweep loop here.
     sweep_stale_gdal_header_files()

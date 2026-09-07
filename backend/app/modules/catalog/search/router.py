@@ -392,7 +392,7 @@ def _resolve_filter_lang(
     """Resolve and validate ``filter-lang``, shared by both search handlers.
 
     Reads the raw query param, not ``params.cql2_filter_lang`` (unbindable
-    via ``collection_items``'s bare ``Depends()``, fix #1671). Stays ``str``
+    via ``collection_items``'s bare ``Depends()``, fix(#1671)). Stays ``str``
     so an invalid value 400s instead of FastAPI's 422; an empty value counts
     as "not supplied".
     """

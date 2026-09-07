@@ -3043,7 +3043,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The lines are the derivation: four style layers per logical layer, worst
     # case, measured, times the per-map cap, plus headroom for the layers an
     # import skips. Cap 1451 -> 1465, exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1390,
+    "backend/app/modules/catalog/maps/schemas.py": 1391,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip

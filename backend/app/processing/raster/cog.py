@@ -129,7 +129,7 @@ def is_dem_candidate(band_count: int | None, dtype: str | None) -> bool:
 
 
 def _scratch_dir() -> str | None:
-    """Directory for COG temp copies (fix #448).
+    """Directory for COG temp copies (fix(#448)).
 
     tempfile's default (/tmp) is a 512MB RAM-backed tmpfs, so a large
     raster can OOM or ENOSPC; prefer the disk-backed upload_staging volume.

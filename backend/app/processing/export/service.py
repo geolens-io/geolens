@@ -383,7 +383,7 @@ async def export_dataset(
         column_info: Column metadata for where-clause validation.
         deadline: ``time.monotonic()`` stamp by which the whole request must
             be answered; passed to the ogr2ogr subprocess, which reads what
-            is left of it at spawn time (fix #1778).
+            is left of it at spawn time (fix(#1778)).
 
     Returns:
         Tuple of (file_path, download_filename, media_type).

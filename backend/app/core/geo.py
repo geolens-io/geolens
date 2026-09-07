@@ -26,7 +26,7 @@ def _near(a: float, b: float) -> bool:
 
 
 def _seam_split_bbox(shape: object) -> tuple[float, float, float, float] | None:
-    """Recognize a two-ring antimeridian-split extent (fix #892) and return its
+    """Recognize a two-ring antimeridian-split extent (fix(#892)) and return its
     spec bbox as ``(west, south, east, north)`` with ``west > east``, else None.
 
     The two parts must share one latitude band; a rollup of crossing extents
@@ -548,7 +548,7 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
 
     fix(#939): companion to :func:`wkt_is_geographic`, a class test that
     admits grads CRSs -- only meaningful for a WKT already classed geographic.
-    Delegates to :func:`crs_has_degree_unit` (fix #961), so reading PROJ's
+    Delegates to :func:`crs_has_degree_unit` (fix(#961)), so reading PROJ's
     ``units_factor`` rather than the unit's name means a custom spelling like
     ``UNIT["arc-degree",0.01745...]`` still reads as degrees.
 

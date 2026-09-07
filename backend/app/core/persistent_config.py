@@ -243,7 +243,7 @@ class PersistentConfig(Generic[T]):
         Called automatically by set()/reset() when they own the commit. A
         caller batching with ``commit=False`` must not loop this per key —
         use ``apply_side_effects_batch`` after its terminal commit (fix
-        #1543), never before it (fix #430 r3; see set() above).
+        #1543), never before it (fix(#430) r3; see set() above).
         """
         await apply_side_effects_batch([(self, value)])
 

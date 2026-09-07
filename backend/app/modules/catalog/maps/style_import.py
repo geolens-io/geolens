@@ -349,7 +349,7 @@ def _restore_zoom_range(
     """Put a primary layer's spec ``minzoom``/``maxzoom`` back into the layout.
 
     fix(#1778): the builder stores zoom range as private layout keys;
-    export promotes them to spec-level (fix #526 B-044, since
+    export promotes them to spec-level (fix(#526) B-044, since
     ``clean_layout`` strips underscore keys). Import must mirror that or
     a zoom-limited map silently draws at all zooms on re-import.
 

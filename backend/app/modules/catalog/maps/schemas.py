@@ -188,7 +188,7 @@ def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
     persisted and later 500'd whatever serializer descended into it.
 
     ``stops`` only, and only as a direct property value (not inside an
-    expression operand, fix #1109) — the legacy shape (a list of
+    expression operand, fix(#1109)) — the legacy shape (a list of
     ``[input, output]`` pairs) needs no per-property allowlist to check.
 
     ``style_config`` keeps just the size cap: its own ``stops`` shape
@@ -1276,7 +1276,8 @@ class ShareTokenRequest(BaseModel):
     def validate_enterprise_controls(self):
         # fix(#435): the edition boundary was enforced only by the two
         # route handlers, so a direct service caller could bypass it.
-        # Guard at the schema too, mirroring `EmbedTokenCreate`.
+        # Guard at the schema too, mirroring `EmbedTokenCreate`. ``None`` stays
+        # valid: Community can still clear an existing expiration.
         if self.expires_at is not None and self.expires_in_days is not None:
             raise ValueError(SHARE_EXPIRATION_SELECTION_ERROR)
         if self.expires_at is not None and not is_enterprise():

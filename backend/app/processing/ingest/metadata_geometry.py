@@ -247,8 +247,8 @@ async def rename_reserved_columns(
     Laundered to letter-leading safe names (``:id`` -> ``id``).
 
     Only renames columns NOT created by the ingest pipeline itself:
-    - ``gid``: pipeline's is a serial PRIMARY KEY with a nextval default; a
-      source-origin ``gid`` has neither.
+    - ``gid``: pipeline's is a serial PRIMARY KEY (nextval default) or an
+      identity column; a source-origin ``gid`` is neither.
     - ``geom``/``geometry``: pipeline's has data_type='USER-DEFINED',
       udt_name='geometry'; any other type is source-origin.
     - ``geom_4326``: always renamed — this runs before add_4326_column.

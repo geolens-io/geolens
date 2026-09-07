@@ -536,7 +536,7 @@ async def export_dataset_endpoint(
                 ),
             )
 
-    # 6d. fix(#1513, codex P2 on #1522): remaining status-deciding checks,
+    # 6d. fix(#1513): remaining status-deciding checks,
     # hoisted above the HEAD return — previously inside
     # export_dataset()/export_parquet(), so HEAD lied with a 200.
     parquet_plan = None
