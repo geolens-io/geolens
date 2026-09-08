@@ -13,7 +13,26 @@ set -e
 # (which builds a
 # fresh DB on every run) finally exercised init-db.sh against a clean
 # volume.
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-'EOSQL'
+# Runs both as the container's docker-entrypoint-initdb.d hook (local socket,
+# no host/port set) and from a host against a managed database (POSTGRES_HOST
+# etc. exported). Host/port args are added only when set, which is what keeps
+# the in-container socket path working; same pattern as the role reconciler.
+: "${POSTGRES_USER:?POSTGRES_USER is required}"
+: "${POSTGRES_DB:?POSTGRES_DB is required}"
+
+psql_args=(-v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
+if [ -n "${POSTGRES_HOST:-}" ]; then
+    psql_args+=(--host "$POSTGRES_HOST")
+elif [ -n "${PGHOST:-}" ]; then
+    psql_args+=(--host "$PGHOST")
+fi
+if [ -n "${POSTGRES_PORT:-}" ]; then
+    psql_args+=(--port "$POSTGRES_PORT")
+elif [ -n "${PGPORT:-}" ]; then
+    psql_args+=(--port "$PGPORT")
+fi
+
+psql "${psql_args[@]}" <<-'EOSQL'
     -- Extensions
     CREATE EXTENSION IF NOT EXISTS postgis;
     CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -33,7 +52,17 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-'
     --        CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
     --   Without step 1's preload, CREATE EXTENSION succeeds but the view stays
     --   empty / errors on query -- preload is mandatory for this extension.
-    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    -- Optional, and guarded: IF NOT EXISTS only suppresses "already exists",
+    -- so an unavailable extension still ERRORs and would abort this whole
+    -- script under ON_ERROR_STOP=1 on a provider that does not ship it.
+    DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM pg_available_extensions
+                   WHERE name = 'pg_stat_statements') THEN
+            CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+        ELSE
+            RAISE NOTICE 'pg_stat_statements unavailable; skipping (profiling only)';
+        END IF;
+    END $$;
     CREATE EXTENSION IF NOT EXISTS unaccent;
 
     -- Schemas
@@ -45,4 +74,10 @@ EOSQL
 # One canonical reconciliation path owns geolens_reader plus the opt-in
 # GEOLENS_RUNTIME_DB_ROLE. It is mounted separately so restore.sh and an
 # existing install can run the identical grants without replaying extensions.
-bash /usr/local/bin/configure-runtime-db-role
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+if [ -r "${script_dir}/lib/configure-runtime-db-role.sh" ]; then
+    role_reconciler="${script_dir}/lib/configure-runtime-db-role.sh"
+else
+    role_reconciler=/usr/local/bin/configure-runtime-db-role
+fi
+bash "$role_reconciler"

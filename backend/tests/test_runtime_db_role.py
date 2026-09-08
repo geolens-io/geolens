@@ -84,6 +84,29 @@ def test_bootstrap_restore_and_upgrade_share_one_role_reconciler() -> None:
     assert "cannot reuse that" in runbook
 
 
+def test_init_db_is_one_entrypoint_for_container_and_managed_postgres() -> None:
+    """fix(#1992): one bootstrap script, both deployments.
+
+    Host/port args are conditional so the in-container socket path (where
+    neither is set) keeps working, and pg_stat_statements is probed before
+    creation because `CREATE EXTENSION IF NOT EXISTS` still ERRORs on an
+    unavailable extension and would abort the run under ON_ERROR_STOP=1.
+    """
+    source = (ROOT / "scripts" / "init-db.sh").read_text(encoding="utf-8")
+
+    for var in ("POSTGRES_HOST", "PGHOST", "POSTGRES_PORT", "PGPORT"):
+        assert var in source, f"init-db.sh no longer honours {var}"
+    assert 'psql "${psql_args[@]}"' in source
+
+    probe = source.index("pg_available_extensions")
+    create = source.index("CREATE EXTENSION IF NOT EXISTS pg_stat_statements;\n", probe)
+    assert probe < create, "pg_stat_statements must stay behind the availability probe"
+
+    # the required four stay unguarded: a missing one is a hard stop, not a skip
+    for ext in ("postgis", "pg_trgm", "vector", "unaccent"):
+        assert f"CREATE EXTENSION IF NOT EXISTS {ext};" in source
+
+
 def test_clean_db_migration_smoke_mounts_role_reconciler_read_only() -> None:
     source = (ROOT / "backend/scripts/test_alembic_upgrade_clean_db.sh").read_text(
         encoding="utf-8"

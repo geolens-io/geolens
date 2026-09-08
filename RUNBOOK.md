@@ -462,10 +462,27 @@ which identities previously relied on `PUBLIC`. Leave the role in place during
 rollback: dropping it before re-owning `data.*` relations is destructive and
 unnecessary.
 
-For managed/external PostgreSQL, run privileged migrations first, then run
-`scripts/lib/configure-runtime-db-role.sh` from the host with `POSTGRES_HOST`,
-`POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_DB`, `PGPASSWORD`, and the two
-`GEOLENS_RUNTIME_DB_*` variables exported. Also export
+For managed/external PostgreSQL, run `scripts/init-db.sh` from the host with
+`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_DB`, `PGPASSWORD`
+and the two `GEOLENS_RUNTIME_DB_*` variables exported. It is the same script the
+bundled database runs on a fresh volume: it adds the host/port arguments only
+when they are set, creates the extensions and schemas, and then chains to
+`scripts/lib/configure-runtime-db-role.sh` itself, so there is no separate SQL
+snippet to keep in step. It is idempotent, so re-running it is safe. Run it
+before the first migration: migration `0001_baseline` verifies `postgis`,
+`pg_trgm`, `vector` and `unaccent` and aborts if any is missing rather than
+creating them.
+
+`postgis` and `vector` are not PostgreSQL "trusted" extensions, so the
+connecting identity needs superuser-equivalent authority (`rds_superuser`,
+`cloudsqlsuperuser`); `pg_trgm` and `unaccent` are trusted and need only CREATE
+on the database. On Azure Flexible Server every one of them must first be
+allowlisted in the `azure.extensions` server parameter, which no client-side SQL
+can do for you. `pg_stat_statements` is optional and is skipped with a notice
+where the provider does not ship it.
+
+To reconcile roles and grants alone on an existing install, run
+`scripts/lib/configure-runtime-db-role.sh` with the same variables. Also export
 `GEOLENS_MIGRATION_DB_ROLE` as the username in
 `MIGRATION_DATABASE_URL_OVERRIDE`; it may differ from the provider admin used by
 the script. The provider credential must be able to create roles, change
