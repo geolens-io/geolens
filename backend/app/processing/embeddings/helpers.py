@@ -259,10 +259,10 @@ async def has_embeddings(session: AsyncSession) -> bool:
     """Check whether any rows exist in catalog.record_embeddings.
 
     Result is cached in-memory for 30 seconds, partitioned by the
-    active embedding model name (PERF-10) so a model
-    swap in admin Settings invalidates stale answers. Unscoped
-    multi-tenant requests fail closed before consulting either the
-    database or the process-wide cache.
+    active embedding model name so a model swap in admin Settings
+    invalidates stale answers. Unscoped multi-tenant requests fail
+    closed before consulting either the database or the process-wide
+    cache.
     """
     global _has_embeddings_cache
     now = time.monotonic()

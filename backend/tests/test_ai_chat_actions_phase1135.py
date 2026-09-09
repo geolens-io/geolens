@@ -1,15 +1,14 @@
-"""Phase 1135 Pitfall #5 regression pins.
+"""_validate_chat_layers and _schema_cache_key regression pins.
 
-These tests pin two design decisions documented in the v1030 Phase 1135
-roadmap:
+These tests pin two design decisions:
 
 1. `_validate_chat_layers` does NOT filter by layer.visible — its docstring
-   must contain the Pitfall #5 anchor + the "visibility" / "regardless"
-   rationale words. (AI-04)
+   must document that analysis sees every layer regardless of visibility
+   state, and name the `include_hidden` escape hatch for a future
+   visible-only scope.
 2. `_schema_cache_key` is partitioned by (map_id, content_hash). Two maps
    with identical layer signatures MUST receive distinct cache keys; the
-   same map with the same layers MUST receive equal cache keys. (Pitfall #5
-   cross-reference — preserved from Phase 274 PERF-04.)
+   same map with the same layers MUST receive equal cache keys.
 
 These tests intentionally make zero DB calls — they validate docstrings and
 a pure function. They serve as a low-cost regression net against future
@@ -24,23 +23,21 @@ from app.processing.ai.sql_generator import _schema_cache_key
 
 
 def test_validate_chat_layers_docstring_pins_visibility_decision() -> None:
-    """Pitfall #5 (v1030 Phase 1135 AI-04): docstring must document the
-    visibility-filter decision explicitly."""
+    """docstring must document the visibility-filter decision explicitly."""
     docstring = inspect.getdoc(_validate_chat_layers) or ""
-    # Anchor: future refactors must keep the cross-reference findable
-    assert "Pitfall #5" in docstring, (
-        "_validate_chat_layers docstring must reference Pitfall #5 "
-        "(AI-04) to anchor the visibility-filter design decision"
-    )
     # Rationale words: a future refactor that strips the rationale will
     # remove one of these terms; the assertion catches the regression.
+    assert "regardless" in docstring.lower(), (
+        "_validate_chat_layers docstring must mention 'regardless' "
+        "to assert analysis sees all layers regardless of visibility state"
+    )
     assert "visibility" in docstring.lower(), (
         "_validate_chat_layers docstring must mention 'visibility' "
         "to explain that visibility is NOT a filter criterion for analysis"
     )
-    assert "regardless" in docstring.lower(), (
-        "_validate_chat_layers docstring must mention 'regardless' "
-        "to assert analysis sees all layers regardless of visibility state"
+    assert "include_hidden" in docstring, (
+        "_validate_chat_layers docstring must name the include_hidden "
+        "escape hatch for a future visible-only scope"
     )
 
 
@@ -63,14 +60,14 @@ def _make_layer(table: str = "data.test_table", geom: str = "Polygon") -> ChatMa
 
 
 def test_schema_cache_key_isolates_by_map_id() -> None:
-    """PERF-04 / Pitfall #5: same layers under different map_id produce
-    distinct cache keys (cross-map isolation)."""
+    """PERF-04: same layers under different map_id produce distinct cache
+    keys (cross-map isolation)."""
     layer = _make_layer()
     key_a = _schema_cache_key([layer], map_id="map-A")
     key_b = _schema_cache_key([layer], map_id="map-B")
     assert key_a != key_b, (
         "Two different map_ids must produce DISTINCT schema cache keys "
-        "(PERF-04 cross-map isolation contract; Pitfall #5)"
+        "(PERF-04 cross-map isolation contract)"
     )
     # Verify the tuple shape is exactly (map_key, content_hash)
     assert isinstance(key_a, tuple) and len(key_a) == 2
