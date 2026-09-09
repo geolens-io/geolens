@@ -237,18 +237,19 @@ def redact_url_credentials(url: str) -> str:
         # raise. Reached both directly and from the URL_LIKE_RE.sub callback
         # below, which recurses here on each matched substring of free text.
         return _redact_without_parsing(url)
-    # Only a scheme-less string (free text, GDAL stderr) goes to the regex
-    # fallback. An http(s) URL with an EMPTY host (e.g. "https://?token=x") must
-    # still be reconstructed below — routing it to the fallback would match the
-    # whole string and recurse forever. fix(#429): guard empty-host URLs
-    # against unbounded recursion; the reconstruct path terminates and redacts.
-    if parts.scheme.lower() not in {"http", "https"}:
+    is_http = parts.scheme.lower() in {"http", "https"}
+    # fix(#2044): a non-http scheme WITH an authority (redis://user:pass@host) is
+    # a real URL to redact below, not free text — fix(#429) needs the fallback
+    # only for scheme-less/no-netloc text, else an empty-host http(s) URL recurses.
+    if not is_http and not parts.netloc:
         return URL_LIKE_RE.sub(
             lambda match: redact_url_credentials(match.group(0)),
             url,
         )
     redacted_netloc = _redacted_netloc(parts)
-    if not parts.query:
+    # SENSITIVE_QUERY_PARAMS is an http(s) convention (token=, api_key=, ...); a
+    # non-http scheme only gets its userinfo redacted, same as no query below.
+    if not parts.query or not is_http:
         if redacted_netloc == parts.netloc:
             return url
         return urlunsplit(

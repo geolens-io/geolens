@@ -524,6 +524,52 @@ def test_redact_url_credentials_masks_userinfo_and_gcs_signature() -> None:
     assert "X-Goog-Signature=%3Credacted%3E" in redacted
 
 
+# fix(#2044): a non-http(s) scheme carrying userinfo previously fell through to
+# the URL_LIKE_RE fallback, which only matches an http(s) substring, so the
+# whole string came back unchanged and the credential was never redacted.
+@pytest.mark.parametrize(
+    ("value", "must_not_contain"),
+    [
+        ("redis://user:secret@cache.internal:6379/0", "secret"),
+        ("redis://:secret@cache.internal:6379/0", "secret"),
+        ("s3://AKIAEXAMPLE:secret@bucket/key.tif", "secret"),
+        ("postgresql://user:secret@db.internal:5432/geolens", "secret"),
+    ],
+)
+def test_redact_url_credentials_masks_userinfo_for_non_http_scheme(
+    value: str, must_not_contain: str
+) -> None:
+    redacted = redact_url_credentials(value)
+
+    assert must_not_contain not in redacted
+    assert "redacted@" in redacted
+
+
+def test_redact_url_credentials_keeps_non_http_query_untouched() -> None:
+    # SENSITIVE_QUERY_PARAMS is an http(s) convention; a non-http scheme's
+    # query string is left alone once its userinfo is gone.
+    redacted = redact_url_credentials(
+        "postgresql://user:secret@db.internal:5432/geolens?sslmode=require"
+    )
+
+    assert "secret" not in redacted
+    assert "sslmode=require" in redacted
+
+
+def test_redact_url_credentials_leaves_credential_free_non_http_url_unchanged() -> None:
+    value = "ftp://files.internal/export.gpkg"
+
+    assert redact_url_credentials(value) == value
+
+
+def test_redact_url_credentials_leaves_non_netloc_scheme_unchanged() -> None:
+    # No authority to hold userinfo, and nothing http(s)-shaped inside it —
+    # must not be mistaken for free text carrying a redactable URL.
+    value = "mailto:no-reply@example.com"
+
+    assert redact_url_credentials(value) == value
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}
