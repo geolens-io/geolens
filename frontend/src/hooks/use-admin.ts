@@ -113,6 +113,15 @@ export function useAdminJobs(params: {
     queryKey: queryKeys.admin.jobs(params),
     queryFn: () => listAdminJobs(params),
     placeholderData: keepPreviousData,
+    // fix(#2033): a retried job can settle within a second — poll while the
+    // current page still has a pending/running row instead of relying on the
+    // retry mutation's one-shot invalidate.
+    refetchInterval: (q) => {
+      const jobs = q.state.data?.jobs ?? [];
+      const hasActive = jobs.some((j) => j.status === 'pending' || j.status === 'running');
+      return hasActive ? 3_000 : false;
+    },
+    refetchIntervalInBackground: false,
   });
 }
 
