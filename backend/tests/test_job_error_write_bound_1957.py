@@ -381,8 +381,11 @@ class TestAHeldJobRowEndsTheRemainingWrites:
         )
 
     async def test_the_cancelled_analysis_tail_gives_up(
-        self, running_job, short_budget
+        self, running_job, short_budget, monkeypatch
     ) -> None:
+        # This tail passes its own clamp, sized to the shield around it, so the
+        # shared budget's patch alone would not reach the write.
+        monkeypatch.setattr(analysis_tasks, "CANCEL_WRITE_BUDGET_MS", _TEST_BUDGET_MS)
         job_id, attempt_id = running_job
         import app.core.db as db_module
 
@@ -431,4 +434,66 @@ class TestAHeldJobRowEndsTheRemainingWrites:
         assert probes == ["analysis_1957"], (
             "a fence miss no longer probes for an adopting dataset row, so a "
             "swept job's unregistered output table is leaked forever"
+        )
+
+
+class _WedgedSession:
+    """A working session whose lock release never returns, as #700 anticipates."""
+
+    async def rollback(self) -> None:
+        await asyncio.sleep(3600)
+
+
+class TestTheCancelPathFitsInsideItsShield:
+    """The cancel bookkeeping runs under an outer deadline, so its budget must fit."""
+
+    def test_the_budgets_leave_margin_under_the_shield(self) -> None:
+        worst_case = (
+            analysis_tasks.CANCEL_ROLLBACK_SECONDS
+            + 2 * analysis_tasks.CANCEL_WRITE_BUDGET_MS / 1000
+        )
+        assert worst_case < analysis_tasks.CANCEL_CLEANUP_SECONDS, (
+            f"a wedged rollback plus a contended write can take {worst_case}s "
+            f"inside a {analysis_tasks.CANCEL_CLEANUP_SECONDS}s shield, so the "
+            "shield cancels the write before it can record why it gave up"
+        )
+        assert analysis_tasks.CANCEL_WRITE_BUDGET_MS < JOB_ERROR_WRITE_TIMEOUT_MS, (
+            "the cancel path spends the shared budget, which is sized for a "
+            "caller with no outer deadline"
+        )
+
+    async def test_a_wedged_rollback_still_leaves_room_to_report(
+        self, running_job
+    ) -> None:
+        job_id, attempt_id = running_job
+        loop = asyncio.get_running_loop()
+
+        async with _HeldJobRow(job_id):
+            started = loop.time()
+            with structlog.testing.capture_logs() as captured:
+                await asyncio.wait_for(
+                    asyncio.shield(
+                        analysis_tasks._fail_cancelled_job(
+                            _WedgedSession(),
+                            job_id=str(job_id),
+                            attempt_id=attempt_id,
+                            schema="data",
+                            out_table=None,
+                            operation="buffer",
+                        )
+                    ),
+                    timeout=analysis_tasks.CANCEL_CLEANUP_SECONDS,
+                )
+            elapsed = loop.time() - started
+
+        assert elapsed < analysis_tasks.CANCEL_CLEANUP_SECONDS - 1, (
+            f"the cleanup took {round(elapsed, 1)}s of its "
+            f"{analysis_tasks.CANCEL_CLEANUP_SECONDS}s shield, which leaves a "
+            "graceful shutdown cancelling it instead of letting it report"
+        )
+        expired = [r for r in captured if r.get("event") == "job_error_write_timeout"]
+        assert len(expired) == 1, f"expected one expiry event; got {captured}"
+        assert expired[0]["budget_ms"] == analysis_tasks.CANCEL_WRITE_BUDGET_MS, (
+            f"the write spent {expired[0]['budget_ms']}ms, not the clamped "
+            f"{analysis_tasks.CANCEL_WRITE_BUDGET_MS}ms this path passes"
         )

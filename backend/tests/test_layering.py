@@ -5565,9 +5565,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # computation as the scope, the idiom `generate_table_name`'s own
     # `_with_collision_suffix` already uses. Cap 1702 -> 1725, exact.
     # chore(#1873): review-history comments trimmed. Cap 1725 -> 1392, exact.
-    # fix(#1957): +14 — both failure tails budget their job write and keep an
-    # expired budget distinct from a fence miss. Cap 1390 -> 1404, exact.
-    "backend/app/processing/analysis/tasks.py": 1404,
+    # fix(#1957): +31 — both failure tails budget their job write and keep an
+    # expired budget distinct from a fence miss, and the cancel path names
+    # its shield and derives a clamp that fits inside it. Cap 1390 -> 1421,
+    # exact.
+    "backend/app/processing/analysis/tasks.py": 1421,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

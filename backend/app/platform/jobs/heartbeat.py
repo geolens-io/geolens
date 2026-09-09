@@ -117,13 +117,20 @@ JOB_ERROR_WRITE_TIMEOUT_MS = 10_000
 ERROR_WRITE_EXPIRY_CODES = ("57014", "55P03")
 
 
-def log_job_error_write_failure(exc: BaseException, *, job_id: str, task: str) -> None:
+def log_job_error_write_failure(
+    exc: BaseException,
+    *,
+    job_id: str,
+    task: str,
+    budget_ms: int | None = None,
+) -> None:
     """Record a failed terminal job write as its own event.
 
     The caller must swallow *exc* and re-raise whatever it was already handling:
     this write is secondary, and letting it out replaces the cause the operator
     needs with a lock timeout.
     """
+    budget_ms = JOB_ERROR_WRITE_TIMEOUT_MS if budget_ms is None else budget_ms
     code = sqlstate(exc)
     structlog.get_logger().warning(
         "job_error_write_timeout"
@@ -132,23 +139,27 @@ def log_job_error_write_failure(exc: BaseException, *, job_id: str, task: str) -
         job_id=job_id,
         task=task,
         sqlstate=code,
-        budget_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
+        budget_ms=budget_ms,
     )
 
 
-async def arm_job_error_write_budget(session: AsyncSession) -> None:
+async def arm_job_error_write_budget(
+    session: AsyncSession, *, budget_ms: int | None = None
+) -> None:
     """Bound this transaction's wait on the job row at the error-write budget.
 
     Issue it on the transaction that carries the failure UPDATE and after any
     rollback on that session: ``SET LOCAL`` dies with the transaction, so an
     arm placed before a rollback or a commit is gone by the next statement.
+
+    fix(#1957 codex r4): ``budget_ms`` is for a caller that already sits under
+    an outer deadline. The shared budget is the default, not a floor.
     """
-    await session.execute(
-        text(f"SET LOCAL lock_timeout = {JOB_ERROR_WRITE_TIMEOUT_MS}")
-    )
-    await session.execute(
-        text(f"SET LOCAL statement_timeout = {JOB_ERROR_WRITE_TIMEOUT_MS}")
-    )
+    # Resolved here, not as a default: the module global is what a test
+    # patches, and a default argument would freeze it at import.
+    budget = JOB_ERROR_WRITE_TIMEOUT_MS if budget_ms is None else budget_ms
+    await session.execute(text(f"SET LOCAL lock_timeout = {int(budget)}"))
+    await session.execute(text(f"SET LOCAL statement_timeout = {int(budget)}"))
 
 
 async def update_ingest_job_for_attempt(
@@ -179,6 +190,7 @@ async def write_job_failure_for_attempt(
     *,
     values: dict[str, object],
     task_name: str,
+    budget_ms: int | None = None,
 ) -> bool | None:
     """Commit a fenced terminal job write under the error-write budget.
 
@@ -193,18 +205,20 @@ async def write_job_failure_for_attempt(
 
     Issue it AFTER any rollback on *session*: ``SET LOCAL`` dies with the
     transaction, so a budget armed before one is gone by the next statement.
+
+    A caller under an outer deadline passes a ``budget_ms`` that fits inside
+    it, or the deadline cancels this write before it can report anything.
     """
     from sqlalchemy.exc import SQLAlchemyError
 
+    budget_ms = JOB_ERROR_WRITE_TIMEOUT_MS if budget_ms is None else budget_ms
     try:
         # The connection first, on its own deadline: `SET LOCAL` cannot bound a
         # wait for the POOL, which on an exhausted pool is `db_pool_timeout`
         # (30s) before any statement runs. Nothing is in flight yet, so this is
         # the one point in the write that is safe to cancel.
-        await asyncio.wait_for(
-            session.connection(), timeout=JOB_ERROR_WRITE_TIMEOUT_MS / 1000
-        )
-        await arm_job_error_write_budget(session)
+        await asyncio.wait_for(session.connection(), timeout=budget_ms / 1000)
+        await arm_job_error_write_budget(session, budget_ms=budget_ms)
         fenced = await update_ingest_job_for_attempt(
             session, job_id, attempt_id, values=values
         )
@@ -215,7 +229,9 @@ async def write_job_failure_for_attempt(
         # letting one out would replace the failure the caller is handling.
         with suppress(Exception):  # broad: best-effort, the caller keeps its cause
             await session.rollback()
-        log_job_error_write_failure(write_failure, job_id=str(job_id), task=task_name)
+        log_job_error_write_failure(
+            write_failure, job_id=str(job_id), task=task_name, budget_ms=budget_ms
+        )
         return None
 
 
