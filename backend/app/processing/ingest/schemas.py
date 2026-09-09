@@ -205,9 +205,11 @@ class VectorCommitRequest(BaseCommitRequest):
 def reject_strict_cog_conflict(model: Any) -> Any:
     """Refuse a strict-COG commit that also asks for a rewrite.
 
-    An ``@model_validator(mode="after")`` on both models carrying
-    ``strict_cog``: passing the strict gate and then converting anyway
-    would break the flag's contract, so the combination is a 422.
+    An ``@model_validator(mode="after")`` on ``RasterCommitRequest``, which
+    the handler re-validates the body against, so a vector or service job
+    sending a kitchen-sink body still commits. Passing the strict gate and
+    then converting anyway would break the flag's contract, so for a raster
+    job the combination is a 422.
     """
     if not model.strict_cog:
         return model
@@ -396,9 +398,6 @@ class CommitRequest(BaseModel):
         ),
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
-    _reject_strict_cog_conflict = model_validator(mode="after")(
-        reject_strict_cog_conflict
-    )
 
 
 class CommitResponse(BaseModel):

@@ -146,13 +146,8 @@ _CONVERTER_ARGUMENT_TO_FIELD = {
 }
 
 
-@pytest.mark.parametrize(
-    "model",
-    [CommitRequest, RasterCommitRequest],
-    ids=lambda model: model.__name__,
-)
 class TestStrictCogRefusesOptionsThatForceARewrite:
-    """Both the published body and the subclass the handler re-validates."""
+    """The subclass the handler re-validates a raster job's body against."""
 
     @pytest.mark.parametrize(
         "field, value",
@@ -165,32 +160,48 @@ class TestStrictCogRefusesOptionsThatForceARewrite:
         ],
     )
     def test_one_rewriting_option_is_refused_by_name(
-        self, model: type, field: str, value: object
+        self, field: str, value: object
     ) -> None:
         with pytest.raises(ValidationError) as exc:
-            model(title="DEM", strict_cog=True, **{field: value})
+            RasterCommitRequest(title="DEM", strict_cog=True, **{field: value})
         message = str(exc.value)
         assert "strict_cog" in message
         assert field in message
 
-    def test_every_offending_field_is_named_at_once(self, model: type) -> None:
+    def test_every_offending_field_is_named_at_once(self) -> None:
         with pytest.raises(ValidationError) as exc:
-            model(title="DEM", strict_cog=True, **_REWRITING_OPTIONS)
+            RasterCommitRequest(title="DEM", strict_cog=True, **_REWRITING_OPTIONS)
         message = str(exc.value)
         for field in _REWRITING_OPTIONS:
             assert field in message, field
 
-    def test_the_default_compression_stated_explicitly_is_accepted(
+    def test_the_default_compression_stated_explicitly_is_accepted(self) -> None:
+        assert RasterCommitRequest(
+            title="DEM", strict_cog=True, compression="DEFLATE"
+        ).strict_cog
+
+    def test_strict_alone_is_accepted(self) -> None:
+        assert RasterCommitRequest(title="DEM", strict_cog=True).strict_cog
+
+    def test_the_same_options_are_accepted_without_strict(self) -> None:
+        assert (
+            RasterCommitRequest(title="DEM", **_REWRITING_OPTIONS).strict_cog is False
+        )
+
+    @pytest.mark.parametrize(
+        "model",
+        [CommitRequest, VectorCommitRequest, ServiceCommitRequest],
+        ids=lambda model: model.__name__,
+    )
+    def test_a_body_for_another_subclass_keeps_ignoring_the_flag(
         self, model: type
     ) -> None:
-        assert model(title="DEM", strict_cog=True, compression="DEFLATE").strict_cog
-
-    def test_strict_alone_is_accepted(self, model: type) -> None:
-        assert model(title="DEM", strict_cog=True).strict_cog
-
-    def test_the_same_options_are_accepted_without_strict(self, model: type) -> None:
-        accepted = model(title="DEM", **_REWRITING_OPTIONS)
-        assert accepted.strict_cog is False
+        """The flat wire model and the other subclasses drop what does not
+        apply to them, so a kitchen-sink body still commits."""
+        accepted = model.model_validate(
+            {"title": "Roads", "strict_cog": True, **_REWRITING_OPTIONS}
+        )
+        assert accepted.title == "Roads"
 
 
 def test_the_refused_set_is_the_converters_own_predicate() -> None:

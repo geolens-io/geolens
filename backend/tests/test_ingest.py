@@ -1568,6 +1568,41 @@ class TestCommitImportDispatch:
         assert job.status == "pending"
         assert "strict_cog" not in (job.user_metadata or {})
 
+    async def test_a_vector_job_still_commits_the_same_body(
+        self, client, admin_auth_header, test_db_session, mock_ingest_task
+    ) -> None:
+        """fix(#1961): the refusal is the raster subclass's, so a vector job
+        keeps dropping the raster fields it was always sent."""
+        result = await test_db_session.execute(
+            select(User).where(User.username == "admin")
+        )
+        admin = result.scalar_one()
+
+        job = IngestJob(
+            source_filename="roads.geojson",
+            file_path="/tmp/fake.geojson",
+            created_by=admin.id,
+            status="pending",
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        resp = await client.post(
+            f"/ingest/commit/{job.id}",
+            json={
+                "title": "Roads",
+                "strict_cog": True,
+                "compression": "LZW",
+                "srid_override": 3857,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 202, resp.text
+        await test_db_session.refresh(job)
+        assert job.user_metadata["srid_override"] == 3857
+        assert "strict_cog" not in job.user_metadata
+
     async def test_service_job_commits_with_service_body(
         self, client, admin_auth_header, test_db_session, mock_ingest_task
     ) -> None:
