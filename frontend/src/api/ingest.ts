@@ -157,12 +157,16 @@ export async function uploadFile(
  * bounds it. The job it returns is `running` until the worker has the file;
  * poll `getJobStatus` and preview once it reaches `pending`.
  *
- * It still outlives apiFetch's 30s default, because the submission-time SSRF
- * preflight is allowed PREFLIGHT_DNS_MAX_SECONDS = 30s of DNS on its own
- * (url_fetch.py). At the default the client would abort exactly as the server
- * was composing its 502, turning a real verdict into a silent client abort.
+ * It still outlives apiFetch's 30s default. Two server-side waits are
+ * sequential and each has its own 30s ceiling: the auth phase checks out a
+ * session before the handler runs, which can spend DB_POOL_TIMEOUT under pool
+ * saturation, and the SSRF preflight is then allowed PREFLIGHT_DNS_MAX_SECONDS
+ * of DNS (url_fetch.py). 30 + 30 plus room for the post-DNS config and quota
+ * reads and the response itself. Aborting early is not free: the server still
+ * queues the download, and the browser has discarded the only copy of the job
+ * id, so the import is unreachable until the stale sweep.
  */
-const URL_SUBMIT_TIMEOUT_MS = 45_000;
+const URL_SUBMIT_TIMEOUT_MS = 90_000;
 export async function uploadFromUrl(
   url: string,
   filename?: string,
