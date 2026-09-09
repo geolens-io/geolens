@@ -2379,6 +2379,37 @@ class TestDispatch:
         assert resp.json()["detail"]["code"] == "service_token_required"
         assert await _run_for(dataset.id) is None
 
+    async def test_a_marker_that_appears_during_the_reservation_is_caught(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """feat(#1764): a credentialed refresh finishing inside the window
+        marks the dataset without moving its origin, so the binding check
+        passes and only the post-reservation recheck notices."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        real_refresh = router_refresh.AsyncSession.refresh
+
+        async def _mark_then_refresh(session, instance, attrs=None, **kwargs):
+            await session.execute(
+                update(Dataset)
+                .where(Dataset.id == dataset.id)
+                .values(origin_ref={**dataset.origin_ref, "auth_required": True})
+            )
+            return await real_refresh(session, instance, attrs, **kwargs)
+
+        async with _dispatch_harness():
+            with patch.object(
+                router_refresh.AsyncSession, "refresh", _mark_then_refresh
+            ):
+                resp = await client.post(
+                    f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "service_token_required"
+        # The reservation is released, so a later refresh is not blocked.
+        assert await _run_for(dataset.id) is None
+
     async def test_a_credentialed_refresh_needs_the_shared_store(
         self, client, admin_auth_header, test_db_session
     ) -> None:

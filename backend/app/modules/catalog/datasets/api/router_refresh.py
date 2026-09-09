@@ -669,7 +669,8 @@ async def _dispatch_stac_refresh(
     # and report a live dataset as inaccessible. No probe — a STAC item read
     # is the resource the worker fetches, so an anonymous pre-check would
     # cost a request to learn what the marker already says.
-    if not token and service_auth_required(dataset.origin_ref):
+    marked_before = service_auth_required(dataset.origin_ref)
+    if not token and marked_before:
         raise _service_token_required()
 
     # Refused before anything is written, for the reason the service path
@@ -767,6 +768,14 @@ async def _dispatch_stac_refresh(
                 ),
             },
         )
+
+    # feat(#1764): the binding can be identical and the answer still
+    # different — a credentialed refresh that finished inside the reservation
+    # window marks the dataset without moving its origin, so the check above
+    # passes and only this one notices. Same helper the service path uses.
+    await _recheck_service_token_after_reservation(
+        db, dataset, token, marked_before=marked_before
+    )
 
     # The job carries no source pointer of its own — the worker reads the
     # binding, the same way this handler does. The filename slot is what the
