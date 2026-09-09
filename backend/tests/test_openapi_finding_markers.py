@@ -88,6 +88,12 @@ class TestDetector:
         spec = {"description": "See AGENTS.md for the convention."}
         assert not fm.scan_openapi(spec)
 
+    def test_a_route_summary_fails_too(self):
+        spec = {"paths": {"/x": {"get": {"summary": "Bound is PERF-N16"}}}}
+        hits = fm.scan_openapi(spec)
+        assert [h.markers for h in hits] == [("PERF-N16",)]
+        assert hits[0].kind == "openapi-summary"
+
     def test_nested_paths_are_walked(self):
         spec = {
             "paths": {

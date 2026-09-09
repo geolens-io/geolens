@@ -436,15 +436,19 @@ def check(app_root: Path = APP_ROOT) -> list[str]:
     return problems
 
 
-# Field/Query ``description=`` strings are literals, not docstrings, so
-# nothing above sees them, though they reach openapi.json and the SDKs
-# (#1946). Only openapi.json is scanned; make sdks-check already gates drift
-# between it and the ~900 generated SDK files.
+# Field/Query ``description=``/``summary=`` strings are literals, not
+# docstrings, so nothing above sees them, though they reach openapi.json and
+# the SDKs (#1946). Only openapi.json is scanned; make sdks-check already
+# gates drift between it and the ~900 generated SDK files.
 OPENAPI_PATH = Path(__file__).resolve().parents[1] / "openapi.json"
 
-# main carries 4175 description strings; a walk that silently sees none of
-# the spec (a moved file, a renamed key) must fail loudly, not pass empty.
-MIN_OPENAPI_DESCRIPTIONS = 3000
+# Keys FastAPI publishes as reader-facing prose, not identifiers.
+_OPENAPI_TEXT_KEYS = frozenset({"description", "summary"})
+
+# main carries 4444 description/summary strings; a walk that silently sees
+# none of the spec (a moved file, a renamed key) must fail loudly, not pass
+# empty.
+MIN_OPENAPI_DESCRIPTIONS = 3500
 
 # ADR-002 (.github/ADR-002.md) is a committed, publicly readable design
 # record, as resolvable as a CVE id or a GH-NNNN issue. Kept separate from
@@ -474,15 +478,15 @@ def _openapi_markers(line: str) -> tuple[str, ...]:
     return tuple(sorted(found))
 
 
-def _openapi_descriptions(node: object, path: str = "$") -> list[tuple[str, str]]:
-    """Every description string in a parsed OpenAPI document, with its JSON
-    path."""
-    found: list[tuple[str, str]] = []
+def _openapi_descriptions(node: object, path: str = "$") -> list[tuple[str, str, str]]:
+    """Every description/summary string in a parsed OpenAPI document, with
+    its JSON path and which key it came from."""
+    found: list[tuple[str, str, str]] = []
     if isinstance(node, dict):
         for key, value in node.items():
             child = f"{path}.{key}"
-            if key == "description" and isinstance(value, str):
-                found.append((child, value))
+            if key in _OPENAPI_TEXT_KEYS and isinstance(value, str):
+                found.append((child, key, value))
             else:
                 found.extend(_openapi_descriptions(value, child))
     elif isinstance(node, list):
@@ -492,9 +496,10 @@ def _openapi_descriptions(node: object, path: str = "$") -> list[tuple[str, str]
 
 
 def scan_openapi(spec: object) -> list[Hit]:
-    """Unanchored marker-bearing lines in every ``description`` in ``spec``."""
+    """Unanchored marker-bearing lines in every ``description``/``summary``
+    in ``spec``."""
     hits: list[Hit] = []
-    for json_path, text in _openapi_descriptions(spec):
+    for json_path, key, text in _openapi_descriptions(spec):
         lines = text.splitlines()
         anchored = [ANCHOR_RE.search(line) is not None for line in lines]
         for offset, line in enumerate(lines):
@@ -505,7 +510,7 @@ def scan_openapi(spec: object) -> list[Hit]:
             high = offset + ANCHOR_WINDOW + 1
             if any(anchored[low:high]):
                 continue
-            hits.append(Hit(json_path, offset + 1, "openapi-description", markers))
+            hits.append(Hit(json_path, offset + 1, f"openapi-{key}", markers))
     return hits
 
 
@@ -520,9 +525,9 @@ def check_openapi(openapi_path: Path = OPENAPI_PATH) -> list[str]:
     description_count = len(_openapi_descriptions(spec))
     if description_count < MIN_OPENAPI_DESCRIPTIONS:
         problems.append(
-            f"read {description_count} description strings from {openapi_path},"
-            f" floor is {MIN_OPENAPI_DESCRIPTIONS} — the scan is not seeing the"
-            " spec"
+            f"read {description_count} description/summary strings from"
+            f" {openapi_path}, floor is {MIN_OPENAPI_DESCRIPTIONS} — the scan"
+            " is not seeing the spec"
         )
 
     hits = scan_openapi(spec)
