@@ -164,13 +164,23 @@ _SANCTIONED_REDACTORS = frozenset(
 )
 
 
-# The sinks that redact what they are handed, so a caller may pass the
-# exception itself. `release_manifest_reservation` joined them in round 2.
-_REDACTING_SINKS = frozenset({"record_refresh_failure", "release_manifest_reservation"})
+# The sinks that redact what they are handed, and where each keeps its
+# message. A caller may pass the exception, never a rendering of it: once it
+# has been interpolated the sink can no longer tell whose text it is.
+_REDACTING_SINKS: dict[str, str | int] = {
+    "record_refresh_failure": "error_message",
+    "release_manifest_reservation": 2,
+}
+
+
+def _sink_message(node: ast.Call, where: str | int) -> ast.expr | None:
+    if isinstance(where, int):
+        return node.args[where] if len(node.args) > where else None
+    return next((kw.value for kw in node.keywords if kw.arg == where), None)
 
 
 def _reason_values(tree: ast.AST) -> list[tuple[ast.expr, str | None]]:
-    """Every expression assigned to an ``error_message``, with its callee."""
+    """Every expression that becomes an ``error_message``, with its callee."""
     values: list[tuple[ast.expr, str | None]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -178,6 +188,11 @@ def _reason_values(tree: ast.AST) -> list[tuple[ast.expr, str | None]]:
             values += [
                 (kw.value, callee) for kw in node.keywords if kw.arg == "error_message"
             ]
+            where = _REDACTING_SINKS.get(callee or "")
+            if where is not None and where != "error_message":
+                message = _sink_message(node, where)
+                if message is not None:
+                    values.append((message, callee))
         elif isinstance(node, ast.Dict):
             values += [
                 (value, None)
@@ -294,12 +309,14 @@ class TestEverySinkGoesThroughTheOneDoor:
             }
             safe_locals = _redacted_locals(tree)
             for value, callee in _reason_values(tree):
-                if callee in _REDACTING_SINKS:
-                    continue
                 if _call_names(value) & _SANCTIONED_REDACTORS:
                     continue
                 if isinstance(value, ast.Name):
-                    if value.id in safe_locals or value.id.isupper():
+                    if (
+                        callee in _REDACTING_SINKS
+                        or value.id in safe_locals
+                        or value.id.isupper()
+                    ):
                         continue
                 elif (
                     not {

@@ -872,7 +872,7 @@ async def _settle_staged_entry(
         nonlocal referenced, failed
         referenced = await staged_source_is_referenced(db, job_id, file_path=file_path)
         if not await release_manifest_reservation(
-            db, job, f"Failed to stage manifest source: {exc}"
+            db, job, f"Failed to stage manifest source: {redact_failure_reason(exc)}"
         ):
             await settle_ingest_job_failed(
                 job, exc, message_prefix="Failed to queue manifest job"
