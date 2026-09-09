@@ -152,7 +152,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 - Direct tile URLs and per-user API keys for QGIS, ArcGIS, MapLibre, and any OGC client
 - Vector tiles omit attribute columns below zoom 10 to keep low-zoom tiles small; add the `cols=<column>,<column>` query parameter to a tile URL to opt specific columns in at every zoom (names are validated against the dataset's columns, unknown names are dropped)
 - JWT + OAuth 2.0/OIDC, RBAC with per-dataset permissions
-- Interface in English, Spanish, French, German, and Chinese
+- Interface in English, Spanish, French, German, and Simplified Chinese
 
 <details>
 <summary>Security</summary>
