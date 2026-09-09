@@ -33,7 +33,7 @@
 ## Checklist
 
 - [ ] Code follows existing project conventions
-- [ ] i18n: new user-facing strings added to all 4 locales (en, fr, es, de)
+- [ ] i18n: new user-facing strings added to all 5 locales (en, fr, es, de, zh)
 - [ ] No new lint warnings (`ruff check`, `eslint`)
 - [ ] TypeScript compiles without errors
 - [ ] Migration included (if DB schema changed)

@@ -107,7 +107,7 @@ Code style is enforced by linters and formatters. Run them before submitting a P
 
 - **Backend:** `ruff check` and `ruff format` (configured in `pyproject.toml`)
 - **Frontend:** ESLint (configured in `frontend/eslint.config.js`)
-- **All user-facing strings** must be added to all 4 locale files (en, fr, es, de) under `frontend/src/i18n/locales/`
+- **All user-facing strings** must be added to all 5 locale files (en, fr, es, de, zh) under `frontend/src/i18n/locales/`
 
 Check both before committing:
 

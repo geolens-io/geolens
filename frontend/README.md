@@ -23,7 +23,7 @@ npm run build      # Production build (tsc -b && vite build)
 - `src/api/`: typed API client wrappers around the auto-generated `@geolens/sdk`.
 - `src/hooks/`: TanStack Query hooks and store subscriptions.
 - `src/stores/`: global Zustand stores (auth, theme, search, drawing).
-- `src/i18n/`: translation files (en/es/fr/de).
+- `src/i18n/`: translation files (en/es/fr/de/zh).
 - `src/lib/`: utilities (basemap helpers, formatting, validation).
 
 ## Documentation

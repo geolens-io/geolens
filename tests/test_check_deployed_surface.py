@@ -364,7 +364,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                         "i",
                     ),
                     ("backup_guide_link", "Backups\\s+&\\s+Restore", "i"),
-                    ("provider_guide_link", "Self-host\\s+on\\s+AWS,\\s+GCP,\\s+or\\s+DigitalOcean", "i"),
+                    ("provider_guide_link", "Self-host\\s+on\\s+managed\\s+cloud\\s+services", "i"),
                     ("provider_notes_link", "Self-hosted\\s+Provider\\s+Notes", "i"),
                 ],
                 "forbidden": [
@@ -392,7 +392,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
             "docs_cloud_deployment": {
                 "url": "https://docs.getgeolens.com/guides/quickstart/cloud-deployment/",
                 "required": [
-                    ("provider_title", "Self-host\\s+on\\s+AWS,\\s+GCP,\\s+or\\s+DigitalOcean", "i"),
+                    ("provider_title", "Self-host\\s+on\\s+managed\\s+cloud\\s+services", "i"),
                     ("managed_database", "\\bmanaged\\s+database\\b", "i"),
                     ("object_storage", "\\bobject\\s+storage\\b", "i"),
                     ("docker_compose_comparison", "\\bDocker\\s+Compose\\b", "i"),
@@ -522,14 +522,14 @@ class DeployedSurfaceGateTest(unittest.TestCase):
             "docs_install": (
                 "curl -fsSL https://getgeolens.com/install.sh | sh "
                 "OGC API clients should connect through the reverse-proxy path at http://localhost:8080/api/ "
-                "Backups & Restore Self-host on AWS, GCP, or DigitalOcean Self-hosted Provider Notes"
+                "Backups & Restore Self-host on managed cloud services Self-hosted Provider Notes"
             ),
             "docs_backups": (
                 "Backups & Restore Automated backups are on by default. "
                 "The backup service uses BACKUP_S3_ENABLED for off-site upload."
             ),
             "docs_cloud_deployment": (
-                "Self-host on AWS, GCP, or DigitalOcean with managed database, object storage, "
+                "Self-host on managed cloud services with managed database, object storage, "
                 "and Docker Compose comparison notes."
             ),
             "docs_provider_notes": "Self-hosted Provider Notes",
@@ -568,7 +568,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 "docs_install",
                 "curl -fsSL https://getgeolens.com/install.sh | sh "
                 "OGC API clients should connect through the reverse-proxy path at http://localhost:8080/api/ "
-                "Backups & Restore Self-host on AWS, GCP, or DigitalOcean Self-hosted Provider Notes "
+                "Backups & Restore Self-host on managed cloud services Self-hosted Provider Notes "
                 "Get Enterprise Only Tabs",
                 "stale_strategy_label",
             ),
