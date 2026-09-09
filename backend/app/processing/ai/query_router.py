@@ -166,13 +166,13 @@ _capacity_bound = capacity_bound
 _query_slots = query_slots
 
 # Module-level so tests can lower them; slowapi evaluates callables per
-# request. These reuse the app-wide in-memory ``limiter``, so the per-user/
-# per-IP counters are per-uvicorn-worker, not shared (fix(#565)); a
-# Valkey-backed limiter is a tracked app-wide change, not forked here. It's
-# a secondary bound anyway: the sandbox's per-user advisory lock is a
-# Postgres xact lock (GLOBAL across workers), already serializing each user
-# to ONE in-flight query at a 5 s statement timeout — the per-worker counter
-# only caps request FREQUENCY loosely.
+# request. These reuse the app-wide ``limiter``, so fix(#2018): the
+# per-user/per-IP counters are cluster-wide wherever REDIS_URL is set and
+# per-uvicorn-worker otherwise (fix(#565)). Either way it's a secondary
+# bound: the sandbox's per-user advisory lock is a Postgres xact lock
+# (GLOBAL across workers), already serializing each user to ONE in-flight
+# query at a 5 s statement timeout, so the counter only caps request
+# FREQUENCY loosely.
 _QUERY_PER_USER_LIMIT = "30/minute"
 _QUERY_PER_IP_LIMIT = "60/minute"
 

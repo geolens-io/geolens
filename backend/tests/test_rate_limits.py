@@ -22,6 +22,7 @@ Per-test pattern:
 
 import uuid
 
+import fakeredis
 import pytest
 from httpx import AsyncClient
 
@@ -33,6 +34,7 @@ from app.core.persistent_config import (
     get_cached_basemap_proxy_rate_limit,
 )
 from app.modules.catalog.search import service_semantic
+from app.platform import ratelimit_claims
 from app.platform.ratelimit import limiter
 
 pytestmark = pytest.mark.anyio
@@ -73,6 +75,35 @@ def _set_cache_limit(key: str, value: int) -> None:
 
 def _clear_cache_limit(key: str) -> None:
     _sync_rate_limit_cache.pop(key, None)
+
+
+def _worker_claim_store(
+    server: fakeredis.FakeServer,
+) -> ratelimit_claims.SharedClaimStore:
+    """One worker's view of a shared store: its own client, the same server."""
+    return ratelimit_claims.SharedClaimStore(
+        fakeredis.FakeStrictRedis(server=server, decode_responses=True)
+    )
+
+
+@pytest.fixture(params=["process_local", "shared_store"])
+def claim_backend(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> str:
+    """Run a #1903 counting test against both claim backends.
+
+    fix(#2018): the shared arm runs on fakeredis rather than a live Valkey.
+    What the port has to preserve is the counting invariant, and that is
+    decided by SET NX EX and GETDEL semantics, which fakeredis implements.
+    """
+    store = (
+        _worker_claim_store(fakeredis.FakeServer())
+        if request.param == "shared_store"
+        else None
+    )
+    monkeypatch.setattr(ratelimit_claims, "_store", store)
+    monkeypatch.setattr(ratelimit_claims, "_store_resolved", True)
+    return request.param
 
 
 def _reset_limiter_storage() -> None:
@@ -188,7 +219,7 @@ async def test_search_datasets_and_facets_share_one_bucket(
 
 @pytest.mark.parametrize("first_route", ["/search/datasets/", "/search/facets/"])
 async def test_paired_query_claims_the_bucket_once_whichever_route_is_first(
-    client: AsyncClient, first_route: str
+    client: AsyncClient, first_route: str, claim_backend: str
 ):
     """fix(#1903): the SPA's unordered paired request spends one token, not two.
 
@@ -237,7 +268,7 @@ async def test_paired_query_claims_the_bucket_once_whichever_route_is_first(
 
 
 async def test_same_route_repeat_does_not_ride_a_cross_route_claim(
-    client: AsyncClient,
+    client: AsyncClient, claim_backend: str
 ):
     """fix(#1903): a same-route burst still pays per request.
 
@@ -279,7 +310,9 @@ async def test_same_route_repeat_does_not_ride_a_cross_route_claim(
         service_semantic._query_claims_clear()
 
 
-async def test_rejected_request_does_not_seed_a_claim(client: AsyncClient):
+async def test_rejected_request_does_not_seed_a_claim(
+    client: AsyncClient, claim_backend: str
+):
     """fix(#1903): a 429'd request must not create an exemption.
 
     exempt_when runs before the limiter's own admit/reject check, so it
@@ -319,7 +352,9 @@ async def test_rejected_request_does_not_seed_a_claim(client: AsyncClient):
         service_semantic._query_claims_clear()
 
 
-async def test_claim_is_scoped_to_the_requesting_client(client: AsyncClient):
+async def test_claim_is_scoped_to_the_requesting_client(
+    client: AsyncClient, claim_backend: str
+):
     """fix(#1903): a claim is scoped to the client that made it.
 
     The SEC-S11 bucket is per-IP, so two different clients requesting the
@@ -370,7 +405,7 @@ async def test_claim_is_scoped_to_the_requesting_client(client: AsyncClient):
 
 
 async def test_claim_functions_degrade_without_crashing_when_tenant_unscoped(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, claim_backend: str
 ):
     """fix(#1903): an unscoped multi-tenant request must not 500.
 
@@ -405,7 +440,7 @@ async def test_claim_functions_degrade_without_crashing_when_tenant_unscoped(
 
 
 async def test_four_request_chain_for_one_query_spends_exactly_two_tokens(
-    client: AsyncClient,
+    client: AsyncClient, claim_backend: str
 ):
     """fix(#1903): datasets, facets, datasets, facets for one q spends
     exactly two tokens -- an exempted request never records a claim, so it
@@ -438,6 +473,98 @@ async def test_four_request_chain_for_one_query_spends_exactly_two_tokens(
         fifth = await client.get(f"/search/datasets/?q={q}")
         assert fifth.status_code == 429, (
             f"the chain must have spent exactly two tokens, got {fifth.status_code}"
+        )
+    finally:
+        limiter.enabled = False
+        _clear_cache_limit("semantic_search_rate_limit")
+        _reset_limiter_storage()
+        service_semantic._query_claims_clear()
+
+
+async def test_a_pair_split_across_two_workers_still_spends_one_token(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """fix(#2018): the exemption survives the pair landing on two workers.
+
+    A second uvicorn process cannot be built in-process, so the boundary is
+    modelled the way the code meets it: the sibling has its own client on the
+    same store and an EMPTY process-local registry. Clearing that registry is
+    also the counterfactual -- before #2018 the claim lived nowhere else, so
+    the facets call below was a 429 against the spent bucket.
+    """
+    server = fakeredis.FakeServer()
+    q = f"sec-2018-split-{uuid.uuid4().hex}"
+    _set_cache_limit("semantic_search_rate_limit", 1)
+    limiter.enabled = True
+    _reset_limiter_storage()
+    service_semantic._query_claims_clear()
+    monkeypatch.setattr(ratelimit_claims, "_store_resolved", True)
+    monkeypatch.setattr(ratelimit_claims, "_store", _worker_claim_store(server))
+
+    try:
+        first = await client.get(f"/search/datasets/?q={q}")
+        assert first.status_code == 200, (
+            f"expected worker A's call to spend the shared bucket, "
+            f"got {first.status_code}"
+        )
+
+        monkeypatch.setattr(ratelimit_claims, "_store", _worker_claim_store(server))
+        service_semantic._query_claims_clear()
+
+        second = await client.get(f"/search/facets/?q={q}")
+        assert second.status_code == 200, (
+            "worker B holds no local claim and must redeem worker A's from the "
+            f"shared store, got {second.status_code}"
+        )
+    finally:
+        limiter.enabled = False
+        _clear_cache_limit("semantic_search_rate_limit")
+        _reset_limiter_storage()
+        service_semantic._query_claims_clear()
+
+
+async def test_a_claim_store_outage_falls_back_to_the_process_local_registry(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """fix(#2018): a store that answers nothing must not answer "exempt".
+
+    Both halves of one pair run against a store whose every call raises. The
+    pair still coordinates, because the local registry is still there; a
+    request for a novel query still pays, because the fallback is the
+    pre-#2018 behaviour and not a blanket exemption.
+    """
+
+    class _DeadClient:
+        def set(self, *_args, **_kwargs):
+            raise ConnectionError("claim store unreachable")
+
+        def getdel(self, *_args, **_kwargs):
+            raise ConnectionError("claim store unreachable")
+
+    q = f"sec-2018-outage-{uuid.uuid4().hex}"
+    _set_cache_limit("semantic_search_rate_limit", 1)
+    limiter.enabled = True
+    _reset_limiter_storage()
+    service_semantic._query_claims_clear()
+    monkeypatch.setattr(ratelimit_claims, "_store_resolved", True)
+    monkeypatch.setattr(
+        ratelimit_claims, "_store", ratelimit_claims.SharedClaimStore(_DeadClient())
+    )
+
+    try:
+        first = await client.get(f"/search/datasets/?q={q}")
+        assert first.status_code == 200, first.status_code
+
+        second = await client.get(f"/search/facets/?q={q}")
+        assert second.status_code == 200, (
+            "the local registry still coordinates the pair when the store is "
+            f"unreachable, got {second.status_code}"
+        )
+
+        novel = await client.get(f"/search/facets/?q=sec-2018-novel-{uuid.uuid4().hex}")
+        assert novel.status_code == 429, (
+            "an unreachable store must not exempt an unclaimed query, "
+            f"got {novel.status_code}"
         )
     finally:
         limiter.enabled = False

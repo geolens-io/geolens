@@ -1807,7 +1807,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # call (gated on the same fully-pinned predicate the provider's own
         # session-read check uses) so an exemption can never fund two paid
         # calls. Cap 398 -> 466, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 466,
+        # fix(#2018): +10. Both claim functions consult the shared store
+        # first, so the pair coordinates across uvicorn workers; the local
+        # registry is the fallback for a store that does not answer.
+        # Cap 466 -> 476, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 476,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).

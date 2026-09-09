@@ -21,6 +21,7 @@ from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.search.service_filters import SearchFilters
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.extensions import get_catalog_port
+from app.platform.ratelimit_claims import get_shared_claim_store
 
 logger = structlog.stdlib.get_logger(__name__)
 EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class()
@@ -80,7 +81,8 @@ def _embedding_cache_clear() -> None:
 
 # fix(#1903): coordinates the SPA's unordered results/facets pair so only
 # one request pays the SEC-S11 token; keyed on (client, tenant, text),
-# single-use, bounded by TTL + LRU (cross-worker sharing tracked at #2018).
+# single-use, bounded by TTL + LRU. fix(#2018): a configured shared store
+# answers first, so this is the fallback for one that does not answer.
 _QUERY_CLAIM_TTL_SECONDS = 5.0
 _QUERY_CLAIM_MAX_SIZE = 256
 _query_claims: "OrderedDict[tuple[str, str], tuple[str, float]]" = OrderedDict()
@@ -113,6 +115,11 @@ def consume_paired_query_claim(client_key: str, text: str, route: str) -> bool:
     key = _query_claim_key(client_key, text)
     if key is None:
         return False
+    store = get_shared_claim_store()
+    if store is not None:
+        shared = store.consume(key, route)
+        if shared is not None:
+            return shared
     claimed = _query_claims.get(key)
     if claimed is None:
         return False
@@ -127,6 +134,9 @@ def record_paired_query_claim(client_key: str, text: str, route: str) -> None:
     """Claim (client, text) for *route*. Call only once a request is admitted."""
     key = _query_claim_key(client_key, text)
     if key is None:
+        return
+    store = get_shared_claim_store()
+    if store is not None and store.record(key, route) is not None:
         return
     _query_claims[key] = (route, time.monotonic() + _QUERY_CLAIM_TTL_SECONDS)
     _query_claims.move_to_end(key)
