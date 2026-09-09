@@ -78,60 +78,37 @@ def _embedding_cache_clear() -> None:
     _embedding_cache.clear()
 
 
-# fix(#1903): the SPA fires /search/datasets/ and /search/facets/ as an
-# UNORDERED pair on every query change (neither awaits the other), so which
-# one reaches its rate-limit gate first is a network/ASGI-scheduling race,
-# not something a fixed "results always embeds first" assumption can rely
-# on. This registry lets whichever gate runs first claim the query and pay
-# the shared token; the OTHER route, arriving within the window, is exempt
-# -- once. Keyed on (client, tenant, text), matching the limiter's own
-# key_func: a claim scoped to text alone would let a different client's
-# request for the same popular query consume this client's claim and skip
-# its own bucket. Exempting is a single-use, cross-route consume, not a
-# standing amnesty: a same-route repeat never matches its own claim, and
-# the opposite route's exemption deletes it, so a third request pays fresh.
-# Deliberately much shorter than the embedding cache TTL above, and it
-# never looks at that cache, so a config change mid-window cannot make a
-# stale-model match exempt a call that ends up billing the provider.
-# fix(#1903 review r4): this dict is per-process, same as the SEC-S11 bucket
-# it exempts from (app.platform.ratelimit's Limiter uses slowapi's default
-# in-memory storage too). Under the bundled multi-worker production config
-# a paired request that lands on two different workers gets no exemption --
-# each worker pays its own token, same as before this fix -- but a request
-# is never charged MORE than that. Sharing this (or the rate limiter itself)
-# across workers needs a distributed store; per query_router.py's
-# _QUERY_PER_USER_LIMIT (fix(#565)), that is a tracked app-wide change,
-# tracked separately at #2018 rather than forked into this fix. Bounded and
-# self-limiting even split across workers: entries expire after
-# _QUERY_CLAIM_TTL_SECONDS, consuming one deletes it (single-use, never a
-# standing grant), and the dict is hard-capped at _QUERY_CLAIM_MAX_SIZE via
-# LRU eviction, so an unconsumed claim can neither grow this structure nor
-# be redeemed more than once.
+# fix(#1903): coordinates the SPA's unordered results/facets pair so only
+# one request pays the SEC-S11 token; keyed on (client, tenant, text),
+# single-use, bounded by TTL + LRU (cross-worker sharing tracked at #2018).
 _QUERY_CLAIM_TTL_SECONDS = 5.0
 _QUERY_CLAIM_MAX_SIZE = 256
-_query_claims: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
+_query_claims: "OrderedDict[tuple[str, str], tuple[str, float]]" = OrderedDict()
 
 
-def _query_claim_key(client_key: str, text: str) -> str | None:
-    """fix(#1903 review r5): ``tenant_cache_key`` raises when multi-tenant
-    mode has no verified tenant context (a trusted unscoped host); check
-    ``tenant_cache_context_available()`` first, same as the search cache
-    does, so an unscoped request disables claiming instead of 500ing.
+def _query_claim_key(client_key: str, text: str) -> tuple[str, str] | None:
+    """fix(#1903): a tuple, not an f-string join -- ``client_key`` is an IPv6
+    address, which contains ``:`` too, so a joined string lets one /64
+    holder's query text collide with a neighbour's address.
+
+    Also fails closed on an unscoped multi-tenant host: ``tenant_cache_key``
+    raises when there is no verified tenant context, so this checks
+    ``tenant_cache_context_available()`` first, same as the search cache.
     """
     normalized = text.strip().lower()
     if not normalized or not tenant_cache_context_available():
         return None
-    return f"{client_key}:{tenant_cache_key(normalized)}"
+    return (client_key, tenant_cache_key(normalized))
 
 
 def consume_paired_query_claim(client_key: str, text: str, route: str) -> bool:
     """True when the OTHER route already claimed this (client, text); consumes it.
 
-    Read-only otherwise -- it never creates a claim. fix(#1903 review r3):
-    claiming must not be a side effect of the rate-limit pre-check, which
-    runs for a request the bucket goes on to reject too; only
-    ``record_paired_query_claim``, called from a handler that is provably
-    running (the rate limit admitted it), may create one.
+    Read-only otherwise -- it never creates a claim. fix(#1903): claiming
+    must not be a side effect of the rate-limit pre-check, which runs for a
+    request the bucket goes on to reject too; only ``record_paired_query_
+    claim``, called from a handler that is provably running (the rate limit
+    admitted it), may create one.
     """
     key = _query_claim_key(client_key, text)
     if key is None:
@@ -179,23 +156,24 @@ async def _embed_with_deadline(
     )
 
 
-# fix(#1903 review r5): a rate-limit exemption is granted at the pair's
-# GATE, before either request's embed has finished -- so a genuinely
-# overlapping pair (both miss the TTL cache) could previously make TWO
-# paid provider calls under the ONE token the shared claim charged. Every
-# concurrent caller for the same cache key now awaits the SAME in-flight
-# task instead of starting its own, so the provider is called at most once
-# per key regardless of how many requests are racing for it. Only the
-# task's OWN session does any I/O; a caller that joins an existing task
-# never touches it, so no AsyncSession is used from two coroutines at once.
+# fix(#1903): coalesces concurrent embeds for one cache key into a single
+# provider call, since a rate-limit exemption can be granted before either
+# half of a paired request finishes embedding. Only used when the config is
+# fully pinned (see generate_embedding); waiters shield so cancelling one
+# participant can't cancel the shared task or its siblings.
 _embedding_inflight: "dict[tuple[str, str, str], asyncio.Task[list[float]]]" = {}
+
+
+def _embedding_inflight_clear() -> None:
+    """Clear the in-flight registry (test-helper)."""
+    _embedding_inflight.clear()
 
 
 async def _embed_and_cache(
     text: str,
     session: AsyncSession,
     cache_key: tuple[str, str, str],
-    pinned: tuple[str, int | None, str | None],
+    pinned: tuple[str, int, str | None],
 ) -> list[float]:
     try:
         vector = await _embed_with_deadline(text, session, pinned)
@@ -238,6 +216,17 @@ async def generate_embedding(
     if cached is not None:
         return cached
 
+    if dimensions is None:
+        # fix(#1903): an unpinned dimensions value makes the provider call
+        # read the session for a default (processing/embeddings/service.py),
+        # and a shared task can outlive this request's session -- only a
+        # FULLY pinned call may be shared, so this one runs standalone.
+        vector = await _embed_with_deadline(
+            text, session, (model_name, dimensions, base_url)
+        )
+        _embedding_cache_put(cache_key, vector)
+        return vector
+
     task = _embedding_inflight.get(cache_key)
     if task is None:
         # No await between the cache/inflight reads above and this write,
@@ -249,7 +238,7 @@ async def generate_embedding(
             )
         )
         _embedding_inflight[cache_key] = task
-    return await task
+    return await asyncio.shield(task)
 
 
 async def _attach_updated_actor_identities(

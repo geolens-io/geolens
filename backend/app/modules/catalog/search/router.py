@@ -419,22 +419,18 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
 def _semantic_search_query_already_claimed(request: Request) -> bool:
     """fix(#1903): true when the OTHER search route already claimed this query.
 
-    Applied to BOTH search routes: the SPA fires them as an unordered pair,
-    so whichever one reaches this gate first pays the shared rate-limit
-    token and only the sibling ROUTE's request, arriving within the
-    coordination window, is exempt -- a same-route repeat never matches its
-    own claim, so a burst against one route still pays per request.
-
     Never creates a claim: this runs before the limiter's own admit/reject
-    check, so a request the bucket goes on to 429 must not seed a claim a
-    follow-up call could redeem. A non-exempt outcome instead stashes the
-    (client, text, route) on ``request.state`` for ``_finalize_semantic_
-    search_claim`` to record -- only reached if the request is admitted.
+    check, so a request the bucket rejects must not seed one. A non-exempt
+    outcome stashes (client, text, route) on ``request.state`` instead, for
+    ``_finalize_semantic_search_claim`` to record once the request is
+    known to be admitted.
     """
     query_text = request.query_params.get("q")
     if not query_text:
         return False
-    route = "facets" if "facets" in request.url.path else "datasets"
+    # fix(#1903): the route's own identity, not a path substring test --
+    # stable even if a future route in this scope shares the "facets" text.
+    route = request.scope["route"].name
     client_key = get_remote_address(request)
     if consume_paired_query_claim(client_key, query_text, route):
         return True
@@ -461,16 +457,11 @@ def _finalize_semantic_search_claim(request: Request) -> None:
     "/facets", response_model=FacetCountResponse, include_in_schema=False
 )
 @search_router.get("/facets/", response_model=FacetCountResponse)
-# fix(#1855): facets embed the query, so both search routes draw on ONE SEC-S11
-# bucket; two buckets let a caller alternating them embed twice the cap.
-# fix(#1903 review r4): no override_defaults here -- this route's limit_value
-# is a CALLABLE (admin-editable at runtime), which slowapi files under
-# _dynamic_route_limits rather than _route_limits. SlowAPIMiddleware's
-# _should_exempt() only checks _route_limits, so it does not recognize this
-# route as decorator-handled and runs its OWN check first, always charging
-# the global default regardless of override_defaults -- an exempted call is
-# still bounded by that middleware-level charge. override_defaults=False
-# would only add a SECOND, redundant global-default charge here.
+# fix(#1855): facets embed the query, so both routes draw on ONE SEC-S11
+# bucket. fix(#1903): no override_defaults -- this limit_value is callable,
+# so SlowAPIMiddleware already charges the global default unconditionally
+# for it (test_semantic_search_rate_limit_1778.py); adding it here would
+# only double that charge.
 @limiter.shared_limit(
     _semantic_search_rate_limit,
     scope="semantic_search",
@@ -563,8 +554,8 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
 )
-# fix(#1903 review r4): the facets route's callable-limit note above applies
-# here symmetrically -- this route can be the SECOND of the pair too.
+# fix(#1903): the facets route's callable-limit note above applies here
+# symmetrically -- this route can be the SECOND of the pair too.
 @limiter.shared_limit(
     _semantic_search_rate_limit,
     scope="semantic_search",

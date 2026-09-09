@@ -22,10 +22,17 @@ from app.modules.catalog.search import service_semantic
 
 @pytest.fixture(autouse=True)
 def _reset_cache():
-    """Clear the embedding cache before every test."""
+    """Clear the embedding cache and in-flight registry before every test.
+
+    fix(#1903): a leaked ``asyncio.Task`` in ``_embedding_inflight`` is bound
+    to this test's event loop, which closes when the test ends -- the next
+    test's same-key call would await a task on a dead loop.
+    """
     service_semantic._embedding_cache_clear()
+    service_semantic._embedding_inflight_clear()
     yield
     service_semantic._embedding_cache_clear()
+    service_semantic._embedding_inflight_clear()
 
 
 def _mock_session_with_model(model_name: str = "text-embedding-3-small"):
@@ -88,8 +95,8 @@ async def test_generate_embedding_caches_result_on_second_call():
 
 @pytest.mark.asyncio
 async def test_concurrent_calls_for_the_same_key_coalesce_into_one_provider_call():
-    """fix(#1903 review r5): two overlapping calls for the same query share
-    ONE provider call, not two.
+    """fix(#1903): two overlapping calls for the same query share ONE
+    provider call, not two.
 
     A rate-limit exemption can be granted before either half of a paired
     request has finished embedding, so if both then missed the TTL cache
@@ -120,6 +127,12 @@ async def test_concurrent_calls_for_the_same_key_coalesce_into_one_provider_call
         second_task = asyncio.ensure_future(
             service_semantic.generate_embedding("overlapping query", session)
         )
+        await asyncio.sleep(0)  # let the second call's sync prefix join the task
+        assert len(service_semantic._embedding_inflight) == 1, (
+            "the second call should have joined the first's task, not "
+            "registered a second one"
+        )
+
         release_provider_call.set()
         first, second = await asyncio.gather(first_task, second_task)
 
@@ -129,6 +142,76 @@ async def test_concurrent_calls_for_the_same_key_coalesce_into_one_provider_call
         "the second call should have joined the first's in-flight task "
         "instead of making its own provider call"
     )
+
+
+@pytest.mark.asyncio
+async def test_joined_waiter_survives_the_originators_cancellation():
+    """fix(#1903): cancelling one participant must not cancel the shared
+    task or its siblings.
+
+    Awaiting a bare ``Task`` makes it the awaiter's ``_fut_waiter``, so
+    cancelling any one participant would cancel the shared task and every
+    other participant with it; ``CancelledError`` is a ``BaseException``,
+    so ``resolve_semantic_arm``'s ``except Exception`` would not catch it
+    and an unrelated request would unwind instead of degrading to FTS.
+    ``asyncio.shield`` is what keeps this from happening.
+    """
+    fake_vector = [0.5] * 1536
+    provider_call_started = asyncio.Event()
+    release_provider_call = asyncio.Event()
+
+    async def _slow_provider_call(*args, **kwargs):
+        provider_call_started.set()
+        await release_provider_call.wait()
+        return fake_vector
+
+    mock_port = _mock_port()
+    mock_port.generate_embedding = AsyncMock(side_effect=_slow_provider_call)
+    session = _mock_session_with_model()
+
+    with patch.object(service_semantic, "get_catalog_port", return_value=mock_port):
+        originator = asyncio.ensure_future(
+            service_semantic.generate_embedding("cancel-me query", session)
+        )
+        await provider_call_started.wait()
+
+        waiter = asyncio.ensure_future(
+            service_semantic.generate_embedding("cancel-me query", session)
+        )
+        await asyncio.sleep(0)  # let the waiter join the originator's task
+
+        originator.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await originator
+
+        release_provider_call.set()
+        assert await waiter == fake_vector, (
+            "the waiter must still get the result even though the request "
+            "that spawned the shared task was cancelled"
+        )
+
+
+@pytest.mark.asyncio
+async def test_provider_error_clears_the_inflight_key_so_the_next_call_retries():
+    """fix(#1903): a failed shared embed must not poison later calls.
+
+    ``_embed_and_cache``'s ``finally`` pops the in-flight entry on any
+    outcome, success or failure, so a provider error on one call does not
+    strand the key -- the next call for the same text makes its own
+    attempt rather than awaiting a task that already raised.
+    """
+    mock_port = _mock_port(side_effect=ValueError("provider unavailable"))
+    session = _mock_session_with_model()
+
+    with patch.object(service_semantic, "get_catalog_port", return_value=mock_port):
+        with pytest.raises(ValueError):
+            await service_semantic.generate_embedding("flaky query", session)
+        assert len(service_semantic._embedding_inflight) == 0
+
+        with pytest.raises(ValueError):
+            await service_semantic.generate_embedding("flaky query", session)
+
+    assert mock_port.generate_embedding.call_count == 2
 
 
 @pytest.mark.asyncio

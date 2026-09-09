@@ -199,11 +199,6 @@ async def test_paired_query_claims_the_bucket_once_whichever_route_is_first(
     whichever route it lands on, must be exempt. A facets call for a
     genuinely novel query still spends the (already-empty) bucket, so the
     shared-bucket cap is not weakened for a facets-only caller.
-
-    Counterfactual: reverting the routers' ``exempt_when`` (or scoping
-    ``claim_semantic_search_query`` per-route instead of sharing it) 429s the
-    second assertion below, since both routes drew on the same single-token
-    bucket unconditionally.
     """
     routes = ["/search/datasets/", "/search/facets/"]
     if first_route != routes[0]:
@@ -244,7 +239,7 @@ async def test_paired_query_claims_the_bucket_once_whichever_route_is_first(
 async def test_same_route_repeat_does_not_ride_a_cross_route_claim(
     client: AsyncClient,
 ):
-    """fix(#1903 round 2): a same-route burst still pays per request.
+    """fix(#1903): a same-route burst still pays per request.
 
     A claim is a single-use, cross-route consume, not a standing amnesty for
     the whole coordination window: a concurrent burst against ONE route for
@@ -253,9 +248,6 @@ async def test_same_route_repeat_does_not_ride_a_cross_route_claim(
     embed hasn't landed), so each would still bill the provider. Proven
     with a 2-token bucket: two /search/facets/ calls for the SAME query
     spend both tokens; a third is a 429, not a third exemption.
-
-    Counterfactual: matching a claim regardless of which route made it
-    (rather than requiring the OTHER route) turns the third call into a 200.
     """
     q = f"sec-1903-burst-{uuid.uuid4().hex}"
     _set_cache_limit("semantic_search_rate_limit", 2)
@@ -288,17 +280,13 @@ async def test_same_route_repeat_does_not_ride_a_cross_route_claim(
 
 
 async def test_rejected_request_does_not_seed_a_claim(client: AsyncClient):
-    """fix(#1903 review r3): a 429'd request must not create an exemption.
+    """fix(#1903): a 429'd request must not create an exemption.
 
     exempt_when runs before the limiter's own admit/reject check, so it
     fires for a request that gets rejected too. Exhaust the bucket on an
     unrelated query, then send a NEW query to /search/datasets/ while the
     bucket is spent (rejected). A /search/facets/ call for that SAME new
     query must also be rejected -- nothing was admitted to claim it.
-
-    Counterfactual: writing the claim inside ``exempt_when`` itself (rather
-    than only from ``_finalize_semantic_search_claim`` in an admitted
-    handler) turns the facets call below into a 200.
     """
     q = f"sec-1903-rejected-{uuid.uuid4().hex}"
     _set_cache_limit("semantic_search_rate_limit", 1)
@@ -332,7 +320,7 @@ async def test_rejected_request_does_not_seed_a_claim(client: AsyncClient):
 
 
 async def test_claim_is_scoped_to_the_requesting_client(client: AsyncClient):
-    """fix(#1903 review r3): a claim is scoped to the client that made it.
+    """fix(#1903): a claim is scoped to the client that made it.
 
     The SEC-S11 bucket is per-IP, so two different clients requesting the
     same query must not be able to consume each other's claim: client B's
@@ -340,10 +328,6 @@ async def test_claim_is_scoped_to_the_requesting_client(client: AsyncClient):
     Proven by having client A admit a query, then client B request the
     SAME query -- B must spend its OWN token (not ride A's claim), so a
     second B call for a different query must then find B's bucket spent.
-
-    Counterfactual: dropping the client key from the claim registry (so it
-    matches on query text alone) turns B's second call below into a 200,
-    since B's first call would have been wrongly exempted.
     """
     from httpx import ASGITransport, AsyncClient as _AsyncClient
 
@@ -388,18 +372,13 @@ async def test_claim_is_scoped_to_the_requesting_client(client: AsyncClient):
 async def test_claim_functions_degrade_without_crashing_when_tenant_unscoped(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """fix(#1903 review r5): an unscoped multi-tenant request must not 500.
+    """fix(#1903): an unscoped multi-tenant request must not 500.
 
     ``tenant_cache_key()`` raises when multi-tenant mode has no verified
-    tenant context (a trusted unscoped host, per
-    ``tenant_cache_context_available()``'s own docstring). ``exempt_when``
-    runs synchronously inside slowapi's rate-limit check, so an uncaught
+    tenant context (a trusted unscoped host). ``exempt_when`` runs
+    synchronously inside slowapi's rate-limit check, so an uncaught
     exception there would turn every search request with ``q`` into a 500
-    on such a host. The claim functions must check availability first and
-    simply disable claiming instead.
-
-    Counterfactual: calling ``tenant_cache_key`` directly from
-    ``_query_claim_key`` without that check raises ``ValueError`` here.
+    on such a host. The claim functions check availability first instead.
     """
     monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
     token = current_tenant_var.set(None)
@@ -422,6 +401,48 @@ async def test_claim_functions_degrade_without_crashing_when_tenant_unscoped(
         ), "no claim should have been recorded without a tenant context"
     finally:
         current_tenant_var.reset(token)
+        service_semantic._query_claims_clear()
+
+
+async def test_four_request_chain_for_one_query_spends_exactly_two_tokens(
+    client: AsyncClient,
+):
+    """fix(#1903): datasets, facets, datasets, facets for one q spends
+    exactly two tokens -- an exempted request never records a claim, so it
+    cannot seed the next exemption.
+
+    With a 2-token bucket, all four calls in the chain must succeed (two
+    charged, two exempt); a fifth call for the same query must then hit
+    the exhausted bucket.
+    """
+    q = f"sec-1903-chain-{uuid.uuid4().hex}"
+    _set_cache_limit("semantic_search_rate_limit", 2)
+    limiter.enabled = True
+    _reset_limiter_storage()
+    service_semantic._query_claims_clear()
+
+    try:
+        statuses = []
+        for route in (
+            "/search/datasets/",
+            "/search/facets/",
+            "/search/datasets/",
+            "/search/facets/",
+        ):
+            resp = await client.get(f"{route}?q={q}")
+            statuses.append(resp.status_code)
+        assert statuses == [200, 200, 200, 200], (
+            f"expected the full chain to succeed on a 2-token bucket, got {statuses}"
+        )
+
+        fifth = await client.get(f"/search/datasets/?q={q}")
+        assert fifth.status_code == 429, (
+            f"the chain must have spent exactly two tokens, got {fifth.status_code}"
+        )
+    finally:
+        limiter.enabled = False
+        _clear_cache_limit("semantic_search_rate_limit")
+        _reset_limiter_storage()
         service_semantic._query_claims_clear()
 
 
