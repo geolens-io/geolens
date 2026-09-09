@@ -117,6 +117,51 @@
  * closes them, and a reader who assumes otherwise will trust this gate for
  * something it was never able to do.
  *
+ * fix(#1552): the follow-up issue named four candidate forms. Three needed no
+ * code, because this walk was never keyed on identifiers OR their bindings:
+ *
+ *   - `Object.getOwnPropertyDescriptor(window, 'sessionStorage').value` cannot
+ *     throw, so it is not an access at all. The descriptor for a WebIDL Global
+ *     accessor is `{ get, set, enumerable, configurable }`; there is no `value`
+ *     key, and reading one that is not there returns `undefined` without
+ *     calling `get`. Confirmed against jsdom, not assumed. This is a narrower
+ *     claim than "the descriptor escape hatch" above: pulling `.get` back off
+ *     the descriptor and invoking it WOULD call the getter, and that is the
+ *     escape hatch already named as out of scope, because deciding whether a
+ *     later call reaches that specific `.get` needs the data-flow tracking
+ *     this file does not do.
+ *   - A capture through a DIFFERENTLY-named alias — `const s = window.
+ *     sessionStorage`, a parameter default, an object property — dereferenced
+ *     from another scope is already fully handled, because the throwing
+ *     operation is the property read at the capture site, not anything done
+ *     with the result afterward. `s.getItem(...)` contains neither storage
+ *     name, so it registers nothing; the capture site is classified exactly as
+ *     any other access. "A value off `any`" two paragraphs up is a different
+ *     claim: it covers a store reached with no storage name anywhere in the
+ *     source (`const x: any = getStore(); x.getItem(k)`), not `w.sessionStorage`
+ *     where the name is still there in the text.
+ *   - An alias typed `any` or `unknown` is the same story from the type side:
+ *     this walk has no type checker, so `(w as any).sessionStorage` and
+ *     `window.sessionStorage` are indistinguishable to it. Typing an alias
+ *     narrows what TypeScript will let you do with it; it does not remove the
+ *     property name from the source text this file matches on.
+ *
+ * All three are pinned below so a later "improvement" that adds alias or type
+ * tracking cannot regress them by accident.
+ *
+ * The fourth, `with (window) { sessionStorage.getItem(...) }`, is skipped, on
+ * grounds narrower than "the parser rejects it": it does not. Confirmed against
+ * this file's own `createSourceFile` call, with and without a module indicator
+ * — `with` produces zero `parseDiagnostics` either way. The rejection
+ * (`TS1101`/`TS2410`, "not allowed in strict mode") is a `Program`-level
+ * diagnostic this file's bare parse never computes, so a claim that it is fatal
+ * here would be false. The reason to skip it is different and does hold: `with`
+ * changes how a bare identifier RESOLVES, not how it is SPELLED, and this walk
+ * matches spelling. `sessionStorage` inside a `with` block is still the text
+ * `sessionStorage`, caught the same way a bare read anywhere else is, which the
+ * fixture below pins. Separately, `npm run typecheck` — a required gate — already
+ * rejects `with` outright, so it cannot reach `src/` regardless of this file.
+ *
  * WHAT THE PROMISE IS WORTH NOW. Seven rounds is a poor advertisement for the
  * original claim, and the gate is nonetheless much harder to fool than when it
  * started. The honest version of the claim is not "there are no false
@@ -1382,6 +1427,14 @@ describe('#1536: reflective reads', () => {
     ['a key enumeration', `const k = Reflect.ownKeys(window);`],
     ['a non-storage key', `const s = Reflect.get(window, 'somethingElse');`],
     ['a runtime key', `const s = Reflect.get(window, key);`],
+    // fix(#1552): the descriptor for this property is an accessor pair
+    // (`get`/`set`), not a data property, so it has no `value` key. Reading
+    // `.value` off it returns `undefined` without ever calling `get`. Same
+    // reasoning for `Reflect.getOwnPropertyDescriptor`, which returns the same
+    // descriptor shape.
+    ['a descriptor .value read', `const d = Object.getOwnPropertyDescriptor(window, 'sessionStorage'); void d?.value;`],
+    ['a Reflect descriptor read', `const d = Reflect.getOwnPropertyDescriptor(window, 'sessionStorage');`],
+    ['a Reflect descriptor .value read', `const d = Reflect.getOwnPropertyDescriptor(window, 'sessionStorage'); void d?.value;`],
   ])('ignores %s', (_name, src) => {
     expect(scan(src).accesses).toEqual([]);
   });
@@ -1448,5 +1501,115 @@ describe('#1536: reflective reads, however the callee is spelled', () => {
     ['a bracketed non-get member', `const v = Reflect['has'](window, 'sessionStorage');`],
   ])('ignores %s', (_name, src) => {
     expect(scan(src).accesses).toEqual([]);
+  });
+});
+
+/**
+ * fix(#1552): a differently-named alias, captured once and dereferenced from
+ * another scope, is not a new form. The throw happens at the property read
+ * that produces the alias; nothing downstream reads `sessionStorage` or
+ * `localStorage` by name, so nothing downstream is an access. Pinned here so
+ * that adding alias tracking later — an easy thing to reach for once one
+ * false positive from it gets reported — cannot regress this by starting to
+ * count the dereference too, or by losing track of which try protects it.
+ */
+describe('#1552: a captured alias is judged at the capture site, not the dereference', () => {
+  const scan = (src: string) => scanSource('/src/fixture.ts', src);
+
+  it('flags exactly one access, at an unguarded capture, however far the alias travels', () => {
+    const r = scan(
+      `const s = window.sessionStorage; function useIt() { return s.getItem('k'); }`,
+    );
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(false);
+  });
+
+  it('follows the capture site into a try, not the dereference', () => {
+    const r = scan(
+      `let s: Storage | undefined;
+       try { s = window.sessionStorage; } catch {}
+       function useIt() { return s?.getItem('k'); }`,
+    );
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(true);
+  });
+
+  it('flags a capture through an object property the same way as a plain variable', () => {
+    const r = scan(
+      `const cache: { store?: Storage } = {};
+       try { cache.store = window.sessionStorage; } catch {}
+       function useIt() { return cache.store?.getItem('k'); }`,
+    );
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(true);
+  });
+
+  // A default parameter value runs on the callee's own frame, built fresh at
+  // whatever call site triggers it — which this walk does not trace. Always
+  // reporting it unguarded is the same conservative choice `isGuarded` makes
+  // everywhere else it cannot see the caller: a false positive when a given
+  // call happens to sit inside a try, never a false negative.
+  it('flags a capture through a parameter default even when every visible call site is guarded', () => {
+    const r = scan(
+      `try {
+         function useDefault(s = window.sessionStorage) { return s; }
+         useDefault();
+       } catch {}`,
+    );
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(false);
+  });
+});
+
+/**
+ * fix(#1552): an alias typed `any` or `unknown` is not a new form either, for
+ * a different reason than the one above — this walk has no type checker. It
+ * was never told what `w` is, so `w.sessionStorage` and `window.sessionStorage`
+ * parse to the same shape it already matches: a PropertyAccessExpression named
+ * `sessionStorage`. A type annotation changes what TypeScript permits doing
+ * with a value; it does not remove the property name from the source text.
+ * Pinned so a future contributor does not conclude, from the `any`, that this
+ * needs a special case.
+ */
+describe('#1552: a type annotation does not hide the property name from this walk', () => {
+  const scan = (src: string) => scanSource('/src/fixture.ts', src);
+  const unguardedCount = (src: string) => scan(src).accesses.filter((a) => !a.guarded).length;
+
+  it.each([
+    ['an any-typed alias', `const w: any = window; w.sessionStorage.getItem('k');`],
+    ['an unknown-typed alias behind a cast', `const w: unknown = window; (w as any).sessionStorage.getItem('k');`],
+    ['an any-typed function parameter', `function f(w: any) { return w.sessionStorage.getItem('k'); }`],
+    ['destructuring through an any-typed alias', `const w: any = window; const { sessionStorage } = w;`],
+  ])('flags %s', (_name, src) => {
+    expect(unguardedCount(src)).toBe(1);
+  });
+
+  it('still recognises the try when the alias is any-typed', () => {
+    const r = scan(`const w: any = window; try { w.sessionStorage.getItem('k'); } catch {}`);
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(true);
+  });
+});
+
+/**
+ * fix(#1552): `with (window) { sessionStorage.getItem(...) }` is skipped as a
+ * candidate form, and not because it fails to parse here — it does not; `with`
+ * produces no `parseDiagnostics` under this file's bare `createSourceFile`
+ * call even in module source, because the strict-mode rejection
+ * (`TS1101`/`TS2410`) is a `Program`-level diagnostic this file never computes.
+ * The reason to skip it is that `with` changes how a bare identifier RESOLVES
+ * at runtime, not how it is SPELLED in the source, and this walk matches
+ * spelling: `sessionStorage` inside a `with` block is still the four-syllable
+ * identifier `sessionStorage`, caught by the same bare-read path as anywhere
+ * else. This fixture is the proof, not a special case. Separately,
+ * `npm run typecheck` — a required gate — already rejects `with` outright
+ * (TS1101/TS2410), so it cannot land in checked-in `src/` regardless.
+ */
+describe('#1552: with cannot hide a bare read, because it does not rename anything', () => {
+  it('flags an unguarded access inside a with statement', () => {
+    const r = scanSource('/src/fixture.ts', `with (window) { sessionStorage.getItem('k'); }`);
+    expect(r.failures).toEqual([]);
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(false);
   });
 });
