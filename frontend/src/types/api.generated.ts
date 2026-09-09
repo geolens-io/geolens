@@ -3845,9 +3845,9 @@ export interface paths {
          * Add Layer Endpoint
          * @description Add a layer to a map.
          *
-         *     Phase 280: declared on both slash variants directly so neither emits a
-         *     307. FastAPI's default redirect_slashes builds a relative Location
-         *     header that resolves against the request's Host header, leaking the
+         *     Declared on both slash variants directly so neither emits a 307.
+         *     FastAPI's default redirect_slashes builds a relative Location header
+         *     that resolves against the request's Host header, leaking the
          *     in-container ``api:8000`` hostname through Vite's dev proxy. The
          *     canonical (OpenAPI-published) form is the no-slash sub-collection
          *     convention documented in the GeoLens API guide
@@ -3862,14 +3862,14 @@ export interface paths {
          * Patch Map Layers Endpoint
          * @description Apply incremental layer additions, patches, removals, and ordering.
          *
-         *     v13.14 fixup: declared on both slash variants directly (mirrors the
-         *     Phase 280 fix on POST). FastAPI's default redirect_slashes builds a
-         *     relative Location header that resolves against the request's Host
-         *     header, which would leak the in-container ``api:8000`` hostname
-         *     through Vite's dev proxy on a 307 redirect. The canonical
-         *     (OpenAPI-published) form is the no-slash sub-collection convention
-         *     documented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);
-         *     the trailing-slash form is a hidden alias.
+         *     Declared on both slash variants directly, mirroring the POST route
+         *     below. FastAPI's default redirect_slashes builds a relative Location
+         *     header that resolves against the request's Host header, which would
+         *     leak the in-container ``api:8000`` hostname through Vite's dev proxy
+         *     on a 307 redirect. The canonical (OpenAPI-published) form is the
+         *     no-slash sub-collection convention documented in the GeoLens API guide
+         *     (https://docs.getgeolens.com/guides/api/); the trailing-slash form is
+         *     a hidden alias.
          */
         patch: operations["patch_map_layers_endpoint_maps__map_id__layers_patch"];
         trace?: never;
@@ -10346,10 +10346,10 @@ export interface components {
          *     The 3 non-secret SAML fields (``idp_entity_id``, ``idp_sso_url``,
          *     ``sp_entity_id``) ARE exposed so the admin UI can display them.
          *
-         *     Pitfall 11 interaction: those 3 fields are declared with ``deferred=True``
-         *     on the OAuth ORM model so community DBs (which lack the columns) do not
-         *     crash on SELECT. Pydantic's ``from_attributes=True`` would normally trigger
-         *     an implicit deferred load on attribute access, which fails under FastAPI's
+         *     Those 3 fields are declared with ``deferred=True`` on the OAuth ORM
+         *     model so community DBs (which lack the columns) do not crash on
+         *     SELECT. Pydantic's ``from_attributes=True`` would normally trigger an
+         *     implicit deferred load on attribute access, which fails under FastAPI's
          *     async context with ``MissingGreenlet``. The ``model_validator(mode="before")``
          *     below reads the SAML fields directly from ``obj.__dict__`` so unloaded
          *     attributes default to None instead of triggering IO. SAML admin endpoints

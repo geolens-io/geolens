@@ -33,10 +33,10 @@ class OAuthProviderResponse:
     The 3 non-secret SAML fields (``idp_entity_id``, ``idp_sso_url``,
     ``sp_entity_id``) ARE exposed so the admin UI can display them.
 
-    Pitfall 11 interaction: those 3 fields are declared with ``deferred=True``
-    on the OAuth ORM model so community DBs (which lack the columns) do not
-    crash on SELECT. Pydantic's ``from_attributes=True`` would normally trigger
-    an implicit deferred load on attribute access, which fails under FastAPI's
+    Those 3 fields are declared with ``deferred=True`` on the OAuth ORM
+    model so community DBs (which lack the columns) do not crash on
+    SELECT. Pydantic's ``from_attributes=True`` would normally trigger an
+    implicit deferred load on attribute access, which fails under FastAPI's
     async context with ``MissingGreenlet``. The ``model_validator(mode="before")``
     below reads the SAML fields directly from ``obj.__dict__`` so unloaded
     attributes default to None instead of triggering IO. SAML admin endpoints

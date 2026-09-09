@@ -116,9 +116,9 @@ def sync_detailed(
 
      Add a layer to a map.
 
-    Phase 280: declared on both slash variants directly so neither emits a
-    307. FastAPI's default redirect_slashes builds a relative Location
-    header that resolves against the request's Host header, leaking the
+    Declared on both slash variants directly so neither emits a 307.
+    FastAPI's default redirect_slashes builds a relative Location header
+    that resolves against the request's Host header, leaking the
     in-container ``api:8000`` hostname through Vite's dev proxy. The
     canonical (OpenAPI-published) form is the no-slash sub-collection
     convention documented in the GeoLens API guide
@@ -159,9 +159,9 @@ def sync(
 
      Add a layer to a map.
 
-    Phase 280: declared on both slash variants directly so neither emits a
-    307. FastAPI's default redirect_slashes builds a relative Location
-    header that resolves against the request's Host header, leaking the
+    Declared on both slash variants directly so neither emits a 307.
+    FastAPI's default redirect_slashes builds a relative Location header
+    that resolves against the request's Host header, leaking the
     in-container ``api:8000`` hostname through Vite's dev proxy. The
     canonical (OpenAPI-published) form is the no-slash sub-collection
     convention documented in the GeoLens API guide
@@ -197,9 +197,9 @@ async def asyncio_detailed(
 
      Add a layer to a map.
 
-    Phase 280: declared on both slash variants directly so neither emits a
-    307. FastAPI's default redirect_slashes builds a relative Location
-    header that resolves against the request's Host header, leaking the
+    Declared on both slash variants directly so neither emits a 307.
+    FastAPI's default redirect_slashes builds a relative Location header
+    that resolves against the request's Host header, leaking the
     in-container ``api:8000`` hostname through Vite's dev proxy. The
     canonical (OpenAPI-published) form is the no-slash sub-collection
     convention documented in the GeoLens API guide
@@ -238,9 +238,9 @@ async def asyncio(
 
      Add a layer to a map.
 
-    Phase 280: declared on both slash variants directly so neither emits a
-    307. FastAPI's default redirect_slashes builds a relative Location
-    header that resolves against the request's Host header, leaking the
+    Declared on both slash variants directly so neither emits a 307.
+    FastAPI's default redirect_slashes builds a relative Location header
+    that resolves against the request's Host header, leaking the
     in-container ``api:8000`` hostname through Vite's dev proxy. The
     canonical (OpenAPI-published) form is the no-slash sub-collection
     convention documented in the GeoLens API guide

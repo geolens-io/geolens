@@ -11472,7 +11472,7 @@
         "type": "object"
       },
       "OAuthProviderResponse": {
-        "description": "Response schema for OAuth/SAML provider.\n\nWrite-only credentials are never exposed:\n  - ``client_secret_encrypted`` (OAuth client secret) \u2014 excluded.\n  - ``idp_certificate`` (SAML IdP signing cert, Fernet-encrypted at rest) \u2014 excluded.\n\nThe 3 non-secret SAML fields (``idp_entity_id``, ``idp_sso_url``,\n``sp_entity_id``) ARE exposed so the admin UI can display them.\n\nPitfall 11 interaction: those 3 fields are declared with ``deferred=True``\non the OAuth ORM model so community DBs (which lack the columns) do not\ncrash on SELECT. Pydantic's ``from_attributes=True`` would normally trigger\nan implicit deferred load on attribute access, which fails under FastAPI's\nasync context with ``MissingGreenlet``. The ``model_validator(mode=\"before\")``\nbelow reads the SAML fields directly from ``obj.__dict__`` so unloaded\nattributes default to None instead of triggering IO. SAML admin endpoints\nthat need the values must use ``undefer_group(\"saml\")`` at query time.",
+        "description": "Response schema for OAuth/SAML provider.\n\nWrite-only credentials are never exposed:\n  - ``client_secret_encrypted`` (OAuth client secret) \u2014 excluded.\n  - ``idp_certificate`` (SAML IdP signing cert, Fernet-encrypted at rest) \u2014 excluded.\n\nThe 3 non-secret SAML fields (``idp_entity_id``, ``idp_sso_url``,\n``sp_entity_id``) ARE exposed so the admin UI can display them.\n\nThose 3 fields are declared with ``deferred=True`` on the OAuth ORM\nmodel so community DBs (which lack the columns) do not crash on\nSELECT. Pydantic's ``from_attributes=True`` would normally trigger an\nimplicit deferred load on attribute access, which fails under FastAPI's\nasync context with ``MissingGreenlet``. The ``model_validator(mode=\"before\")``\nbelow reads the SAML fields directly from ``obj.__dict__`` so unloaded\nattributes default to None instead of triggering IO. SAML admin endpoints\nthat need the values must use ``undefer_group(\"saml\")`` at query time.",
         "properties": {
           "id": {
             "description": "Unique provider identifier.",
@@ -47698,7 +47698,7 @@
     },
     "/maps/{map_id}/layers": {
       "patch": {
-        "description": "Apply incremental layer additions, patches, removals, and ordering.\n\nv13.14 fixup: declared on both slash variants directly (mirrors the\nPhase 280 fix on POST). FastAPI's default redirect_slashes builds a\nrelative Location header that resolves against the request's Host\nheader, which would leak the in-container ``api:8000`` hostname\nthrough Vite's dev proxy on a 307 redirect. The canonical\n(OpenAPI-published) form is the no-slash sub-collection convention\ndocumented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);\nthe trailing-slash form is a hidden alias.",
+        "description": "Apply incremental layer additions, patches, removals, and ordering.\n\nDeclared on both slash variants directly, mirroring the POST route\nbelow. FastAPI's default redirect_slashes builds a relative Location\nheader that resolves against the request's Host header, which would\nleak the in-container ``api:8000`` hostname through Vite's dev proxy\non a 307 redirect. The canonical (OpenAPI-published) form is the\nno-slash sub-collection convention documented in the GeoLens API guide\n(https://docs.getgeolens.com/guides/api/); the trailing-slash form is\na hidden alias.",
         "operationId": "patch_map_layers_endpoint_maps__map_id__layers_patch",
         "parameters": [
           {
@@ -47850,7 +47850,7 @@
         ]
       },
       "post": {
-        "description": "Add a layer to a map.\n\nPhase 280: declared on both slash variants directly so neither emits a\n307. FastAPI's default redirect_slashes builds a relative Location\nheader that resolves against the request's Host header, leaking the\nin-container ``api:8000`` hostname through Vite's dev proxy. The\ncanonical (OpenAPI-published) form is the no-slash sub-collection\nconvention documented in the GeoLens API guide\n(https://docs.getgeolens.com/guides/api/); the trailing-slash form is a\nhidden alias for callers that send the slash.",
+        "description": "Add a layer to a map.\n\nDeclared on both slash variants directly so neither emits a 307.\nFastAPI's default redirect_slashes builds a relative Location header\nthat resolves against the request's Host header, leaking the\nin-container ``api:8000`` hostname through Vite's dev proxy. The\ncanonical (OpenAPI-published) form is the no-slash sub-collection\nconvention documented in the GeoLens API guide\n(https://docs.getgeolens.com/guides/api/); the trailing-slash form is a\nhidden alias for callers that send the slash.",
         "operationId": "add_layer_endpoint_maps__map_id__layers_post",
         "parameters": [
           {

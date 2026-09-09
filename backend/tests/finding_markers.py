@@ -451,6 +451,19 @@ MIN_OPENAPI_DESCRIPTIONS = 3000
 # TECHNICAL_VOCABULARY, which also bounds the source-tree debt ledger above.
 _PUBLISHED_VOCABULARY = TECHNICAL_VOCABULARY | {"ADR-002"}
 
+# MARKER_RE requires a hyphen, so a bare internal-cadence reference — "Phase
+# 280", "Pitfall 11" — reaches openapi.json invisibly. Scoped to this scan
+# only, not the shared MARKER_RE, so the source-tree debt ledger is untouched.
+_CADENCE_RE = re.compile(r"\b(?:Phase|Pitfall|Milestone|Wave|Sprint|Lane)\s+#?\d+\b")
+
+
+def _openapi_markers(line: str) -> tuple[str, ...]:
+    """Marker-shaped tokens in one description line: the shared detector's
+    hyphenated shape, plus a bare cadence reference it cannot see."""
+    found = set(markers_in(line, _PUBLISHED_VOCABULARY))
+    found.update(_CADENCE_RE.findall(line))
+    return tuple(sorted(found))
+
 
 def _openapi_descriptions(node: object, path: str = "$") -> list[tuple[str, str]]:
     """Every description string in a parsed OpenAPI document, with its JSON
@@ -476,7 +489,7 @@ def scan_openapi(spec: object) -> list[Hit]:
         lines = text.splitlines()
         anchored = [ANCHOR_RE.search(line) is not None for line in lines]
         for offset, line in enumerate(lines):
-            markers = markers_in(line, _PUBLISHED_VOCABULARY)
+            markers = _openapi_markers(line)
             if not markers:
                 continue
             low = max(0, offset - ANCHOR_WINDOW)
