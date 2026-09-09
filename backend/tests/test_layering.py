@@ -5698,7 +5698,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # instead, so only a request the rate limit actually admitted can seed
     # a claim, keyed with the limiter's own client identity. Cap 1412 ->
     # 1438, exact.
-    "backend/app/modules/catalog/search/router.py": 1438,
+    # fix(#1903 review r4): +3 — dropped override_defaults=False from both
+    # routes: their limit_value is callable, so slowapi's middleware already
+    # charges the global default unconditionally for them (test_semantic_
+    # search_rate_limit_1778.py), and override_defaults=False was making the
+    # decorator's own check charge it a SECOND time on every request. Cap
+    # 1438 -> 1441, exact.
+    "backend/app/modules/catalog/search/router.py": 1441,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.

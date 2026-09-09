@@ -463,14 +463,18 @@ def _finalize_semantic_search_claim(request: Request) -> None:
 @search_router.get("/facets/", response_model=FacetCountResponse)
 # fix(#1855): facets embed the query, so both search routes draw on ONE SEC-S11
 # bucket; two buckets let a caller alternating them embed twice the cap.
-# fix(#1903): override_defaults=False keeps the global per-IP default active
-# on an exempted call -- without it, an exempt Limit leaves NO limit at all
-# for that request (slowapi drops the defaults whenever a route limit wins).
+# fix(#1903 review r4): no override_defaults here -- this route's limit_value
+# is a CALLABLE (admin-editable at runtime), which slowapi files under
+# _dynamic_route_limits rather than _route_limits. SlowAPIMiddleware's
+# _should_exempt() only checks _route_limits, so it does not recognize this
+# route as decorator-handled and runs its OWN check first, always charging
+# the global default regardless of override_defaults -- an exempted call is
+# still bounded by that middleware-level charge. override_defaults=False
+# would only add a SECOND, redundant global-default charge here.
 @limiter.shared_limit(
     _semantic_search_rate_limit,
     scope="semantic_search",
     exempt_when=_semantic_search_query_already_claimed,
-    override_defaults=False,
 )
 async def search_facets_endpoint(
     request: Request,
@@ -559,13 +563,12 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
 )
-# fix(#1903): the facets route's exempt_when/override_defaults note above
-# applies here symmetrically -- this route can be the SECOND of the pair too.
+# fix(#1903 review r4): the facets route's callable-limit note above applies
+# here symmetrically -- this route can be the SECOND of the pair too.
 @limiter.shared_limit(
     _semantic_search_rate_limit,
     scope="semantic_search",
     exempt_when=_semantic_search_query_already_claimed,
-    override_defaults=False,
 )
 async def search_datasets_endpoint(
     request: Request,
