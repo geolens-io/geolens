@@ -7,6 +7,26 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- A STAC catalog behind an API key can be imported and refreshed. The import and refresh dialogs
+  accept a bearer token, a username and password, or an API key under a header name the provider
+  chooses, and every read GeoLens makes against the catalog carries it. The credential reaches
+  the catalog origin and nowhere else, so an address the catalog advertises on another host is
+  read without it. A refresh of a catalog that has needed a credential before is refused up front
+  when none is supplied, rather than dispatched to collect a 401. Tiles are still rendered by
+  fetching the asset URL without a credential, so an asset that needs one of its own cannot yet
+  be tiled, and a refresh reports it as inaccessible. (#1764)
+
+### Changed
+
+- Importing a dataset from a file URL downloads in the background instead of holding the request
+  open, so a large file or a slow origin is no longer bounded by the proxy read timeout. The
+  import page shows the download as ordinary job progress with a cancel control, and
+  `URL_IMPORT_FETCH_MAX_SECONDS` sets how long one download may run, defaulting to 30 minutes.
+  The endpoint answers as soon as it has validated the request, so its response status is no
+  longer always `pending`, and a job's step can now read `downloading`. (#1710)
+
 ### Fixed
 
 - Tenant-ownership adoption no longer fails when a role that is a member of a gateway is dropped
@@ -35,7 +55,10 @@ and releases use semantic versioning.
 - Field and query descriptions in the API document, both SDKs and the generated TypeScript types
   cited internal tracker ids as the reason for a limit — "Phase 269 H-24" for a page size,
   "(PERF-N16)" for another — which no reader outside the project can resolve. Those descriptions
-  now state the constraint itself. (#1946)
+  now state the constraint itself. Route and model descriptions carried 47 more of these ids,
+  among them security-finding ids published beside the auth, download-token and sharing
+  endpoints; those are gone as well, and the sentences around them are otherwise unchanged.
+  (#1946)
 - A service token refused for control characters or whitespace now answers with the same
   `invalid_service_token` code the other credential refusals carry, so the app and the CLI show
   the token-specific message on every service door instead of a generic validation error. (#1924)
@@ -70,6 +93,123 @@ and releases use semantic versioning.
   write gives up still reports the error that actually failed the job, and the timeout is logged
   separately; the job row itself records nothing and is settled by the stale-job sweep once its
   heartbeat stops, with a refresh's history row closed by the refresh sweep instead. (#1950)
+- Creating a layer now checks the geometry type against its allowlist in the service that builds
+  the table, rather than only in the request schema. The one route that reaches that service was
+  already covered, so nothing that used to work now fails, and no other caller can put an
+  unchecked type into the table definition. (#1988)
+- Switching tabs on a dataset page now navigates through the router, so the prompt that warns
+  about unsaved metadata edits is reliably armed. The page changed tabs by writing the location
+  hash directly, which left the guard attached to a navigation the router had not created, and it
+  silently did nothing. (#1991)
+- `scripts/init-db.sh` now runs against a managed PostgreSQL server as well as the bundled one,
+  taking a host and port when either is set. Managed deployments had to paste equivalent SQL
+  out of the documentation instead, and that copy had drifted: it omitted the `FOR ROLE` clause,
+  which left newly ingested tables in the `data` schema unreadable by `geolens_reader` for anyone
+  who adopted the opt-in runtime role. `pg_stat_statements` is now created only where the server
+  offers it, so a provider that does not ship it no longer aborts the whole bootstrap. (#1992)
+- Host-side database scripts ignore a `.psqlrc` in the invoking user's home directory. A config
+  file that turns `ON_ERROR_STOP` off could otherwise let a failed statement pass, so the
+  bootstrap, the test-database setup or the backup and restore round trip exited 0 as though it
+  had succeeded. (#1995, #2009)
+- `.env.example` no longer says that setting an Azure Blob Storage account URL on its own enables
+  managed identity. The backend does not carry `azure-identity`, so that configuration
+  authenticates anonymously and fails at the first object read rather than at boot. The block now
+  documents the two forms the backend supports: a connection string, or an account URL paired
+  with an account key. (#836)
+- The container scan in the dependency-audit workflow reads the node, python and nginx image tags
+  out of the Dockerfile when it runs. It kept its own copy of them, and Dependabot updates only
+  the Dockerfile, so a base-image bump left the scan looking at the previous tag. (#1983)
+- The frontend and TypeScript SDK dependency audits pass again: their `js-yaml` build dependency
+  moved to 4.3.2, and the SDK's override now requires that release. (#1993)
+- A query run through the SQL sandbox now reaches the database as the caller wrote it. Binding
+  the schema it may read re-serialized the parsed statement, which normalized comments, `AS`
+  clauses, `E'...'` literals and casts, and needed a token swap to carry the pgvector distance
+  operator through. The rewrite now touches nothing but the schema names, and a statement ending
+  in one or more semicolons is accepted instead of failing inside the row-limit wrapper. (#1892)
+- A registered-table refresh, a STAC refresh or an analysis run that failed while another
+  operation held its job row hung there instead of recording the failure, with the heartbeat
+  still reporting the job alive. Those writes are now bounded the way the import, reupload and
+  regeneration paths already were. (#1957)
+- A VRT regeneration that failed wrote its raster asset and its job row in one transaction, so
+  giving up on the job row discarded the asset write with it and left the VRT reporting a rebuild
+  that had already ended. The asset settles first, on its own, and is released unless a live
+  rebuild still owns it. (#1962)
+- Adding a source to a VRT, removing one, or starting a regeneration while another of the three
+  is already being admitted now answers 409 `dataset_busy`. Two concurrent calls could both stage
+  a generation and both dispatch a rebuild. (#1955)
+- Unpublishing a dataset, or making it private, now retires the tile links already handed out for
+  it, on the raster, vector and cluster routes alike. A signed tile template minted while the
+  dataset was public and published kept serving for the rest of its window. The application
+  caches a dataset's metadata for a minute, so the change takes hold within that. Ordinary edits,
+  reuploads and replaces leave live templates alone. (#1963)
+- Saving a map lays out only as much of the credit line as the image can hold. The export band,
+  the thumbnail and the social card each wrapped the whole credit set to discover it was too
+  long, then searched for the longest prefix that fits, laying the set out again at every step. A
+  map carrying many long attribution strings saves noticeably faster. Nothing changes about which
+  credits are rendered, their order, or how the overflow marker counts them. (#1553)
+- A task dispatch that fails because the queue is unreachable, or because the dispatch itself
+  errors, writes a log record naming which of the two stages failed and the class of the error.
+  The only trace before was a field in the 503 response body, which an operator reading server
+  logs never sees. (#1755)
+- A manifest apply whose quota check or dataset admission ran slowly could have its reservation
+  reaped by the stale-job sweep partway through, which surfaced a completed download as a
+  generic reservation-lost error. That step is now bounded inside the reservation's own lease,
+  and a compare-and-swap that misses logs the row status it saw, so an operator can tell a sweep
+  from a cancel. (#2017)
+- A retried import is no longer failed a second time in the moment between the retry and the
+  queue picking it up. The retry stamps the staging timestamp that both the five-minute stale
+  sweep and the two-second status poll age from, which every other return to `pending` already
+  did. (#1556)
+- An embedding backfill interrupted at either end of its run, in the request that created it or
+  in the worker's opening read, releases the single active-backfill slot straight away and
+  records why it stopped, instead of holding the slot until the stale sweep. A run that never
+  claimed its row says so, rather than reporting that it could not record its outcome. (#1556)
+- A raster import that asked for `strict_cog` alongside a non-default `compression`, or alongside
+  `resampling`, `nodata_override` or `srid_override`, passed the strict check and was then
+  converted anyway. The commit is refused with 422 naming the options that clash, so strict mode
+  either verifies the source untouched or fails the job. An explicit `compression` of `DEFLATE`
+  is the default and is still accepted. `strict_cog` could not be set at all until #1949, so no
+  caller depended on the old outcome. (#1961)
+- A multi-layer import whose every layer failed to queue could be left with retry refused for
+  good. When the dispatch ran past the five-minute grace for a fan-out with no children yet, the
+  stale sweep settled the parent as interrupted before the import could undo its own transition.
+  The undo then matched nothing and said nothing, and the job told the user to upload the file
+  and pick its layers again. The undo reclaims that row now, and one that still matches nothing
+  is logged. (#2016)
+- A service import whose worker crashed mid-run left the raw service token in the queue row until
+  a later sweep on the API side made the row terminal. The worker's stalled-queue sweep now
+  clears the tokens of the rows it has just failed, in the same pass. A purge that fails is
+  logged and leaves the row to the API-side backstop, as before. (#1755)
+- A search spends one rate-limit token instead of two, as long as both of its requests reach the
+  same API worker. The app fires the results and facets requests as an unordered pair on every
+  query change and both draw on one bucket, so a user got half the configured searches a minute.
+  The facets call now rides on the token its paired results call already paid for, while a
+  facets-only caller is still charged. The pairing is held per process, so where more than one
+  API worker runs, which is the default in the bundled production compose file, a pair that
+  lands on two workers still spends a token each. Two overlapping identical queries also join
+  one embedding call rather than each paying the provider, and the global per-address limit is
+  charged once per request instead of twice. (#1903)
+- A failed import or refresh no longer stores a raw database or driver exception as the reason it
+  shows. A bounded catalog wait that expired put the SQL statement and its bound parameters into
+  the text the reupload dialog renders. A reason the server did not compose is now stored as a
+  generic internal-error code, with the detail left in the server log for that job, and a `PG:`
+  connection string echoed back by GDAL has its password field redacted alongside the credentials
+  the other scrubbers already caught. (#1953)
+- The caches in front of the application key a tile response on the publication counter as well
+  as the content version. #2005 stopped the application itself serving a tile to the holder of an
+  old template, but an entry stored while the dataset was public and published stayed readable
+  from cache. A URL emitted after the transition carries the new counter and so cannot read an
+  entry cached before it; a URL someone copied beforehand still reads its own entry until the
+  edge cache's lifetime elapses. The application's own vector and cluster cache is closed
+  outright, since its key comes from the resolved row rather than from anything the caller sent.
+  A CDN told to strip query strings still collapses the versions onto one entry, as it already
+  does for the content version. (#2007)
+- An ingest failure reason no longer exposes the server's staging path through a GDAL driver
+  message. The reason is composed from the recognised failure class rather than trimmed out of
+  the driver's own text, and a URL's query string is dropped whatever its parameter names are.
+  An unrecognised local-file failure records the tool and its exit status, with the driver's full
+  output kept in the structured logs. The CLI job views and the ingest-failure notification
+  render the same sentence the web app shows, instead of the stored code. (#2010)
 
 ## [1.18.1] - 2026-09-05
 
