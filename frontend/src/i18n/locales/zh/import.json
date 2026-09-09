@@ -107,7 +107,9 @@
     }
   },
   "complete": {
-    "heroTitle": "已将 {{count}} 个数据集添加到目录",
+    "heroTitle_one": "已将 {{count}} 个数据集添加到目录",
+    "heroTitle_many": "已将 {{count}} 个数据集添加到目录",
+    "heroTitle_other": "已将 {{count}} 个数据集添加到目录",
     "heroDesc": "所有文件均已完成导入、切片和索引。可随时查询、设置样式并添加到地图。",
     "statDatasets": "数据集",
     "statVector": "矢量",
@@ -188,7 +190,23 @@
       "backToSelection": "返回选择列表",
       "confirmImport_one": "确认并导入 {{count}} 个条目",
       "confirmImport_other": "确认并导入 {{count}} 个条目"
-    }
+    },
+    "credentialMethodLabel": "身份验证",
+    "credentialMethodNone": "无身份验证",
+    "credentialMethodBearer": "Bearer 令牌",
+    "credentialMethodBasic": "用户名和密码",
+    "credentialMethodHeader": "请求头中的 API 密钥",
+    "credentialTokenLabel": "Bearer 令牌",
+    "credentialTokenPlaceholder": "粘贴 Bearer 令牌",
+    "credentialUsernameLabel": "用户名",
+    "credentialUsernamePlaceholder": "用户名",
+    "credentialPasswordLabel": "密码",
+    "credentialPasswordPlaceholder": "密码",
+    "credentialHeaderNameLabel": "请求头名称",
+    "credentialHeaderNamePlaceholder": "例如 Ocp-Apim-Subscription-Key",
+    "credentialHeaderValueLabel": "请求头值",
+    "credentialHeaderValuePlaceholder": "您的 API 密钥",
+    "credentialHelpText": "选择您的目录文档说明的方式。Bearer 令牌会通过 Authorization 请求头发送；用户名和密码会通过 HTTP Basic 身份验证发送；API 密钥可放在服务提供商指定的任意请求头中，例如 X-API-Key、Ocp-Apim-Subscription-Key 或 key。它用于验证目录及其集合和条目；瓦片由资源 URL 渲染，不携带凭据。"
   },
   "serviceUrl": {
     "label": "服务 URL",
@@ -249,7 +267,6 @@
     "placeholder": "https://data.source.coop/…/buildings.parquet",
     "fetch": "抓取 →",
     "fetching": "正在下载文件...",
-    "fetchingHint": "大文件下载可能需要数分钟；请保持此页面打开。",
     "loadingPreview": "正在分析文件...",
     "resuming": "正在恢复导入…",
     "filenameLabel": "文件名覆盖（可选）",
@@ -266,7 +283,10 @@
     "retryPreview": "重试预览",
     "cancelAndStartOver": "取消并重新开始",
     "cancelling": "正在取消...",
-    "cancelFailed": "取消任务失败"
+    "cancelFailed": "取消任务失败",
+    "downloading": "正在下载文件...",
+    "downloadingHint": "服务器正在抓取该文件。您可以在此切换标签页，但刷新页面会丢失此次导入的进度。",
+    "downloadFailed": "服务器无法从该 URL 下载文件"
   },
   "rail": {
     "stageTitle": "暂存文件",
@@ -461,6 +481,7 @@
       "unknown": "未知（{{status}}）"
     },
     "step": {
+      "downloading": "正在下载",
       "validating": "正在验证",
       "ogr2ogr": "正在加载要素",
       "finalize": "正在完成",

@@ -323,9 +323,11 @@
     "completeMessage": "数据集已更新。",
     "errorFallback": "发生意外错误。",
     "tryAgain": "重试",
+    "refreshingOrigin": "正在刷新...",
     "toastSuccess": "重新上传完成！",
     "uploadFailed": "上传失败，请重试。",
     "commitFailed": "提交失败，请重试。",
+    "originRefreshFailed": "此次冲突后无法刷新数据集信息。请重新加载页面后重试。",
     "jobFailed": "重新上传任务失败。",
     "jobCancelled": "重新上传已取消。"
   },
@@ -547,6 +549,8 @@
     "auto": "自动",
     "primary": "主要",
     "copyUrl": "复制 URL",
+    "downloadUrl": "下载",
+    "downloadFailed": "下载失败。",
     "loadError": "加载分发失败。",
     "setPrimary": "将 {{name}} 设为主要分发",
     "currentPrimary": "{{name}} 是主要分发",
@@ -826,6 +830,9 @@
           "headerValueLabel": "请求头值",
           "headerValuePlaceholder": "您的 API 密钥",
           "helpText": "Bearer 令牌会通过 Authorization 请求头发送；用户名和密码会通过 HTTP Basic 身份验证发送；API 密钥可放在服务提供商指定的任意请求头中，例如 X-API-Key、Ocp-Apim-Subscription-Key 或 key。"
+        },
+        "stac": {
+          "escapeHatch": "如果该目录现在已公开，请不带凭据从 STAC 目录重新导入该条目，以清除此要求。"
         }
       },
       "history": {

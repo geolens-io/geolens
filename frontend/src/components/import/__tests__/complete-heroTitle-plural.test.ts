@@ -7,8 +7,8 @@
 // (Intl.PluralRules('fr').select(1000000) === 'many'), and i18next does NOT
 // fall back from an unresolved heroTitle_many to heroTitle_other — a
 // missing _many rendered the raw key or the English fallback string
-// instead. Added heroTitle_many to all four locale bundles (AGENTS.md:
-// plural-suffix keys are all-four-or-none).
+// instead. Added heroTitle_many to all five locale bundles (AGENTS.md:
+// plural-suffix keys are all-locales-or-none).
 //
 // These tests read the locale JSON bundles directly rather than driving
 // them through a live i18next instance and i18n.changeLanguage(). This test
@@ -31,12 +31,14 @@ import enImport from '@/i18n/locales/en/import.json';
 import esImport from '@/i18n/locales/es/import.json';
 import frImport from '@/i18n/locales/fr/import.json';
 import deImport from '@/i18n/locales/de/import.json';
+import zhImport from '@/i18n/locales/zh/import.json';
 
 const BUNDLES: Record<string, typeof enImport> = {
   en: enImport,
   es: esImport,
   fr: frImport,
   de: deImport,
+  zh: zhImport,
 };
 
 function interpolateCount(template: string, count: number): string {
@@ -83,12 +85,12 @@ describe('import:complete.heroTitle pluralization (#1853)', () => {
     },
   );
 
-  it.each(['en', 'de'])(
+  it.each(['en', 'de', 'zh'])(
     'ships heroTitle_many for key parity even though %s has no distinct CLDR "many" category',
     (lng) => {
-      // English/German never select this category, so the key is never
-      // reachable at runtime — it exists only so all four locale bundles
-      // carry the same key set (AGENTS.md's all-four-or-none rule).
+      // English/German/Chinese never select this category, so the key is
+      // never reachable at runtime — it exists only so all five locale
+      // bundles carry the same key set (AGENTS.md's all-locales-or-none rule).
       expect(new Intl.PluralRules(lng).select(1_000_000)).toBe('other');
 
       const { complete } = BUNDLES[lng];
