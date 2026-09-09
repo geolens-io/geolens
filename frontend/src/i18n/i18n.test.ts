@@ -3,9 +3,10 @@ import { fallbackLng, normalizeLanguage } from './i18n';
 // fix(#2029 review): the `zh` bundle is Simplified Chinese only. A tag
 // resolver that discards everything after the first hyphen would also route
 // zh-TW/zh-Hant (Traditional) browsers into it — assert Simplified tags
-// match and Traditional ones fall back instead.
+// match (including zh-MY, which CLDR maximizes to zh-Hans-MY, not a
+// zh-CN/SG region code) and Traditional ones fall back instead.
 describe('normalizeLanguage', () => {
-  it.each(['zh', 'zh-CN', 'zh-Hans', 'zh-Hans-CN', 'zh-SG'])(
+  it.each(['zh', 'zh-CN', 'zh-Hans', 'zh-Hans-CN', 'zh-SG', 'zh-MY'])(
     'resolves the Simplified Chinese tag %s to zh',
     (tag) => {
       expect(normalizeLanguage(tag)).toBe('zh');
