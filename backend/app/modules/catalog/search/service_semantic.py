@@ -21,7 +21,7 @@ from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.search.service_filters import SearchFilters
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.extensions import get_catalog_port
-from app.platform.ratelimit_claims import get_shared_claim_store
+from app.platform.ratelimit_claims import CLAIM_TTL_SECONDS, get_shared_claim_store
 
 logger = structlog.stdlib.get_logger(__name__)
 EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class()
@@ -82,8 +82,9 @@ def _embedding_cache_clear() -> None:
 # fix(#1903): coordinates the SPA's unordered results/facets pair so only
 # one request pays the SEC-S11 token; keyed on (client, tenant, text),
 # single-use, bounded by TTL + LRU. fix(#2018): a configured shared store
-# answers first, so this is the fallback for one that does not answer.
-_QUERY_CLAIM_TTL_SECONDS = 5.0
+# answers first, so this is the fallback for one that does not answer, and
+# the pairing window is that store's, not a second copy of it.
+_QUERY_CLAIM_TTL_SECONDS = float(CLAIM_TTL_SECONDS)
 _QUERY_CLAIM_MAX_SIZE = 256
 _query_claims: "OrderedDict[tuple[str, str], tuple[str, float]]" = OrderedDict()
 

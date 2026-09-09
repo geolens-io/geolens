@@ -24,7 +24,7 @@ pre-#2018 behaviour, rather than to no limit or a 500 per request.
 from __future__ import annotations
 
 from functools import cache
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import structlog
 from fastapi import Request
@@ -45,6 +45,33 @@ _SHARED_STORAGE_SCHEMES = frozenset({"redis", "rediss"})
 # so a hung store has to fail into the in-memory fallback fast.
 STORAGE_SOCKET_TIMEOUT_SECONDS = 0.25
 
+# fix(#2018): redis-py parses these from the URL and lets the querystring win
+# over the keyword arguments, so a raised value there would hold the event
+# loop for that long. The bound above is not the operator's to widen.
+_PINNED_TIMEOUT_PARAMS = frozenset({"socket_timeout", "socket_connect_timeout"})
+
+
+def _pin_socket_timeouts(url: str) -> str:
+    """Return *url* without any socket-timeout query parameter."""
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    # fix(#2018): REDIS_URL is an operator-supplied boot-time value parsed
+    # once at import, the same class as config.py's DATABASE_URL_OVERRIDE
+    # sites; a raise here would fail boot rather than refuse a request.
+    pairs = parse_qsl(parts.query, keep_blank_values=True)  # parse_qs: unbounded
+    kept = [(k, v) for k, v in pairs if k.lower() not in _PINNED_TIMEOUT_PARAMS]
+    if len(kept) == len(pairs):
+        return url
+    logger.warning(
+        "rate_limit_storage_socket_timeout_override_ignored",
+        parameters=sorted({k.lower() for k, _ in pairs} & _PINNED_TIMEOUT_PARAMS),
+        consequence="the store is held to the built-in socket timeout",
+    )
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(kept), parts.fragment)
+    )
+
 
 @cache
 def shared_storage_uri() -> str | None:
@@ -55,13 +82,18 @@ def shared_storage_uri() -> str | None:
     """
     url = settings.redis_url
     if not url:
+        logger.warning(
+            "rate_limit_storage_not_configured",
+            consequence="rate-limit buckets count per uvicorn worker",
+            remediation="set REDIS_URL when running more than one uvicorn worker",
+        )
         return None
     try:
         scheme = urlsplit(url).scheme.lower()
     except ValueError:
         scheme = ""
     if scheme in _SHARED_STORAGE_SCHEMES:
-        return url
+        return _pin_socket_timeouts(url)
     # fix(#2018): the scheme, never the URL -- REDIS_URL commonly carries a
     # password in its userinfo, and redact_url_credentials only rewrites
     # http(s), so it would hand a credential straight to the log.

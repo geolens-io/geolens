@@ -7,10 +7,15 @@ must not disturb. The cross-worker claim tests live in test_rate_limits.py.
 """
 
 import inspect
+import uuid
 
 import pytest
+import slowapi.extension
 import structlog
 from httpx import AsyncClient
+from limits import RateLimitItemPerMinute
+from limits.storage import MemoryStorage
+from slowapi.util import get_remote_address
 
 from app.core.config import settings
 from app.modules.catalog.search.router import (
@@ -20,6 +25,7 @@ from app.modules.catalog.search.router import (
 from app.platform import ratelimit_claims
 from app.platform.ratelimit import (
     _FallbackAnnouncingLimiter,
+    _global_rate_limit,
     limiter,
     shared_storage_uri,
 )
@@ -35,12 +41,59 @@ def uncached_storage_uri():
     shared_storage_uri.cache_clear()
 
 
-def test_no_configured_store_keeps_counting_per_process(
+def test_no_configured_store_keeps_counting_per_process_and_says_so(
     monkeypatch: pytest.MonkeyPatch, uncached_storage_uri
 ):
+    """The one configuration where limiting is not cluster-wide announces itself.
+
+    Every other degradation in this module logs; a silent one here would be
+    the only way to end up with per-worker buckets and no trace of it.
+    """
     monkeypatch.setattr(settings, "redis_url", None)
-    assert shared_storage_uri() is None
+
+    with structlog.testing.capture_logs() as captured:
+        assert shared_storage_uri() is None
+
+    assert [e["event"] for e in captured] == ["rate_limit_storage_not_configured"]
     assert ratelimit_claims._build_store() is None
+
+
+def test_a_socket_timeout_raised_in_the_url_is_dropped(
+    monkeypatch: pytest.MonkeyPatch, uncached_storage_uri
+):
+    """redis-py lets the querystring beat the keyword arguments.
+
+    Measured: ``from_url(..?socket_timeout=30, socket_timeout=0.25)`` leaves
+    30 in effect, on both the claim client and the limits storage. The call
+    runs on the event loop, so that bound is not the operator's to widen.
+    """
+    monkeypatch.setattr(
+        settings,
+        "redis_url",
+        "redis://valkey/0?socket_timeout=30&socket_connect_timeout=30&db=2",
+    )
+
+    with structlog.testing.capture_logs() as captured:
+        resolved = shared_storage_uri()
+
+    assert resolved == "redis://valkey/0?db=2"
+    overrides = [
+        e
+        for e in captured
+        if e["event"] == "rate_limit_storage_socket_timeout_override_ignored"
+    ]
+    assert len(overrides) == 1, captured
+    assert overrides[0]["parameters"] == ["socket_connect_timeout", "socket_timeout"]
+
+
+def test_a_url_without_timeout_overrides_is_passed_through_untouched(
+    monkeypatch: pytest.MonkeyPatch, uncached_storage_uri
+):
+    """Only the case being fixed is rewritten; nothing else is re-encoded."""
+    url = "redis://valkey/0?db=2&client_name=geolens%2Fapi"
+    monkeypatch.setattr(settings, "redis_url", url)
+
+    assert shared_storage_uri() == url
 
 
 @pytest.mark.parametrize("url", ["redis://valkey:6379/0", "rediss://valkey:6379/1"])
@@ -122,6 +175,54 @@ def test_an_outage_falls_back_to_per_process_limiting_not_to_none():
     assert limiter._fallback_limiter is not None
     assert limiter._fallback_limiter is not limiter._limiter
     assert limiter._in_memory_fallback == []
+
+
+def test_two_workers_on_one_store_count_into_one_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The subject of #2018, pinned behaviourally rather than structurally.
+
+    Two limiters built the way the app builds its own stand in for two
+    uvicorn workers. The second arm is the bug: with a store each, the
+    second worker gets a whole fresh budget for the same caller. The first
+    arm also guards a hazard this PR introduces, since an always-present
+    in-memory fallback storage must never become the counting path while the
+    shared store is healthy.
+    """
+    item = RateLimitItemPerMinute(2)
+    key = f"sec-2018-bucket-{uuid.uuid4().hex}"
+
+    def _two_workers(*, shared: bool) -> list[_FallbackAnnouncingLimiter]:
+        one = MemoryStorage()
+        monkeypatch.setattr(
+            slowapi.extension,
+            "storage_from_string",
+            lambda _uri, **_options: one if shared else MemoryStorage(),
+        )
+        return [
+            _FallbackAnnouncingLimiter(
+                key_func=get_remote_address,
+                default_limits=[_global_rate_limit],
+                key_style="endpoint",
+                storage_uri="redis://stand-in",
+                in_memory_fallback_enabled=True,
+            )
+            for _ in range(2)
+        ]
+
+    worker_a, worker_b = _two_workers(shared=True)
+    assert [
+        worker_a.limiter.hit(item, key),
+        worker_b.limiter.hit(item, key),
+        worker_b.limiter.hit(item, key),
+    ] == [True, True, False], "two workers on one store must share one budget of 2"
+
+    worker_c, worker_d = _two_workers(shared=False)
+    assert [
+        worker_c.limiter.hit(item, key),
+        worker_d.limiter.hit(item, key),
+        worker_d.limiter.hit(item, key),
+    ] == [True, True, True], "a store each is the pre-#2018 bug: 2 per worker"
 
 
 @pytest.mark.parametrize("endpoint", [search_datasets_endpoint, search_facets_endpoint])

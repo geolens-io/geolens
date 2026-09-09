@@ -108,8 +108,61 @@ def test_a_store_error_answers_none_rather_than_exempt():
     assert dead.consume(_PARTS, "facets") is None
 
 
+class _CountingDeadClient:
+    """A store that drops every call, and counts the ones that reach it."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def set(self, *_args, **_kwargs):
+        self.calls += 1
+        raise ConnectionError("claim store unreachable")
+
+    def getdel(self, *_args, **_kwargs):
+        self.calls += 1
+        raise ConnectionError("claim store unreachable")
+
+
+def test_an_outage_stops_touching_the_client_until_the_cooldown_lifts():
+    """A dead store must be skipped, not retried, for the whole cooldown.
+
+    Both search routes are ``async def``, so slowapi runs ``exempt_when``
+    inline on the event loop. Without this, a store that drops packets
+    stalls the worker for the socket timeout on every single request, where
+    slowapi's own limiter would have backed off after the first failure.
+    """
+    client = _CountingDeadClient()
+    store = SharedClaimStore(client)
+
+    for _ in range(50):
+        assert store.consume(_PARTS, "facets") is None
+        assert store.record(_PARTS, "datasets") is None
+
+    assert client.calls == 1, (
+        f"100 calls during one outage reached the client {client.calls} times; "
+        "the cooldown must skip them all after the first failure"
+    )
+
+
+def test_the_cooldown_covers_the_whole_life_of_a_fallback_claim():
+    """Why the cooldown is the claim TTL and not an arbitrary number.
+
+    A claim written to the process-local registry during an outage is
+    invisible to the store. If the store were consulted again inside that
+    claim's 5s life, its definite "no key" would shadow the local one and
+    the pair would pay twice.
+    """
+    from app.platform.ratelimit_claims import CLAIM_TTL_SECONDS as ttl
+
+    assert SharedClaimStore(_CountingDeadClient())._cooldown_seconds >= ttl
+
+
 def test_an_outage_is_logged_once_per_outage_not_once_per_request():
-    """This runs inside ``exempt_when``, so per-call logging is per request."""
+    """This runs inside ``exempt_when``, so per-call logging is per request.
+
+    Built with the cooldown disarmed so every call reaches the client, which
+    isolates the log gate from the skip gate above.
+    """
 
     class _FlakyClient:
         healthy = False
@@ -120,7 +173,7 @@ def test_an_outage_is_logged_once_per_outage_not_once_per_request():
             return None
 
     client = _FlakyClient()
-    flaky = SharedClaimStore(client)
+    flaky = SharedClaimStore(client, cooldown_seconds=0)
 
     with structlog.testing.capture_logs() as captured:
         for _ in range(3):
@@ -130,5 +183,11 @@ def test_an_outage_is_logged_once_per_outage_not_once_per_request():
         client.healthy = False
         flaky.consume(_PARTS, "facets")
 
-    outages = [e for e in captured if e["event"] == "paired_claim_store_unavailable"]
-    assert len(outages) == 2, [e["event"] for e in captured]
+    events = [
+        e["event"] for e in captured if e["event"].startswith("paired_claim_store_")
+    ]
+    assert events == [
+        "paired_claim_store_unavailable",
+        "paired_claim_store_recovered",
+        "paired_claim_store_unavailable",
+    ], events

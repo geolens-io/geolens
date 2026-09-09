@@ -10,6 +10,7 @@ before this module existed; "exempt" is never the fallback.
 from __future__ import annotations
 
 import hashlib
+import time
 from typing import Any
 
 import structlog
@@ -35,10 +36,26 @@ def claim_key(parts: tuple[str, ...]) -> str:
 
 
 class SharedClaimStore:
-    """``SET NX EX`` to record a claim, ``GETDEL`` to consume it once."""
+    """``SET NX EX`` to record a claim, ``GETDEL`` to consume it once.
 
-    def __init__(self, client: Any) -> None:
+    fix(#2018): a failure arms a cooldown, during which every call answers
+    ``None`` without touching the client. Both search routes are ``async
+    def``, so slowapi runs ``exempt_when`` inline on the event loop, and a
+    store that drops packets rather than refusing them would otherwise stall
+    the worker for the socket timeout on every request. slowapi's own limiter
+    backs off after one failure for the same reason.
+
+    The cooldown is the claim's own lifetime, so the store is never consulted
+    again while a claim the local registry recorded in its place is still
+    redeemable.
+    """
+
+    def __init__(
+        self, client: Any, cooldown_seconds: float = CLAIM_TTL_SECONDS
+    ) -> None:
         self._client = client
+        self._cooldown_seconds = cooldown_seconds
+        self._retry_after = 0.0
         self._unavailable_logged = False
 
     def record(self, parts: tuple[str, ...], route: str) -> bool | None:
@@ -48,12 +65,14 @@ class SharedClaimStore:
         route and deadline: a second writer must not extend someone else's
         window.
         """
+        if self._blocked():
+            return None
         try:
             self._client.set(claim_key(parts), route, nx=True, ex=CLAIM_TTL_SECONDS)
         except Exception:  # broad: any client or transport error must degrade
             self._degraded("record")
             return None
-        self._unavailable_logged = False
+        self._recovered()
         return True
 
     def consume(self, parts: tuple[str, ...], route: str) -> bool | None:
@@ -64,12 +83,14 @@ class SharedClaimStore:
         the process-local registry would leave it standing; that can only cost
         an exemption the sibling would have had, never grant an extra one.
         """
+        if self._blocked():
+            return None
         try:
             claimant = self._client.getdel(claim_key(parts))
         except Exception:  # broad: any client or transport error must degrade
             self._degraded("consume")
             return None
-        self._unavailable_logged = False
+        self._recovered()
         if claimant is None:
             return False
         # fix(#2018): decode here rather than trusting the client's
@@ -79,7 +100,11 @@ class SharedClaimStore:
             claimant = claimant.decode("utf-8", "replace")
         return claimant != route
 
+    def _blocked(self) -> bool:
+        return time.monotonic() < self._retry_after
+
     def _degraded(self, operation: str) -> None:
+        self._retry_after = time.monotonic() + self._cooldown_seconds
         if self._unavailable_logged:
             return
         self._unavailable_logged = True
@@ -89,6 +114,13 @@ class SharedClaimStore:
             consequence="paired search requests each spend their own token",
             exc_info=True,
         )
+
+    def _recovered(self) -> None:
+        if not self._unavailable_logged:
+            return
+        self._unavailable_logged = False
+        self._retry_after = 0.0
+        logger.info("paired_claim_store_recovered")
 
 
 _store: SharedClaimStore | None = None

@@ -531,7 +531,9 @@ async def test_a_claim_store_outage_falls_back_to_the_process_local_registry(
     Both halves of one pair run against a store whose every call raises. The
     pair still coordinates, because the local registry is still there; a
     request for a novel query still pays, because the fallback is the
-    pre-#2018 behaviour and not a blanket exemption.
+    pre-#2018 behaviour and not a blanket exemption. The store's cooldown is
+    the claim's own lifetime, which is what keeps a recovering store from
+    shadowing a claim the local registry holds and it cannot see.
     """
 
     class _DeadClient:

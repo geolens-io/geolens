@@ -1807,11 +1807,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # call (gated on the same fully-pinned predicate the provider's own
         # session-read check uses) so an exemption can never fund two paid
         # calls. Cap 398 -> 466, exact.
-        # fix(#2018): +10. Both claim functions consult the shared store
+        # fix(#2018): +11. Both claim functions consult the shared store
         # first, so the pair coordinates across uvicorn workers; the local
-        # registry is the fallback for a store that does not answer.
-        # Cap 466 -> 476, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 476,
+        # registry is the fallback for a store that does not answer, and the
+        # pairing window is derived from that store rather than copied.
+        # Cap 466 -> 477, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 477,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -7697,6 +7698,10 @@ def test_every_parse_qsl_call_bounds_its_field_count() -> None:
     `MAX_QUERY_FIELDS` across a layering boundary `config.py` cannot import
     across (it has no `app.*` imports at all, and importing `platform.
     service_endpoints` into it would very likely create an import cycle).
+
+    fix(#2018): `platform/ratelimit.py`'s one site is that same class --
+    `REDIS_URL`, read once at import, where a raise would fail boot rather
+    than refuse a request.
 
     fix(#1770 round 47c): `adapters/wfs.py::build_capabilities_url` and
     `service_endpoints.py::_capabilities_url` moved from the BOUND list to
