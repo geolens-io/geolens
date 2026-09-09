@@ -724,16 +724,23 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
 
 /** Greedy wrap on entry boundaries, so a provider's name stays on one line.
  *  Returns null when a single entry is wider than `maxWidth`, which is the one
- *  case entry-boundary wrapping cannot resolve on its own. */
+ *  case entry-boundary wrapping cannot resolve on its own.
+ *
+ *  fix(#1553): the width scan is its own first pass so `maxLines` cannot
+ *  change the answer — it short-circuits at the same entry the interleaved
+ *  check did, and only the LAYOUT stops early. */
 function wrapEntries(
   ctx: CanvasRenderingContext2D,
   entries: string[],
   maxWidth: number,
+  maxLines = Infinity,
 ): string[] | null {
+  for (const entry of entries) {
+    if (ctx.measureText(entry).width > maxWidth) return null;
+  }
   const lines: string[] = [];
   let current = '';
   for (const entry of entries) {
-    if (ctx.measureText(entry).width > maxWidth) return null;
     if (!current) {
       current = entry;
       continue;
@@ -744,6 +751,7 @@ function wrapEntries(
     } else {
       lines.push(current);
       current = entry;
+      if (lines.length > maxLines) return lines;
     }
   }
   if (current) lines.push(current);
@@ -813,6 +821,7 @@ function wrapWords(
   ctx: CanvasRenderingContext2D,
   text: string,
   maxWidth: number,
+  maxLines = Infinity,
 ): string[] {
   const lines: string[] = [];
   let current = '';
@@ -829,6 +838,10 @@ function wrapWords(
       lines.push(...pieces.slice(0, -1));
       current = pieces[pieces.length - 1] ?? '';
     }
+    // fix(#1553): greedy and left to right, so every line already emitted is
+    // final. Past the budget the caller re-fits a counted prefix and throws
+    // these away, and finishing the wrap only to discard it is the whole cost.
+    if (lines.length > maxLines) return lines;
   }
   if (current) lines.push(current);
   return lines;
@@ -837,6 +850,8 @@ function wrapWords(
 export interface FitAttributionOptions {
   maxWidth: number;
   fontPx: number;
+  /** feat(#1553): stop once the result is known to exceed this many lines. */
+  maxLines?: number;
 }
 
 export interface FittedAttribution {
@@ -850,6 +865,12 @@ export interface FittedAttribution {
  * Total by construction: the returned lines always contain every character of
  * every entry. There is no code path that drops one, which is the property the
  * whole module exists to hold. Leaves `ctx.font` set.
+ *
+ * feat(#1553): `maxLines` makes it a BOUNDED PROBE — wrapping stops once the
+ * budget is known to be exceeded, and the lines are then a PREFIX. Sound only
+ * for a caller that discards them in that case, which both do. Under the
+ * budget the result is unchanged: both wrappers are greedy and left to right,
+ * so an emitted line is one a longer run would emit identically.
  */
 export function fitAttributionText(
   ctx: CanvasRenderingContext2D,
@@ -861,10 +882,10 @@ export function fitAttributionText(
     return { lines: [], fontPx: opts.fontPx };
   }
   ctx.font = attributionFont(opts.fontPx);
-  const byEntry = wrapEntries(ctx, clean, opts.maxWidth);
+  const byEntry = wrapEntries(ctx, clean, opts.maxWidth, opts.maxLines);
   if (byEntry) return { lines: byEntry, fontPx: opts.fontPx };
   return {
-    lines: wrapWords(ctx, clean.join(SEPARATOR), opts.maxWidth),
+    lines: wrapWords(ctx, clean.join(SEPARATOR), opts.maxWidth, opts.maxLines),
     fontPx: opts.fontPx,
   };
 }
@@ -936,10 +957,16 @@ function fitEntryPrefix(
   maxLines: number,
 ): { lines: string[]; count: number } {
   if (maxLines <= 0) return { lines: [], count: 0 };
+  // fix(#1553): each probe only has to answer "more than maxLines?", so it
+  // stops there. A probe over 200 credits of 5,000 characters otherwise laid
+  // out every line it was about to reject, once per step of the search.
   const wrapFirst = (count: number): string[] => {
     if (count === 0) return [];
     const slice = entries.slice(0, count);
-    return wrapEntries(ctx, slice, maxWidth) ?? wrapWords(ctx, slice.join(SEPARATOR), maxWidth);
+    return (
+      wrapEntries(ctx, slice, maxWidth, maxLines) ??
+      wrapWords(ctx, slice.join(SEPARATOR), maxWidth, maxLines)
+    );
   };
   let best: { lines: string[]; count: number } = { lines: [], count: 0 };
   let lo = 0;
@@ -1016,7 +1043,11 @@ export function drawAttributionOverlay(
   // Deduped here as well as inside the fitter, because the overflow marker
   // counts CREDITS and must not count the same one twice.
   const credits = dedupe(entries);
-  const fitted = fitAttributionText(ctx, credits, { maxWidth, fontPx: spec.fontPx });
+  const fitted = fitAttributionText(ctx, credits, {
+    maxWidth,
+    fontPx: spec.fontPx,
+    maxLines: capacity,
+  });
   if (fitted.lines.length === 0) return false;
 
   // fix(#1541 codex P1 round 2): removing the fitter's elision left one way to
@@ -1206,9 +1237,11 @@ export function measureAttributionBand(
   // Deduped here as well as inside the fitter, because the overflow marker
   // counts CREDITS and must not count the same one twice.
   const credits = dedupe(entries);
+  const capacity = attributionBandLineCapacity(opts.maxHeight, dpr);
   const fitted = fitAttributionText(ctx, credits, {
     maxWidth: opts.maxWidth,
     fontPx: BAND_FONT_PX * dpr,
+    maxLines: capacity,
   });
   if (fitted.lines.length === 0) return fallback;
 
@@ -1216,7 +1249,6 @@ export function measureAttributionBand(
   // every ordinary export, by three orders of magnitude — nothing changes and
   // the band still grows a line at a time.
   let lines = fitted.lines;
-  const capacity = attributionBandLineCapacity(opts.maxHeight, dpr);
   if (lines.length > capacity) {
     // No room for even a marker: a band here could only make an already
     // unencodable canvas taller. See `attributionBandHeightBudget`.
