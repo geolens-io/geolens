@@ -159,6 +159,19 @@ async def reset_session_for_settlement(job: IngestJob, *, db: AsyncSession) -> N
         logger.exception("Could not reload the job before settling it")
 
 
+def _render_or_unreadable(render: Callable[[], str]) -> str:
+    """One diagnostic field, or a placeholder when producing it raises.
+
+    fix(#1755): an already-expired ``job`` raises on the ``id`` read and an
+    exception with a failing ``__str__`` raises on render. Neither may
+    escape the log that runs in front of the settlement.
+    """
+    try:
+        return render()
+    except Exception:  # broad: a diagnostic must not replace the failure it reports
+        return "unreadable"
+
+
 async def _settle_after_failed_dispatch(
     rollback: RollbackCallable, exc: BaseException, db: AsyncSession
 ) -> bool:
@@ -174,22 +187,9 @@ async def _settle_after_failed_dispatch(
     except Exception:  # broad: rollback can itself fail with DB errors
         logger.exception(
             "Orphan-guard rollback failed after defer error",
-            defer_error=str(exc),
+            defer_error=_render_or_unreadable(lambda: redact_nested(str(exc))),
         )
         return False
-
-
-def _render_or_unreadable(render: Callable[[], str]) -> str:
-    """One diagnostic field, or a placeholder when producing it raises.
-
-    fix(#1755): an already-expired ``job`` raises on the ``id`` read and an
-    exception with a failing ``__str__`` raises on render. Neither may
-    escape the log that runs in front of the settlement.
-    """
-    try:
-        return render()
-    except Exception:  # broad: a diagnostic must not replace the failure it reports
-        return "unreadable"
 
 
 def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> None:
@@ -331,7 +331,7 @@ async def settle_ingest_job_failed(
         logger.info(
             "orphan_guard_rollback_skipped_job_already_settled",
             job_id=str(job.id),
-            defer_error=str(defer_exc),
+            defer_error=_render_or_unreadable(lambda: redact_nested(str(defer_exc))),
         )
     return landed
 

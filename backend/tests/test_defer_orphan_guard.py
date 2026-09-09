@@ -378,6 +378,38 @@ class TestDeferWithOrphanGuard:
 
         asyncio.run(_check())
 
+    def test_the_rollback_failure_log_scrubs_the_same_text(self):
+        """fix(#1755 item 10): the rollback-failure log renders the same defer
+        exception under its own scalar field, so it needs the same scrub.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            async def _rollback(exc: BaseException) -> None:
+                raise ValueError("rollback crashed")
+
+            async def _defer() -> None:
+                raise RuntimeError(
+                    "could not enqueue ingest_service[9]"
+                    "(token='PLACEHOLDERSECRET2', credential_ref=None)"
+                )
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+
+            with patch.object(defer_guard, "logger") as mock_logger:
+                with pytest.raises(defer_guard.DeferFailed):
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=mock_db, job=_job()
+                    )
+
+            logged = mock_logger.exception.call_args.kwargs["defer_error"]
+            assert "PLACEHOLDERSECRET2" not in logged
+            assert "[REDACTED]" in logged
+
+        asyncio.run(_check())
+
     def test_a_logger_that_raises_does_not_preempt_the_settlement(self):
         """fix(#1755 item 10): a structlog processor can raise while emitting.
         The whole diagnostic is best-effort, so the rollback still runs and the
