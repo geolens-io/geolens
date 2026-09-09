@@ -24,6 +24,7 @@ from urllib.parse import (
 from app.core.service_tokens import (
     BASIC_SCHEME,
     HEADER_LINE_SEPARATOR,
+    HEADER_TOKEN_MIN_LENGTH,
     registered_credential_secrets,
 )
 
@@ -377,6 +378,21 @@ def scrub_secret_value(text: str, secret: str | None) -> str:
     return text
 
 
+# fix(#1764): a refusal gate is not a redactor. `scrub_secret_value` matches
+# any substring on purpose, because over-scrubbing costs nothing; refusing a
+# URL that way would strand every legitimate refresh once a credential is
+# short enough to occur by accident (a one-character Basic username matches
+# almost any URL). So a SHORT variant has to BE a whole token, and only a
+# variant at least this long is matched loose.
+_CREDENTIAL_MATCH_FLOOR = HEADER_TOKEN_MIN_LENGTH
+
+# What can surround a credential value in a URL or a JSON document. Splitting
+# on it turns `?key=abc` and `"k":"abc"` alike into the token `abc`. The kept
+# characters are the unreserved set plus the percent-encoding and base64
+# spellings a variant can carry, so an encoded form stays one token.
+_CREDENTIAL_TOKEN_SPLIT = re.compile(r"[^A-Za-z0-9._~%+-]+")
+
+
 def carries_registered_credential(text: str) -> bool:
     """Whether *text* contains a credential composed in this request/job.
 
@@ -390,12 +406,25 @@ def carries_registered_credential(text: str) -> bool:
     the part after an auth scheme, a Basic blob's cleartext and every
     percent-encoded spelling all count. Empty registry, so no credential in
     this context, means False.
+
+    See ``_CREDENTIAL_MATCH_FLOOR`` for why a short variant is matched as a
+    whole token rather than as any substring.
     """
     if not text:
         return False
+    tokens: set[str] | None = None
     for secret in registered_credential_secrets():
         for variant in _secret_variants(secret):
-            if variant and variant in text:
+            if not variant:
+                continue
+            if len(variant) >= _CREDENTIAL_MATCH_FLOOR:
+                if variant in text:
+                    return True
+                continue
+            # Computed once, and only when a short variant is in play.
+            if tokens is None:
+                tokens = set(_CREDENTIAL_TOKEN_SPLIT.split(text))
+            if variant in tokens:
                 return True
     return False
 

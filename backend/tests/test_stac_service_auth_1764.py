@@ -651,6 +651,133 @@ class TestAReflectedCredentialIsNeverStored:
         assert result.asset_href == asset
 
 
+class TestSearchDoesNotHandBackTheCredential:
+    """Only ``item_href`` passes ``storable_href`` on the search path. Every
+    other field is echoed to ``/import`` by the client, whose own request
+    registers no credential and so cannot recognise one, and is then stored."""
+
+    def _feature(self, **overrides) -> dict:
+        feature = {
+            "type": "Feature",
+            "id": "x",
+            "collection": "c",
+            "properties": {"title": "Scene"},
+            "bbox": [0.0, 0.0, 1.0, 1.0],
+            "links": [{"rel": "self", "href": _ITEM_URL}],
+            "assets": {
+                "data": {"href": f"{_ROOT}/assets/scene.tif", "roles": ["data"]}
+            },
+        }
+        feature.update(overrides)
+        return feature
+
+    @pytest.mark.anyio
+    async def test_an_item_reflecting_the_credential_is_not_returned(
+        self, stac_transport
+    ) -> None:
+        poisoned = self._feature(
+            assets={
+                "data": {
+                    "href": f"{_ROOT}/assets/scene.tif?catalog_ref={_KEY}",
+                    "roles": ["data"],
+                }
+            }
+        )
+        recorded = stac_transport(
+            json_body={"features": [poisoned], "numberMatched": 1}
+        )
+        result = await stac_adapter.search_stac_items(_ROOT, credential=_header_key())
+        assert result["items"] == []
+        assert result["returned"] == 0
+        assert _KEY not in str(result)
+        # The request itself still carried the credential; only the answer
+        # is refused.
+        assert recorded[0].headers[_HEADER_NAME] == _KEY
+
+    @pytest.mark.anyio
+    async def test_a_reflection_in_a_non_href_field_is_caught_too(
+        self, stac_transport
+    ) -> None:
+        """``id`` becomes ``origin_ref["item_id"]`` and ``source_filename``,
+        so a field that is not a URL still reaches storage."""
+        stac_transport(
+            json_body={"features": [self._feature(id=f"scene-{_KEY}")], "matched": 1}
+        )
+        result = await stac_adapter.search_stac_items(_ROOT, credential=_header_key())
+        assert result["items"] == []
+
+    @pytest.mark.anyio
+    async def test_an_ordinary_item_is_returned_unchanged(self, stac_transport) -> None:
+        stac_transport(json_body={"features": [self._feature()], "numberMatched": 1})
+        result = await stac_adapter.search_stac_items(_ROOT, credential=_header_key())
+        assert result["returned"] == 1
+        assert result["items"][0]["data_asset_href"] == f"{_ROOT}/assets/scene.tif"
+
+
+class TestAShortCredentialDoesNotRefuseEveryUrl:
+    """The gate refuses storage, so over-matching strands a legitimate
+    refresh. A variant too short to be evidence has to BE a whole value."""
+
+    @pytest.mark.anyio
+    async def test_a_one_character_key_does_not_refuse_an_unrelated_href(
+        self, stac_transport
+    ) -> None:
+        tiny = ServiceCredential(
+            method=CredentialMethod.HEADER_KEY,
+            service_format=STAC_SERVICE_FORMAT,
+            header_name=_HEADER_NAME,
+            header_value="a",
+        )
+        asset = f"{_ROOT}/assets/scene-alpha.tif"
+
+        def routes(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith(".tif"):
+                return json_response(206, None)
+            return json_response(200, _item_document(_ITEM_URL, asset))
+
+        stac_transport(routes)
+        result = await resolve_stac_binding(
+            item_href=_ITEM_URL,
+            item_id="x",
+            collection_id="c",
+            asset_href=asset,
+            asset_key="data",
+            credential=tiny,
+            catalog_origin=_ITEM_URL,
+        )
+        # "a" occurs in "assets" and "alpha"; neither is the credential.
+        assert result.asset_href == asset
+
+    @pytest.mark.anyio
+    async def test_a_one_character_key_is_still_caught_as_a_whole_value(
+        self, stac_transport
+    ) -> None:
+        tiny = ServiceCredential(
+            method=CredentialMethod.HEADER_KEY,
+            service_format=STAC_SERVICE_FORMAT,
+            header_name=_HEADER_NAME,
+            header_value="a",
+        )
+        reflected = f"{_ROOT}/assets/scene.tif?catalog_ref=a"
+
+        def routes(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith(".tif"):
+                return json_response(206, None)
+            return json_response(200, _item_document(_ITEM_URL, reflected))
+
+        stac_transport(routes)
+        result = await resolve_stac_binding(
+            item_href=_ITEM_URL,
+            item_id="x",
+            collection_id="c",
+            asset_href=reflected,
+            asset_key="data",
+            credential=tiny,
+            catalog_origin=_ITEM_URL,
+        )
+        assert result.resolved is False
+
+
 class TestARefusedCredentialIsNeverEchoed:
     """The refusal reaches a 422 body, a log line and a job row, so it names
     the policy and never the value."""

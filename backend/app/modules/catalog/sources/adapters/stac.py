@@ -390,6 +390,16 @@ async def search_stac_items(
 
     items = []
     for f in features:
+        # fix(#1764): a catalog can reflect the credential it was just sent
+        # into anything it publishes, and only `item_href` passes
+        # `storable_href` here. The rest of this item is echoed back to
+        # `/import` by the client, whose own request registers no credential
+        # and so cannot recognise one, and is then stored. Judged over the
+        # whole feature rather than one field, since `id`, `collection` and
+        # `title` reach storage too.
+        if carries_registered_credential(json.dumps(f)):
+            logger.warning("STAC search: item reflects the request credential")
+            continue
         props = f.get("properties", {})
         assets = f.get("assets", {})
 
