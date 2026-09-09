@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-09-09
+
 ### Added
 
 - A STAC catalog behind an API key can be imported and refreshed. The import and refresh dialogs
@@ -17,6 +19,14 @@ and releases use semantic versioning.
   when none is supplied, rather than dispatched to collect a 401. Tiles are still rendered by
   fetching the asset URL without a credential, so an asset that needs one of its own cannot yet
   be tiled, and a refresh reports it as inaccessible. (#1764)
+- Simplified Chinese (zh) interface locale, contributed by @cloader, with the STAC-credential,
+  URL-import and dataset-distribution strings brought to parity with the other locales. Browser
+  language detection maps Simplified Chinese tags such as `zh-CN`, `zh-SG` and `zh-MY` to the new
+  bundle by script, while Traditional Chinese tags keep the English fallback. (#1829)
+- The admin AI settings panel shows an embedding backfill's progress while it runs, the last five
+  runs with their outcome and record counts, and an estimate of how long a run will take before you
+  start one, taken from the throughput of the last completed run. Both backfill buttons stay
+  disabled while any run is in flight, including one another operator started. (#2025)
 
 ### Changed
 
@@ -214,6 +224,12 @@ and releases use semantic versioning.
   same message the import preview gives, instead of a generic server error. The reason
   recorded for such a file names the file that was uploaded, rather than reporting only the
   tool and its exit status. (#2036)
+- Rate limits are counted in one store the whole deployment shares when `REDIS_URL` is set, instead
+  of once per API worker, so a configured per-IP or per-user cap is the cap you get rather than that
+  cap times the worker count. The paired search request the catalog page makes on every query change
+  coordinates through the same store, so it spends one token whichever worker each half lands on. If
+  the store becomes unreachable, limits fall back to per-worker counting rather than switching off,
+  and a startup log names a deployment that runs several workers without a shared store. (#2018)
 
 ## [1.18.1] - 2026-09-05
 
@@ -3831,7 +3847,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.18.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.19.0...HEAD
+[1.19.0]: https://github.com/geolens-io/geolens/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/geolens-io/geolens/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/geolens-io/geolens/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/geolens-io/geolens/compare/v1.16.1...v1.17.0
