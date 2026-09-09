@@ -47,8 +47,11 @@ type UrlStep =
  * terminal-status sweep ran before this component existed on main.
  *
  * So the predicate names what is IN FLIGHT and treats everything else as
- * terminal. An unknown or newly added status then fails toward offering the
- * escape hatch, which is the safe direction — a spurious "Import another"
+ * terminal. It deliberately does NOT reuse `use-ingest`'s exported
+ * `isTerminalJobStatus`, which enumerates the terminal set and so treats an
+ * unknown status as still running: that is right for a poll interval and
+ * wrong for an escape hatch. An unknown or newly added status here fails
+ * toward offering the escape hatch, which is the safe direction — a spurious "Import another"
  * on a live job is a cosmetic bug, a job with no way out is the one that
  * strands the tab for the rest of the SPA session.
  */
@@ -275,7 +278,7 @@ export function UrlImportForm() {
   // Shares JobProgress's query key, so this is the same cached poll rather
   // than a second one. It decides which controls to offer while tracking,
   // and when the server-side download has produced a previewable job.
-  const { data: trackedJob } = useJobStatus(
+  const { data: trackedJob, isError: jobPollFailing } = useJobStatus(
     step === 'tracking' || step === 'downloading' ? jobId : null,
   );
 
@@ -289,9 +292,9 @@ export function UrlImportForm() {
       return;
     }
     if (!isTerminalJobStatus(trackedJob.status)) return;
-    // A cancel is the user's own doing and JobProgress already reported it,
-    // so it returns to the form quietly; every other terminal status is a
-    // failure the form has to explain.
+    // A cancel is the user's own action in this view, so returning to the
+    // form IS the feedback; an error toast would report their own click back
+    // to them. Every other terminal status is a failure the form must explain.
     if (trackedJob.status !== 'cancelled') {
       const msg = trackedJob.error_message || t('urlImport.downloadFailed');
       setError(msg);
@@ -448,6 +451,15 @@ export function UrlImportForm() {
         <p className="text-xs text-muted-foreground">
           {t('urlImport.downloadingHint')}
         </p>
+        {/* fix(#1710): while the status read itself is failing JobProgress
+            offers only "Retry status", so without this the tab has no way
+            out until a page reload. The download keeps running server-side
+            and settles itself. */}
+        {jobPollFailing && (
+          <Button variant="outline" size="sm" onClick={reset}>
+            {t('urlImport.startOver')}
+          </Button>
+        )}
       </div>
     );
   }

@@ -531,6 +531,47 @@ class TestEveryFailureSettles:
         assert UrlImportRefused.__module__.startswith("app.")
 
 
+class TestStagedRowClassification:
+    async def test_staging_drops_the_dispatch_marker(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """A staged row carries no dispatch marker, so an abandoned import
+        settles `cancelled` rather than `failed`.
+
+        The door stamps `commit_attempted_at` for the DOWNLOAD task, but
+        `abandoned_upload` reads its absence as "no ingest was ever dispatched",
+        which is true again once the file is merely staged and awaiting a user
+        commit.
+
+        Counterfactual: carrying the marker through the transition makes
+        `is_abandoned_upload` False and the sweep reports the same row failed.
+        """
+        from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY
+        from app.platform.jobs.sweep import is_abandoned_upload
+
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/marker.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert COMMIT_ATTEMPTED_METADATA_KEY in (job.user_metadata or {})
+
+        _install_body(monkeypatch, GEOJSON)
+        await _run_task(captured[0])
+
+        await test_db_session.refresh(job)
+        assert job.status == "pending"
+        assert COMMIT_ATTEMPTED_METADATA_KEY not in (job.user_metadata or {})
+        assert is_abandoned_upload(job.user_metadata)
+
+
 class TestQueueRowHygiene:
     async def test_the_url_is_purged_from_the_queue_row_after_adoption(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
