@@ -24,9 +24,10 @@ exists. Exactly two serializations remain:
   cancellable IngestJob (uniform scope, per the ratified design).
 
 The CR-02 all-failed contract survives as a fenced restore: when every
-layer fails to queue, ``restore_fan_out_parent_pending`` CASes
-``(fanned_out, attempt) -> pending`` so the user can retry without a
-re-upload — it can only undo the flip this request wrote.
+layer fails to queue, ``restore_fan_out_parent_pending`` CASes the parent
+back to ``pending`` on the attempt id so the user can retry without a
+re-upload — it can only undo the flip this request wrote. #2016 widened
+which rows that CAS accepts; see ``TestRestoreReclaimsASweptParent``.
 """
 
 from __future__ import annotations
@@ -585,3 +586,181 @@ class TestNeverQueuedChildRecovery:
         # never a silent default layer.
         assert (child.user_metadata or {}).get("layer_name") == "roads"
         assert (child.user_metadata or {}).get("fan_out_parent_id") == str(parent.id)
+
+
+class TestRestoreReclaimsASweptParent:
+    """fix(#2016): a dispatch loop that outlives the childless-fanout grace
+    lost its undo. The sweep settled the parent `failed` with the interrupted
+    marker, the `fanned_out`-only CAS then matched zero rows in silence, and
+    the marker makes /jobs/{id}/retry refuse — the user was told to re-upload,
+    the exact outcome the restore exists to prevent."""
+
+    async def _age_past_grace(self, session, job_id) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from app.platform.jobs.sweep import FAN_OUT_CHILDLESS_GRACE_SECONDS
+
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_id)
+            .values(
+                completed_at=datetime.now(timezone.utc)
+                - timedelta(seconds=FAN_OUT_CHILDLESS_GRACE_SECONDS + 60)
+            )
+        )
+        await session.commit()
+
+    async def test_swept_parent_is_reclaimed_on_the_same_attempt(self, test_db_session):
+        from app.platform.jobs.models import FAN_OUT_INTERRUPTED_METADATA_KEY
+        from app.platform.jobs.sweep import fail_stale_jobs
+        from app.processing.ingest.service import restore_fan_out_parent_pending
+
+        job = await _make_pending_parent(test_db_session, layers=["buildings"])
+        attempt = job.attempt_id
+        assert await claim_fan_out_parent(
+            test_db_session, job, parent_attempt_id=attempt
+        )
+
+        await self._age_past_grace(test_db_session, job.id)
+        await fail_stale_jobs(test_db_session)
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert (job.user_metadata or {}).get(FAN_OUT_INTERRUPTED_METADATA_KEY) is True
+
+        assert (
+            await restore_fan_out_parent_pending(
+                test_db_session, job, parent_attempt_id=attempt
+            )
+            is True
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "pending"
+        assert job.completed_at is None
+        assert job.error_message is None
+        # The marker goes and nothing else does: a wholesale metadata write
+        # here would drop the layer list the next commit reads.
+        assert job.user_metadata == {
+            "all_layers": ["buildings"],
+            "file_type": "vector",
+        }
+
+    async def test_a_failed_row_from_another_attempt_is_refused(self, test_db_session):
+        from app.platform.jobs.models import FAN_OUT_INTERRUPTED_METADATA_KEY
+        from app.platform.jobs.sweep import (
+            FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE,
+            fail_stale_jobs,
+        )
+        from app.processing.ingest.service import restore_fan_out_parent_pending
+
+        job = await _make_pending_parent(test_db_session, layers=["buildings"])
+        assert await claim_fan_out_parent(
+            test_db_session, job, parent_attempt_id=job.attempt_id
+        )
+        await self._age_past_grace(test_db_session, job.id)
+        await fail_stale_jobs(test_db_session)
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+
+        assert (
+            await restore_fan_out_parent_pending(
+                test_db_session, job, parent_attempt_id=uuid.uuid4()
+            )
+            is False
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE
+        assert (job.user_metadata or {}).get(FAN_OUT_INTERRUPTED_METADATA_KEY) is True
+
+    async def test_a_lost_undo_is_logged_with_the_job_and_attempt(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        import structlog.testing
+
+        from app.core.db import async_session
+        from app.platform.jobs.models import FAN_OUT_INTERRUPTED_METADATA_KEY
+        from app.processing.ingest.service import restore_fan_out_parent_pending
+
+        job = await _make_pending_parent(test_db_session, layers=["buildings"])
+        attempt = job.attempt_id
+
+        async def _move_the_row_then_restore(session, parent_job, *, parent_attempt_id):
+            # The row settles under a DIFFERENT attempt while the loop runs:
+            # the fence must refuse it, and the caller must say so.
+            async with async_session() as side_session:
+                await side_session.execute(
+                    update(IngestJob)
+                    .where(IngestJob.id == parent_job.id)
+                    .values(
+                        status="failed",
+                        attempt_id=uuid.uuid4(),
+                        user_metadata={
+                            "all_layers": ["buildings"],
+                            "file_type": "vector",
+                            FAN_OUT_INTERRUPTED_METADATA_KEY: True,
+                        },
+                    )
+                )
+                await side_session.commit()
+            return await restore_fan_out_parent_pending(
+                session, parent_job, parent_attempt_id=parent_attempt_id
+            )
+
+        async def _raise(fn, rollback=None, db=None, job=None):
+            raise RuntimeError("queue down")
+
+        with (
+            patch(
+                "app.platform.jobs.defer_guard.defer_with_orphan_guard",
+                side_effect=_raise,
+            ),
+            patch(
+                "app.processing.ingest.router.restore_fan_out_parent_pending",
+                side_effect=_move_the_row_then_restore,
+            ),
+            structlog.testing.capture_logs() as captured,
+        ):
+            resp = await client.post(
+                f"/ingest/commit-fan-out/{job.id}",
+                json={"layers": [{"layer_name": "buildings"}]},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 202, resp.text
+        missed = [
+            entry
+            for entry in captured
+            if entry.get("event") == "fan_out_parent_restore_missed"
+        ]
+        assert missed, [entry.get("event") for entry in captured]
+        assert missed[0]["job_id"] == str(job.id)
+        assert missed[0]["attempt_id"] == str(attempt)
+        assert missed[0]["log_level"] == "warning"
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+
+    async def test_the_ordinary_fanned_out_undo_still_lands(self, test_db_session):
+        from app.processing.ingest.service import restore_fan_out_parent_pending
+
+        job = await _make_pending_parent(test_db_session, layers=["buildings"])
+        attempt = job.attempt_id
+        assert await claim_fan_out_parent(
+            test_db_session, job, parent_attempt_id=attempt
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "fanned_out"
+
+        assert (
+            await restore_fan_out_parent_pending(
+                test_db_session, job, parent_attempt_id=attempt
+            )
+            is True
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "pending"
+        assert job.completed_at is None
+        assert job.user_metadata == {
+            "all_layers": ["buildings"],
+            "file_type": "vector",
+        }

@@ -3390,7 +3390,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1955): +15 — both VRT source doors admit through the shared
     # per-dataset lock instead of reading the status, and refuse with the
     # coded `dataset_busy` body. Cap 1969 -> 1984, exact.
-    "backend/app/processing/ingest/router.py": 1984,
+    # fix(#2016): +10. The fan-out door reports a lost undo: it reads the
+    # restore's CAS result and logs the job and attempt when it matched no row,
+    # so a parent stranded terminal stops hiding behind a 202. Measured on the
+    # file rebased across #1955, not added up. Cap 1984 -> 1994, exact.
+    "backend/app/processing/ingest/router.py": 1994,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -5208,7 +5212,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # chore(#1940): -9, the fan-out error path no longer re-imports structlog or
     # guards on the result; the module binds `logger` unconditionally.
     # Cap 1622 -> 1613, exact.
-    "backend/app/processing/ingest/service.py": 1390,
+    # fix(#2016): +30. `restore_fan_out_parent_pending` returns its rowcount and
+    # widens the CAS to the row the childless-fanout sweep settled `failed` for
+    # this same attempt, clearing that one marker key. Most of the lines are the
+    # docstring recording why the attempt fence is what makes the wider
+    # predicate safe. Cap 1390 -> 1420, exact.
+    "backend/app/processing/ingest/service.py": 1420,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and

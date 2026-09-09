@@ -16,7 +16,7 @@ from typing import Any
 
 import structlog
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import or_, select, text
+from sqlalchemy import String, and_, literal, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
@@ -51,7 +51,11 @@ from app.platform.jobs.heartbeat import (
     ATTEMPT_STAGING_NAME_PATTERN,
     is_attempt_scoped_staging_table,
 )
-from app.platform.jobs.models import IngestJob, commit_attempted_marker
+from app.platform.jobs.models import (
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
+    IngestJob,
+    commit_attempted_marker,
+)
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
 logger = structlog.get_logger(__name__)
@@ -1114,14 +1118,25 @@ async def restore_fan_out_parent_pending(
     job: IngestJob,
     *,
     parent_attempt_id: uuid.UUID | None,
-) -> None:
+) -> bool:
     """Undo the pre-dispatch claim when EVERY layer failed to queue.
 
     Retry contract: an all-failed dispatch (e.g. Procrastinate outage) keeps
     the parent ``pending`` so the user can commit again without
-    re-uploading. The restore is itself a fenced CAS on
-    ``(fanned_out, attempt_id)``, undoing only the flip THIS request wrote —
-    a blind write would resurrect a row the round-2 fix removed that bug for.
+    re-uploading. The restore is itself a fenced CAS on the attempt id,
+    undoing only the flip THIS request wrote — a blind write would resurrect
+    a row the round-2 fix removed that bug for.
+
+    fix(#2016): a dispatch loop that outlives ``FAN_OUT_CHILDLESS_GRACE``
+    finds the childless-fanout sweep has already settled the same row
+    ``failed`` with the interrupted marker, which ``_retry_capability``
+    refuses — the re-upload this restore exists to spare the user. So the CAS
+    also accepts that row and drops the marker as it restores. Same row, same
+    attempt, and the sweep only reached it because THIS dispatch was still
+    running; the attempt fence is what keeps another attempt's ``failed`` row
+    out. Only that one key is cleared, off the row's own metadata.
+
+    Returns whether the CAS matched, so the caller can report a lost undo.
     """
     from sqlalchemy import update as sa_update
 
@@ -1130,16 +1145,31 @@ async def restore_fan_out_parent_pending(
         if parent_attempt_id is not None
         else IngestJob.attempt_id.is_(None)
     )
-    await session.execute(
+    restored = await session.execute(
         sa_update(IngestJob)
         .where(
             IngestJob.id == job.id,
-            IngestJob.status == "fanned_out",
+            or_(
+                IngestJob.status == "fanned_out",
+                and_(
+                    IngestJob.status == "failed",
+                    IngestJob.user_metadata[FAN_OUT_INTERRUPTED_METADATA_KEY].astext
+                    == "true",
+                ),
+            ),
             attempt_predicate,
         )
-        .values(status="pending", completed_at=None)
+        .values(
+            status="pending",
+            completed_at=None,
+            error_message=None,
+            user_metadata=IngestJob.user_metadata.op("-")(
+                literal(FAN_OUT_INTERRUPTED_METADATA_KEY, String)
+            ),
+        )
     )
     await session.commit()
+    return bool(restored.rowcount)
 
 
 def job_service_format(job: IngestJob) -> str | None:
