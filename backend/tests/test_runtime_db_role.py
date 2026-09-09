@@ -98,6 +98,14 @@ def test_init_db_is_one_entrypoint_for_container_and_managed_postgres() -> None:
         assert var in source, f"init-db.sh no longer honours {var}"
     assert 'psql "${psql_args[@]}"' in source
 
+    # fix(#1992): a host .psqlrc can `\set ON_ERROR_STOP off`, so -v
+    # ON_ERROR_STOP=1 alone does not guarantee a failed statement aborts
+    # the run; -X must precede it in the same psql_args assignment.
+    args_line = next(
+        line for line in source.splitlines() if line.startswith("psql_args=")
+    )
+    assert args_line.index("-X") < args_line.index("ON_ERROR_STOP=1")
+
     probe = source.index("pg_available_extensions")
     create = source.index("CREATE EXTENSION IF NOT EXISTS pg_stat_statements;\n", probe)
     assert probe < create, "pg_stat_statements must stay behind the availability probe"
@@ -239,6 +247,18 @@ def test_compose_passes_explicit_bundled_migration_owner_to_local_db() -> None:
             services["migrate"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"]
             == "local_migrator"
         )
+
+
+def test_role_script_disables_host_psqlrc() -> None:
+    """fix(#1992): the reconciler also runs directly from a host (not just
+    mounted in-container), so it needs the same -X guard as init-db.sh."""
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    args_line = next(line for line in source.splitlines() if line.strip() == "-X")
+    args_block_start = source.index("psql_args=(")
+    assert source.index(args_line, args_block_start) < source.index(
+        "ON_ERROR_STOP=1", args_block_start
+    )
 
 
 def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:
