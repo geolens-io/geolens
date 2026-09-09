@@ -4261,7 +4261,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # feat(#1710): +6 — `url_import_fetch_max_seconds`, the operator ceiling
     # on one URL-import download now that the fetch runs on the worker and no
     # proxy or client deadline bounds it. Cap 1479 -> 1485, exact.
-    "backend/app/core/config.py": 1485,
+    # fix(#1710 codex r3): +3 — `worker_queues` gains "download" and the note
+    # saying to pin a second worker to it, so a slow origin cannot hold the
+    # only ingest slot. Cap 1485 -> 1488, exact.
+    "backend/app/core/config.py": 1488,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

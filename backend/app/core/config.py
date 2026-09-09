@@ -495,7 +495,10 @@ class Settings(BaseSettings):
     # second worker dedicated to e.g. WORKER_QUEUES=raster so long raster
     # jobs never stall vector ingests. fix(#1812): "ingest-auth-v2" is
     # consumer-only -- nothing enqueues there; drop the name once drained.
-    worker_queues: str = "priority,ingest,raster,ingest-auth-v2"
+    # fix(#1710): "download" carries the URL-import fetch, whose runtime is a
+    # remote origin's to decide; pin a second worker to it to keep a slow
+    # transfer off the ingest slot.
+    worker_queues: str = "priority,ingest,raster,download,ingest-auth-v2"
 
     # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
     # Security-relevant: when true, the PersistentConfig DB layer is bypassed for reads

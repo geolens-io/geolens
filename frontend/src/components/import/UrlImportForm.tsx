@@ -452,12 +452,20 @@ export function UrlImportForm() {
           {t('urlImport.downloadingHint')}
         </p>
         {/* fix(#1710): while the status read itself is failing JobProgress
-            offers only "Retry status", so without this the tab has no way
-            out until a page reload. The download keeps running server-side
-            and settles itself. */}
+            offers only "Retry status", so without this the tab has no way out
+            until a page reload. It CANCELS rather than resetting: a bare reset
+            drops the only copy of the job id while the worker may still be
+            downloading, stranding staged bytes nothing can reach. */}
         {jobPollFailing && (
-          <Button variant="outline" size="sm" onClick={reset}>
-            {t('urlImport.startOver')}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCancelAndStartOver}
+            disabled={isCancelling}
+          >
+            {isCancelling
+              ? t('urlImport.cancelling')
+              : t('urlImport.cancelAndStartOver')}
           </Button>
         )}
       </div>

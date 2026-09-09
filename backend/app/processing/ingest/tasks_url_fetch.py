@@ -136,7 +136,13 @@ async def _staged_values(
     }
 
 
-@task_app.task(queue="ingest", retry=0, pass_context=True)
+# fix(#1710): its OWN queue, not `ingest`. A slow origin holds a worker slot
+# for up to url_import_fetch_max_seconds, and at the stock WORKER_CONCURRENCY
+# of 1 that would head-of-line block every vector import, reupload, refresh
+# and analysis. The default worker still subscribes, so a stock deployment
+# needs no change; an operator who cares pins a second worker to
+# WORKER_QUEUES=download and the blocking is gone with no code change.
+@task_app.task(queue="download", retry=0, pass_context=True)
 @tenant_task
 async def fetch_url(
     job_context: Any = None,

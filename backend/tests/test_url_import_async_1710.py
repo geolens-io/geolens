@@ -675,6 +675,31 @@ class TestNoTransactionAcrossTheDownload:
         assert Path(job.file_path).read_bytes() == GEOJSON
 
 
+class TestDownloadQueueIsolation:
+    def test_the_fetch_task_has_its_own_queue(self):
+        """The download does not share the ingest queue.
+
+        At the stock WORKER_CONCURRENCY of 1 a slow origin would otherwise
+        hold the only ingest slot for url_import_fetch_max_seconds, blocking
+        every unrelated import. Its own queue name is what lets an operator
+        pin a second worker to it without a code change.
+
+        Counterfactual: with queue="ingest" the first assertion fails.
+        """
+        from app.core.config import Settings
+
+        assert tasks_url_fetch.fetch_url.queue == "download"
+        subscribed = [
+            q.strip()
+            for q in Settings.model_fields["worker_queues"].default.split(",")
+            if q.strip()
+        ]
+        # The default worker must still drain it, or a stock deployment would
+        # leave every URL import queued forever with nothing failing it.
+        assert "download" in subscribed
+        assert "ingest" in subscribed
+
+
 class TestQueueRowHygiene:
     async def test_the_url_is_purged_from_the_queue_row_after_adoption(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
