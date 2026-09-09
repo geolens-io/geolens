@@ -917,14 +917,33 @@ def _estimate(
     if job is None or job.started_at is None or job.completed_at is None:
         return None
     seconds = (job.completed_at - job.started_at).total_seconds()
-    processed = job.rows_processed or 0
-    if seconds <= 0 or processed <= 0:
+    # fix(#2047): rate against every record WALKED (created+errors+skipped),
+    # matching missing_records/total_records' population — rows_processed
+    # alone (created+errors) inflated the estimate on records with no embeddable text.
+    walked = _walked_record_count(_backfill_meta(job).get("result"))
+    denominator = walked if walked is not None else job.rows_processed or 0
+    if seconds <= 0 or denominator <= 0:
         return None
-    per_record = seconds / processed
+    per_record = seconds / denominator
     return BackfillEstimate(
         missing_seconds=round(missing_records * per_record, 1),
         all_seconds=round(total_records * per_record, 1),
     )
+
+
+def _walked_record_count(result: object) -> int | None:
+    """Records a backfill run walked: embeddable ones plus skipped ones.
+
+    Returns ``None`` on a shape older than #2047 or otherwise unrecognised,
+    so the caller can fall back to ``rows_processed`` rather than divide by
+    a wrong number silently.
+    """
+    if not isinstance(result, dict):
+        return None
+    counts = (result.get("created"), result.get("errors"), result.get("skipped"))
+    if not all(isinstance(count, int) for count in counts):
+        return None
+    return sum(counts)
 
 
 async def collect_backfill_observability(

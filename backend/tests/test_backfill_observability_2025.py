@@ -231,6 +231,48 @@ async def test_the_estimate_uses_the_last_completed_runs_throughput(
 
 
 @pytest.mark.anyio
+async def test_the_estimate_rates_against_walked_records_not_embeddable_ones(
+    test_db_session: AsyncSession,
+):
+    """fix(#2047): rows_processed (created + errors) undercounts a run that
+    also skipped records with no embeddable text, inflating the rate against
+    missing/total_records, which count every visible record.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    await create_dataset(
+        test_db_session, created_by=admin_id, name=f"Estimate {uuid.uuid4().hex[:6]}"
+    )
+    finished = datetime.now(timezone.utc) + timedelta(hours=2)
+    job = IngestJob(
+        source_filename="embedding-backfill",
+        file_path="",
+        created_by=admin_id,
+        status="complete",
+        created_at=finished,
+        started_at=finished - timedelta(seconds=10),
+        completed_at=finished,
+        rows_processed=10,
+        user_metadata=_marker(
+            operation_id="estimate-skip-mismatch",
+            result={"processed": 10, "created": 7, "errors": 3, "skipped": 90},
+        ),
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+
+    try:
+        stats = await AdminService(test_db_session).get_embedding_stats()
+        assert stats.missing_records > 0 and stats.total_records > 0
+        assert stats.estimate is not None
+        # 10 seconds for 100 walked records (10 embeddable + 90 skipped), not
+        # 10 seconds for the 10 rows_processed alone.
+        assert stats.estimate.missing_seconds == round(stats.missing_records * 0.1, 1)
+        assert stats.estimate.all_seconds == round(stats.total_records * 0.1, 1)
+    finally:
+        await _drop(test_db_session, [job.id])
+
+
+@pytest.mark.anyio
 async def test_another_tenants_runs_are_neither_read_nor_estimated_from(monkeypatch):
     """Every run read is tenant-scoped, and no completed run means no estimate."""
     from app.core.db.tenant_session import current_tenant_var
