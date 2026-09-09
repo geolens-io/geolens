@@ -41,6 +41,7 @@ from app.platform.jobs.models import (
     IngestJob,
     commit_attempted_marker,
 )
+from app.platform.jobs.router import get_retry_capability
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings.models import RecordEmbedding
 
@@ -2183,3 +2184,152 @@ async def test_the_worker_startup_recovery_closes_the_trail_it_settles(
     assert await _audit_entries_naming(test_db_session, upload_id) == 0, (
         "the startup recovery wrote an audit entry for an ordinary upload"
     )
+
+
+# ---------------------------------------------------------------------------
+# Both ends of the run, inside the recovery boundary (#1556)
+# ---------------------------------------------------------------------------
+#
+# The rule #1550 arrived at is that the guarded region spans from the moment a
+# durable row can exist to the moment a terminal state is written. Two awaited
+# commits still sat outside it, one at each end: the route's creation commit and
+# the worker's opening read of the row. Both leave a `pending` row holding the
+# one backfill slot, with the stale sweep as the only actor that will ever
+# settle it.
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "lost_ack",
+    [asyncio.CancelledError, OSError("connection reset by peer")],
+    ids=["cancelled", "connection_lost"],
+)
+async def test_an_unacknowledged_creation_commit_does_not_leave_the_slot_held(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+    lost_ack: type[BaseException] | BaseException,
+):
+    """The commit applies, its acknowledgement is lost, the request unwinds.
+
+    A durable `pending` row and a durable `requested` entry, with no worker
+    queued and no dispatch arm reached — the shape #1550 fixed one statement
+    later in the same handler. fix(#1556 review): a shutdown and a dropped
+    connection leave the same row, so both take the same recovery.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    real_commit = AsyncSession.commit
+    real_audit_emit = admin_router.audit_emit
+    armed: dict = {"session": None, "fired": False}
+
+    async def _arm_on_the_request_entry(session, event, *args, **kwargs):
+        await real_audit_emit(session, event, *args, **kwargs)
+        if event.details.get("outcome") == "requested":
+            armed["session"] = session
+
+    async def _commit_losing_its_acknowledgement(self, *args, **kwargs):
+        await real_commit(self, *args, **kwargs)
+        if self is armed["session"] and not armed["fired"]:
+            armed["fired"] = True
+            raise lost_ack
+
+    monkeypatch.setattr(admin_router, "audit_emit", _arm_on_the_request_entry)
+    monkeypatch.setattr(AsyncSession, "commit", _commit_losing_its_acknowledgement)
+
+    raised: BaseException | None = None
+    try:
+        await client.post(_FORCE_URL, headers=admin_auth_header)
+    except BaseException as exc:  # noqa: BLE001 - the transport rewraps it
+        raised = exc
+    assert raised is not None, "the failure did not propagate"
+    assert armed["fired"], "the creation commit never ran — nothing under test"
+
+    monkeypatch.setattr(AsyncSession, "commit", real_commit)
+    monkeypatch.setattr(admin_router, "audit_emit", real_audit_emit)
+
+    stranded = await _latest_backfill_row(test_db_session)
+    assert stranded.status == "failed", (
+        "the committed-but-unqueued run is holding the unique backfill slot"
+    )
+    assert stranded.error_message == backfill_jobs.UNDISPATCHED_RUN_MESSAGE
+
+    terminal = await _terminal_audit_entries(
+        client, admin_auth_header, str(stranded.id)
+    )
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "dispatch_cancelled"
+
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        again = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert again.status_code == 200, again.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "lost_read",
+    [OSError("connection reset by peer"), asyncio.CancelledError()],
+    ids=["connection_lost", "cancelled"],
+)
+async def test_a_failed_startup_read_settles_the_row_it_could_not_read(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+    lost_read: BaseException,
+):
+    """The worker's opening read is the run's other unguarded commit-adjacent await.
+
+    With `retry=0` the delivery is not replayed, so a read that raises used to
+    end the task with the row still `pending` and no actor left to settle it.
+    fix(#1556 review): a shutdown here is a start failure, not a cancelled run
+    — there is no heartbeat handle, so nothing past the claim can have run.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()) as defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    real_get = AsyncSession.get
+    reads: dict = {"failed": False}
+
+    async def _get_failing_once(self, entity, ident, *args, **kwargs):
+        if entity is IngestJob and not reads["failed"]:
+            reads["failed"] = True
+            raise lost_read
+        return await real_get(self, entity, ident, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "get", _get_failing_once)
+    raised: BaseException | None = None
+    try:
+        await run_embedding_backfill(**defer.await_args.kwargs)
+    except BaseException as exc:  # noqa: BLE001 - a cancellation must re-raise too
+        raised = exc
+    monkeypatch.setattr(AsyncSession, "get", real_get)
+    assert type(raised) is type(lost_read), raised
+    assert reads["failed"], "the opening read never ran — nothing under test"
+
+    settled = await _load_job(test_db_session, job_id)
+    assert settled.status == "failed", (
+        "the run that could not read its row is still holding the slot"
+    )
+    assert settled.error_message == backfill_jobs.START_FAILED_MESSAGE
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "start_failed", (
+        f"a run that never claimed the row was not recorded as one: {terminal}"
+    )
+
+    # The settle REPLACES user_metadata, and the read that would have supplied
+    # it is the one that failed. Without the row's own, the marker goes with it
+    # and the retry contract reads a backfill as an ordinary import.
+    marker = (settled.user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY)
+    assert marker, f"the settle erased the backfill marker: {settled.user_metadata}"
+    assert marker["force"] is True
+    assert marker["operation_id"]
+    can_retry, reason = await get_retry_capability(settled)
+    assert can_retry is False
+    assert "backfill" in (reason or "").lower(), reason

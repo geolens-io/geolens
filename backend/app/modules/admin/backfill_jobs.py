@@ -39,6 +39,21 @@ logger = structlog.stdlib.get_logger(__name__)
 # route applied to its 502 body).
 BACKFILL_FAILED_MESSAGE = "Embedding backfill failed. See server logs for details."
 
+# fix(#1556): the row read moved inside the guarded exit, so a run that never
+# claimed the row reaches it — and "could not record its outcome" would then
+# describe work that never began.
+CANCELLED_MESSAGE = (
+    "Embedding backfill was cancelled by a worker shutdown. Records it had "
+    "already reached carry their new vectors and the rest are unchanged; "
+    "re-run to finish the remainder."
+)
+START_FAILED_MESSAGE = (
+    "Embedding backfill could not start. Nothing was changed; re-run it."
+)
+SETTLE_FAILED_MESSAGE = (
+    "Embedding backfill could not record its outcome. See server logs for details."
+)
+
 # Audit outcome for a run whose fate could not be written to its job row —
 # another actor settled the row first. It is terminal (the operation is over and
 # the trail says so) but it deliberately does not claim the run succeeded or
@@ -409,6 +424,10 @@ async def _recover_unsettled(
             # which after a lost claim commit is `pending`, not `running`.
             state.row_attempted = False
             state.expected_status = observed.status
+            # fix(#1556 review): `_finalize` REPLACES user_metadata, so it
+            # starts from the row's own — the caller's is empty when the
+            # opening read failed, erasing the marker the retry contract reads.
+            metadata = dict(observed.user_metadata or {})
         await _settle(
             fresh,
             job_uuid,
@@ -474,7 +493,10 @@ async def _undispatched_settle_write_landed(job_uuid: uuid.UUID) -> bool:
 
 
 async def settle_undispatched_run(
-    job_uuid: uuid.UUID, *, audit_context: dict[str, Any]
+    job_uuid: uuid.UUID,
+    *,
+    audit_context: dict[str, Any],
+    caller_session: AsyncSession | None = None,
 ) -> None:
     """Settle a run that was committed but never reliably queued.
 
@@ -495,7 +517,13 @@ async def settle_undispatched_run(
     as ``_recover_unsettled``: read the row for evidence of THIS write, not
     for a status other actors also reach (see
     ``_undispatched_settle_write_landed``).
+
+    fix(#1556): ``caller_session`` is released first, because a cancellation
+    that landed inside that session's own commit leaves it holding the job
+    row's lock, and the fenced write below would then block on it.
     """
+    if caller_session is not None:
+        await _release_caller_transaction(caller_session, audit_context["job_id"])
     try:
         settled = await _fail_undispatched_pending_row(job_uuid)
     except BaseException:  # broad: a lost acknowledgement is the case recovered here
@@ -570,11 +598,16 @@ async def run_embedding_backfill(
     job_uuid, attempt_uuid = resolved
 
     async with async_session() as session:
-        job = await session.get(IngestJob, job_uuid)
-        metadata = dict(job.user_metadata or {}) if job is not None else {}
+        metadata: dict[str, Any] = {}
         state = _TerminalState()
         heartbeat = None
         try:
+            # fix(#1556): the row read is inside the guarded region too.
+            # Outside it, a transient outage or a shutdown cancellation here
+            # left the row `pending`, holding the slot until the stale sweep.
+            job = await session.get(IngestJob, job_uuid)
+            if job is not None:
+                metadata = dict(job.user_metadata or {})
             # fix(#1550): the claim is INSIDE the guarded region — its own
             # commit is a lost-acknowledgement window too. A shutdown
             # cancelling `pending`->`running` mid-commit can apply it without
@@ -677,10 +710,20 @@ async def run_embedding_backfill(
             # this never rewrites a committed outcome — a shutdown after
             # `complete` landed emits the COMPLETED audit, not a contradiction.
             cancelled = isinstance(exc, asyncio.CancelledError)
+            # fix(#1556 review): how far it got outranks what ended it. No
+            # heartbeat handle means nothing past the claim ran, so a
+            # cancellation there did not leave half a run behind.
+            if heartbeat is None:
+                event, error_code = "embedding_backfill_start_failed", "start_failed"
+                message = START_FAILED_MESSAGE
+            elif cancelled:
+                event, error_code = "embedding_backfill_cancelled", "worker_cancelled"
+                message = CANCELLED_MESSAGE
+            else:
+                event, error_code = "embedding_backfill_settle_failed", "settle_failed"
+                message = SETTLE_FAILED_MESSAGE
             logger.warning(
-                "embedding_backfill_cancelled"
-                if cancelled
-                else "embedding_backfill_settle_failed",
+                event,
                 job_id=job_id,
                 force=force,
                 operation_id=operation_id,
@@ -699,18 +742,8 @@ async def run_embedding_backfill(
                             metadata=metadata,
                             state=state,
                             audit_context=audit_context,
-                            error_code=(
-                                "worker_cancelled" if cancelled else "settle_failed"
-                            ),
-                            message=(
-                                "Embedding backfill was cancelled by a worker "
-                                "shutdown. Records it had already reached carry "
-                                "their new vectors and the rest are unchanged; "
-                                "re-run to finish the remainder."
-                                if cancelled
-                                else "Embedding backfill could not record its "
-                                "outcome. See server logs for details."
-                            ),
+                            error_code=error_code,
+                            message=message,
                         ),
                         timeout=15,
                     )

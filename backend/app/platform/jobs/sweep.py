@@ -103,8 +103,8 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     # would drop every NULL file_path row — the case that most needs the 1h policy.
     completion_key = func.coalesce(IngestJob.file_path, "").like("staging/%")
     cutoff_seconds = stale_pending_cutoff_seconds(completion_bound=completion_bound)
-    # fix(#1708): age from `staged_at` (set only by upload_from_url's
-    # completion CAS), falling back to created_at — the window restarts at staging.
+    # fix(#1708): age from `staged_at`, falling back to created_at. Every
+    # writer of that key restarts the pending window where the row re-entered it.
     age_basis = func.coalesce(
         IngestJob.user_metadata.op("->>")("staged_at").cast(DateTime(timezone=True)),
         IngestJob.created_at,
