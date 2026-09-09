@@ -180,6 +180,7 @@ def _fake_meta(table_name: str):
         column_info=[],
         tile_cache_ttl=30,
         tile_columns=None,
+        publication_version=0,
     )
 
 

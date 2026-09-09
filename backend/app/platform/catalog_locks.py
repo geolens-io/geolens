@@ -225,6 +225,45 @@ async def bump_tile_cache_version_atomic(
     )
 
 
+async def bump_publication_version_atomic(
+    session: AsyncSession, *, dataset_cls: Any, dataset_id: Any
+) -> int | None:
+    """Roll ``publication_version`` in the database and return the new value.
+
+    The counter a signed tile scope binds (#1963). Same write-time evaluation
+    as :func:`bump_tile_cache_version_atomic`, and a separate counter on
+    purpose: this one rolls only when a publication-status or visibility
+    transition changes who may read the dataset, so an ordinary edit does not
+    retire a live tile template. None when the row no longer exists.
+    """
+    return await session.scalar(
+        update(dataset_cls)
+        .where(dataset_cls.id == dataset_id)
+        .values(
+            publication_version=func.coalesce(dataset_cls.publication_version, 0) + 1
+        )
+        .returning(dataset_cls.publication_version)
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def bump_publication_version_on(
+    session: AsyncSession, dataset: Any
+) -> int | None:
+    """:func:`bump_publication_version_atomic` for a loaded ``Dataset``.
+
+    Sets the instance attribute to the returned value without marking it
+    dirty, mirroring :func:`bump_tile_cache_version_on`. The one spelling for
+    a request handler, whose instance was loaded before it waited for the row.
+    """
+    version = await bump_publication_version_atomic(
+        session, dataset_cls=type(dataset), dataset_id=dataset.id
+    )
+    if version is not None:
+        set_committed_value(dataset, "publication_version", version)
+    return version
+
+
 async def bump_tile_cache_version_on(session: AsyncSession, dataset: Any) -> int | None:
     """:func:`bump_tile_cache_version_atomic` for a loaded ``Dataset`` instance.
 

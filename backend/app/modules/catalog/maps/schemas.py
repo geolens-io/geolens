@@ -937,6 +937,7 @@ class DatasetMetaKwargs(TypedDict, total=False):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
+    publication_version: int | None
     dataset_visibility: str | None
     dataset_status: str | None
     dataset_attribution: str | None
@@ -975,6 +976,10 @@ class MapLayerResponse(BaseModel):
     # edits, column DDL, tile_columns changes, AND reupload) instead of
     # current_version (reupload-only), so every content mutation rolls the URL.
     tile_version: int | None = None
+    # fix(#1963): the counter the signed tile scope binds. The saved-map style
+    # document is a tile-signature minter, so it needs the same version the
+    # tile route verifies against.
+    publication_version: int | None = None
     # fix(#430): dataset visibility/status so the builder can badge a layer whose
     # dataset is hidden from a public/shared map's anonymous audience.
     dataset_visibility: str | None = None

@@ -48,6 +48,7 @@ def _row(dataset_id: uuid.UUID) -> dict:
         "band_info": None,
         "nodata": None,
         "tile_cache_version": 1,
+        "publication_version": 0,
     }
 
 

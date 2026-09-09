@@ -547,6 +547,7 @@ class TestVectorTileAuth:
         self, client: AsyncClient, test_db_session
     ):
         """Private cluster tiles accept the normal vector tile HMAC signature."""
+        from app.core.tile_scope import tile_signature_scope
         from app.processing.tiles.signing import generate_tile_signature
 
         table_name = f"cluster_signed_{uuid.uuid4().hex[:8]}"
@@ -574,10 +575,11 @@ class TestVectorTileAuth:
 
         try:
             exp = int(time.time()) + 300
-            sig = generate_tile_signature(table_name, exp)
+            scope = tile_signature_scope(table_name, 0)
+            sig = generate_tile_signature(scope, exp)
             resp = await client.get(
                 f"/tiles/clusters/data.{table_name}/0/0/0.pbf",
-                params={"sig": sig, "exp": exp, "scope": table_name},
+                params={"sig": sig, "exp": exp, "scope": scope},
             )
 
             assert resp.status_code == 200

@@ -21,6 +21,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordTranslation,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
+from app.platform.catalog_locks import bump_publication_version_on
 from app.platform.extensions import get_catalog_port, get_workflow_extension
 from app.platform.extensions.protocols import WorkflowTransitionContext
 
@@ -163,6 +164,7 @@ def _apply_tile_columns(dataset: Dataset, meta: "DatasetMeta") -> bool:
 async def _apply_visibility_change(
     session: AsyncSession,
     record: Any,
+    dataset: Dataset,
     dataset_id: uuid.UUID,
     new_visibility: str,
 ) -> bool:
@@ -191,7 +193,13 @@ async def _apply_visibility_change(
             "Cannot restrict visibility: dataset is used in shared maps: "
             f"{', '.join(broken_maps)}"
         )
+    if new_visibility == record.visibility:
+        return True
     record.visibility = new_visibility
+    # fix(#1963): a visibility change moves who may read the dataset, so it
+    # retires outstanding tile signatures exactly as a status change does.
+    # `update_user_metadata` already holds both catalog rows.
+    await bump_publication_version_on(session, dataset)
     return True
 
 
@@ -237,6 +245,10 @@ async def _apply_record_status_change(
                 raise ValueError(f"Cannot publish: {'; '.join(error_msgs)}")
         record.published_at = func.now()
     record.record_status = new_status
+    # fix(#1963): a tile signature binds this counter, so rolling it retires
+    # the ones minted under the status being left. `update_user_metadata`
+    # already holds both catalog rows.
+    await bump_publication_version_on(session, dataset)
     await workflow.on_transition(context)
     return True
 
@@ -325,7 +337,9 @@ async def update_user_metadata(
 
     if meta.visibility is not None:
         mutated_flags.append(
-            await _apply_visibility_change(session, record, dataset_id, meta.visibility)
+            await _apply_visibility_change(
+                session, record, dataset, dataset_id, meta.visibility
+            )
         )
     if meta.record_status is not None:
         mutated_flags.append(

@@ -1334,6 +1334,9 @@ export interface MapLayerResponse {
   band_count?: number | null;
   /** fix(#394) VT-02: dataset content version — `_v=` tile-URL cache-buster. */
   tile_version?: number | null;
+  /** fix(#1963): the counter the signed tile scope binds, so the saved-map style
+   * document signs at the version the tile route verifies. */
+  publication_version?: number | null;
   /** feat(#1472): the backing dataset's required credit line, for the viewer's
    * MapLibre attribution control. */
   dataset_attribution?: string | null;

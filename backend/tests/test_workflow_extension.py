@@ -30,6 +30,8 @@ def _bypass_dataset_access_check():
     Both status handlers in router_data.py and the metadata PATCH in router.py
     gate on check_dataset_write_access (owner-or-admin). These tests exercise
     workflow extension dispatch, not RBAC, so we stub the gate in both modules.
+    The #1963 publication-version roll is stubbed for the same reason: it takes real
+    row locks the _FakeDB below does not model.
     """
     with (
         patch(
@@ -39,6 +41,10 @@ def _bypass_dataset_access_check():
         patch(
             "app.modules.catalog.datasets.api.router.check_dataset_write_access",
             side_effect=_noop_check_dataset_access,
+        ),
+        patch(
+            "app.modules.catalog.datasets.api.router_data._roll_publication_version",
+            new_callable=AsyncMock,
         ),
     ):
         yield

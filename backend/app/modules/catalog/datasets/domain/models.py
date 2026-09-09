@@ -520,6 +520,13 @@ class Dataset(Base):
         Integer, server_default="1", default=1
     )
 
+    # fix(#1963): the counter a signed tile scope binds. Rolls on publication
+    # status and visibility transitions ONLY, so a signature survives an
+    # ordinary edit but not the state change that granted it.
+    publication_version: Mapped[int] = mapped_column(
+        Integer, server_default="0", default=0
+    )
+
     # Per-dataset tile cache TTL override (null = use global settings.tile_cache_ttl)
     tile_cache_ttl: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

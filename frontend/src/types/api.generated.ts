@@ -9788,6 +9788,8 @@ export interface components {
             band_count?: number | null;
             /** Tile Version */
             tile_version?: number | null;
+            /** Publication Version */
+            publication_version?: number | null;
             /** Dataset Visibility */
             dataset_visibility?: string | null;
             /** Dataset Status */

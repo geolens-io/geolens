@@ -63,6 +63,7 @@ class MapLayerResponse:
         dem_vertical_units (None | str | Unset):
         band_count (int | None | Unset):
         tile_version (int | None | Unset):
+        publication_version (int | None | Unset):
         dataset_visibility (None | str | Unset):
         dataset_status (None | str | Unset):
         dataset_attribution (None | str | Unset):
@@ -99,6 +100,7 @@ class MapLayerResponse:
     dem_vertical_units: None | str | Unset = UNSET
     band_count: int | None | Unset = UNSET
     tile_version: int | None | Unset = UNSET
+    publication_version: int | None | Unset = UNSET
     dataset_visibility: None | str | Unset = UNSET
     dataset_status: None | str | Unset = UNSET
     dataset_attribution: None | str | Unset = UNSET
@@ -253,6 +255,12 @@ class MapLayerResponse:
         else:
             tile_version = self.tile_version
 
+        publication_version: int | None | Unset
+        if isinstance(self.publication_version, Unset):
+            publication_version = UNSET
+        else:
+            publication_version = self.publication_version
+
         dataset_visibility: None | str | Unset
         if isinstance(self.dataset_visibility, Unset):
             dataset_visibility = UNSET
@@ -320,6 +328,8 @@ class MapLayerResponse:
             field_dict["band_count"] = band_count
         if tile_version is not UNSET:
             field_dict["tile_version"] = tile_version
+        if publication_version is not UNSET:
+            field_dict["publication_version"] = publication_version
         if dataset_visibility is not UNSET:
             field_dict["dataset_visibility"] = dataset_visibility
         if dataset_status is not UNSET:
@@ -599,6 +609,17 @@ class MapLayerResponse:
 
         tile_version = _parse_tile_version(d.pop("tile_version", UNSET))
 
+        def _parse_publication_version(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        publication_version = _parse_publication_version(
+            d.pop("publication_version", UNSET)
+        )
+
         def _parse_dataset_visibility(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -658,6 +679,7 @@ class MapLayerResponse:
             dem_vertical_units=dem_vertical_units,
             band_count=band_count,
             tile_version=tile_version,
+            publication_version=publication_version,
             dataset_visibility=dataset_visibility,
             dataset_status=dataset_status,
             dataset_attribution=dataset_attribution,

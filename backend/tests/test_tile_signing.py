@@ -302,7 +302,7 @@ class TestTileTokenEndpoint:
         assert "exp" in body
         assert "scope" in body
         assert "expires_in" in body
-        assert body["scope"] == table_name
+        assert body["scope"] == f"{table_name}:p0"
         assert len(body["sig"]) == 64
         assert body["expires_in"] > 0
 
@@ -373,7 +373,7 @@ class TestTileTokenEndpoint:
         resp = await client.get(f"/tiles/token/{dataset.id}/")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["scope"] == table_name
+        assert body["scope"] == f"{table_name}:p0"
 
 
 # ---------------------------------------------------------------------------
@@ -475,12 +475,15 @@ class TestTileSignatureValidation:
         await _create_data_table(test_db_session, table_name)
 
         try:
+            from app.core.tile_scope import tile_signature_scope
+
             past_exp = int(time.time()) - 100
-            sig = generate_tile_signature(table_name, past_exp)
+            scope = tile_signature_scope(table_name, 0)
+            sig = generate_tile_signature(scope, past_exp)
 
             resp = await client.get(
                 f"/tiles/data.{table_name}/0/0/0.pbf",
-                params={"sig": sig, "exp": past_exp, "scope": table_name},
+                params={"sig": sig, "exp": past_exp, "scope": scope},
             )
             assert resp.status_code == 403
         finally:

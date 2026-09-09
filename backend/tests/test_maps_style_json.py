@@ -113,11 +113,11 @@ def test_build_maplibre_style_exports_clean_sources_layers_and_viewport():
     tile_url = source["tiles"][0]
     assert tile_url.startswith("/tiles/data.public_stops/{z}/{x}/{y}.pbf?")
     tile_params = parse_qs(urlsplit(tile_url).query)
-    assert tile_params["scope"] == ["public_stops"]
+    assert tile_params["scope"] == ["public_stops:p0"]
     assert "sig" in tile_params
     assert "exp" in tile_params
     assert verify_tile_signature(
-        "public_stops", int(tile_params["exp"][0]), tile_params["sig"][0]
+        "public_stops:p0", int(tile_params["exp"][0]), tile_params["sig"][0]
     )
 
     primary = style["layers"][0]
@@ -143,7 +143,7 @@ def test_hosted_style_tile_signature_is_bound_to_active_tenant(monkeypatch):
 
     tile_url = next(iter(style["sources"].values()))["tiles"][0]
     params = parse_qs(urlsplit(tile_url).query)
-    scope = f"{tenant_id}:public_stops"
+    scope = f"{tenant_id}:public_stops:p0"
     assert params["scope"] == [scope]
     assert verify_tile_signature(scope, int(params["exp"][0]), params["sig"][0])
 

@@ -244,7 +244,7 @@ class TestSignedDraftParity:
         self, client: AsyncClient, test_db_session
     ):
         """An unusable signature is not a refusal: the draft answers 404 to anon."""
-        from app.core.tenancy import tenant_bound_scope
+        from app.core.tile_scope import tile_signature_scope
         from app.processing.tiles.signing import generate_tile_signature
 
         dataset = await _make_vector(
@@ -253,7 +253,7 @@ class TestSignedDraftParity:
             record_status="draft",
         )
         try:
-            scope = tenant_bound_scope(dataset.table_name)
+            scope = tile_signature_scope(dataset.table_name, 0)
             expired = int(time.time()) - 60
             resp = await client.get(
                 f"/tiles/data.{dataset.table_name}/0/0/0.pbf",

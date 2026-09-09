@@ -270,6 +270,22 @@ ALLOWED_TRANSITIONS = {
 }
 
 
+async def _roll_publication_version(db: AsyncSession, dataset: DatasetModel) -> None:
+    """Retire the tile signatures minted under the status being left.
+
+    A signed tile template binds the dataset's ``publication_version``, so
+    rolling it in the transition's own transaction is what makes an unpublish
+    reach the stateless tile path (#1963). Takes both catalog rows in house
+    order first, since the roll makes the caller a two-row writer; call it
+    immediately before the writes, with every workflow query already done.
+    """
+    from app.modules.catalog.features.service import lock_catalog_rows_for_write
+    from app.platform.catalog_locks import bump_publication_version_on
+
+    await lock_catalog_rows_for_write(db, dataset)
+    await bump_publication_version_on(db, dataset)
+
+
 @router.patch("/{dataset_id}/status/", response_model=StatusUpdateResponse)
 async def update_publication_status(
     dataset_id: uuid.UUID,
@@ -319,6 +335,10 @@ async def update_publication_status(
             ),
         )
 
+    # fix(#1963): the transition rolls the signed-scope counter, so this
+    # handler dirties the datasets row too and must take both in house order.
+    # Placed after the workflow query, immediately before the writes (#1864).
+    await _roll_publication_version(db, dataset)
     dataset.record.record_status = target
     await workflow.on_transition(context)
     # fix(#1178): writes record_status without going through
@@ -381,7 +401,12 @@ async def set_target_status(
             detail=f"Unknown status value: '{current}' or '{target}'",
         )
 
+    # fix(#1864): every workflow query runs BEFORE the pair lock, so the rows
+    # are not held across extension I/O. `allowed_transitions` reads
+    # `context.from_status`, never the record, so validating the whole chain
+    # up front sees exactly what the per-step loop saw.
     step = 1 if tgt_idx > cur_idx else -1
+    chain: list[tuple[str, WorkflowTransitionContext]] = []
     idx = cur_idx
     while idx != tgt_idx:
         next_idx = idx + step
@@ -404,9 +429,15 @@ async def set_target_status(
                     f"Allowed: {allowed}"
                 ),
             )
+        chain.append((next_status, context))
+        idx = next_idx
+
+    # fix(#1963): once for the whole chain, immediately before its writes.
+    await _roll_publication_version(db, dataset)
+
+    for next_status, context in chain:
         dataset.record.record_status = next_status
         await workflow.on_transition(context)
-        idx = next_idx
 
     # fix(#1178): the ordinary publish flow (DatasetPage's publish toggle)
     # lands here, not in update_user_metadata -- the inherited-keyword

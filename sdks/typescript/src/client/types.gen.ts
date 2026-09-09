@@ -5966,6 +5966,10 @@ export type MapLayerResponse = {
      */
     tile_version?: number | null;
     /**
+     * Publication Version
+     */
+    publication_version?: number | null;
+    /**
      * Dataset Visibility
      */
     dataset_visibility?: string | null;

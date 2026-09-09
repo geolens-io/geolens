@@ -1000,7 +1000,7 @@ class TestSignedRasterTileTemplate:
         token = resp.json()
 
         assert token["kind"] == "raster"
-        assert token["scope"].endswith(str(dataset.id))
+        assert token["scope"] == f"{dataset.id}:p0"
         assert token["expires_in"] > 0
         # The signature travels in the URL, because MapLibre never sends headers.
         assert f"sig={token['sig']}" in token["tile_url"]
@@ -1095,14 +1095,14 @@ class TestSignedRasterTileTemplate:
     async def test_an_expired_signature_does_not_authorize(
         self, client: AsyncClient, test_db_session
     ):
-        from app.core.tenancy import tenant_bound_scope
+        from app.core.tile_scope import tile_signature_scope
         from app.processing.tiles.signing import generate_tile_signature
 
         admin_id = await _get_admin_id(test_db_session)
         _record, dataset, _asset = await _create_raster_dataset(
             test_db_session, created_by=admin_id, visibility="private"
         )
-        scope = tenant_bound_scope(str(dataset.id))
+        scope = tile_signature_scope(str(dataset.id), 0)
         expired = int(time.time()) - 60
 
         resp = await client.get(
@@ -1180,14 +1180,14 @@ class TestSignedRasterTileTemplate:
         template aged out. An unusable signature must fall through to the
         credentials the caller actually has.
         """
-        from app.core.tenancy import tenant_bound_scope
+        from app.core.tile_scope import tile_signature_scope
         from app.processing.tiles.signing import generate_tile_signature
 
         admin_id = await _get_admin_id(test_db_session)
         _record, dataset, asset = await _create_raster_dataset(
             test_db_session, created_by=admin_id, visibility="private"
         )
-        scope = tenant_bound_scope(str(dataset.id))
+        scope = tile_signature_scope(str(dataset.id), 0)
         expired = int(time.time()) - 60
 
         resp = await client.get(

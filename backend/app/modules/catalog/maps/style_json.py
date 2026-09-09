@@ -39,7 +39,7 @@ from app.modules.catalog.maps.style_sanitizers import (
     finite_number as _finite_number,
 )
 from app.platform.extensions import get_catalog_port
-from app.core.tenancy import tenant_bound_scope
+from app.core.tile_scope import tile_signature_scope
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 
 __all__ = ["ImportedStyleMap", "build_maplibre_style", "parse_maplibre_style_import"]
@@ -351,7 +351,7 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
         return url
     port = get_catalog_port()
     exp = port.round_tile_expiry()
-    scope = tenant_bound_scope(layer.dataset_table_name)
+    scope = tile_signature_scope(layer.dataset_table_name, layer.publication_version)
     params: dict[str, Any] = {
         "sig": port.generate_tile_signature(scope, exp),
         "exp": exp,
