@@ -19,7 +19,7 @@ from app.core.persistent_config import SEMANTIC_SEARCH_ENABLED
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.search.service_filters import SearchFilters
-from app.platform.cache import tenant_cache_key
+from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -113,8 +113,13 @@ _query_claims: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
 
 
 def _query_claim_key(client_key: str, text: str) -> str | None:
+    """fix(#1903 review r5): ``tenant_cache_key`` raises when multi-tenant
+    mode has no verified tenant context (a trusted unscoped host); check
+    ``tenant_cache_context_available()`` first, same as the search cache
+    does, so an unscoped request disables claiming instead of 500ing.
+    """
     normalized = text.strip().lower()
-    if not normalized:
+    if not normalized or not tenant_cache_context_available():
         return None
     return f"{client_key}:{tenant_cache_key(normalized)}"
 
@@ -174,6 +179,32 @@ async def _embed_with_deadline(
     )
 
 
+# fix(#1903 review r5): a rate-limit exemption is granted at the pair's
+# GATE, before either request's embed has finished -- so a genuinely
+# overlapping pair (both miss the TTL cache) could previously make TWO
+# paid provider calls under the ONE token the shared claim charged. Every
+# concurrent caller for the same cache key now awaits the SAME in-flight
+# task instead of starting its own, so the provider is called at most once
+# per key regardless of how many requests are racing for it. Only the
+# task's OWN session does any I/O; a caller that joins an existing task
+# never touches it, so no AsyncSession is used from two coroutines at once.
+_embedding_inflight: "dict[tuple[str, str, str], asyncio.Task[list[float]]]" = {}
+
+
+async def _embed_and_cache(
+    text: str,
+    session: AsyncSession,
+    cache_key: tuple[str, str, str],
+    pinned: tuple[str, int | None, str | None],
+) -> list[float]:
+    try:
+        vector = await _embed_with_deadline(text, session, pinned)
+        _embedding_cache_put(cache_key, vector)
+        return vector
+    finally:
+        _embedding_inflight.pop(cache_key, None)
+
+
 async def generate_embedding(
     text: str,
     session: AsyncSession,
@@ -207,11 +238,18 @@ async def generate_embedding(
     if cached is not None:
         return cached
 
-    vector = await _embed_with_deadline(
-        text, session, (model_name, dimensions, base_url)
-    )
-    _embedding_cache_put(cache_key, vector)
-    return vector
+    task = _embedding_inflight.get(cache_key)
+    if task is None:
+        # No await between the cache/inflight reads above and this write,
+        # so no other coroutine can interleave on this event loop and race
+        # the same key into two tasks.
+        task = asyncio.ensure_future(
+            _embed_and_cache(
+                text, session, cache_key, (model_name, dimensions, base_url)
+            )
+        )
+        _embedding_inflight[cache_key] = task
+    return await task
 
 
 async def _attach_updated_actor_identities(

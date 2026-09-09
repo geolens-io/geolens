@@ -9,6 +9,7 @@ exercise the wrapper indirectly via `test_hybrid_search.py`.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -83,6 +84,51 @@ async def test_generate_embedding_caches_result_on_second_call():
     assert second == fake_vector
     # Provider hit exactly once even though we called twice.
     assert mock_port.generate_embedding.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_calls_for_the_same_key_coalesce_into_one_provider_call():
+    """fix(#1903 review r5): two overlapping calls for the same query share
+    ONE provider call, not two.
+
+    A rate-limit exemption can be granted before either half of a paired
+    request has finished embedding, so if both then missed the TTL cache
+    and called the provider independently, one shared-limit token would
+    fund two paid calls. Uses events (not sleeps) so the second call is
+    provably started while the first is still blocked inside the provider
+    call, matching a genuine race rather than a lucky sequential timing.
+    """
+    fake_vector = [0.4] * 1536
+    provider_call_started = asyncio.Event()
+    release_provider_call = asyncio.Event()
+
+    async def _slow_provider_call(*args, **kwargs):
+        provider_call_started.set()
+        await release_provider_call.wait()
+        return fake_vector
+
+    mock_port = _mock_port()
+    mock_port.generate_embedding = AsyncMock(side_effect=_slow_provider_call)
+    session = _mock_session_with_model()
+
+    with patch.object(service_semantic, "get_catalog_port", return_value=mock_port):
+        first_task = asyncio.ensure_future(
+            service_semantic.generate_embedding("overlapping query", session)
+        )
+        await provider_call_started.wait()
+
+        second_task = asyncio.ensure_future(
+            service_semantic.generate_embedding("overlapping query", session)
+        )
+        release_provider_call.set()
+        first, second = await asyncio.gather(first_task, second_task)
+
+    assert first == fake_vector
+    assert second == fake_vector
+    assert mock_port.generate_embedding.call_count == 1, (
+        "the second call should have joined the first's in-flight task "
+        "instead of making its own provider call"
+    )
 
 
 @pytest.mark.asyncio

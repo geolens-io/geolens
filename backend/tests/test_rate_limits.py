@@ -25,6 +25,8 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
+from app.core.config import settings
+from app.core.db.tenant_session import current_tenant_var
 from app.core.persistent_config import (
     _sync_rate_limit_cache,
     get_cached_semantic_search_rate_limit,
@@ -380,6 +382,46 @@ async def test_claim_is_scoped_to_the_requesting_client(client: AsyncClient):
         limiter.enabled = False
         _clear_cache_limit("semantic_search_rate_limit")
         _reset_limiter_storage()
+        service_semantic._query_claims_clear()
+
+
+async def test_claim_functions_degrade_without_crashing_when_tenant_unscoped(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """fix(#1903 review r5): an unscoped multi-tenant request must not 500.
+
+    ``tenant_cache_key()`` raises when multi-tenant mode has no verified
+    tenant context (a trusted unscoped host, per
+    ``tenant_cache_context_available()``'s own docstring). ``exempt_when``
+    runs synchronously inside slowapi's rate-limit check, so an uncaught
+    exception there would turn every search request with ``q`` into a 500
+    on such a host. The claim functions must check availability first and
+    simply disable claiming instead.
+
+    Counterfactual: calling ``tenant_cache_key`` directly from
+    ``_query_claim_key`` without that check raises ``ValueError`` here.
+    """
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
+    token = current_tenant_var.set(None)
+    try:
+        assert (
+            service_semantic.consume_paired_query_claim(
+                "203.0.113.5", "unscoped query", "datasets"
+            )
+            is False
+        )
+        # Must not raise.
+        service_semantic.record_paired_query_claim(
+            "203.0.113.5", "unscoped query", "datasets"
+        )
+        assert (
+            service_semantic.consume_paired_query_claim(
+                "203.0.113.5", "unscoped query", "facets"
+            )
+            is False
+        ), "no claim should have been recorded without a tenant context"
+    finally:
+        current_tenant_var.reset(token)
         service_semantic._query_claims_clear()
 
 

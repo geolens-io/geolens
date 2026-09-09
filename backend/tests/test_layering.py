@@ -1823,7 +1823,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # and confirms the registry's TTL/size bounds so an unconsumed claim
         # (the sibling landed on another worker) cannot grow it or be
         # redeemed twice. Cap 433 -> 438, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 438,
+        # fix(#1903 review r5): +38 — a rate-limit exemption can be granted
+        # before either half of a paired request has finished embedding, so
+        # concurrent identical embed calls now join ONE in-flight provider
+        # call instead of each starting their own; plus a tenant-context
+        # availability guard on the claim key so an unscoped multi-tenant
+        # request degrades instead of 500ing. Cap 438 -> 476, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 476,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
