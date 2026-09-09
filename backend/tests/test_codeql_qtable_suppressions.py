@@ -354,6 +354,28 @@ def _path_typed_names(nodes: list[ast.AST]) -> set[str]:
     return names
 
 
+def _bound_names(nodes: list[ast.AST]) -> set[str]:
+    """Names this scope binds itself, whatever they end up holding.
+
+    A scope that rebinds an inherited name shadows it, so the inherited proof
+    no longer describes the object in hand. That applies to ``open`` too: a
+    parameter or module-level def of that name is not the builtin.
+    """
+    bound: set[str] = set()
+    for node in nodes:
+        if isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound.add(node.id)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            bound.add(node.name)
+        elif isinstance(node, ast.alias):
+            bound.add((node.asname or node.name).split(".")[0])
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+    return bound
+
+
 def _path_sink_lines(source: str) -> set[int]:
     """1-based start line of every call that acts on a filesystem path.
 
@@ -368,16 +390,18 @@ def _path_sink_lines(source: str) -> set[int]:
     """
     lines: set[int] = set()
 
-    def visit(scope: ast.AST, inherited: set[str]) -> None:
+    def visit(scope: ast.AST, inherited: set[str], open_shadowed: bool) -> None:
         nodes = _scope_nodes(scope)
-        names = inherited | _path_typed_names(nodes)
+        bound = _bound_names(nodes)
+        names = (inherited - bound) | _path_typed_names(nodes)
+        shadowed = open_shadowed or "open" in bound
         for node in nodes:
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                visit(node, names)
+                visit(node, names, shadowed)
             elif isinstance(node, ast.Call):
                 func = node.func
                 if isinstance(func, ast.Name):
-                    if func.id == "open":
+                    if func.id == "open" and not shadowed:
                         lines.add(node.lineno)
                 elif (
                     isinstance(func, ast.Attribute)
@@ -387,7 +411,7 @@ def _path_sink_lines(source: str) -> set[int]:
                 ):
                     lines.add(node.lineno)
 
-    visit(ast.parse(source), set())
+    visit(ast.parse(source), set(), False)
     return lines
 
 
