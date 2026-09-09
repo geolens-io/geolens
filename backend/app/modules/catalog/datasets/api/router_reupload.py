@@ -19,6 +19,7 @@ from fastapi import (
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.failure_reason import redact_failure_reason
 from app.core.upload_errors import UnsafeUploadError
 from app.core.identity import Identity
 from app.core.async_io import (
@@ -376,7 +377,7 @@ async def reupload_dataset(
             await db.execute(
                 _pending_reupload_update(job.id, dataset_id).values(
                     status="failed",
-                    error_message=str(exc),
+                    error_message=redact_failure_reason(exc),
                     completed_at=datetime.now(timezone.utc),
                 )
             )
@@ -1407,7 +1408,7 @@ async def complete_presigned_reupload(
         # leave the job retryable exactly as they do on the upload door.
         if exc.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT:
             job.status = "failed"
-            job.error_message = str(exc.detail)
+            job.error_message = redact_failure_reason(str(exc.detail))
             await db.commit()
         raise
 

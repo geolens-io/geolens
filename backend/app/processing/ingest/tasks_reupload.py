@@ -9,6 +9,7 @@ import structlog
 from sqlalchemy import select, update
 
 from app.core.db.tenant_session import tenant_task
+from app.core.failure_reason import redact_failure_reason
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
@@ -260,7 +261,7 @@ async def reupload_file(
                     attempt_uuid,
                     values={
                         "status": "failed",
-                        "error_message": str(exc),
+                        "error_message": redact_failure_reason(exc),
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
@@ -272,7 +273,7 @@ async def reupload_file(
                     session,
                     ingest_job_id=job_uuid,
                     error_code="validation_failed",
-                    error_message=str(exc),
+                    error_message=exc,
                     contacted_origin=False,
                 )
                 await session.commit()
@@ -550,7 +551,7 @@ async def reupload_file(
                     err_session,
                     ingest_job_id=job_uuid,
                     error_code=_file_refresh_error_code(exc),
-                    error_message=str(exc),
+                    error_message=exc,
                     contacted_origin=False,
                 )
                 await err_session.commit()
@@ -1230,7 +1231,7 @@ async def reupload_service(
                 err_session,
                 ingest_job_id=job_uuid,
                 error_code=_service_refresh_error_code(exc),
-                error_message=str(exc),
+                error_message=exc,
                 contacted_origin=False,
             )
             await err_session.commit()

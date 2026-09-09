@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.failure_reason import redact_failure_reason
 from app.core.identity import Identity
 from app.core.async_io import (
     run_in_thread_draining,
@@ -665,7 +666,7 @@ async def upload_file(
                 await db.execute(
                     _pending_upload_update(job_id).values(
                         status="failed",
-                        error_message=str(exc),
+                        error_message=redact_failure_reason(exc),
                         completed_at=datetime.now(timezone.utc),
                     )
                 )

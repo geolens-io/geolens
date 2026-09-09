@@ -658,7 +658,9 @@ class TestCreateVrtJob:
             # Job was marked failed before the exception propagated.
             assert stub_job.status == "failed"
             assert stub_job.error_message is not None
-            assert "procrastinate unreachable" in stub_job.error_message
+            # fix(#1953): the stored reason names the class, never the raw text.
+            assert "procrastinate unreachable" not in stub_job.error_message
+            assert "RuntimeError" in stub_job.error_message
             assert stub_job.completed_at is not None
             # Three commits: one after create_ingest_job, one for the #1744
             # dispatch stamp the orphan guard writes before it defers, and one

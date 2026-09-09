@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { describeFailureReason } from '@/lib/failure-reason';
 import { useLocation, useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAdminJobs, useCancelAdminJob, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
@@ -437,7 +438,10 @@ export function JobList() {
                                     {t('jobs.detail.errorMessage')}
                                   </p>
                                   <pre className="whitespace-pre-wrap overflow-x-auto text-xs">
-                                    {job.error_message}
+                                    {describeFailureReason(
+                                      job.error_message,
+                                      t('common:errors.unexpected'),
+                                    )}
                                   </pre>
                                 </div>
                               )}

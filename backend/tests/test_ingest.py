@@ -1343,7 +1343,9 @@ async def test_queue_ingest_job_file_defer_failure_marks_job_failed(tmp_path):
     assert exc_info.value.status_code == 503
     assert job.status == "failed"
     assert job.error_message is not None
-    assert "procrastinate unreachable" in job.error_message
+    # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+    assert "(RuntimeError)" in job.error_message
+    assert "procrastinate unreachable" not in job.error_message
     assert job.completed_at is not None
     mock_db.commit.assert_awaited()
 
@@ -1382,7 +1384,9 @@ async def test_queue_ingest_job_service_defer_failure_marks_job_failed():
 
     assert exc_info.value.status_code == 503
     assert job.status == "failed"
-    assert "queue down" in job.error_message
+    # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+    assert "(RuntimeError)" in job.error_message
+    assert "queue down" not in job.error_message
 
 
 @pytest.mark.anyio
@@ -1421,7 +1425,9 @@ async def test_queue_ingest_job_raster_defer_failure_marks_job_failed(tmp_path):
 
     assert exc_info.value.status_code == 503
     assert job.status == "failed"
-    assert "raster queue dead" in job.error_message
+    # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+    assert "(RuntimeError)" in job.error_message
+    assert "raster queue dead" not in job.error_message
 
 
 class TestCommitImportDispatch:

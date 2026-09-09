@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { describeFailureReason } from '@/lib/failure-reason';
 import {
   useJobStatus,
   useRetryJob,
@@ -316,7 +317,9 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
         {job.status === 'failed' && (
           <div className="space-y-3">
             {job.error_message && (
-              <p className="text-sm text-destructive">{job.error_message}</p>
+              <p className="text-sm text-destructive">
+                {describeFailureReason(job.error_message, t('common:errors.unexpected'))}
+              </p>
             )}
             {job.retry_reason && (
               <p className="text-sm text-muted-foreground">{job.retry_reason}</p>

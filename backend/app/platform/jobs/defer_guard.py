@@ -28,6 +28,7 @@ from sqlalchemy import inspect as sa_inspect, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
 from sqlalchemy.orm.attributes import set_committed_value
 
+from app.core.failure_reason import coded_failure_reason
 from app.core.logging_config import redact_nested
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
@@ -50,10 +51,11 @@ DeferCallable = Callable[[], Awaitable[Any]]
 RollbackCallable = Callable[[BaseException], Awaitable[None]]
 """Async callable that reverts committed DB state after a defer failure.
 
-Receives the defer exception so the rollback can embed its details in
-error messages (matches the ``f"Failed to queue ...: {exc}"`` format the
-pre-existing regression tests assert on). Must *not* commit the session
-— ``defer_with_orphan_guard`` commits after invoking the rollback.
+Receives the defer exception so the rollback can name its type in the
+stored reason (fix(#1953): ``coded_failure_reason``, never ``str(exc)``,
+which ADR-002 Decision 3 keeps out of a stored reason). Must *not* commit
+the session — ``defer_with_orphan_guard`` commits after invoking the
+rollback.
 """
 
 
@@ -302,12 +304,13 @@ async def settle_ingest_job_failed(
     and a lazy reload outside a greenlet raises ``MissingGreenlet``.
     """
     completed_at = datetime.now(timezone.utc)
+    error_message = coded_failure_reason(message_prefix, defer_exc)
     session = async_object_session(job)
     if session is None:
         # No session to fence through (detached instance). Still act — an
         # orphaned pending row is the failure this guard exists to prevent.
         job.status = "failed"
-        job.error_message = f"{message_prefix}: {defer_exc}"
+        job.error_message = error_message
         job.completed_at = datetime.now(timezone.utc)
         return True
 
@@ -324,14 +327,14 @@ async def settle_ingest_job_failed(
         )
         .values(
             status="failed",
-            error_message=f"{message_prefix}: {defer_exc}",
+            error_message=error_message,
             completed_at=completed_at,
         )
     )
     landed = bool(result.rowcount)
     if landed:
         job.status = "failed"
-        job.error_message = f"{message_prefix}: {defer_exc}"
+        job.error_message = error_message
         job.completed_at = completed_at
     else:
         logger.info(
@@ -393,6 +396,8 @@ def make_vrt_regeneration_failed_rollback(
         vrt_asset.current_generation_id = previous_generation_id
         generation.status = "failed"
         generation.completed_at = datetime.now(timezone.utc)
-        generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
+        generation.error_message = coded_failure_reason(
+            "Failed to queue VRT regeneration", defer_exc
+        )
 
     return _rollback

@@ -1561,4 +1561,43 @@ describe('ReuploadDialog raster reupload', () => {
     // Reset really did win: still on the reset source-selector screen.
     expect(screen.getByTestId('reupload-source-selector')).toBeInTheDocument();
   });
+
+  // fix(#1953): ADR-002 Decision 3 stores `internal_error` in place of a
+  // failure the server did not compose, so the dialog is the surface that
+  // has to turn that code into something a reader understands.
+  it('renders the localized line for the coded internal failure', async () => {
+    const user = userEvent.setup();
+    mockUseJobStatus.mockReturnValue({
+      data: { status: 'failed', error_message: 'internal_error' },
+    } as unknown as ReturnType<typeof useJobStatus>);
+    renderRasterDialog();
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    expect(await screen.findByText('Re-upload job failed.')).toBeInTheDocument();
+    expect(screen.queryByText('internal_error')).not.toBeInTheDocument();
+  });
+
+  it('still shows a composed failure message verbatim', async () => {
+    const user = userEvent.setup();
+    mockUseJobStatus.mockReturnValue({
+      data: {
+        status: 'failed',
+        error_message: "Layer 'parcels' has no geometry column",
+      },
+    } as unknown as ReturnType<typeof useJobStatus>);
+    renderRasterDialog();
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    expect(
+      await screen.findByText("Layer 'parcels' has no geometry column"),
+    ).toBeInTheDocument();
+  });
 });

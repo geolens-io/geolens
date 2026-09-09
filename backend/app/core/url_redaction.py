@@ -281,6 +281,35 @@ def scrub_registered_credentials(text: str) -> str:
     return text
 
 
+# fix(#1953): libpq keyword/value connection detail. GDAL echoes the `PG:`
+# destination it was handed on a connection failure, and that DSN carries the
+# password, which is no URL and no registered request credential, beside the
+# database topology fix(#1953) keeps out of a stored reason with it.
+_LIBPQ_VALUE_RE = re.compile(
+    r"(?i)\b(password|sslpassword|host|hostaddr|port|dbname|user|sslrootcert)"
+    r"\s*=\s*(?:'(?:[^'\\]|\\.)*'|\S*)"
+)
+
+# fix(#1953): a path GDAL echoes back names the server's layout, `/vsi` handles
+# included. The lookbehind keeps a URL's own path out of it: there the slash
+# follows the host, never a space or a quote.
+_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w/:])(?:/[\w.+-]+){2,}/?")
+
+
+def redact_libpq_credentials(text: str) -> str:
+    """Mask the values in a libpq keyword/value connection string.
+
+    Handles both spellings ``libpq_value`` emits: a bare token, and a
+    single-quoted value with backslash escapes.
+    """
+    return _LIBPQ_VALUE_RE.sub(rf"\1={REDACTED_QUERY_VALUE}", text)
+
+
+def redact_filesystem_paths(text: str) -> str:
+    """Mask absolute paths and ``/vsi`` handles, keeping the text around them."""
+    return _ABSOLUTE_PATH_RE.sub(REDACTED_QUERY_VALUE, text)
+
+
 def redact_exception_text(exc: BaseException) -> str:
     """``str(exc)``, with any URL-shaped substring redacted.
 

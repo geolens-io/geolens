@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
+from app.core.failure_reason import redact_failure_reason
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 
@@ -185,8 +186,12 @@ async def release_manifest_reservation(
 
     fix(#1814): the shared settlement fences on ``pending``, so the lease needs
     its own exit. The trap: ``user_metadata`` is not mirrored, reading queries.
+
+    fix(#1953): ``message`` is redacted HERE, not at the caller. This is the
+    sink, and the manifest door composes it from an exception.
     """
     now = now or datetime.now(timezone.utc)
+    message = redact_failure_reason(message)
     result = await db.execute(
         update(IngestJob)
         .where(

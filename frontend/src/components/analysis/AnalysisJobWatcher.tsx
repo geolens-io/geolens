@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { INTERNAL_FAILURE_REASON } from '@/lib/failure-reason';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -210,7 +211,9 @@ export function AnalysisJobWatcher() {
             { id: toastId },
           );
         } else {
-          const message = data?.error_message;
+          // fix(#1953): the coded reason is not a detail worth showing.
+          const reason = data?.error_message;
+          const message = reason === INTERNAL_FAILURE_REASON ? null : reason;
           // Interpolate the detail through i18n rather than concatenating onto
           // t(): check:i18n:toast-strings flags any toast call whose first
           // argument opens with a quote or backtick, template literals included.

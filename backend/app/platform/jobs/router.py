@@ -17,6 +17,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.failure_reason import redact_failure_reason
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
@@ -401,7 +402,11 @@ async def get_job_status(
             # writes `failed` outright — same split the background sweep and
             # the worker's startup recovery apply.
             values = (
-                {"status": "failed", "error_message": message, "completed_at": now}
+                {
+                    "status": "failed",
+                    "error_message": redact_failure_reason(message),
+                    "completed_at": now,
+                }
                 if completion_bound
                 else stale_pending_unbound_values(now, message=message)
             )

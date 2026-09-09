@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { INTERNAL_FAILURE_REASON } from '@/lib/failure-reason';
 import { useMutation } from '@tanstack/react-query';
 import { TerraDraw, TerraDrawPolygonMode } from 'terra-draw';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
@@ -1917,7 +1918,10 @@ export function AnalysisPanel({
                     // rather than concatenating the raw server error onto a
                     // translated prefix, which left half the sentence untranslated.
                     job.status === 'failed'
-                    ? job.error_message
+                    ? // fix(#1953): the coded reason is not a detail worth
+                      // showing; the plain line below already says it failed.
+                      job.error_message &&
+                      job.error_message !== INTERNAL_FAILURE_REASON
                       ? t('analysisTools.jobFailedDetail', {
                           defaultValue: 'Analysis job failed: {{message}}',
                           message: job.error_message,

@@ -11,6 +11,7 @@ from sqlalchemy import or_, text, update
 from sqlalchemy.exc import DBAPIError
 
 from app.core.db.tenant_session import tenant_task
+from app.core.failure_reason import redact_failure_reason
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.dataset_origin import service_layer_identity
 from app.platform.jobs.heartbeat import (
@@ -486,7 +487,7 @@ async def ingest_file(
                     attempt_uuid,
                     values={
                         "status": "failed",
-                        "error_message": str(exc),
+                        "error_message": redact_failure_reason(exc),
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )

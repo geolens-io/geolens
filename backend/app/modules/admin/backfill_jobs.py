@@ -21,6 +21,7 @@ import structlog
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.failure_reason import redact_failure_reason
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.platform.jobs.heartbeat import (
     claim_job_attempt_and_start_heartbeat,
@@ -116,7 +117,10 @@ async def _finalize(
     values: dict[str, object] = {
         "status": status,
         "completed_at": datetime.now(timezone.utc),
-        "error_message": error_message,
+        # fix(#1953): ADR-002 Decision 3 at the sink, not at each caller.
+        "error_message": redact_failure_reason(error_message)
+        if error_message
+        else None,
     }
     backfill_meta = dict((metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY) or {})
     extra_metadata: dict[str, Any] = {}
@@ -249,7 +253,7 @@ class _TerminalState:
         self.status = "failed"
         self.outcome = "failed"
         self.error_code = error_code
-        self.error_message = message
+        self.error_message = redact_failure_reason(message)
         self.result = result
 
     def audit_extra(self) -> dict[str, Any]:

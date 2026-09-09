@@ -11,6 +11,7 @@ import {
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
 import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
+import { describeFailureReason } from '@/lib/failure-reason';
 import { SchemaDiffView } from './SchemaDiffView';
 import {
   Dialog,
@@ -263,7 +264,10 @@ export function ReuploadDialog({
         cancelled = true;
       };
     } else if (jobData.status === 'failed') {
-      const message = jobData.error_message ?? t('reupload.jobFailed');
+      const reason = jobData.error_message;
+      const message = reason
+        ? describeFailureReason(reason, t('reupload.jobFailed'))
+        : t('reupload.jobFailed');
       setError(
         sourceType === 'service_url'
           ? appendRetryGuidance(message)

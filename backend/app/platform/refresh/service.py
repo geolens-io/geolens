@@ -25,7 +25,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.url_redaction import redact_url_credentials
+from app.core.failure_reason import coded_failure_reason, redact_failure_reason
 from app.platform.refresh.models import DatasetRefreshRun
 
 logger = structlog.get_logger(__name__)
@@ -58,10 +58,6 @@ RUN_ORIGIN_KINDS: tuple[str, ...] = (
 # cutoff only has to be longer than the gap between dispatch and claim.
 ABANDONED_RUN_CUTOFF_SECONDS = 3600
 
-# Cap on the stored failure text. GDAL stderr can run to kilobytes and the
-# useful part is at the front.
-_MAX_ERROR_MESSAGE_CHARS = 2000
-
 ABANDONED_ERROR_CODE = "abandoned"
 ABANDONED_ERROR_MESSAGE = (
     "The refresh task was never picked up by a worker, or the worker "
@@ -76,14 +72,13 @@ USER_CANCELLED_ERROR_CODE = "user_cancelled"
 USER_CANCELLED_ERROR_MESSAGE = "Cancelled by user."
 
 
-def redact_run_error(message: str) -> str:
-    """Short, credential-free failure text for a run row.
+def redact_run_error(message: str | BaseException) -> str:
+    """ADR-002 Decision 3 applied to a run row's ``error_message``.
 
-    Never store a raw exception, a URL with query-string credentials, or a
-    GDAL command line. ``redact_url_credentials`` also scans free text (not
-    just URLs) for URL-shaped substrings, which is what GDAL stderr is.
+    fix(#1953): the clause is enforced in ``core/failure_reason.py``, shared
+    with the ``ingest_jobs`` sink, rather than restated per caller.
     """
-    return redact_url_credentials(message)[:_MAX_ERROR_MESSAGE_CHARS]
+    return redact_failure_reason(message)
 
 
 def drift_status_from_diff(schema_diff: dict[str, Any] | None) -> str | None:
@@ -596,7 +591,7 @@ async def record_refresh_failure(
     *,
     ingest_job_id: uuid.UUID,
     error_code: str,
-    error_message: str,
+    error_message: str | BaseException,
     contacted_origin: bool,
     origin_binding: tuple[str | None, dict[str, Any] | None, str | None] | None = None,
 ) -> uuid.UUID | None:
@@ -741,7 +736,9 @@ def make_refresh_run_failed_rollback(
             db,
             ingest_job_id=ingest_job_id,
             error_code="dispatch_failed",
-            error_message=f"Failed to queue refresh task: {defer_exc}",
+            error_message=coded_failure_reason(
+                "Failed to queue refresh task", defer_exc
+            ),
             contacted_origin=False,
         )
 
@@ -783,8 +780,11 @@ _NO_OTHER_LIVE_LEGACY_TASK = """
 # in one visibility scope. No table has RLS enabled today (#998), so this is
 # currently a no-op — written now rather than remembered later.
 #
-# The two proofs the sweep needs before writing `cancelled` (a bookkeeping
-# correction, never a stop signal, per ADR-002 4d):
+# fix(#1954): the two proofs THIS sweep needs before writing `cancelled`.
+# ADR-002 4d gives the status two writers told apart by `error_code`:
+# `abandoned` here, a bookkeeping correction provable only when the work is
+# not happening, and `cancel_active_run_for_job`'s `user_cancelled` stop
+# signal, which is a person's decision and needs no proof.
 #
 # 1. No live Procrastinate job references the bound ingest job (correlated
 #    on args->>'job_id', inlined rather than importing
