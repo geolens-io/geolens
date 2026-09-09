@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import io
+import json
 import re
 import sys
 import tokenize
@@ -158,9 +159,11 @@ def iter_units(source: str, module: str) -> list[Unit]:
     return _comment_units(source, module) + _docstring_units(source, module)
 
 
-def markers_in(text: str) -> tuple[str, ...]:
+def markers_in(
+    text: str, vocabulary: frozenset[str] = TECHNICAL_VOCABULARY
+) -> tuple[str, ...]:
     """Finding markers in one unit, vocabulary removed, sorted and deduped."""
-    found = {t for t in MARKER_RE.findall(text) if t not in TECHNICAL_VOCABULARY}
+    found = {t for t in MARKER_RE.findall(text) if t not in vocabulary}
     found.update(m.group(1) for m in AGENT_TAG_RE.finditer(text))
     return tuple(sorted(found))
 
@@ -433,12 +436,95 @@ def check(app_root: Path = APP_ROOT) -> list[str]:
     return problems
 
 
+# Field/Query ``description=`` strings are literals, not docstrings, so
+# nothing above sees them, though they reach openapi.json and the SDKs
+# (#1946). Only openapi.json is scanned; make sdks-check already gates drift
+# between it and the ~900 generated SDK files.
+OPENAPI_PATH = Path(__file__).resolve().parents[1] / "openapi.json"
+
+# main carries 4175 description strings; a walk that silently sees none of
+# the spec (a moved file, a renamed key) must fail loudly, not pass empty.
+MIN_OPENAPI_DESCRIPTIONS = 3000
+
+# ADR-002 (.github/ADR-002.md) is a committed, publicly readable design
+# record, as resolvable as a CVE id or a GH-NNNN issue. Kept separate from
+# TECHNICAL_VOCABULARY, which also bounds the source-tree debt ledger above.
+_PUBLISHED_VOCABULARY = TECHNICAL_VOCABULARY | {"ADR-002"}
+
+
+def _openapi_descriptions(node: object, path: str = "$") -> list[tuple[str, str]]:
+    """Every description string in a parsed OpenAPI document, with its JSON
+    path."""
+    found: list[tuple[str, str]] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            child = f"{path}.{key}"
+            if key == "description" and isinstance(value, str):
+                found.append((child, value))
+            else:
+                found.extend(_openapi_descriptions(value, child))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            found.extend(_openapi_descriptions(value, f"{path}[{index}]"))
+    return found
+
+
+def scan_openapi(spec: object) -> list[Hit]:
+    """Unanchored marker-bearing lines in every ``description`` in ``spec``."""
+    hits: list[Hit] = []
+    for json_path, text in _openapi_descriptions(spec):
+        lines = text.splitlines()
+        anchored = [ANCHOR_RE.search(line) is not None for line in lines]
+        for offset, line in enumerate(lines):
+            markers = markers_in(line, _PUBLISHED_VOCABULARY)
+            if not markers:
+                continue
+            low = max(0, offset - ANCHOR_WINDOW)
+            high = offset + ANCHOR_WINDOW + 1
+            if any(anchored[low:high]):
+                continue
+            hits.append(Hit(json_path, offset + 1, "openapi-description", markers))
+    return hits
+
+
+def check_openapi(openapi_path: Path = OPENAPI_PATH) -> list[str]:
+    """Every unanchored marker reaching the published OpenAPI surface."""
+    try:
+        spec = json.loads(openapi_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"could not read {openapi_path}: {exc}"]
+
+    problems: list[str] = []
+    description_count = len(_openapi_descriptions(spec))
+    if description_count < MIN_OPENAPI_DESCRIPTIONS:
+        problems.append(
+            f"read {description_count} description strings from {openapi_path},"
+            f" floor is {MIN_OPENAPI_DESCRIPTIONS} — the scan is not seeing the"
+            " spec"
+        )
+
+    hits = scan_openapi(spec)
+    if hits:
+        problems.append(
+            f"{openapi_path} publishes finding markers with no #issue anchor —"
+            " an integrator reading the generated SDK docstring has nothing to"
+            " resolve them against. Rewrite the Field/Query description to"
+            " state the constraint itself, then run `make sdks`:"
+        )
+        problems.extend(f"    {hit.describe()}" for hit in hits)
+
+    return problems
+
+
 def main() -> int:
     """Print every violation and return 1, or return 0 on a clean tree."""
-    problems = check()
+    problems = check() + check_openapi()
     if not problems:
         return 0
-    print("FAIL: unscoped finding markers in backend/app comments or docstrings")
+    print(
+        "FAIL: unscoped finding markers in backend/app comments/docstrings or"
+        " backend/openapi.json descriptions"
+    )
     for line in problems:
         print(f"  {line}")
     print("  See AGENTS.md > Inline review-comment convention.")
