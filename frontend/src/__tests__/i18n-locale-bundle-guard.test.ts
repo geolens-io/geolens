@@ -33,10 +33,9 @@ function callsWithoutHelper(source: string): boolean {
   return CALL_PATTERN.test(stripped) && !HELPER_IMPORT.test(stripped);
 }
 
-// fix(#2029 review round 3): i18n.test.ts calls changeAppLanguage directly
-// on purpose — it's testing that function itself against a standalone
-// i18next.createInstance(), not the shared harness instance the helper
-// works around, so there is no bundle to silently miss.
+// fix(#2029): i18n.test.ts calls changeAppLanguage on a standalone
+// i18next.createInstance(), not the shared frozen-resource harness the
+// helper works around, so it's exempt from this check.
 const HELPER_EXEMPT_FILES = new Set(['/src/i18n/i18n.test.ts']);
 
 const violations = Object.entries(TEST_FILES)

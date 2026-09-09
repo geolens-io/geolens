@@ -22,11 +22,9 @@ function updateDocumentLanguage(lng?: string) {
   document.documentElement.dir = rtlLanguages.has(resolvedLng) ? 'rtl' : 'ltr';
 }
 
-// fix(#2029 review): `zh` here is Simplified Chinese only. A bare
-// `split('-')[0]` would also route Traditional or region-only tags
-// (zh-TW, zh-Hant, zh-MY) to it, so ask Intl.Locale for the tag's actual
-// script rather than guessing from a region allowlist — CLDR maximizes
-// zh-MY to zh-Hans-MY but zh-TW to zh-Hant-TW.
+// fix(#2029): `zh` here is Simplified Chinese only. Ask Intl.Locale for the
+// tag's actual script (zh-MY maximizes to Hans, zh-TW to Hant) rather than
+// guessing from a region allowlist or discarding the region entirely.
 function isSimplifiedChineseTag(tag: string): boolean {
   try {
     return new Intl.Locale(tag).maximize().script === 'Hans';
@@ -74,13 +72,9 @@ async function buildInitialResources() {
   const initialLanguage = detectInitialLanguage();
 
   if (initialLanguage === fallbackLng) {
-    // fix(#2029 review round 3, P1): `resources` (resources.ts) is
-    // Object.freeze'd and non-extensible. Handing it to i18next by
-    // reference means later i18n.addResourceBundle(otherLng, ...) calls in
-    // changeAppLanguage throw "object is not extensible" the first time a
-    // session that started in English switches to any other language.
-    // Cloning it here keeps the resource store extensible without
-    // mutating the shared, frozen export.
+    // fix(#2029 P1): `resources` is frozen/non-extensible; passed by
+    // reference, a later addResourceBundle() for another language throws.
+    // Clone it so the store stays extensible without mutating the export.
     return {
       initialLanguage,
       initialResources: { ...resources },
@@ -130,12 +124,9 @@ export async function changeAppLanguage(lng: string) {
   const nextLanguage = normalizeLanguage(lng);
   await initializeI18n();
 
-  // fix(#2029 review round 3, P1): hasLoadedNamespace resolves through the
-  // fallback chain — with partialBundledLanguages true it reports a
-  // namespace "loaded" for a language that was never registered, as long as
-  // the fallback (en) has it. That skipped this load entirely, so picking a
-  // language the session didn't start in silently kept rendering English.
-  // hasResourceBundle checks the actual store, not the fallback chain.
+  // fix(#2029 P1): hasLoadedNamespace resolves through the fallback chain
+  // and falsely reports an unregistered language "loaded", skipping this
+  // load. hasResourceBundle checks the actual store, not the fallback.
   if (!i18n.hasResourceBundle(nextLanguage, defaultNS)) {
     const localeResources = await loadLocaleResources(nextLanguage);
     for (const ns of namespaces) {

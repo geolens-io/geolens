@@ -1,11 +1,9 @@
 import i18next from 'i18next';
 import { fallbackLng, normalizeLanguage } from './i18n';
 
-// fix(#2029 review): the `zh` bundle is Simplified Chinese only. A tag
-// resolver that discards everything after the first hyphen would also route
-// zh-TW/zh-Hant (Traditional) browsers into it — assert Simplified tags
-// match (including zh-MY, which CLDR maximizes to zh-Hans-MY, not a
-// zh-CN/SG region code) and Traditional ones fall back instead.
+// fix(#2029): the zh bundle is Simplified Chinese only. Match by CLDR
+// script via Intl.Locale (zh-MY maximizes to Hans, zh-TW to Hant), not by
+// discarding everything after the first hyphen.
 describe('normalizeLanguage', () => {
   it.each(['zh', 'zh-CN', 'zh-Hans', 'zh-Hans-CN', 'zh-SG', 'zh-MY'])(
     'resolves the Simplified Chinese tag %s to zh',
@@ -33,21 +31,9 @@ describe('normalizeLanguage', () => {
   });
 });
 
-// fix(#2029 review round 3, P1): a session that starts in English (the
-// jsdom/browser default with no stored preference) hands i18next the
-// Object.freeze'd `resources` singleton by reference. Switching language
-// from there used to silently keep rendering English — hasLoadedNamespace
-// falsely reported the target namespace "loaded" via the fallback chain, so
-// the load was skipped, and even fixing that check alone would have made
-// i18n.addResourceBundle() throw against the frozen, non-extensible store.
-//
-// This drives the real initializeI18n()/changeAppLanguage() against a
-// standalone i18next instance (vi.resetModules() alone can't evict the
-// package's Vite-optimized singleton that src/test/setup.ts already
-// initialized, so a plain re-import still returns that shared, already-
-// initialized instance) — vi.doMock substitutes an independent instance
-// from i18next.createInstance() so this exercises real, unmodified app
-// code, not a reimplementation of it.
+// fix(#2029 P1): an English-initial session kept silently rendering English
+// after switching locale. vi.doMock substitutes a standalone
+// i18next.createInstance() since resetModules() can't evict the shared one.
 describe('changeAppLanguage (English-initial session)', () => {
   afterEach(() => {
     vi.doUnmock('i18next');
