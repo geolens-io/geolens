@@ -135,7 +135,7 @@ async def _load_mask_dataset(
     fix(#955): shared with select_by_location, which takes its selection
     geometry from the same mask pair; both ceilings apply unchanged. The
     over-limit message still says "to clip with" -- reads slightly off for
-    a selection, but is wired through error-map.ts and five locales.
+    a selection, but is wired through error-map.ts and four locales.
     """
     dataset = await _load_vector_dataset(db, mask_dataset_id, user)
     if (dataset.geometry_type or "").upper() not in _POLYGONAL_TYPES:
