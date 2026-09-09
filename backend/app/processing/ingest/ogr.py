@@ -6,7 +6,7 @@ import os
 import re
 import time
 from collections.abc import Callable
-from typing import TypedDict
+from typing import NoReturn, TypedDict
 
 import structlog
 
@@ -84,6 +84,26 @@ def _is_unopenable_source_stderr(stderr_text: str) -> bool:
     )
 
 
+# fix(#2010): the failure classes a stored reason may name, and the only
+# field any of them takes out of GDAL's text. A driver names the source
+# inside its own prose ("unable to open 'GPKG:/app/staging/x.gpkg'"), which
+# no cut over that text can be relied on to reach.
+_GDAL_FAILURE_CLASSES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"HTTP (?:error )?(?:code|response)\s*:?\s*(\d{3})"),
+        "the source service answered HTTP {}",
+    ),
+    (
+        re.compile(r"(?i)couldn't fetch requested layer"),
+        "the requested layer is not in the source",
+    ),
+    (
+        re.compile(r"Failed to process SRS definition"),
+        "the coordinate reference system could not be resolved",
+    ),
+)
+
+
 # Human-readable label per uploaded extension, used only to phrase the
 # friendly "could not open" message below. Unknown/missing extensions fall
 # back to a generic "spatial data" phrasing.
@@ -121,6 +141,35 @@ def _friendly_open_failure_message(original_filename: "str | None") -> str:
         "Could not open the uploaded file as a spatial dataset — it may be "
         "corrupt, incomplete, or not a valid spatial data file."
     )
+
+
+def _raise_gdal_failure(
+    tool: str,
+    returncode: int,
+    stderr_text: str,
+    original_filename: "str | None",
+) -> NoReturn:
+    """Raise the reason ``stderr_text``'s failure class allows, having logged it.
+
+    The message carries the tool, the exit status and the fields the matched
+    class permits, never the driver's own prose. Full stderr is diagnostic
+    gold for us and noise for the job UI, so it stays in the log.
+    """
+    structlog.get_logger().error(
+        f"{tool} failed",
+        exit_code=returncode,
+        stderr=stderr_text,
+        original_filename=original_filename,
+    )
+    if _is_unopenable_source_stderr(stderr_text):
+        raise IngestionError(_friendly_open_failure_message(original_filename))
+    for pattern, sentence in _GDAL_FAILURE_CLASSES:
+        match = pattern.search(stderr_text)
+        if match:
+            raise IngestionError(
+                f"{tool} failed (exit {returncode}): {sentence.format(*match.groups())}"
+            )
+    raise IngestionError(f"{tool} failed (exit {returncode})")
 
 
 # fix(#1746): the worker's own refusals, as constants rather than composed
@@ -762,18 +811,9 @@ async def run_ogrinfo(
     )
 
     if proc.returncode != 0:
-        stderr_text = stderr.decode().strip()
-        if _is_unopenable_source_stderr(stderr_text):
-            # Full stderr is diagnostic gold for us but noise (plus a leaked
-            # staging path) for the job UI — log it here, raise a friendly message.
-            structlog.get_logger().error(
-                "ogrinfo could not open source file",
-                exit_code=proc.returncode,
-                stderr=stderr_text,
-                original_filename=original_filename,
-            )
-            raise IngestionError(_friendly_open_failure_message(original_filename))
-        raise IngestionError(f"ogrinfo failed (exit {proc.returncode}): {stderr_text}")
+        _raise_gdal_failure(
+            "ogrinfo", proc.returncode, stderr.decode().strip(), original_filename
+        )
 
     result = _parse_text_ogrinfo(stdout.decode())
     # Text-fallback parse doesn't extract field definitions, so the DBF
@@ -1005,17 +1045,9 @@ async def run_ogr2ogr(
     )
 
     if proc.returncode != 0:
-        stderr_text = stderr.decode().strip()
-        if _is_unopenable_source_stderr(stderr_text):
-            # Same rationale as run_ogrinfo above.
-            structlog.get_logger().error(
-                "ogr2ogr could not open source file",
-                exit_code=proc.returncode,
-                stderr=stderr_text,
-                original_filename=original_filename,
-            )
-            raise IngestionError(_friendly_open_failure_message(original_filename))
-        raise IngestionError(f"ogr2ogr failed (exit {proc.returncode}): {stderr_text}")
+        _raise_gdal_failure(
+            "ogr2ogr", proc.returncode, stderr.decode().strip(), original_filename
+        )
 
 
 async def run_ogr2ogr_service(
@@ -1295,6 +1327,8 @@ async def run_ogr2ogr_service(
         stripped = _strip_ogr_driver_list(
             stderr.decode()
         )  # SEED-04: strip driver list noise
+        # fix(#2010): the service path keeps GDAL's text: its source is the
+        # caller's own URL, and `_looks_like_auth_error` reads this message.
         # fix(#1277): redact BEFORE the text becomes an exception. For
         # ArcGIS the credential rides in the ESRIJSON source URL query
         # string (only WFS/OGC API get the header-file treatment above),

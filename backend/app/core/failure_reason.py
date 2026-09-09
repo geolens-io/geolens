@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 from app.core.url_redaction import (
+    REDACTED_QUERY_VALUE,
     redact_filesystem_paths,
     redact_libpq_credentials,
     redact_url_credentials,
@@ -25,6 +26,16 @@ MAX_REASON_CHARS = 2000
 # A code rather than prose, so a reader (`ReuploadDialog.tsx`) can localize
 # it and no driver text can hide behind it.
 INTERNAL_FAILURE_REASON = "internal_error"
+
+# fix(#2010): the sentence each code stands for, for a reader that cannot
+# localize one itself. Same vocabulary as `frontend/src/lib/failure-reason.ts`
+# and `cli/geolens_cli/refresh.py`, which map it for their own readers.
+FAILURE_REASON_SENTENCES: dict[str, str] = {
+    INTERNAL_FAILURE_REASON: (
+        "The job failed for a reason the server could not report safely. "
+        "The details are in the server log for this job."
+    ),
+}
 
 _OWN_EXCEPTION_ROOT = "app."
 
@@ -87,6 +98,13 @@ def _drop_subprocess_output(summary: str) -> str:
     return summary[: match.start()].rstrip(" :-") if match else summary
 
 
+# fix(#2010): a stored reason has no use for a query string, and a signing
+# parameter need not be named in SENSITIVE_QUERY_PARAMS to be one. The name
+# class excludes `?` as well as `=`, so a run of them cannot be rescanned
+# from every position; GDAL stderr reaches this uncapped.
+_QUERY_TAIL_RE = re.compile(r"\?[^\s=?]*=\S*")
+
+
 def _scrub(text: str) -> str:
     """Every shape Decision 3 keeps out of a reason, masked.
 
@@ -96,7 +114,11 @@ def _scrub(text: str) -> str:
     """
     return redact_filesystem_paths(
         redact_libpq_credentials(
-            scrub_registered_credentials(redact_url_credentials(text))
+            scrub_registered_credentials(
+                _QUERY_TAIL_RE.sub(
+                    f"?{REDACTED_QUERY_VALUE}", redact_url_credentials(text)
+                )
+            )
         )
     )
 
@@ -131,3 +153,8 @@ def coded_failure_reason(prefix: str, exc: BaseException) -> str:
     credential, so it survives Decision 3 where ``str(exc)`` does not.
     """
     return f"{prefix} ({type(exc).__name__})"
+
+
+def describe_failure_reason(reason: str) -> str:
+    """The stored reason, or the sentence it stands for when it is a code."""
+    return FAILURE_REASON_SENTENCES.get(reason, reason)

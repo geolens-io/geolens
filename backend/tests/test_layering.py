@@ -4997,7 +4997,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # file. Cap 1428 -> 1433, exact.
     # fix(#1828): +6. `run_ogr2ogr_service` refuses a credentialed WFS that
     # names no layer before the origin check and the spawn. Cap 1433 -> 1439.
-    "backend/app/processing/ingest/ogr.py": 1307,
+    # fix(#2010): +34. The two local-file spawners share one failure exit that
+    # recognises the class first and composes the reason from the fields that
+    # class may carry, since a driver names the source inside its own prose.
+    # Cap 1307 -> 1341, exact.
+    "backend/app/processing/ingest/ogr.py": 1341,
     # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
     # 1000-line threshold when the content check landed: the SQLite schema
     # reader, the archive member walk that identifies members by their bytes

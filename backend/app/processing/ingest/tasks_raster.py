@@ -208,7 +208,7 @@ async def ingest_raster(
                 # EVENT-03: notify on ingest failed (non-fatal, after commit — deferred import).
                 # status="failed" is already committed so a notification error cannot
                 # roll back or alter the terminal job write (T-1230-09 fail-safe).
-                _early_reason = str(exc)
+                _early_reason = redact_failure_reason(exc)
                 _early_job_id = str(job_uuid)
                 from app.platform.notifications.events import (
                     build_event_notification,
@@ -806,7 +806,7 @@ async def ingest_raster(
         # notification error cannot roll back or alter the terminal job write
         # (T-1230-09 fail-safe).  Placed BEFORE the re-raise so the notification
         # fires on the terminal write without suppressing the re-raise (T-1230-10).
-        _late_reason = str(exc)
+        _late_reason = redact_failure_reason(exc)
         _late_job_id = job_id
         from app.platform.notifications.events import (
             build_event_notification,
