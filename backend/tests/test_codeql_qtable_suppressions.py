@@ -279,23 +279,73 @@ def test_no_full_ssrf_marker_sits_above_a_non_sink_line() -> None:
 # fix(#1942): a pure move carries a marker and its call into a new file
 # together, so the placement test above keeps passing even when the two come
 # apart, and CodeQL's PR run cannot dismiss what it re-reports at a new location.
-PATH_SINK_CALLS = frozenset({"open", "stat", "unlink"})
+PATH_SINK_METHODS = frozenset({"open", "stat", "unlink"})
+
+
+def _builds_a_path(value: ast.expr) -> bool:
+    """``Path(...)`` or a ``/`` join, the two ways a path value is built here."""
+    if isinstance(value, ast.Call):
+        func = value.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        return name == "Path"
+    return isinstance(value, ast.BinOp) and isinstance(value.op, ast.Div)
+
+
+def _path_typed_names(tree: ast.Module) -> set[str]:
+    """Names this module annotates as, or builds as, a ``pathlib.Path``.
+
+    Module-scoped and deliberately shallow. It exists to reject a receiver the
+    module never treats as a path, so that an unrelated ``connection.open()``
+    cannot stand in for the filesystem call a marker was written for.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        annotation = getattr(node, "annotation", None)
+        if annotation is not None:
+            if not any(
+                isinstance(inner, ast.Name) and inner.id == "Path"
+                for inner in ast.walk(annotation)
+            ):
+                continue
+            if isinstance(node, ast.arg):
+                names.add(node.arg)
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                names.add(node.target.id)
+        elif isinstance(node, ast.Assign) and _builds_a_path(node.value):
+            names.update(
+                target.id for target in node.targets if isinstance(target, ast.Name)
+            )
+    return names
 
 
 def _path_sink_lines(source: str) -> set[int]:
     """1-based start line of every call that acts on a filesystem path.
 
-    The set is exactly the shapes the ``py/path-injection`` markers sit above
-    today. A sink written another way (``shutil.copy``, ``os.remove``) fails
-    this test instead of passing quietly, and the fix is to name it here.
+    Accepts the builtin ``open`` and a ``PATH_SINK_METHODS`` call on a receiver
+    the module itself types as a path. Both halves are needed: the method names
+    alone match any object that happens to expose one, and CodeQL does not
+    report ``py/path-injection`` at those.
+
+    The set is exactly the shapes the markers sit above today. A sink written
+    another way (``shutil.copy``, ``os.remove``) fails this test instead of
+    passing quietly, and the fix is to name it here.
     """
+    tree = ast.parse(source)
+    path_names = _path_typed_names(tree)
     lines: set[int] = set()
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
-        if name in PATH_SINK_CALLS:
+        if isinstance(func, ast.Name):
+            if func.id == "open":
+                lines.add(node.lineno)
+        elif (
+            isinstance(func, ast.Attribute)
+            and func.attr in PATH_SINK_METHODS
+            and isinstance(func.value, ast.Name)
+            and func.value.id in path_names
+        ):
             lines.add(node.lineno)
     return lines
 
