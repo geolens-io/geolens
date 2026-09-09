@@ -293,10 +293,14 @@ class TestVrtRegenerateEndpoint:
         assert "/datasets/{dataset_id}/vrt/regenerate/" in paths
 
     def test_endpoint_uses_advisory_lock(self):
+        """fix(#1955): the lock moved into the shared admission helper."""
         from app.modules.catalog.datasets.api import router_vrt as router_mod
+        from app.platform.catalog_locks import admit_vrt_mutation
 
-        source = inspect.getsource(router_mod.regenerate_vrt_endpoint)
-        assert "pg_try_advisory_xact_lock" in source
+        assert "admit_vrt_mutation" in inspect.getsource(
+            router_mod.regenerate_vrt_endpoint
+        )
+        assert "pg_try_advisory_xact_lock" in inspect.getsource(admit_vrt_mutation)
 
     def test_endpoint_returns_409_when_regenerating(self):
         from app.modules.catalog.datasets.api import router_vrt as router_mod
@@ -311,10 +315,10 @@ class TestVrtRegenerateEndpoint:
         assert "VrtGeneration" in source
 
     def test_advisory_lock_key_helper_exists(self):
-        from app.modules.catalog.datasets.api.router_vrt import _advisory_lock_key
+        from app.platform.catalog_locks import vrt_admission_lock_key
 
         dataset_id = uuid.uuid4()
-        key = _advisory_lock_key(dataset_id)
+        key = vrt_admission_lock_key(dataset_id)
         assert isinstance(key, int)
         assert 0 <= key < 2**63
 

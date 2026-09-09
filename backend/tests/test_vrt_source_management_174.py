@@ -862,8 +862,13 @@ class TestRegenerateVrtTask:
         ) or regenerate_vrt.task_kwargs.get("queue")
         assert queue == "raster"
 
-    def test_task_sets_status_to_failed_on_exception(self):
-        """On exception, task sets asset.status = 'failed' and job.status = 'failed'."""
+    def test_an_attempt_with_no_generation_writes_the_job_row_only(self):
+        """fix(#1962): nothing to release, so the asset is left alone.
+
+        The asset write is fenced on the generation this attempt owns. An
+        attempt that failed before binding one owns no pointer, and the fence
+        would otherwise read as ``IS NULL``.
+        """
 
         async def _check():
             from app.processing.ingest.tasks import regenerate_vrt
@@ -923,71 +928,39 @@ class TestRegenerateVrtTask:
             statements = "\n".join(
                 str(call.args[0]) for call in mock_session.execute.await_args_list
             )
-            assert "UPDATE catalog.raster_assets" in statements
+            # The job UPDATE is stubbed module-wide by `_fence_vrt_worker_helpers`,
+            # so the budget it arms is what shows the handler ran its write.
+            assert "SET LOCAL lock_timeout" in statements
+            assert "UPDATE catalog.raster_assets" not in statements
 
         asyncio.run(_check())
 
     def test_task_clears_current_generation_id_on_failure(self):
-        """On failure, current_generation_id is cleared (set to None)."""
+        """On failure, current_generation_id is cleared (set to None).
+
+        fix(#1962): in its own committed transaction, ahead of the job row.
+        """
 
         async def _check():
-            from app.processing.ingest.tasks import regenerate_vrt
-
-            job_id = str(uuid.uuid4())
-            vrt_dataset_id = str(uuid.uuid4())
-
-            mock_job = MagicMock()
-            mock_job.id = uuid.UUID(job_id)
-            mock_job.status = "pending"
-
-            mock_vrt_asset = _make_mock_asset(status="regenerating")
-            mock_vrt_asset.current_generation_id = uuid.uuid4()
+            from app.processing.ingest.tasks_vrt import _settle_failed_vrt_asset
 
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock(return_value=False)
+            mock_session.execute = AsyncMock(return_value=MagicMock())
 
-            call_count = [0]
-
-            def execute_side_effect(query, params=None):
-                call_count[0] += 1
-                result_mock = MagicMock()
-                if call_count[0] == 1:
-                    result_mock.scalar_one.return_value = mock_job
-                elif call_count[0] == 2:
-                    result_mock.scalar_one_or_none.return_value = mock_vrt_asset
-                elif call_count[0] == 3:
-                    # vrt_source_links -- empty causes ValueError before build
-                    result_mock.fetchall.return_value = []
-                return result_mock
-
-            mock_session.execute = AsyncMock(side_effect=execute_side_effect)
-
-            with (
-                patch(
-                    # fix(#909): tasks_vrt late-binds; patch the origin
-                    "app.core.db.async_session"
-                ) as mock_async_session,
-                patch(
-                    "app.processing.ingest.tasks_vrt.build_vrt",
-                    side_effect=RuntimeError("fail"),
-                ),
-            ):
+            with patch("app.core.db.async_session") as mock_async_session:
                 mock_async_session.return_value = mock_session
-                try:
-                    await regenerate_vrt.func(
-                        job_id=job_id,
-                        attempt_id=str(uuid.uuid4()),
-                        vrt_dataset_id=vrt_dataset_id,
-                    )
-                except Exception:
-                    pass
+                await _settle_failed_vrt_asset(
+                    uuid.uuid4(), uuid.uuid4(), job_id=str(uuid.uuid4())
+                )
 
             statements = "\n".join(
                 str(call.args[0]) for call in mock_session.execute.await_args_list
             )
             assert "UPDATE catalog.raster_assets" in statements
             assert "current_generation_id" in statements
+            assert mock_session.commit.await_count == 1
 
         asyncio.run(_check())
 

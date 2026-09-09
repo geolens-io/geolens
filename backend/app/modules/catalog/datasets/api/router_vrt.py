@@ -36,6 +36,7 @@ from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.db.tenant_session import current_tenant_var, defer_async_with_tenant
 from app.core.dependencies import get_db
+from app.platform.catalog_locks import admit_vrt_mutation
 from app.platform.extensions import get_catalog_port, get_permission_extension
 from app.modules.catalog.sources.origin_probe import remote_asset_exists
 from app.platform.storage.titiler_url import resolve_storage_key
@@ -46,10 +47,6 @@ router = APIRouter(
 )
 
 VrtMutationResponse = get_catalog_port().vrt_mutation_response_model()
-
-
-def _advisory_lock_key(dataset_id: uuid.UUID) -> int:
-    return dataset_id.int % (2**63)
 
 
 async def _load_source_datasets(
@@ -459,21 +456,10 @@ async def regenerate_vrt_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="VRT asset not found"
         )
 
-    # Status check
-    if vrt_asset.status == "regenerating":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="VRT is currently regenerating",
-        )
-
-    # Advisory lock
-    lock_key = _advisory_lock_key(dataset_id)
-    lock_result = await db.execute(
-        text("SELECT pg_try_advisory_xact_lock(:key)"),
-        {"key": lock_key},
-    )
-    acquired = lock_result.scalar()
-    if not acquired:
+    # fix(#1955): the lock, then the status re-read under it. The two used to
+    # be a status check followed by a lock, which leaves the window the second
+    # of two concurrent triggers lands in.
+    if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Another regeneration is in progress",
