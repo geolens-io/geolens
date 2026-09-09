@@ -208,8 +208,9 @@ async def _fail_cancelled_job(
         logger.warning("analysis.cancel_rollback_failed", job_id=job_id)
 
     async with async_session() as session:
-        # fix(#1957): budgeted, so a held job row ends this write instead of
-        # eating the 15s shield the caller wrapped it in.
+        # fix(#1957): budgeted, so a held job row ends this write with a logged
+        # reason. The caller's 15s shield would otherwise cancel it silently,
+        # and the 5s rollback above leaves no margin for both to fire.
         fenced = await write_job_failure_for_attempt(
             session,
             uuid.UUID(job_id),

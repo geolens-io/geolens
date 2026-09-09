@@ -863,12 +863,7 @@ class TestRegenerateVrtTask:
         assert queue == "raster"
 
     def test_an_attempt_with_no_generation_writes_the_job_row_only(self):
-        """fix(#1962): nothing to release, so the asset is left alone.
-
-        The asset write is fenced on the generation this attempt owns. An
-        attempt that failed before binding one owns no pointer, and the fence
-        would otherwise read as ``IS NULL``.
-        """
+        """fix(#1962): no generation bound, so no asset pointer to release."""
 
         async def _check():
             from app.processing.ingest.tasks import regenerate_vrt

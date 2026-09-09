@@ -887,14 +887,7 @@ async def test_a_bounded_abort_on_the_job_row_still_settles_the_vrt_asset(
     clean_tables,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """fix(#1962): the asset write commits before the job row is touched.
-
-    The job write is the contended one, and its budget makes it abortable. An
-    asset still pointing at a non-terminal generation is the one half-written
-    failure ``sweep_stale_vrt_assets`` cannot reach: it fences its asset UPDATE
-    on the generations it has just failed, and a ``regenerating`` asset whose
-    generation is already terminal matches nothing.
-    """
+    """fix(#1962): an aborted job write leaves the asset settled anyway."""
     import app.processing.ingest.tasks_vrt as tasks_vrt
     from app.platform.jobs.models import IngestJob
     from app.processing.ingest.tasks import regenerate_vrt
@@ -958,4 +951,91 @@ async def test_a_bounded_abort_on_the_job_row_still_settles_the_vrt_asset(
     assert generation.status == "running", (
         "the generation stamp survived the abort, so the two writes are no "
         "longer in one transaction and the stale sweep's recovery is untested"
+    )
+
+
+async def test_an_unsettled_asset_leaves_its_generation_sweepable(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """fix(#1962 codex r1): the generation stays non-terminal when the asset does.
+
+    ``sweep_stale_vrt_assets`` reaches an abandoned pair only through a
+    ``pending``/``running`` generation, so stamping one terminal under an asset
+    that still points at it is unrecoverable.
+    """
+    import app.processing.ingest.tasks_vrt as tasks_vrt
+    from app.platform.jobs.models import IngestJob
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from asyncpg.exceptions import QueryCanceledError
+    from sqlalchemy.exc import DBAPIError
+
+    session = test_db_session
+    generation_id = await _stage_generation(
+        session, vrt_db_state, vrt_db_state["source_dataset_ids"]
+    )
+
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.build_vrt",
+        MagicMock(side_effect=RuntimeError("gdalbuildvrt died mid-attempt")),
+    )
+
+    real_arm = tasks_vrt.arm_job_error_write_budget
+    arms = {"count": 0}
+
+    async def _expire_the_asset_transaction(session_):
+        arms["count"] += 1
+        if arms["count"] == 1:
+            raise DBAPIError("SET LOCAL", {}, QueryCanceledError("canceling statement"))
+        await real_arm(session_)
+
+    monkeypatch.setattr(
+        tasks_vrt, "arm_job_error_write_budget", _expire_the_asset_transaction
+    )
+
+    with pytest.raises(RuntimeError, match="gdalbuildvrt"):
+        await regenerate_vrt.func(
+            job_id=vrt_db_state["job_id"],
+            attempt_id=vrt_db_state["attempt_id"],
+            vrt_dataset_id=vrt_db_state["vrt_dataset_id"],
+            generation_id=str(generation_id),
+        )
+
+    generation = (
+        await session.execute(
+            select(VrtGeneration).where(VrtGeneration.id == generation_id)
+        )
+    ).scalar_one()
+    await session.refresh(generation)
+    assert generation.status == "running", (
+        "the generation was stamped terminal while the asset still points at "
+        "it, which is the one pairing the stale sweep can never repair"
+    )
+
+    vrt_asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    await session.refresh(vrt_asset)
+    assert (vrt_asset.status, vrt_asset.current_generation_id) == (
+        "regenerating",
+        generation_id,
+    ), "the asset write is supposed to have failed in this run"
+
+    job = (
+        await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(vrt_db_state["job_id"]))
+        )
+    ).scalar_one()
+    await session.refresh(job)
+    assert job.status == "failed", (
+        "a failed asset write also cost the job its terminal status, which the "
+        "two transactions exist to keep independent"
     )

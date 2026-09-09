@@ -4648,10 +4648,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r4): -4 — `ingest_vrt`'s failure tail loads its job row
     # through `tasks_common.load_job_for_error_write` instead of an inline
     # unbounded SELECT. Cap 1709 -> 1705, exact.
-    # fix(#1962): +28 — `_settle_failed_vrt_asset` commits the asset write
-    # before the job row is touched, so a bounded abort cannot strand it.
-    # Cap 1626 -> 1654, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1654,
+    # fix(#1962): +37 — `_settle_failed_vrt_asset` commits the asset write
+    # before the job row is touched, and reports whether it landed so the
+    # generation stays sweepable when it did not. Cap 1626 -> 1663, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1663,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait
@@ -5562,9 +5562,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # computation as the scope, the idiom `generate_table_name`'s own
     # `_with_collision_suffix` already uses. Cap 1702 -> 1725, exact.
     # chore(#1873): review-history comments trimmed. Cap 1725 -> 1392, exact.
-    # fix(#1957): +13 — both failure tails budget their job write and keep an
-    # expired budget distinct from a fence miss. Cap 1390 -> 1403, exact.
-    "backend/app/processing/analysis/tasks.py": 1403,
+    # fix(#1957): +14 — both failure tails budget their job write and keep an
+    # expired budget distinct from a fence miss. Cap 1390 -> 1404, exact.
+    "backend/app/processing/analysis/tasks.py": 1404,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

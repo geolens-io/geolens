@@ -18,6 +18,8 @@ import pytest
 import structlog.testing
 from sqlalchemy import delete, select
 
+import app
+import app.processing
 import app.processing.analysis.tasks as analysis_tasks
 from app.modules.auth.models import User
 from app.platform.jobs.heartbeat import (
@@ -79,11 +81,19 @@ def _call_names(node: ast.AST) -> set[str]:
 
 
 def _writes_failed_status(node: ast.AST) -> bool:
-    """Whether *node* contains a ``{"status": "failed", ...}`` values map."""
+    """Whether *node* writes ``status="failed"``, mapped or as a keyword."""
     for sub in ast.walk(node):
-        if not isinstance(sub, ast.Dict):
+        if isinstance(sub, ast.Dict):
+            pairs = list(zip(sub.keys, sub.values))
+        elif isinstance(sub, ast.Call):
+            pairs = [
+                (ast.Constant(value=kw.arg), kw.value)
+                for kw in sub.keywords
+                if kw.arg is not None
+            ]
+        else:
             continue
-        for key, value in zip(sub.keys, sub.values):
+        for key, value in pairs:
             if (
                 isinstance(key, ast.Constant)
                 and key.value == "status"
@@ -123,7 +133,9 @@ class TestEveryRemainingSiteIsArmed:
     def test_no_fresh_session_failure_write_is_left_unarmed(self) -> None:
         """The enumeration, so a sixth site cannot be added silently."""
         unarmed = []
-        for path in sorted(Path("app/processing").rglob("*.py")):
+        scanned = 0
+        for path in sorted(Path(app.processing.__file__).parent.rglob("*.py")):
+            scanned += 1
             for node in ast.walk(ast.parse(path.read_text())):
                 if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
                     continue
@@ -132,6 +144,10 @@ class TestEveryRemainingSiteIsArmed:
                     continue
                 if not names & _SANCTIONED_ROUTES:
                     unarmed.append(f"{path}:{node.lineno} {node.name}")
+        assert scanned > 20, (
+            f"the enumeration read {scanned} modules, so it is passing on an "
+            "empty scan rather than on the tree"
+        )
         assert not unarmed, (
             f"{unarmed} open a fresh session and write status='failed' on the "
             "job row without arming the error-write budget on it"
@@ -179,17 +195,16 @@ class TestEveryRemainingSiteIsArmed:
 class TestOneBudgetConstant:
     def test_exactly_one_module_defines_the_budget(self) -> None:
         defined = []
-        for path in sorted(Path("app").rglob("*.py")):
+        root = Path(app.__file__).parent
+        for path in sorted(root.rglob("*.py")):
             for node in ast.walk(ast.parse(path.read_text())):
                 if not isinstance(node, ast.Assign):
                     continue
                 for target in node.targets:
                     name = getattr(target, "id", "")
                     if name.endswith("ERROR_WRITE_TIMEOUT_MS"):
-                        defined.append(f"{path}:{name}")
-        assert defined == [
-            "app/platform/jobs/heartbeat.py:JOB_ERROR_WRITE_TIMEOUT_MS"
-        ], (
+                        defined.append(f"{path.relative_to(root)}:{name}")
+        assert defined == ["platform/jobs/heartbeat.py:JOB_ERROR_WRITE_TIMEOUT_MS"], (
             f"the error-write budget is defined at {defined}. Two constants for "
             "one budget agree until one of them is retuned"
         )

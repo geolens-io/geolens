@@ -1,12 +1,14 @@
-"""The one lock order for the (datasets, records) row pair (#1847).
+"""The one lock order for the (datasets, records) row pair (#1847), and the
+per-dataset admission lock VRT regeneration serialises on (#1955).
 
 Lives in ``platform/`` because ``processing/`` may not import
 ``app.modules.catalog``: worker callers pass the mapped classes the port hands
-them.
+them, and both the catalog and the ingest router reach the VRT admission here.
 """
 
 from __future__ import annotations
 
+import uuid
 from contextvars import ContextVar
 from typing import Any
 
@@ -14,6 +16,7 @@ from sqlalchemy import event, func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from app.core.db.sqlstate import is_lock_conflict, sqlstate
 
@@ -239,13 +242,13 @@ async def bump_tile_cache_version_on(session: AsyncSession, dataset: Any) -> int
     return version
 
 
-def vrt_admission_lock_key(dataset_id: Any) -> int:
+def vrt_admission_lock_key(dataset_id: uuid.UUID) -> int:
     """The advisory-lock key a dataset's VRT mutations serialise on."""
     return dataset_id.int % (2**63)
 
 
 async def admit_vrt_mutation(
-    session: AsyncSession, dataset_id: Any, vrt_asset: Any
+    session: AsyncSession, dataset_id: uuid.UUID, vrt_asset: Any
 ) -> bool:
     """Admit one VRT-mutating dispatch per dataset, or refuse this one.
 
@@ -264,5 +267,10 @@ async def admit_vrt_mutation(
     )
     if not acquired:
         return False
-    await session.refresh(vrt_asset)
+    try:
+        await session.refresh(vrt_asset)
+    except ObjectDeletedError:
+        # Deleted between the caller's load and this re-read. Refusing is the
+        # honest answer: there is no asset left to mutate.
+        return False
     return vrt_asset.status != "regenerating"
