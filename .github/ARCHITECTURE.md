@@ -140,7 +140,7 @@ v5, Tailwind, and shadcn/ui primitives in `components/ui/`.
 | Add an admin setting | `backend/app/modules/settings/` + `frontend/src/components/admin/settings/` |
 | Add optional runtime behavior | Extend a Protocol in `backend/app/platform/extensions/`; keep core behavior in default implementations |
 | Add a DB column or table | New migration in `backend/alembic/versions/` + the domain's `models.py`; apply with `alembic upgrade heads` |
-| Add UI text | The component + **all 4** `frontend/src/i18n/locales/` files |
+| Add UI text | The component + **all 5** `frontend/src/i18n/locales/` files |
 
 ---
 
