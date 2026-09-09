@@ -233,16 +233,11 @@ async def _resolve_from_item(
     # unresolvable.
     resolved_item_href = self_href or fallback_item_href
 
-    # fix(#1764): the asset href is the item's own choice of address and is
-    # legitimately on another origin (a catalog's bucket), so it is probed
-    # anonymously there rather than refused; the verdict is then the truth
-    # about what GeoLens can read.
-    probed = await probe_remote_uri(
-        href,
-        credential=credential_for_read(
-            credential, url=href, credential_origin=catalog_origin
-        ),
-    )
+    # fix(#1764): ANONYMOUS, always. Titiler serves this href out of process
+    # and cannot carry a request-only credential, so a probe that used one
+    # would report `healthy` for tiles that stay unreadable. The verdict has
+    # to answer the question the tiler will ask.
+    probed = await probe_remote_uri(href)
     if probed.detail == BLOCKED_BY_POLICY:
         # fix(#1266): refused, not merely reported — this is a fact about
         # GeoLens (the SSRF guard won't fetch this address, at the first hop

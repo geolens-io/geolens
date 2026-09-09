@@ -3084,8 +3084,15 @@ class TestCredentialedRefresh:
         await _execute_with_credential(test_db_session, payload, ref)
 
         assert recorded, "the worker made no request"
-        for request in recorded:
+        # Every catalog read carries it; the asset probe does not, because
+        # Titiler fetches that URL out of process and cannot.
+        catalog_reads = [r for r in recorded if not r.url.path.endswith(".tif")]
+        assert catalog_reads
+        for request in catalog_reads:
             assert request.headers["X-Api-Key"] == secret
+        for request in recorded:
+            if request.url.path.endswith(".tif"):
+                assert "X-Api-Key" not in request.headers
         refreshed = await _reload(dataset.id)
         assert refreshed.origin_ref["auth_required"] is True
         assert refreshed.origin_ref["asset_href"] == _MOVED_ASSET

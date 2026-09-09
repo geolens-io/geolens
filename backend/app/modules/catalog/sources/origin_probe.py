@@ -157,10 +157,7 @@ def _status_result(status_code: int) -> OriginProbeResult:
 
 
 async def probe_remote_uri(
-    uri: str,
-    *,
-    timeout: float = PROBE_TIMEOUT_SECONDS,
-    credential: ServiceCredential | None = None,
+    uri: str, *, timeout: float = PROBE_TIMEOUT_SECONDS
 ) -> OriginProbeResult:
     """Probe *uri* without downloading its body.
 
@@ -170,10 +167,9 @@ async def probe_remote_uri(
     context-manager close bounds the body even if the range header is
     ignored.
 
-    fix(#1764): ``credential`` must already carry its ``service_format``.
-    This module serves every origin kind, so re-binding one here would
-    relabel the next caller's credential and judge it by another format's
-    charset; an unbound one composes no header and reads anonymously.
+    fix(#1764): takes no credential, deliberately. Its one credentialed
+    caller would have been the STAC asset probe, and that has to ask what
+    Titiler will ask, which is an anonymous read.
     """
     # fix(#1271): records whether ANY response hop arrived, so a
     # mid-chain policy refusal (public origin redirecting to a blocked
@@ -186,20 +182,13 @@ async def probe_remote_uri(
         responded = True
 
     headers = {"Range": "bytes=0-0"}
-    pair: tuple[str, str] | None = None
-    if credential is not None:
-        pair = build_credential_header(credential)
-        if pair is not None:
-            headers[pair[0]] = pair[1]
     try:
         # fix(#1271): hard deadline around the WHOLE op — the guard
         # transport resolves DNS before httpx's phase timeouts apply, so a
         # stalling resolver would otherwise exceed the advertised bound.
         # Doubled: this is a backstop, not the primary bound.
         async with asyncio.timeout(timeout * 2):
-            async with make_safe_client(
-                timeout=timeout, credential_header=None if pair is None else pair[0]
-            ) as client:
+            async with make_safe_client(timeout=timeout) as client:
                 # hasattr: duck-typed clients in tests may not carry
                 # event_hooks, and an AttributeError here would masquerade
                 # as a probe failure.

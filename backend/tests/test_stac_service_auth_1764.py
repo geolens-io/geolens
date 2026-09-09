@@ -298,17 +298,15 @@ class TestEveryStacReadCarriesTheCredential:
         assert recorded[0].headers[_HEADER_NAME] == _KEY
 
     @pytest.mark.anyio
-    async def test_the_asset_probe_carries_it(self, stac_transport) -> None:
-        """An asset the catalog serves itself. Whether a credential reaches an
-        asset on ANOTHER origin is the resolve gate's decision, pinned in
-        TestTheCredentialStaysOnItsOrigin."""
+    async def test_the_asset_probe_never_carries_it(self, stac_transport) -> None:
+        """Titiler serves the asset out of process and cannot carry a
+        request-only credential, so a probe that used one would report
+        `healthy` for tiles that stay unreadable."""
         recorded = stac_transport(status=206)
-        result = await origin_probe.probe_remote_uri(
-            f"{_ROOT}/assets/scene.tif", credential=_header_key()
-        )
+        result = await origin_probe.probe_remote_uri(f"{_ROOT}/assets/scene.tif")
         assert result.ok
-        assert recorded[0].headers[_HEADER_NAME] == _KEY
-        # Still a ranged read: the credential is added, nothing is replaced.
+        assert _HEADER_NAME not in recorded[0].headers
+        assert "Authorization" not in recorded[0].headers
         assert recorded[0].headers["Range"] == "bytes=0-0"
 
     @pytest.mark.anyio
@@ -317,9 +315,9 @@ class TestEveryStacReadCarriesTheCredential:
     ) -> None:
         """`origin_probe` serves every origin kind, so it composes from the
         credential as bound rather than relabelling it."""
-        recorded = stac_transport(status=206)
-        await origin_probe.probe_remote_uri(
-            f"{_ROOT}/assets/scene.tif",
+        recorded = stac_transport(json_body={"id": "x", "assets": {}})
+        await origin_probe.fetch_json_document(
+            f"{_ROOT}/collections/c/items/x",
             credential=ServiceCredential(
                 method=CredentialMethod.HEADER_KEY,
                 header_name=_HEADER_NAME,
@@ -356,22 +354,6 @@ class TestTheCredentialStaysOnItsOrigin:
         # never went out, which is the property that matters.
         assert result.health == origin_probe.INACCESSIBLE
         assert document is None
-        assert len(recorded) == 1
-
-    @pytest.mark.anyio
-    async def test_a_cross_origin_redirect_is_refused_on_the_asset_probe(
-        self, stac_transport
-    ) -> None:
-        def redirect(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                302, headers={"Location": "https://elsewhere.test/blob"}
-            )
-
-        recorded = stac_transport(redirect)
-        result = await origin_probe.probe_remote_uri(
-            "https://assets.test/scene.tif", credential=_header_key()
-        )
-        assert result.health == origin_probe.INACCESSIBLE
         assert len(recorded) == 1
 
     @pytest.mark.anyio
@@ -491,7 +473,11 @@ class TestTheCatalogChoosesTheCredentialNotTheDocument:
             catalog_origin=_ITEM_URL,
         )
         assert result.item_href == moved
-        assert all(request.headers[_HEADER_NAME] == _KEY for request in recorded)
+        # Every catalog read carries it; the asset probe is anonymous, since
+        # Titiler is what actually fetches that URL.
+        for request in recorded:
+            expected = _KEY if not request.url.path.endswith(".tif") else None
+            assert request.headers.get(_HEADER_NAME) == expected, request.url
 
     @pytest.mark.anyio
     async def test_an_anonymous_refresh_does_not_move_the_anchor(
