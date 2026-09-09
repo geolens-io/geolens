@@ -69,8 +69,13 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
   // terminal state so the coverage figure above refreshes when it lands.
   const [backfillJobId, setBackfillJobId] = useState<string | null>(null);
   const backfillJob = useBackfillJobStatus(backfillJobId);
+  // fix(#2025): a run somebody else started counts too. Tracking only the job
+  // this page queued left both buttons live for every other operator, whose
+  // click then bought a 409 the guard had to refuse.
   const backfillRunning =
-    backfillJob.data?.status === 'pending' || backfillJob.data?.status === 'running';
+    backfillJob.data?.status === 'pending' ||
+    backfillJob.data?.status === 'running' ||
+    Boolean(embeddingStats?.current_run);
   const semanticToggle = useUpdateSemanticSearch();
 
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS, isSaving, saveFailed);
