@@ -76,7 +76,7 @@ Frontend change: from the worktree run `cd frontend && API_PROXY_TARGET=http://l
 - API schema changes, including published route docstrings/Pydantic field descriptions, require `make sdks` (refreshes OpenAPI and both SDKs), then `cd frontend && npm run types:generate`. Frontend drift gate: `npm run types:check`. Commit generated changes only when source changes require them.
 - Never hand-edit generated SDK code or `frontend/src/types/api.generated.ts`. SDK auth/entry wrappers (`auth.py`, `__init__.py`, `auth.ts`, `index.ts`) are hand-maintained; CLI and MCP wrap the SDK.
 - New UI strings use `t()` with keys in all four locales (en/es/fr/de); run `cd frontend && npm run test:i18n`. `defaultValue` is insufficient. Keep plural suffixes consistent; `_many` does not fall back to `_other`. French count 0 uses `_one`, so interpolate `{{count}}` instead of hardcoding 1.
-- Comments explain non-obvious reasons/traps; docstrings state contracts. Avoid narration/history. Review references need an issue/PR anchor plus the invariant, at most three lines: `// fix(#1234): suppress basemap row click during multi-selection`. Bare private tracker IDs fail finding-marker checks.
+- Comments explain non-obvious reasons/traps; docstrings state contracts. Avoid narration/history. Review references need an issue/PR anchor plus the invariant, at most three lines: `// fix(#1234): suppress basemap row click during multi-selection`. Bare private tracker IDs fail finding-marker checks. Outside `backend/app/`, `no-agent-tag-markers` needs the `fix(#issue)` anchor on the same line as the tag; a bare tag fails there too.
 - Put `# broad: <reason>` on the same line as every `except Exception`. Follow CodeQL marker placement below.
 
 ## Security

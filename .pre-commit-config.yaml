@@ -114,30 +114,34 @@ repos:
         files: '^backend/(app/.*|tests/finding_markers)\.py$'
 
       - id: no-agent-tag-markers
-        name: "AGENTS.md — no `ponytail:` literal anywhere in a python/ts/tsx/js/shell file"
+        name: "AGENTS.md — a `ponytail:` tag needs a same-line fix(#N) anchor outside backend/app"
         description: >
           The denylist half of the same rule, for the file types the AST
-          detector above does not parse (frontend/, e2e/, cli/, mcp/). One
-          case-insensitive literal, grepped over the whole file rather than
-          its comments — that is all this hook checks and all it claims. The
-          general class is enforced for backend/app, and only there, by
-          no-unscoped-finding-markers.
+          detector above does not parse (frontend/, e2e/, cli/, mcp/, plus
+          markdown/sql/yaml/json anywhere in the tree). A case-insensitive
+          literal grepped over the whole file rather than its comments — that
+          is all this hook checks and all it claims. A `ponytail:` tag is
+          legal only when the same line also carries a `fix(#<issue>)`
+          anchor; a bare tag fails everywhere. The general class is enforced
+          for backend/app, and only there, by no-unscoped-finding-markers.
         language: system
         entry: >-
           bash -c '
           rc=0;
           for f in "$@"; do
-            if grep -nFi "ponytail:" "$f"; then
+            if grep -nFi "ponytail:" "$f" | grep -viE "fix\(#[0-9]+\)"; then
               echo "FAIL: $f has an unscoped finding marker (see above).";
-              echo "  Use fix(#<issue>): <context>, or remove the tag.";
+              echo "  Use fix(#<issue>) ponytail: <context> on the same line, or remove the tag.";
               echo "  See AGENTS.md > Inline review-comment convention.";
               rc=1;
             fi;
           done;
           exit $rc;
           ' --
-        types_or: [python, ts, tsx, javascript, shell]
-        exclude: '^(sdks/|frontend/node_modules/)'
+        types_or: [python, ts, tsx, javascript, shell, markdown, sql, yaml, json]
+        # This file's own name/description/entry name the literal it forbids;
+        # it defines the rule rather than being subject to it.
+        exclude: '^(sdks/|frontend/node_modules/|\.pre-commit-config\.yaml)'
 
       # --- Lint + format (shift-left; CI backend-lint also enforces these) ---
       - id: ruff-check
