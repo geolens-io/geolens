@@ -51,7 +51,7 @@ from app.core.service_tokens import (
     carries_credential_as_header_line,
     credential_input_rejection_reason,
     header_name_rejection_reason,
-    header_token_rejection_reason,
+    bearer_token_rejection_reason,
 )
 
 UNSUPPORTED_AUTH_METHOD_CODE = "unsupported_auth_method"
@@ -145,7 +145,10 @@ def credential_input_rejection(credential: ServiceCredential) -> str | None:
     if method == CredentialMethod.BEARER:
         if not credential.token:
             return BLANK_BEARER_TOKEN_POLICY
-        return header_token_rejection_reason(credential.token)
+        # fix(#1764): through the builder's own rule, which picks the charset
+        # by service format. Applying the GDAL header-file charset here
+        # refused a STAC key holding `+` or `/` that the builder accepts.
+        return bearer_token_rejection_reason(credential)
     if method == CredentialMethod.BASIC:
         for supplied in (credential.username, credential.password):
             reason = credential_input_rejection_reason(supplied)

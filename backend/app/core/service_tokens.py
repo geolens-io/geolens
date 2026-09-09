@@ -439,7 +439,7 @@ def _composes_a_header(
     )
 
 
-def _bearer_token_rejection(auth: ServiceCredential) -> str | None:
+def bearer_token_rejection_reason(auth: ServiceCredential) -> str | None:
     """Why *auth*'s bearer token cannot become an Authorization value.
 
     feat(C2): two charsets, chosen by service format. A WFS/OAPIF token
@@ -453,6 +453,10 @@ def _bearer_token_rejection(auth: ServiceCredential) -> str | None:
     feat(#1764): the branch asks ``requires_header_token_policy`` rather than
     naming ArcGIS, so STAC takes the wider charset too — its credential is
     httpx-only, and httpx refuses a CR/LF header value itself.
+
+    fix(#1764): public, because the DOOR has to reach the same verdict this
+    builder will. Judging the door's bearer token by the GDAL charset alone
+    refused a STAC key holding ``+`` or ``/`` that the builder accepts.
     """
     if not requires_header_token_policy(auth.service_format):
         # Rejects ``None`` on its own, unlike its header-token sibling, which
@@ -497,7 +501,7 @@ def build_credential_header(
         return None
 
     if method == CredentialMethod.BEARER:
-        reason = _bearer_token_rejection(auth)
+        reason = bearer_token_rejection_reason(auth)
         if auth.token is None or reason is not None:
             raise ValueError(reason or HEADER_TOKEN_POLICY)
         if auth.service_format == ARCGIS_SERVICE_FORMAT:

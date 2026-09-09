@@ -37,7 +37,11 @@ from app.modules.catalog.sources.adapters import stac as stac_adapter
 from app.modules.catalog.sources.stac_resolve import resolve_stac_binding
 from app.platform import security
 from app.platform.security import SSRFError
-from app.platform.service_auth import service_carries_method
+from app.platform.service_auth import (
+    credential_input_rejection,
+    credential_or_422,
+    service_carries_method,
+)
 
 _ROOT = "https://catalog.test/v1"
 _KEY = "s3cretkey123"
@@ -106,6 +110,17 @@ class TestTheFormatSets:
     def test_stac_carries_every_method_a_header_can_spell(self, method) -> None:
         assert service_carries_method(STAC_SERVICE_FORMAT, method) is True
         assert service_carries_method(ARCGIS_SERVICE_FORMAT, method) is False
+
+    def test_the_door_reaches_the_builders_bearer_verdict(self) -> None:
+        """The door and the builder ask one rule, so a key the transport can
+        carry is not refused at the door for a charset it never meets."""
+        wide = ServiceCredential(
+            method=CredentialMethod.BEARER,
+            service_format=STAC_SERVICE_FORMAT,
+            token="ab+cd/ef",
+        )
+        assert credential_input_rejection(wide) is None
+        assert credential_or_422(wide, service_format=STAC_SERVICE_FORMAT) is not None
 
     def test_a_stac_bearer_token_is_judged_as_a_header_value(self) -> None:
         """``+`` and ``/`` are outside base64url and legitimate in a provider
