@@ -199,6 +199,37 @@ class VectorCommitRequest(BaseCommitRequest):
     )
 
 
+# fix(#1961): each of these reaches a conversion argument, which is the
+# rewrite strict mode exists to refuse. Mirrors ``check_and_prepare_cog``'s
+# own predicate, case-sensitive DEFLATE default included.
+def reject_strict_cog_conflict(model: Any) -> Any:
+    """Refuse a strict-COG commit that also asks for a rewrite.
+
+    An ``@model_validator(mode="after")`` on both models carrying
+    ``strict_cog``: passing the strict gate and then converting anyway
+    would break the flag's contract, so the combination is a 422.
+    """
+    if not model.strict_cog:
+        return model
+    offenders = [
+        name
+        for name, conflicts in (
+            ("compression", (model.compression or "DEFLATE") != "DEFLATE"),
+            ("resampling", bool(model.resampling)),
+            ("nodata_override", model.nodata_override is not None),
+            ("srid_override", model.srid_override is not None),
+        )
+        if conflicts
+    ]
+    if offenders:
+        raise ValueError(
+            "strict_cog cannot be combined with options that require a "
+            f"rewrite: {', '.join(offenders)}. Drop the option or set "
+            "strict_cog to false."
+        )
+    return model
+
+
 class RasterCommitRequest(BaseCommitRequest):
     """Commit request for raster file uploads (GeoTIFF, VRT)."""
 
@@ -226,10 +257,14 @@ class RasterCommitRequest(BaseCommitRequest):
             "Raster only: reject a non-COG TIFF instead of converting it. "
             "False (the default) converts the source to a COG during ingest. "
             "True fails the job when the source is not already a compliant "
-            "COG. Setting compression, resampling, nodata_override or "
-            "srid_override still rewrites the file even when the strict "
-            "check passes, because each of those is applied by a conversion."
+            "COG, and cannot be combined with resampling, nodata_override, "
+            "srid_override or a compression other than the default DEFLATE: "
+            "each of those is applied by a conversion, so the commit is "
+            "refused with a 422 naming the fields that clash."
         ),
+    )
+    _reject_strict_cog_conflict = model_validator(mode="after")(
+        reject_strict_cog_conflict
     )
 
 
@@ -354,12 +389,16 @@ class CommitRequest(BaseModel):
             "Raster only: reject a non-COG TIFF instead of converting it. "
             "False (the default) converts the source to a COG during ingest. "
             "True fails the job when the source is not already a compliant "
-            "COG. Setting compression, resampling, nodata_override or "
-            "srid_override still rewrites the file even when the strict "
-            "check passes, because each of those is applied by a conversion."
+            "COG, and cannot be combined with resampling, nodata_override, "
+            "srid_override or a compression other than the default DEFLATE: "
+            "each of those is applied by a conversion, so the commit is "
+            "refused with a 422 naming the fields that clash."
         ),
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
+    _reject_strict_cog_conflict = model_validator(mode="after")(
+        reject_strict_cog_conflict
+    )
 
 
 class CommitResponse(BaseModel):

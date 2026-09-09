@@ -65,9 +65,10 @@ class CommitRequest:
             auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
                 the token field.
             strict_cog (bool | Unset): Raster only: reject a non-COG TIFF instead of converting it. False (the default)
-                converts the source to a COG during ingest. True fails the job when the source is not already a compliant COG.
-                Setting compression, resampling, nodata_override or srid_override still rewrites the file even when the strict
-                check passes, because each of those is applied by a conversion. Default: False.
+                converts the source to a COG during ingest. True fails the job when the source is not already a compliant COG,
+                and cannot be combined with resampling, nodata_override, srid_override or a compression other than the default
+                DEFLATE: each of those is applied by a conversion, so the commit is refused with a 422 naming the fields that
+                clash. Default: False.
     """
 
     title: str

@@ -9,6 +9,7 @@ FastAPI, no fixtures. Fast (< 1 second total). They prove:
 
 import inspect
 import re
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -127,6 +128,82 @@ class TestRasterCommitRequest:
     def test_raster_strict_cog_omitted_validates(self) -> None:
         r = RasterCommitRequest.model_validate({"title": "DEM"})
         assert r.strict_cog is False
+
+
+# fix(#1961): the four options `check_and_prepare_cog` treats as custom, in the
+# spelling a commit body uses for each.
+_REWRITING_OPTIONS = {
+    "compression": "LZW",
+    "resampling": "bilinear",
+    "nodata_override": -9999,
+    "srid_override": 3857,
+}
+_CONVERTER_ARGUMENT_TO_FIELD = {
+    "compression": "compression",
+    "resampling": "resampling",
+    "nodata": "nodata_override",
+    "assign_crs": "srid_override",
+}
+
+
+@pytest.mark.parametrize(
+    "model",
+    [CommitRequest, RasterCommitRequest],
+    ids=lambda model: model.__name__,
+)
+class TestStrictCogRefusesOptionsThatForceARewrite:
+    """Both the published body and the subclass the handler re-validates."""
+
+    @pytest.mark.parametrize(
+        "field, value",
+        [
+            *_REWRITING_OPTIONS.items(),
+            # The converter compares the string, so a lowercase spelling of
+            # the default is a custom option to it and rewrites.
+            ("compression", "deflate"),
+            ("nodata_override", 0.0),
+        ],
+    )
+    def test_one_rewriting_option_is_refused_by_name(
+        self, model: type, field: str, value: object
+    ) -> None:
+        with pytest.raises(ValidationError) as exc:
+            model(title="DEM", strict_cog=True, **{field: value})
+        message = str(exc.value)
+        assert "strict_cog" in message
+        assert field in message
+
+    def test_every_offending_field_is_named_at_once(self, model: type) -> None:
+        with pytest.raises(ValidationError) as exc:
+            model(title="DEM", strict_cog=True, **_REWRITING_OPTIONS)
+        message = str(exc.value)
+        for field in _REWRITING_OPTIONS:
+            assert field in message, field
+
+    def test_the_default_compression_stated_explicitly_is_accepted(
+        self, model: type
+    ) -> None:
+        assert model(title="DEM", strict_cog=True, compression="DEFLATE").strict_cog
+
+    def test_strict_alone_is_accepted(self, model: type) -> None:
+        assert model(title="DEM", strict_cog=True).strict_cog
+
+    def test_the_same_options_are_accepted_without_strict(self, model: type) -> None:
+        accepted = model(title="DEM", **_REWRITING_OPTIONS)
+        assert accepted.strict_cog is False
+
+
+def test_the_refused_set_is_the_converters_own_predicate() -> None:
+    """A fifth argument added to `has_custom_opts` would otherwise pass the
+    validator and be converted behind a caller's back."""
+    cog = Path(inspect.getfile(CommitRequest)).parents[1] / "raster" / "cog.py"
+    predicate = re.search(r"has_custom_opts = \((.*?)\n    \)", cog.read_text(), re.S)
+    assert predicate, "check_and_prepare_cog's predicate is no longer readable"
+    arguments = set(re.findall(r"^\s*(?:or )?(\w+)", predicate.group(1), re.M))
+    assert arguments <= set(_CONVERTER_ARGUMENT_TO_FIELD), arguments
+    assert {_CONVERTER_ARGUMENT_TO_FIELD[name] for name in arguments} == set(
+        _REWRITING_OPTIONS
+    )
 
 
 class TestServiceCommitRequest:
