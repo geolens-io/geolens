@@ -1077,11 +1077,6 @@ async def purge_queue_row_args(
     await db.commit()
 
 
-async def purge_queue_row_tokens(db: AsyncSession, job_ids: Sequence[int]) -> None:
-    """Token spelling of :func:`purge_queue_row_args`, kept for its callers."""
-    await purge_queue_row_args(db, job_ids)
-
-
 async def purge_terminal_job_tokens(db: AsyncSession) -> None:
     """Backstop the credential purge the tasks run on their own failure.
 

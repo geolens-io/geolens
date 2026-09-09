@@ -373,11 +373,11 @@ async def _purge_stalled_queue_row_tokens(job_ids: list) -> None:
     if not job_ids:
         return
     from app.core.db import async_session
-    from app.platform.jobs.sweep import purge_queue_row_tokens
+    from app.platform.jobs.sweep import purge_queue_row_args
 
     try:
         async with async_session() as session:
-            await purge_queue_row_tokens(session, job_ids)
+            await purge_queue_row_args(session, job_ids)
     except Exception:  # broad: the periodic backstop still covers these rows
         log.warning(
             "Stalled queue token purge failed", job_count=len(job_ids), exc_info=True

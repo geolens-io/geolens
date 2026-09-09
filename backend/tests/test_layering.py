@@ -4063,10 +4063,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is the comment stating why a set-based UPDATE cannot use `lock_timeout`
     # the way a single-row write does. Cap 2374 -> 2392, exact.
     # chore(#1873): review-history comments trimmed. Cap 2392 -> 1506, exact.
-    # fix(#1755 item 12): +22 — `purge_queue_row_tokens`, the by-id token
+    # fix(#1755 item 12): +22 — `purge_queue_row_args`, the by-id token
     # purge the stalled sweep and the task-side purge now share.
     # Cap 1472 -> 1494, exact.
-    "backend/app/platform/jobs/sweep.py": 1494,
+    # fix(#1710): the running-lease sweep gains `no_unclaimed_queue_entry`, so
+    # a row whose task is still `todo` is not reaped before a worker takes it;
+    # the terminal backstop and the by-id purge both strip `url` alongside
+    # `token`, the latter through an `arg_key`. Measured on the file rebased
+    # across #1755 item 12, not added up. Cap 1494 -> 1537, exact.
+    "backend/app/platform/jobs/sweep.py": 1537,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -5245,7 +5250,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#1710): `raster_stamped_metadata` moved here from router.py so
     # the URL fetch task can reach it without importing an HTTP module.
     # RECONCILED with #2016 off the same 1390 baseline; measured, not summed.
-    "backend/app/processing/ingest/service.py": 0,
+    "backend/app/processing/ingest/service.py": 1437,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and

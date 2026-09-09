@@ -247,7 +247,7 @@ async def test_the_sweep_purges_the_tokens_of_only_the_rows_it_failed():
             "app.platform.jobs.worker._ingest_jobs_still_leasing",
             AsyncMock(return_value={live}),
         ),
-        patch("app.platform.jobs.sweep.purge_queue_row_tokens", purge),
+        patch("app.platform.jobs.sweep.purge_queue_row_args", purge),
     ):
         await fail_stalled_queue_jobs()
 
@@ -264,7 +264,7 @@ async def test_a_purge_failure_does_not_abort_the_sweep():
     with (
         patch("app.processing.ingest.tasks.task_app", fake),
         patch(
-            "app.platform.jobs.sweep.purge_queue_row_tokens",
+            "app.platform.jobs.sweep.purge_queue_row_args",
             AsyncMock(side_effect=OSError("queue table unreachable")),
         ),
     ):
