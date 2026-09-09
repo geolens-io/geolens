@@ -93,8 +93,36 @@ jobs:
           # npx license-checker --production --onlyAllow \
           #   'MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;CC0-1.0;Unlicense;Python-2.0;PSF-2.0;BlueOak-1.0.0;0BSD;OFL-1.1;MPL-2.0;CUSTOM'
 
+  resolve-docker-audit-matrix:
+    name: Resolve docker-audit image pins
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.matrix.outputs.include }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # fix(#1983): node/python/nginx are Dockerfile FROM tags Dependabot
+      # bumps; deriving them here (not a second literal copy) is the single
+      # source of truth, so this matrix can't drift behind the Dockerfile.
+      - name: Derive matrix from Dockerfile FROM tags
+        id: matrix
+        run: |
+          set -euo pipefail
+          node_image=$(grep -m1 '^FROM node:' Dockerfile | awk '{print $2}')
+          python_image=$(grep -m1 '^FROM python:' Dockerfile | awk '{print $2}')
+          nginx_image=$(grep -m1 '^FROM nginxinc/nginx-unprivileged:' Dockerfile | awk '{print $2}')
+          for name in node_image python_image nginx_image; do
+            if [ -z "${!name}" ]; then
+              echo "::error::no Dockerfile FROM line matched for $name" >&2
+              exit 1
+            fi
+          done
+          include=$(printf '[{"image":"%s","enforce":"1"},{"image":"%s","enforce":"1"},{"image":"%s","enforce":"1"},{"image":"postgis/postgis:18-3.6","enforce":"0"}]' \
+            "$node_image" "$python_image" "$nginx_image")
+          echo "include=$include" >> "$GITHUB_OUTPUT"
+
   docker-audit:
     name: Docker image scan (Trivy)
+    needs: resolve-docker-audit-matrix
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -102,24 +130,16 @@ jobs:
         # `enforce: "1"` fails the job on a fixable CRITICAL CVE; `enforce: "0"`
         # is report-only. The slim/alpine images we pin (node/python/nginx) are
         # controllable — a CRITICAL there is actionable (bump the tag), so they
-        # ENFORCE — keep these three pins matched to the Dockerfile `FROM` tags
-        # they mirror (bump together). postgis/postgis:18-3.6 is an
-        # uncontrollable third-party fat
+        # ENFORCE; their tags come from the Dockerfile `FROM` lines via the
+        # resolve-docker-audit-matrix job above, so this can't drift out of
+        # sync. postgis/postgis:18-3.6 is an uncontrollable third-party fat
         # Debian-13 image whose CRITICAL set is dominated by CVEs in baked-in Go
         # binaries that only the upstream maintainer can rebuild — and that set
         # shifts with every Trivy DB update. Gating on it would make CI red on
         # upstream timing, not on our code, so it is scanned + REPORTED but not
         # gated (tracked via Dependabot + this report; revisit at each postgis
         # base bump).
-        include:
-          - image: "node:26.8.1-alpine"
-            enforce: "1"
-          - image: "python:3.14.6-slim"
-            enforce: "1"
-          - image: "nginxinc/nginx-unprivileged:1.31.5-alpine"
-            enforce: "1"
-          - image: "postgis/postgis:18-3.6"
-            enforce: "0"
+        include: ${{ fromJson(needs.resolve-docker-audit-matrix.outputs.include) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # Scope is CRITICAL (not HIGH): these scan UPSTREAM base images, whose HIGH

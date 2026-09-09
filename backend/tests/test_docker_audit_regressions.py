@@ -1,9 +1,11 @@
 """Regression tests for production container hardening invariants."""
 
+import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -86,23 +88,62 @@ def test_backup_base_is_digest_pinned():
     )
 
 
-def test_docker_audit_matrix_pins_match_dockerfile_from_tags():
-    # fix(#1778): dep-audit.yml's own comment says the node/python/nginx
-    # pins must be "matched to the Dockerfile FROM tags they mirror (bump
-    # together)" because Dependabot bumps the Dockerfile but cannot touch
-    # this inline matrix string — the two drifted (node 26.5.0 vs the
-    # Dockerfile's 26.7.0+, nginx 1.31.1 vs 1.31.3+) with nothing catching it.
-    matrix = yaml.safe_load(DEP_AUDIT_WORKFLOW.read_text())["jobs"]["docker-audit"][
-        "strategy"
-    ]["matrix"]["include"]
-    enforced_images = [entry["image"] for entry in matrix if entry["enforce"] == "1"]
+def test_docker_audit_matrix_is_derived_not_a_second_literal_copy():
+    # fix(#1983): dep-audit.yml derives node/python/nginx from the Dockerfile
+    # at run time instead of a second literal matrix copy (#1778 drifted,
+    # #1975 needed a manual fix) — assert it stays derived, not reverted.
+    workflow = yaml.safe_load(DEP_AUDIT_WORKFLOW.read_text())["jobs"]
+    docker_audit = workflow["docker-audit"]
+
+    assert docker_audit["needs"] == "resolve-docker-audit-matrix"
+    matrix_include = docker_audit["strategy"]["matrix"]["include"]
+    assert isinstance(matrix_include, str) and "fromJson(" in matrix_include, (
+        "docker-audit's matrix.include must reference the resolved job "
+        "output, not a literal list of images — a literal list is exactly "
+        "the second copy that drifted behind the Dockerfile in #1778/#1983"
+    )
+
+
+def test_docker_audit_matrix_resolver_pins_match_dockerfile_from_tags():
+    # fix(#1983): runs the real resolve-docker-audit-matrix step against the
+    # Dockerfile, so a broken grep pattern or renamed stage fails here
+    # instead of silently emitting an empty or stale pin in CI.
+    steps = yaml.safe_load(DEP_AUDIT_WORKFLOW.read_text())["jobs"][
+        "resolve-docker-audit-matrix"
+    ]["steps"]
+    matrix_step = next(step for step in steps if step.get("id") == "matrix")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_file = Path(tmp_dir) / "github_output"
+        output_file.touch()
+        subprocess.run(
+            ["bash", "-c", matrix_step["run"]],
+            cwd=REPO_ROOT,
+            env={**os.environ, "GITHUB_OUTPUT": str(output_file)},
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        output_line = next(
+            line
+            for line in output_file.read_text().splitlines()
+            if line.startswith("include=")
+        )
+        resolved = json.loads(output_line[len("include=") :])
+
+    enforced_images = {entry["image"] for entry in resolved if entry["enforce"] == "1"}
     assert enforced_images
 
     dockerfile_text = DOCKERFILE.read_text()
     for image in enforced_images:
         assert re.search(
             rf"^FROM {re.escape(image)}(\s|$)", dockerfile_text, re.MULTILINE
-        ), f"{image} (dep-audit.yml) has no matching FROM line in Dockerfile"
+        ), (
+            f"{image} (resolved by dep-audit.yml) has no matching FROM line in Dockerfile"
+        )
+
+    report_only = [entry for entry in resolved if entry["enforce"] == "0"]
+    assert report_only == [{"image": "postgis/postgis:18-3.6", "enforce": "0"}]
 
 
 def test_backend_runtime_does_not_recursively_chown_application_tree():
