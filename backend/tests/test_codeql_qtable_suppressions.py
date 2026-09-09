@@ -282,13 +282,20 @@ def test_no_full_ssrf_marker_sits_above_a_non_sink_line() -> None:
 PATH_SINK_METHODS = frozenset({"open", "stat", "unlink"})
 
 
-def _builds_a_path(value: ast.expr) -> bool:
-    """``Path(...)`` or a ``/`` join, the two ways a path value is built here."""
+def _builds_a_path(value: ast.expr, known: set[str]) -> bool:
+    """A ``Path(...)`` call, a name already proven to hold one, or a ``/`` join
+    with one such operand. A bare division proves nothing: ``done / total`` is
+    arithmetic, and accepting it would type its target as a path module-wide.
+    """
     if isinstance(value, ast.Call):
         func = value.func
         name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
         return name == "Path"
-    return isinstance(value, ast.BinOp) and isinstance(value.op, ast.Div)
+    if isinstance(value, ast.Name):
+        return value.id in known
+    if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Div):
+        return _builds_a_path(value.left, known) or _builds_a_path(value.right, known)
+    return False
 
 
 def _path_typed_names(tree: ast.Module) -> set[str]:
@@ -301,20 +308,32 @@ def _path_typed_names(tree: ast.Module) -> set[str]:
     names: set[str] = set()
     for node in ast.walk(tree):
         annotation = getattr(node, "annotation", None)
-        if annotation is not None:
-            if not any(
-                isinstance(inner, ast.Name) and inner.id == "Path"
-                for inner in ast.walk(annotation)
-            ):
+        if annotation is None or not any(
+            isinstance(inner, ast.Name) and inner.id == "Path"
+            for inner in ast.walk(annotation)
+        ):
+            continue
+        if isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+
+    # Assignments reach a fixpoint rather than being read in walk order, so a
+    # path built from a name bound earlier in the same body is proven whichever
+    # order the two statements are visited in.
+    assignments = [node for node in ast.walk(tree) if isinstance(node, ast.Assign)]
+    settled = False
+    while not settled:
+        settled = True
+        for node in assignments:
+            if not _builds_a_path(node.value, names):
                 continue
-            if isinstance(node, ast.arg):
-                names.add(node.arg)
-            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-                names.add(node.target.id)
-        elif isinstance(node, ast.Assign) and _builds_a_path(node.value):
-            names.update(
+            targets = {
                 target.id for target in node.targets if isinstance(target, ast.Name)
-            )
+            }
+            if not targets <= names:
+                names |= targets
+                settled = False
     return names
 
 
