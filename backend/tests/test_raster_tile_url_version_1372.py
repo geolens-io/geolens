@@ -1,11 +1,12 @@
-"""fix(#1372): raster tile URLs carry ``v=<tile_cache_version>``.
+"""fix(#1372, #2007): raster tile URLs carry ``v=`` and ``pv=``.
 
-nginx's shared raster_cache keys on ``$arg_v`` (frontend/nginx.conf), so a
-raster replace — which bumps ``Dataset.tile_cache_version`` — rolls the shared
-cache immediately instead of serving pre-replace bytes for up to
-``proxy_cache_valid``. These pins cover the response builders that emit the
-versioned template; the token endpoint's pin lives in
-``tests/test_raster_tiles.py::TestRasterTokenEndpoint``.
+nginx's shared raster_cache keys on ``$arg_v`` and ``$arg_pv``
+(frontend/nginx.conf), so a raster replace — which bumps
+``Dataset.tile_cache_version`` — and a publication transition — which bumps
+``Dataset.publication_version`` — each roll the shared cache immediately
+instead of serving pre-change bytes for up to ``proxy_cache_valid``. These
+pins cover the response builders that emit the versioned template; the token
+endpoint's pin lives in ``tests/test_raster_tiles.py::TestRasterTokenEndpoint``.
 """
 
 import uuid
@@ -23,6 +24,7 @@ class TestRasterMetadataTileUrlVersion:
     def test_tile_url_carries_tile_cache_version(self):
         dataset = _make_mock_dataset("raster_dataset")
         dataset.tile_cache_version = 7
+        dataset.publication_version = 3
         asset = _make_mock_raster_asset(
             vrt_type=None, resolution_strategy=None, status="ready"
         )
@@ -30,12 +32,12 @@ class TestRasterMetadataTileUrlVersion:
         result = _build_raster_metadata(dataset, asset, is_admin=False)
 
         assert result.tile_url == (
-            f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png?v=7"
+            f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png?v=7&pv=3"
         )
 
     def test_connect_tile_url_stays_unversioned(self):
         """The connect template is copied once into desktop GIS tools, where a
-        frozen ``v`` would pin exactly the staleness the param exists to bust."""
+        frozen counter would pin exactly the staleness the params exist to bust."""
         dataset = _make_mock_dataset("raster_dataset")
         dataset.tile_cache_version = 7
         asset = _make_mock_raster_asset(
@@ -48,6 +50,7 @@ class TestRasterMetadataTileUrlVersion:
 
         assert "?v=" not in result.connect.tile_url
         assert "&v=" not in result.connect.tile_url
+        assert "pv=" not in result.connect.tile_url
         assert "api_key={your_key}" in result.connect.tile_url
 
 
@@ -71,7 +74,7 @@ def _shared_layer() -> SimpleNamespace:
 
 
 class TestSharedLayerTileUrlVersion:
-    def _build(self, tile_version):
+    def _build(self, tile_version, publication_version=3):
         layer = _shared_layer()
         layer_dict, _ = _build_shared_layer_dict(
             layer,
@@ -86,6 +89,7 @@ class TestSharedLayerTileUrlVersion:
             ds_is_dem=None,
             ds_dem_vertical_units=None,
             ds_tile_version=tile_version,
+            ds_publication_version=publication_version,
             ds_attribution=None,
         )
         return layer, layer_dict
@@ -93,29 +97,31 @@ class TestSharedLayerTileUrlVersion:
     def test_raster_tile_url_carries_version(self):
         layer, layer_dict = self._build(7)
         assert layer_dict["tile_url"] == (
-            f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png?v=7"
+            f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png?v=7&pv=3"
         )
 
-    def test_raster_tile_url_bare_without_version(self):
+    def test_raster_tile_url_keeps_the_publication_version_without_v(self):
         layer, layer_dict = self._build(None)
         assert layer_dict["tile_url"] == (
-            f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
+            f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png?pv=3"
         )
 
 
 class TestStyleJsonRasterTileVersion:
     def test_raster_dem_source_tiles_carry_version(self):
         dem_id = uuid.uuid4()
-        layer = _dem_layer(dem_id=dem_id).model_copy(update={"tile_version": 7})
+        layer = _dem_layer(dem_id=dem_id).model_copy(
+            update={"tile_version": 7, "publication_version": 3}
+        )
         style = build_maplibre_style(_map(), [layer])
         assert style["sources"][f"geolens-{dem_id}"]["tiles"][0] == (
-            f"/raster-tiles/{dem_id}/tiles/{{z}}/{{x}}/{{y}}.png?v=7"
+            f"/raster-tiles/{dem_id}/tiles/{{z}}/{{x}}/{{y}}.png?v=7&pv=3"
         )
 
-    def test_raster_dem_source_tiles_bare_without_version(self):
+    def test_raster_dem_source_tiles_keep_pv_without_a_version(self):
         dem_id = uuid.uuid4()
         layer = _dem_layer(dem_id=dem_id)
         style = build_maplibre_style(_map(), [layer])
         assert style["sources"][f"geolens-{dem_id}"]["tiles"][0] == (
-            f"/raster-tiles/{dem_id}/tiles/{{z}}/{{x}}/{{y}}.png"
+            f"/raster-tiles/{dem_id}/tiles/{{z}}/{{x}}/{{y}}.png?pv=0"
         )

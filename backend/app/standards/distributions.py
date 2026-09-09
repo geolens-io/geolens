@@ -12,7 +12,7 @@ rejects internal pointers (only http(s) or root-relative API paths
 pass); ``published_distributions`` adds, for the raster family, the
 tile template the product serves anonymously — derived per request
 since it lives at the APP origin, nginx-rewritten to the tile proxy, and
-carries ``tile_cache_version``, values a stored row can't hold. Mirrors
+carries the tile cache-key params, values a stored row can't hold. Mirrors
 ``build_assets`` in ``modules/catalog/search/service_records.py`` (what
 STAC advertises for the same datasets) — the discrepancy #1469 reported.
 """
@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from app.core.record_types import is_raster_family
+from app.core.tile_scope import tile_template_query
 
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import Dataset
@@ -76,14 +77,16 @@ def _absolute(url: str, base_url: str) -> str:
 def raster_tiles_path(dataset: Dataset) -> str:
     """The XYZ template for a raster dataset, versioned like every renderer.
 
-    fix(#1372) versions the template so a replace that bumps
-    ``tile_cache_version`` rolls the shared tile cache. Kept identical to
-    ``build_assets``: a client that reads both the STAC asset and the DCAT
-    distribution must get the same URL.
+    fix(#1372) and fix(#2007) version the template on the content and the
+    publication counters, so a replace or a publication transition rolls the
+    shared tile cache. Kept identical to ``build_assets``: a client that reads
+    both the STAC asset and the DCAT distribution must get the same URL.
     """
     path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-    version = getattr(dataset, "tile_cache_version", None)
-    return f"{path}?v={version}" if version else path
+    return path + tile_template_query(
+        getattr(dataset, "tile_cache_version", None),
+        getattr(dataset, "publication_version", None),
+    )
 
 
 def _raster_tiles_distribution(

@@ -236,11 +236,11 @@ export function useMapLayers({
         // freshly re-added on remount. Bust that with tileVersion (the
         // dataset's updated_at) the same way the vector source already does
         // via buildSignedTileUrl.
-        // fix(#1372): the server now embeds `?v=<tile_cache_version>` in the
-        // raster tile URL (nginx's shared cache keys on it) — when present,
-        // it supersedes this client-side append; appending a second `v`
-        // would make nginx key on the wrong (first) value.
-        const hasServerVersion = /[?&]v=/.test(rasterTileUrl);
+        // fix(#1372, #2007): the server embeds `?v=<tile_cache_version>` and
+        // `pv=<publication_version>` (nginx's shared cache keys on both) — any
+        // server query supersedes this client-side append, which would both
+        // make nginx key on the wrong `v` and emit a second `?`.
+        const hasServerVersion = rasterTileUrl.includes('?');
         const versionedTileUrl =
           tileVersion && !hasServerVersion
             ? `${window.location.origin}${rasterTileUrl}?v=${encodeURIComponent(tileVersion)}`

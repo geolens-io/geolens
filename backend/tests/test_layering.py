@@ -2277,7 +2277,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # fix(#1778 round 3): +9 — the export's zoom no-op conditions read the
     # shared BUILDER_MIN_ZOOM / BUILDER_MAX_ZOOM instead of repeating 0 and 22,
     # so the two directions of the round trip cannot drift. Cap 1710 -> 1719.
-    "backend/app/modules/catalog/maps/style_json.py": 1590,
+    # fix(#2007): +7. The raster and vector templates carry the publication
+    # counter both cache layers key on, through the one shared builder.
+    # Cap 1590 -> 1597, exact.
+    "backend/app/modules/catalog/maps/style_json.py": 1597,
     # fix(#1626): +50 — `_restore_master_opacity` undoes the export fold from
     # `metadata.geolens.feature_opacity` and maps a v6 `-layer-opacity` key onto
     # `layer.opacity` (number) or drops it with a warning (expression); plus
@@ -5701,7 +5704,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # once; no override_defaults, since the middleware already charges the
     # global default unconditionally for this callable-valued limit
     # (test_semantic_search_rate_limit_1778.py). Cap 1380 -> 1432, exact.
-    "backend/app/modules/catalog/search/router.py": 1432,
+    # fix(#2007): +1. The advertised raster template is built by the shared
+    # cache-key helper. Cap 1432 -> 1433, exact.
+    "backend/app/modules/catalog/search/router.py": 1433,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -5854,7 +5859,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1963): +17. Mint and verify derive the signed scope through the one
     # shared helper, and both meta snapshots carry the publication counter that
     # scope binds. Cap 2392 -> 2409, exact.
-    "backend/app/processing/tiles/router.py": 2409,
+    # fix(#2007): +66. The two nginx cache-key params are read through one
+    # helper the edge and the api share, a mismatched one loses the shared
+    # cache on all three routes, and the vector/cluster key carries the
+    # publication counter. Cap 2409 -> 2475, exact.
+    "backend/app/processing/tiles/router.py": 2475,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

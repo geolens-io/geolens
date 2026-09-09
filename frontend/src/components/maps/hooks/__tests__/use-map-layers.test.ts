@@ -157,12 +157,25 @@ describe('useMapLayers raster tile source cache-busting', () => {
   // to a server-versioned URL.
   it('does not append a second v when the server URL already carries one', () => {
     const map = runRasterHook(
-      '/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?v=7',
+      '/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?v=7&pv=3',
       '2026-08-10T00:00:00Z',
     );
     const source = addedSourceConfig(map);
     expect(source?.tiles[0]).toBe(
-      `${window.location.origin}/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?v=7`,
+      `${window.location.origin}/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?v=7&pv=3`,
+    );
+  });
+
+  // fix(#2007): a legacy row with no tile_cache_version emits `?pv=` alone.
+  // A `?` appended onto that is a malformed URL, not a second version.
+  it('leaves a server URL carrying only the publication version alone', () => {
+    const map = runRasterHook(
+      '/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?pv=3',
+      '2026-08-10T00:00:00Z',
+    );
+    const source = addedSourceConfig(map);
+    expect(source?.tiles[0]).toBe(
+      `${window.location.origin}/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?pv=3`,
     );
   });
 });

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.tile_scope import tile_template_query
 from app.core.text import escape_ilike
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import apply_visibility_filter
@@ -351,6 +352,7 @@ def _build_shared_layer_dict(
     ds_is_dem: bool | None,
     ds_dem_vertical_units: str | None,
     ds_tile_version: int | None,
+    ds_publication_version: int | None,
     ds_attribution: str | None,
 ) -> tuple[dict, bool]:
     """Build a shared-layer response dict from a joined layer row.
@@ -359,16 +361,21 @@ def _build_shared_layer_dict(
     """
     is_public = ds_visibility == "public"
     if ds_record_type in RASTER_FAMILY_RECORD_TYPES:
-        tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
-        # fix(#1372): version the raster template so nginx's $arg_v cache-key
-        # segment rolls the shared tile cache when a replace bumps the version.
-        if ds_tile_version:
-            tile_url = f"{tile_url}?v={ds_tile_version}"
+        # fix(#1372, #2007): version the raster template so nginx's $arg_v and
+        # $arg_pv cache-key segments roll the shared tile cache when a replace
+        # or a publication transition bumps either counter.
+        tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png" + (
+            tile_template_query(ds_tile_version, ds_publication_version)
+        )
     else:
         # No `/tiles/public/...` route exists
         # — the single `/tiles` catch-all does its own auth check
         # (visibility + HMAC-or-anonymous), so every consumer uses one URL.
-        tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
+        # fix(#2007): this template is unsigned, so `pv` is the only thing
+        # carrying the publication counter a shared cache keys it on.
+        tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf" + (
+            tile_template_query(None, ds_publication_version)
+        )
     return {
         "id": str(layer.id),
         "dataset_id": str(layer.dataset_id),
@@ -471,6 +478,7 @@ async def get_shared_map(
             # current_version only changes on reupload, so feature edits and
             # column DDL never rolled the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
+            Dataset.publication_version,
             Record.attribution,
         )
         .join(Map, Map.id == MapLayer.map_id)
@@ -542,6 +550,7 @@ async def get_shared_map(
         ds_is_dem,
         ds_band_info,
         ds_tile_version,
+        ds_publication_version,
         ds_attribution,
     ) in layer_rows:
         layer_dict, is_non_public = _build_shared_layer_dict(
@@ -557,6 +566,7 @@ async def get_shared_map(
             ds_is_dem,
             _extract_dem_vertical_units(ds_band_info),
             ds_tile_version,
+            ds_publication_version,
             ds_attribution,
         )
         if is_non_public:

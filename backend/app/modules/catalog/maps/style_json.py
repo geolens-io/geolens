@@ -39,7 +39,11 @@ from app.modules.catalog.maps.style_sanitizers import (
     finite_number as _finite_number,
 )
 from app.platform.extensions import get_catalog_port
-from app.core.tile_scope import tile_signature_scope
+from app.core.tile_scope import (
+    tile_signature_scope,
+    tile_template_params,
+    tile_template_query,
+)
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 
 __all__ = ["ImportedStyleMap", "build_maplibre_style", "parse_maplibre_style_import"]
@@ -343,19 +347,22 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
         layer.layer_type == "raster_geolens"
         or layer.dataset_record_type in RASTER_FAMILY_RECORD_TYPES
     ):
-        url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
-        # fix(#1372): version the raster template so nginx's $arg_v cache-key
-        # segment rolls the shared tile cache when a replace bumps the version.
-        if layer.tile_version:
-            url = f"{url}?v={layer.tile_version}"
-        return url
+        # fix(#1372, #2007): version the raster template so nginx's $arg_v and
+        # $arg_pv cache-key segments roll the shared tile cache when a replace
+        # or a publication transition bumps either counter.
+        return f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png" + (
+            tile_template_query(layer.tile_version, layer.publication_version)
+        )
     port = get_catalog_port()
     exp = port.round_tile_expiry()
     scope = tile_signature_scope(layer.dataset_table_name, layer.publication_version)
+    # fix(#2007): the counter is inside `scope` for the signature to bind, and
+    # beside it as `pv` because that is the name both cache layers key on.
     params: dict[str, Any] = {
         "sig": port.generate_tile_signature(scope, exp),
         "exp": exp,
         "scope": scope,
+        **tile_template_params(None, layer.publication_version),
     }
     # Include the stable attribute projection needed by data-driven styles at z<10.
     cols = _data_driven_columns_for_layer(layer)

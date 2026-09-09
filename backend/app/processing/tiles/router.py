@@ -35,6 +35,10 @@ from app.core.geo import (
 )
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.tile_scope import (
+    TILE_PUBLICATION_VERSION_PARAM,
+    tile_template_params,
+)
 from app.modules.auth.dependencies import (
     capability_declined,
     get_optional_user,
@@ -613,6 +617,31 @@ def _require_tile_tenant_context() -> str | None:
     return tenant_id
 
 
+def _cache_key_arg_values(request: Request, name: str) -> list[str]:
+    """Every value nginx's ``$arg_<name>`` could resolve, in query order.
+
+    nginx matches an arg NAME case-insensitively and reads the FIRST
+    occurrence, while ``QueryParams.get()`` returns the LAST occurrence of an
+    exact-case name. Both cache-key params are read through here so the edge
+    and the api cannot disagree about which value keyed an entry.
+    """
+    return [
+        value
+        for arg_name, value in request.query_params.multi_items()
+        if arg_name.lower() == name
+    ]
+
+
+def _cache_key_version_mismatch(values: list[str], current: int) -> bool:
+    """Whether a cache-key version param disagrees with the row it names.
+
+    An ABSENT param is not a mismatch: an unversioned client (a copied connect
+    URL) keys on the empty segment and keeps the old bounded staleness. A
+    duplicated one is, since the two layers would read different occurrences.
+    """
+    return bool(values) and (len(values) != 1 or values[0] != str(current))
+
+
 def _meta_cache_version_segment(raw: str | None) -> str | None:
     """Normalize a request's ``v`` into a raster meta cache-key segment.
 
@@ -891,11 +920,7 @@ async def raster_auth_check(
     # fix(#1372): nginx keys on the FIRST occurrence of `v` and matches the
     # name case-insensitively; `QueryParams.get()` returns the LAST occurrence
     # of an exact-case name. Read once, because two decisions below use it.
-    v_values = [
-        value
-        for name, value in request.query_params.multi_items()
-        if name.lower() == "v"
-    ]
+    v_values = _cache_key_arg_values(request, "v")
     meta, storage_backend = await _resolve_raster_access(
         db,
         dataset_id,
@@ -918,10 +943,14 @@ async def raster_auth_check(
     # fix(#1372): a shared-cache entry may only be written under the
     # CURRENT version, or a caller pre-warms the NEXT key with pre-replace
     # bytes. So: exactly one case-insensitive `v`, or served no-store.
-    if (
-        cache_status == "public"
-        and v_values
-        and (len(v_values) != 1 or v_values[0] != str(meta.tile_cache_version))
+    # fix(#2007): and on the publication version, or a mismatched `pv`
+    # pre-warms the key the next unpublish makes current.
+    if cache_status == "public" and (
+        _cache_key_version_mismatch(v_values, meta.tile_cache_version)
+        or _cache_key_version_mismatch(
+            _cache_key_arg_values(request, TILE_PUBLICATION_VERSION_PARAM),
+            meta.publication_version,
+        )
     ):
         cache_status = "private"
     if meta.is_dem:
@@ -1313,12 +1342,19 @@ def _build_tile_token_for_dataset(
         )
         raster_sig = generate_tile_signature(raster_scope, raster_exp)
         tile_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-        # fix(#1372): `v` rides outside the signature (which binds scope+exp
-        # only, like the colormap params) and feeds nginx's $arg_v cache-key
-        # segment, so a raster replace rolls the shared tile cache.
-        query_params = {"sig": raster_sig, "exp": raster_exp, "scope": raster_scope}
-        if dataset.tile_cache_version:
-            query_params["v"] = dataset.tile_cache_version
+        # fix(#1372, #2007): `v` and `pv` ride outside the signature (which
+        # binds scope+exp only) and feed nginx's cache-key segments, so a
+        # replace or a publication transition rolls the shared tile cache.
+        query_params: dict[str, Any] = {
+            "sig": raster_sig,
+            "exp": raster_exp,
+            "scope": raster_scope,
+        }
+        query_params.update(
+            tile_template_params(
+                dataset.tile_cache_version, dataset.publication_version
+            )
+        )
         query = urlencode(query_params)
 
         return RasterTileToken(
@@ -1734,6 +1770,23 @@ async def _assert_dataset_still_registered(
     )
 
 
+def _demote_prewarmed_cache_scope(
+    request: Request, meta: _DatasetMeta, cache_scope: str
+) -> str:
+    """Refuse the shared cache to a request whose ``pv`` names another row state.
+
+    fix(#2007): the emitted vector template carries the publication version, so
+    a caller supplying the counter an unpublish is about to make current would
+    otherwise fill that key with bytes from before the transition.
+    """
+    if cache_scope == "public" and _cache_key_version_mismatch(
+        _cache_key_arg_values(request, TILE_PUBLICATION_VERSION_PARAM),
+        meta.publication_version,
+    ):
+        return "private"
+    return cache_scope
+
+
 async def _authorize_vector_tile_request(
     request: Request,
     meta: _DatasetMeta,
@@ -1860,8 +1913,11 @@ def _ensure_clusterable_dataset(meta: _DatasetMeta) -> None:
         )
 
 
-def _generation_table_key(table_name: str, dataset_id: uuid.UUID) -> str:
-    """Table segment plus the generation that makes a reused name safe.
+def _generation_table_key(
+    table_name: str, dataset_id: uuid.UUID, publication_version: int
+) -> str:
+    """Table segment, the generation that makes a reused name safe, and the
+    publication version that makes a superseded entry unreachable.
 
     A cache key of the table name alone would let the next dataset to draw
     ``roads`` read the previous one's cached bytes under its own visibility.
@@ -1869,17 +1925,22 @@ def _generation_table_key(table_name: str, dataset_id: uuid.UUID) -> str:
     impossible rather than merely short-lived — GH-1443's name-retirement
     is not relied on for this.
 
-    Position is load-bearing: the id goes AFTER the table segment so the
+    fix(#2007): the publication version joins them, so bytes cached while the
+    dataset was public and published stop being reachable the moment a status
+    or visibility transition rolls it, rather than serving out the TTL.
+
+    Position is load-bearing: both segments go AFTER the table name so the
     ``tile:{table}:*`` patterns in ``invalidate_table`` still match every
     key for a table, whichever dataset wrote it.
     """
-    return f"{table_name}:ds{dataset_id.hex}"
+    return f"{table_name}:ds{dataset_id.hex}:p{publication_version}"
 
 
 def _cluster_cache_table_key(
     table_name: str,
     *,
     dataset_id: uuid.UUID,
+    publication_version: int,
     cluster_radius: int,
     cluster_max_zoom: int,
 ) -> str:
@@ -1887,7 +1948,7 @@ def _cluster_cache_table_key(
     # _build_cluster_tile_query changes the emitted tile geometry/properties, or a
     # deploy keeps serving stale cluster tiles until TTL expiry. v2 -> v3: #874.
     return (
-        f"{_generation_table_key(table_name, dataset_id)}"
+        f"{_generation_table_key(table_name, dataset_id, publication_version)}"
         f":cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
     )
 
@@ -2095,6 +2156,7 @@ async def cluster_tile_endpoint(
         scope=scope,
         user=user,
     )
+    cache_scope = _demote_prewarmed_cache_scope(request, meta, cache_scope)
     # fix(#1518): after authorization, not before. "Not a point dataset"
     # is a property of the RESOURCE, and it told an unauthorized caller that a
     # private dataset exists and what geometry it holds.
@@ -2124,6 +2186,7 @@ async def cluster_tile_endpoint(
     cluster_cache_key = _cluster_tenant_prefix + _cluster_cache_table_key(
         table_name,
         dataset_id=meta.dataset_id,
+        publication_version=meta.publication_version,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
     )
@@ -2284,6 +2347,7 @@ async def tile_endpoint(
         scope=scope,
         user=user,
     )
+    cache_scope = _demote_prewarmed_cache_scope(request, meta, cache_scope)
 
     columns = meta.column_info
 
@@ -2300,7 +2364,9 @@ async def tile_endpoint(
     # tenants sharing a table_name never share a cached tile binary.
     # single_tenant: no prefix, byte-identical to pre-1209.
     _tile_tid = _require_tile_tenant_context()
-    _tile_generation_key = _generation_table_key(table_name, meta.dataset_id)
+    _tile_generation_key = _generation_table_key(
+        table_name, meta.dataset_id, meta.publication_version
+    )
     _tile_cache_key = (
         f"{_tile_tid}:{_tile_generation_key}"
         if _tile_tid is not None

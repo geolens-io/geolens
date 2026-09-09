@@ -46,6 +46,7 @@ from app.standards.ogc.utils import (
 from app.standards.ogc.errors import BAD_REQUEST_RESPONSE, ERROR_RESPONSES_PUBLIC
 from app.core.geo import extent_to_bbox, rollup_bbox, rollup_bbox_columns
 from app.core.public_urls import get_public_api_url, get_public_app_url
+from app.core.tile_scope import tile_template_query
 from app.modules.catalog.search.schemas import (
     FacetCountResponse,
     OGCCollectionMetadataResponse,
@@ -875,11 +876,11 @@ async def list_collections(
                 }
             )
         else:
-            # fix(#1372): versioned like every rendered template so a
+            # fix(#1372, #2007): versioned like every rendered template so a
             # refetching client stops sharing the unversioned cache entry.
-            raster_tiles_path = f"/raster-tiles/{ds.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-            if ds.tile_cache_version:
-                raster_tiles_path = f"{raster_tiles_path}?v={ds.tile_cache_version}"
+            raster_tiles_path = f"/raster-tiles/{ds.id}/tiles/{{z}}/{{x}}/{{y}}.png" + (
+                tile_template_query(ds.tile_cache_version, ds.publication_version)
+            )
             links.append(
                 {
                     "rel": "tiles",

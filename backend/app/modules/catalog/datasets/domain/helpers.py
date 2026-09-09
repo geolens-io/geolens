@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.tile_scope import tile_template_query
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.source_freshness import (
     compute_source_freshness,
@@ -72,12 +73,12 @@ def _build_raster_metadata(
     # fix(#821): ?api_key= is deprecated, but desktop GIS XYZ tile clients
     # can't send headers -- this placeholder is the sanctioned remaining use.
     tile_url_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-    # fix(#1372): `v` is tile_cache_version -- nginx keys raster_cache on
-    # $arg_v, so a replace rolls the cache. connect URL stays unversioned:
-    # it's copied once into GIS tools, where a frozen `v` pins staleness.
-    tile_version = getattr(dataset, "tile_cache_version", None)
-    tile_url_meta = (
-        f"{tile_url_path}?v={tile_version}" if tile_version else tile_url_path
+    # fix(#1372, #2007): nginx keys raster_cache on `v` and `pv`, so a replace
+    # or a publication transition rolls the cache. connect URL stays
+    # unversioned: copied once into GIS tools, a frozen pair pins staleness.
+    tile_url_meta = tile_url_path + tile_template_query(
+        getattr(dataset, "tile_cache_version", None),
+        getattr(dataset, "publication_version", None),
     )
 
     if base_url:
