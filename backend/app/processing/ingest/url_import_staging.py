@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,8 +24,21 @@ from app.processing.ingest.service import (
     _cleanup_saved_upload,
 )
 
-
 logger = structlog.get_logger(__name__)
+
+# fix(#1710): stamped by `_settle_failed_url_import` on the exception it has
+# already acted on, so the task's outer handler can settle what never reached
+# it without settling the same failure twice.
+_SETTLED_ATTR = "_geolens_url_import_settled"
+
+
+class UrlImportRefused(ValueError):
+    """A URL-import refusal the submitter is meant to read.
+
+    fix(#1710): the worker has no response to shape, so a refusal it raises
+    is a domain failure rather than an ``HTTPException``. Defined under
+    ``app.`` so ADR-002's stored-reason door (#1953) admits its text.
+    """
 
 
 async def _put_staging_object(s3_key: str, local_dest: Path) -> None:
@@ -166,6 +179,13 @@ async def _settle_failed_url_import(
 
     from app.platform.jobs.models import IngestJob
 
+    # fix(#1710): stamped BEFORE any await, so a settlement that is itself
+    # cancelled still tells the outer handler this failure was claimed.
+    try:
+        setattr(exc, _SETTLED_ATTR, True)
+    except AttributeError:  # pragma: no cover - exotic exception types
+        pass
+
     # Release the pool connection before the probe/remote delete (r14).
     # Best-effort: a session whose connection died mid-commit may refuse
     # this, and the CAS below opens its own transaction regardless.
@@ -249,7 +269,7 @@ async def _effective_stream_cap(
     user at or near their storage cap could spend instance-max bandwidth,
     staging disk, and a worker slot on a download the post-stage check is
     guaranteed to refuse. ``storage_cap == 0`` means unlimited;
-    zero remaining raises 413 here, before any fetch. The post-stage
+    zero remaining refuses here, before any fetch. The post-stage
     byte-charged check stays authoritative for races and the cloud
     entitlement seam, which this preflight doesn't consult.
     """
@@ -258,12 +278,9 @@ async def _effective_stream_cap(
         return max_size_bytes, None
     remaining_quota = usage.storage_cap - usage.bytes_used
     if remaining_quota <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=(
-                f"Storage quota exceeded: used {usage.bytes_used} of "
-                f"{usage.storage_cap} bytes"
-            ),
+        raise UrlImportRefused(
+            f"Storage quota exceeded: used {usage.bytes_used} of "
+            f"{usage.storage_cap} bytes"
         )
     if remaining_quota < max_size_bytes:
         return remaining_quota, (
@@ -283,5 +300,11 @@ async def _recheck_staged_quota(
     ``tests/test_layering.py`` may only shrink, and this module already
     carries the quota edge. ``request`` is None because a worker has none;
     ``enforce_limit`` never reads it.
+
+    The door's refusal is HTTP-shaped; a worker's is not, so the detail is
+    re-raised as a domain failure whose text the stored-reason rule admits.
     """
-    await check_upload_quota(db, user_id, actual_size, None)
+    try:
+        await check_upload_quota(db, user_id, actual_size, None)
+    except HTTPException as exc:
+        raise UrlImportRefused(str(exc.detail)) from exc

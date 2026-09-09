@@ -16,6 +16,7 @@ What this file pins, beyond the two-phase coverage in
 import asyncio
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -228,12 +229,14 @@ class TestWorkerCapsAndQuota:
         _install_body(monkeypatch, GEOJSON)
         charged: list[int] = []
 
-        async def _refuse(db, user_id, actual_size):
-            charged.append(actual_size)
-            raise _quota_refusal(actual_size)
+        # Patch the door's own check, so the worker seam's HTTP-to-domain
+        # translation runs rather than being stubbed over.
+        async def _refuse(db, user_id, incoming_bytes, request):
+            charged.append(incoming_bytes)
+            raise _quota_refusal(incoming_bytes)
 
         monkeypatch.setattr(
-            "app.processing.ingest.tasks_url_fetch._recheck_staged_quota", _refuse
+            "app.processing.ingest.url_import_staging.check_upload_quota", _refuse
         )
         await _run_task(captured[0])
 
@@ -319,6 +322,120 @@ class TestWorkerTransition:
         assert _staged_files() == []
 
 
+class TestEveryFailureSettles:
+    """fix(#1710): no raise after the row is adopted may leave it running."""
+
+    async def test_a_failure_in_the_adoption_block_settles_the_row(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """A raise before the staging block still stamps the job failed.
+
+        Counterfactual: with the outer handler only logging, the same run
+        leaves the row running with no error_message until the lease reaper.
+        The reason is generic because RuntimeError is not this tree's text.
+        """
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/adopt.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        async def _boom(*_args, **_kwargs):
+            raise RuntimeError("driver dump for https://user:pw@origin.test/a.geojson")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_url_fetch._adopt_running_lease", _boom
+        )
+        await _run_task(captured[0])
+
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == "URL import failed"
+        assert "pw@origin.test" not in job.error_message
+
+    async def test_a_composed_refusal_keeps_its_text_with_the_url_redacted(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """A refusal this tree wrote survives, minus any userinfo it quotes.
+
+        Counterfactual: dropping the redaction from `_settlement_message`
+        stores the credential verbatim in a field the job owner's status
+        poll returns.
+        """
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/wrapped.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        from app.processing.ingest.url_fetch import UrlFetchError
+
+        async def _boom(*_args, **_kwargs):
+            raise UrlFetchError(
+                "Could not download the file: no route to "
+                "https://user:pw@origin.test/a.geojson"
+            )
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_url_fetch.fetch_url_to_path", _boom
+        )
+        await _run_task(captured[0])
+
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message.startswith("Could not download the file:")
+        assert "pw@origin.test" not in job.error_message
+        assert "origin.test" in job.error_message
+
+    async def test_the_worker_raises_no_http_exception(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """An at-cap quota refusal settles as a domain failure, not an HTTP one.
+
+        Counterfactual: with the refusal left as HTTPException, the stored
+        reason falls to the generic string because fastapi is not this
+        tree's module.
+        """
+        from app.processing.ingest.url_import_staging import UrlImportRefused
+
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        monkeypatch.setattr(
+            "app.processing.ingest.url_import_staging.get_user_quota_usage",
+            _usage_at_cap(),
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/atcap2.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        _install_body(monkeypatch, GEOJSON)
+        await _run_task(captured[0])
+
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "Storage quota exceeded" in job.error_message
+        assert issubclass(UrlImportRefused, ValueError)
+        assert UrlImportRefused.__module__.startswith("app.")
+
+
 class TestCrashRecovery:
     async def test_a_killed_download_is_settled_by_the_stale_sweep(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
@@ -397,6 +514,16 @@ class TestCrashRecovery:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _usage_at_cap():
+    from unittest.mock import AsyncMock
+
+    return AsyncMock(
+        return_value=SimpleNamespace(
+            bytes_used=1000, storage_cap=1000, dataset_count=0, count_cap=0
+        )
+    )
 
 
 def _accept_any_url():

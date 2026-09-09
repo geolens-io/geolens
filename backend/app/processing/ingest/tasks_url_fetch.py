@@ -19,7 +19,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -39,6 +38,8 @@ from app.processing.ingest.tasks_common import (
 )
 from app.processing.ingest.url_fetch import fetch_url_to_path
 from app.processing.ingest.url_import_staging import (
+    _SETTLED_ATTR,
+    UrlImportRefused,
     _commit_staged_transition_guarded,
     _effective_stream_cap,
     _put_staging_object,
@@ -179,16 +180,30 @@ async def fetch_url(
             staging_dir=staging_dir,
         )
     except Exception as exc:  # broad: network, file I/O, storage and DB all reach here
-        # The row was already settled by ``_settle_failed_url_import``; this
-        # only decides how the queue sees the delivery. Swallowed so an
-        # ordinary refusal (size cap, content mismatch, dead origin) is not
-        # reported as a crashed worker. The URL never enters the event: it is
-        # caller-supplied and can carry userinfo.
+        # fix(#1710): a failure that never reached the staging block — the
+        # lease adoption itself, or the heartbeat's own start — has not been
+        # settled by anyone, and logging alone would leave the row 'running'
+        # with no reason until the lease reaper. Settle it here on a fresh
+        # session; the CAS is fenced, so a row this delivery no longer owns
+        # matches zero rows and keeps whatever verdict it has.
+        if not getattr(exc, _SETTLED_ATTR, False):
+            async with db_module.async_session() as settle_session:
+                await _settle_failed_url_import(
+                    settle_session,
+                    exc,
+                    job_id=job_uuid,
+                    attempt_id=attempt_uuid,
+                    s3_key=None,
+                    local_dest=local_dest,
+                )
+        # Swallowed so an ordinary refusal (size cap, content mismatch, dead
+        # origin) is not reported as a crashed worker. The URL never enters
+        # the event: it is caller-supplied and can carry userinfo.
         logger.warning(
             "url_import_failed",
             job_id=job_id,
             reason=type(exc).__name__,
-            exc_info=not isinstance(exc, HTTPException),
+            exc_info=not isinstance(exc, UrlImportRefused),
         )
     finally:
         async with cleanup_step("fetch_url heartbeat", job_id=job_id):
@@ -260,7 +275,7 @@ async def _stage_downloaded_file(
                 values=await _staged_values(session, job_uuid, staged_path, filename),
                 expected_status="running",
             ):
-                raise HTTPException(status_code=409, detail=_LEASE_LOST_DETAIL)
+                raise UrlImportRefused(_LEASE_LOST_DETAIL)
             await _commit_staged_transition_guarded(session)
         except BaseException as exc:
             await _settle_failed_url_import(
