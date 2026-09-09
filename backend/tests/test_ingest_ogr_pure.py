@@ -12,9 +12,11 @@ import pytest
 
 from app.processing.ingest.metadata import _sql_quote_ident
 from app.processing.ingest.ogr import (
+    IngestionError,
     _extract_common_layer_metadata,
     _friendly_open_failure_message,
     _is_unopenable_source_stderr,
+    _raise_gdal_failure,
     _sanitize_authorization_token,
     _strip_ogr_driver_list,
     extract_srid_from_json,
@@ -1015,6 +1017,39 @@ class TestIsUnopenableSourceStderr:
 
     def test_empty_string_does_not_match(self):
         assert _is_unopenable_source_stderr("") is False
+
+
+class TestOgrinfoOneLineOpenFailure:
+    """fix(#2036): ogrinfo reports an unopenable source in one line of its
+    own rather than ogr2ogr's driver enumeration, so the reason for it is
+    the friendly sentence and not ``ogrinfo failed (exit 1)``.
+    """
+
+    _STDERR = (
+        "ERROR 4: `/app/staging/7c3d-uuid_march.gpkg' not recognized as being "
+        "in a supported file format.\n"
+        "ogrinfo failed - unable to open '/app/staging/7c3d-uuid_march.gpkg'.\n"
+    )
+
+    def test_the_one_line_wording_is_an_open_failure(self):
+        assert _is_unopenable_source_stderr(self._STDERR) is True
+
+    def test_the_reason_names_the_source_and_not_the_staging_path(self):
+        with pytest.raises(IngestionError) as exc_info:
+            _raise_gdal_failure("ogrinfo", 1, self._STDERR, "march.gpkg")
+        reason = str(exc_info.value)
+        assert reason == (
+            "Could not open 'march.gpkg' as a spatial dataset — the file "
+            "may be corrupt, incomplete, or not a valid GeoPackage (.gpkg) "
+            "file."
+        )
+        assert "/app/staging" not in reason
+        assert "7c3d-uuid_march.gpkg" not in reason
+
+    def test_a_layer_that_is_not_in_the_source_is_not_an_open_failure(self):
+        """The other ogrinfo exit-1 shape keeps its own class (#2010)."""
+        stderr = "ERROR 1: Couldn't fetch requested layer parcels.\n"
+        assert _is_unopenable_source_stderr(stderr) is False
 
 
 class TestFriendlyOpenFailureMessage:
