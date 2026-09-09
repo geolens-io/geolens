@@ -70,9 +70,11 @@ from app.modules.catalog.search.records_protocol import (
 )
 from app.modules.catalog.search.service import (
     SearchFilters,
+    consume_paired_query_claim,
     count_collections,
     dataset_to_ogc_record,
     get_facet_counts,
+    record_paired_query_claim,
     search_collections,
     search_datasets,
 )
@@ -81,6 +83,7 @@ from app.core.persistent_config import (
     get_cached_semantic_search_rate_limit,
 )
 from app.platform.ratelimit import limiter
+from slowapi.util import get_remote_address
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -413,6 +416,40 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_semantic_search_rate_limit()}/minute"
 
 
+def _semantic_search_query_already_claimed(request: Request) -> bool:
+    """fix(#1903): true when the OTHER search route already claimed this query.
+
+    Never creates a claim: this runs before the limiter's own admit/reject
+    check, so a request the bucket rejects must not seed one. A non-exempt
+    outcome stashes (client, text, route) on ``request.state`` instead, for
+    ``_finalize_semantic_search_claim`` to record once the request is
+    known to be admitted.
+    """
+    query_text = request.query_params.get("q")
+    if not query_text:
+        return False
+    # fix(#1903): the route's own identity, not a path substring test --
+    # stable even if a future route in this scope shares the "facets" text.
+    route = request.scope["route"].name
+    client_key = get_remote_address(request)
+    if consume_paired_query_claim(client_key, query_text, route):
+        return True
+    request.state.semantic_search_claim = (client_key, query_text, route)
+    return False
+
+
+def _finalize_semantic_search_claim(request: Request) -> None:
+    """fix(#1903): record this request's claim once it is known to be admitted.
+
+    Call at the very top of a search handler -- reaching that point already
+    proves the rate limit let the request through. A no-op when the gate
+    exempted this request (nothing pending) or the query didn't qualify.
+    """
+    pending = getattr(request.state, "semantic_search_claim", None)
+    if pending is not None:
+        record_paired_query_claim(*pending)
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — slash form is canonical
 # (in OpenAPI); no-slash is a hidden alias closing the 404 regression from
 # redirect_slashes=False (api/main.py).
@@ -420,9 +457,16 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
     "/facets", response_model=FacetCountResponse, include_in_schema=False
 )
 @search_router.get("/facets/", response_model=FacetCountResponse)
-# fix(#1855): facets embed the query, so both search routes draw on ONE SEC-S11
-# bucket; two buckets let a caller alternating them embed twice the cap.
-@limiter.shared_limit(_semantic_search_rate_limit, scope="semantic_search")
+# fix(#1855): facets embed the query, so both routes draw on ONE SEC-S11
+# bucket. fix(#1903): no override_defaults -- this limit_value is callable,
+# so SlowAPIMiddleware already charges the global default unconditionally
+# for it (test_semantic_search_rate_limit_1778.py); adding it here would
+# only double that charge.
+@limiter.shared_limit(
+    _semantic_search_rate_limit,
+    scope="semantic_search",
+    exempt_when=_semantic_search_query_already_claimed,
+)
 async def search_facets_endpoint(
     request: Request,
     q: str | None = Query(None, max_length=1000, description="Full-text search query"),
@@ -452,6 +496,7 @@ async def search_facets_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> FacetCountResponse:
     """Return record_type facet counts for the given filters."""
+    _finalize_semantic_search_claim(request)
     geometry_geojson, bbox_parsed = parse_spatial_params(geometry, bbox)
 
     if user is not None:
@@ -509,7 +554,13 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
 )
-@limiter.shared_limit(_semantic_search_rate_limit, scope="semantic_search")
+# fix(#1903): the facets route's callable-limit note above applies here
+# symmetrically -- this route can be the SECOND of the pair too.
+@limiter.shared_limit(
+    _semantic_search_rate_limit,
+    scope="semantic_search",
+    exempt_when=_semantic_search_query_already_claimed,
+)
 async def search_datasets_endpoint(
     request: Request,
     response: Response,
@@ -518,6 +569,7 @@ async def search_datasets_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""
+    _finalize_semantic_search_claim(request)
     params = _resolve_filter_lang(params, request)
     result = await _handle_search(db, user, request, params)
     for name, value in standard_response_headers(

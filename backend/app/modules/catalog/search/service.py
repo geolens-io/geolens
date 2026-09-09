@@ -29,7 +29,11 @@ from app.modules.catalog.search.service_records import (
     build_assets,
     dataset_to_ogc_record,
 )
-from app.modules.catalog.search.service_semantic import _compute_rrf_scores
+from app.modules.catalog.search.service_semantic import (
+    _compute_rrf_scores,
+    consume_paired_query_claim,
+    record_paired_query_claim,
+)
 
 __all__ = [
     "FacetCounts",
@@ -41,6 +45,8 @@ __all__ = [
     "build_assets",
     "dataset_to_ogc_record",
     "parse_ogc_datetime",
+    "consume_paired_query_claim",
+    "record_paired_query_claim",
     "_build_text_filter",
     "_apply_common_filters",
     "_compute_rrf_scores",

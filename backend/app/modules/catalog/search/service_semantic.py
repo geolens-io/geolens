@@ -19,7 +19,7 @@ from app.core.persistent_config import SEMANTIC_SEARCH_ENABLED
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.search.service_filters import SearchFilters
-from app.platform.cache import tenant_cache_key
+from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -78,6 +78,67 @@ def _embedding_cache_clear() -> None:
     _embedding_cache.clear()
 
 
+# fix(#1903): coordinates the SPA's unordered results/facets pair so only
+# one request pays the SEC-S11 token; keyed on (client, tenant, text),
+# single-use, bounded by TTL + LRU (cross-worker sharing tracked at #2018).
+_QUERY_CLAIM_TTL_SECONDS = 5.0
+_QUERY_CLAIM_MAX_SIZE = 256
+_query_claims: "OrderedDict[tuple[str, str], tuple[str, float]]" = OrderedDict()
+
+
+def _query_claim_key(client_key: str, text: str) -> tuple[str, str] | None:
+    """fix(#1903): a tuple, not an f-string join -- ``client_key`` is an IPv6
+    address, which contains ``:`` too, so a joined string lets one /64
+    holder's query text collide with a neighbour's address.
+
+    Also fails closed on an unscoped multi-tenant host: ``tenant_cache_key``
+    raises when there is no verified tenant context, so this checks
+    ``tenant_cache_context_available()`` first, same as the search cache.
+    """
+    normalized = text.strip().lower()
+    if not normalized or not tenant_cache_context_available():
+        return None
+    return (client_key, tenant_cache_key(normalized))
+
+
+def consume_paired_query_claim(client_key: str, text: str, route: str) -> bool:
+    """True when the OTHER route already claimed this (client, text); consumes it.
+
+    Read-only otherwise -- it never creates a claim. fix(#1903): claiming
+    must not be a side effect of the rate-limit pre-check, which runs for a
+    request the bucket goes on to reject too; only ``record_paired_query_
+    claim``, called from a handler that is provably running (the rate limit
+    admitted it), may create one.
+    """
+    key = _query_claim_key(client_key, text)
+    if key is None:
+        return False
+    claimed = _query_claims.get(key)
+    if claimed is None:
+        return False
+    claimant_route, expires_at = claimed
+    if expires_at < time.monotonic() or claimant_route == route:
+        return False
+    del _query_claims[key]
+    return True
+
+
+def record_paired_query_claim(client_key: str, text: str, route: str) -> None:
+    """Claim (client, text) for *route*. Call only once a request is admitted."""
+    key = _query_claim_key(client_key, text)
+    if key is None:
+        return
+    _query_claims[key] = (route, time.monotonic() + _QUERY_CLAIM_TTL_SECONDS)
+    _query_claims.move_to_end(key)
+    while len(_query_claims) > _QUERY_CLAIM_MAX_SIZE:
+        _query_claims.popitem(last=False)
+
+
+def _query_claims_clear() -> None:
+    """Clear the claim registry (test-helper)."""
+    _query_claims.clear()
+
+
 # fix(#448): the provider default timeout (130s) is sized for backfill; a hung
 # provider must not hold a search request, and resolve_semantic_arm degrades to
 # FTS on any error. wait_for keeps CatalogPort overlays source-compatible.
@@ -93,6 +154,33 @@ async def _embed_with_deadline(
         get_catalog_port().generate_embedding(text, session, pinned=pinned),
         timeout=_QUERY_EMBED_TIMEOUT_SECONDS,
     )
+
+
+# fix(#1903): coalesces concurrent embeds for one cache key into a single
+# provider call, since a rate-limit exemption can be granted before either
+# half of a paired request finishes embedding. Only used when the config is
+# fully pinned (see generate_embedding); waiters shield so cancelling one
+# participant can't cancel the shared task or its siblings.
+_embedding_inflight: "dict[tuple[str, str, str], asyncio.Task[list[float]]]" = {}
+
+
+def _embedding_inflight_clear() -> None:
+    """Clear the in-flight registry (test-helper)."""
+    _embedding_inflight.clear()
+
+
+async def _embed_and_cache(
+    text: str,
+    session: AsyncSession,
+    cache_key: tuple[str, str, str],
+    pinned: tuple[str, int, str | None],
+) -> list[float]:
+    try:
+        vector = await _embed_with_deadline(text, session, pinned)
+        _embedding_cache_put(cache_key, vector)
+        return vector
+    finally:
+        _embedding_inflight.pop(cache_key, None)
 
 
 async def generate_embedding(
@@ -128,11 +216,30 @@ async def generate_embedding(
     if cached is not None:
         return cached
 
-    vector = await _embed_with_deadline(
-        text, session, (model_name, dimensions, base_url)
-    )
-    _embedding_cache_put(cache_key, vector)
-    return vector
+    if not model_name or not dimensions:
+        # fix(#1903): mirrors generate_embeddings_batch's own session-read
+        # gate (processing/embeddings/service.py) exactly, since a shared
+        # task can outlive this request's session -- only a call THAT gate
+        # would also treat as fully pinned may be shared; this one runs
+        # standalone.
+        vector = await _embed_with_deadline(
+            text, session, (model_name, dimensions, base_url)
+        )
+        _embedding_cache_put(cache_key, vector)
+        return vector
+
+    task = _embedding_inflight.get(cache_key)
+    if task is None:
+        # No await between the cache/inflight reads above and this write,
+        # so no other coroutine can interleave on this event loop and race
+        # the same key into two tasks.
+        task = asyncio.ensure_future(
+            _embed_and_cache(
+                text, session, cache_key, (model_name, dimensions, base_url)
+            )
+        )
+        _embedding_inflight[cache_key] = task
+    return await asyncio.shield(task)
 
 
 async def _attach_updated_actor_identities(

@@ -1800,7 +1800,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # was rejected. Cap 456 -> 482, exact.
         # fix(#1855): -84. The vector arm is resolved once into SemanticArm and
         # counted through the shared candidate set. Cap 482 -> 398, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 398,
+        # fix(#1903): +68 — a claim registry coordinates the SPA's unordered
+        # paired search requests so only one pays the SEC-S11 token (bounded
+        # by TTL + LRU, cross-worker sharing tracked at #2018), and
+        # concurrent identical embeds join one in-flight, shielded provider
+        # call (gated on the same fully-pinned predicate the provider's own
+        # session-read check uses) so an exemption can never fund two paid
+        # calls. Cap 398 -> 466, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 466,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -5688,7 +5695,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # per-dataset OGC collections query. Cap 1489 -> 1493, exact.
     # fix(#1855): -1. The facets rate-limit note shrank when the endpoint
     # gained the SEC-S11 limiter. Cap 1493 -> 1492, exact.
-    "backend/app/modules/catalog/search/router.py": 1380,
+    # fix(#1903): +52 — both search routes gain a claim-registry exempt_when
+    # (bounded, single-use, client-scoped, keyed off the route's own scope
+    # name) so the SPA's unordered paired request pays the SEC-S11 token
+    # once; no override_defaults, since the middleware already charges the
+    # global default unconditionally for this callable-valued limit
+    # (test_semantic_search_rate_limit_1778.py). Cap 1380 -> 1432, exact.
+    "backend/app/modules/catalog/search/router.py": 1432,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
