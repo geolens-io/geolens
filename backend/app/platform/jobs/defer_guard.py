@@ -203,6 +203,11 @@ def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> 
     ``_redact_sensitive_fields`` scrubs free text only under ``event`` and
     ``exception``, and a defer exception can quote Procrastinate's
     ``call_string``, which renders a live ``token='...'`` kwarg.
+
+    fix(#1755): ``exc_info`` carries the chain, because Procrastinate wraps
+    a connector failure as ``ConnectorException("Database error.")`` and the
+    top frame alone tells two outages apart from neither. ``format_exc_info``
+    renders it under ``exception``, which the processor does scrub.
     """
     # The inner guards degrade one field; this one covers the emit itself, so
     # a raising processor cannot skip the settlement that follows.
@@ -213,6 +218,7 @@ def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> 
             stage=stage,
             cause_class=type(exc).__name__,
             error=_render_or_unreadable(lambda: redact_nested(str(exc))),
+            exc_info=exc,
         )
     except Exception:  # broad: a diagnostic must not preempt the settlement below
         pass

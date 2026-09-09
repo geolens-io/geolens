@@ -410,6 +410,42 @@ class TestDeferWithOrphanGuard:
 
         asyncio.run(_check())
 
+    def test_the_wrapped_cause_reaches_the_record_scrubbed(self):
+        """fix(#1755 item 10): Procrastinate wraps a connector failure as
+        `ConnectorException("Database error.")`, so the top frame alone tells
+        two outages apart from neither. The chain lands under `exception`.
+        """
+        import logging
+
+        from app.platform.jobs.defer_guard import _log_dispatch_failure
+        from tests._logging_state import configured_logging
+
+        records: list[str] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(self.format(record))
+
+        try:
+            raise ValueError(
+                "connect failed for https://db.example.com/?token=PLACEHOLDERSECRET3"
+            )
+        except ValueError as inner:
+            wrapped = RuntimeError("Database error.")
+            wrapped.__cause__ = inner
+
+        handler = _Capture()
+        with configured_logging():
+            logging.getLogger().addHandler(handler)
+            try:
+                _log_dispatch_failure(_job(), wrapped, stage="defer_async")
+            finally:
+                logging.getLogger().removeHandler(handler)
+
+        emitted = "\n".join(records)
+        assert "connect failed for" in emitted
+        assert "PLACEHOLDERSECRET3" not in emitted
+
     def test_a_logger_that_raises_does_not_preempt_the_settlement(self):
         """fix(#1755 item 10): a structlog processor can raise while emitting.
         The whole diagnostic is best-effort, so the rollback still runs and the
