@@ -215,7 +215,7 @@ export interface paths {
         };
         /**
          * Get Embedding Stats
-         * @description Return semantic-search embedding coverage statistics (admin only).
+         * @description Return embedding coverage and the state of the backfill runs (admin only).
          */
         get: operations["get_embedding_stats_admin_embedding_stats__get"];
         put?: never;
@@ -6244,6 +6244,25 @@ export interface components {
             created_at: string;
         };
         /**
+         * BackfillEstimate
+         * @description How long each backfill action should take, before starting one.
+         *
+         *     Both figures come from the throughput of the most recent completed run, so
+         *     they describe this deployment's own provider rather than a generic rate.
+         */
+        BackfillEstimate: {
+            /**
+             * Missing Seconds
+             * @description Estimated seconds to embed the records that lack a usable vector.
+             */
+            missing_seconds: number;
+            /**
+             * All Seconds
+             * @description Estimated seconds to regenerate every record in the catalog.
+             */
+            all_seconds: number;
+        };
+        /**
          * BackfillResponse
          * @description Acknowledgement that a backfill run was queued (fix(#1542)).
          *
@@ -6263,6 +6282,85 @@ export interface components {
              * @description Job status at enqueue time ('pending').
              */
             status: string;
+        };
+        /**
+         * BackfillRunProgress
+         * @description The embedding backfill run currently holding the single run slot.
+         */
+        BackfillRunProgress: {
+            /**
+             * Job Id
+             * Format: uuid
+             * @description Identifier of the run in flight.
+             */
+            job_id: string;
+            /**
+             * Status
+             * @description Job status: 'pending' or 'running'.
+             */
+            status: string;
+            /**
+             * Records Processed
+             * @description Records the run has embedded so far.
+             */
+            records_processed: number;
+            /**
+             * Records Total
+             * @description Records the run will embed in total. Null until the run has selected its records.
+             */
+            records_total?: number | null;
+            /**
+             * Started At
+             * @description When a worker picked the run up.
+             */
+            started_at?: string | null;
+            /**
+             * Heartbeat At
+             * @description Last time the running worker renewed its lease.
+             */
+            heartbeat_at?: string | null;
+        };
+        /**
+         * BackfillRunSummary
+         * @description One finished embedding backfill run.
+         */
+        BackfillRunSummary: {
+            /**
+             * Job Id
+             * Format: uuid
+             * @description Identifier of the finished run.
+             */
+            job_id: string;
+            /**
+             * Status
+             * @description How the run ended: 'complete', 'failed' or 'cancelled'.
+             */
+            status: string;
+            /**
+             * Started At
+             * @description When a worker picked the run up.
+             */
+            started_at?: string | null;
+            /**
+             * Finished At
+             * @description When the run reached its final status.
+             */
+            finished_at?: string | null;
+            /**
+             * Records Processed
+             * @description Records the run embedded.
+             */
+            records_processed: number;
+            /**
+             * Records Failed
+             * @description Records the run could not embed, when the run recorded a count. A finished run with a non-zero figure here left coverage gaps.
+             */
+            records_failed?: number | null;
+            /**
+             * Error Code
+             * @description Short code identifying how a run failed, when it failed.
+             */
+            error_code?: string | null;
         };
         /** BasemapConfig */
         BasemapConfig: {
@@ -8659,6 +8757,15 @@ export interface components {
              * @description Embedding coverage as a percentage (0-100).
              */
             coverage_percent: number;
+            /** @description The backfill run in flight, or null when none is running. */
+            current_run?: components["schemas"]["BackfillRunProgress"] | null;
+            /**
+             * Recent Runs
+             * @description The most recent finished backfill runs, newest first.
+             */
+            recent_runs?: components["schemas"]["BackfillRunSummary"][];
+            /** @description Expected duration of each backfill action, or null until one run has completed and measured this deployment's throughput. */
+            estimate?: components["schemas"]["BackfillEstimate"] | null;
         };
         /**
          * EnterpriseTabsResponse

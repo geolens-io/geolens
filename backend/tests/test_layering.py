@@ -4454,7 +4454,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # caller passes a fenced job-row read) because this module knows records
     # and vectors, not jobs. Cap 1555 -> 1588, exact.
     # chore(#1873): review-history comments trimmed. Cap 1588 -> 922, exact.
-    "backend/app/processing/embeddings/backfill.py": 918,
+    # fix(#2025): +15 — the per-batch progress report, an opaque
+    # ``on_progress(processed, total)`` kept opaque like ``should_continue``:
+    # this module knows records and vectors, not job rows. Cap 918 -> 933, exact.
+    "backend/app/processing/embeddings/backfill.py": 933,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
@@ -5096,7 +5099,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # concurrent promotions reported a change it had not made. It now reports
     # applied/changed plus the previous roles read UNDER the lock, which is what
     # lets the caller audit only a real transition. Cap 1055 -> 1098, exact.
-    "backend/app/modules/admin/service.py": 1010,
+    # fix(#2025): +9 — the embedding-stats response also carries the run in
+    # flight, the run history and the before-start estimate, composed in
+    # backfill_jobs.py. Cap 1010 -> 1019, exact.
+    "backend/app/modules/admin/service.py": 1019,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the
     # add_4326_column branch beside it); see linearize_existing_4326.

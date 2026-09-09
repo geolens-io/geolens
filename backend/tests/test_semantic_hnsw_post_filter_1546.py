@@ -150,6 +150,11 @@ async def test_foreign_rows_nearer_than_live_ones_do_not_starve_the_scan(
 
     query_vector = _vector(0.0)
 
+    # fix(#2040 CI): the plan assertion below reads the planner's estimate of
+    # this table, and on a shared worker database autoanalyze timing decides
+    # whether that estimate reflects the rows just seeded (CI saw rows=1).
+    await session.execute(text("ANALYZE catalog.record_embeddings"))
+
     # Force the ordered index path; see the module docstring for why both are
     # needed and what the first draft of this test proved without the second.
     await session.execute(text("SET LOCAL enable_seqscan = off"))

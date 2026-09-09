@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { SettingsAITab } from '../SettingsAITab';
 import type { SettingItem } from '@/api/settings';
+import type { EmbeddingStatsResponse } from '@/types/api';
 import { probeAIStatus } from '@/api/admin';
 
 // #347 (ADM-05) regression: the Embedding Coverage box has two buttons ("Generate
@@ -22,7 +23,10 @@ const hoisted = vi.hoisted(() => ({
       missing_records: 50,
       stale_records: 0,
       coverage_percent: 50,
-    },
+      current_run: null,
+      recent_runs: [],
+      estimate: null,
+    } as EmbeddingStatsResponse,
   })),
 }));
 
@@ -103,6 +107,35 @@ describe('SettingsAITab — embedding coverage single spinner (#347 (ADM-05))', 
     expect(container.querySelectorAll('.animate-spin')).toHaveLength(0);
   });
 
+  // fix(#2025): the page used to track only the run it queued itself, so a run
+  // another operator started left both buttons live and the click bought a 409.
+  it('disables both buttons while a run somebody else started is in flight', () => {
+    hoisted.useEmbeddingStats.mockReturnValue({
+      data: {
+        total_records: 100,
+        embedded_records: 50,
+        missing_records: 50,
+        stale_records: 0,
+        coverage_percent: 50,
+        current_run: {
+          job_id: 'live',
+          status: 'running',
+          records_processed: 10,
+          records_total: 50,
+          started_at: '2026-09-09T10:00:00Z',
+          heartbeat_at: null,
+        },
+        recent_runs: [],
+        estimate: null,
+      },
+    });
+    renderTab();
+
+    expect(screen.getByRole('button', { name: /Generate Missing/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Regenerate All' })).toBeDisabled();
+    hoisted.useEmbeddingStats.mockReset();
+  });
+
   it('uses settings for the semantic toggle and suppresses user-management probes', () => {
     hoisted.canManageUsers = false;
     renderTab([
@@ -140,6 +173,9 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
         missing_records: 100,
         stale_records: 100,
         coverage_percent: 0,
+        current_run: null,
+        recent_runs: [],
+        estimate: null,
       },
     });
   });
@@ -153,6 +189,9 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
         missing_records: 50,
         stale_records: 0,
         coverage_percent: 50,
+        current_run: null,
+        recent_runs: [],
+        estimate: null,
       },
     });
   });
@@ -178,6 +217,9 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
         missing_records: 0,
         stale_records: 0,
         coverage_percent: 100,
+        current_run: null,
+        recent_runs: [],
+        estimate: null,
       },
     });
     renderTab();

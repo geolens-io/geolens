@@ -244,7 +244,7 @@ export const bulkRevokeAdminEmbedTokensBulkRevokePost = <ThrowOnError extends bo
 /**
  * Get Embedding Stats
  *
- * Return semantic-search embedding coverage statistics (admin only).
+ * Return embedding coverage and the state of the backfill runs (admin only).
  */
 export const getEmbeddingStatsAdminEmbeddingStatsGet = <ThrowOnError extends boolean = false>(options?: Options<GetEmbeddingStatsAdminEmbeddingStatsGetData, ThrowOnError>): RequestResult<GetEmbeddingStatsAdminEmbeddingStatsGetResponses, GetEmbeddingStatsAdminEmbeddingStatsGetErrors, ThrowOnError> => (options?.client ?? client).get<GetEmbeddingStatsAdminEmbeddingStatsGetResponses, GetEmbeddingStatsAdminEmbeddingStatsGetErrors, ThrowOnError>({
     security: [

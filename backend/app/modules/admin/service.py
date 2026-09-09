@@ -938,12 +938,21 @@ class AdminService:
         coverage_percent = (
             (embedded_records / total_records * 100) if total_records > 0 else 0.0
         )
+        # Deliberately after the coverage query's own degrade-to-zeros exit: a
+        # database that cannot answer the count above cannot answer this either,
+        # and the panel keeps the reduced response it has always had.
+        from app.modules.admin.backfill_jobs import collect_backfill_observability
+
+        runs = await collect_backfill_observability(
+            self.db, missing_records=missing_records, total_records=total_records
+        )
         return EmbeddingStatsResponse(
             total_records=total_records,
             embedded_records=embedded_records,
             missing_records=missing_records,
             stale_records=stale_records,
             coverage_percent=round(coverage_percent, 1),
+            **runs,
         )
 
     async def get_catalog_stats(self) -> CatalogStatsResponse:

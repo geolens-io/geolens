@@ -54,7 +54,10 @@ from .attribute_metadata_update_semantic_role_type_0 import (
 from .audit_log_list_response import AuditLogListResponse
 from .audit_log_response import AuditLogResponse
 from .audit_log_response_details_type_0 import AuditLogResponseDetailsType0
+from .backfill_estimate import BackfillEstimate
 from .backfill_response import BackfillResponse
+from .backfill_run_progress import BackfillRunProgress
+from .backfill_run_summary import BackfillRunSummary
 from .basemap_config import BasemapConfig
 from .basemap_config_sublayer_overrides_type_0 import (
     BasemapConfigSublayerOverridesType0,
@@ -813,7 +816,10 @@ __all__ = (
     "AuditLogListResponse",
     "AuditLogResponse",
     "AuditLogResponseDetailsType0",
+    "BackfillEstimate",
     "BackfillResponse",
+    "BackfillRunProgress",
+    "BackfillRunSummary",
     "BasemapConfig",
     "BasemapConfigSublayerOverridesType0",
     "BasemapLabelMode",

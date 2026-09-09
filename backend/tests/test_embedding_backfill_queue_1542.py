@@ -191,7 +191,9 @@ async def test_enqueue_answers_with_a_job_id_and_does_not_run_the_backfill(
     """The response is an acknowledgement, and the request does no provider work."""
     ran_inline = False
 
-    async def _should_not_run(session, *, force=False, should_continue=None):
+    async def _should_not_run(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         nonlocal ran_inline
         ran_inline = True
         return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
@@ -241,7 +243,9 @@ async def test_enqueue_returns_promptly_instead_of_waiting_for_the_run(
     """
     backfill_started = anyio.Event()
 
-    async def _slow_backfill(session, *, force=False, should_continue=None):
+    async def _slow_backfill(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         backfill_started.set()
         await anyio.sleep(2.0)
         return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
@@ -268,7 +272,9 @@ async def test_the_queued_task_runs_the_backfill_and_completes_the_job(
     """Enqueueing is not the whole promise — the deferred work has to happen."""
     calls: list[bool] = []
 
-    async def _fake_backfill(session, *, force=False, should_continue=None):
+    async def _fake_backfill(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         calls.append(force)
         return {"processed": 7, "created": 6, "skipped": 0, "errors": 1}
 
@@ -340,7 +346,9 @@ async def test_second_force_run_while_one_is_in_flight_is_refused_before_any_del
 
     deleted_anything = False
 
-    async def _destructive_backfill(session, *, force=False, should_continue=None):
+    async def _destructive_backfill(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         nonlocal deleted_anything
         deleted_anything = True
         await session.execute(delete(RecordEmbedding))
@@ -479,7 +487,7 @@ async def test_a_failed_run_marks_the_job_failed_without_leaking_the_error(
     """RES-2 survives the move: the provider's error text stays in the log."""
     secret = "provider-secret-token=do-not-expose"
 
-    async def _explode(session, *, force=False, should_continue=None):
+    async def _explode(session, *, force=False, should_continue=None, on_progress=None):
         raise RuntimeError(secret)
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _explode)
@@ -634,7 +642,7 @@ async def test_losing_the_fence_never_audits_a_completion_that_did_not_land(
     from app.platform.jobs.sweep import fail_stale_jobs
 
     async def _backfill_then_lose_the_lease(
-        session, *, force=False, should_continue=None
+        session, *, force=False, should_continue=None, on_progress=None
     ):
         # A different actor, on its own connection, as the sweeper really is.
         async with async_session() as other:
@@ -702,7 +710,9 @@ async def test_a_run_the_worker_never_claims_still_reaches_a_terminal_record(
 
     ran = False
 
-    async def _should_not_run(session, *, force=False, should_continue=None):
+    async def _should_not_run(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         nonlocal ran
         ran = True
         return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
@@ -758,10 +768,10 @@ async def test_every_terminating_path_writes_exactly_one_terminal_audit_entry(
     without an audit write fails a test that is about the rule, not about it.
     """
 
-    async def _ok(session, *, force=False, should_continue=None):
+    async def _ok(session, *, force=False, should_continue=None, on_progress=None):
         return {"processed": 2, "created": 2, "skipped": 0, "errors": 0}
 
-    async def _boom(session, *, force=False, should_continue=None):
+    async def _boom(session, *, force=False, should_continue=None, on_progress=None):
         raise RuntimeError("provider down")
 
     for backfill_impl, expected_outcome in ((_ok, "completed"), (_boom, "failed")):
@@ -915,7 +925,9 @@ async def test_two_concurrent_force_requests_produce_exactly_one_delete(
 
     deletes = 0
 
-    async def _destructive_backfill(session, *, force=False, should_continue=None):
+    async def _destructive_backfill(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         nonlocal deletes
         deletes += 1
         await session.execute(delete(RecordEmbedding))
@@ -995,7 +1007,9 @@ async def test_a_cancelled_worker_releases_the_slot_and_closes_the_trail(
     `requested` even if a force run had already deleted every vector.
     """
 
-    async def _cancelled_mid_run(session, *, force=False, should_continue=None):
+    async def _cancelled_mid_run(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _cancelled_mid_run)
@@ -1045,7 +1059,9 @@ async def test_a_run_that_created_nothing_is_not_reported_as_complete(
     expose the nested counts, so polling saw a clean success.
     """
 
-    async def _every_record_failed(session, *, force=False, should_continue=None):
+    async def _every_record_failed(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         return {"processed": 9, "created": 0, "skipped": 0, "errors": 9}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _every_record_failed)
@@ -1093,7 +1109,9 @@ async def test_a_partly_failed_run_still_completes(
     regenerate over a catalog that is mostly covered.
     """
 
-    async def _mostly_worked(session, *, force=False, should_continue=None):
+    async def _mostly_worked(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         return {"processed": 10, "created": 9, "skipped": 0, "errors": 1}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _mostly_worked)
@@ -1150,7 +1168,9 @@ async def test_a_failing_terminal_write_does_not_wedge_the_slot(
         backfill_jobs, "update_ingest_job_for_attempt", _first_write_blows_up
     )
 
-    async def _worked_fine(session, *, force=False, should_continue=None):
+    async def _worked_fine(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         return {"processed": 4, "created": 4, "skipped": 0, "errors": 0}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _worked_fine)
@@ -1213,7 +1233,9 @@ async def test_a_late_cancellation_does_not_contradict_a_committed_success(
         backfill_jobs, "_emit_terminal_audit", _cancelled_on_the_first_audit
     )
 
-    async def _worked_fine(session, *, force=False, should_continue=None):
+    async def _worked_fine(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         return {"processed": 5, "created": 5, "skipped": 0, "errors": 0}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _worked_fine)
@@ -1286,7 +1308,9 @@ async def test_a_lost_commit_acknowledgement_is_not_read_as_failure(
 
     monkeypatch.setattr(backfill_jobs, "_finalize", _commits_then_loses_the_answer)
 
-    async def _worked_fine(session, *, force=False, should_continue=None):
+    async def _worked_fine(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         return {"processed": 6, "created": 6, "skipped": 0, "errors": 0}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _worked_fine)
@@ -1351,7 +1375,9 @@ async def test_recovery_does_not_block_on_the_transaction_it_is_recovering_from(
         backfill_jobs, "update_ingest_job_for_attempt", _locks_the_row_then_dies
     )
 
-    async def _worked_fine(session, *, force=False, should_continue=None):
+    async def _worked_fine(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         return {"processed": 3, "created": 3, "skipped": 0, "errors": 0}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _worked_fine)
@@ -1640,7 +1666,9 @@ async def test_a_partly_failed_run_reports_its_rejected_records(
     reports to the operator as done.
     """
 
-    async def _mostly_worked(session, *, force=False, should_continue=None):
+    async def _mostly_worked(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         return {"processed": 10, "created": 9, "skipped": 0, "errors": 1}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _mostly_worked)
@@ -1670,7 +1698,7 @@ async def test_a_clean_run_reports_no_rejected_records(
 ):
     """The counterpart, so `rows_failed` distinguishes rather than always warns."""
 
-    async def _clean(session, *, force=False, should_continue=None):
+    async def _clean(session, *, force=False, should_continue=None, on_progress=None):
         return {"processed": 4, "created": 4, "skipped": 0, "errors": 0}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _clean)
@@ -1702,7 +1730,9 @@ async def test_one_run_gets_one_terminal_entry_whoever_writes_it_first(
     outcomes. Idempotency rather than each actor checking the other two.
     """
 
-    async def _settled_from_under_it(session, *, force=False, should_continue=None):
+    async def _settled_from_under_it(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         # The poll expires the lease while the provider call is still going.
         from app.core.db import async_session
 
@@ -2047,7 +2077,9 @@ async def test_a_lost_ack_does_not_claim_a_failure_another_actor_wrote(
     window between `_finalize`'s commit and `_emit_terminal_audit`.
     """
 
-    async def _provider_is_down(session, *, force=False, should_continue=None):
+    async def _provider_is_down(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         raise RuntimeError("provider down")
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _provider_is_down)

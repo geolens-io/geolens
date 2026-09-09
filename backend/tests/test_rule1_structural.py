@@ -1133,6 +1133,12 @@ PROVENANCE_ALLOWLIST: dict[str, str] = {
     "app.modules.admin.router.list_admin_jobs": (
         "manage_users-gated operator console; the cross-user view is the feature"
     ),
+    # fix(#2025): the embedding backfill's run history, on the coverage endpoint
+    # the admin AI panel reads. One instance-wide operation per tenant, so there
+    # is no narrower audience its error codes could be graded for.
+    "app.modules.admin.router.get_embedding_stats": (
+        "manage_users-gated; a backfill is one instance-wide run, not a per-user one"
+    ),
 }
 
 
