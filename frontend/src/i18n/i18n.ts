@@ -22,9 +22,30 @@ function updateDocumentLanguage(lng?: string) {
   document.documentElement.dir = rtlLanguages.has(resolvedLng) ? 'rtl' : 'ltr';
 }
 
+// fix(#2029 review): `zh` here is Simplified Chinese only. A bare
+// `split('-')[0]` would also route zh-TW/zh-Hant (Traditional) browsers to
+// it, so Chinese tags need the script/region checked instead of discarded.
+function isSimplifiedChineseTag(lowerTag: string): boolean {
+  return (
+    lowerTag === 'zh' ||
+    lowerTag.startsWith('zh-cn') ||
+    lowerTag.startsWith('zh-hans') ||
+    lowerTag.startsWith('zh-sg')
+  );
+}
+
+function matchSupportedLanguage(value: string): (typeof supportedLngs)[number] | undefined {
+  const lowerTag = value.toLowerCase();
+  if (lowerTag === 'zh' || lowerTag.startsWith('zh-')) {
+    return isSimplifiedChineseTag(lowerTag) ? 'zh' : undefined;
+  }
+  const baseLanguage = lowerTag.split('-')[0];
+  return supportedLngs.find((lng) => lng === baseLanguage);
+}
+
 function normalizeLanguage(value?: string | null) {
-  const baseLanguage = value?.toLowerCase().split('-')[0];
-  return supportedLngs.find((lng) => lng === baseLanguage) ?? fallbackLng;
+  if (!value) return fallbackLng;
+  return matchSupportedLanguage(value) ?? fallbackLng;
 }
 
 function detectInitialLanguage() {
@@ -42,10 +63,7 @@ function detectInitialLanguage() {
   }
 
   const browserLanguage =
-    window.navigator.languages?.find((candidate) => {
-      const baseLanguage = candidate.toLowerCase().split('-')[0];
-      return supportedLngs.includes(baseLanguage as (typeof supportedLngs)[number]);
-    }) ??
+    window.navigator.languages?.find((candidate) => matchSupportedLanguage(candidate) !== undefined) ??
     window.navigator.language;
 
   return normalizeLanguage(browserLanguage);
@@ -122,6 +140,6 @@ export async function changeAppLanguage(lng: string) {
   }
 }
 
-export { defaultNS, fallbackLng, namespaces, resources, supportedLngs };
+export { defaultNS, fallbackLng, namespaces, normalizeLanguage, resources, supportedLngs };
 export type { Namespace, SupportedLng } from './config';
 export default i18n;
