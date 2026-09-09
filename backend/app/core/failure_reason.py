@@ -99,9 +99,10 @@ def _drop_subprocess_output(summary: str) -> str:
 
 
 # fix(#2010): a stored reason has no use for a query string, and a signing
-# parameter need not be named in SENSITIVE_QUERY_PARAMS to be one. `[^\s=]*`
-# excludes its own delimiter, so each match has a single path through.
-_QUERY_TAIL_RE = re.compile(r"\?[^\s=]*=\S*")
+# parameter need not be named in SENSITIVE_QUERY_PARAMS to be one. The name
+# class excludes `?` as well as `=`, so a run of them cannot be rescanned
+# from every position; GDAL stderr reaches this uncapped.
+_QUERY_TAIL_RE = re.compile(r"\?[^\s=?]*=\S*")
 
 
 def _scrub(text: str) -> str:

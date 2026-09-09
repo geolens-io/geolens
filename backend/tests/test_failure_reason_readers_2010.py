@@ -8,6 +8,7 @@ carrying a signing parameter `SENSITIVE_QUERY_PARAMS` does not list.
 from __future__ import annotations
 
 import ast
+import time
 from pathlib import Path
 
 import pytest
@@ -164,6 +165,18 @@ class TestTheDoorDropsAQueryTail:
         assert "abcdef123456" not in reason
         assert "sig2" not in reason
         assert reason.endswith("timed out")
+
+    def test_a_run_of_question_marks_is_not_rescanned_from_each_one(self) -> None:
+        """The tail pass is reached with uncapped GDAL stderr.
+
+        A name class that admitted `?` retried from every one of them, which
+        measured 3.7s over 40k characters before the reason cap applies.
+        """
+        started = time.perf_counter()
+        redact_failure_reason("ERROR 1: " + "?" * 40_000)
+        elapsed = time.perf_counter() - started
+
+        assert elapsed < 1.0, elapsed
 
     def test_prose_and_a_query_free_url_are_left_alone(self) -> None:
         assert redact_failure_reason("Is this a GeoPackage? Probably not") == (
