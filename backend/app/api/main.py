@@ -50,7 +50,7 @@ from app.platform.extensions.bootstrap import (
 )
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
-from app.platform.ratelimit import limiter
+from app.platform.ratelimit import emit_startup_notices, limiter
 from app.processing.ingest.tasks import task_app
 from app.api.middleware.body_limit import RequestBodyLimitMiddleware
 from app.api.middleware.cors import DynamicCORSMiddleware
@@ -379,6 +379,11 @@ async def lifespan(app: FastAPI):
 
     # SEC-08 / M-72: surface unset CORS_ALLOWED_ORIGINS in production once.
     _warn_if_cors_unset(settings, logger)
+
+    # fix(#2018): the rate-limit storage decision is made at import, before
+    # setup_logging() above, so its notices are queued rather than logged
+    # there and flushed here into the configured stream.
+    emit_startup_notices()
 
     # WORK-01: shared bootstrap — extension load, enterprise-overlay-requested check,
     # edition init, extension router include, storage + S3 health probe, billing

@@ -45,9 +45,11 @@ class SharedClaimStore:
     the worker for the socket timeout on every request. slowapi's own limiter
     backs off after one failure for the same reason.
 
-    The cooldown is the claim's own lifetime, so the store is never consulted
-    again while a claim the local registry recorded in its place is still
-    redeemable.
+    The cooldown is one claim lifetime. That bounds how long the store goes
+    unprobed; it does NOT bound the fallback claims written during it, whose
+    own TTL starts when they are written, so a claim recorded late in a
+    cooldown outlives it. ``consume_paired_query_claim`` is what covers that,
+    by reading the local registry whenever this store does not say "yes".
     """
 
     def __init__(

@@ -24,6 +24,7 @@ pre-#2018 behaviour, rather than to no limit or a 500 per request.
 from __future__ import annotations
 
 from functools import cache
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import structlog
@@ -35,6 +36,24 @@ from app.core.config import settings
 from app.core.persistent_config import get_cached_global_rate_limit
 
 logger = structlog.stdlib.get_logger(__name__)
+
+# fix(#2018): the storage decision is made while this module is imported,
+# which `app/api/main.py` does before it calls `setup_logging`. Logging there
+# renders console-formatted lines outside the JSON stream an operator greps,
+# so the notices queue here and the app flushes them once logging is up.
+_startup_notices: list[tuple[str, dict[str, Any]]] = []
+
+
+def _notice(event: str, **fields: Any) -> None:
+    _startup_notices.append((event, fields))
+
+
+def emit_startup_notices() -> None:
+    """Log every queued storage notice. Call once, after logging is set up."""
+    while _startup_notices:
+        event, fields = _startup_notices.pop(0)
+        logger.warning(event, **fields)
+
 
 # fix(#2018): the schemes BOTH limits' sync storage and redis-py accept.
 # `redis_url` reaches redis-py directly in `platform/cache`, so a scheme
@@ -66,7 +85,7 @@ def _pin_call_duration(url: str) -> str:
     kept = [(k, v) for k, v in pairs if k.lower() not in _PINNED_CLIENT_PARAMS]
     if len(kept) == len(pairs):
         return url
-    logger.warning(
+    _notice(
         "rate_limit_storage_call_duration_override_ignored",
         parameters=sorted({k.lower() for k, _ in pairs} & _PINNED_CLIENT_PARAMS),
         consequence="the store is held to the built-in socket timeout",
@@ -85,7 +104,7 @@ def shared_storage_uri() -> str | None:
     """
     url = settings.redis_url
     if not url:
-        logger.warning(
+        _notice(
             "rate_limit_storage_not_configured",
             consequence="rate-limit buckets count per uvicorn worker",
             remediation="set REDIS_URL when running more than one uvicorn worker",
@@ -100,7 +119,7 @@ def shared_storage_uri() -> str | None:
     # fix(#2018): the scheme, never the URL -- REDIS_URL commonly carries a
     # password in its userinfo, and redact_url_credentials only rewrites
     # http(s), so it would hand a credential straight to the log.
-    logger.warning(
+    _notice(
         "rate_limit_storage_scheme_unsupported",
         scheme=scheme or "none",
         consequence="rate-limit buckets stay per uvicorn worker",

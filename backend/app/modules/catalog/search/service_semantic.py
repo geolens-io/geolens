@@ -117,13 +117,14 @@ def consume_paired_query_claim(client_key: str, text: str, route: str) -> bool:
     if key is None:
         return False
     store = get_shared_claim_store()
-    if store is not None:
-        shared = store.consume(key, route)
-        if shared is not None:
-            # fix(#2018): the store answered, so drop the local mirror with it
-            # -- a later outage must not re-serve a claim already redeemed.
-            _query_claims.pop(key, None)
-            return shared
+    if store is not None and store.consume(key, route):
+        # fix(#2018): a redeemed claim takes any local entry with it, so one
+        # left over from an earlier outage cannot fund a second exemption.
+        _query_claims.pop(key, None)
+        return True
+    # fix(#2018): a store "no key" is not authoritative over a claim the
+    # fallback wrote while the store was unreachable: that claim can outlive
+    # the cooldown, and it was never published for the store to answer for.
     claimed = _query_claims.get(key)
     if claimed is None:
         return False
@@ -140,11 +141,8 @@ def record_paired_query_claim(client_key: str, text: str, route: str) -> None:
     if key is None:
         return
     store = get_shared_claim_store()
-    # fix(#2018): mirror every claim locally even when the store took it. A
-    # store that accepts SET but refuses GETDEL (older server, narrow ACL)
-    # would otherwise leave the sibling nothing to fall back to.
-    if store is not None:
-        store.record(key, route)
+    if store is not None and store.record(key, route) is not None:
+        return
     _query_claims[key] = (route, time.monotonic() + _QUERY_CLAIM_TTL_SECONDS)
     _query_claims.move_to_end(key)
     while len(_query_claims) > _QUERY_CLAIM_MAX_SIZE:

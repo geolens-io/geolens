@@ -523,51 +523,72 @@ async def test_a_pair_split_across_two_workers_still_spends_one_token(
         service_semantic._query_claims_clear()
 
 
-def test_a_recorded_claim_is_mirrored_locally_even_when_the_store_takes_it(
+class _FrozenClock:
+    """A monotonic clock the test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+def test_a_fallback_claim_outliving_the_cooldown_is_still_redeemed(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """fix(#2018): the local fallback must not depend on call ordering.
+    """fix(#2018): a store "no key" is not authoritative over a local claim.
 
-    A store that accepts SET but refuses GETDEL (older server, narrow ACL)
-    leaves the sibling nothing if the claim lives only in the store. The
-    cooldown happens to cover that, since consume always runs first and arms
-    it, but the mirror removes the dependence on that argument. The store's
-    own verdict still drops the mirror, so a later outage cannot re-serve a
-    claim already redeemed.
+    The cooldown bounds how long the store goes unprobed, not the life of
+    the claims written while it is armed: a record skipped at t=4.9 lives
+    locally until t=9.9, and the store unblocks at t=5.0. In that window the
+    store answers "no key" for a claim it was never given, which used to
+    short-circuit the local registry and make the pair pay twice.
     """
-    server = fakeredis.FakeServer()
+
+    class _RecoveringClient:
+        """Refuses the first call, then behaves like an empty store."""
+
+        def __init__(self) -> None:
+            self.healthy = False
+
+        def getdel(self, *_args, **_kwargs):
+            if not self.healthy:
+                raise ConnectionError("claim store unreachable")
+            return None
+
+        def set(self, *_args, **_kwargs):
+            if not self.healthy:
+                raise ConnectionError("claim store unreachable")
+            return True
+
+    clock = _FrozenClock()
+    monkeypatch.setattr(ratelimit_claims, "time", clock)
+    monkeypatch.setattr(service_semantic, "time", clock)
+    client = _RecoveringClient()
     monkeypatch.setattr(ratelimit_claims, "_store_resolved", True)
-    monkeypatch.setattr(ratelimit_claims, "_store", _worker_claim_store(server))
+    monkeypatch.setattr(
+        ratelimit_claims, "_store", ratelimit_claims.SharedClaimStore(client)
+    )
     service_semantic._query_claims_clear()
 
-    service_semantic.record_paired_query_claim(
-        "203.0.113.9", "mirror probe", "datasets"
-    )
-    assert service_semantic._query_claims, (
-        "a claim the store accepted must also be in the local registry"
-    )
-
-    assert (
-        service_semantic.consume_paired_query_claim(
-            "203.0.113.9", "mirror probe", "facets"
+    try:
+        assert (
+            service_semantic.consume_paired_query_claim("203.0.113.9", "q", "datasets")
+            is False
         )
-        is True
-    )
-    assert not service_semantic._query_claims, (
-        "the store's verdict must take the mirror with it"
-    )
 
-    service_semantic.record_paired_query_claim(
-        "203.0.113.9", "mirror probe", "datasets"
-    )
-    monkeypatch.setattr(ratelimit_claims, "_store", None)
-    assert (
-        service_semantic.consume_paired_query_claim(
-            "203.0.113.9", "mirror probe", "facets"
-        )
-        is True
-    ), "with the store gone the mirror is what the sibling redeems"
-    service_semantic._query_claims_clear()
+        clock.now = 1004.9
+        service_semantic.record_paired_query_claim("203.0.113.9", "q", "datasets")
+        assert service_semantic._query_claims, "the fallback must hold the claim"
+
+        clock.now = 1005.01
+        client.healthy = True
+        assert (
+            service_semantic.consume_paired_query_claim("203.0.113.9", "q", "facets")
+            is True
+        ), "the recovered store's 'no key' must not shadow the local claim"
+    finally:
+        service_semantic._query_claims_clear()
 
 
 async def test_a_claim_store_outage_falls_back_to_the_process_local_registry(

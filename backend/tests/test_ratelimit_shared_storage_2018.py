@@ -7,6 +7,7 @@ must not disturb. The cross-worker claim tests live in test_rate_limits.py.
 """
 
 import inspect
+import pathlib
 import uuid
 
 import pytest
@@ -22,10 +23,11 @@ from app.modules.catalog.search.router import (
     search_datasets_endpoint,
     search_facets_endpoint,
 )
-from app.platform import ratelimit_claims
+from app.platform import ratelimit, ratelimit_claims
 from app.platform.ratelimit import (
     _FallbackAnnouncingLimiter,
     _global_rate_limit,
+    emit_startup_notices,
     limiter,
     shared_storage_uri,
 )
@@ -35,10 +37,17 @@ pytestmark = pytest.mark.anyio
 
 @pytest.fixture
 def uncached_storage_uri():
-    """Drop the process-wide memo around a test that changes ``redis_url``."""
+    """Drop the process-wide memo and the queued notices from importing.
+
+    The module queues its notice while it is imported, and in the app that
+    queue is drained once at startup; here each test needs to see only what
+    its own call queued.
+    """
     shared_storage_uri.cache_clear()
+    ratelimit._startup_notices.clear()
     yield
     shared_storage_uri.cache_clear()
+    ratelimit._startup_notices.clear()
 
 
 def test_no_configured_store_keeps_counting_per_process_and_says_so(
@@ -53,6 +62,8 @@ def test_no_configured_store_keeps_counting_per_process_and_says_so(
 
     with structlog.testing.capture_logs() as captured:
         assert shared_storage_uri() is None
+        assert captured == [], "the decision is made before logging is configured"
+        emit_startup_notices()
 
     assert [e["event"] for e in captured] == ["rate_limit_storage_not_configured"]
     assert ratelimit_claims._build_store() is None
@@ -77,6 +88,7 @@ def test_url_parameters_that_lengthen_one_call_are_dropped(
 
     with structlog.testing.capture_logs() as captured:
         resolved = shared_storage_uri()
+        emit_startup_notices()
 
     assert resolved == "redis://valkey/0?db=2"
     overrides = [
@@ -126,6 +138,7 @@ def test_a_scheme_the_limiter_cannot_use_is_refused_not_raised(
 
     with structlog.testing.capture_logs() as captured:
         assert shared_storage_uri() is None
+        emit_startup_notices()
 
     refusals = [
         e for e in captured if e["event"] == "rate_limit_storage_scheme_unsupported"
@@ -150,6 +163,7 @@ def test_the_configured_url_never_reaches_the_log(
 
     with structlog.testing.capture_logs() as captured:
         assert shared_storage_uri() is None
+        emit_startup_notices()
 
     refusal = [
         e for e in captured if e["event"] == "rate_limit_storage_scheme_unsupported"
@@ -248,48 +262,72 @@ def test_the_claim_gate_stays_a_synchronous_callable(endpoint):
         assert not inspect.iscoroutinefunction(group.exempt_when)
 
 
-async def test_a_dead_store_degrades_the_request_and_is_announced_once(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+def test_the_app_drains_the_queue_after_it_configures_logging():
+    """Queueing the notices is only worth anything if something flushes them.
+
+    Deferring them and never draining would trade a badly formatted line for
+    no line at all, which is the silent disable the queue exists to avoid.
+    """
+    import app.api.main as api_main
+
+    source = pathlib.Path(api_main.__file__).read_text()
+
+    assert "emit_startup_notices()" in source, (
+        "nothing drains the queued rate-limit storage notices"
+    )
+    assert source.index("setup_logging(") < source.index("emit_startup_notices()"), (
+        "the flush must come after logging is configured, not before"
+    )
+
+
+async def test_a_dead_store_degrades_the_request_and_both_edges_are_announced(
+    client: AsyncClient,
 ):
     """A store that fails every call must not 500, and must not log per request.
 
-    Fails both the counter write and the health probe, which is what an
-    unreachable Valkey looks like: with only the write failing, slowapi's own
-    recovery probe would flap the flag once per request.
+    Both edges are driven through slowapi's own writes to ``_storage_dead``
+    rather than assigned here, so a rename in slowapi leaves this test
+    failing instead of quietly passing against a property nothing calls.
     """
 
     def _unreachable(*_args, **_kwargs):
         raise ConnectionError("rate-limit store unreachable")
 
-    monkeypatch.setattr(limiter._limiter, "hit", _unreachable)
-    monkeypatch.setattr(limiter._storage, "check", lambda: False)
+    live_hit = limiter._limiter.hit
+    live_check = limiter._storage.check
+    limiter._limiter.hit = _unreachable
+    limiter._storage.check = lambda: False
     limiter._fallback_storage.reset()
     limiter.enabled = True
     try:
-        with structlog.testing.capture_logs() as captured:
+        with structlog.testing.capture_logs() as outage:
             statuses = [
                 (
                     await client.get(f"/search/datasets/?q=sec-2018-outage-{i}")
                 ).status_code
                 for i in range(3)
             ]
+
+        assert statuses == [200, 200, 200], statuses
+        assert [
+            e["event"] for e in outage if e["event"].startswith("rate_limit_storage_")
+        ] == ["rate_limit_storage_unreachable"]
+
+        limiter._limiter.hit = live_hit
+        limiter._storage.check = live_check
+        # slowapi probes the backend on an exponential delay; zeroing the last
+        # probe time lets the next request take the recovery branch now.
+        limiter._Limiter__last_check_backend = 0.0
+
+        with structlog.testing.capture_logs() as recovery:
+            healed = await client.get("/search/datasets/?q=sec-2018-healed")
+
+        assert healed.status_code == 200, healed.status_code
+        assert [
+            e["event"] for e in recovery if e["event"].startswith("rate_limit_storage_")
+        ] == ["rate_limit_storage_recovered"]
     finally:
+        limiter._limiter.hit = live_hit
+        limiter._storage.check = live_check
         limiter.enabled = False
         limiter._storage_dead = False
-
-    assert statuses == [200, 200, 200], statuses
-    outages = [e for e in captured if e["event"] == "rate_limit_storage_unreachable"]
-    assert len(outages) == 1, [e["event"] for e in captured]
-
-
-def test_recovery_is_announced_once_too():
-    """The transition hook is symmetric, so an outage is not sticky in the log."""
-    limiter._storage_dead = False
-    with structlog.testing.capture_logs() as captured:
-        limiter._storage_dead = True
-        limiter._storage_dead = True
-        limiter._storage_dead = False
-        limiter._storage_dead = False
-
-    events = [e["event"] for e in captured]
-    assert events == ["rate_limit_storage_unreachable", "rate_limit_storage_recovered"]
