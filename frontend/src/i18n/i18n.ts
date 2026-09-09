@@ -74,9 +74,16 @@ async function buildInitialResources() {
   const initialLanguage = detectInitialLanguage();
 
   if (initialLanguage === fallbackLng) {
+    // fix(#2029 review round 3, P1): `resources` (resources.ts) is
+    // Object.freeze'd and non-extensible. Handing it to i18next by
+    // reference means later i18n.addResourceBundle(otherLng, ...) calls in
+    // changeAppLanguage throw "object is not extensible" the first time a
+    // session that started in English switches to any other language.
+    // Cloning it here keeps the resource store extensible without
+    // mutating the shared, frozen export.
     return {
       initialLanguage,
-      initialResources: resources,
+      initialResources: { ...resources },
     };
   }
 
@@ -123,7 +130,13 @@ export async function changeAppLanguage(lng: string) {
   const nextLanguage = normalizeLanguage(lng);
   await initializeI18n();
 
-  if (!i18n.hasLoadedNamespace(defaultNS, { lng: nextLanguage })) {
+  // fix(#2029 review round 3, P1): hasLoadedNamespace resolves through the
+  // fallback chain — with partialBundledLanguages true it reports a
+  // namespace "loaded" for a language that was never registered, as long as
+  // the fallback (en) has it. That skipped this load entirely, so picking a
+  // language the session didn't start in silently kept rendering English.
+  // hasResourceBundle checks the actual store, not the fallback chain.
+  if (!i18n.hasResourceBundle(nextLanguage, defaultNS)) {
     const localeResources = await loadLocaleResources(nextLanguage);
     for (const ns of namespaces) {
       i18n.addResourceBundle(nextLanguage, ns, localeResources[ns], true, true);
