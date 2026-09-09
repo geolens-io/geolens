@@ -147,15 +147,23 @@ _SANCTIONED_REDACTORS = frozenset(
 )
 
 
-def _reason_values(tree: ast.AST) -> list[ast.expr]:
-    """Every expression assigned to an ``error_message``, however spelled."""
-    values: list[ast.expr] = []
+# The sinks that redact what they are handed, so a caller may pass the
+# exception itself. `release_manifest_reservation` joined them in round 2.
+_REDACTING_SINKS = frozenset({"record_refresh_failure", "release_manifest_reservation"})
+
+
+def _reason_values(tree: ast.AST) -> list[tuple[ast.expr, str | None]]:
+    """Every expression assigned to an ``error_message``, with its callee."""
+    values: list[tuple[ast.expr, str | None]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            values += [kw.value for kw in node.keywords if kw.arg == "error_message"]
+            callee = node.func.id if isinstance(node.func, ast.Name) else None
+            values += [
+                (kw.value, callee) for kw in node.keywords if kw.arg == "error_message"
+            ]
         elif isinstance(node, ast.Dict):
             values += [
-                value
+                (value, None)
                 for key, value in zip(node.keys, node.values)
                 if isinstance(key, ast.Constant) and key.value == "error_message"
             ]
@@ -166,8 +174,20 @@ def _reason_values(tree: ast.AST) -> list[ast.expr]:
                     isinstance(target, ast.Attribute) and target.attr == "error_message"
                 )
                 if named or attr:
-                    values.append(node.value)
+                    values.append((node.value, None))
     return values
+
+
+def _redacted_locals(tree: ast.AST) -> set[str]:
+    """Names a module binds from a sanctioned redactor."""
+    return {
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and _call_names(node.value) & _SANCTIONED_REDACTORS
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
 
 
 def _call_names(node: ast.AST) -> set[str]:
@@ -242,9 +262,10 @@ class TestEverySinkGoesThroughTheOneDoor:
     def test_no_writer_anywhere_puts_an_exception_into_a_reason(self) -> None:
         """The gate codex round 1 asked for: enumerate, do not list.
 
-        Every `error_message` value in `backend/app/` that mentions a name an
-        `except ... as` bound must reach a sanctioned redactor first. Bare
-        names are the sink's own argument and are redacted there.
+        Every `error_message` value in `backend/app/` must reach a sanctioned
+        redactor, be a name this module already redacted, or be a fixed
+        constant. Round 2 removed the bare-name exemption: the manifest
+        reservation was handed one composed from an exception.
         """
         offenders: list[str] = []
         for module in sorted(_APP.rglob("*.py")):
@@ -254,15 +275,23 @@ class TestEverySinkGoesThroughTheOneDoor:
                 for handler in ast.walk(tree)
                 if isinstance(handler, ast.ExceptHandler) and handler.name
             }
-            if not caught:
-                continue
-            for value in _reason_values(tree):
-                if isinstance(value, ast.Name):
-                    continue
-                names = {n.id for n in ast.walk(value) if isinstance(n, ast.Name)}
-                if not names & caught:
+            safe_locals = _redacted_locals(tree)
+            for value, callee in _reason_values(tree):
+                if callee in _REDACTING_SINKS:
                     continue
                 if _call_names(value) & _SANCTIONED_REDACTORS:
+                    continue
+                if isinstance(value, ast.Name):
+                    if value.id in safe_locals or value.id.isupper():
+                        continue
+                elif (
+                    not {
+                        node.id
+                        for node in ast.walk(value)
+                        if isinstance(node, ast.Name)
+                    }
+                    & caught
+                ):
                     continue
                 offenders.append(
                     f"{module.relative_to(_APP)}:{value.lineno} "
@@ -284,9 +313,11 @@ class TestEverySinkGoesThroughTheOneDoor:
         }
         values = _reason_values(tree)
         assert len(values) == 1
-        names = {n.id for n in ast.walk(values[0]) if isinstance(n, ast.Name)}
-        assert names & caught
-        assert not _call_names(values[0]) & _SANCTIONED_REDACTORS
+        value, callee = values[0]
+        assert callee not in _REDACTING_SINKS
+        assert {n.id for n in ast.walk(value) if isinstance(n, ast.Name)} & caught
+        assert not _call_names(value) & _SANCTIONED_REDACTORS
+        assert not _redacted_locals(tree)
 
     def test_the_defer_guard_rollbacks_name_the_type_only(self) -> None:
         source = (_APP / "platform" / "jobs" / "defer_guard.py").read_text()

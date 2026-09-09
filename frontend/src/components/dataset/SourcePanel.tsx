@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { describeFailureReason } from '@/lib/failure-reason';
 import { Link } from 'react-router';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -372,7 +373,12 @@ function RefreshRunHistory({ dataset, canEdit }: { dataset: DatasetResponse; can
                   : ''}
               </p>
               {run.status === 'failed' && run.error_message && (
-                <p className="mt-1 text-xs text-destructive">{run.error_message}</p>
+                <p className="mt-1 text-xs text-destructive">
+                  {describeFailureReason(
+                    run.error_message,
+                    t('common:errors.unexpected'),
+                  )}
+                </p>
               )}
             </li>
           ))}

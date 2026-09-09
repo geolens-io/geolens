@@ -23,6 +23,7 @@ from app.core.async_io import (
     run_in_thread_draining_capture_cancel,
 )
 from app.core.config import settings
+from app.core.failure_reason import redact_failure_reason
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.identity import Identity
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
@@ -834,7 +835,7 @@ async def _fail_reservation(
 
     async def _release() -> None:
         await release_manifest_reservation(
-            db, job, f"Failed to stage manifest source: {exc}"
+            db, job, f"Failed to stage manifest source: {redact_failure_reason(exc)}"
         )
 
     await _settle_under_reset(db, job, _release, job_id=job_id)
