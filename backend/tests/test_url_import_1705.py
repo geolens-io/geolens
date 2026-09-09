@@ -1,23 +1,27 @@
-"""Tests for feat(#1705) — POST /ingest/upload/url, the URL variant of upload.
+"""Tests for POST /ingest/upload/url — the two-phase URL import (#1705, #1710).
 
-Covers the Rule 2 posture end to end without touching the network:
+The endpoint validates and answers immediately; the ``fetch_url`` Procrastinate
+task does the download. The tests split along that seam:
 
-- SSRF rejection at submission time (private/link-local/loopback/scheme),
-  driven by IP-literal URLs so no DNS resolution is required.
-- The fetch path via a mocked ``make_safe_client`` (httpx.MockTransport),
-  including per-hop redirect revalidation, the streamed size cap with and
-  without a Content-Length header, staged-file content sniffing, and origin
-  HTTP failures mapping to 502.
-- The staged result entering the normal upload pipeline: an IngestJob row in
-  'pending', the file on local staging, and the raster stamp for .tif.
+- Submission scope, asserted on the HTTP response: auth, the SSRF and scheme
+  refusals, filename derivation/override/clamping, the extension allowlist,
+  standalone VRT, control characters, and the dataset-count quota. Success is
+  201 with status 'running' and a job row that stays 'running' until the task
+  runs.
+- Task scope, asserted on the IngestJob row and the staged files: the download
+  through a mocked ``make_safe_client`` (httpx.MockTransport), the streamed
+  size cap, per-hop redirect revalidation, compression refusal, the staged
+  content sniff, S3 staging, the running -> pending CAS, and every failure
+  settlement.
+
+``_run_url_import`` POSTs and then runs the deferred task inline, so one call
+still drives a whole import end to end.
 """
 
 import asyncio
 import inspect
-import time
 import uuid
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -26,10 +30,10 @@ from httpx import AsyncByteStream, AsyncClient
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.failure_reason import INTERNAL_FAILURE_REASON
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.platform.jobs.models import IngestJob
 from app.platform.security import SSRFError, _revalidate_redirect
-from app.processing.ingest import url_fetch as url_fetch_module
 from app.processing.ingest.url_fetch import clamp_filename_bytes, filename_from_url
 
 GEOJSON = b'{"type":"FeatureCollection","features":[]}'
@@ -99,36 +103,68 @@ def _install_transport(monkeypatch, handler, *, validate=None):
     return recorded
 
 
-def _freeze_router_clock(monkeypatch) -> None:
-    """Pin the ``time.monotonic()`` the router sees to one fixed instant.
+def _capture_deferred_fetch(monkeypatch) -> dict:
+    """Patch the queue hand-off so the fetch task's kwargs land in a dict.
 
-    fix(#1808): every stage-budget check in the handler measures a
-    deadline set once at request start, so the tiny artificial budgets
-    below are also racing real elapsed time. Under load, work ahead of
-    the check a test means to exercise can exhaust the budget first, and
-    a budget refusal (502) wins instead — observed in CI as
-    ``assert 502 == 413``. Frozen, every check sees the same instant and
-    the ordering is the one the test states.
-
-    Only the names bound in the two module namespaces the flow reads are
-    replaced; the real ``time`` module (which asyncio's timers read) is
-    untouched, so bounded waits still time out on real wall-clock time.
+    fix(#1710): the handler imports ``defer_async_with_tenant`` INSIDE its
+    body, so the module attribute is the binding it resolves; patching it
+    keeps the whole test suite off Procrastinate's queue.
     """
-    frozen_at = time.monotonic()
-    for module in (
-        "app.processing.ingest.router",
-        "app.processing.ingest.url_import_staging",
-    ):
-        monkeypatch.setattr(
-            f"{module}.time", SimpleNamespace(monotonic=lambda: frozen_at)
-        )
+    captured: dict[str, dict] = {}
+
+    async def _fake_defer(task, /, **kwargs):
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(
+        "app.core.db.tenant_session.defer_async_with_tenant", _fake_defer
+    )
+    return captured
+
+
+async def _run_fetch_task(deferred_kwargs: dict) -> None:
+    """Run the deferred ``fetch_url`` delivery in-process."""
+    from app.processing.ingest.tasks_url_fetch import fetch_url
+
+    # `Task.func` is the coroutine function a worker awaits; `tenant_id` is
+    # threaded in by the real defer helper and popped by `tenant_task`.
+    await fetch_url.func(
+        **{k: v for k, v in deferred_kwargs.items() if k != "tenant_id"}
+    )
+
+
+async def _submit_url_import(client, monkeypatch, headers, json_body):
+    """POST the URL. Returns ``(response, deferred_kwargs_or_None)``."""
+    captured = _capture_deferred_fetch(monkeypatch)
+    resp = await client.post("/ingest/upload/url", json=json_body, headers=headers)
+    return resp, captured.get("kwargs")
+
+
+async def _run_url_import(client, monkeypatch, headers, json_body):
+    """POST the URL, then run the deferred fetch task inline.
+
+    Returns ``(response, deferred_kwargs_or_None)``; the kwargs are None when
+    the submission was refused before the queue hand-off.
+    """
+    resp, deferred = await _submit_url_import(client, monkeypatch, headers, json_body)
+    if deferred is not None:
+        await _run_fetch_task(deferred)
+    return resp, deferred
 
 
 async def _get_job(test_db_session, job_id: str) -> IngestJob | None:
+    test_db_session.expire_all()
     result = await test_db_session.execute(
         select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
     )
     return result.scalar_one_or_none()
+
+
+async def _job_by_name(test_db_session, source_filename: str) -> IngestJob:
+    test_db_session.expire_all()
+    result = await test_db_session.execute(
+        select(IngestJob).where(IngestJob.source_filename == source_filename)
+    )
+    return result.scalar_one()
 
 
 def _staged_files() -> list[Path]:
@@ -204,7 +240,7 @@ class TestUrlImportSsrf:
 
 
 # ---------------------------------------------------------------------------
-# Filename / extension validation (all fail before any fetch)
+# Filename / extension validation (all fail before anything is queued)
 # ---------------------------------------------------------------------------
 
 
@@ -321,11 +357,47 @@ class TestUrlImportFilename:
 
 
 # ---------------------------------------------------------------------------
-# The fetch path (mocked transport; no network)
+# The fetch task (mocked transport; no network)
 # ---------------------------------------------------------------------------
 
 
 class TestUrlImportFetch:
+    async def test_submission_answers_running_and_defers_the_url(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """The door commits a 'running', file-less row and hands the URL to
+        the task as an argument rather than storing it on the job."""
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp, deferred = await _submit_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/deferred.geojson"},
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["status"] == "running"
+        assert resp.json()["message"] == "Downloading the file"
+
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "running"
+        assert job.started_at is not None
+        assert job.current_step == "downloading"
+        # Not previewable yet, which is the state preview and commit refuse.
+        assert not job.file_path
+
+        assert deferred["url"] == "https://files.example.test/deferred.geojson"
+        assert deferred["attempt_id"] == str(job.attempt_id)
+        assert deferred["filename"] == "deferred.geojson"
+        # fix(#1710): a URL can carry userinfo credentials and user_metadata
+        # is served by GET /jobs/{id}, so the URL must not reach the row.
+        assert "deferred.geojson" not in str(job.user_metadata or {})
+
     async def test_success_stages_file_and_creates_job(
         self,
         client: AsyncClient,
@@ -336,18 +408,18 @@ class TestUrlImportFetch:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/roads.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/roads.geojson"},
         )
         assert resp.status_code == 201, resp.text
-        data = resp.json()
-        assert data["status"] == "pending"
 
-        job = await _get_job(test_db_session, data["job_id"])
+        job = await _get_job(test_db_session, resp.json()["job_id"])
         assert job is not None
         assert job.status == "pending"
+        assert job.current_step is None
         assert job.source_filename == "roads.geojson"
         staged = Path(job.file_path)
         assert staged.exists()
@@ -368,14 +440,15 @@ class TestUrlImportFetch:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {
                 "url": "https://files.example.test/download?id=7",
                 # Path components must be stripped, not staged.
                 "filename": "../points.geojson",
             },
-            headers=admin_auth_header,
         )
         assert resp.status_code == 201, resp.text
         job = await _get_job(test_db_session, resp.json()["job_id"])
@@ -393,17 +466,22 @@ class TestUrlImportFetch:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=tiff)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/dem.tif"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/dem.tif"},
         )
         assert resp.status_code == 201, resp.text
         job = await _get_job(test_db_session, resp.json()["job_id"])
         assert (job.user_metadata or {}).get("file_type") == "raster"
 
-    async def test_declared_content_length_over_cap_is_413_without_reading_body(
-        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    async def test_declared_content_length_over_cap_settles_failed_unread(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
     ):
         monkeypatch.setattr(UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=1))
         body = _StreamingBody(b"x" * 1024)
@@ -415,17 +493,25 @@ class TestUrlImportFetch:
                 stream=body,
             ),
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/big.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/big.geojson"},
         )
-        assert resp.status_code == 413
+        assert resp.status_code == 201, resp.text
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "failed"
+        assert "exceeds the maximum allowed size" in (job.error_message or "")
         assert body.iterated is False
         assert _staged_files() == []
 
-    async def test_streamed_bytes_over_cap_is_413_and_partial_file_removed(
-        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    async def test_streamed_bytes_over_cap_settle_failed_and_partial_removed(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
     ):
         monkeypatch.setattr(UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=1))
         # No Content-Length: three chunks totalling 1.5 MB against a 1 MB cap,
@@ -435,16 +521,24 @@ class TestUrlImportFetch:
             monkeypatch,
             lambda request: httpx.Response(200, stream=_StreamingBody(*chunks)),
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/big.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/streamedbig.geojson"},
         )
-        assert resp.status_code == 413
+        assert resp.status_code == 201, resp.text
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "failed"
+        assert "exceeds the maximum allowed size" in (job.error_message or "")
         assert _staged_files() == []
 
-    async def test_content_mismatch_is_422_and_staged_file_removed(
-        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    async def test_content_mismatch_settles_failed_and_staged_file_removed(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
     ):
         # Null bytes fail the text heuristic for .geojson; the sniff runs on
         # the STAGED file, after the download completed.
@@ -452,28 +546,39 @@ class TestUrlImportFetch:
             monkeypatch,
             lambda request: httpx.Response(200, content=b"\x00\x01\x02\x03PK"),
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/fake.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/fake.geojson"},
         )
-        assert resp.status_code == 422
-        assert "extension" in resp.json()["detail"]
+        assert resp.status_code == 201, resp.text
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "failed"
+        assert "extension" in (job.error_message or "")
         assert _staged_files() == []
 
-    async def test_origin_http_error_maps_to_502(
-        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    async def test_origin_http_error_settles_the_job_failed(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
     ):
         _install_transport(
             monkeypatch, lambda request: httpx.Response(404, content=b"nope")
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/gone.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/gone.geojson"},
         )
-        assert resp.status_code == 502
-        assert "404" in resp.json()["detail"]
+        assert resp.status_code == 201, resp.text
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "failed"
+        assert "404" in (job.error_message or "")
+        assert job.completed_at is not None
         assert _staged_files() == []
 
     async def test_redirect_to_public_target_is_followed(
@@ -492,23 +597,28 @@ class TestUrlImportFetch:
             return httpx.Response(200, content=GEOJSON)
 
         _install_transport(monkeypatch, handler)
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/start.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/start.geojson"},
         )
         assert resp.status_code == 201, resp.text
         job = await _get_job(test_db_session, resp.json()["job_id"])
         assert Path(job.file_path).read_bytes() == GEOJSON
 
     async def test_redirect_to_private_target_is_blocked_per_hop(
-        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
     ):
         """The submission URL passes; the 302 hop to a private IP must not.
 
-        ``validate`` refuses only the redirect target, so the 400 here can
-        only have come from ``_revalidate_redirect`` — the per-hop guard
-        ``make_safe_client`` installs — not from the submission-time gate.
+        ``validate`` refuses only the redirect target, so the settled failure
+        here can only have come from ``_revalidate_redirect`` — the per-hop
+        guard ``make_safe_client`` installs — not from the submission gate.
         """
 
         async def validate(url: str) -> None:
@@ -526,72 +636,19 @@ class TestUrlImportFetch:
             )
 
         recorded = _install_transport(monkeypatch, handler, validate=validate)
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/start.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/redirstart.geojson"},
         )
-        assert resp.status_code == 400
-        assert "not allowed" in resp.json()["detail"]
+        assert resp.status_code == 201, resp.text
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "failed"
+        assert "not allowed" in (job.error_message or "")
         # The blocked hop was never fetched.
         assert all(r.url.host != "169.254.169.254" for r in recorded)
         assert _staged_files() == []
-
-    async def test_job_row_committed_before_fetch_releases_connection(
-        self,
-        client: AsyncClient,
-        admin_auth_header: dict,
-        test_db_session,
-        monkeypatch,
-    ):
-        """fix(#1708 codex P1): the transaction ends before the fetch awaits.
-
-        The transport handler runs in the middle of the fetch. It opens its
-        OWN session (a separate pool connection) and looks for the job row:
-        visible there means the request's transaction was committed — and
-        with it the request's pool connection released — before the remote
-        download started. Before the fix the row was only flushed, so an
-        independent session could not see it.
-        """
-        seen: dict[str, bool] = {}
-
-        async def handler(request: httpx.Request) -> httpx.Response:
-            import app.core.db as db_module
-
-            async with db_module.async_session() as s:
-                result = await s.execute(
-                    select(IngestJob).where(
-                        IngestJob.source_filename == "visible.geojson"
-                    )
-                )
-                row = result.scalar_one_or_none()
-            seen["committed_mid_fetch"] = row is not None
-            # fix(#1708 codex r2): mid-fetch the row rides the RUNNING lease,
-            # which the stale-pending sweep's status clause excludes.
-            seen["running_mid_fetch"] = row is not None and row.status == "running"
-            seen["lease_stamped"] = row is not None and row.started_at is not None
-            seen["no_file_mid_fetch"] = row is not None and not row.file_path
-            return httpx.Response(200, content=GEOJSON)
-
-        _install_transport(monkeypatch, handler)
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/visible.geojson"},
-            headers=admin_auth_header,
-        )
-        assert resp.status_code == 201, resp.text
-        assert seen == {
-            "committed_mid_fetch": True,
-            "running_mid_fetch": True,
-            "lease_stamped": True,
-            # Mid-fetch the row has no file_path yet, which is exactly the
-            # state preview and commit already refuse with a 400.
-            "no_file_mid_fetch": True,
-        }
-        # And the finished job is previewable: back to 'pending', file bound.
-        job = await _get_job(test_db_session, resp.json()["job_id"])
-        assert job.status == "pending"
-        assert job.file_path
 
     async def test_failed_fetch_stamps_the_committed_job_failed(
         self,
@@ -600,22 +657,20 @@ class TestUrlImportFetch:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex P1): the pre-fetch commit means a failed fetch can
-        no longer roll the job row away — it must be stamped 'failed' with the
-        refusal instead of sitting 'pending' until the stale reaper."""
+        """fix(#1708 codex P1): the door commits the row before the download,
+        so a failed fetch cannot roll it away — it must be stamped 'failed'
+        with the refusal instead of sitting 'running' until the lease reaper."""
         _install_transport(
             monkeypatch, lambda request: httpx.Response(404, content=b"nope")
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/stamped.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/stamped.geojson"},
         )
-        assert resp.status_code == 502
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "stamped.geojson")
-        )
-        job = result.scalar_one()
+        assert resp.status_code == 201, resp.text
+        job = await _job_by_name(test_db_session, "stamped.geojson")
         assert job.status == "failed"
         assert "404" in (job.error_message or "")
 
@@ -628,21 +683,23 @@ class TestUrlImportFetch:
     ):
         """fix(#1708 codex P2): a 255-char ASCII override used to build a
         292-byte staging component (37-byte job-id prefix + name) and die in
-        open() with ENAMETOOLONG as a 500."""
+        open() with ENAMETOOLONG."""
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
         override = "a" * 247 + ".geojson"  # 255 chars, the schema max
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {
                 "url": "https://files.example.test/download?id=1",
                 "filename": override,
             },
-            headers=admin_auth_header,
         )
         assert resp.status_code == 201, resp.text
         job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "pending"
         staged = Path(job.file_path)
         assert staged.exists()
         assert staged.name.endswith(".geojson")
@@ -663,16 +720,18 @@ class TestUrlImportFetch:
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
         override = "京" * 80 + ".geojson"
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {
                 "url": "https://files.example.test/download?id=2",
                 "filename": override,
             },
-            headers=admin_auth_header,
         )
         assert resp.status_code == 201, resp.text
         job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "pending"
         staged = Path(job.file_path)
         assert staged.exists()
         assert staged.name.endswith(".geojson")
@@ -716,59 +775,19 @@ class TestUrlImportMalformedUrl:
 
 class TestUrlImportReaperInteraction:
     def test_fetch_deadline_fits_the_running_lease(self):
-        """The design premise of riding the RUNNING lease with one started_at
-        stamp: the fetch's own hard wall-clock bound (plus generous margin for
-        connect/validation/S3 hand-off) must stay inside JOB_TIMEOUT_SECONDS,
-        or a legitimate fetch could be lease-reaped mid-download. If this
-        fails, the URL-import path needs periodic heartbeats instead."""
+        """The download's wall clock is operator-bounded, and the heartbeat
+        renews the lease many times over inside the reaper's cutoff.
+
+        feat(#1710): the download rides a worker lease rather than a request,
+        so the fetch ceiling may legally exceed JOB_TIMEOUT_SECONDS; what has
+        to hold is that the renewal interval is far under it, or a long
+        download would be reaped mid-transfer.
+        """
+        from app.platform.jobs.heartbeat import HEARTBEAT_INTERVAL_SECONDS
         from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
-        from app.processing.ingest.url_fetch import FETCH_MAX_SECONDS
 
-        assert FETCH_MAX_SECONDS + 300 < JOB_TIMEOUT_SECONDS
-
-    def test_fetch_deadline_fits_the_edge_proxy_budget(self):
-        # Superseded in scope by TestUrlImportJointClock (r13), which pins
-        # the DERIVATION as well as the static sums; kept because it is the
-        # one place the proxy value itself is asserted next to the fetch
-        # ceiling.
-        """fix(#1708 codex r3): the endpoint sends nothing until fetch AND
-        post-work finish, and frontend/nginx.conf's `location /api/` severs
-        any response at proxy_read_timeout 600s. The fetch bound must leave
-        real post-work margin inside that deadline — 120s covers the only
-        size-scaled step (the S3 staging copy: seconds to same-network
-        MinIO, ~84s at a conservative 50 Mbps to remote S3 for a 500 MB
-        file) plus the header/footer sniff and single-row quota/commit
-        queries. EDGE_PROXY_READ_TIMEOUT_SECONDS documents the nginx value;
-        if the nginx budget ever changes, change the constant WITH it."""
-        from app.processing.ingest.url_fetch import (
-            EDGE_PROXY_READ_TIMEOUT_SECONDS,
-            FETCH_MAX_SECONDS,
-            POOL_CHECKOUTS_PER_REQUEST,
-            STAGE_TOTAL_CEILING_SECONDS,
-            stage_total_budget_seconds,
-        )
-
-        assert EDGE_PROXY_READ_TIMEOUT_SECONDS == 600
-        assert FETCH_MAX_SECONDS + 120 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
-        # fix(#1708 codex r7): the JOINT budget (fetch + sniff + S3 staging
-        # put) also fits, with slack for the post-work; and the fetch bound
-        # runs inside the joint budget. fix(r16): the slack is now derived
-        # from db_pool_timeout rather than assumed — see
-        # test_every_phase_bound_fits_the_joint_budget for the full chain.
-        assert (
-            stage_total_budget_seconds()
-            + POOL_CHECKOUTS_PER_REQUEST * settings.db_pool_timeout
-            <= EDGE_PROXY_READ_TIMEOUT_SECONDS
-        )
-        assert FETCH_MAX_SECONDS < STAGE_TOTAL_CEILING_SECONDS
-        # fix(#1708 codex r8): the preflight DNS bound joined the budget —
-        # it now starts the clock, so a max-length resolution must still
-        # leave the fetch its full cap inside the joint budget.
-        from app.processing.ingest.url_fetch import PREFLIGHT_DNS_MAX_SECONDS
-
-        assert (
-            PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= STAGE_TOTAL_CEILING_SECONDS
-        )
+        assert 0 < settings.url_import_fetch_max_seconds <= 86400
+        assert HEARTBEAT_INTERVAL_SECONDS * 10 < JOB_TIMEOUT_SECONDS
 
     async def test_mid_fetch_row_shape_is_invisible_to_the_pending_sweep(
         self, client, test_db_session
@@ -859,9 +878,9 @@ class TestUrlImportReaperInteraction:
 
         The transport handler plays the reaper: it flips the row to 'failed'
         mid-download through an independent session. The completion's
-        running->pending CAS then matches zero rows, and the endpoint must
-        surface that (409), delete the staged bytes, and leave the external
-        verdict untouched rather than part-updating a dead row.
+        running->pending CAS then matches zero rows, so the task must delete
+        the staged bytes and leave the external verdict untouched rather than
+        part-updating a dead row.
         """
         from sqlalchemy import update as sa_update
 
@@ -881,18 +900,15 @@ class TestUrlImportReaperInteraction:
             return httpx.Response(200, content=GEOJSON)
 
         _install_transport(monkeypatch, handler)
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/flip.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/flip.geojson"},
         )
-        assert resp.status_code == 409
-        assert "cancelled or timed out" in resp.json()["detail"]
+        assert resp.status_code == 201, resp.text
         assert _staged_files() == []
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "flip.geojson")
-        )
-        job = result.scalar_one()
+        job = await _job_by_name(test_db_session, "flip.geojson")
         # The external verdict survives — not overwritten by the completion
         # or by the failure-path stamp (both CAS from 'running' only).
         assert job.status == "failed"
@@ -1027,32 +1043,28 @@ class TestUrlImportWallClock:
         """fix(#1708 codex r5): the deadline used to be polled only between
         body chunks, so a stall during connect/DNS/headers ran outside it.
         The transport here never yields a response until well past the
-        (patched) deadline — the request must still fail cleanly inside the
+        (patched) deadline — the download must still fail cleanly inside the
         budget, with the job stamped failed and nothing left in staging."""
-        monkeypatch.setattr("app.processing.ingest.url_fetch.FETCH_MAX_SECONDS", 1)
+        monkeypatch.setattr(settings, "url_import_fetch_max_seconds", 1)
 
         async def stalled(request: httpx.Request) -> httpx.Response:
-            import asyncio
-
             # Models an origin stalling before headers: nothing is produced
             # until far beyond the wall clock.
             await asyncio.sleep(10)
             return httpx.Response(200, content=GEOJSON)  # pragma: no cover
 
         _install_transport(monkeypatch, stalled)
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/stall.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/stall.geojson"},
         )
-        assert resp.status_code == 502
-        assert "did not finish" in resp.json()["detail"]
+        assert resp.status_code == 201, resp.text
         assert _staged_files() == []
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "stall.geojson")
-        )
-        job = result.scalar_one()
+        job = await _job_by_name(test_db_session, "stall.geojson")
         assert job.status == "failed"
+        assert "did not finish" in (job.error_message or "")
 
 
 class TestUrlImportCleanupHardening:
@@ -1067,7 +1079,7 @@ class TestUrlImportCleanupHardening:
         instance. Whatever makes a cleanup step raise, the failure CAS must
         still run — here every unlink of this job's staged file throws, the
         origin 404s, and the row must still land 'failed' with the real
-        refusal (not a cleanup artifact) while the client gets the 502."""
+        refusal rather than a cleanup artifact."""
         original_unlink = Path.unlink
 
         def raising_unlink(self, *args, **kwargs):
@@ -1079,25 +1091,22 @@ class TestUrlImportCleanupHardening:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(404, content=b"nope")
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/cleanupboom.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/cleanupboom.geojson"},
         )
-        assert resp.status_code == 502
-        assert "404" in resp.json()["detail"]
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "cleanupboom.geojson")
-        )
-        job = result.scalar_one()
+        assert resp.status_code == 201, resp.text
+        job = await _job_by_name(test_db_session, "cleanupboom.geojson")
         assert job.status == "failed"
         assert "404" in (job.error_message or "")
 
 
 # ---------------------------------------------------------------------------
 # Round-7 review findings (#1708): the S3-mode completions of the two
-# families — no connection held across the staging put, and the put bounded
-# inside the joint stage budget
+# families — the CAS lands the staging key, and the byte quota is charged
+# only once the object exists
 # ---------------------------------------------------------------------------
 
 
@@ -1109,8 +1118,8 @@ class TestUrlImportS3Staging:
         test_db_session,
         monkeypatch,
     ):
-        """S3 mode end to end with the provider stubbed: the bounded put
-        succeeds, the CAS lands the staging key, and the job is previewable."""
+        """S3 mode end to end with the provider stubbed: the put succeeds,
+        the CAS lands the staging key, and the job is previewable."""
         monkeypatch.setattr(settings, "storage_provider", "s3")
         put_calls: list[tuple[str, str]] = []
 
@@ -1118,15 +1127,16 @@ class TestUrlImportS3Staging:
             put_calls.append((s3_key, str(local_dest)))
 
         monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging._put_staging_object", fake_put
+            "app.processing.ingest.tasks_url_fetch._put_staging_object", fake_put
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/s3ok.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/s3ok.geojson"},
         )
         assert resp.status_code == 201, resp.text
         job = await _get_job(test_db_session, resp.json()["job_id"])
@@ -1141,20 +1151,20 @@ class TestUrlImportS3Staging:
         self,
         client: AsyncClient,
         admin_auth_header: dict,
+        test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r7 P1-A): pins the reorder. The byte-quota check
-        now runs AFTER the staging put, in the same short transaction as the
-        CAS — so no transaction is open across the provider upload. A put
-        that fails must therefore short-circuit before any byte-charged
-        quota call: only the pre-fetch count-cap call (0 bytes) may exist."""
+        """fix(#1708 codex r7 P1-A): pins the ordering. The byte-quota check
+        runs AFTER the staging put, in the same short transaction as the CAS,
+        so a put that fails must short-circuit before any byte-charged quota
+        call — and the job must still settle failed."""
         monkeypatch.setattr(settings, "storage_provider", "s3")
 
         async def failing_put(s3_key: str, local_dest: Path) -> None:
             raise RuntimeError("provider exploded")
 
         monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging._put_staging_object", failing_put
+            "app.processing.ingest.tasks_url_fetch._put_staging_object", failing_put
         )
         monkeypatch.setattr(
             "app.processing.ingest.url_import_staging._cleanup_saved_upload",
@@ -1162,86 +1172,27 @@ class TestUrlImportS3Staging:
         )
         quota_spy = AsyncMock()
         monkeypatch.setattr(
-            "app.processing.ingest.router.check_upload_quota", quota_spy
+            "app.processing.ingest.url_import_staging.check_upload_quota", quota_spy
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/quotaorder.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/quotaorder.geojson"},
         )
-        assert resp.status_code == 500  # provider failure -> generic 500
-        # Only the pre-fetch count-cap call (incoming_bytes=0) ever ran; the
-        # byte-charged call sits behind the put and was never reached.
-        assert all(c.args[2] == 0 for c in quota_spy.await_args_list)
-
-    async def test_put_exceeding_the_stage_budget_is_a_clean_502(
-        self,
-        client: AsyncClient,
-        admin_auth_header: dict,
-        test_db_session,
-        monkeypatch,
-    ):
-        """fix(#1708 codex r7 P1-B): a put that cannot finish inside what
-        remains of the joint stage budget is abandoned — clean 502 inside
-        the proxy deadline, job stamped failed, local staging cleaned, and
-        the late task handed to the reaper (its cleanup is invoked once the
-        put actually ends)."""
-        monkeypatch.setattr(settings, "storage_provider", "s3")
-        monkeypatch.setattr(
-            "app.processing.ingest.router.stage_total_budget_seconds",
-            lambda: 1,
-        )
-        # fix(#1708 codex r13): the fetch now refuses when the joint budget
-        # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
-        # deliberately run on a tiny budget, so drop the floor to keep the
-        # PUT the thing under test.
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging.MIN_FETCH_BUDGET_SECONDS", 0
-        )
-        release = asyncio.Event()
-        started = asyncio.Event()
-
-        async def slow_put(s3_key: str, local_dest: Path) -> None:
-            started.set()
-            await release.wait()
-
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging._put_staging_object", slow_put
-        )
-        reaper_cleanup = AsyncMock()
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging._cleanup_saved_upload",
-            reaper_cleanup,
-        )
-        _install_transport(
-            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
-        )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/slowput.geojson"},
-            headers=admin_auth_header,
-        )
-        assert resp.status_code == 502
-        assert "time" in resp.json()["detail"].lower()
-        assert started.is_set()
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "slowput.geojson")
-        )
-        job = result.scalar_one()
+        assert resp.status_code == 201, resp.text
+        quota_spy.assert_not_awaited()
+        job = await _job_by_name(test_db_session, "quotaorder.geojson")
         assert job.status == "failed"
-        # Let the abandoned task finish; the reaper then re-deletes the key.
-        settle_calls = len(reaper_cleanup.await_args_list)
-        release.set()
-        await asyncio.sleep(0.05)
-        assert len(reaper_cleanup.await_args_list) == settle_calls + 1
+        # An internal provider error is not user-authored text.
+        assert job.error_message == INTERNAL_FAILURE_REASON
 
 
 # ---------------------------------------------------------------------------
-# Round-8 review findings (#1708): the preflight DNS bound, and the reaper
-# existing from the moment the put task does
+# Round-8 review finding (#1708): the preflight DNS bound
 # ---------------------------------------------------------------------------
 
 
@@ -1253,14 +1204,11 @@ class TestUrlImportPreflightDnsBound:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r8): the submission-time getaddrinfo was the one
-        long operation outside every deadline. A validator that never
-        returns must now fail cleanly at the (patched) preflight bound, name
-        DNS as the cause, and leave no job row — the gate runs before any
-        job exists."""
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging.PREFLIGHT_DNS_MAX_SECONDS", 1
-        )
+        """fix(#1708 codex r8): submission-time getaddrinfo has no bound of
+        its own. A validator that never returns must fail cleanly at the
+        (patched) preflight bound, name DNS as the cause, and leave no job
+        row — the gate runs before any job exists."""
+        monkeypatch.setattr("app.processing.ingest.router.PREFLIGHT_DNS_MAX_SECONDS", 1)
 
         async def stalled_resolve(url: str) -> None:
             await asyncio.sleep(30)  # cancelled by wait_for at the bound
@@ -1281,57 +1229,14 @@ class TestUrlImportPreflightDnsBound:
         assert result.scalar_one_or_none() is None
 
 
-class TestUrlImportPutReaperOnCancel:
-    async def test_cancelled_wait_still_installs_the_reaper(self, monkeypatch):
-        """fix(#1708 codex r8): a request cancelled while the put wait is
-        pending (forced worker shutdown) used to escape before the timeout
-        branch installed the reaper — the settle path then deleted the key
-        mid-upload and the late-landing object had no deleter. Unit-level:
-        cancel the waiter while the put is in flight, let the put land late,
-        and the reaper must still re-delete the key."""
-        from app.processing.ingest import url_import_staging as staging_module
-
-        release = asyncio.Event()
-        started = asyncio.Event()
-
-        async def slow_put(s3_key: str, local_dest: Path) -> None:
-            started.set()
-            await release.wait()
-
-        monkeypatch.setattr(staging_module, "_put_staging_object", slow_put)
-        cleanup = AsyncMock()
-        monkeypatch.setattr(staging_module, "_cleanup_saved_upload", cleanup)
-
-        waiter = asyncio.create_task(
-            staging_module._stage_put_bounded(
-                "staging/jid/late.geojson",
-                Path("/tmp/lane2-nonexistent"),
-                # A generous deadline: the failure mode under test is
-                # cancellation DURING the wait, not the timeout branch.
-                time.monotonic() + 30,
-                "jid",
-            )
-        )
-        await started.wait()
-        waiter.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await waiter
-        # The put is still running (asyncio.wait never cancels it) and no
-        # cleanup has run yet.
-        cleanup.assert_not_awaited()
-        release.set()
-        await asyncio.sleep(0.05)
-        cleanup.assert_awaited_once_with("staging/jid/late.geojson", "jid")
-
-
 # ---------------------------------------------------------------------------
 # Round-9 review finding (#1708): staging-path setup can never strand a
-# running row — it runs before the running-commit
+# running row
 # ---------------------------------------------------------------------------
 
 
 class TestUrlImportStagingDirFailure:
-    async def test_unwritable_staging_parent_leaves_no_stranded_row(
+    async def test_unwritable_staging_parent_settles_the_job_failed(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
@@ -1339,13 +1244,10 @@ class TestUrlImportStagingDirFailure:
         tmp_path,
         monkeypatch,
     ):
-        """fix(#1708 codex r9): mkdir of upload_staging_dir used to run after
-        the running-commit but OUTSIDE the settlement guard — a read-only
-        parent meant a 500 with the job stranded 'running' for the one-hour
-        lease. Path setup is now hoisted ABOVE the commit, so the same
-        failure rolls the uncommitted row back entirely: an error response
-        and NO row at all, running or otherwise. (The SSRF gate is stubbed
-        so the unresolvable mock host reaches the path-setup step.)"""
+        """fix(#1708 codex r9): mkdir of upload_staging_dir used to run
+        outside the settlement guard, so a read-only parent left the job
+        stranded 'running' for the full lease. feat(#1710) moved it into the
+        task's guarded block: the same failure must now settle the row."""
         import os
 
         monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
@@ -1356,21 +1258,22 @@ class TestUrlImportStagingDirFailure:
             monkeypatch.setattr(
                 settings, "upload_staging_dir", str(ro_parent / "staging")
             )
-            resp = await client.post(
-                "/ingest/upload/url",
-                json={"url": "https://files.example.test/roparent.geojson"},
-                headers=admin_auth_header,
+            resp, _ = await _run_url_import(
+                client,
+                monkeypatch,
+                admin_auth_header,
+                {"url": "https://files.example.test/roparent.geojson"},
             )
         finally:
             os.chmod(ro_parent, 0o700)  # let pytest clean tmp_path up
 
-        assert resp.status_code == 500
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "roparent.geojson")
-        )
-        # No stranded 'running' row — no row at all: the failure preceded
-        # the commit, so the transaction rolled the INSERT back.
-        assert result.scalar_one_or_none() is None
+        assert resp.status_code == 201, resp.text
+        job = await _job_by_name(test_db_session, "roparent.geojson")
+        assert job.status == "failed"
+        # fix(#1710): file_path names the intended destination from adoption
+        # on, so the reaper can find a partial. What matters is that nothing
+        # landed there and the job never became previewable.
+        assert not Path(job.file_path).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1391,15 +1294,19 @@ def _usage(bytes_used: int, storage_cap: int):
 
 
 class TestUrlImportQuotaCappedStream:
-    async def test_at_cap_user_rejected_at_submission(
+    async def test_at_cap_user_refused_before_any_origin_contact(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r10): zero remaining quota refuses BEFORE any
-        fetch — no bandwidth spent, no job row, no request to the origin."""
+        """Zero remaining quota refuses before any origin contact.
+
+        fix(#1708 codex r10): no bandwidth spent and nothing staged.
+        fix(#1710): the refusal runs inside the task's settlement, so the
+        row is stamped failed rather than left running for the lease.
+        """
         monkeypatch.setattr(
             "app.processing.ingest.url_import_staging.get_user_quota_usage",
             AsyncMock(return_value=_usage(bytes_used=1000, storage_cap=1000)),
@@ -1407,18 +1314,19 @@ class TestUrlImportQuotaCappedStream:
         recorded = _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/atcap.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/atcap.geojson"},
         )
-        assert resp.status_code == 413
-        assert "Storage quota exceeded" in resp.json()["detail"]
+        assert resp.status_code == 201, resp.text
         assert recorded == []  # the origin was never contacted
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "atcap.geojson")
-        )
-        assert result.scalar_one_or_none() is None
+        assert _staged_files() == []
+        job = await _job_by_name(test_db_session, "atcap.geojson")
+        assert job.status == "failed"
+        assert "Storage quota exceeded" in job.error_message
+        assert not Path(job.file_path).exists()
 
     async def test_near_cap_stream_cut_at_remaining_quota(
         self,
@@ -1430,7 +1338,7 @@ class TestUrlImportQuotaCappedStream:
         """fix(#1708 codex r10): the mid-stream cap is min(instance max,
         remaining quota). 100 KB of quota left against a 192 KB body with no
         Content-Length: the stream must be cut at the quota, with the
-        refusal naming the quota rather than the instance limit."""
+        settled failure naming the quota rather than the instance limit."""
         monkeypatch.setattr(
             "app.processing.ingest.url_import_staging.get_user_quota_usage",
             AsyncMock(
@@ -1442,19 +1350,16 @@ class TestUrlImportQuotaCappedStream:
             monkeypatch,
             lambda request: httpx.Response(200, stream=_StreamingBody(*chunks)),
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/nearcap.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/nearcap.geojson"},
         )
-        assert resp.status_code == 413
-        assert "remaining storage quota" in resp.json()["detail"]
+        assert resp.status_code == 201, resp.text
         assert len(recorded) == 1  # the fetch started, then was cut
         assert _staged_files() == []
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "nearcap.geojson")
-        )
-        job = result.scalar_one()
+        job = await _job_by_name(test_db_session, "nearcap.geojson")
         assert job.status == "failed"
         assert "remaining storage quota" in (job.error_message or "")
 
@@ -1462,6 +1367,7 @@ class TestUrlImportQuotaCappedStream:
         self,
         client: AsyncClient,
         admin_auth_header: dict,
+        test_db_session,
         monkeypatch,
     ):
         """storage_cap == 0 means unlimited: the instance cap applies alone
@@ -1473,12 +1379,15 @@ class TestUrlImportQuotaCappedStream:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/unlimited.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/unlimited.geojson"},
         )
         assert resp.status_code == 201, resp.text
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "pending"
 
     async def test_post_download_check_still_authoritative_on_a_race(
         self,
@@ -1488,41 +1397,38 @@ class TestUrlImportQuotaCappedStream:
         monkeypatch,
     ):
         """fix(#1708 codex r10): the preflight cap is advisory admission
-        control; the post-stage check stays authoritative. Quota consumed by
-        a concurrent actor DURING the fetch must still be caught by the
-        second (byte-charged) check, with the staged bytes cleaned up."""
+        control; the post-stage check stays authoritative and is charged the
+        bytes that actually landed. Quota consumed by a concurrent actor
+        DURING the fetch must still be caught, with the staged bytes gone."""
         from fastapi import HTTPException
 
-        calls = {"n": 0}
+        charged: list[int] = []
 
         async def racing_quota(db_, user_id, incoming_bytes, request_):
-            calls["n"] += 1
-            if calls["n"] == 2:  # the post-stage byte-charged call
-                raise HTTPException(
-                    status_code=413,
-                    detail="Storage quota exceeded: raced during fetch",
-                )
+            charged.append(incoming_bytes)
+            raise HTTPException(
+                status_code=413,
+                detail="Storage quota exceeded: raced during fetch",
+            )
 
         monkeypatch.setattr(
-            "app.processing.ingest.router.check_upload_quota", racing_quota
+            "app.processing.ingest.url_import_staging.check_upload_quota", racing_quota
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/raced.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/raced.geojson"},
         )
-        assert resp.status_code == 413
-        assert "raced" in resp.json()["detail"]
-        assert calls["n"] == 2
+        assert resp.status_code == 201, resp.text
+        assert charged == [len(GEOJSON)]
         assert _staged_files() == []
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "raced.geojson")
-        )
-        job = result.scalar_one()
+        job = await _job_by_name(test_db_session, "raced.geojson")
         assert job.status == "failed"
+        assert "raced" in (job.error_message or "")
 
 
 # ---------------------------------------------------------------------------
@@ -1556,20 +1462,17 @@ class TestUrlImportCompressionRefusal:
                 stream=_StreamingBody(b"\x00\x01not-gzip-at-all" * 64),
             ),
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/bomb.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/bomb.geojson"},
         )
-        assert resp.status_code == 502
-        assert "transport-compressed" in resp.json()["detail"]
+        assert resp.status_code == 201, resp.text
         # Belt: the request asked the origin for an uncompressed transfer.
         assert recorded[0].headers.get("Accept-Encoding") == "identity"
         assert _staged_files() == []
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "bomb.geojson")
-        )
-        job = result.scalar_one()
+        job = await _job_by_name(test_db_session, "bomb.geojson")
         assert job.status == "failed"
         assert "transport-compressed" in (job.error_message or "")
 
@@ -1585,8 +1488,7 @@ class TestUrlImportAmbiguousCommit:
         """fix(#1708 codex r11): the final commit was durably applied but the
         acknowledgement raised. Settlement must probe on a fresh session,
         see the pending row bound to the staged path, and stand down — the
-        staged bytes survive, the row stays coherent, and only the response
-        is lost (500)."""
+        staged bytes survive and the row stays coherent."""
 
         async def ack_lost(db) -> None:
             await db.commit()  # durable on the server...
@@ -1599,16 +1501,14 @@ class TestUrlImportAmbiguousCommit:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/acklost.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/acklost.geojson"},
         )
-        assert resp.status_code == 500  # the response is lost, not the job
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "acklost.geojson")
-        )
-        job = result.scalar_one()
+        assert resp.status_code == 201, resp.text
+        job = await _job_by_name(test_db_session, "acklost.geojson")
         assert job.status == "pending"  # NOT flipped to failed
         assert job.error_message is None
         staged = Path(job.file_path)
@@ -1637,351 +1537,22 @@ class TestUrlImportAmbiguousCommit:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/commitfail.geojson"},
-            headers=admin_auth_header,
-        )
-        assert resp.status_code == 500
-        assert _staged_files() == []
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "commitfail.geojson")
-        )
-        job = result.scalar_one()
-        assert job.status == "failed"
-        assert job.error_message == "URL import failed"
-
-
-# ---------------------------------------------------------------------------
-# Round-12 review finding (#1708): the failure path after deadline
-# exhaustion never awaits an unbounded remote delete
-# ---------------------------------------------------------------------------
-
-
-class TestUrlImportDegradedS3Failure:
-    async def test_abandoned_put_hands_cleanup_to_the_reaper(
-        self,
-        client: AsyncClient,
-        admin_auth_header: dict,
-        test_db_session,
-        monkeypatch,
-    ):
-        """fix(#1708 codex r12): on the abandonment path the failure route
-        must NOT synchronously await an S3 delete — a degraded endpoint (the
-        very condition that caused the timeout) would spend botocore's read
-        timeout plus retries on the way to the 502. The delete is handed to
-        the already-attached late-put reaper, which fires when the upload
-        actually ends. Modeled with a delete that would hang for minutes:
-        the response must arrive anyway."""
-        monkeypatch.setattr(settings, "storage_provider", "s3")
-        # fix(#1808): this budget is tighter still (1s). If real elapsed
-        # time eats it before `_stage_put_bounded` runs, that call raises
-        # `_StagePutAbandoned` without ever creating `put_task`, and the
-        # reaper this test asserts on is never attached.
-        _freeze_router_clock(monkeypatch)
-        monkeypatch.setattr(
-            "app.processing.ingest.router.stage_total_budget_seconds",
-            lambda: 1,
-        )
-        # fix(#1708 codex r13): the fetch now refuses when the joint budget
-        # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
-        # deliberately run on a tiny budget, so drop the floor to keep the
-        # PUT the thing under test.
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging.MIN_FETCH_BUDGET_SECONDS", 0
-        )
-        release = asyncio.Event()
-        cleanup_started = asyncio.Event()
-        cleanup_calls: list[str] = []
-
-        async def slow_put(s3_key: str, local_dest: Path) -> None:
-            await release.wait()
-
-        async def degraded_delete(saved_path, job_id) -> None:
-            cleanup_calls.append(str(saved_path))
-            cleanup_started.set()
-            await asyncio.sleep(300)  # a degraded endpoint, mid-retry
-
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging._put_staging_object", slow_put
-        )
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging._cleanup_saved_upload",
-            degraded_delete,
-        )
-        _install_transport(
-            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
-        )
-
-        resp = await asyncio.wait_for(
-            client.post(
-                "/ingest/upload/url",
-                json={"url": "https://files.example.test/degraded.geojson"},
-                headers=admin_auth_header,
-            ),
-            # Far below the hanging delete: the point is that the verdict
-            # does not wait on it.
-            timeout=20,
-        )
-        assert resp.status_code == 502
-        # The settlement path issued NO delete of its own...
-        assert cleanup_calls == []
-        assert not cleanup_started.is_set()
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "degraded.geojson")
-        )
-        job = result.scalar_one()
-        assert job.status == "failed"
-
-        # ...and the reaper still owns the key: it fires when the put ends.
-        release.set()
-        await asyncio.sleep(0.05)
-        assert cleanup_calls == [f"staging/{job.id}/degraded.geojson"]
-
-    async def test_non_timeout_failure_bounds_its_cleanup(
-        self,
-        client: AsyncClient,
-        admin_auth_header: dict,
-        test_db_session,
-        monkeypatch,
-    ):
-        """A failure with budget left still attempts an immediate delete —
-        but bounded by the remaining request budget, so a degraded endpoint
-        cannot hold the 502 past the proxy deadline. Here the content sniff
-        rejects the file (plenty of budget left) and the delete hangs: the
-        response must still arrive, and the job must still be stamped."""
-        monkeypatch.setattr(settings, "storage_provider", "s3")
-        # fix(#1808): freeze before the budget is derived. Otherwise a
-        # stall anywhere ahead of the quota race this test sets up — a
-        # slow pool checkout, a loaded runner — exhausts the 2s budget
-        # and `_remaining_fetch_budget` answers 502 in place of the 413.
-        _freeze_router_clock(monkeypatch)
-        # Small budget so the bounded wait resolves fast in the test; the
-        # production value is the joint stage budget's remainder.
-        monkeypatch.setattr(
-            "app.processing.ingest.router.stage_total_budget_seconds",
-            lambda: 2,
-        )
-        # fix(#1708 codex r13): the fetch now refuses when the joint budget
-        # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
-        # deliberately run on a tiny budget, so drop the floor to keep the
-        # PUT the thing under test.
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging.MIN_FETCH_BUDGET_SECONDS", 0
-        )
-        cleanup_started = asyncio.Event()
-
-        async def degraded_delete(saved_path, job_id) -> None:
-            cleanup_started.set()
-            await asyncio.sleep(300)
-
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging._cleanup_saved_upload",
-            degraded_delete,
-        )
-        monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging._put_staging_object", AsyncMock()
-        )
-        # Fail AFTER the put, so s3_key is set and cleanup is attempted:
-        # a quota race at the post-stage check.
-        from fastapi import HTTPException
-
-        calls = {"n": 0}
-
-        async def racing_quota(db_, user_id, incoming_bytes, request_):
-            calls["n"] += 1
-            if calls["n"] == 2:
-                raise HTTPException(status_code=413, detail="quota raced")
-
-        monkeypatch.setattr(
-            "app.processing.ingest.router.check_upload_quota", racing_quota
-        )
-        _install_transport(
-            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
-        )
-
-        resp = await asyncio.wait_for(
-            client.post(
-                "/ingest/upload/url",
-                json={"url": "https://files.example.test/bounded.geojson"},
-                headers=admin_auth_header,
-            ),
-            timeout=20,
-        )
-        assert resp.status_code == 413
-        # The delete WAS attempted (budget remained) but did not hold the
-        # response — it was abandoned at the budget and continues alone.
-        assert cleanup_started.is_set()
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "bounded.geojson")
-        )
-        job = result.scalar_one()
-        assert job.status == "failed"
-
-
-# ---------------------------------------------------------------------------
-# Round-13 review finding (#1708): every phase draws from ONE joint clock —
-# the fetch's bound is min(its own ceiling, remaining joint budget)
-# ---------------------------------------------------------------------------
-
-
-class TestUrlImportJointClock:
-    def test_every_phase_bound_fits_the_joint_budget(self):
-        """The static half of the invariant: each phase ceiling, and their
-        worst-case sequence, fit inside the joint budget, which fits the
-        proxy deadline with post-work slack."""
-        from app.processing.ingest.url_fetch import (
-            EDGE_PROXY_READ_TIMEOUT_SECONDS,
-            FETCH_MAX_SECONDS,
-            MIN_FETCH_BUDGET_SECONDS,
-            POOL_CHECKOUTS_PER_REQUEST,
-            PREFLIGHT_DNS_MAX_SECONDS,
-            STAGE_TOTAL_CEILING_SECONDS,
-            stage_total_budget_seconds,
-        )
-
-        assert EDGE_PROXY_READ_TIMEOUT_SECONDS == 600
-        assert FETCH_MAX_SECONDS < STAGE_TOTAL_CEILING_SECONDS
-        assert (
-            PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= STAGE_TOTAL_CEILING_SECONDS
-        )
-        assert 0 < MIN_FETCH_BUDGET_SECONDS < FETCH_MAX_SECONDS
-
-        # fix(#1708 codex r16, corrected r18): the FULL chain, including
-        # what the joint clock does NOT cover. The session checks a
-        # connection out POOL_CHECKOUTS_PER_REQUEST times across the
-        # request (auth, pre-fetch, post-stage — enumerated at that
-        # constant), each able to wait db_pool_timeout under exhaustion.
-        # r16 counted two of the three, which is exactly the arithmetic
-        # error this assertion now catches. Reading both values from the
-        # source rather than hardcoding them means raising the config
-        # fails HERE instead of silently eroding the margin.
-        pool_wait = settings.db_pool_timeout
-        # fix(r18): N checkouts, not 2 — see POOL_CHECKOUTS_PER_REQUEST.
-        worst_case = (
-            POOL_CHECKOUTS_PER_REQUEST * pool_wait + stage_total_budget_seconds()
-        )
-        assert worst_case <= EDGE_PROXY_READ_TIMEOUT_SECONDS, (
-            f"worst case {worst_case}s exceeds the "
-            f"{EDGE_PROXY_READ_TIMEOUT_SECONDS}s proxy deadline: shrink "
-            "the stage budget (see stage_total_budget_seconds) or re-derive"
-        )
-        # With real margin left for the single-row CAS/commit and response
-        # serialization, not merely equal to the deadline (which is what
-        # 540 gave: 30 + 540 + 30 == 600 exactly).
-        assert worst_case + 20 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
-
-    def test_fetch_budget_shrinks_as_the_joint_clock_advances(self):
-        """fix(#1708 codex r13): the DERIVATION, not just the static sum. A
-        clock that has already advanced must yield a smaller fetch bound —
-        this is what the old fixed FETCH_MAX_SECONDS argument could not do."""
-        import time as _time
-
-        from app.processing.ingest.url_import_staging import _remaining_fetch_budget
-        from app.processing.ingest.url_fetch import (
-            FETCH_MAX_SECONDS,
-            stage_total_budget_seconds,
-        )
-
-        now = _time.monotonic()
-        # A fresh request: essentially the whole joint budget remains.
-        fresh = _remaining_fetch_budget(now + stage_total_budget_seconds())
-        assert fresh > stage_total_budget_seconds() - 1
-        # 200s already spent by earlier phases: the fetch gets the rest...
-        spent = _remaining_fetch_budget(now + stage_total_budget_seconds() - 200)
-        budget = stage_total_budget_seconds()
-        assert budget - 202 < spent < budget - 199
-        # ...and once the remainder drops under the per-fetch ceiling, THAT
-        # is the effective bound, which is the whole point of the change.
-        squeezed = _remaining_fetch_budget(now + 120)
-        assert squeezed < FETCH_MAX_SECONDS
-
-    def test_exhausted_budget_refuses_before_opening_a_connection(self):
-        """Below the floor, refuse promptly with the timeout shape rather
-        than starting a doomed download."""
-        import time as _time
-
-        from fastapi import HTTPException
-
-        from app.processing.ingest.url_import_staging import _remaining_fetch_budget
-
-        with pytest.raises(HTTPException) as caught:
-            _remaining_fetch_budget(_time.monotonic() + 1)
-        assert caught.value.status_code == 502
-        assert "time remained" in caught.value.detail
-
-    async def test_handler_passes_the_remaining_budget_to_the_fetch(
-        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
-    ):
-        """End to end: the handler must hand the fetch the joint clock's
-        remainder, not a fresh constant. With a 60s joint budget the fetch
-        may not be given the 480s ceiling."""
-        monkeypatch.setattr(
-            "app.processing.ingest.router.stage_total_budget_seconds",
-            lambda: 60,
-        )
-        seen: dict[str, float | None] = {}
-        real_fetch = url_fetch_module.fetch_url_to_path
-
-        async def recording_fetch(*args, **kwargs):
-            seen["timeout"] = kwargs.get("timeout_seconds")
-            return await real_fetch(*args, **kwargs)
-
-        monkeypatch.setattr(
-            "app.processing.ingest.router.fetch_url_to_path", recording_fetch
-        )
-        _install_transport(
-            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
-        )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/jointclock.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/commitfail.geojson"},
         )
         assert resp.status_code == 201, resp.text
-        assert seen["timeout"] is not None
-        assert seen["timeout"] <= 60
-        assert seen["timeout"] < url_fetch_module.FETCH_MAX_SECONDS
-
-    async def test_exhausted_budget_short_circuits_the_request(
-        self,
-        client: AsyncClient,
-        admin_auth_header: dict,
-        test_db_session,
-        monkeypatch,
-    ):
-        """A request whose earlier phases consumed the whole budget refuses
-        with the clean 502 and never contacts the origin."""
-        monkeypatch.setattr(
-            "app.processing.ingest.router.stage_total_budget_seconds",
-            lambda: 0,
-        )
-        recorded = _install_transport(
-            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
-        )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/nobudget.geojson"},
-            headers=admin_auth_header,
-        )
-        assert resp.status_code == 502
-        assert "time remained" in resp.json()["detail"]
-        assert recorded == []  # no connection was opened
         assert _staged_files() == []
-        # fix(#1708 codex r19): the refusal now lands at the PREFLIGHT, which
-        # runs before create_ingest_job — so there is no row at all rather
-        # than a failed one. Strictly better, and the same shape as the r9
-        # staging-dir refusal: nothing committed means nothing to reap.
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "nobudget.geojson")
-        )
-        assert result.scalar_one_or_none() is None
+        job = await _job_by_name(test_db_session, "commitfail.geojson")
+        assert job.status == "failed"
+        assert job.error_message == INTERNAL_FAILURE_REASON
 
 
 # ---------------------------------------------------------------------------
 # Round-14 review findings (#1708): the ambiguous-commit probe fires ONLY for
-# a genuinely ambiguous commit, settlement releases its connection first, and
-# a cancelled put task still gets its key deleted
+# a genuinely ambiguous commit, and settlement releases its connection first
 # ---------------------------------------------------------------------------
 
 
@@ -2001,6 +1572,19 @@ class TestUrlImportSettlementScope:
         from fastapi import HTTPException
         from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
 
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp, deferred = await _submit_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/probescope.geojson"},
+        )
+        assert resp.status_code == 201, resp.text
+
+        # Installed after submission so `order` records the task's sequence
+        # only, not the request teardown's rollback.
         order: list[str] = []
 
         probe_spy = AsyncMock(return_value=True)
@@ -2026,26 +1610,15 @@ class TestUrlImportSettlementScope:
 
         monkeypatch.setattr(Path, "unlink", recording_unlink)
 
-        calls = {"n": 0}
-
         async def racing_quota(db_, user_id, incoming_bytes, request_):
-            calls["n"] += 1
-            if calls["n"] == 2:  # the post-stage byte-charged check
-                raise HTTPException(status_code=413, detail="quota raced")
+            raise HTTPException(status_code=413, detail="quota raced")
 
         monkeypatch.setattr(
-            "app.processing.ingest.router.check_upload_quota", racing_quota
-        )
-        _install_transport(
-            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
-        )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/probescope.geojson"},
-            headers=admin_auth_header,
+            "app.processing.ingest.url_import_staging.check_upload_quota", racing_quota
         )
 
-        assert resp.status_code == 413
+        await _run_fetch_task(deferred)
+
         # The probe — and its fresh session — was never reached.
         probe_spy.assert_not_awaited()
         # The connection was released before any settlement work.
@@ -2053,10 +1626,7 @@ class TestUrlImportSettlementScope:
         assert order.index("rollback") < order.index("cleanup")
         # And the failure settled normally.
         assert _staged_files() == []
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "probescope.geojson")
-        )
-        job = result.scalar_one()
+        job = await _job_by_name(test_db_session, "probescope.geojson")
         assert job.status == "failed"
 
     async def test_ambiguous_commit_still_probes(
@@ -2080,16 +1650,14 @@ class TestUrlImportSettlementScope:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/stillprobes.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/stillprobes.geojson"},
         )
-        assert resp.status_code == 500
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "stillprobes.geojson")
-        )
-        job = result.scalar_one()
+        assert resp.status_code == 201, resp.text
+        job = await _job_by_name(test_db_session, "stillprobes.geojson")
         assert job.status == "pending"  # stood down, not stamped failed
         assert Path(job.file_path).exists()  # bytes preserved
 
@@ -2099,36 +1667,6 @@ class TestUrlImportSettlementScope:
         from app.processing.ingest.url_import_staging import _COMMIT_AMBIGUOUS_ATTR
 
         assert getattr(ValueError("plain"), _COMMIT_AMBIGUOUS_ATTR, False) is False
-
-
-class TestUrlImportCancelledPutReaper:
-    async def test_cancelled_put_task_still_schedules_cleanup(self, monkeypatch):
-        """fix(#1708 codex r14): on a cancelled task `exception()` RAISES
-        CancelledError, which used to escape the done-callback before the
-        delete was scheduled — while the drained provider call could still
-        land the object. All three outcomes must schedule cleanup."""
-        from app.processing.ingest import url_import_staging as staging_module
-
-        cleanup = AsyncMock()
-        monkeypatch.setattr(staging_module, "_cleanup_saved_upload", cleanup)
-
-        started = asyncio.Event()
-
-        async def never_finishes() -> None:
-            started.set()
-            await asyncio.Event().wait()
-
-        task = asyncio.create_task(never_finishes())
-        await started.wait()
-        task.add_done_callback(
-            staging_module._abandoned_put_reaper("staging/jid/cancelled.geojson", "jid")
-        )
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        await asyncio.sleep(0.05)
-
-        cleanup.assert_awaited_once_with("staging/jid/cancelled.geojson", "jid")
 
 
 # ---------------------------------------------------------------------------
@@ -2152,7 +1690,7 @@ class TestUrlImportLandedStandDownCleanup:
         it); the local copy must not."""
         monkeypatch.setattr(settings, "storage_provider", "s3")
         monkeypatch.setattr(
-            "app.processing.ingest.url_import_staging._put_staging_object", AsyncMock()
+            "app.processing.ingest.tasks_url_fetch._put_staging_object", AsyncMock()
         )
         delete_spy = AsyncMock()
         monkeypatch.setattr(
@@ -2170,17 +1708,15 @@ class TestUrlImportLandedStandDownCleanup:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/s3landed.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/s3landed.geojson"},
         )
-        assert resp.status_code == 500  # the response is lost, not the job
+        assert resp.status_code == 201, resp.text
 
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "s3landed.geojson")
-        )
-        job = result.scalar_one()
+        job = await _job_by_name(test_db_session, "s3landed.geojson")
         assert job.status == "pending"
         assert job.file_path == f"staging/{job.id}/s3landed.geojson"
         # The referenced S3 object was NOT deleted...
@@ -2211,17 +1747,15 @@ class TestUrlImportLandedStandDownCleanup:
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/locallanded.geojson"},
-            headers=admin_auth_header,
+        resp, _ = await _run_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/locallanded.geojson"},
         )
-        assert resp.status_code == 500
+        assert resp.status_code == 201, resp.text
 
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "locallanded.geojson")
-        )
-        job = result.scalar_one()
+        job = await _job_by_name(test_db_session, "locallanded.geojson")
         assert job.status == "pending"
         staged = Path(job.file_path)
         assert staged.exists()
@@ -2229,204 +1763,75 @@ class TestUrlImportLandedStandDownCleanup:
 
 
 # ---------------------------------------------------------------------------
-# Round-17 review finding (#1708): the stage budget is DERIVED from the
-# configured pool timeout, so a deployment CI never runs still holds the
-# invariant
+# feat(#1710): the delivery fence — a token-less or already-settled delivery
+# touches nothing
 # ---------------------------------------------------------------------------
 
 
-class TestUrlImportDerivedBudget:
-    @pytest.mark.parametrize("pool_timeout", [1, 15, 30, 45, 60, 100, 200])
-    def test_invariant_holds_for_every_pool_timeout(self, pool_timeout, monkeypatch):
-        """fix(#1708 codex r17): the whole point — the assertion must hold
-        for configurations CI never runs at. `db_pool_timeout` is
-        operator-settable (`Field(default=30, gt=0)`), and a hardcoded 510
-        broke at DB_POOL_TIMEOUT=60 (60 + 510 + 60 = 630 > 600) while every
-        CI run, pinned to the default, stayed green."""
-        from app.processing.ingest.url_fetch import (
-            EDGE_PROXY_READ_TIMEOUT_SECONDS,
-            POOL_CHECKOUTS_PER_REQUEST,
-            POST_WORK_MARGIN_SECONDS,
-            STAGE_BUDGET_FLOOR_SECONDS,
-            STAGE_TOTAL_CEILING_SECONDS,
-            stage_total_budget_seconds,
-        )
-
-        monkeypatch.setattr(settings, "db_pool_timeout", pool_timeout)
-        budget = stage_total_budget_seconds()
-
-        # Never above the ceiling: a tiny pool timeout must not inflate the
-        # budget past what the preflight and fetch ceilings assume.
-        assert budget <= STAGE_TOTAL_CEILING_SECONDS
-        # Never nonsensical.
-        assert budget >= STAGE_BUDGET_FLOOR_SECONDS
-
-        worst_case = (
-            POOL_CHECKOUTS_PER_REQUEST * pool_timeout
-            + budget
-            + POST_WORK_MARGIN_SECONDS
-        )
-        if budget > STAGE_BUDGET_FLOOR_SECONDS:
-            # The derived (non-floored) regime: the full chain fits under
-            # the proxy deadline for THIS configuration.
-            assert worst_case <= EDGE_PROXY_READ_TIMEOUT_SECONDS
-        else:
-            # The floored regime is the honest degradation: the config
-            # cannot fit, so the budget is a stub and requests refuse fast
-            # rather than the invariant being quietly violated.
-            assert budget == STAGE_BUDGET_FLOOR_SECONDS
-
-    def test_default_config_costs_the_stock_deployment_20s(self, monkeypatch):
-        """fix(#1708 codex r18): counting the third checkout costs the stock
-        deployment real headroom, and that is the right trade — an accurate
-        budget beats an invariant that reads true and is not.
-
-        At the default the budget is 600 - 3*30 - 20 = 490, twenty seconds
-        under the 510 ceiling. The fetch's own 480s ceiling still fits
-        whenever the preflight resolves quickly (the normal case, DNS in
-        milliseconds); only a preflight that burns its full 30s squeezes
-        the fetch, to 460, via the joint clock's min()."""
-        from app.processing.ingest.url_fetch import (
-            FETCH_MAX_SECONDS,
-            PREFLIGHT_DNS_MAX_SECONDS,
-            STAGE_TOTAL_CEILING_SECONDS,
-            stage_total_budget_seconds,
-        )
-
-        monkeypatch.setattr(settings, "db_pool_timeout", 30)
-        budget = stage_total_budget_seconds()
-        assert budget == 490  # 600 - 3*30 - 20
-        assert budget < STAGE_TOTAL_CEILING_SECONDS
-        # The fetch keeps its full ceiling unless the preflight runs long.
-        assert FETCH_MAX_SECONDS < budget
-        assert PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS > budget
-
-    def test_raised_pool_timeout_shrinks_the_budget(self, monkeypatch):
-        """The exact case from the finding: at 60 the old hardcoded 510 gave
-        630 > 600. The derived budget shrinks instead."""
-        from app.processing.ingest.url_fetch import (
-            EDGE_PROXY_READ_TIMEOUT_SECONDS,
-            POST_WORK_MARGIN_SECONDS,
-            stage_total_budget_seconds,
-        )
-
-        monkeypatch.setattr(settings, "db_pool_timeout", 60)
-        budget = stage_total_budget_seconds()
-        assert budget == 400  # 600 - 3*60 - 20
-        assert (3 * 60) + budget + POST_WORK_MARGIN_SECONDS == (
-            EDGE_PROXY_READ_TIMEOUT_SECONDS
-        )
-
-    def test_pathological_pool_timeout_floors_and_warns_once(self, monkeypatch, caplog):
-        """A config that cannot fit must clamp to the floor, say so ONCE and
-        clearly, and let the ordinary budget-exhausted refusal do the rest —
-        not produce a negative budget, and not crash at import."""
-        import app.processing.ingest.url_fetch as url_fetch_mod
-
-        monkeypatch.setattr(settings, "db_pool_timeout", 300)
-        # The warning latch is module state; reset so this test observes it.
-        monkeypatch.setattr(url_fetch_mod, "_budget_floor_warned", False)
-
-        warnings: list[dict] = []
-        monkeypatch.setattr(
-            url_fetch_mod.logger,
-            "warning",
-            lambda event, **kw: warnings.append({"event": event, **kw}),
-        )
-
-        first = url_fetch_mod.stage_total_budget_seconds()
-        second = url_fetch_mod.stage_total_budget_seconds()
-
-        assert first == second == url_fetch_mod.STAGE_BUDGET_FLOOR_SECONDS
-        assert first > 0  # never zero or negative
-        # Logged once, not once per request, and legible about the cause.
-        assert len(warnings) == 1
-        assert warnings[0]["event"] == "url_import_stage_budget_floored"
-        assert warnings[0]["db_pool_timeout"] == 300
-        assert warnings[0]["derived_budget"] < 0
-        assert "DB_POOL_TIMEOUT" in warnings[0]["detail"]
-        # And the floor is below the fetch's start threshold, so requests
-        # refuse through the ordinary path instead of opening a connection.
-        assert first < url_fetch_mod.MIN_FETCH_BUDGET_SECONDS
-
-
-# ---------------------------------------------------------------------------
-# Round-25 review finding (#1708): the floored budget refuses PROMPTLY
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-class TestUrlImportFlooredBudgetRefusesBeforeAnyWork:
-    """A budget too small to host a fetch is refused before DNS or DB work.
-
-    The sibling test above asserts the ARITHMETIC — that the floor lands
-    below ``MIN_FETCH_BUDGET_SECONDS`` — and then says requests "refuse
-    through the ordinary path". That is the half a helper test cannot see:
-    until r25 nothing inspected the budget until ``_remaining_fetch_budget``
-    immediately before the download, so a floored deployment still paid for
-    preflight DNS, the config/quota transaction and a committed 'running'
-    job row before refusing. The refusal was correct and not prompt, which
-    is what the floor exists to promise.
-
-    So these assert ORDERING, not arithmetic: same status and message, but
-    the resolver was never called and no job row was written.
-    """
-
-    async def test_floored_budget_refuses_before_dns_or_a_job_row(
+class TestUrlImportDeliveryFence:
+    async def test_delivery_without_an_attempt_token_touches_nothing(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
         monkeypatch,
     ):
-        monkeypatch.setattr(
-            "app.processing.ingest.router.stage_total_budget_seconds",
-            lambda: 1,
+        """A delivery carrying no attempt token must not adopt the lease: it
+        returns without contacting the origin or moving the row."""
+        recorded = _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resolved: list[str] = []
-
-        async def _spy_validate(url: str) -> None:
-            resolved.append(url)
-
-        # The handler imports it locally (PROCESS-02/04), so patch it at the
-        # definition, which is where every sibling test patches it too.
-        monkeypatch.setattr(
-            "app.platform.security.validate_url_for_ssrf", _spy_validate
+        resp, deferred = await _submit_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/notoken.geojson"},
         )
+        assert resp.status_code == 201, resp.text
+        await _run_fetch_task({**deferred, "attempt_id": None})
 
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/floored.geojson"},
-            headers=admin_auth_header,
-        )
+        assert recorded == []
+        job = await _job_by_name(test_db_session, "notoken.geojson")
+        assert job.status == "running"
+        assert not job.file_path
 
-        assert resp.status_code == 502
-        assert "budget" in resp.json()["detail"].lower()
-        # The ordering claim: neither of the two things the old placement
-        # paid for before refusing happened.
-        assert resolved == [], "preflight DNS ran despite a floored budget"
-        result = await test_db_session.execute(
-            select(IngestJob).where(IngestJob.source_filename == "floored.geojson")
-        )
-        assert result.scalars().all() == [], "a job row was written before refusing"
-
-    async def test_a_healthy_budget_still_reaches_the_fetch(
+    async def test_delivery_after_an_external_settlement_stands_down(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
+        test_db_session,
         monkeypatch,
     ):
-        """The counterfactual: the early refusal must not swallow real requests.
+        """fix(#1710): a cancel, retry or stale sweep that settles the row
+        before the delivery lands wins — the adoption CAS misses and the task
+        must not download anything or revive the job."""
+        from sqlalchemy import update as sa_update
 
-        Without this, a guard that refused unconditionally would pass the
-        test above.
-        """
-        _install_transport(
+        recorded = _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
         )
-        resp = await client.post(
-            "/ingest/upload/url",
-            json={"url": "https://files.example.test/healthy.geojson"},
-            headers=admin_auth_header,
+        resp, deferred = await _submit_url_import(
+            client,
+            monkeypatch,
+            admin_auth_header,
+            {"url": "https://files.example.test/settled.geojson"},
         )
         assert resp.status_code == 201, resp.text
+
+        import app.core.db as db_module
+
+        async with db_module.async_session() as s:
+            await s.execute(
+                sa_update(IngestJob)
+                .where(IngestJob.source_filename == "settled.geojson")
+                .values(status="cancelled", error_message="Cancelled by test")
+            )
+            await s.commit()
+
+        await _run_fetch_task(deferred)
+
+        assert recorded == []
+        assert _staged_files() == []
+        job = await _job_by_name(test_db_session, "settled.geojson")
+        assert job.status == "cancelled"
+        assert job.error_message == "Cancelled by test"

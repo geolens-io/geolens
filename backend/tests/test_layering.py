@@ -3401,8 +3401,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#1711): -459. The URL-import staging cluster — budget, bounded
     # put, settlement — lives in url_import_staging.py; the route handler and
     # its filename/metadata helpers stay. Cap 2639 -> 2180, exact.
-    # fix(#1955): +15 and fix(#1955): +15 and fix(#1953): +1 merged; re-measured after both landed. Cap 1985, exact. merged; re-measured after both landed. Cap 1995, exact.
-    "backend/app/processing/ingest/router.py": 1995,
+    # fix(#1955): the VRT source doors admit through the shared per-dataset
+    # lock and refuse with the coded `dataset_busy` body. fix(#2016): the
+    # fan-out door reports a lost undo instead of hiding it behind a 202.
+    # fix(#1953): the failure sinks route through ADR-002's door.
+    # feat(#1710): `upload_from_url` validates, commits a 'running' job row and
+    # defers `fetch_url`; the download, staged-file sniff, S3 staging put,
+    # byte-quota recheck and the running->pending settlement moved to
+    # processing/ingest/tasks_url_fetch.py, taking the proxy-deadline budget
+    # with them. RECONCILED: four PRs moved this cap from different baselines,
+    # so the value is MEASURED on the merged file, never composed.
+    "backend/app/processing/ingest/router.py": 1819,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3557,7 +3566,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the .zip suffix, plus the import and the comment saying why (a File
     # Geodatabase arrives in a .zip and has no DBF). Cap 2308 -> 2311, exact.
     # fix(#1746): +69 — the shared token purge both service tasks now run on
-    # their terminal failure path: `purge_queued_job_token` (a best-effort
+    # their terminal failure path: `purge_queued_job_arg` (a best-effort
     # `args - 'token'` UPDATE against the task's own procrastinate row) and
     # the `purge_token_on_failure` decorator that absorbs the JobContext
     # procrastinate passes in so the tasks keep their existing signatures.
@@ -3645,7 +3654,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # load the two re-upload tails share, which also ends the transaction on a
     # miss so the run row they write next is unbudgeted. Cap 2668 -> 2723, exact.
     # fix(#1755 item 12): -8 and fix(#1953): +2 merged; re-measured after both landed. Cap 2415, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2415,
+    # fix(#1710): `purge_queued_job_token` became `purge_queued_job_arg`,
+    # taking the key so a submitted file URL is dropped the way a service
+    # token already was; it delegates to the sweep statement #1755 moved,
+    # so the fact keeps one home. RECONCILED across #1755 and #1953:
+    # measured on the merged file, not summed. Cap 2415 -> 2423, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2423,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4062,10 +4076,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is the comment stating why a set-based UPDATE cannot use `lock_timeout`
     # the way a single-row write does. Cap 2374 -> 2392, exact.
     # chore(#1873): review-history comments trimmed. Cap 2392 -> 1506, exact.
-    # fix(#1755 item 12): +22 — `purge_queue_row_tokens`, the by-id token
+    # fix(#1755 item 12): +22 — `purge_queue_row_args`, the by-id token
     # purge the stalled sweep and the task-side purge now share.
     # Cap 1472 -> 1494, exact.
-    "backend/app/platform/jobs/sweep.py": 1494,
+    # fix(#1710): the running-lease sweep gains `no_unclaimed_queue_entry`, so
+    # a row whose task is still `todo` is not reaped before a worker takes it;
+    # the terminal backstop and the by-id purge both strip `url` alongside
+    # `token`, the latter through an `arg_key`. Measured on the file rebased
+    # across #1755 item 12, not added up. Cap 1494 -> 1537, exact.
+    "backend/app/platform/jobs/sweep.py": 1537,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -4257,7 +4276,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # already use and then say to retire it. Cap 1659 -> 1674, exact.
     # fix(#1812): -21. Production on ingest-auth-v2 stops; the default keeps it
     # as a consumer for one release and the two round comments go. 1674 -> 1653.
-    "backend/app/core/config.py": 1479,
+    # feat(#1710): +6 — `url_import_fetch_max_seconds`, the operator ceiling
+    # on one URL-import download now that the fetch runs on the worker and no
+    # proxy or client deadline bounds it. Cap 1479 -> 1485, exact.
+    # fix(#1710 codex r3): +3 — `worker_queues` gains "download" and the note
+    # saying to pin a second worker to it, so a slow origin cannot hold the
+    # only ingest slot. Cap 1485 -> 1488, exact.
+    "backend/app/core/config.py": 1488,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
@@ -5235,7 +5260,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # this same attempt, clearing that one marker key. Most of the lines are the
     # docstring recording why the attempt fence is what makes the wider
     # predicate safe. Cap 1390 -> 1420, exact.
-    "backend/app/processing/ingest/service.py": 1420,
+    # refactor(#1710): `raster_stamped_metadata` moved here from router.py so
+    # the URL fetch task can reach it without importing an HTTP module.
+    # RECONCILED with #2016 off the same 1390 baseline; measured, not summed.
+    "backend/app/processing/ingest/service.py": 1437,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and

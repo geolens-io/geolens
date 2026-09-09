@@ -4949,7 +4949,7 @@ export type JobStatusResponse = {
     /**
      * Current Step
      */
-    current_step?: 'queued' | 'validating' | 'ogr2ogr' | 'finalize' | 'complete' | 'cog_convert' | 'quicklook' | 'analyzing' | 'registering' | null;
+    current_step?: 'queued' | 'downloading' | 'validating' | 'ogr2ogr' | 'finalize' | 'complete' | 'cog_convert' | 'quicklook' | 'analyzing' | 'registering' | null;
     /**
      * Rows Processed
      */
@@ -10735,7 +10735,7 @@ export type UploadResponse = {
     /**
      * Status
      *
-     * Initial job status. Always 'pending' on creation.
+     * Initial job status. 'pending' means the file is staged and ready to preview; 'running' means the server is still fetching it, as it is for a URL import.
      */
     status?: string;
     /**

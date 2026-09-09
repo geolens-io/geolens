@@ -359,6 +359,12 @@ class Settings(BaseSettings):
         gt=MIN_SIGNABLE_JOB_LIFETIME_SECONDS,
         le=MAX_PRESIGNED_URL_LIFETIME_SECONDS,
     )
+    # feat(#1710): wall clock for one URL-import download, now that the fetch
+    # runs on the worker and no proxy or client deadline bounds it. The
+    # running lease is renewed by the task's heartbeat, so this may exceed
+    # JOB_TIMEOUT_SECONDS; the ceiling only stops a typo parking a worker
+    # slot for a week. Consumer: `fetch_url_to_path` in processing/ingest/url_fetch.py.
+    url_import_fetch_max_seconds: int = Field(default=1800, ge=30, le=86400)
     procrastinate_schema: str = "catalog"
 
     public_app_url: str | None = None
@@ -489,7 +495,10 @@ class Settings(BaseSettings):
     # second worker dedicated to e.g. WORKER_QUEUES=raster so long raster
     # jobs never stall vector ingests. fix(#1812): "ingest-auth-v2" is
     # consumer-only -- nothing enqueues there; drop the name once drained.
-    worker_queues: str = "priority,ingest,raster,ingest-auth-v2"
+    # fix(#1710): "download" carries the URL-import fetch, whose runtime is a
+    # remote origin's to decide; pin a second worker to it to keep a slow
+    # transfer off the ingest slot.
+    worker_queues: str = "priority,ingest,raster,download,ingest-auth-v2"
 
     # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
     # Security-relevant: when true, the PersistentConfig DB layer is bypassed for reads

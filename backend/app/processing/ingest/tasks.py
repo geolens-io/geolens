@@ -49,6 +49,9 @@ from app.processing.ingest.tasks_reupload import (  # noqa: F401
     reupload_file,
     reupload_service,
 )
+from app.processing.ingest.tasks_url_fetch import (  # noqa: F401
+    fetch_url,
+)
 from app.processing.ingest.tasks_raster_replace import (  # noqa: F401
     reupload_raster,
 )

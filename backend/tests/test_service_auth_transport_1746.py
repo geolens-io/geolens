@@ -853,7 +853,7 @@ class TestAFailedDispatchLeavesNoCredentialBehind:
     async def test_the_queued_row_purge_strips_a_composed_line(
         self, test_db_session
     ) -> None:
-        from app.processing.ingest.tasks_common import purge_queued_job_token
+        from app.processing.ingest.tasks_common import purge_queued_job_arg
         from tests.test_failed_job_token_purge_1746 import (
             _drop_queue,
             _queue_row,
@@ -875,7 +875,7 @@ class TestAFailedDispatchLeavesNoCredentialBehind:
                 args={"job_id": str(uuid.uuid4()), "token": line},
             )
             context = SimpleNamespace(job=SimpleNamespace(id=row_id))
-            await purge_queued_job_token(context)
+            await purge_queued_job_arg(context)
             args = await _read_args(test_db_session, row_id)
         finally:
             await _drop_queue(test_db_session, queue)

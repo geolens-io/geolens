@@ -2,9 +2,12 @@
  * feat(#1705): UrlImportForm orchestration tests.
  *
  * The heavy children (ImportMetadataForm, ImportPreview, JobProgress) are
- * stubbed — these tests pin the step machine and the API call shapes:
- * fetch → preview → review → commit → tracking, error fallback to idle,
- * and layer_name threading for multi-layer containers.
+ * stubbed. These tests pin the step machine and the API call shapes:
+ * submit, download, preview, review, commit, tracking, error fallback to
+ * idle, and layer_name threading for multi-layer containers.
+ *
+ * feat(#1710): the submit call only queues a download, so every path to a
+ * preview now runs through the job poll returning a `pending` job.
  */
 import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
@@ -12,6 +15,7 @@ import { UrlImportForm } from '../UrlImportForm';
 import type { CommitImportRequest } from '@/types/api';
 import { clearUrlImport, peekUrlImport } from '@/api/url-import-session';
 import { ApiError } from '@/api/client';
+import { useAuthStore } from '@/stores/auth-store';
 
 const mockUploadFromUrl = vi.fn();
 const mockPreviewFile = vi.fn();
@@ -70,6 +74,11 @@ const VECTOR_PREVIEW = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // fix(#1710): the download is observed through useJobStatus, which is
+  // gated on a signed-in token. Without one the poll never runs and the
+  // form stays on the download step forever.
+  useAuthStore.setState({ token: 'test-token' });
+  mockGetJobStatus.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
   // fix(#1708 codex r19): the URL-import session is module-owned so it can
   // outlive an unmount (that is the point). Tests must therefore start from
   // a clean one, or a leftover session resumes into the next test's mount.
@@ -91,6 +100,59 @@ describe('UrlImportForm', () => {
   test('fetch button disabled until a URL is typed', () => {
     render(<UrlImportForm />);
     expect(screen.getByRole('button', { name: 'urlImport.fetch' })).toBeDisabled();
+  });
+
+  // fix(#1710): the submit call answers before the file exists, so the
+  // download is a polled job state. These two pin both of its exits.
+  test('a queued download shows job progress and does not preview yet', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-3', status: 'running' });
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-3', status: 'running' });
+
+    render(<UrlImportForm />);
+    await fetchUrl('https://files.example.test/slow.geojson');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('job-progress')).toHaveTextContent('job-3'),
+    );
+    expect(screen.getByText('urlImport.downloadingHint')).toBeInTheDocument();
+    expect(mockPreviewFile).not.toHaveBeenCalled();
+  });
+
+  test('a failed download returns to the idle form with the job error', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-4', status: 'running' });
+    mockGetJobStatus.mockResolvedValue({
+      job_id: 'job-4',
+      status: 'failed',
+      error_message: 'The server returned HTTP 404 for this URL.',
+    });
+
+    render(<UrlImportForm />);
+    await fetchUrl('https://files.example.test/gone.geojson');
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('The server returned HTTP 404 for this URL.'),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText('urlImport.label')).toBeEnabled();
+    expect(mockPreviewFile).not.toHaveBeenCalled();
+    expect(peekUrlImport()).toBeNull();
+  });
+
+  test('a cancelled download returns to the idle form without an error', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-5', status: 'running' });
+    mockGetJobStatus.mockResolvedValue({
+      job_id: 'job-5',
+      status: 'cancelled',
+      error_message: 'Cancelled by user',
+    });
+
+    render(<UrlImportForm />);
+    await fetchUrl('https://files.example.test/stop.geojson');
+
+    await waitFor(() => expect(peekUrlImport()).toBeNull());
+    expect(screen.getByLabelText('urlImport.label')).toBeEnabled();
+    expect(screen.queryByText('Cancelled by user')).not.toBeInTheDocument();
   });
 
   test('happy path: fetch → preview → review → commit → tracking', async () => {

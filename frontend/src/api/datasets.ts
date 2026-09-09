@@ -189,8 +189,8 @@ export async function getDatasetHistory(
 }
 
 // fix(#1778): apiFetch's 30s default aborts a large (up to 500 MB) re-upload
-// body before the transfer can complete, losing the staged job. Match the
-// budget uploadFromUrl already uses for the same reason (api/ingest.ts).
+// body before the transfer can complete, losing the staged job. This one
+// still holds the request open, so it outlives the edge proxy deliberately.
 const REUPLOAD_TIMEOUT_MS = 630_000;
 
 export async function reuploadDataset(

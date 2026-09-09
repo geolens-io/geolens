@@ -148,22 +148,25 @@ export async function uploadFile(
   return xhrUpload<UploadResponse>('/ingest/upload', formData, onProgress);
 }
 
-// fix(#1708 codex r2/r3): the backend holds this request open for the whole
-// server-side download plus its post-work, all budgeted to fit inside the
-// edge proxy's 600s `location /api/` read timeout (frontend/nginx.conf) —
-// the fetch itself is bounded at FETCH_MAX_SECONDS = 480s in
-// backend/app/processing/ingest/url_fetch.py. apiFetch's 30s default would
-// abort the request (and lose the job id) long before either deadline.
-// 630s deliberately OUTLIVES the proxy so whichever end fails first — the
-// backend's own 4xx/502 or the proxy's 504 — reaches the form as a real
-// verdict instead of a client-side abort.
-const URL_IMPORT_TIMEOUT_MS = 630_000;
-
 /**
  * feat(#1705): the URL variant of upload. The backend fetches the file
  * server-side (SSRF-validated, size-capped) into staging; the returned job
  * then flows through the same preview → commit pipeline as a direct upload.
+ *
+ * feat(#1710): this call only validates and queues, so the download no longer
+ * bounds it. The job it returns is `running` until the worker has the file;
+ * poll `getJobStatus` and preview once it reaches `pending`.
+ *
+ * It still outlives apiFetch's 30s default. Two server-side waits are
+ * sequential and each has its own 30s ceiling: the auth phase checks out a
+ * session before the handler runs, which can spend DB_POOL_TIMEOUT under pool
+ * saturation, and the SSRF preflight is then allowed PREFLIGHT_DNS_MAX_SECONDS
+ * of DNS (url_fetch.py). 30 + 30 plus room for the post-DNS config and quota
+ * reads and the response itself. Aborting early is not free: the server still
+ * queues the download, and the browser has discarded the only copy of the job
+ * id, so the import is unreachable until the stale sweep.
  */
+const URL_SUBMIT_TIMEOUT_MS = 90_000;
 export async function uploadFromUrl(
   url: string,
   filename?: string,
@@ -172,7 +175,7 @@ export async function uploadFromUrl(
     return await apiFetch<UploadResponse>('/ingest/upload/url', {
       method: 'POST',
       body: JSON.stringify({ url, ...(filename && { filename }) }),
-      timeoutMs: URL_IMPORT_TIMEOUT_MS,
+      timeoutMs: URL_SUBMIT_TIMEOUT_MS,
     });
   } catch (err) {
     // Direct call from UrlImportForm's try/catch (not a TanStack mutation),
@@ -206,8 +209,8 @@ export async function getJobStatusByDataset(
 // exceeds even nginx's own 600s `location /api/` read timeout. apiFetch's
 // 30s default aborted the request client-side long before either deadline,
 // wasting the server-side work with nothing observing the abort. Match
-// URL_IMPORT_TIMEOUT_MS's reasoning: deliberately outlive the proxy so
-// whichever end fails first reaches the form as a real verdict.
+// Deliberately outlive the proxy so whichever end fails first reaches the
+// form as a real verdict rather than a client-side abort.
 const PREVIEW_TIMEOUT_MS = 630_000;
 
 export async function previewFile(jobId: string, layerName?: string): Promise<FilePreviewResponse> {

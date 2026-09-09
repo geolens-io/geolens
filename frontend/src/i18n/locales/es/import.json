@@ -253,7 +253,6 @@
     "placeholder": "https://data.source.coop/…/buildings.parquet",
     "fetch": "Obtener →",
     "fetching": "Descargando archivo...",
-    "fetchingHint": "Los archivos grandes pueden tardar varios minutos en descargarse; mantén esta página abierta.",
     "loadingPreview": "Analizando archivo...",
     "resuming": "Reanudando la importación…",
     "filenameLabel": "Nombre de archivo (opcional)",
@@ -270,7 +269,10 @@
     "retryPreview": "Reintentar análisis",
     "cancelAndStartOver": "Cancelar y empezar de nuevo",
     "cancelling": "Cancelando...",
-    "cancelFailed": "No se pudo cancelar el trabajo"
+    "cancelFailed": "No se pudo cancelar el trabajo",
+    "downloading": "Descargando el archivo...",
+    "downloadingHint": "El servidor está obteniendo el archivo. Puedes cambiar de pestaña aquí, pero recargar la página hace perder el seguimiento de esta importación.",
+    "downloadFailed": "El servidor no pudo descargar el archivo desde esa URL"
   },
   "register": {
     "helpText": "Catalogue tablas PostGIS existentes de su base de datos como conjuntos de datos en GeoLens. Use esta opción cuando tenga datos geográficos ya en la base de datos que no fueron importados a través de GeoLens. Las tablas seleccionadas se añadirán al catálogo con detección automática de metadatos.",
@@ -429,6 +431,7 @@
       "unknown": "Desconocido ({{status}})"
     },
     "step": {
+      "downloading": "Descargando",
       "validating": "Validando",
       "ogr2ogr": "Cargando entidades",
       "finalize": "Finalizando",

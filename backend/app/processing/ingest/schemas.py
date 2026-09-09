@@ -53,7 +53,11 @@ class UploadResponse(BaseModel):
     )
     status: str = Field(
         default="pending",
-        description="Initial job status. Always 'pending' on creation.",
+        description=(
+            "Initial job status. 'pending' means the file is staged and "
+            "ready to preview; 'running' means the server is still fetching "
+            "it, as it is for a URL import."
+        ),
     )
     message: str = Field(
         description="Human-readable message describing the upload result."

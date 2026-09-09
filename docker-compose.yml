@@ -496,10 +496,13 @@ services:
       # fix(#1812): this fallback shadows the Settings default, so it must name
       # every queue `worker_queues` in backend/app/core/config.py does, including
       # "ingest-auth-v2", kept as a consumer-only queue for this one release.
-      WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster,ingest-auth-v2}"
+      WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster,download,ingest-auth-v2}"
       # Mirror the api service: ingest tuning + procrastinate schema reach
       # the worker container so operator overrides take effect.
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
+      # fix(#1710): the URL-import fetch clock runs in THIS container, so the
+      # documented override only takes effect if it is forwarded here.
+      URL_IMPORT_FETCH_MAX_SECONDS: "${URL_IMPORT_FETCH_MAX_SECONDS:-1800}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
     depends_on:
       db:

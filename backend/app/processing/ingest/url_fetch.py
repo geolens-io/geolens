@@ -1,4 +1,4 @@
-"""Server-side fetch of a user-supplied HTTP(S) file URL into local staging.
+"""Worker-side fetch of a user-supplied HTTP(S) file URL into local staging.
 
 feat(#1705): the URL variant of upload. Rule 2 (AGENTS.md security checklist)
 shapes everything here — GDAL/ogr2ogr/rasterio NEVER see the caller's URL:
@@ -38,162 +38,22 @@ logger = structlog.get_logger(__name__)
 FETCH_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 
 # The edge proxy's ceiling on any /api/ request: frontend/nginx.conf's
-# `location /api/` sets `proxy_read_timeout 600s`, and this endpoint sends
-# NOTHING until the fetch AND all post-work (sniff, quota recheck, S3
-# staging copy, final commit) finish — so the whole synchronous path must
-# fit inside that deadline or nginx severs the response before the job id
-# reaches the browser (#1708 codex r3). A constant so the budget arithmetic
-# below is checkable; imports that genuinely need longer need the async
-# fetch job (#1710).
+# `location /api/` sets `proxy_read_timeout 600s`. feat(#1710) took the URL
+# import off that clock — the download is a worker job now — but the
+# constant stays here, where it is documented, for the request-scoped
+# consumers that still budget against it (processing/export/ogr.py and
+# export/router.py, and the statement-timeout bound in core config).
 EDGE_PROXY_READ_TIMEOUT_SECONDS = 600
 
-# Joint budget for everything the synchronous request stages: fetch +
-# content sniff + (S3 mode) the staging put, measured from fetch start.
-# fix(#1708): FETCH_MAX_SECONDS bounds only the download — a valid
-# near-limit fetch followed by a slow remote-S3 upload still blew past the
-# proxy. The put is a blocking boto3 upload in a DRAINED thread
-# (storage/s3.py), so asyncio.timeout around it wouldn't bound wall time;
-# the router instead waits on the put task only for the budget's remainder
-# and ABANDONS the wait at the deadline, bounded by botocore's
-# connect_timeout=10/read_timeout=60/3 retries, with a late-landing object
-# deleted by the abandonment reaper.
-#
-# fix(#1708): 540 -> 510, derived rather than assumed. This
-# budget's clock does NOT cover the request's whole life (see the
-# INVARIANT at its initialization in router.py): auth/permission work runs
-# BEFORE the handler body, and the post-stage transaction runs after the
-# budget expires; both can wait on a pool checkout up to
-# ``settings.db_pool_timeout`` (default 30s). Worst case:
-#
-#     30s  pre-handler pool wait (db_pool_timeout)
-#   + 510s joint stage budget (this constant)
-#   + 30s  post-stage pool wait (db_pool_timeout)
-#   +  ~0  single-row CAS/commit + serialization, local Postgres
-#   = 570s  <= 600s proxy read timeout, ~30s margin
-#
-# (540 reached exactly 600, no margin.) Fetch keeps its full ceiling either
-# way: PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS == 510.
-#
-# fix(#1708): 510 is the CEILING, not the answer. db_pool_timeout
-# is operator-settable, and a hardcoded 510 silently breaks the invariant
-# once raised — at DB_POOL_TIMEOUT=60 the sum is 60+60+510+60+20 = 710 > 600
-# and the job id is lost after a successful staging (THREE checkouts, not
-# two — r17 undercounted, r18 caught it; see POOL_CHECKOUTS_PER_REQUEST).
-# CI only runs the default, so no test catches this either — the budget is
-# DERIVED per request from the configured value (``stage_total_budget_seconds``)
-# and this constant only bounds it above.
-STAGE_TOTAL_CEILING_SECONDS = 510
-
-# Every point where this handler's session BEGINS a transaction after a
-# release. Each is a pool checkout that can block up to db_pool_timeout,
-# none inside the joint stage clock, so the budget must reserve room for
-# every one. Enumerated from ``upload_from_url`` (fix(#1708) codex r18,
-# which caught a prior count of 2):
-#
-#   1. Auth/dependency phase — require_permission -> get_current_user;
-#      released by the pre-gate commit (r4).
-#   2. Pre-fetch transaction — allowlist/size/quota checks, job INSERT +
-#      running stamp; released by the pre-fetch commit (r2/P1).
-#   3. Post-stage transaction — byte quota, running->pending CAS, commit.
-#
-# The non-ambiguous failure path is also 3. The ambiguous-commit path adds
-# a 4th — the probe's fresh session — deliberately NOT budgeted: reached
-# only when a commit's acknowledgement is lost and the response is already
-# an error, so a late response there costs nothing beyond what's already lost.
-POOL_CHECKOUTS_PER_REQUEST = 3
-
-# Reserved, beyond the pool waits, for the post-stage transaction's
-# single-row CAS and commit plus response serialization — all local
-# Postgres, milliseconds in practice; 20s is deliberate slack, not an
-# estimate of their cost.
-POST_WORK_MARGIN_SECONDS = 20
-
-# A pathological pool timeout (DB_POOL_TIMEOUT=300 leaves 600-900-20 = -320)
-# must not yield a zero/negative budget or crash the app at import. Clamp
-# here, STRICTLY BELOW ``MIN_FETCH_BUDGET_SECONDS`` so the refusal is
-# guaranteed by construction: ``_remaining_fetch_budget`` sees a remainder
-# under its floor and refuses before opening a connection. The one-time
-# warning below gives the operator a cause instead of a mysterious 502.
-STAGE_BUDGET_FLOOR_SECONDS = 1
-
-_budget_floor_warned = False
-
-
-def stage_total_budget_seconds() -> int:
-    """The joint stage budget for THIS deployment's pool configuration.
-
-    fix(#1708): derived rather than asserted, so raising
-    ``settings.db_pool_timeout`` (waited on ``POOL_CHECKOUTS_PER_REQUEST``
-    times) shrinks the staging budget automatically instead of quietly
-    pushing the response past nginx:
-
-        min(STAGE_TOTAL_CEILING,
-            EDGE_PROXY - POOL_CHECKOUTS_PER_REQUEST*pool_timeout
-            - POST_WORK_MARGIN)
-
-    The ceiling keeps a very small pool timeout from inflating the budget
-    past what preflight/fetch assume; the floor keeps a very large one from
-    producing a nonsensical budget.
-    """
-    global _budget_floor_warned
-
-    pool_timeout = settings.db_pool_timeout
-    derived = (
-        EDGE_PROXY_READ_TIMEOUT_SECONDS
-        - (POOL_CHECKOUTS_PER_REQUEST * pool_timeout)
-        - POST_WORK_MARGIN_SECONDS
-    )
-    budget = min(STAGE_TOTAL_CEILING_SECONDS, derived)
-    if budget < STAGE_BUDGET_FLOOR_SECONDS:
-        if not _budget_floor_warned:
-            _budget_floor_warned = True
-            logger.warning(
-                "url_import_stage_budget_floored",
-                db_pool_timeout=pool_timeout,
-                edge_proxy_read_timeout=EDGE_PROXY_READ_TIMEOUT_SECONDS,
-                derived_budget=derived,
-                floor=STAGE_BUDGET_FLOOR_SECONDS,
-                detail=(
-                    "DB_POOL_TIMEOUT leaves no room for URL-import staging "
-                    "inside the edge proxy's read timeout; URL imports will "
-                    "be refused. Lower DB_POOL_TIMEOUT or raise the proxy's "
-                    "proxy_read_timeout."
-                ),
-            )
-        return STAGE_BUDGET_FLOOR_SECONDS
-    return budget
-
-
 # Bound on the submission-time SSRF preflight (validate_url_for_ssrf's
-# getaddrinfo). fix(#1708): the one long operation left outside
-# every deadline — stalled DNS could blow the pre-fetch budget and pile up
-# executor resolver threads under load. Bounded AT THE CALL SITE
-# (platform/security.py stays untouched — see #1710): asyncio.wait_for
-# cancels the to_thread wrapper, which returns immediately while the
-# resolver thread runs on until the OS resolver gives up — same abandonment
-# pattern as the staging put. 30s dwarfs any healthy resolution and fits
-# inside the stage budget with the full fetch cap intact (30+480<=540,
-# pinned by the budget test).
+# getaddrinfo). fix(#1708): stalled DNS has no bound of its own and would
+# pile up executor resolver threads under load. Bounded AT THE CALL SITE
+# (platform/security.py stays untouched): asyncio.wait_for cancels the
+# to_thread wrapper, which returns immediately while the resolver thread
+# runs on until the OS resolver gives up. 30s dwarfs any healthy
+# resolution, and this is now the ONLY long operation on the request path
+# — feat(#1710) moved the download itself to the worker.
 PREFLIGHT_DNS_MAX_SECONDS = 30
-
-# The least remaining joint budget worth starting a fetch with. Below this a
-# download cannot plausibly connect, transfer and stage, so the request is
-# refused promptly with the ordinary timeout shape instead of opening a
-# doomed connection (fix(#1708) codex r13).
-MIN_FETCH_BUDGET_SECONDS = 5
-
-# Wall-clock ceiling for one fetch. The per-chunk read timeout above cannot
-# bound TOTAL time: a server trickling one chunk every few seconds holds the
-# request coroutine open forever while staying inside every socket timeout.
-#
-# Budgeted INSIDE the proxy deadline: 480s of fetch leaves ~120s for
-# post-work, of which only the S3 staging copy scales with file size (a
-# 500 MB copy to same-network MinIO takes seconds; ~84s even at a
-# conservative 50 Mbps to remote S3). A download that can't finish in 480s
-# could never complete under the 600s edge deadline anyway — the budget
-# turns a mid-flight severed connection into a prompt, clean 502 with the
-# staged bytes removed.
-FETCH_MAX_SECONDS = 480
 
 _CHUNK_SIZE = 65536
 
@@ -287,13 +147,13 @@ async def fetch_url_to_path(
       other transport failure.
     """
     total = 0
-    # fix(#1708): the caller passes what the JOINT budget has
-    # left. Defaulting to the constant keeps the function usable on its
-    # own; the handler never relies on that (see stage_total_budget_seconds()).
+    # feat(#1710): the operator's ceiling, no longer a share of a request
+    # budget — the download runs on the worker under a heartbeat-renewed
+    # lease, so nothing upstream of it expires while it transfers.
     fetch_timeout = (
-        FETCH_MAX_SECONDS
+        float(settings.url_import_fetch_max_seconds)
         if timeout_seconds is None
-        else min(FETCH_MAX_SECONDS, timeout_seconds)
+        else timeout_seconds
     )
     # Synchronous open, mirroring save_upload_file: no cancellation point
     # between acquiring the descriptor and owning it.
@@ -302,14 +162,12 @@ async def fetch_url_to_path(
     try:
         try:
             try:
-                # fix(#1708): the wall clock wraps the ENTIRE
-                # request — DNS, TLS, headers, every redirect hop, the body —
-                # not just gaps between chunks. The previous per-chunk check
-                # never ran while an origin stalled DNS or trickled headers
-                # under httpx's per-read timeout, letting it hold the request
-                # past the 600s edge proxy deadline. asyncio.timeout cancels
-                # the scope at the deadline (drained writes finish their
-                # in-flight chunk first, so no thread outlives the
+                # fix(#1708): the wall clock wraps the ENTIRE fetch — DNS,
+                # TLS, headers, every redirect hop, the body — not just gaps
+                # between chunks, which is what an origin trickling one chunk
+                # per read timeout stays inside forever. asyncio.timeout
+                # cancels the scope at the deadline (drained writes finish
+                # their in-flight chunk first, so no thread outlives the
                 # descriptor) and raises TimeoutError at exit, translated
                 # below — same outer-deadline pattern as origin_probe.py.
                 async with asyncio.timeout(fetch_timeout):
@@ -419,14 +277,7 @@ async def fetch_url_to_path(
 
 __all__ = [
     "EDGE_PROXY_READ_TIMEOUT_SECONDS",
-    "FETCH_MAX_SECONDS",
-    "MIN_FETCH_BUDGET_SECONDS",
     "PREFLIGHT_DNS_MAX_SECONDS",
-    "POOL_CHECKOUTS_PER_REQUEST",
-    "POST_WORK_MARGIN_SECONDS",
-    "STAGE_BUDGET_FLOOR_SECONDS",
-    "STAGE_TOTAL_CEILING_SECONDS",
-    "stage_total_budget_seconds",
     "FETCH_TIMEOUT",
     "SSRFError",
     "UrlFetchError",

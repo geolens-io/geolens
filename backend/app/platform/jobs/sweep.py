@@ -166,6 +166,25 @@ def stale_pending_unbound_values(now: datetime, *, message: str) -> dict:
     }
 
 
+def no_unclaimed_queue_entry():
+    """Predicate: no worker is still waiting to pick this row's task up.
+
+    fix(#1710): the URL import commits its row 'running' at the door, so the
+    UI can show a download before a worker exists, but the worker LEASE only
+    starts when the task adopts it. A queue backlog longer than
+    JOB_TIMEOUT_SECONDS would otherwise fail a job nothing has touched, and
+    the eventual worker would find the row already settled.
+
+    `doing` is deliberately NOT exempt: a SIGKILLed worker leaves that state
+    behind forever, and reaping its row is exactly what the lease is for.
+    """
+    return text(
+        "NOT EXISTS (SELECT 1 FROM catalog.procrastinate_jobs pj"
+        " WHERE pj.args->>'job_id' = ingest_jobs.id::text"
+        " AND pj.status = 'todo')"
+    )
+
+
 def no_live_procrastinate_job():
     """Predicate: this ``ingest_jobs`` row has no queued or running task.
 
@@ -1022,40 +1041,63 @@ def publish_refresh_reconciliation(outcome: StaleCleanupOutcome) -> None:
         refresh_sweep_reconciled_total.inc(outcome._refresh_runs_reconciled)
 
 
-_PURGE_JOB_TOKENS_BY_ID_SQL = (
-    "UPDATE catalog.procrastinate_jobs SET args = args - 'token' "
-    "WHERE id = ANY(:job_ids)"
-)
+# fix(#1710): one literal statement per key rather than a built string, so no
+# caller can reach this with an identifier of its own.
+_PURGE_JOB_ARGS_BY_ID_SQL = {
+    "token": (
+        "UPDATE catalog.procrastinate_jobs SET args = args - 'token' "
+        "WHERE id = ANY(:job_ids)"
+    ),
+    "url": (
+        "UPDATE catalog.procrastinate_jobs SET args = args - 'url' "
+        "WHERE id = ANY(:job_ids)"
+    ),
+}
 
 
-async def purge_queue_row_tokens(db: AsyncSession, job_ids: Sequence[int]) -> None:
-    """Drop the raw service token from the named queue rows.
+async def purge_queue_row_args(
+    db: AsyncSession, job_ids: Sequence[int], *, arg_key: str = "token"
+) -> None:
+    """Drop one credential-bearing key from the named queue rows.
 
-    fix(#1755 item 12): the one statement both immediate purge sites use —
+    fix(#1755 item 12): the one statement every immediate purge site uses —
     a task that fails on its own (``purge_token_on_failure``) and the
     stalled sweep, which is the first moment a crashed worker's token is
-    provably dead weight. Both service tasks are ``retry=0``, so nothing
+    provably dead weight. Every dispatching task is ``retry=0``, so nothing
     re-runs from these args.
+
+    fix(#1710): ``arg_key`` because the URL import purges its submitted URL
+    the same way, on adoption rather than on failure.
     """
     if not job_ids:
         return
-    await db.execute(text(_PURGE_JOB_TOKENS_BY_ID_SQL), {"job_ids": list(job_ids)})
+    await db.execute(
+        text(_PURGE_JOB_ARGS_BY_ID_SQL[arg_key]), {"job_ids": list(job_ids)}
+    )
     await db.commit()
 
 
 async def purge_terminal_job_tokens(db: AsyncSession) -> None:
-    """Backstop the token purge the service tasks run on their own failure.
+    """Backstop the credential purge the tasks run on their own failure.
 
-    Drops the raw service token from terminal queue rows that never reached
-    ``purge_token_on_failure``. fix(#1746): not part of ``fail_stale_jobs``
-    (runs once per TENANT) — the queue table is shared, so
+    Drops the raw service token, and the submitted file URL, from terminal
+    queue rows that never reached their own purge. fix(#1746): not part of
+    ``fail_stale_jobs`` (runs once per TENANT) — the queue table is shared, so
     ``sweep_stale_jobs_once`` calls this once per pass. Deliberately
     unindexed: a sequential scan beats a write-amplifying index here.
+
+    fix(#1710): ``url`` joins ``token``. A URL import cancelled while its row
+    is still ``todo``, or whose worker died between claim and task adoption,
+    never reaches the purge in ``fetch_url``; ``cancel_job_by_id_async``
+    converts the row to ``cancelled`` rather than deleting it, so a presigned
+    or SAS link would otherwise sit here until the 30-day terminal purge.
     """
     await db.execute(
         text(
-            "UPDATE catalog.procrastinate_jobs SET args = args - 'token' "
-            "WHERE status NOT IN ('todo', 'doing') AND args ? 'token'"
+            "UPDATE catalog.procrastinate_jobs "
+            "SET args = args - 'token' - 'url' "
+            "WHERE status NOT IN ('todo', 'doing') "
+            "AND (args ? 'token' OR args ? 'url')"
         )
     )
     await db.commit()
@@ -1168,6 +1210,7 @@ async def fail_stale_jobs(
             IngestJob.status == "running",
             func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
             < running_cutoff,
+            no_unclaimed_queue_entry(),
         )
         .with_for_update(skip_locked=True)
     )

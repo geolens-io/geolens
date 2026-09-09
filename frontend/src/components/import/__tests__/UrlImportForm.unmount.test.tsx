@@ -10,6 +10,7 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { UrlImportForm } from '../UrlImportForm';
 import { clearUrlImport, peekUrlImport } from '@/api/url-import-session';
+import { useAuthStore } from '@/stores/auth-store';
 
 const mockUploadFromUrl = vi.fn();
 const mockPreviewFile = vi.fn();
@@ -64,6 +65,11 @@ const VECTOR_PREVIEW = {
 beforeEach(() => {
   vi.clearAllMocks();
   clearUrlImport();
+  // fix(#1710): this suite drives the REAL useJobStatus, which is gated on a
+  // signed-in token, and the form parks on the download until the job reads
+  // `pending`. Without both the resumed mount never reaches preview.
+  useAuthStore.setState({ token: 'test-token' });
+  mockGetJobStatus.mockResolvedValue({ status: 'pending' });
 });
 
 afterEach(() => {

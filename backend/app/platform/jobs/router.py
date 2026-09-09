@@ -33,6 +33,7 @@ from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
+    URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
     IngestJob,
 )
 from app.platform.jobs.schemas import (
@@ -47,6 +48,7 @@ from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objec
 from app.platform.jobs.sweep import (
     ABANDONED_UPLOAD_MESSAGE,  # noqa: F401 -- re-exported, see __all__
     JOB_TIMEOUT_SECONDS,
+    no_unclaimed_queue_entry,
     _READY_WORTHY_SQL,
     audit_settled_embedding_backfill,
     STALE_PENDING_BOUND_MESSAGE,
@@ -349,6 +351,9 @@ async def get_job_status(
                     IngestJob.status == "running",
                     func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
                     < now - timedelta(seconds=lease_seconds),
+                    # fix(#1710): a row whose task is still queued has no
+                    # worker lease to expire; see the predicate's docstring.
+                    no_unclaimed_queue_entry(),
                 )
                 .values(
                     status="failed",
@@ -436,67 +441,76 @@ async def get_job_status(
     return await _job_to_status_response(job, include_detail=True)
 
 
+# fix(#1710): the run of "this kind of job is not an ordinary import" checks,
+# as an ORDERED table rather than a branch each — the chain had reached the
+# complexity cap, and order is part of the contract (a service refresh job
+# carries both `reupload` and `refresh` and must keep the reupload wording).
+_UNREPLAYABLE_JOB_MARKERS: tuple[tuple[str, str], ...] = (
+    (
+        "reupload",
+        "Dataset replacement jobs cannot be replayed as ordinary imports. "
+        "Start the reupload again.",
+    ),
+    # feat(#1265): a registered-PostGIS refresh job carries no file/URL, so
+    # without this it fell through to the import copy, telling the user their
+    # "source" was gone.
+    (
+        "refresh",
+        "Refresh runs cannot be replayed as imports. Refresh the dataset "
+        "again from its source panel.",
+    ),
+    # fix(#1709): a fan-out parent whose dispatch crashed before any child was
+    # queued. Generic retry would re-queue it as ONE default-layer import —
+    # the layer selection was never persisted.
+    (
+        FAN_OUT_INTERRUPTED_METADATA_KEY,
+        "Fan-out dispatch was interrupted before any layer was queued. "
+        "Re-upload the file and select its layers again.",
+    ),
+    (
+        "service_auth_required",
+        "This service import requires fresh credentials. Start the import "
+        "again to re-authenticate.",
+    ),
+    # ux(#698): analysis jobs carry file_path="" and are not replayable
+    # anyway — the drawn clip mask is never persisted.
+    (
+        "analysis",
+        "Analysis runs cannot be replayed as imports. Start the analysis "
+        "again from the map builder.",
+    ),
+    # fix(#1542): restart via POST /admin/backfill-embeddings/, which re-runs
+    # its own pre-flight and concurrency guards; retry would skip both.
+    (
+        EMBEDDING_BACKFILL_METADATA_KEY,
+        "Embedding backfill runs cannot be replayed as imports. Start the "
+        "backfill again from Settings.",
+    ),
+    # fix(#1814): generic retry's failed -> pending CAS skips the manifest
+    # key's advisory lock, risking a second job for a key a re-apply claims.
+    (
+        "manifest_key",
+        "Manifest imports cannot be replayed here. Apply the manifest again, "
+        "which is what serializes work on its own keys.",
+    ),
+    # fix(#1710): file_path is a download destination the worker never
+    # finished. A truncated CSV or GeoJSON still parses, so replaying it would
+    # import an incomplete dataset as a complete one.
+    (
+        URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
+        "The download did not finish, so the file is incomplete. Start the "
+        "import again.",
+    ),
+)
+
+
 async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
     if job.status != "failed":
         return False, None
-    if bool((job.user_metadata or {}).get("reupload")):
-        return (
-            False,
-            "Dataset replacement jobs cannot be replayed as ordinary imports. Start the reupload again.",
-        )
-    if bool((job.user_metadata or {}).get("refresh")):
-        # feat(#1265): a registered-PostGIS refresh job carries no file/URL,
-        # so without this it fell through to the import copy, telling the
-        # user their "source" was gone. Deliberately AFTER the reupload
-        # check: a service refresh job carries both markers and keeps its
-        # existing wording.
-        return (
-            False,
-            "Refresh runs cannot be replayed as imports. Refresh the dataset again from its source panel.",
-        )
-    if bool((job.user_metadata or {}).get(FAN_OUT_INTERRUPTED_METADATA_KEY)):
-        # fix(#1709): a fan-out parent whose dispatch crashed
-        # before any child was queued, settled by the stale sweep. Generic
-        # retry would re-queue it as ONE default-layer import — the layer
-        # selection was never persisted — so refuse and name the real path,
-        # like the sibling markers here.
-        return (
-            False,
-            "Fan-out dispatch was interrupted before any layer was queued. "
-            "Re-upload the file and select its layers again.",
-        )
-    if bool((job.user_metadata or {}).get("service_auth_required")):
-        return (
-            False,
-            "This service import requires fresh credentials. Start the import again to re-authenticate.",
-        )
-    if (job.user_metadata or {}).get("analysis"):
-        # ux(#698): analysis jobs carry file_path="" and would otherwise fall
-        # through to the import copy, telling the user their nonexistent
-        # "source" is gone. Not replayable anyway: the drawn clip mask isn't
-        # persisted (router_analysis.py stores a marker, not the geometry).
-        return (
-            False,
-            "Analysis runs cannot be replayed as imports. Start the analysis again from the map builder.",
-        )
-    if (job.user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY):
-        # fix(#1542): embedding backfill runs carry file_path="" like analysis
-        # runs. Restart via POST /admin/backfill-embeddings/, which re-runs
-        # its own pre-flight/concurrency guards — the ingest retry path would
-        # skip both.
-        return (
-            False,
-            "Embedding backfill runs cannot be replayed as imports. Start the backfill again from Settings.",
-        )
-    if (job.user_metadata or {}).get("manifest_key"):
-        # fix(#1814): generic retry's failed -> pending CAS skips the
-        # manifest key's advisory lock, risking a second job for a key a
-        # concurrent re-apply is claiming. Re-apply owns manifest retries.
-        return (
-            False,
-            "Manifest imports cannot be replayed here. Apply the manifest "
-            "again, which is what serializes work on its own keys.",
-        )
+    metadata = job.user_metadata or {}
+    for marker, reason in _UNREPLAYABLE_JOB_MARKERS:
+        if metadata.get(marker):
+            return False, reason
     if job.source_url and not job.file_path:
         return True, None
     if not job.file_path:

@@ -20,7 +20,8 @@ class UploadResponse:
     Attributes:
         job_id (UUID): Unique identifier for the ingestion job. Use this to poll status and to commit the upload.
         message (str): Human-readable message describing the upload result.
-        status (str | Unset): Initial job status. Always 'pending' on creation. Default: 'pending'.
+        status (str | Unset): Initial job status. 'pending' means the file is staged and ready to preview; 'running'
+            means the server is still fetching it, as it is for a URL import. Default: 'pending'.
     """
 
     job_id: UUID

@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label';
 type UrlStep =
   | 'idle'
   | 'fetching'
+  | 'downloading'
   | 'previewing'
   | 'resuming'
   | 'review'
@@ -46,8 +47,11 @@ type UrlStep =
  * terminal-status sweep ran before this component existed on main.
  *
  * So the predicate names what is IN FLIGHT and treats everything else as
- * terminal. An unknown or newly added status then fails toward offering the
- * escape hatch, which is the safe direction — a spurious "Import another"
+ * terminal. It deliberately does NOT reuse `use-ingest`'s exported
+ * `isTerminalJobStatus`, which enumerates the terminal set and so treats an
+ * unknown status as still running: that is right for a poll interval and
+ * wrong for an escape hatch. An unknown or newly added status here fails
+ * toward offering the escape hatch, which is the safe direction — a spurious "Import another"
  * on a live job is a cosmetic bug, a job with no way out is the one that
  * strands the tab for the rest of the SPA session.
  */
@@ -189,10 +193,23 @@ export function UrlImportForm() {
       }
       if (!mountedRef.current) return;
       setJobId(fetchedJobId);
+      // fix(#1710): the POST only queues the download, so the file is not
+      // staged yet. The job poll below decides when it is previewable; a
+      // resumed session lands here too and its poll answers immediately.
+      setStep('downloading');
+    },
+    [t],
+  );
 
+  // fix(review #1800 P2): re-run the preview for the SAME job id — no
+  // re-download, no new staged file. Uses the same terminal check as the
+  // initial failure so a second miss on an actually-dead job still clears.
+  const runPreview = useCallback(
+    async (id: string) => {
       setStep('previewing');
+      setError(null);
       try {
-        const preview = await previewFile(fetchedJobId);
+        const preview = await previewFile(id);
         if (!mountedRef.current) return;
         setPreviewData(preview);
         setStep('review');
@@ -201,31 +218,15 @@ export function UrlImportForm() {
         const msg = err instanceof ApiError ? err.message : t('urlImport.previewFailed');
         setError(msg);
         toast.error(msg);
-        await settlePreviewFailure(fetchedJobId, err);
+        await settlePreviewFailure(id, err);
       }
     },
     [t, settlePreviewFailure],
   );
 
-  // fix(review #1800 P2): re-run the preview for the SAME job id — no
-  // re-download, no new staged file. Uses the same terminal check as the
-  // initial failure so a second miss on an actually-dead job still clears.
   const handleRetryPreview = async () => {
     if (!jobId) return;
-    setStep('previewing');
-    setError(null);
-    try {
-      const preview = await previewFile(jobId);
-      if (!mountedRef.current) return;
-      setPreviewData(preview);
-      setStep('review');
-    } catch (err) {
-      if (!mountedRef.current) return;
-      const msg = err instanceof ApiError ? err.message : t('urlImport.previewFailed');
-      setError(msg);
-      toast.error(msg);
-      await settlePreviewFailure(jobId, err);
-    }
+    await runPreview(jobId);
   };
 
   // fix(review #1800 P2): the explicit escape hatch from a kept
@@ -275,8 +276,34 @@ export function UrlImportForm() {
   };
 
   // Shares JobProgress's query key, so this is the same cached poll rather
-  // than a second one. Only used to decide which controls to offer.
-  const { data: trackedJob } = useJobStatus(step === 'tracking' ? jobId : null);
+  // than a second one. It decides which controls to offer while tracking,
+  // and when the server-side download has produced a previewable job.
+  const { data: trackedJob, isError: jobPollFailing } = useJobStatus(
+    step === 'tracking' || step === 'downloading' ? jobId : null,
+  );
+
+  // fix(#1710): the download's only observer. `pending` means the bytes are
+  // staged; any terminal status means the worker settled it and there is
+  // nothing to preview, so the tab returns to a usable idle form.
+  useEffect(() => {
+    if (step !== 'downloading' || !jobId || !trackedJob) return;
+    if (trackedJob.status === 'pending') {
+      void runPreview(jobId);
+      return;
+    }
+    if (!isTerminalJobStatus(trackedJob.status)) return;
+    // A cancel is the user's own action in this view, so returning to the
+    // form IS the feedback; an error toast would report their own click back
+    // to them. Every other terminal status is a failure the form must explain.
+    if (trackedJob.status !== 'cancelled') {
+      const msg = trackedJob.error_message || t('urlImport.downloadFailed');
+      setError(msg);
+      toast.error(msg);
+    }
+    setStep('idle');
+    setJobId(null);
+    clearUrlImport();
+  }, [step, jobId, trackedJob, runPreview, t]);
 
   // fix(#1708 codex r21): SUBSCRIBE to the commit rather than sampling a
   // flag. r20 stored a boolean set before the await, so a mount arriving
@@ -413,6 +440,38 @@ export function UrlImportForm() {
     }
   };
 
+  // ── Server-side download ──
+  // fix(#1710): the same JobProgress the rest of the import uses, so the
+  // download gets the shared progress bar, step label and cancel control
+  // instead of a bespoke spinner the user cannot escape.
+  if (step === 'downloading' && jobId) {
+    return (
+      <div className="space-y-3">
+        <JobProgress jobId={jobId} onReset={reset} isRasterEntry={false} />
+        <p className="text-xs text-muted-foreground">
+          {t('urlImport.downloadingHint')}
+        </p>
+        {/* fix(#1710): while the status read itself is failing JobProgress
+            offers only "Retry status", so without this the tab has no way out
+            until a page reload. It CANCELS rather than resetting: a bare reset
+            drops the only copy of the job id while the worker may still be
+            downloading, stranding staged bytes nothing can reach. */}
+        {jobPollFailing && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCancelAndStartOver}
+            disabled={isCancelling}
+          >
+            {isCancelling
+              ? t('urlImport.cancelling')
+              : t('urlImport.cancelAndStartOver')}
+          </Button>
+        )}
+      </div>
+    );
+  }
+
   // ── Loading states ──
   if (step === 'fetching' || step === 'previewing' || step === 'resuming') {
     const loadingLabel =
@@ -427,14 +486,6 @@ export function UrlImportForm() {
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span className="text-sm text-muted-foreground">{loadingLabel}</span>
         </div>
-        {step === 'fetching' && (
-          // fix(#1708 codex r2): the request legitimately stays open for the
-          // whole server-side download (bounded at 8 minutes, inside the
-          // edge proxy's deadline) — say so instead of looking hung.
-          <p className="text-xs text-muted-foreground">
-            {t('urlImport.fetchingHint')}
-          </p>
-        )}
       </div>
     );
   }

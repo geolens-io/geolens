@@ -284,8 +284,16 @@ async def settle_ingest_job_failed(
     defer_exc: BaseException,
     *,
     message_prefix: str,
+    expected_status: str = "pending",
 ) -> bool:
-    """Fenced ``pending -> failed`` for a dispatch that never queued.
+    """Fenced ``<expected_status> -> failed`` for a dispatch that never queued.
+
+    fix(#1710): ``expected_status`` exists because the URL import commits its
+    row as ``running`` before dispatching — the download owns a worker lease
+    from the moment the door answers, and a ``pending`` row would be judged
+    by the stale-pending sweep instead. The fence still has to name the state
+    the caller actually committed, or a failed defer leaves the row running
+    for the whole lease.
 
     Returns whether the write landed; zero rows means something else already
     settled the job, and doing nothing is correct.
@@ -318,7 +326,7 @@ async def settle_ingest_job_failed(
         update(IngestJob)
         .where(
             IngestJob.id == job.id,
-            IngestJob.status == "pending",
+            IngestJob.status == expected_status,
             (
                 IngestJob.attempt_id == job.attempt_id
                 if job.attempt_id is not None
@@ -349,6 +357,7 @@ def make_ingest_job_failed_rollback(
     job: IngestJob,
     *,
     message_prefix: str = "Failed to queue ingest task",
+    expected_status: str = "pending",
 ) -> RollbackCallable:
     """Build a rollback closure that marks an ``IngestJob`` failed.
 
@@ -363,7 +372,12 @@ def make_ingest_job_failed_rollback(
     """
 
     async def _rollback(defer_exc: BaseException) -> None:
-        await settle_ingest_job_failed(job, defer_exc, message_prefix=message_prefix)
+        await settle_ingest_job_failed(
+            job,
+            defer_exc,
+            message_prefix=message_prefix,
+            expected_status=expected_status,
+        )
 
     return _rollback
 

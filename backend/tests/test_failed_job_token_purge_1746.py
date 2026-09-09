@@ -34,10 +34,10 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat as _real_stop_heartbeat,
 )
 from app.platform.jobs.models import IngestJob
-from app.platform.jobs.sweep import purge_queue_row_tokens, purge_terminal_job_tokens
+from app.platform.jobs.sweep import purge_queue_row_args, purge_terminal_job_tokens
 from app.processing.ingest import tasks_reupload, tasks_vector
 from app.processing.ingest.tasks_common import (
-    purge_queued_job_token,
+    purge_queued_job_arg,
     purge_token_on_failure,
 )
 from tests.factories import get_user_id
@@ -191,7 +191,7 @@ class TestTheStalledSweepStripsWhatItFails:
                 test_db_session, status="doing", queue_name=queue, args=live_args
             )
 
-            await purge_queue_row_tokens(test_db_session, [swept_id])
+            await purge_queue_row_args(test_db_session, [swept_id])
 
             after_swept = await _read_args(test_db_session, swept_id)
             assert "token" not in after_swept
@@ -268,7 +268,7 @@ class TestTheTaskStripsItsOwnRow:
     async def test_the_purge_never_displaces_the_real_failure(self):
         """A broken purge is a warning, not a second exception."""
         with patch("app.core.db.async_session", side_effect=RuntimeError("db is gone")):
-            await purge_queued_job_token(SimpleNamespace(job=SimpleNamespace(id=1)))
+            await purge_queued_job_arg(SimpleNamespace(job=SimpleNamespace(id=1)))
 
 
 class TestBothServiceTasksAreWired:
