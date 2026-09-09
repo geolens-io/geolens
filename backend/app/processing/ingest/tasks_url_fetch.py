@@ -250,12 +250,18 @@ async def _stage_downloaded_file(
     Split from ``fetch_url`` so one ``except BaseException`` covers every step
     that can own staged bytes: until the transition commits, this task is the
     only referent of the local file and its storage copy, so both go before
-    the exception propagates.
+    the exception propagates. After it commits nothing here owns them, which
+    ``published`` records positively rather than inferring from the exception.
     """
     s3_key: str | None = None
     staged_path: str | None = None
-    async with db_module.async_session() as session:
-        try:
+    published = False
+    try:
+        # fix(#1710 codex): the config and quota reads get their OWN session,
+        # ended before the download. Holding one across a transfer that may
+        # run for url_import_fetch_max_seconds would pin a pool connection per
+        # concurrent import — the starvation #1708 fixed on the request path.
+        async with db_module.async_session() as session:
             max_size_bytes = (await UPLOAD_MAX_SIZE_MB.get(session)) * 1024 * 1024
             # The smaller of the instance cap and what the caller's quota has
             # left, so a user at their cap cannot spend a worker slot on a
@@ -263,24 +269,27 @@ async def _stage_downloaded_file(
             effective_cap_bytes, cap_error_detail = await _effective_stream_cap(
                 session, uuid.UUID(user_id), max_size_bytes
             )
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            actual_size = await fetch_url_to_path(
-                url,
-                local_dest,
-                effective_cap_bytes,
-                cap_error_detail=cap_error_detail,
-            )
+            await session.rollback()
 
-            # The same staged-file content sniff a direct upload gets.
-            validate_file_content(str(local_dest), filename)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        actual_size = await fetch_url_to_path(
+            url,
+            local_dest,
+            effective_cap_bytes,
+            cap_error_detail=cap_error_detail,
+        )
 
-            if settings.storage_provider == "s3":
-                s3_key = f"staging/{job_id}/{filename}"
-                await _put_staging_object(s3_key, local_dest)
-                staged_path = s3_key
-            else:
-                staged_path = str(local_dest)
+        # The same staged-file content sniff a direct upload gets.
+        validate_file_content(str(local_dest), filename)
 
+        if settings.storage_provider == "s3":
+            s3_key = f"staging/{job_id}/{filename}"
+            await _put_staging_object(s3_key, local_dest)
+            staged_path = s3_key
+        else:
+            staged_path = str(local_dest)
+
+        async with db_module.async_session() as session:
             # fix(#1710): the byte quota is charged on what actually landed.
             # The door charged zero: a remote server's Content-Length was
             # never evidence of anything.
@@ -300,9 +309,24 @@ async def _stage_downloaded_file(
             ):
                 raise UrlImportRefused(_LEASE_LOST_DETAIL)
             await _commit_staged_transition_guarded(session)
-        except BaseException as exc:
+            # fix(#1710): set INSIDE the block, so a session teardown that
+            # raises after the commit still finds it True. Publication is a
+            # fact about the row, never something inferred from an exception.
+            published = True
+    except BaseException as exc:
+        if published:
+            # The row is live catalog state bound to these bytes; nothing here
+            # may touch them. The task's outer handler settles nothing either,
+            # since its CAS is fenced on 'running'.
+            logger.warning(
+                "url_import_teardown_after_publish",
+                job_id=job_id,
+                reason=type(exc).__name__,
+            )
+            raise
+        async with db_module.async_session() as settle_session:
             await _settle_failed_url_import(
-                session,
+                settle_session,
                 exc,
                 job_id=job_uuid,
                 attempt_id=attempt_uuid,
@@ -310,7 +334,7 @@ async def _stage_downloaded_file(
                 local_dest=local_dest,
                 staged_path=staged_path,
             )
-            raise
+        raise
 
     if s3_key is not None:
         # Object storage is the staging store; the local copy has no further

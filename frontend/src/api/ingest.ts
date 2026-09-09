@@ -153,10 +153,16 @@ export async function uploadFile(
  * server-side (SSRF-validated, size-capped) into staging; the returned job
  * then flows through the same preview → commit pipeline as a direct upload.
  *
- * feat(#1710): this call only validates and queues, so it needs no timeout
- * override. The job it returns is `running` until the worker has the file;
+ * feat(#1710): this call only validates and queues, so the download no longer
+ * bounds it. The job it returns is `running` until the worker has the file;
  * poll `getJobStatus` and preview once it reaches `pending`.
+ *
+ * It still outlives apiFetch's 30s default, because the submission-time SSRF
+ * preflight is allowed PREFLIGHT_DNS_MAX_SECONDS = 30s of DNS on its own
+ * (url_fetch.py). At the default the client would abort exactly as the server
+ * was composing its 502, turning a real verdict into a silent client abort.
  */
+const URL_SUBMIT_TIMEOUT_MS = 45_000;
 export async function uploadFromUrl(
   url: string,
   filename?: string,
@@ -165,6 +171,7 @@ export async function uploadFromUrl(
     return await apiFetch<UploadResponse>('/ingest/upload/url', {
       method: 'POST',
       body: JSON.stringify({ url, ...(filename && { filename }) }),
+      timeoutMs: URL_SUBMIT_TIMEOUT_MS,
     });
   } catch (err) {
     // Direct call from UrlImportForm's try/catch (not a TanStack mutation),

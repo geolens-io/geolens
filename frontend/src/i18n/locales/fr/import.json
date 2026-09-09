@@ -255,7 +255,7 @@
     "cancelling": "Annulation...",
     "cancelFailed": "Échec de l'annulation de la tâche",
     "downloading": "Téléchargement du fichier...",
-    "downloadingHint": "Le serveur récupère le fichier. Vous pouvez quitter cette page, l'import continue.",
+    "downloadingHint": "Le serveur récupère le fichier. Vous pouvez changer d'onglet ici, mais recharger la page fait perdre le suivi de cet import.",
     "downloadFailed": "Le serveur n'a pas pu télécharger le fichier depuis cette URL"
   },
   "register": {

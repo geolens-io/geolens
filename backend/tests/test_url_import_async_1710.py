@@ -572,6 +572,108 @@ class TestStagedRowClassification:
         assert is_abandoned_upload(job.user_metadata)
 
 
+class TestNoTransactionAcrossTheDownload:
+    async def test_the_download_runs_with_no_session_in_a_transaction(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """No session is left in a transaction while bytes are streaming.
+
+        A download may run for url_import_fetch_max_seconds; holding a
+        connection across it pins one per concurrent import.
+
+        Counterfactual: with the config and quota reads sharing the session
+        that spans the transfer, the sample below is non-empty.
+        """
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/notx.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        import app.core.db as db_module
+
+        real_session = db_module.async_session
+        live: list = []
+
+        def _tracking_session(*args, **kwargs):
+            made = real_session(*args, **kwargs)
+            live.append(made)
+            return made
+
+        monkeypatch.setattr(db_module, "async_session", _tracking_session)
+
+        in_transaction_during_download: list[bool] = []
+
+        async def _handler(request: httpx.Request) -> httpx.Response:
+            in_transaction_during_download.append(
+                any(sess.in_transaction() for sess in live)
+            )
+            return httpx.Response(200, content=GEOJSON)
+
+        _install_handler(monkeypatch, _handler)
+        await _run_task(captured[0])
+
+        assert in_transaction_during_download == [False]
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert job.status == "pending"
+
+    async def test_a_close_failure_after_the_commit_keeps_the_artifact(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """A session teardown that raises after publication deletes nothing.
+
+        Counterfactual: inferring publication from the exception instead of
+        the `published` local sends this through settlement, which unlinks
+        the file the durable pending row points at.
+        """
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/closefail.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        import app.core.db as db_module
+
+        real_session = db_module.async_session
+        made = {"n": 0}
+
+        def _session_whose_second_close_fails(*args, **kwargs):
+            made["n"] += 1
+            session = real_session(*args, **kwargs)
+            if made["n"] == 3:
+                # 1 is adoption, 2 is the config read, 3 is the transition.
+                real_close = session.close
+
+                async def _boom():
+                    await real_close()
+                    raise RuntimeError("connection reset returning to the pool")
+
+                session.close = _boom
+            return session
+
+        monkeypatch.setattr(
+            db_module, "async_session", _session_whose_second_close_fails
+        )
+        _install_body(monkeypatch, GEOJSON)
+        await _run_task(captured[0])
+
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert job.status == "pending"
+        assert Path(job.file_path).read_bytes() == GEOJSON
+
+
 class TestQueueRowHygiene:
     async def test_the_url_is_purged_from_the_queue_row_after_adoption(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch

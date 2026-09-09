@@ -255,7 +255,7 @@
     "cancelling": "Wird abgebrochen...",
     "cancelFailed": "Auftrag konnte nicht abgebrochen werden",
     "downloading": "Datei wird heruntergeladen...",
-    "downloadingHint": "Der Server ruft die Datei ab. Sie können diese Seite verlassen, der Import läuft weiter.",
+    "downloadingHint": "Der Server ruft die Datei ab. Sie können hier die Registerkarte wechseln, aber ein Neuladen der Seite verliert diesen Import aus dem Blick.",
     "downloadFailed": "Der Server konnte die Datei von dieser URL nicht herunterladen"
   },
   "register": {

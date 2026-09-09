@@ -255,7 +255,7 @@
     "cancelling": "Cancelando...",
     "cancelFailed": "No se pudo cancelar el trabajo",
     "downloading": "Descargando el archivo...",
-    "downloadingHint": "El servidor está obteniendo el archivo. Puedes salir de esta página; la importación continúa.",
+    "downloadingHint": "El servidor está obteniendo el archivo. Puedes cambiar de pestaña aquí, pero recargar la página hace perder el seguimiento de esta importación.",
     "downloadFailed": "El servidor no pudo descargar el archivo desde esa URL"
   },
   "register": {

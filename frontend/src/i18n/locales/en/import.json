@@ -269,7 +269,7 @@
     "cancelling": "Cancelling...",
     "cancelFailed": "Failed to cancel the job",
     "downloading": "Downloading the file...",
-    "downloadingHint": "The server is fetching the file. You can leave this page; the import keeps running.",
+    "downloadingHint": "The server is fetching the file. You can switch tabs here, but reloading the page loses track of this import.",
     "downloadFailed": "The server could not download the file from that URL"
   },
   "rail": {
