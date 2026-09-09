@@ -1258,7 +1258,15 @@ class TestManifestApplyService:
         queue.assert_not_awaited()
         # fix(#1814): the reservation is inserted before the download, so a
         # denial after it leaves that row settled rather than leaving none.
-        reservation = (await test_db_session.execute(select(IngestJob))).scalar_one()
+        # fix(#1984): scoped to this key, not order-dependent on a lone row.
+        reservation = (
+            await test_db_session.execute(
+                select(IngestJob).where(
+                    IngestJob.user_metadata["manifest_key"].astext
+                    == "manifest-http-quota"
+                )
+            )
+        ).scalar_one()
         assert reservation.status == "failed"
         assert reservation.file_path is None
         assert reservation.user_metadata["manifest_key"] == "manifest-http-quota"
@@ -1352,7 +1360,15 @@ class TestManifestApplyService:
         assert "database unavailable" in response.results[0].message
         assert not staged.exists()
         queue.assert_not_awaited()
-        reservation = (await test_db_session.execute(select(IngestJob))).scalar_one()
+        # fix(#1984): scoped to this key, not order-dependent on a lone row.
+        reservation = (
+            await test_db_session.execute(
+                select(IngestJob).where(
+                    IngestJob.user_metadata["manifest_key"].astext
+                    == "manifest-http-persist-failure"
+                )
+            )
+        ).scalar_one()
         assert reservation.status == "failed"
         assert reservation.file_path is None
 
