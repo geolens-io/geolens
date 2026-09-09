@@ -32,7 +32,7 @@ from app.modules.catalog.sources.origin_probe import (
     fetch_json_document,
     probe_remote_uri,
 )
-from app.platform.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
 from app.modules.catalog.sources.stac_resolve_identity import (
     _contradicts_stored_identity,
     _standard_item_path,
@@ -142,7 +142,7 @@ async def _resolve_from_item(
     asset_href: str | None,
     asset_key: str | None,
     credential: ServiceCredential | None = None,
-    credential_origin: str | None = None,
+    catalog_origin: str | None = None,
 ) -> StacResolution:
     """Turn a fetched item document into a resolution, health included.
 
@@ -150,7 +150,7 @@ async def _resolve_from_item(
     the re-search cannot reach different verdicts about the same shape.
 
     fix(#1764): the two reads this gate makes of its own go to addresses THIS
-    DOCUMENT named, so each is gated on ``credential_origin`` — the self link
+    DOCUMENT named, so each is gated on ``catalog_origin`` — the self link
     is dropped rather than fetched off-origin, and an off-origin asset is
     probed anonymously, which is the ordinary shape for a catalog whose
     assets live in someone else's bucket.
@@ -200,7 +200,7 @@ async def _resolve_from_item(
         collection_id=collection_id,
         asset_key=key,
         credential=credential,
-        credential_origin=credential_origin,
+        catalog_origin=catalog_origin,
     )
 
     # fix(#1266): `item_base` is the item's own fetch URL on the direct path
@@ -240,7 +240,7 @@ async def _resolve_from_item(
     probed = await probe_remote_uri(
         href,
         credential=credential_for_read(
-            credential, url=href, credential_origin=credential_origin
+            credential, url=href, credential_origin=catalog_origin
         ),
     )
     if probed.detail == BLOCKED_BY_POLICY:
@@ -317,7 +317,7 @@ async def _trustworthy_self_href(
     collection_id: str | None,
     asset_key: str,
     credential: ServiceCredential | None = None,
-    credential_origin: str | None = None,
+    catalog_origin: str | None = None,
 ) -> tuple[str | None, str | None, dict[str, Any] | None]:
     """``(pointer to store, base for relative hrefs, the document at it)``.
 
@@ -355,17 +355,18 @@ async def _trustworthy_self_href(
     ):
         logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
         return None, None, None
-    # fix(#1764): a self link off the catalog's origin is DROPPED, not
-    # fetched anonymously: an anonymous answer about a credentialed catalog
-    # is evidence for a different request than the one the refresh makes,
-    # and the pointer it would replace is optional. Same rule and same
-    # reason as the OGC API probe's conformance link.
-    self_credential = credential_for_read(
-        credential, url=self_href, credential_origin=credential_origin
-    )
-    if credential is not None and self_credential is None:
+    # fix(#1764): a self link off the catalog's origin is DROPPED, whether or
+    # not THIS refresh carries a credential. It becomes the stored pointer,
+    # which is the origin every later refresh sends its credential to, so an
+    # anonymous one adopting it moves that anchor. Unconditional, like the two
+    # `same_origin` references in `platform/service_items.py`; dropping a self
+    # link is already the ordinary outcome here and keeps the working pointer.
+    if catalog_origin is not None and not same_origin(catalog_origin, self_href):
         logger.info("stac_self_link_off_catalog_origin")
         return None, None, None
+    self_credential = credential_for_read(
+        credential, url=self_href, credential_origin=catalog_origin
+    )
     result, document, final_url = await fetch_json_document(
         self_href, credential=self_credential
     )

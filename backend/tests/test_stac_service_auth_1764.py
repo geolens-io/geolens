@@ -448,7 +448,7 @@ class TestTheCatalogChoosesTheCredentialNotTheDocument:
             asset_href=_FOREIGN_ASSET,
             asset_key="data",
             credential=_header_key(),
-            credential_origin=_ITEM_URL,
+            catalog_origin=_ITEM_URL,
         )
 
         by_host = {request.url.host: request for request in recorded}
@@ -488,15 +488,19 @@ class TestTheCatalogChoosesTheCredentialNotTheDocument:
             asset_href=f"{_ROOT}/assets/scene.tif",
             asset_key="data",
             credential=_header_key(),
-            credential_origin=_ITEM_URL,
+            catalog_origin=_ITEM_URL,
         )
         assert result.item_href == moved
         assert all(request.headers[_HEADER_NAME] == _KEY for request in recorded)
 
     @pytest.mark.anyio
-    async def test_an_anonymous_resolution_is_unchanged(self, stac_transport) -> None:
-        """No credential, no gate: a public catalog's off-origin self link is
-        followed exactly as it was before."""
+    async def test_an_anonymous_refresh_does_not_move_the_anchor(
+        self, stac_transport
+    ) -> None:
+        """The stored pointer is the origin every LATER refresh sends its
+        credential to, so an anonymous one may not move it off the catalog
+        either. Without this an anonymous refresh adopts the mirror and the
+        next credentialed refresh hands it the key on its first read."""
 
         def routes(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith(".tif"):
@@ -511,8 +515,38 @@ class TestTheCatalogChoosesTheCredentialNotTheDocument:
             asset_href=_FOREIGN_ASSET,
             asset_key="data",
         )
+        assert result.item_href == _ITEM_URL
+        assert all(request.url.host != "mirror.test" for request in recorded)
+        # The asset is unaffected: only the POINTER is fenced to the catalog.
         assert result.asset_href == _FOREIGN_ASSET
-        assert any(request.url.host == "mirror.test" for request in recorded)
+
+    @pytest.mark.anyio
+    async def test_an_anonymous_same_origin_self_link_is_still_adopted(
+        self, stac_transport
+    ) -> None:
+        """The rule is about the ORIGIN, not about holding a credential:
+        fencing on "this read carries no credential" would stop a public
+        catalog's pointer following its own canonical URL."""
+        moved = f"{_ROOT}/permalink/x"
+        asset = f"{_ROOT}/assets/scene.tif"
+        document = _item_document(moved, asset)
+
+        def routes(request: httpx.Request) -> httpx.Response:
+            if request.url.host != "catalog.test":
+                return json_response(404, None)
+            if request.url.path.endswith(".tif"):
+                return json_response(206, None)
+            return json_response(200, document)
+
+        stac_transport(routes)
+        result = await resolve_stac_binding(
+            item_href=_ITEM_URL,
+            item_id="x",
+            collection_id="c",
+            asset_href=asset,
+            asset_key="data",
+        )
+        assert result.item_href == moved
 
 
 class TestAReflectedCredentialIsNeverStored:
@@ -554,7 +588,7 @@ class TestAReflectedCredentialIsNeverStored:
             asset_href=f"{_ROOT}/assets/scene.tif",
             asset_key="data",
             credential=_header_key(),
-            credential_origin=_ITEM_URL,
+            catalog_origin=_ITEM_URL,
         )
         assert result.resolved is False
         assert result.asset_href is None
@@ -583,7 +617,7 @@ class TestAReflectedCredentialIsNeverStored:
             asset_href=asset,
             asset_key="data",
             credential=_header_key(),
-            credential_origin=_ITEM_URL,
+            catalog_origin=_ITEM_URL,
         )
         # The asset still resolves; only the poisoned pointer is dropped, so
         # the stored one stays what it was.
@@ -612,7 +646,7 @@ class TestAReflectedCredentialIsNeverStored:
             asset_href=asset,
             asset_key="data",
             credential=_header_key(),
-            credential_origin=_ITEM_URL,
+            catalog_origin=_ITEM_URL,
         )
         assert result.asset_href == asset
 

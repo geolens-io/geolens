@@ -565,7 +565,7 @@ async def refresh_stac(
             # fix(#1764): the catalog address the credential was given for.
             # Read from the binding under this attempt's guard, so a read the
             # item document steers to another origin is made anonymously.
-            credential_origin=item_href,
+            catalog_origin=item_href,
         )
         if not resolution.resolved:
             raise _failure_for(resolution)
