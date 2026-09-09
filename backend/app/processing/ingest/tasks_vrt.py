@@ -143,6 +143,43 @@ async def _reap_superseded_generation_objects(
     )
 
 
+async def _settle_failed_vrt_asset(
+    vrt_dataset_id: uuid.UUID,
+    generation_uuid: uuid.UUID | None,
+    *,
+    job_id: str,
+) -> None:
+    """Repoint the VRT asset off a generation that failed, in its own transaction.
+
+    Fenced on the pointer, so a newer retry that already owns it keeps its
+    status. Does nothing when this attempt never bound a generation: there is
+    no pointer to release, and the fence would otherwise read as ``IS NULL``.
+
+    Never raises. The caller re-raises the build failure this settles.
+    """
+    from sqlalchemy import update as sa_update
+
+    from app.core.db import async_session
+    from app.processing.raster.models import RasterAsset
+
+    if generation_uuid is None:
+        return
+    try:
+        async with async_session() as session:
+            await arm_job_error_write_budget(session)
+            await session.execute(
+                sa_update(RasterAsset)
+                .where(
+                    RasterAsset.dataset_id == vrt_dataset_id,
+                    RasterAsset.current_generation_id == generation_uuid,
+                )
+                .values(status="failed", current_generation_id=None)
+            )
+            await session.commit()
+    except DBAPIError as write_failure:
+        log_job_error_write_failure(write_failure, job_id=job_id, task="regenerate_vrt")
+
+
 def _prior_generation_storage_keys_to_reap(
     *,
     vrt_key: str,
@@ -1519,15 +1556,18 @@ async def regenerate_vrt(
             job_id=job_id,
             task="regenerate_vrt",
         )
-        # Failure handler runs via a fresh session: mark vrt asset failed,
-        # mark generation failed, mark job failed.
+        # fix(#1962): the asset settles first and alone. `sweep_stale_vrt_assets`
+        # fences its asset UPDATE on the generations it just failed, so an asset
+        # still pointing at a terminal one is the state it can never reach.
+        await _settle_failed_vrt_asset(vrt_id, generation_uuid, job_id=job_id)
+        # The job and generation rows follow in one transaction. Losing both to
+        # a contended job row is recoverable: the sweep fails a generation whose
+        # heartbeat went stale, and the stale-job sweep settles the job.
         try:
             async with async_session() as err_session:
-                from sqlalchemy import update as sa_update
-
                 # fix(#1950): the publish wait above gives up on a held
                 # catalog row, so this handler runs while the job row may be
-                # contended too. All three writes below share the budget.
+                # contended too. Both writes below share the budget.
                 await arm_job_error_write_budget(err_session)
                 await update_ingest_job_for_attempt(
                     err_session,
@@ -1539,18 +1579,6 @@ async def regenerate_vrt(
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
-                # Mark only the asset that still points at this exact generation.
-                # If a newer retry owns the pointer, leave its status untouched.
-                await err_session.execute(
-                    sa_update(RasterAsset)
-                    .where(
-                        RasterAsset.dataset_id == vrt_id,
-                        RasterAsset.current_generation_id == generation_uuid,
-                    )
-                    .values(status="failed", current_generation_id=None)
-                )
-
-                # Update generation record on failure.
                 if generation_uuid is not None:
                     gen_result = await err_session.execute(
                         select(VrtGeneration).where(VrtGeneration.id == generation_uuid)

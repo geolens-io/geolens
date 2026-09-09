@@ -4646,7 +4646,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r4): -4 — `ingest_vrt`'s failure tail loads its job row
     # through `tasks_common.load_job_for_error_write` instead of an inline
     # unbounded SELECT. Cap 1709 -> 1705, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1626,
+    # fix(#1962): +28 — `_settle_failed_vrt_asset` commits the asset write
+    # before the job row is touched, so a bounded abort cannot strand it.
+    # Cap 1626 -> 1654, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1654,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait

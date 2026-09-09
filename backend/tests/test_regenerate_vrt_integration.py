@@ -876,3 +876,86 @@ async def test_applying_a_staged_set_is_idempotent(test_db_session, vrt_db_state
     assert [(row.id, row.source_dataset_id, row.position) for row in second] == [
         (row.id, row.source_dataset_id, row.position) for row in first
     ]
+
+
+async def test_a_bounded_abort_on_the_job_row_still_settles_the_vrt_asset(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """fix(#1962): the asset write commits before the job row is touched.
+
+    The job write is the contended one, and its budget makes it abortable. An
+    asset still pointing at a non-terminal generation is the one half-written
+    failure ``sweep_stale_vrt_assets`` cannot reach: it fences its asset UPDATE
+    on the generations it has just failed, and a ``regenerating`` asset whose
+    generation is already terminal matches nothing.
+    """
+    import app.processing.ingest.tasks_vrt as tasks_vrt
+    from app.platform.jobs.models import IngestJob
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from asyncpg.exceptions import QueryCanceledError
+    from sqlalchemy.exc import DBAPIError
+
+    session = test_db_session
+    generation_id = await _stage_generation(
+        session, vrt_db_state, vrt_db_state["source_dataset_ids"]
+    )
+
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.build_vrt",
+        MagicMock(side_effect=RuntimeError("gdalbuildvrt died mid-attempt")),
+    )
+
+    async def _expired_on_the_job_row(*args, **kwargs):
+        raise DBAPIError("UPDATE", {}, QueryCanceledError("canceling statement"))
+
+    monkeypatch.setattr(
+        tasks_vrt, "update_ingest_job_for_attempt", _expired_on_the_job_row
+    )
+
+    with pytest.raises(RuntimeError, match="gdalbuildvrt"):
+        await regenerate_vrt.func(
+            job_id=vrt_db_state["job_id"],
+            attempt_id=vrt_db_state["attempt_id"],
+            vrt_dataset_id=vrt_db_state["vrt_dataset_id"],
+            generation_id=str(generation_id),
+        )
+
+    vrt_asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    await session.refresh(vrt_asset)
+    assert (vrt_asset.status, vrt_asset.current_generation_id) == ("failed", None), (
+        "the aborted job write took the asset write down with it, leaving the "
+        "asset pointing at a generation nothing will ever stamp terminal"
+    )
+
+    job = (
+        await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(vrt_db_state["job_id"]))
+        )
+    ).scalar_one()
+    await session.refresh(job)
+    assert job.status == "running", (
+        "the job row recorded a status despite the expiry, so this run did not "
+        "exercise the abort it is named for"
+    )
+
+    generation = (
+        await session.execute(
+            select(VrtGeneration).where(VrtGeneration.id == generation_id)
+        )
+    ).scalar_one()
+    await session.refresh(generation)
+    assert generation.status == "running", (
+        "the generation stamp survived the abort, so the two writes are no "
+        "longer in one transaction and the stale sweep's recovery is untested"
+    )
