@@ -222,6 +222,9 @@ class _DatasetMeta(NamedTuple):
     tile_cache_ttl: int | None
     # Phase 269 H-23: tile column allowlist (None / [] / list[str]).
     tile_columns: list[str] | None
+    # fix(#1963): the signed scope binds this, so it is as stale as the
+    # `record_status` beside it and no staler.
+    publication_version: int
 
 
 # Bounded LRU so a long-lived tile worker cannot grow one entry per
@@ -278,6 +281,8 @@ class _RasterMeta(NamedTuple):
     band_info: list | None
     nodata: str | None
     tile_cache_version: int
+    # fix(#1963): the signed scope binds this, not `tile_cache_version` above.
+    publication_version: int
 
 
 # Bounded LRU mirroring the vector `_dataset_cache`. An
@@ -677,7 +682,8 @@ async def _resolve_raster_meta(
                 ra.is_dem,
                 ra.band_info,
                 ra.nodata,
-                d.tile_cache_version
+                d.tile_cache_version,
+                d.publication_version
             FROM catalog.datasets d
             JOIN catalog.records r ON d.record_id = r.id
             LEFT JOIN catalog.raster_assets ra ON ra.dataset_id = d.id
@@ -716,6 +722,7 @@ async def _resolve_raster_meta(
         band_info=row["band_info"],
         nodata=row["nodata"],
         tile_cache_version=row["tile_cache_version"] or 1,
+        publication_version=row["publication_version"] or 0,
     )
     # fix(#1329): the write key comes from the SNAPSHOT's own version. Under
     # the requested one, `v=N+1` against a row at N parks the CURRENT snapshot
@@ -730,27 +737,31 @@ async def _resolve_raster_meta(
     return meta
 
 
-def _tile_signature_authorizes(request: Request, dataset_id: uuid.UUID) -> bool:
+def _tile_signature_authorizes(
+    request: Request, dataset_id: uuid.UUID, publication_version: int
+) -> bool:
     """Whether the caller presented a VALID signed template for this dataset.
 
-    Mirror of the vector verify path — expected scope is recomputed with the
-    SAME ``tenant_bound_scope(str(dataset.id))`` expression the mint site
-    uses, since a divergence is a silent authorization bypass, not a test
-    failure. A raster dataset has no ``table_name``, so the dataset id is
-    the resource string.
+    Mirror of the vector verify path — expected scope is recomputed through
+    the SAME ``tile_signature_scope`` helper the mint site uses, since a
+    divergence is a silent authorization bypass, not a test failure. A raster
+    dataset has no ``table_name``, so the dataset id is the resource string.
+
+    ``publication_version`` is the row's CURRENT counter, so a signature minted
+    before an unpublish or a move to private no longer matches (#1963).
 
     Returns a bool instead of raising: the signature is an ADDITIONAL way
     in, never a restriction on a client that can send headers, so an absent
     or invalid signature falls through to the other branches rather than
     403ing a valid session whose 15-minute template has aged out.
     """
-    from app.core.tenancy import tenant_bound_scope
+    from app.core.tile_scope import tile_signature_scope
 
     params = request.query_params
     sig, exp_raw, scope = (params.get(n) for n in ("sig", "exp", "scope"))
     if not (sig and exp_raw and scope):
         return False
-    if scope != tenant_bound_scope(str(dataset_id)):
+    if scope != tile_signature_scope(str(dataset_id), publication_version):
         return False
     try:
         exp = int(exp_raw)
@@ -801,7 +812,7 @@ async def _resolve_raster_access(
                     detail="Invalid or expired embed token",
                 ),
             )
-    elif _tile_signature_authorizes(request, dataset_id):
+    elif _tile_signature_authorizes(request, dataset_id, meta.publication_version):
         # fix(#688) auth priority 2: a signed template, mirroring the vector
         # path -- MapLibre attaches no header. Checked ahead of the visibility
         # split, because the mint endpoint issues one for a draft too (r1).
@@ -1294,10 +1305,12 @@ def _build_tile_token_for_dataset(
         # fix(#688): sign the raster template too. A raster has no table_name,
         # so the dataset id is the resource string, and it is tenant-bound.
         # Mirrored byte for byte at the verify site in `_resolve_raster_access`.
-        from app.core.tenancy import tenant_bound_scope
+        from app.core.tile_scope import tile_signature_scope
 
         raster_exp = round_expiry()
-        raster_scope = tenant_bound_scope(str(dataset.id))
+        raster_scope = tile_signature_scope(
+            str(dataset.id), dataset.publication_version
+        )
         raster_sig = generate_tile_signature(raster_scope, raster_exp)
         tile_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
         # fix(#1372): `v` rides outside the signature (which binds scope+exp
@@ -1326,11 +1339,11 @@ def _build_tile_token_for_dataset(
 
     # In multi_tenant the scope is bound to the active tenant, so a token
     # minted for tenant A cannot be replayed in tenant B even when both share a
-    # table_name. single_tenant: the bare table_name, byte-identical to pre-1209.
+    # table_name.
     exp = round_expiry()
-    from app.core.tenancy import tenant_bound_scope
+    from app.core.tile_scope import tile_signature_scope
 
-    scope = tenant_bound_scope(dataset.table_name)
+    scope = tile_signature_scope(dataset.table_name, dataset.publication_version)
     sig = generate_tile_signature(scope, exp)
 
     return VectorTileToken(
@@ -1623,6 +1636,7 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
         column_info=dataset.column_info or [],
         tile_cache_ttl=dataset.tile_cache_ttl,
         tile_columns=dataset.tile_columns,
+        publication_version=dataset.publication_version or 0,
     )
     with _dataset_cache_lock:
         _dataset_cache[cache_key] = (now, meta)
@@ -1752,13 +1766,16 @@ async def _authorize_vector_tile_request(
             )
         return "private"
 
-    # The expected scope mirrors `_build_tile_token_for_dataset` --
-    # `{tid}:{table_name}` in multi_tenant to prevent cross-tenant replay,
-    # the bare table_name in single_tenant.
-    from app.core.tenancy import tenant_bound_scope
+    # The expected scope mirrors `_build_tile_token_for_dataset` through the
+    # shared helper: tenant-bound against cross-tenant replay, and bound to
+    # the publication counter so an unpublish or a move to private (#1963)
+    # retires outstanding signatures.
+    from app.core.tile_scope import tile_signature_scope
 
     _expected_scope = (
-        tenant_bound_scope(meta.table_name) if sig and exp and scope else None
+        tile_signature_scope(meta.table_name, meta.publication_version)
+        if sig and exp and scope
+        else None
     )
     if (
         sig

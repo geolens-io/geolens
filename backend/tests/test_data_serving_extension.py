@@ -293,6 +293,7 @@ async def test_hosted_tile_endpoints_share_cache_policy_and_limit_only_db_misses
         column_info=[],
         tile_cache_ttl=cache_ttl,
         tile_columns=None,
+        publication_version=0,
     )
     cache = SimpleNamespace(
         get=AsyncMock(return_value=gzip.compress(b"cached-mvt") if cache_hit else None),

@@ -52,6 +52,7 @@ def _meta(visibility: str, record_status: str = "published") -> _DatasetMeta:
         column_info=[],
         tile_cache_ttl=None,
         tile_columns=None,
+        publication_version=0,
     )
 
 
@@ -71,7 +72,7 @@ async def test_non_public_signed_tile_is_private_scope(monkeypatch, visibility: 
         db=None,
         sig="validsig",
         exp=9999999999,
-        scope="vt_test",
+        scope="vt_test:p0",
         user=None,
     )
     assert scope == "private", (

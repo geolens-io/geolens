@@ -10170,6 +10170,17 @@
             ],
             "title": "Tile Version"
           },
+          "publication_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Version"
+          },
           "dataset_visibility": {
             "anyOf": [
               {

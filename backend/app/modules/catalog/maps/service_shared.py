@@ -40,6 +40,9 @@ class DatasetMeta(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
+    # fix(#1963): the counter the signed tile scope binds, so the saved-map
+    # style document signs at the same version the tile route verifies.
+    publication_version: int | None
     # fix(#430): dataset visibility/status so the builder can flag layers hidden
     # from a public map's anonymous audience.
     visibility: str | None
@@ -71,6 +74,7 @@ class LayerRow(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
+    publication_version: int | None = None  # fix(#1963): signed-scope counter
     visibility: str | None = None  # fix(#430): dataset visibility for audience-badge
     record_status: str | None = None
     attribution: str | None = None  # feat(#1472): required credit line
@@ -113,6 +117,7 @@ async def get_dataset_meta(
             # current_version only changes on reupload, so feature edits and
             # column DDL never rolled the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
+            Dataset.publication_version,
             Record.visibility,
             Record.record_status,
             Record.attribution,
@@ -138,9 +143,10 @@ async def get_dataset_meta(
         dem_vertical_units=_extract_dem_vertical_units(row[10]),
         band_count=row[11],
         tile_version=row[12],
-        visibility=row[13],
-        record_status=row[14],
-        attribution=row[15],
+        publication_version=row[13],
+        visibility=row[14],
+        record_status=row[15],
+        attribution=row[16],
     )
 
 
@@ -247,6 +253,7 @@ async def _fetch_layer_rows_ordered(
             # current_version only changes on reupload, so feature edits and
             # column DDL never rolled the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
+            Dataset.publication_version,
             Record.visibility,
             Record.record_status,
             Record.attribution,
@@ -276,9 +283,10 @@ async def _fetch_layer_rows_ordered(
             dem_vertical_units=_extract_dem_vertical_units(row[11]),
             band_count=row[12],
             tile_version=row[13],
-            visibility=row[14],
-            record_status=row[15],
-            attribution=row[16],
+            publication_version=row[14],
+            visibility=row[15],
+            record_status=row[16],
+            attribution=row[17],
         )
         for row in result.all()
     ]

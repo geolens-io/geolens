@@ -3043,7 +3043,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The lines are the derivation: four style layers per logical layer, worst
     # case, measured, times the per-map cap, plus headroom for the layers an
     # import skips. Cap 1451 -> 1465, exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1391,
+    # fix(#1963): +5. MapLayerResponse carries `publication_version`, the
+    # counter the style document's signed tile scope binds. Cap 1391 -> 1396,
+    # exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1396,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip
@@ -5802,7 +5805,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1959 review): +2. Those descriptions name all three 429 cases, and
     # no longer claim every query failure is a 503 or that the cold-storage 202
     # reaches a deployment without it. Cap 2433 -> 2435, exact.
-    "backend/app/processing/tiles/router.py": 2392,
+    # fix(#1963): +17. Mint and verify derive the signed scope through the one
+    # shared helper, and both meta snapshots carry the publication counter that
+    # scope binds. Cap 2392 -> 2409, exact.
+    "backend/app/processing/tiles/router.py": 2409,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
