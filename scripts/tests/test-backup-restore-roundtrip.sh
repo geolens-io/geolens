@@ -60,7 +60,7 @@ for bin in pg_dump pg_dumpall pg_restore psql createdb dropdb; do
 done
 
 # Verify the test Postgres is reachable before creating throwaway DBs.
-if ! psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" -tAc "SELECT 1" >/dev/null 2>&1; then
+if ! psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" -tAc "SELECT 1" >/dev/null 2>&1; then
     echo "SKIP: test Postgres not reachable at ${PGHOST}:${PGPORT} (is the test DB up?)"
     exit 0
 fi
@@ -68,7 +68,7 @@ fi
 # The generic CI service is postgis/postgis and intentionally has no pgvector.
 # Keep the backup/restore and role-isolation proof portable there, while the
 # project DB image/local stack must exercise the complete embedding DDL path.
-PGVECTOR_AVAILABLE="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" \
+PGVECTOR_AVAILABLE="$(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" \
     -d "$ADMIN_DB" -tAc \
     "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector');" \
     | tr -d '[:space:]')"
@@ -77,7 +77,7 @@ if [ "$PGVECTOR_AVAILABLE" = "t" ]; then
 else
     echo "SKIP [pgvector]: extension unavailable; vector-specific embedding-definer DDL subproof disabled (function ownership and ACL checks still run)."
 fi
-READER_EXISTED_AT_START="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" \
+READER_EXISTED_AT_START="$(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" \
     -d "$ADMIN_DB" -tAc \
     "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'geolens_reader');" \
     | tr -d '[:space:]')"
@@ -131,7 +131,10 @@ OLD_SESSION_PID=""
 WORKDIR="$(mktemp -d)"
 DUMP_FILE="${WORKDIR}/roundtrip.dump"
 
-psql_admin() { psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" "$@"; }
+# fix(#1992): -X skips a host .psqlrc, matching every role-authenticated
+# psql call below (already -X) so a `\set ON_ERROR_STOP off` there can't
+# mask a failed statement.
+psql_admin() { psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" "$@"; }
 
 cleanup() {
     set +e
@@ -175,7 +178,7 @@ echo "[1/5] Creating source DB and seeding known rows (bundled mode)..."
 createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$SRC_DB"
 
 # Mirror the app's catalog schema shape just enough to be representative.
-psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
 CREATE SCHEMA IF NOT EXISTS catalog;
 CREATE TABLE catalog.records  (id serial PRIMARY KEY, name text NOT NULL);
 CREATE TABLE catalog.datasets (id serial PRIMARY KEY, slug text NOT NULL);
@@ -206,7 +209,7 @@ INSERT INTO catalog.datasets (slug)
 INSERT INTO data.ci_probe (name) VALUES ('runtime-ownership-probe');
 EOSQL
 if [ "$PGVECTOR_AVAILABLE" = "t" ]; then
-    psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" \
         -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE catalog.record_embeddings (
@@ -303,8 +306,8 @@ SOURCE_DATA_ROUTINE_STATE="$(psql_admin -d "$SRC_DB" -tAc \
 [ "$SOURCE_DATA_ROUTINE_STATE" = "${FRESH_RUNTIME_ROLE}|false" ] \
     || fail "source runtime routine fixture is unsafe: ${SOURCE_DATA_ROUTINE_STATE}"
 
-SRC_RECORDS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
-SRC_DATASETS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
+SRC_RECORDS="$(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
+SRC_DATASETS="$(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
 echo "      source counts: records=${SRC_RECORDS} datasets=${SRC_DATASETS}"
 
 echo "[2/5] pg_dump -Fc, then pg_restore into a fresh DB (restore.sh flags)..."
@@ -356,8 +359,8 @@ if [ "$RC" -ne 0 ]; then
     echo "      pg_restore exit ${RC} (warnings only — expected on fresh DB)"
 fi
 
-DST_RECORDS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
-DST_DATASETS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
+DST_RECORDS="$(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
+DST_DATASETS="$(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
 echo "      restored counts: records=${DST_RECORDS} datasets=${DST_DATASETS}"
 
 [ "$SRC_RECORDS" = "$DST_RECORDS" ]   || fail "records count mismatch: ${SRC_RECORDS} != ${DST_RECORDS}"
@@ -1500,8 +1503,8 @@ if [ "$SNAP_RC" -ne 0 ]; then
     echo "      snapshot pg_restore exit ${SNAP_RC} (warnings only — expected on fresh DB)"
 fi
 
-SNAP_RECORDS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SNAP_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
-SNAP_DATASETS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SNAP_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
+SNAP_RECORDS="$(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SNAP_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
+SNAP_DATASETS="$(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SNAP_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
 echo "      snapshot DB counts: records=${SNAP_RECORDS} datasets=${SNAP_DATASETS}"
 
 [ "$SRC_RECORDS" = "$SNAP_RECORDS" ]   || fail "managed-mode: snapshot records count mismatch: ${SRC_RECORDS} != ${SNAP_RECORDS}"

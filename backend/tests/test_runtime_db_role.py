@@ -3,6 +3,7 @@
 from pathlib import Path
 import json
 import os
+import re
 import shutil
 import subprocess
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from tests.repo_paths import repo_root
 ROOT = repo_root(__file__)
 ROLE_SCRIPT = ROOT / "scripts" / "lib" / "configure-runtime-db-role.sh"
 ROUNDTRIP_SCRIPT = ROOT / "scripts" / "tests" / "test-backup-restore-roundtrip.sh"
+INIT_TEST_DB_SCRIPT = ROOT / "scripts" / "init-test-db.sh"
 
 requires_docker_cli = pytest.mark.skipif(
     shutil.which("docker") is None,
@@ -259,6 +261,33 @@ def test_role_script_disables_host_psqlrc() -> None:
     assert source.index(args_line, args_block_start) < source.index(
         "ON_ERROR_STOP=1", args_block_start
     )
+
+
+def test_init_test_db_disables_host_psqlrc() -> None:
+    """fix(#1992): init-test-db.sh also runs directly against a host
+    Postgres, so it needs the same -X guard as init-db.sh."""
+    source = INIT_TEST_DB_SCRIPT.read_text(encoding="utf-8")
+
+    args_block_start = source.index("psql_base=(")
+    args_block_end = source.index(")", args_block_start)
+    args_block = source[args_block_start:args_block_end]
+    assert "-X" in args_block
+    assert args_block.index("-X") < args_block.index("ON_ERROR_STOP=1")
+
+
+def test_roundtrip_every_host_psql_call_disables_host_psqlrc() -> None:
+    """fix(#1992): every psql call the round-trip script makes straight to
+    the host Postgres (the psql_admin helper included) must carry -X, like
+    the role-authenticated calls beside it already did."""
+    source = ROUNDTRIP_SCRIPT.read_text(encoding="utf-8")
+
+    missing = [
+        line
+        for line in source.splitlines()
+        if re.search(r"\bpsql\b", line) and '-h "$PGHOST"' in line and "-X" not in line
+    ]
+    assert not missing, f"psql call(s) missing -X: {missing}"
+    assert 'psql_admin() { psql -X -h "$PGHOST"' in source
 
 
 def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:

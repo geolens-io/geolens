@@ -6,7 +6,11 @@ db_port="${POSTGRES_PORT:-5432}"
 db_user="${POSTGRES_USER:-geolens}"
 test_db="${POSTGRES_DB_TEST:-geolens_test}"
 
+# fix(#1992): -X skips a host .psqlrc that could `\set ON_ERROR_STOP off`
+# and let a failed statement fall through, matching init-db.sh and the
+# runtime-role reconciler's host-invoked psql calls.
 psql_base=(
+  -X
   -v ON_ERROR_STOP=1
   --username "$db_user"
   --host "$db_host"
