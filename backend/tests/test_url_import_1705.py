@@ -30,6 +30,7 @@ from httpx import AsyncByteStream, AsyncClient
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.failure_reason import INTERNAL_FAILURE_REASON
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.platform.jobs.models import IngestJob
 from app.platform.security import SSRFError, _revalidate_redirect
@@ -1187,7 +1188,7 @@ class TestUrlImportS3Staging:
         job = await _job_by_name(test_db_session, "quotaorder.geojson")
         assert job.status == "failed"
         # An internal provider error is not user-authored text.
-        assert job.error_message == "URL import failed"
+        assert job.error_message == INTERNAL_FAILURE_REASON
 
 
 # ---------------------------------------------------------------------------
@@ -1546,7 +1547,7 @@ class TestUrlImportAmbiguousCommit:
         assert _staged_files() == []
         job = await _job_by_name(test_db_session, "commitfail.geojson")
         assert job.status == "failed"
-        assert job.error_message == "URL import failed"
+        assert job.error_message == INTERNAL_FAILURE_REASON
 
 
 # ---------------------------------------------------------------------------

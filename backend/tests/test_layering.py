@@ -3408,7 +3408,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # processing/ingest/tasks_url_fetch.py, taking the proxy-deadline budget
     # with them. RECONCILED: four PRs moved this cap from different baselines,
     # so the value is MEASURED on the merged file, never composed.
-    "backend/app/processing/ingest/router.py": 0,
+    "backend/app/processing/ingest/router.py": 1819,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3651,7 +3651,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # load the two re-upload tails share, which also ends the transaction on a
     # miss so the run row they write next is unbudgeted. Cap 2668 -> 2723, exact.
     # fix(#1755 item 12): -8 and fix(#1953): +2 merged; re-measured after both landed. Cap 2415, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2415,
+    # fix(#1710): `purge_queued_job_token` became `purge_queued_job_arg`,
+    # taking the key so a submitted file URL is dropped the way a service
+    # token already was; it delegates to the sweep statement #1755 moved,
+    # so the fact keeps one home. RECONCILED across #1755 and #1953:
+    # measured on the merged file, not summed. Cap 2415 -> 2423, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2423,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

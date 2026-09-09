@@ -239,28 +239,28 @@ async def _settle_failed_url_import(
             local_dest.unlink(missing_ok=True)
     except BaseException:
         logger.warning("url_import_cleanup_failed", job_id=str(job_id))
-    try:
-        # No rollback here: the transaction was already ended above, and
-        # this CAS opens a fresh one of its own.
-        await db.execute(
-            sa_update(IngestJob)
-            .where(
-                IngestJob.id == job_id,
-                IngestJob.attempt_id == attempt_id,
-                IngestJob.status == "running",
-            )
-            .values(
-                status="failed",
-                # fix(#1710): the EXCEPTION, not a rendering of it. ADR-002's
-                # door applies its own provenance rule, which a caller that
-                # flattens to text first has already thrown away.
-                error_message=redact_failure_reason(exc),
-                completed_at=datetime.now(timezone.utc),
-            )
-        )
-        await db.commit()
-    except BaseException:
-        logger.warning("url_import_fail_stamp_skipped", job_id=str(job_id))
+    # fix(#1710, rebased onto #1957): the terminal write goes through the
+    # shared fenced helper, which arms the error-write budget so a row another
+    # writer is holding cannot block this settlement indefinitely, and which
+    # never raises. `None` is not a fence miss: the row stays running and the
+    # stale sweep settles it.
+    #
+    # fix(#1953): the reason is the EXCEPTION, not a rendering of it. ADR-002's
+    # door applies its own provenance rule, which a caller that flattens to
+    # text first has already thrown away.
+    fenced = await write_job_failure_for_attempt(
+        db,
+        job_id,
+        attempt_id,
+        values={
+            "status": "failed",
+            "error_message": redact_failure_reason(exc),
+            "completed_at": datetime.now(timezone.utc),
+        },
+        task_name="fetch_url",
+    )
+    if fenced is False:
+        logger.info("url_import_fail_stamp_skipped", job_id=str(job_id))
 
 
 async def _effective_stream_cap(

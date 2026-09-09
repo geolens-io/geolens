@@ -26,6 +26,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, text, update
 
 from app.core.config import settings
+from app.core.failure_reason import INTERNAL_FAILURE_REASON
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS, fail_stale_jobs
 from app.processing.ingest import tasks_url_fetch
@@ -404,7 +405,7 @@ class TestEveryFailureSettles:
         job = await _get_job(test_db_session, resp.json()["job_id"])
         await test_db_session.refresh(job)
         assert job.status == "failed"
-        assert job.error_message == "URL import failed"
+        assert job.error_message == INTERNAL_FAILURE_REASON
         assert "pw@origin.test" not in job.error_message
 
     async def test_a_failed_session_checkout_for_staging_settles_the_row(
@@ -447,7 +448,7 @@ class TestEveryFailureSettles:
         job = await _get_job(test_db_session, resp.json()["job_id"])
         await test_db_session.refresh(job)
         assert job.status == "failed"
-        assert job.error_message == "URL import failed"
+        assert job.error_message == INTERNAL_FAILURE_REASON
 
     async def test_a_composed_refusal_keeps_its_text_with_the_url_redacted(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
