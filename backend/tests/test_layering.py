@@ -1807,7 +1807,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # call (gated on the same fully-pinned predicate the provider's own
         # session-read check uses) so an exemption can never fund two paid
         # calls. Cap 398 -> 466, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 466,
+        # fix(#2018): +11. Both claim functions consult the shared store
+        # first, so the pair coordinates across uvicorn workers; the local
+        # registry is the fallback for a store that does not answer, and the
+        # pairing window is derived from that store rather than copied.
+        # fix(#2018 review r2): +4. A store "no key" no longer short-circuits
+        # the local registry: a claim the fallback wrote can outlive the
+        # cooldown, and the store was never given it to answer for.
+        # Cap 477 -> 481, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 481,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -3007,7 +3015,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # 1903 -> 1912, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1962, exact.
     # fix(#1847): the handler docstring states its contract. Cap 1962 -> 1959.
-    "backend/app/api/main.py": 1716,
+    # fix(#2018): +5. The rate-limit storage decision is made at import,
+    # before setup_logging, so the lifespan flushes its queued notices into
+    # the configured stream. Cap 1716 -> 1721, exact.
+    "backend/app/api/main.py": 1721,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -7699,6 +7710,10 @@ def test_every_parse_qsl_call_bounds_its_field_count() -> None:
     `MAX_QUERY_FIELDS` across a layering boundary `config.py` cannot import
     across (it has no `app.*` imports at all, and importing `platform.
     service_endpoints` into it would very likely create an import cycle).
+
+    fix(#2018): `platform/ratelimit.py`'s one site is that same class --
+    `REDIS_URL`, read once at import, where a raise would fail boot rather
+    than refuse a request.
 
     fix(#1770 round 47c): `adapters/wfs.py::build_capabilities_url` and
     `service_endpoints.py::_capabilities_url` moved from the BOUND list to
