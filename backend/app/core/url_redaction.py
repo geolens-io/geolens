@@ -238,18 +238,23 @@ def redact_url_credentials(url: str) -> str:
         # below, which recurses here on each matched substring of free text.
         return _redact_without_parsing(url)
     is_http = parts.scheme.lower() in {"http", "https"}
-    # fix(#2044): a non-http scheme WITH an authority (redis://user:pass@host) is
-    # a real URL to redact below, not free text — fix(#429) needs the fallback
-    # only for scheme-less/no-netloc text, else an empty-host http(s) URL recurses.
-    if not is_http and not parts.netloc:
+    redacted_netloc = _redacted_netloc(parts)
+    if not is_http:
+        # fix(#2044 review): urlsplit hands free text a netloc too ("redis://cache/0
+        # then https://user:pass@evil" parses netloc="cache"), so redact THIS
+        # scheme's userinfo, then still scan for an embedded http(s) URL below.
+        prefix = (
+            url
+            if redacted_netloc == parts.netloc
+            else urlunsplit(
+                (parts.scheme, redacted_netloc, parts.path, parts.query, parts.fragment)
+            )
+        )
         return URL_LIKE_RE.sub(
             lambda match: redact_url_credentials(match.group(0)),
-            url,
+            prefix,
         )
-    redacted_netloc = _redacted_netloc(parts)
-    # SENSITIVE_QUERY_PARAMS is an http(s) convention (token=, api_key=, ...); a
-    # non-http scheme only gets its userinfo redacted, same as no query below.
-    if not parts.query or not is_http:
+    if not parts.query:
         if redacted_netloc == parts.netloc:
             return url
         return urlunsplit(

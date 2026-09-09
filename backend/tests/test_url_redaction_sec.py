@@ -570,6 +570,32 @@ def test_redact_url_credentials_leaves_non_netloc_scheme_unchanged() -> None:
     assert redact_url_credentials(value) == value
 
 
+def test_redact_url_credentials_keeps_scanning_past_a_non_http_prefix() -> None:
+    # fix(#2044 review): urlsplit gives free text starting with a non-http
+    # scheme a netloc too ("cache" here), which must not stop the scan for an
+    # http(s) URL carrying its own credentials later in the same string.
+    redacted = redact_url_credentials(
+        "redis://cache/0 then https://user:secret@example.com/x"
+    )
+
+    assert "secret" not in redacted
+    assert "redacted@example.com" in redacted
+    assert redacted.startswith("redis://cache/0 then ")
+
+
+def test_redact_url_credentials_masks_both_a_non_http_and_embedded_http_credential() -> (
+    None
+):
+    redacted = redact_url_credentials(
+        "redis://user:pass@cache/0 then https://user2:secret2@example.com/x"
+    )
+
+    assert "pass" not in redacted
+    assert "secret2" not in redacted
+    assert "redacted@cache" in redacted
+    assert "redacted@example.com" in redacted
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}
