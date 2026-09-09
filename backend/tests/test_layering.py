@@ -5864,7 +5864,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reopen it. The rest is the TokenError note at the parse site. Cap
     # 1871 -> 1934, exact.
     # chore(#1873): review-history comments trimmed. Cap 1934 -> 1673, exact.
-    "backend/app/platform/sandbox/validator.py": 1670,
+    # fix(#1892): +17 — _strip_statement_terminator cuts at the last SEMICOLON
+    # token, so a trailing `;` cannot break the executor's LIMIT wrapper and one
+    # inside a literal or comment is left alone. Cap 1670 -> 1687, exact.
+    "backend/app/platform/sandbox/validator.py": 1687,
     # fix(#1778): crossed the 1000-line inclusion threshold, so it joins
     # the ratchet at its exact size. The growth is the token accounting on
     # the two map-generation failure exits (an exhausted or timed-out loop

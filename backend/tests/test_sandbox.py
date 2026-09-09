@@ -458,6 +458,21 @@ class TestReadOnlyTransaction:
         assert result.rows == [[1]]
         assert result.truncated is False
 
+    async def test_validated_trailing_semicolon_survives_the_limit_wrapper(
+        self, client, test_db_session
+    ):
+        """fix(#1892): a terminator inside the wrapper's parentheses is a syntax
+        error, so the validator strips it. The raw statement is the control."""
+        from app.platform.sandbox.validator import validate_sql
+
+        session = test_db_session
+        with pytest.raises(SandboxError) as exc_info:
+            await execute_safe(session, "SELECT 1 AS a;")
+        assert exc_info.value.category == "query_failed"
+
+        result = await execute_safe(session, validate_sql("SELECT 1 AS a;").sql)
+        assert result.rows == [[1]]
+
 
 # ---------------------------------------------------------------------------
 # SAND-03: Row limit truncation (integration, needs DB)

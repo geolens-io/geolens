@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.tokens import TokenType
 
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
@@ -949,6 +950,21 @@ def _check_function_allowlist(
         _validate_function_cost(func, fn_name, sql)
 
 
+def _strip_statement_terminator(sql: str) -> str:
+    """Drop one trailing ``;`` and anything after it.
+
+    fix(#1892): ``execute_safe`` splices the validated SQL into
+    ``SELECT * FROM (<sql>) AS _q LIMIT n``, and a terminator inside those
+    parentheses is a syntax error. Cutting at the last SEMICOLON *token* leaves
+    a ``;`` inside a literal or a comment alone, and leaves a second statement
+    in place for the multi-statement check below to reject.
+    """
+    tokens = sqlglot.tokenize(sql, dialect="postgres")
+    if not tokens or tokens[-1].token_type != TokenType.SEMICOLON:
+        return sql
+    return sql[: tokens[-1].start].rstrip()
+
+
 def validate_sql(
     sql: str,
     *,
@@ -967,6 +983,7 @@ def validate_sql(
     Left None (off) for AI chat.
     """
     try:
+        sql = _strip_statement_terminator(sql)
         statements = sqlglot.parse(sql, dialect="postgres")
     except sqlglot.errors.SqlglotError as exc:
         # fix(#1778): TokenError (an unterminated literal, identifier, comment
