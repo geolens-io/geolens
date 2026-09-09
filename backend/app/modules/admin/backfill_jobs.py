@@ -13,12 +13,13 @@ task emits audit events and ``processing/`` may not import
 
 import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import redact_failure_reason
@@ -82,7 +83,7 @@ RECORDS_TOTAL_KEY = "records_total"
 RECENT_RUN_LIMIT = 5
 
 
-def _tenant_backfill_select():  # type: ignore[no-untyped-def]
+def _tenant_backfill_select() -> Select[tuple[IngestJob]]:
     """Select this tenant's embedding-backfill job rows.
 
     One producer for every reader below, so the tenant predicate cannot be
@@ -147,10 +148,12 @@ async def _finalize(
         else None,
     }
     backfill_meta = dict((metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY) or {})
+    # The audit trail carries this too, but the run history the admin page reads
+    # is built from job rows, and "failed" alone cannot tell a cancelled worker
+    # apart from a provider that rejected every record. Cleared first: a retry
+    # reuses the row's metadata, so an earlier attempt's code must not outlive it.
+    backfill_meta.pop("error_code", None)
     if error_code is not None:
-        # The audit trail carries this too, but the run history the admin page
-        # reads is built from job rows, and "failed" alone cannot tell a
-        # cancelled worker apart from a provider that rejected every record.
         backfill_meta["error_code"] = error_code
     extra_metadata: dict[str, Any] = {}
     if result is not None:
@@ -588,7 +591,7 @@ def _progress_writer(
     job_uuid: uuid.UUID,
     attempt_uuid: uuid.UUID,
     metadata: dict[str, Any],
-) -> Any:
+) -> Callable[[int, int], Awaitable[None]]:
     """Build the per-batch counter write the backfill loop calls.
 
     Fenced on this attempt like every other write here, and best effort: an
@@ -609,7 +612,6 @@ def _progress_writer(
                 values={
                     "rows_processed": processed,
                     "progress": (processed / total) if total else 0.0,
-                    "current_step": "embedding",
                     "user_metadata": dict(metadata),
                 },
             )
@@ -847,7 +849,7 @@ async def find_recent_embedding_backfills(
     """Return this tenant's finished backfill runs, newest first."""
     stmt = (
         _tenant_backfill_select()
-        .where(IngestJob.status.in_(tuple(sorted(_TERMINAL_STATUSES))))
+        .where(IngestJob.status.in_(sorted(_TERMINAL_STATUSES)))
         .order_by(IngestJob.created_at.desc())
         .limit(limit)
     )

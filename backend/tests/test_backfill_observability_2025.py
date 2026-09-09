@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,10 +43,17 @@ async def _drop(session: AsyncSession, job_ids: list[uuid.UUID]) -> None:
 
 @pytest.mark.anyio
 async def test_a_run_in_flight_reports_records_processed_over_total(
+    client: AsyncClient,
+    admin_auth_header: dict,
     test_db_session: AsyncSession,
     monkeypatch,
 ):
-    """The counter the worker writes per batch is what the endpoint reports."""
+    """The counter the worker writes per batch is what the endpoint reports.
+
+    ``JobStatusResponse.current_step`` is a closed Literal, so the poll the
+    admin panel already runs is also the check that the counter writes nothing
+    the job contract cannot render.
+    """
     from app.core.db import async_session
 
     admin_id = await get_user_id(test_db_session, "admin")
@@ -61,6 +69,7 @@ async def test_a_run_in_flight_reports_records_processed_over_total(
     job_id, attempt_id = job.id, job.attempt_id
 
     seen: list = []
+    polled: list = []
 
     async def _two_batches(
         session, *, force=False, should_continue=None, on_progress=None
@@ -70,6 +79,7 @@ async def test_a_run_in_flight_reports_records_processed_over_total(
         # What an operator polling the admin panel sees while the run is live.
         async with async_session() as watcher:
             seen.append((await AdminService(watcher).get_embedding_stats()).current_run)
+        polled.append(await client.get(f"/jobs/{job_id}", headers=admin_auth_header))
         return {"processed": 4, "created": 4, "skipped": 0, "errors": 0}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _two_batches)
@@ -89,6 +99,8 @@ async def test_a_run_in_flight_reports_records_processed_over_total(
         assert current.records_processed == 2
         assert current.records_total == 4
         assert current.started_at is not None
+        assert polled and polled[0].status_code == 200, polled[0].text
+        assert polled[0].json()["rows_processed"] == 2
     finally:
         await _drop(test_db_session, [job_id])
 
