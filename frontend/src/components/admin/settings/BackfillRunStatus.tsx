@@ -72,6 +72,9 @@ export function BackfillRunStatus({ stats }: { stats: EmbeddingStatsResponse }) 
                   {entry.error_code ? ` (${entry.error_code})` : ''}
                   {' · '}
                   {t('ai.runRecords', { count: entry.records_processed })}
+                  {entry.records_failed
+                    ? ` · ${t('ai.runRecordsFailed', { count: entry.records_failed })}`
+                    : ''}
                 </span>
                 <span className="tabular-nums whitespace-nowrap">
                   {formatDateTimeSmart(entry.finished_at)}

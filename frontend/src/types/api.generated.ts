@@ -6352,6 +6352,11 @@ export interface components {
              */
             records_processed: number;
             /**
+             * Records Failed
+             * @description Records the run could not embed, when the run recorded a count. A finished run with a non-zero figure here left coverage gaps.
+             */
+            records_failed?: number | null;
+            /**
              * Error Code
              * @description Short code identifying how a run failed, when it failed.
              */

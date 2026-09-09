@@ -893,13 +893,19 @@ def _run_progress(job: IngestJob) -> BackfillRunProgress:
 
 
 def _run_summary(job: IngestJob) -> BackfillRunSummary:
+    metadata = job.user_metadata or {}
     error_code = _backfill_meta(job).get("error_code")
+    # fix(#2025): `complete` with rejections is not a clean success — the same
+    # reasoning #1550 applied to the job status. `rows_processed` counts what
+    # the run reached, rejections included, so the history needs both numbers.
+    failed = metadata.get("rows_failed")
     return BackfillRunSummary(
         job_id=job.id,
         status=job.status,
         started_at=job.started_at,
         finished_at=job.completed_at,
         records_processed=job.rows_processed or 0,
+        records_failed=failed if isinstance(failed, int) else None,
         error_code=error_code if isinstance(error_code, str) else None,
     )
 

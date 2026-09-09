@@ -367,6 +367,13 @@ class BackfillRunSummary(BaseModel):
         default=None, description="When the run reached its final status."
     )
     records_processed: int = Field(description="Records the run embedded.")
+    records_failed: int | None = Field(
+        default=None,
+        description=(
+            "Records the run could not embed, when the run recorded a count. A "
+            "finished run with a non-zero figure here left coverage gaps."
+        ),
+    )
     error_code: str | None = Field(
         default=None,
         description="Short code identifying how a run failed, when it failed.",

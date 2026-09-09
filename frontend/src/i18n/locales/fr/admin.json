@@ -295,6 +295,8 @@
     "runOutcomeCancelled": "Annulée",
     "runRecords_one": "{{count}} enregistrement",
     "runRecords_other": "{{count}} enregistrements",
+    "runRecordsFailed_one": "{{count}} rejeté",
+    "runRecordsFailed_other": "{{count}} rejetés",
     "staleEmbeddingsWarning": "{{count}} embedding(s) ont été générés par un autre modèle et la recherche sémantique ne peut pas les utiliser. Générez les embeddings manquants pour ne régénérer que ces enregistrements, ou régénérez tout pour supprimer également les vecteurs obsolètes.",
     "apiKeysEnvOnlyNote": "Les clés API ne peuvent être définies que via des variables d'environnement (ANTHROPIC_API_KEY, OPENAI_API_KEY).",
     "availableNotSelected": "Disponible",

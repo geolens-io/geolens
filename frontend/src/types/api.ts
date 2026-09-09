@@ -1645,6 +1645,9 @@ export interface BackfillRunSummary {
   started_at: string | null;
   finished_at: string | null;
   records_processed: number;
+  // A finished run with a non-zero figure here left coverage gaps, so the
+  // history must not render it as a clean success.
+  records_failed: number | null;
   error_code: string | null;
 }
 

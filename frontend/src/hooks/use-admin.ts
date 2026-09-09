@@ -438,10 +438,11 @@ export function useEmbeddingStats(options?: { enabled?: boolean }) {
     queryFn: getEmbeddingStats,
     staleTime: 30_000,
     enabled: options?.enabled,
-    // fix(#2025): a run in flight is the only thing here that moves on its own,
-    // so the response decides whether to poll. An operator who reloads the page
-    // mid-run still sees the bar advance; an idle instance issues no extra reads.
-    refetchInterval: (q) => (q.state.data?.current_run ? 4_000 : false),
+    // fix(#2025): the response decides the rate. A run in flight is watched
+    // closely; an idle panel still looks occasionally, because a run somebody
+    // else starts is what disables these buttons and nothing else would tell a
+    // tab that is already open. Never polls while the tab is in the background.
+    refetchInterval: (q) => (q.state.data?.current_run ? 4_000 : 30_000),
     refetchIntervalInBackground: false,
   });
 }

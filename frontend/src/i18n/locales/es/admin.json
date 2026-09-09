@@ -295,6 +295,8 @@
     "runOutcomeCancelled": "Cancelada",
     "runRecords_one": "{{count}} registro",
     "runRecords_other": "{{count}} registros",
+    "runRecordsFailed_one": "{{count}} rechazado",
+    "runRecordsFailed_other": "{{count}} rechazados",
     "staleEmbeddingsWarning": "{{count}} embedding(s) se generaron con otro modelo y la búsqueda semántica no puede usarlos. Genere los embeddings faltantes para volver a generar solo esos registros, o regenere todos para eliminar además los vectores obsoletos.",
     "apiKeysEnvOnlyNote": "Las claves API solo se pueden configurar mediante variables de entorno (ANTHROPIC_API_KEY, OPENAI_API_KEY) y no se pueden cambiar desde esta página. Todas las demás configuraciones de IA son modificables por el administrador.",
     "availableNotSelected": "Disponible",

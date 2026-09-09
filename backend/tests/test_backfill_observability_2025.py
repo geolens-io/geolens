@@ -149,6 +149,51 @@ async def test_the_history_is_bounded_and_newest_first(
 
 
 @pytest.mark.anyio
+async def test_a_completed_run_that_left_gaps_reports_its_rejections(
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """A `complete` run with rejections carries both counts, not just one."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    job = IngestJob(
+        source_filename="embedding-backfill",
+        file_path="",
+        created_by=admin_id,
+        status="pending",
+        user_metadata=_marker(operation_id="gaps"),
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    job_id, attempt_id = job.id, job.attempt_id
+
+    async def _mostly_worked(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
+        return {"processed": 100, "created": 70, "skipped": 0, "errors": 30}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _mostly_worked)
+
+    try:
+        await run_embedding_backfill(
+            job_id=str(job_id),
+            attempt_id=str(attempt_id),
+            force=False,
+            user_id=str(admin_id),
+            operation_id="gaps",
+        )
+        # The worker settled the row on its own session; this one still holds
+        # the pending instance it created in its identity map.
+        test_db_session.expire_all()
+        stats = await AdminService(test_db_session).get_embedding_stats()
+        summary = next(r for r in stats.recent_runs if r.job_id == job_id)
+        assert summary.status == "complete"
+        assert summary.records_processed == 100
+        assert summary.records_failed == 30
+    finally:
+        await _drop(test_db_session, [job_id])
+
+
+@pytest.mark.anyio
 async def test_the_estimate_uses_the_last_completed_runs_throughput(
     test_db_session: AsyncSession,
 ):

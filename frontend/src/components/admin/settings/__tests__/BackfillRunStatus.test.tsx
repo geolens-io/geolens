@@ -113,6 +113,31 @@ describe('BackfillRunStatus', () => {
     ).not.toBeInTheDocument();
   });
 
+  // fix(#2025 review): `complete` with rejections is not a clean success. The
+  // run reached every record it counted; some of them kept their old vector.
+  it('says a finished run left gaps rather than reporting it clean', () => {
+    render(
+      <BackfillRunStatus
+        stats={{
+          ...base,
+          recent_runs: [
+            {
+              job_id: 'r1',
+              status: 'complete',
+              started_at: '2026-09-08T09:00:00Z',
+              finished_at: '2026-09-08T09:10:00Z',
+              records_processed: 100,
+              records_failed: 30,
+              error_code: null,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText('Finished · 100 records · 30 rejected')).toBeInTheDocument();
+  });
+
   it('lists past runs with their outcome, error code and record count', () => {
     render(
       <BackfillRunStatus
@@ -125,6 +150,7 @@ describe('BackfillRunStatus', () => {
               started_at: '2026-09-08T09:00:00Z',
               finished_at: '2026-09-08T09:05:00Z',
               records_processed: 0,
+              records_failed: 9,
               error_code: 'all_embeddings_failed',
             },
             {
@@ -133,6 +159,7 @@ describe('BackfillRunStatus', () => {
               started_at: '2026-09-07T09:00:00Z',
               finished_at: '2026-09-07T09:20:00Z',
               records_processed: 1,
+              records_failed: 0,
               error_code: null,
             },
           ],
@@ -142,7 +169,7 @@ describe('BackfillRunStatus', () => {
 
     expect(screen.getByText('Recent runs')).toBeInTheDocument();
     expect(
-      screen.getByText('Failed (all_embeddings_failed) · 0 records'),
+      screen.getByText('Failed (all_embeddings_failed) · 0 records · 9 rejected'),
     ).toBeInTheDocument();
     expect(screen.getByText('Finished · 1 record')).toBeInTheDocument();
   });

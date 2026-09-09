@@ -27,6 +27,8 @@ class BackfillRunSummary:
         records_processed (int): Records the run embedded.
         started_at (datetime.datetime | None | Unset): When a worker picked the run up.
         finished_at (datetime.datetime | None | Unset): When the run reached its final status.
+        records_failed (int | None | Unset): Records the run could not embed, when the run recorded a count. A finished
+            run with a non-zero figure here left coverage gaps.
         error_code (None | str | Unset): Short code identifying how a run failed, when it failed.
     """
 
@@ -35,6 +37,7 @@ class BackfillRunSummary:
     records_processed: int
     started_at: datetime.datetime | None | Unset = UNSET
     finished_at: datetime.datetime | None | Unset = UNSET
+    records_failed: int | None | Unset = UNSET
     error_code: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -61,6 +64,12 @@ class BackfillRunSummary:
         else:
             finished_at = self.finished_at
 
+        records_failed: int | None | Unset
+        if isinstance(self.records_failed, Unset):
+            records_failed = UNSET
+        else:
+            records_failed = self.records_failed
+
         error_code: None | str | Unset
         if isinstance(self.error_code, Unset):
             error_code = UNSET
@@ -80,6 +89,8 @@ class BackfillRunSummary:
             field_dict["started_at"] = started_at
         if finished_at is not UNSET:
             field_dict["finished_at"] = finished_at
+        if records_failed is not UNSET:
+            field_dict["records_failed"] = records_failed
         if error_code is not UNSET:
             field_dict["error_code"] = error_code
 
@@ -128,6 +139,15 @@ class BackfillRunSummary:
 
         finished_at = _parse_finished_at(d.pop("finished_at", UNSET))
 
+        def _parse_records_failed(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        records_failed = _parse_records_failed(d.pop("records_failed", UNSET))
+
         def _parse_error_code(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -143,6 +163,7 @@ class BackfillRunSummary:
             records_processed=records_processed,
             started_at=started_at,
             finished_at=finished_at,
+            records_failed=records_failed,
             error_code=error_code,
         )
 

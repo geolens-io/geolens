@@ -1977,6 +1977,18 @@
             "title": "Records Processed",
             "type": "integer"
           },
+          "records_failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Records the run could not embed, when the run recorded a count. A finished run with a non-zero figure here left coverage gaps.",
+            "title": "Records Failed"
+          },
           "error_code": {
             "anyOf": [
               {

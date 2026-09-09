@@ -295,6 +295,8 @@
     "runOutcomeCancelled": "Abgebrochen",
     "runRecords_one": "{{count}} Datensatz",
     "runRecords_other": "{{count}} Datensätze",
+    "runRecordsFailed_one": "{{count}} abgelehnt",
+    "runRecordsFailed_other": "{{count}} abgelehnt",
     "staleEmbeddingsWarning": "{{count}} Embedding(s) wurden mit einem anderen Modell erzeugt und können von der semantischen Suche nicht verwendet werden. Generieren Sie die fehlenden Embeddings, um nur diese Datensätze neu einzubetten, oder generieren Sie alle neu, um zusätzlich die veralteten Vektoren zu löschen.",
     "apiKeysEnvOnlyNote": "API-Schlüssel können nur über Umgebungsvariablen (ANTHROPIC_API_KEY, OPENAI_API_KEY) gesetzt werden.",
     "availableNotSelected": "Verfügbar",

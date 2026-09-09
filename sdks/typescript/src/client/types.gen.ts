@@ -1218,6 +1218,12 @@ export type BackfillRunSummary = {
      */
     records_processed: number;
     /**
+     * Records Failed
+     *
+     * Records the run could not embed, when the run recorded a count. A finished run with a non-zero figure here left coverage gaps.
+     */
+    records_failed?: number | null;
+    /**
      * Error Code
      *
      * Short code identifying how a run failed, when it failed.
