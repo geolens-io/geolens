@@ -141,6 +141,7 @@
   },
   "errors": {
     "unexpected": "Ocurrió un error inesperado",
+    "internalFailureReason": "El trabajo falló por un motivo que el servidor no pudo comunicar de forma segura. Pide a un operador que revise el registro del servidor para este trabajo.",
     "requestFailed": "No se pudo completar la solicitud. Inténtalo de nuevo.",
     "badRequest": "No se pudo completar la solicitud. Comprueba los datos introducidos.",
     "resourceNotFound": "No se encontró el recurso solicitado.",

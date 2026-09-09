@@ -141,6 +141,7 @@
   },
   "errors": {
     "unexpected": "Ein unerwarteter Fehler ist aufgetreten",
+    "internalFailureReason": "Der Auftrag ist aus einem Grund fehlgeschlagen, den der Server nicht sicher melden konnte. Bitten Sie einen Betreiber, das Server-Protokoll für diesen Auftrag zu prüfen.",
     "requestFailed": "Die Anfrage konnte nicht abgeschlossen werden. Versuchen Sie es erneut.",
     "badRequest": "Die Anfrage konnte nicht abgeschlossen werden. Prüfen Sie Ihre Eingaben.",
     "resourceNotFound": "Die angeforderte Ressource wurde nicht gefunden.",

@@ -318,7 +318,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
           <div className="space-y-3">
             {job.error_message && (
               <p className="text-sm text-destructive">
-                {describeFailureReason(job.error_message, t('common:errors.unexpected'))}
+                {describeFailureReason(job.error_message, t('common:errors.internalFailureReason'))}
               </p>
             )}
             {job.retry_reason && (

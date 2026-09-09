@@ -689,4 +689,46 @@ describe('SourcePanel', () => {
     expect(screen.getByText('Outdated')).toBeInTheDocument();
     expect(screen.queryByText(/memberHealth\.stale/)).not.toBeInTheDocument();
   });
+
+  // fix(#2035): a stored 'internal_error' must read the same operator-facing
+  // sentence as the CLI (cli/geolens_cli/refresh.py), not the generic fallback.
+  it('renders the CLI-matching sentence for a failed run stored as internal_error', () => {
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [
+          {
+            id: 'run-1',
+            dataset_id: 'dataset-1',
+            dataset_version_id: null,
+            ingest_job_id: 'job-1',
+            origin_kind: 'service',
+            trigger: 'api',
+            status: 'failed',
+            triggered_by: 'user-1',
+            triggered_by_username: 'jdoe',
+            started_at: '2026-08-05T00:00:00Z',
+            claimed_at: '2026-08-05T00:00:01Z',
+            finished_at: '2026-08-05T00:01:00Z',
+            feature_count_before: 1200,
+            feature_count_after: null,
+            schema_diff: null,
+            error_code: null,
+            error_message: 'internal_error',
+          },
+        ],
+        total: 1,
+      } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    expect(
+      screen.getByText(
+        'The job failed for a reason the server could not report safely. Ask an operator to check the server log for this job.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument();
+  });
 });
