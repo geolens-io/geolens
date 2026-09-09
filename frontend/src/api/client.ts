@@ -6,6 +6,12 @@ import { useAuthStore } from '@/stores/auth-store';
 import { refreshAccessToken } from './auth';
 import i18n from '@/i18n/i18n';
 
+/** fix(#2038): true when the server REJECTED the credential — the only evidence
+ * that earns POST /auth/logout/, which revokes EVERY session of the user. */
+export function isCredentialRejected(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 401 || err.status === 403);
+}
+
 // fix(#438): DATA-04 — a request whose socket hangs used to spin forever and
 // stall the polling loop that issued it. 30s comfortably covers a slow catalog
 // query while still freeing a wedged loop. Applied to apiFetch (JSON) only;
@@ -31,6 +37,13 @@ export class ApiError extends Error {
 let inflightRefresh: Promise<RefreshOutcome> | null = null;
 let inflightRefreshAbort: AbortController | null = null;
 
+// fix(#2038): how long to stop asking after a transient refresh failure. Without
+// it an auth outage — or a shared egress IP over the endpoint's per-IP limit —
+// turns every 401'd surface in every tab into an unbounded refresh loop.
+const TRANSIENT_COOLDOWN_MS = 30_000;
+let transientUntil = 0;
+let transientToken: string | null = null;
+
 /**
  * fix(#1446): abandon any refresh still in flight, so its response — and the
  * `Set-Cookie` riding on it — is never processed. Called when the session ends
@@ -40,6 +53,9 @@ let inflightRefreshAbort: AbortController | null = null;
 export function abortInflightRefresh(): void {
   inflightRefreshAbort?.abort();
   inflightRefreshAbort = null;
+  // fix(#2038): a deliberate session end must not leave the next session inside
+  // the previous one's refresh back-off.
+  transientUntil = 0;
 }
 
 // fix(#628): once a request 401s AND the follow-up refresh cannot produce a
@@ -97,6 +113,13 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   //
   // fix(#2038): nothing to refresh WITH, so this session cannot come back.
   if (!refreshToken && !(token && cookieAuthAvailable())) return 'rejected';
+
+  if (Date.now() < transientUntil) {
+    // fix(#2038): inside the back-off, so answer from it rather than issue
+    // another request — unless a peer tab rotated the token while we waited,
+    // which is the same live-session evidence the catch below trusts.
+    return token && token !== transientToken ? 'refreshed' : 'transient';
+  }
 
   // fix(#1849): the outcome of the in-flight refresh IS the answer here, not
   // whatever token happens to be sitting in the store — see the fix note on
@@ -166,10 +189,9 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
       if (currentToken && currentToken !== token) {
         return 'refreshed';
       }
-      // fix(#2038): 401/403 is the server rejecting the credential; anything
-      // else (429, 5xx, a dropped connection, an abort) left it alive.
-      const rejected = err instanceof ApiError && (err.status === 401 || err.status === 403);
-      return rejected ? 'rejected' : 'transient';
+      // fix(#2038): anything but a rejection (429, 5xx, a dropped connection,
+      // an abort) left the credential alive.
+      return isCredentialRejected(err) ? 'rejected' : 'transient';
     } finally {
       inflightRefresh = null;
       if (inflightRefreshAbort === controller) inflightRefreshAbort = null;
@@ -177,7 +199,12 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   })();
   inflightRefresh = promise;
 
-  return await promise;
+  const outcome = await promise;
+  // fix(#2038): one place to arm the back-off and record the token it applies
+  // to; it clears as soon as the endpoint answers either way again.
+  transientUntil = outcome === 'transient' ? Date.now() + TRANSIENT_COOLDOWN_MS : 0;
+  transientToken = useAuthStore.getState().token;
+  return outcome;
 }
 
 /**

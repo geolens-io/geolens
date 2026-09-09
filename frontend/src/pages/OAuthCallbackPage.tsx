@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { getMe, logoutSession } from '@/api/auth';
+import { isCredentialRejected } from '@/api/client';
 import { readSessionStorage, removeSessionStorage } from '@/lib/storage';
 import { Loader2 } from 'lucide-react';
 
@@ -69,13 +70,11 @@ export function OAuthCallbackPage() {
         const target = redirect && redirect.startsWith('/') ? redirect : '/';
         navigate(target, { replace: true });
       })
-      .catch(() => {
-        // fix(#1446): the backend already installed the refresh cookie before
-        // redirecting here, so clearing the store alone would strand a
-        // replayable credential the UI claims is gone. logoutSession captures
-        // the temporary bearer token synchronously, so dispatching it here
-        // sends a fully-formed request before the store is cleared below.
-        void logoutSession().catch(() => {});
+      .catch((err: unknown) => {
+        // fix(#1446): the redirect already installed the refresh cookie, so a
+        // store reset alone strands a replayable credential. fix(#2038): but
+        // /auth/logout/ revokes EVERY session — a 500 here must not end them.
+        if (isCredentialRejected(err)) void logoutSession().catch(() => {});
         useAuthStore.getState().logout();
         navigate('/login', { replace: true });
       });

@@ -1,4 +1,4 @@
-import { apiFetch, ApiError, onSessionExpired } from '@/api/client';
+import { abortInflightRefresh, apiFetch, ApiError, onSessionExpired } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import { refreshAccessToken, logoutSession } from '@/api/auth';
 import type { TokenResponse } from '@/types/api';
@@ -65,6 +65,8 @@ describe('session-expiry notification (fix #628)', () => {
   afterEach(() => {
     unregister();
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+    // fix(#2038): the transient refresh back-off is module state; end signed out.
+    abortInflightRefresh();
   });
 
   // fix(#2038): a rate-limited refresh in one client used to revoke every
@@ -82,12 +84,13 @@ describe('session-expiry notification (fix #628)', () => {
     expect(useAuthStore.getState().token).toBe(live);
   });
 
-  // fix(#2038): a dropped connection is no evidence the credential is dead.
+  // fix(#2038): refreshAccessToken issues a bare fetch, so a real offline
+  // failure arrives as a TypeError, not an ApiError.
   it('keeps the session and revokes nothing when the refresh cannot reach the server', async () => {
     signIn();
     const live = useAuthStore.getState().token;
     mockFetch.mockResolvedValue(errorResponse(401));
-    vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('network error', 0));
+    vi.mocked(refreshAccessToken).mockRejectedValue(new TypeError('Failed to fetch'));
 
     await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
 
@@ -101,6 +104,20 @@ describe('session-expiry notification (fix #628)', () => {
     signIn();
     mockFetch.mockResolvedValue(errorResponse(401));
     vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('unauthorized', 401));
+
+    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+
+    expect(logoutSession).not.toHaveBeenCalled();
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  // fix(#2038): 403 on refresh is a rejection too, and ends the session the
+  // same way 401 does.
+  it('clears local state and prompts when the refresh is answered 403', async () => {
+    signIn();
+    mockFetch.mockResolvedValue(errorResponse(401));
+    vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('forbidden', 403));
 
     await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
 

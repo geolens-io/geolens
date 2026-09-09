@@ -1,6 +1,7 @@
 import { renderHook, act, waitFor } from '@/test/test-utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useAuthStore } from '@/stores/auth-store';
+import { ApiError } from '@/api/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { MemoryRouter } from 'react-router';
@@ -97,11 +98,9 @@ describe('useAuth', () => {
     ).rejects.toThrow('Invalid credentials');
   });
 
-  // fix(#1446): login installs the refresh cookie before getMe() runs, so a
-  // failure there must revoke server-side — a store reset cannot reach the
-  // httpOnly cookie, and the UI would claim the sign-in failed while the
-  // credential stayed live.
-  it('revokes the session when getMe fails after a successful login', async () => {
+  // fix(#2038): /auth/me/ answering 500 after a good sign-in used to revoke
+  // every session of the user, signing them out on every other device.
+  it('keeps the other sessions when getMe fails transiently after a login', async () => {
     mockLogin.mockResolvedValueOnce({
       access_token: 'abc',
       refresh_token: null,
@@ -110,7 +109,7 @@ describe('useAuth', () => {
     });
     // Not `...Once`: the hook's own meQuery also calls getMe once the token is
     // set, and would otherwise eat the single rejection.
-    mockGetMe.mockRejectedValue(new Error('me failed'));
+    mockGetMe.mockRejectedValue(new ApiError('server error', 500));
 
     const { result } = renderHook(() => useAuth());
 
@@ -118,7 +117,30 @@ describe('useAuth', () => {
       act(async () => {
         await result.current.login('user', 'pass');
       }),
-    ).rejects.toThrow('me failed');
+    ).rejects.toThrow('server error');
+
+    expect(mockLogoutSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  // fix(#1446): login installs the refresh cookie before getMe() runs, so a
+  // rejected credential must be revoked — a store reset cannot reach it.
+  it('revokes the session when getMe rejects the credential after a login', async () => {
+    mockLogin.mockResolvedValueOnce({
+      access_token: 'abc',
+      refresh_token: null,
+      token_type: 'bearer',
+      expires_in: 900,
+    });
+    mockGetMe.mockRejectedValue(new ApiError('unauthorized', 401));
+
+    const { result } = renderHook(() => useAuth());
+
+    await expect(
+      act(async () => {
+        await result.current.login('user', 'pass');
+      }),
+    ).rejects.toThrow('unauthorized');
 
     expect(mockLogoutSession).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().token).toBeNull();

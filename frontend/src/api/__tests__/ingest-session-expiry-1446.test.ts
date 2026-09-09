@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/auth-store';
-import { ApiError, onSessionExpired } from '@/api/client';
+import { abortInflightRefresh, ApiError, onSessionExpired } from '@/api/client';
 
 // fix(#1446): the XHR upload path cleared the store directly on a terminal 401,
 // skipping the single signed-out prompt every other surface shows (fix(#628)).
@@ -44,6 +44,8 @@ describe('upload auth failure (fix #1446)', () => {
   afterEach(() => {
     unregister();
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+    // fix(#2038): the transient refresh back-off is module state; end signed out.
+    abortInflightRefresh();
   });
 
   it('clears local state and prompts once when an upload 401s terminally', async () => {

@@ -115,39 +115,25 @@ describe('browser refresh transport', () => {
     });
   });
 
-  // fix(#1446): a 2xx whose body fails to parse still installed the cookies,
-  // so bailing out without revoking reports a failed sign-in over a live
-  // server-side session.
-  it('revokes when a successful login response fails to parse', async () => {
+  // fix(#2038): a 2xx whose body fails to parse leaves a live session behind a
+  // failed sign-in, but /auth/logout/ revokes EVERY session of the user and a
+  // malformed body is no evidence the credential was rejected.
+  it('does not revoke every session when a successful login response fails to parse', async () => {
     document.cookie = 'geolens_csrf=csrf-abc; path=/';
     useAuthStore.setState({ token: null });
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
-        headers: new Headers(),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 204,
-        statusText: 'No Content',
-        json: () => Promise.reject(new Error('no body')),
-        headers: new Headers(),
-      } as Response);
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
+      headers: new Headers(),
+    } as Response);
 
     await expect(login('someone', 'secret')).rejects.toThrow(SyntaxError);
 
-    const logoutCall = mockFetch.mock.calls.find(
-      ([url]) => (url as string) === '/api/auth/logout/',
-    );
-    expect(logoutCall).toBeDefined();
-    // The freshly-set cookie is what authenticates it — no bearer token was
-    // ever stored.
-    expect((logoutCall?.[1] as RequestInit).headers).toMatchObject({
-      'X-CSRF-Token': 'csrf-abc',
-    });
+    expect(
+      mockFetch.mock.calls.find(([url]) => (url as string) === '/api/auth/logout/'),
+    ).toBeUndefined();
   });
 
   // fix(#1446): logout revokes EVERY refresh token for the user and deletes

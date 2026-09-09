@@ -1,4 +1,5 @@
 import { render, waitFor } from '@/test/test-utils';
+import { ApiError } from '@/api/client';
 import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage';
 import { useAuthStore } from '@/stores/auth-store';
 import { denySessionStorage } from '@/test/deny-storage';
@@ -55,12 +56,25 @@ describe('OAuthCallbackPage', () => {
     expect(useAuthStore.getState().refreshToken).toBe('legacy-r1');
   });
 
-  // fix(#1446): the cookie is already installed by the time this page runs, so
-  // a failed setup must revoke server-side — clearing the store cannot reach an
-  // httpOnly cookie, and the UI would send the user to /login while the
-  // credential stayed replayable.
-  it('revokes the session when getMe fails after the cookie was installed', async () => {
-    mockGetMe.mockRejectedValueOnce(new Error('me failed'));
+  // fix(#2038): SSO completes on a new device, /auth/me/ answers 500 or the
+  // socket drops — revoking here would have ended every other session.
+  it('keeps the other sessions when getMe fails transiently after sign-in', async () => {
+    mockGetMe.mockRejectedValueOnce(new ApiError('server error', 500));
+    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    render(<OAuthCallbackPage />);
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
+    );
+    expect(mockLogoutSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  // fix(#1446): the cookie is already installed by the time this page runs, so a
+  // rejected credential must be revoked — clearing the store cannot reach it.
+  it('revokes the session when getMe rejects the credential', async () => {
+    mockGetMe.mockRejectedValueOnce(new ApiError('unauthorized', 401));
     setHash('#token=access-1&expires_in=900&auth_mode=cookie');
 
     render(<OAuthCallbackPage />);
