@@ -139,6 +139,22 @@ describe('UrlImportForm', () => {
     expect(peekUrlImport()).toBeNull();
   });
 
+  test('a cancelled download returns to the idle form without an error', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-5', status: 'running' });
+    mockGetJobStatus.mockResolvedValue({
+      job_id: 'job-5',
+      status: 'cancelled',
+      error_message: 'Cancelled by user',
+    });
+
+    render(<UrlImportForm />);
+    await fetchUrl('https://files.example.test/stop.geojson');
+
+    await waitFor(() => expect(peekUrlImport()).toBeNull());
+    expect(screen.getByLabelText('urlImport.label')).toBeEnabled();
+    expect(screen.queryByText('Cancelled by user')).not.toBeInTheDocument();
+  });
+
   test('happy path: fetch → preview → review → commit → tracking', async () => {
     mockUploadFromUrl.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
     mockPreviewFile.mockResolvedValue(VECTOR_PREVIEW);

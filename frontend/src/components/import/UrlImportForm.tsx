@@ -289,9 +289,14 @@ export function UrlImportForm() {
       return;
     }
     if (!isTerminalJobStatus(trackedJob.status)) return;
-    const msg = trackedJob.error_message || t('urlImport.downloadFailed');
-    setError(msg);
-    toast.error(msg);
+    // A cancel is the user's own doing and JobProgress already reported it,
+    // so it returns to the form quietly; every other terminal status is a
+    // failure the form has to explain.
+    if (trackedJob.status !== 'cancelled') {
+      const msg = trackedJob.error_message || t('urlImport.downloadFailed');
+      setError(msg);
+      toast.error(msg);
+    }
     setStep('idle');
     setJobId(null);
     clearUrlImport();
