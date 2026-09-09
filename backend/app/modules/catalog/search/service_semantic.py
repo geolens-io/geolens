@@ -78,6 +78,26 @@ def _embedding_cache_clear() -> None:
     _embedding_cache.clear()
 
 
+def embedding_cache_has_hit(text: str) -> bool:
+    """True when *text* already has a live cached embedding for this tenant.
+
+    fix(#1903): matches on tenant + normalized text only, ignoring model and
+    fingerprint -- resolving those needs a DB session this helper doesn't
+    have (it backs a synchronous rate-limit exemption check). A stale match
+    only skips a token early; ``generate_embedding`` still keys its own
+    lookup on the full tuple, so it can never serve a wrong vector.
+    """
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    prefix = tenant_cache_key(normalized)
+    now = time.monotonic()
+    return any(
+        key[0] == prefix and expires_at >= now
+        for key, (expires_at, _vector) in _embedding_cache.items()
+    )
+
+
 # fix(#448): the provider default timeout (130s) is sized for backfill; a hung
 # provider must not hold a search request, and resolve_semantic_arm degrades to
 # FTS on any error. wait_for keeps CatalogPort overlays source-compatible.

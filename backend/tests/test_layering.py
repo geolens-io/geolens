@@ -5671,7 +5671,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # per-dataset OGC collections query. Cap 1489 -> 1493, exact.
     # fix(#1855): -1. The facets rate-limit note shrank when the endpoint
     # gained the SEC-S11 limiter. Cap 1493 -> 1492, exact.
-    "backend/app/modules/catalog/search/router.py": 1380,
+    # fix(#1903): +19 — the facets route gains an exempt_when callable that
+    # skips the shared SEC-S11 bucket when the paired /search/datasets/ call
+    # already cached this query's embedding, plus override_defaults=False so
+    # an exempted request still falls under the global per-IP default. Cap
+    # 1380 -> 1399, exact.
+    "backend/app/modules/catalog/search/router.py": 1399,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.

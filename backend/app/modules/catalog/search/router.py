@@ -72,6 +72,7 @@ from app.modules.catalog.search.service import (
     SearchFilters,
     count_collections,
     dataset_to_ogc_record,
+    embedding_cache_has_hit,
     get_facet_counts,
     search_collections,
     search_datasets,
@@ -413,6 +414,16 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_semantic_search_rate_limit()}/minute"
 
 
+def _facets_query_embedding_cached(request: Request) -> bool:
+    """fix(#1903): skip the shared bucket when q's embedding is already cached.
+
+    The SPA pairs this with /search/datasets/, which embeds first, so a
+    cached hit means the provider was already paid for exactly this query.
+    """
+    query_text = request.query_params.get("q")
+    return bool(query_text) and embedding_cache_has_hit(query_text)
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — slash form is canonical
 # (in OpenAPI); no-slash is a hidden alias closing the 404 regression from
 # redirect_slashes=False (api/main.py).
@@ -422,7 +433,15 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
 @search_router.get("/facets/", response_model=FacetCountResponse)
 # fix(#1855): facets embed the query, so both search routes draw on ONE SEC-S11
 # bucket; two buckets let a caller alternating them embed twice the cap.
-@limiter.shared_limit(_semantic_search_rate_limit, scope="semantic_search")
+# fix(#1903): override_defaults=False keeps the global per-IP default active
+# on an exempted call -- without it, an exempt Limit leaves NO limit at all
+# for that request (slowapi drops the defaults whenever a route limit wins).
+@limiter.shared_limit(
+    _semantic_search_rate_limit,
+    scope="semantic_search",
+    exempt_when=_facets_query_embedding_cached,
+    override_defaults=False,
+)
 async def search_facets_endpoint(
     request: Request,
     q: str | None = Query(None, max_length=1000, description="Full-text search query"),
