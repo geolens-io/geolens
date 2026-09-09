@@ -2267,16 +2267,24 @@ async def test_an_unacknowledged_creation_commit_does_not_leave_the_slot_held(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "lost_read",
+    [OSError("connection reset by peer"), asyncio.CancelledError()],
+    ids=["connection_lost", "cancelled"],
+)
 async def test_a_failed_startup_read_settles_the_row_it_could_not_read(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session: AsyncSession,
     monkeypatch,
+    lost_read: BaseException,
 ):
     """The worker's opening read is the run's other unguarded commit-adjacent await.
 
     With `retry=0` the delivery is not replayed, so a read that raises used to
     end the task with the row still `pending` and no actor left to settle it.
+    fix(#1556 review): a shutdown here is a start failure, not a cancelled run
+    — there is no heartbeat handle, so nothing past the claim can have run.
     """
     monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
     with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()) as defer:
@@ -2290,13 +2298,17 @@ async def test_a_failed_startup_read_settles_the_row_it_could_not_read(
     async def _get_failing_once(self, entity, ident, *args, **kwargs):
         if entity is IngestJob and not reads["failed"]:
             reads["failed"] = True
-            raise OSError("connection reset by peer")
+            raise lost_read
         return await real_get(self, entity, ident, *args, **kwargs)
 
     monkeypatch.setattr(AsyncSession, "get", _get_failing_once)
-    with pytest.raises(OSError):
+    raised: BaseException | None = None
+    try:
         await run_embedding_backfill(**defer.await_args.kwargs)
+    except BaseException as exc:  # noqa: BLE001 - a cancellation must re-raise too
+        raised = exc
     monkeypatch.setattr(AsyncSession, "get", real_get)
+    assert type(raised) is type(lost_read), raised
     assert reads["failed"], "the opening read never ran — nothing under test"
 
     settled = await _load_job(test_db_session, job_id)
@@ -2308,8 +2320,7 @@ async def test_a_failed_startup_read_settles_the_row_it_could_not_read(
     terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
     assert len(terminal) == 1, terminal
     assert terminal[0]["details"]["error_code"] == "start_failed", (
-        "a run that never claimed the row was recorded as one that could not "
-        f"record its outcome: {terminal}"
+        f"a run that never claimed the row was not recorded as one: {terminal}"
     )
 
     # The settle REPLACES user_metadata, and the read that would have supplied

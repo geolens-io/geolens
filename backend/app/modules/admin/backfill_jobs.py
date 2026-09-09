@@ -710,14 +710,15 @@ async def run_embedding_backfill(
             # this never rewrites a committed outcome — a shutdown after
             # `complete` landed emits the COMPLETED audit, not a contradiction.
             cancelled = isinstance(exc, asyncio.CancelledError)
-            # A null heartbeat means the claim never landed, so this run never
-            # took the job — a distinct outcome from failing to record one.
-            if cancelled:
-                event, error_code = "embedding_backfill_cancelled", "worker_cancelled"
-                message = CANCELLED_MESSAGE
-            elif heartbeat is None:
+            # fix(#1556 review): how far it got outranks what ended it. No
+            # heartbeat handle means nothing past the claim ran, so a
+            # cancellation there did not leave half a run behind.
+            if heartbeat is None:
                 event, error_code = "embedding_backfill_start_failed", "start_failed"
                 message = START_FAILED_MESSAGE
+            elif cancelled:
+                event, error_code = "embedding_backfill_cancelled", "worker_cancelled"
+                message = CANCELLED_MESSAGE
             else:
                 event, error_code = "embedding_backfill_settle_failed", "settle_failed"
                 message = SETTLE_FAILED_MESSAGE
