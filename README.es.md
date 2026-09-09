@@ -139,7 +139,7 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 - URLs directas de teselas y claves de API por usuario para QGIS, ArcGIS, MapLibre y cualquier cliente OGC
 - Las teselas vectoriales omiten columnas de atributos por debajo del zoom 10 para mantener pequeñas las teselas de zoom bajo; añade el parámetro de consulta `cols=<column>,<column>` a una URL de tesela para incluir columnas concretas en todos los niveles de zoom (los nombres se validan contra las columnas del conjunto y se descartan los desconocidos)
 - JWT + OAuth 2.0/OIDC y RBAC con permisos por conjunto de datos
-- Interfaz en inglés, español, francés, alemán y chino
+- Interfaz en inglés, español, francés, alemán y chino (simplificado)
 
 <details>
 <summary>Seguridad</summary>
