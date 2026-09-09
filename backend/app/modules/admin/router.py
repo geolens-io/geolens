@@ -1160,12 +1160,9 @@ async def trigger_backfill(
             detected_by="unique_index",
         )
     except asyncio.CancelledError:
-        # fix(#1556): the recovery boundary starts where a durable row can
-        # first exist. A shutdown cancelling the commit above can apply it
-        # without returning the acknowledgement, leaving a `pending` row and
-        # its `requested` trail with no worker queued and no actor left to
-        # close either. Fenced on `pending` and shielded, exactly as the
-        # dispatch arm below is; a commit that never landed matches no row.
+        # fix(#1556): a cancelled commit can apply without acknowledging,
+        # stranding a `pending` row and a `requested` trail. One that never
+        # landed matches no row, so the dispatch arm's cleanup is safe here.
         if pending_job_id is not None:
             await _settle_cancelled_backfill(
                 db, pending_job_id, {**audit_context, "job_id": str(pending_job_id)}

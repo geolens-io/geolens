@@ -39,9 +39,9 @@ logger = structlog.stdlib.get_logger(__name__)
 # route applied to its 502 body).
 BACKFILL_FAILED_MESSAGE = "Embedding backfill failed. See server logs for details."
 
-# The three states the guarded exit can unwind from. fix(#1556): the row read
-# moved inside that boundary, so a run that never claimed the row now reaches
-# it, and "could not record its outcome" would describe work that never began.
+# fix(#1556): the row read moved inside the guarded exit, so a run that never
+# claimed the row reaches it — and "could not record its outcome" would then
+# describe work that never began.
 CANCELLED_MESSAGE = (
     "Embedding backfill was cancelled by a worker shutdown. Records it had "
     "already reached carry their new vectors and the rest are unchanged; "
@@ -424,6 +424,10 @@ async def _recover_unsettled(
             # which after a lost claim commit is `pending`, not `running`.
             state.row_attempted = False
             state.expected_status = observed.status
+            # fix(#1556 review): `_finalize` REPLACES user_metadata, so it
+            # starts from the row's own — the caller's is empty when the
+            # opening read failed, erasing the marker the retry contract reads.
+            metadata = dict(observed.user_metadata or {})
         await _settle(
             fresh,
             job_uuid,
@@ -598,10 +602,9 @@ async def run_embedding_backfill(
         state = _TerminalState()
         heartbeat = None
         try:
-            # fix(#1556): the row read is inside the guarded region too. It
-            # runs before the task's own BaseException boundary otherwise, so
-            # a transient outage or a shutdown cancellation here left the row
-            # `pending`, holding the slot until the stale sweep.
+            # fix(#1556): the row read is inside the guarded region too.
+            # Outside it, a transient outage or a shutdown cancellation here
+            # left the row `pending`, holding the slot until the stale sweep.
             job = await session.get(IngestJob, job_uuid)
             if job is not None:
                 metadata = dict(job.user_metadata or {})

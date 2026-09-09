@@ -41,6 +41,7 @@ from app.platform.jobs.models import (
     IngestJob,
     commit_attempted_marker,
 )
+from app.platform.jobs.router import get_retry_capability
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings.models import RecordEmbedding
 
@@ -2303,3 +2304,14 @@ async def test_a_failed_startup_read_settles_the_row_it_could_not_read(
         "a run that never claimed the row was recorded as one that could not "
         f"record its outcome: {terminal}"
     )
+
+    # The settle REPLACES user_metadata, and the read that would have supplied
+    # it is the one that failed. Without the row's own, the marker goes with it
+    # and the retry contract reads a backfill as an ordinary import.
+    marker = (settled.user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY)
+    assert marker, f"the settle erased the backfill marker: {settled.user_metadata}"
+    assert marker["force"] is True
+    assert marker["operation_id"]
+    can_retry, reason = await get_retry_capability(settled)
+    assert can_retry is False
+    assert "backfill" in (reason or "").lower(), reason

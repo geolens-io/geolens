@@ -861,12 +861,9 @@ async def retry_job(
             heartbeat_at=None,
             completed_at=None,
             dataset_id=None,
-            # fix(#1556): the pending clock restarts HERE. It ages from
-            # `coalesce(staged_at, created_at)`, so without this stamp a job
-            # that failed an hour ago is stale the instant it commits, and the
-            # only thing standing between it and the sweep — or a 2s status
-            # poll running the same clauses — is the window before
-            # `queue_ingest_job` gets its Procrastinate row in.
+            # fix(#1556): the pending clock restarts HERE. Ageing from
+            # `coalesce(staged_at, created_at)`, an hour-old failure is stale
+            # the instant it commits, before the queue row can land.
             user_metadata=func.coalesce(
                 IngestJob.user_metadata, text("'{}'::jsonb")
             ).op("||", return_type=JSONB)(
