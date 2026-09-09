@@ -43,6 +43,53 @@ describe('BackfillRunStatus', () => {
     expect(screen.getByTestId('backfill-progress-bar')).toHaveStyle({ width: '32%' });
   });
 
+  // fix(#2025 review): the bar is a styled div. Without these the run advances
+  // every four seconds and a screen reader is told nothing.
+  it('exposes the run to assistive technology as it advances', () => {
+    render(
+      <BackfillRunStatus
+        stats={{
+          ...base,
+          current_run: {
+            job_id: 'a1',
+            status: 'running',
+            records_processed: 384,
+            records_total: 1200,
+            started_at: '2026-09-09T10:00:00Z',
+            heartbeat_at: null,
+          },
+        }}
+      />,
+    );
+
+    const bar = screen.getByRole('progressbar', { name: 'Backfill running' });
+    expect(bar).toHaveAttribute('aria-valuenow', '32');
+    expect(bar).toHaveAttribute('aria-valuemin', '0');
+    expect(bar).toHaveAttribute('aria-valuemax', '100');
+    expect(screen.getByRole('status')).toHaveTextContent('384 of 1200 records');
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('leaves the bar indeterminate rather than claiming zero percent', () => {
+    render(
+      <BackfillRunStatus
+        stats={{
+          ...base,
+          current_run: {
+            job_id: 'a1',
+            status: 'pending',
+            records_processed: 0,
+            records_total: null,
+            started_at: null,
+            heartbeat_at: null,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+  });
+
   it('says the run is starting until it has counted its records', () => {
     render(
       <BackfillRunStatus

@@ -116,14 +116,25 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
     stats_result = MagicMock()
     # (total, active-model embedded, any-model embedded) — fix(#1503)
     stats_result.one.return_value = (4, 3, 3)
+    # fix(#2025): this session now also answers the backfill run reads. They
+    # have to come back empty, or a MagicMock row reaches the response model.
+    stats_result.scalars.return_value.first.return_value = None
+    stats_result.scalars.return_value.all.return_value = []
     stats_session = AsyncMock()
     stats_session.execute.return_value = stats_result
 
     stats = await AdminService(stats_session).get_embedding_stats()
     assert (stats.total_records, stats.embedded_records) == (4, 3)
-    stats_sql = str(stats_session.execute.await_args.args[0])
-    assert "FROM catalog.records AS visible_record" in stats_sql
-    assert "LEFT JOIN catalog.record_embeddings AS embedding" in stats_sql
+    # Selected by name rather than by position: config reads precede the count
+    # and the backfill run reads follow it, so neither end is a fixed index.
+    counted = [
+        str(call.args[0])
+        for call in stats_session.execute.await_args_list
+        if "visible_record" in str(call.args[0])
+    ]
+    assert len(counted) == 1
+    assert "FROM catalog.records AS visible_record" in counted[0]
+    assert "LEFT JOIN catalog.record_embeddings AS embedding" in counted[0]
 
     # fix(#1549): the force path no longer issues a bulk DELETE up front, so a
     # run over zero records deletes nothing and there is no statement to

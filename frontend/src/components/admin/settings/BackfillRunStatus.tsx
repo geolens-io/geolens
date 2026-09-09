@@ -22,7 +22,14 @@ export function BackfillRunStatus({ stats }: { stats: EmbeddingStatsResponse }) 
     <div className="space-y-3 border-t pt-3">
       {run && (
         <div className="space-y-1.5" data-testid="backfill-progress">
-          <div className="flex items-center justify-between text-xs">
+          {/* The count carries the announcement, not the bar: a polite live
+              region is what reaches a screen reader on each poll, and it reads
+              the same words a sighted operator sees. */}
+          <div
+            className="flex items-center justify-between text-xs"
+            role="status"
+            aria-live="polite"
+          >
             <span>{t('ai.backfillInProgress')}</span>
             <span className="text-muted-foreground tabular-nums">
               {total === null
@@ -33,6 +40,13 @@ export function BackfillRunStatus({ stats }: { stats: EmbeddingStatsResponse }) 
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <div
               data-testid="backfill-progress-bar"
+              role="progressbar"
+              aria-label={t('ai.backfillInProgress')}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              // Omitted while the run is still counting its records: an
+              // indeterminate bar must not claim it is at zero percent.
+              aria-valuenow={total === null ? undefined : percent}
               className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
               style={{ width: `${percent}%` }}
             />
