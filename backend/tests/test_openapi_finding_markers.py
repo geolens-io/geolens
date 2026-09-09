@@ -67,6 +67,27 @@ class TestDetector:
         spec = {"description": "Digest as SHA-256, decoded as UTF-8."}
         assert not fm.scan_openapi(spec)
 
+    def test_a_bare_cadence_reference_fails(self):
+        hits = fm.scan_openapi({"description": "Fixed in Phase 280."})
+        assert [h.markers for h in hits] == [("Phase 280",)]
+
+    def test_a_cadence_reference_with_an_anchor_is_scoped(self):
+        spec = {"description": "Fixed in Phase 280 (#1946)."}
+        assert not fm.scan_openapi(spec)
+
+    def test_context_md_fails(self):
+        hits = fm.scan_openapi({"description": "See CONTEXT.md for the decision."})
+        assert [h.markers for h in hits] == [("CONTEXT.md",)]
+
+    def test_a_numbered_planning_doc_fails(self):
+        spec = {"description": "Per 216-04-DECISION-LOG.md, this defaults to null."}
+        hits = fm.scan_openapi(spec)
+        assert [h.markers for h in hits] == [("216-04-DECISION-LOG.md",)]
+
+    def test_agents_md_is_a_real_published_doc(self):
+        spec = {"description": "See AGENTS.md for the convention."}
+        assert not fm.scan_openapi(spec)
+
     def test_nested_paths_are_walked(self):
         spec = {
             "paths": {

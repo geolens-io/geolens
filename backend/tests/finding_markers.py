@@ -456,12 +456,21 @@ _PUBLISHED_VOCABULARY = TECHNICAL_VOCABULARY | {"ADR-002"}
 # only, not the shared MARKER_RE, so the source-tree debt ledger is untouched.
 _CADENCE_RE = re.compile(r"\b(?:Phase|Pitfall|Milestone|Wave|Sprint|Lane)\s+#?\d+\b")
 
+# A private planning-doc filename: the literal ``CONTEXT.md`` or a numbered
+# ``NNN-NN-NAME.md`` note (see backend/app/processing/ingest/tasks_common.py
+# for the shape). A real published doc (AGENTS.md, ADR-002.md) has no digit
+# prefix, so this does not need to exempt them.
+_PLANNING_DOC_RE = re.compile(
+    r"\bCONTEXT\.md\b|\b\d{2,4}-\d{2,4}-[A-Z][A-Z0-9-]*\.md\b"
+)
+
 
 def _openapi_markers(line: str) -> tuple[str, ...]:
     """Marker-shaped tokens in one description line: the shared detector's
-    hyphenated shape, plus a bare cadence reference it cannot see."""
+    hyphenated shape, plus a bare reference it cannot see."""
     found = set(markers_in(line, _PUBLISHED_VOCABULARY))
     found.update(_CADENCE_RE.findall(line))
+    found.update(_PLANNING_DOC_RE.findall(line))
     return tuple(sorted(found))
 
 
