@@ -2552,7 +2552,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1888): +16. The staged-entry settlement reads the row's status on
     # its own transaction and reaps the staged copy once a committed attempt
     # left the row failed, best effort. Cap 1130 -> 1146, exact.
-    "backend/app/processing/ingest/manifest_service.py": 1136,
+    # fix(#2017): +15. Bounds the admit-plus-bind step under its own deadline
+    # so a heartbeat-less running row can't be reaped mid-admit. Cap 1136 -> 1151.
+    "backend/app/processing/ingest/manifest_service.py": 1151,
     # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
     # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
     # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/

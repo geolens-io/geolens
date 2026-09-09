@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, patch
 
 import anyio
 import pytest
+import structlog
 from fastapi import HTTPException, Request
 from sqlalchemy import event, func, select, text, update
 
@@ -1314,6 +1315,51 @@ class TestStaleReservations:
             == 0
         )
 
+    async def test_bind_logs_the_observed_status_on_a_cas_miss(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#2017): a CAS miss on the bind logs what the row actually is,
+        so an operator can tell a sweep from a cancel."""
+        user = await _admin_user(test_db_session)
+        request = _request(_manifest_dataset(key="manifest-2017-cas-miss"))
+        prepared = await classify_manifest_source(request.datasets[0].sources[0])
+        abandoned = self._reservation(
+            user,
+            request.datasets[0],
+            prepared,
+            age_seconds=JOB_TIMEOUT_SECONDS + 60,
+        )
+        test_db_session.add(abandoned)
+        await test_db_session.commit()
+
+        assert (
+            await expire_stale_manifest_reservations(
+                test_db_session, "manifest-2017-cas-miss"
+            )
+            == 1
+        )
+        await test_db_session.commit()
+
+        with structlog.testing.capture_logs() as captured:
+            bound = await manifest_service.bind_reservation_to_staged_source(
+                test_db_session,
+                abandoned,
+                file_path="/tmp/manifest-2017-cas-miss.geojson",
+            )
+
+        assert bound is False
+        misses = [
+            record
+            for record in captured
+            if record.get("event") == "Manifest reservation bind missed its CAS"
+        ]
+        assert len(misses) == 1, (
+            f"Expected exactly one CAS-miss warning; got: {captured}"
+        )
+        assert misses[0]["log_level"] == "warning"
+        assert misses[0]["job_id"] == str(abandoned.id)
+        assert misses[0]["observed_status"] == "failed"
+
 
 class TestManifestJobsAreNotGenericallyRetryable:
     async def test_generic_retry_is_refused_for_a_manifest_keyed_job(
@@ -1524,3 +1570,73 @@ class TestDryRunReservesNothing:
         queue.assert_not_awaited()
         assert await test_db_session.scalar(select(func.count(IngestJob.id))) == before
         assert await _jobs_for_key(test_db_session, "manifest-1814-dry") == []
+
+
+class TestManifestAdmitBound:
+    """fix(#2017): the admit-plus-bind step carries its own deadline, so a
+    heartbeat-less running row can't be reaped mid-admit."""
+
+    def test_stage_and_admit_budgets_stay_inside_the_lease_with_margin(self) -> None:
+        assert (
+            manifest_service.MANIFEST_STAGE_MAX_SECONDS
+            + manifest_service.MANIFEST_ADMIT_MAX_SECONDS
+            < JOB_TIMEOUT_SECONDS
+        )
+
+    async def test_an_admit_past_its_bound_settles_like_a_staging_timeout(
+        self, test_db_session, clean_tables
+    ):
+        """Reverting the admit timeout makes this fail: the slow admit would
+        then complete, bind for real, and queue the job instead of erroring."""
+        request = _request(
+            _manifest_dataset(
+                key="manifest-2017-slow-admit",
+                uri="https://data.example.test/slow-admit.geojson",
+            )
+        )
+        staged = _staged_bytes("manifest_2017_slow_admit.geojson")
+
+        async def _slow_admit(*args, **kwargs):
+            await anyio.sleep(0.3)
+            return manifest_service._StagedManifestSource(
+                file_path=str(staged), incoming_bytes=4096
+            )
+
+        with (
+            patch(
+                "app.processing.ingest.manifest_service.MANIFEST_ADMIT_MAX_SECONDS",
+                0.05,
+            ),
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(staged)),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service._admit_staged_source",
+                new=AsyncMock(side_effect=_slow_admit),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            response = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert response.results[0].action == "error"
+        assert "did not finish admission within 0.05 seconds" in (
+            response.results[0].message
+        )
+        queue.assert_not_awaited()
+        assert not staged.exists()
+
+        reservation = (
+            await _jobs_for_key(test_db_session, "manifest-2017-slow-admit")
+        )[-1]
+        assert reservation.status == "failed"
+        assert "did not finish admission" in reservation.error_message

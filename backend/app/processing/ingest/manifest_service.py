@@ -72,6 +72,10 @@ _WRITE_BUFFER_BYTES = 4 * 1024 * 1024
 # reservation is judged by, so the budget and its judge cannot drift apart.
 MANIFEST_STAGE_MAX_SECONDS = JOB_TIMEOUT_SECONDS // 2
 
+# fix(#2017): total wall clock for admitting an already-staged entry against
+# quota and binding its reservation. stage + admit < lease, with margin.
+MANIFEST_ADMIT_MAX_SECONDS = JOB_TIMEOUT_SECONDS // 4
+
 log = structlog.get_logger()
 
 
@@ -911,19 +915,30 @@ async def _finalize_reserved_entry(
 
     admitted = False
     try:
-        staged = await _admit_staged_source(
-            db,
-            prepared,
-            user,
-            request,
-            file_path=file_path,
-            creates_dataset=reserved.creates_dataset,
-            quota=quota,
-        )
-        admitted = True
-        if not await bind_reservation_to_staged_source(db, job, file_path=file_path):
-            raise ManifestSourceError(RESERVATION_LOST_MESSAGE)
-        await _commit_staged_bind(db)
+        try:
+            # fix(#2017): stage + admit must stay under the lease with margin,
+            # so a heartbeat-less running row can't be reaped mid-admit.
+            async with asyncio.timeout(MANIFEST_ADMIT_MAX_SECONDS):
+                staged = await _admit_staged_source(
+                    db,
+                    prepared,
+                    user,
+                    request,
+                    file_path=file_path,
+                    creates_dataset=reserved.creates_dataset,
+                    quota=quota,
+                )
+                admitted = True
+                if not await bind_reservation_to_staged_source(
+                    db, job, file_path=file_path
+                ):
+                    raise ManifestSourceError(RESERVATION_LOST_MESSAGE)
+                await _commit_staged_bind(db)
+        except TimeoutError as exc:
+            raise ManifestSourceError(
+                "Manifest source did not finish admission within "
+                f"{MANIFEST_ADMIT_MAX_SECONDS} seconds"
+            ) from exc
     except BaseException as exc:
         if admitted:
             quota.release(
