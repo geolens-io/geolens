@@ -3,6 +3,7 @@
 import asyncio
 import re
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 
 import structlog
@@ -169,6 +170,44 @@ async def update_ingest_job_for_attempt(
         .values(**values)
     )
     return bool(result.rowcount)  # type: ignore[attr-defined]
+
+
+async def write_job_failure_for_attempt(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    *,
+    values: dict[str, object],
+    task_name: str,
+) -> bool | None:
+    """Commit a fenced terminal job write under the error-write budget.
+
+    Returns whether the fence matched, or ``None`` when the write did not
+    happen at all and the transaction was ended: the budget expired or the
+    connection went. Never raises, because every caller reaches it from a
+    failure path where a raise would replace the cause with a lock timeout.
+
+    fix(#1957): ``None`` is not a fence miss. A caller that treats it as one
+    drops cleanup that belongs to an attempt still owning the job row. On
+    ``None`` the row stays ``running`` for the stale sweep to settle.
+
+    Issue it AFTER any rollback on *session*: ``SET LOCAL`` dies with the
+    transaction, so a budget armed before one is gone by the next statement.
+    """
+    from sqlalchemy.exc import DBAPIError
+
+    try:
+        await arm_job_error_write_budget(session)
+        fenced = await update_ingest_job_for_attempt(
+            session, job_id, attempt_id, values=values
+        )
+        await session.commit()
+        return fenced
+    except DBAPIError as write_failure:
+        with suppress(Exception):  # broad: best-effort, the caller keeps its cause
+            await session.rollback()
+        log_job_error_write_failure(write_failure, job_id=str(job_id), task=task_name)
+        return None
 
 
 async def require_ingest_job_update(

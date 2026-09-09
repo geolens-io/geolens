@@ -42,6 +42,7 @@ from app.platform.catalog_locks import (
     lock_conflict_report,
 )
 from app.platform.jobs.heartbeat import (
+    JOB_ERROR_WRITE_TIMEOUT_MS,
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
@@ -100,11 +101,6 @@ logger = structlog.get_logger(__name__)
 # caller gets control, then the catalog wait alone. Sized against holders of
 # the catalog rows, which are short writers, not against object-storage work.
 _PHASE2_TIMEOUT_MS = 30_000
-
-# fix(#1937): the failure write goes through the same ingest_jobs row phase 2
-# contends for. Its holders self-cap far below this (`cancel_job` at 2s; the
-# sweep and startup recovery use SKIP LOCKED), so a wait past it is stuck.
-_ERROR_WRITE_TIMEOUT_MS = 10_000
 
 
 @contextmanager
@@ -904,7 +900,7 @@ async def reupload_raster(
             job_uuid,
             phase="error_write",
             attempt_id=attempt_uuid,
-            lock_and_statement_timeout_ms=_ERROR_WRITE_TIMEOUT_MS,
+            lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
         ) as (err_session, _err_job):
             await update_ingest_job_for_attempt(
                 err_session,

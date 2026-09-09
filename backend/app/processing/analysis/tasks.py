@@ -53,6 +53,7 @@ from app.platform.jobs.heartbeat import (
     resolve_ingest_job_attempt,
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
+    write_job_failure_for_attempt,
 )
 from app.processing.ingest.metadata import _sql_quote_ident
 from app.processing.ingest.tasks import task_app
@@ -207,7 +208,9 @@ async def _fail_cancelled_job(
         logger.warning("analysis.cancel_rollback_failed", job_id=job_id)
 
     async with async_session() as session:
-        if not await update_ingest_job_for_attempt(
+        # fix(#1957): budgeted, so a held job row ends this write instead of
+        # eating the 15s shield the caller wrapped it in.
+        fenced = await write_job_failure_for_attempt(
             session,
             uuid.UUID(job_id),
             attempt_id,
@@ -220,8 +223,13 @@ async def _fail_cancelled_job(
                 # the jobs UI renders '-' and retention ages on queue time.
                 "completed_at": datetime.now(timezone.utc),
             },
-        ):
-            await session.rollback()
+            task_name="analysis_cancelled",
+        )
+        # fix(#1957): an expiry proves nothing about who owns the row, so the
+        # table is left for the sweep rather than probed — leak over loss.
+        if fenced is None:
+            return
+        if not fenced:
             # fix(#814): a swept row leaves an unregistered orphan. Probe for
             # an adopting dataset row; no row means the DROP is safe, and a
             # probe that errors leaks the table rather than dropping storage.
@@ -233,7 +241,6 @@ async def _fail_cancelled_job(
                 owner_job_uuid=uuid.UUID(job_id),
             )
             return
-        await session.commit()
         if out_table is not None:
             try:
                 await session.execute(
@@ -868,7 +875,9 @@ async def _mark_job_failed(
     dataset registered it.
     """
     await session.rollback()
-    if not await update_ingest_job_for_attempt(
+    # fix(#1957): budgeted, and armed after that rollback rather than before
+    # it — `SET LOCAL` dies with the transaction the rollback ends.
+    fenced = await write_job_failure_for_attempt(
         session,
         uuid.UUID(job_id),
         attempt_id,
@@ -879,8 +888,13 @@ async def _mark_job_failed(
             # fix(#813): stamp completion time like ingest does.
             "completed_at": datetime.now(timezone.utc),
         },
-    ):
-        await session.rollback()
+        task_name="analysis_materialize",
+    )
+    # fix(#1957): an expiry proves nothing about who owns the row, so the
+    # table is left for the sweep rather than probed — leak over loss.
+    if fenced is None:
+        return
+    if not fenced:
         logger.warning("analysis.failed_write_superseded", job_id=job_id)
         # fix(#813): a fence miss means another actor set a terminal state,
         # but only a completed job has adopted the table. Probe first; a probe
@@ -893,7 +907,6 @@ async def _mark_job_failed(
             owner_job_uuid=uuid.UUID(job_id),
         )
         return
-    await session.commit()
     if out_table is not None:
         try:
             await session.execute(
