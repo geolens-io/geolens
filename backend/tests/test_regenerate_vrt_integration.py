@@ -1039,3 +1039,104 @@ async def test_an_unsettled_asset_leaves_its_generation_sweepable(
         "a failed asset write also cost the job its terminal status, which the "
         "two transactions exist to keep independent"
     )
+
+
+async def test_a_legacy_delivery_with_no_generation_still_settles_its_asset(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+):
+    """fix(#1962 codex r2): the only release path for a NULL-pointer asset.
+
+    ``sweep_stale_vrt_assets`` finds assets through the generations it just
+    failed, so an asset left ``regenerating`` with no pointer is unreachable to
+    it and 409s every later mutation.
+    """
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset
+
+    session = test_db_session
+    vrt_id = vrt_db_state["vrt_dataset_id"]
+
+    # The legacy shape: flipped to regenerating by a pre-#1267 dispatch that
+    # bound no generation, and a composition the worker refuses to build.
+    await session.execute(
+        text(
+            "UPDATE catalog.raster_assets SET status = 'regenerating', "
+            "current_generation_id = NULL WHERE dataset_id = :id"
+        ),
+        {"id": vrt_id},
+    )
+    await session.execute(
+        text("DELETE FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"),
+        {"id": vrt_id},
+    )
+    await session.commit()
+
+    with pytest.raises(ValueError, match="no source links"):
+        await regenerate_vrt.func(
+            job_id=vrt_db_state["job_id"],
+            attempt_id=vrt_db_state["attempt_id"],
+            vrt_dataset_id=vrt_id,
+        )
+
+    vrt_asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    await session.refresh(vrt_asset)
+    assert vrt_asset.status == "failed", (
+        "the asset was left regenerating with no pointer, which no sweep can "
+        "reach and which 409s every later VRT mutation"
+    )
+
+
+async def test_a_ready_asset_with_no_pointer_is_left_alone(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+):
+    """The NULL-pointer branch is status-fenced, not pointer-fenced alone."""
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset
+
+    session = test_db_session
+    vrt_id = vrt_db_state["vrt_dataset_id"]
+
+    await session.execute(
+        text(
+            "UPDATE catalog.raster_assets SET status = 'ready', "
+            "current_generation_id = NULL WHERE dataset_id = :id"
+        ),
+        {"id": vrt_id},
+    )
+    await session.execute(
+        text("DELETE FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"),
+        {"id": vrt_id},
+    )
+    await session.commit()
+
+    with pytest.raises(ValueError, match="no source links"):
+        await regenerate_vrt.func(
+            job_id=vrt_db_state["job_id"],
+            attempt_id=vrt_db_state["attempt_id"],
+            vrt_dataset_id=vrt_id,
+        )
+
+    vrt_asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    await session.refresh(vrt_asset)
+    assert vrt_asset.status == "ready", (
+        "a doomed attempt failed an asset it never owned, so a VRT the sweep "
+        "had already restored is reported broken"
+    )

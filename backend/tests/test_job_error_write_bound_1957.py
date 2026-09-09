@@ -149,8 +149,9 @@ class TestEveryRemainingSiteIsArmed:
             "empty scan rather than on the tree"
         )
         assert not unarmed, (
-            f"{unarmed} open a fresh session and write status='failed' on the "
-            "job row without arming the error-write budget on it"
+            f"{unarmed} open a fresh session and write a failed status on a "
+            "row nothing in that session holds, without arming the "
+            "error-write budget on it"
         )
 
     def test_the_analysis_write_is_armed_after_its_rollback(self) -> None:

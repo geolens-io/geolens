@@ -862,8 +862,8 @@ class TestRegenerateVrtTask:
         ) or regenerate_vrt.task_kwargs.get("queue")
         assert queue == "raster"
 
-    def test_an_attempt_with_no_generation_writes_the_job_row_only(self):
-        """fix(#1962): no generation bound, so no asset pointer to release."""
+    def test_task_sets_status_to_failed_on_exception(self):
+        """On exception, task sets asset.status = 'failed' and job.status = 'failed'."""
 
         async def _check():
             from app.processing.ingest.tasks import regenerate_vrt
@@ -923,10 +923,10 @@ class TestRegenerateVrtTask:
             statements = "\n".join(
                 str(call.args[0]) for call in mock_session.execute.await_args_list
             )
-            # The job UPDATE is stubbed module-wide by `_fence_vrt_worker_helpers`,
-            # so the budget it arms is what shows the handler ran its write.
-            assert "SET LOCAL lock_timeout" in statements
-            assert "UPDATE catalog.raster_assets" not in statements
+            assert "UPDATE catalog.raster_assets" in statements
+            # fix(#1962 codex r2): a legacy delivery binds no generation, so the
+            # NULL-pointer branch is the only thing that can release its asset.
+            assert "current_generation_id IS NULL" in statements
 
         asyncio.run(_check())
 

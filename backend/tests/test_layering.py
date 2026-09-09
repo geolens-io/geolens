@@ -4650,8 +4650,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # unbounded SELECT. Cap 1709 -> 1705, exact.
     # fix(#1962): +37 — `_settle_failed_vrt_asset` commits the asset write
     # before the job row is touched, and reports whether it landed so the
-    # generation stays sweepable when it did not. Cap 1626 -> 1663, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1663,
+    # generation stays sweepable when it did not, and reports a pool
+    # timeout the same way, and the NULL-pointer branch settles a legacy
+    # delivery the sweep cannot reach. Cap 1626 -> 1669, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1669,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait

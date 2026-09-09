@@ -202,3 +202,26 @@ class TestAHeldAdmissionRefusesTheSecondDoor:
         assert resp.status_code == 409, resp.text
         assert deferred == [], "a refused removal still queued a regeneration"
         assert await _generation_count(test_db_session, vrt_id) == 0
+
+
+async def test_an_asset_deleted_under_the_re_read_is_refused(test_db_session) -> None:
+    """fix(#1955 codex r2): `refresh` reports a vanished row, and 409 beats 500."""
+    import app.core.db as db_module
+    from app.processing.raster.models import RasterAsset
+
+    admin_id = await _get_admin_id(test_db_session)
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
+
+    async with db_module.async_session() as reader:
+        vrt_asset = (
+            await reader.execute(
+                select(RasterAsset).where(RasterAsset.dataset_id == vrt_id)
+            )
+        ).scalar_one()
+        async with db_module.async_session() as deleter:
+            await deleter.execute(
+                text("DELETE FROM catalog.raster_assets WHERE dataset_id = :id"),
+                {"id": str(vrt_id)},
+            )
+            await deleter.commit()
+        assert await admit_vrt_mutation(reader, vrt_id, vrt_asset) is False

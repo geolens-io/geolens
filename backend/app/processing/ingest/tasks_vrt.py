@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
 from sqlalchemy import select
 
@@ -149,11 +149,13 @@ async def _settle_failed_vrt_asset(
     *,
     job_id: str,
 ) -> bool:
-    """Repoint the VRT asset off a generation that failed, in its own transaction.
+    """Release the VRT asset from the attempt that failed, in its own transaction.
 
     Fenced on the pointer, so a newer retry that already owns it keeps its
-    status. Does nothing when this attempt never bound a generation: there is
-    no pointer to release, and the fence would otherwise read as ``IS NULL``.
+    status. fix(#1962 codex r2): a legacy delivery reaches here having bound no
+    generation, and the sweep finds assets only through one, so a NULL pointer
+    is settled too. That branch also fences on ``regenerating`` rather than the
+    pointer alone, which would fail an asset the sweep already restored.
 
     Never raises. Returns whether the asset is provably no longer pointing at
     *generation_uuid*; on False the caller MUST leave the generation
@@ -164,21 +166,25 @@ async def _settle_failed_vrt_asset(
     from app.core.db import async_session
     from app.processing.raster.models import RasterAsset
 
-    if generation_uuid is None:
-        return True
+    fences = [RasterAsset.dataset_id == vrt_dataset_id]
+    if generation_uuid is not None:
+        fences.append(RasterAsset.current_generation_id == generation_uuid)
+    else:
+        fences.append(RasterAsset.current_generation_id.is_(None))
+        fences.append(RasterAsset.status == "regenerating")
     try:
         async with async_session() as session:
             await arm_job_error_write_budget(session)
             await session.execute(
                 sa_update(RasterAsset)
-                .where(
-                    RasterAsset.dataset_id == vrt_dataset_id,
-                    RasterAsset.current_generation_id == generation_uuid,
-                )
+                .where(*fences)
                 .values(status="failed", current_generation_id=None)
             )
             await session.commit()
-    except DBAPIError as write_failure:
+    except SQLAlchemyError as write_failure:
+        # Wider than the budget's own DBAPIError: this runs OUTSIDE the
+        # handler's try, so a pool timeout escaping here would replace the
+        # build failure and skip the job write below.
         log_job_error_write_failure(write_failure, job_id=job_id, task="regenerate_vrt")
         return False
     return True

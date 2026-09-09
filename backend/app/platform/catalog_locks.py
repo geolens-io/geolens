@@ -13,10 +13,9 @@ from contextvars import ContextVar
 from typing import Any
 
 from sqlalchemy import event, func, select, text, update
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
-from sqlalchemy.orm.exc import ObjectDeletedError
 
 from app.core.db.sqlstate import is_lock_conflict, sqlstate
 
@@ -269,8 +268,9 @@ async def admit_vrt_mutation(
         return False
     try:
         await session.refresh(vrt_asset)
-    except ObjectDeletedError:
-        # Deleted between the caller's load and this re-read. Refusing is the
-        # honest answer: there is no asset left to mutate.
+    except InvalidRequestError:
+        # Deleted between the caller's load and this re-read. `refresh` reports
+        # that as InvalidRequestError, not the ObjectDeletedError its subclass
+        # name suggests; refusing beats a 500 on a row that is gone.
         return False
     return vrt_asset.status != "regenerating"
