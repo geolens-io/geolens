@@ -9,6 +9,7 @@ module, so the clause holds whichever caller composed the text.
 from __future__ import annotations
 
 from app.core.url_redaction import (
+    redact_filesystem_paths,
     redact_libpq_credentials,
     redact_url_credentials,
     scrub_registered_credentials,
@@ -66,9 +67,16 @@ def redact_failure_reason(reason: str | BaseException) -> str:
 
 
 def _scrub(text: str) -> str:
-    """Every credential shape a reason can carry, masked."""
-    return redact_libpq_credentials(
-        scrub_registered_credentials(redact_url_credentials(text))
+    """Every shape Decision 3 keeps out of a reason, masked.
+
+    fix(#1953): the last two are what a GDAL wrapper drags in. Being defined
+    under ``app.`` says who raised the exception, never that its message is
+    free of the subprocess output it was built from.
+    """
+    return redact_filesystem_paths(
+        redact_libpq_credentials(
+            scrub_registered_credentials(redact_url_credentials(text))
+        )
     )
 
 

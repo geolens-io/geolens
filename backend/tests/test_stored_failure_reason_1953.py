@@ -94,7 +94,41 @@ class TestTheHelperRefusesWhatDecision3Forbids:
             assert "hunter2" not in reason
             assert "hunt er2" not in reason
             assert "password=<redacted>" in reason
-            assert "dbname=geolens" in reason, "only the secret is masked"
+            assert "geolens" not in reason, "the topology goes with the secret"
+
+    def test_a_one_line_gdal_echo_keeps_no_path_and_no_topology(self) -> None:
+        """The whole leak fits on one line, so the summary cut removes none of
+        it. Being defined under ``app.`` says who raised the exception, never
+        that its message is free of the subprocess output it was built from."""
+        reason = redact_failure_reason(
+            IngestionError(
+                "ogr2ogr -f PostgreSQL PG:host=db port=5432 dbname=geolens "
+                "user=gl password=hunter2 /app/staging/9f2_roads.gpkg"
+            )
+        )
+
+        assert "hunter2" not in reason
+        for keyword in ("host", "port", "dbname", "user", "password"):
+            assert f"{keyword}=<redacted>" in reason
+        assert "geolens" not in reason
+        assert "/app/staging" not in reason
+        assert "9f2_roads.gpkg" not in reason
+
+    def test_a_vsi_handle_is_a_path_too(self) -> None:
+        reason = redact_failure_reason(
+            IngestionError("ERROR 1: Cannot open /vsis3/geolens-data/r/abc.tif")
+        )
+
+        assert reason == "ERROR 1: Cannot open <redacted>"
+
+    def test_a_url_in_a_composed_message_keeps_its_path(self) -> None:
+        """The path masking's negative control: a manifest download names its
+        source, and a URL's slashes follow a host rather than a space."""
+        assert redact_failure_reason(
+            "Failed to download manifest source: https://example.com/a/b.gpkg timed out"
+        ) == (
+            "Failed to download manifest source: https://example.com/a/b.gpkg timed out"
+        )
 
     def test_a_credential_broken_across_a_line_is_still_masked(self) -> None:
         """Choosing the summary line first would hand the scrubbers a URL cut
