@@ -28,7 +28,7 @@ from app.modules.admin.service import AdminService
 from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 from app.processing.embeddings import backfill as backfill_module
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 def _marker(**extra) -> dict:
@@ -142,6 +142,9 @@ async def test_the_estimate_uses_the_last_completed_runs_throughput(
 ):
     """Seconds per record, measured here, applied to both backfill actions."""
     admin_id = await get_user_id(test_db_session, "admin")
+    await create_dataset(
+        test_db_session, created_by=admin_id, name=f"Estimate {uuid.uuid4().hex[:6]}"
+    )
     finished = datetime.now(timezone.utc) + timedelta(hours=1)
     job = IngestJob(
         source_filename="embedding-backfill",
@@ -159,6 +162,9 @@ async def test_the_estimate_uses_the_last_completed_runs_throughput(
 
     try:
         stats = await AdminService(test_db_session).get_embedding_stats()
+        # Without records to project onto, both sides of the equalities below
+        # are zero whatever rate the estimate used.
+        assert stats.missing_records > 0 and stats.total_records > 0
         assert stats.estimate is not None
         # 10 seconds for 100 records.
         assert stats.estimate.missing_seconds == round(stats.missing_records * 0.1, 1)
@@ -170,22 +176,32 @@ async def test_the_estimate_uses_the_last_completed_runs_throughput(
 @pytest.mark.anyio
 async def test_another_tenants_runs_are_neither_read_nor_estimated_from(monkeypatch):
     """Every run read is tenant-scoped, and no completed run means no estimate."""
+    from app.core.db.tenant_session import current_tenant_var
+
     monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    token = current_tenant_var.set(uuid.uuid4())
     result = MagicMock()
     result.scalars.return_value.first.return_value = None
     result.scalars.return_value.all.return_value = []
     session = AsyncMock()
     session.execute.return_value = result
 
-    observability = await collect_backfill_observability(
-        session, missing_records=10, total_records=20
-    )
+    try:
+        observability = await collect_backfill_observability(
+            session, missing_records=10, total_records=20
+        )
+    finally:
+        current_tenant_var.reset(token)
 
     assert observability == {"current_run": None, "recent_runs": [], "estimate": None}
-    statements = [str(call.args[0]) for call in session.execute.await_args_list]
-    assert len(statements) == 3
-    for statement in statements:
-        assert "ingest_jobs.tenant_id" in statement
+    # The WHERE clause, not the rendered statement: every column of the row is
+    # in the SELECT list, so a naive substring check passes with no filter at all.
+    predicates = [
+        str(call.args[0].whereclause) for call in session.execute.await_args_list
+    ]
+    assert len(predicates) == 3
+    for predicate in predicates:
+        assert "ingest_jobs.tenant_id = " in predicate
 
 
 @pytest.mark.anyio
