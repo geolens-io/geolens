@@ -3,7 +3,7 @@ import { cookieAuthAvailable } from '@/lib/auth-transport';
 import { isEmbedViewer } from '@/lib/embed-context';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
-import { logoutSession, refreshAccessToken } from './auth';
+import { refreshAccessToken } from './auth';
 import i18n from '@/i18n/i18n';
 
 // fix(#438): DATA-04 — a request whose socket hangs used to spin forever and
@@ -28,7 +28,7 @@ export class ApiError extends Error {
 // timer in use-auth.ts (which now also calls tryRefresh) collapse to one
 // /auth/refresh/ POST per refresh cycle. Cleared in finally so the next
 // expiration starts fresh.
-let inflightRefresh: Promise<boolean> | null = null;
+let inflightRefresh: Promise<RefreshOutcome> | null = null;
 let inflightRefreshAbort: AbortController | null = null;
 
 /**
@@ -69,27 +69,34 @@ export function onSessionExpired(handler: () => void): () => void {
 export function notifySessionExpired(deadSessionKey: string): void {
   if (deadSessionKey === lastNotifiedSessionKey) return;
   lastNotifiedSessionKey = deadSessionKey;
-  // fix(#1446): the refresh that got us here may have failed transiently — a
-  // 429, a 5xx, a dropped connection — in which case the refresh cookie and
-  // its server-side row are still perfectly valid behind a UI that now says
-  // "signed out". Since fix(#1302) that credential is httpOnly, so clearing
-  // the store cannot touch it. Dispatch a best-effort revocation on the way
-  // out. logoutSession issues a plain fetch, so this cannot recurse back
-  // through the 401 interceptor that called us.
+  // fix(#2038): clear locally only. /auth/logout/ revokes EVERY refresh row
+  // of the user, so revoking a dead session here signed the account out on
+  // every other device, each of which then failed its own refresh and revoked.
   abortInflightRefresh();
-  void logoutSession().catch(() => {});
   useAuthStore.getState().logout();
   sessionExpiredHandler?.();
 }
 
+/** fix(#2038): only a REJECTED refresh credential (401/403) means the session
+ * is over; a 429, a 5xx or a dropped connection leaves it alive. */
+export type RefreshOutcome = 'refreshed' | 'rejected' | 'transient';
+
+/** True when this attempt stored a new access token. */
 export async function tryRefresh(): Promise<boolean> {
+  return (await attemptRefresh()) === 'refreshed';
+}
+
+/** As tryRefresh, but also reports WHY a failure happened. */
+export async function attemptRefresh(): Promise<RefreshOutcome> {
   const { refreshToken, token } = useAuthStore.getState();
   // fix(#1302): in cookie mode the credential is invisible to JS, so a stored
   // refresh token is no longer proof a session exists — an access token is.
   // `refreshToken` is still consulted because a pre-GH-1302 session carries one
   // for exactly one migrating refresh, and because cross-origin deployments
   // never leave cookie mode's starting gate.
-  if (!refreshToken && !(token && cookieAuthAvailable())) return false;
+  //
+  // fix(#2038): nothing to refresh WITH, so this session cannot come back.
+  if (!refreshToken && !(token && cookieAuthAvailable())) return 'rejected';
 
   // fix(#1849): the outcome of the in-flight refresh IS the answer here, not
   // whatever token happens to be sitting in the store — see the fix note on
@@ -130,10 +137,12 @@ export async function tryRefresh(): Promise<boolean> {
   // new token into this tab's store while this attempt is still in flight —
   // most easily during the 429 backoff wait. `token` is that pre-attempt
   // value from the destructure above.
-  const promise = (async (): Promise<boolean> => {
+  const promise = (async (): Promise<RefreshOutcome> => {
     try {
       const tokens = await refreshAccessToken(refreshToken, controller.signal);
-      if (useAuthStore.getState().sessionEpoch !== epochAtStart) return false;
+      // fix(#2038): the rotation landed, we just refuse to store it — the
+      // credential is alive, so this is not session death.
+      if (useAuthStore.getState().sessionEpoch !== epochAtStart) return 'transient';
       // fix(#1302): null in cookie mode, which also clears the legacy
       // localStorage token once the migrating refresh has spent it.
       useAuthStore.getState().setTokens(
@@ -141,7 +150,7 @@ export async function tryRefresh(): Promise<boolean> {
         tokens.refresh_token ?? null,
         tokens.expires_in,
       );
-      return true;
+      return 'refreshed';
     } catch (err) {
       // If rate-limited, wait before giving up so the next attempt isn't also blocked
       if (err instanceof ApiError && err.status === 429) {
@@ -155,10 +164,12 @@ export async function tryRefresh(): Promise<boolean> {
       // that tab just refreshed.
       const currentToken = useAuthStore.getState().token;
       if (currentToken && currentToken !== token) {
-        return true;
+        return 'refreshed';
       }
-      // Refresh failed -- will fall through to logout
-      return false;
+      // fix(#2038): 401/403 is the server rejecting the credential; anything
+      // else (429, 5xx, a dropped connection, an abort) left it alive.
+      const rejected = err instanceof ApiError && (err.status === 401 || err.status === 403);
+      return rejected ? 'rejected' : 'transient';
     } finally {
       inflightRefresh = null;
       if (inflightRefreshAbort === controller) inflightRefreshAbort = null;
@@ -256,8 +267,8 @@ export async function authenticatedRawFetch(
     // fix(#1302): keyed on the access token now that the refresh token is a
     // cookie. Every real session has one, and it is cleared on logout.
     const deadSessionKey = useAuthStore.getState().token;
-    const refreshed = await tryRefresh();
-    if (refreshed) {
+    const outcome = await attemptRefresh();
+    if (outcome === 'refreshed') {
       const retry = await safeFetch(target, {
         ...options,
         headers: buildHeaders(),
@@ -268,10 +279,14 @@ export async function authenticatedRawFetch(
       // a spurious logout.
       if (retry.status !== 401) return retry;
     }
-    if (deadSessionKey) {
-      notifySessionExpired(deadSessionKey);
-    } else {
-      useAuthStore.getState().logout();
+    // fix(#2038): a transiently-failed refresh leaves the session alive, so keep
+    // it and let the caller see the 401 instead of tearing the session down.
+    if (outcome !== 'transient') {
+      if (deadSessionKey) {
+        notifySessionExpired(deadSessionKey);
+      } else {
+        useAuthStore.getState().logout();
+      }
     }
     // fix(#438): UX-10 — was hardcoded English.
     throw new ApiError(i18n.t('common:errors.unauthorized'), 401);

@@ -1,4 +1,4 @@
-import { apiFetch, ApiError, notifySessionExpired, tryRefresh } from './client';
+import { apiFetch, ApiError, attemptRefresh, notifySessionExpired, tryRefresh, type RefreshOutcome } from './client';
 import { uploadChunks } from './_presignedUpload';
 import { API_BASE } from '@/lib/constants';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -84,9 +84,11 @@ async function xhrUpload<T>(
   // authenticatedRawFetch — every concurrent failure then keys the
   // notification latch on the same value.
   let deadSessionKey: string | null = null;
+  let refreshOutcome: RefreshOutcome | null = null;
   if (res.status === 401) {
     deadSessionKey = useAuthStore.getState().token;
-    if (await tryRefresh()) {
+    refreshOutcome = await attemptRefresh();
+    if (refreshOutcome === 'refreshed') {
       try {
         res = await attempt();
       } catch (err) {
@@ -105,13 +107,10 @@ async function xhrUpload<T>(
       // Non-JSON failures use the localized status category below.
     }
     reportNetworkError({ status: res.status, url: reportUrl, detail });
-    // fix(#1446): route terminal auth failure through the shared path instead
-    // of clearing the store directly. Since the refresh credential became an
-    // httpOnly cookie, a store-only logout leaves it and its server-side row
-    // alive; notifySessionExpired dispatches the revocation. It also gives
-    // uploads the same single signed-out prompt every other surface shows
-    // (fix(#628)), which this call site never had.
-    if (res.status === 401) {
+    // fix(#1446): route terminal auth failure through the shared path, so
+    // uploads get the same single signed-out prompt every other surface shows.
+    // fix(#2038): and only when the refresh credential was actually rejected.
+    if (res.status === 401 && refreshOutcome !== 'transient') {
       if (deadSessionKey) {
         notifySessionExpired(deadSessionKey);
       } else {

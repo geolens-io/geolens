@@ -67,18 +67,44 @@ describe('session-expiry notification (fix #628)', () => {
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
   });
 
-  // fix(#1446): the refresh may have failed transiently (429, 5xx, dropped
-  // connection), leaving a perfectly valid httpOnly refresh cookie behind a UI
-  // that says "signed out". Clearing the store cannot reach that credential,
-  // so revocation is dispatched on the way out.
-  it('revokes server-side when the refresh failed transiently rather than definitively', async () => {
+  // fix(#2038): a rate-limited refresh in one client used to revoke every
+  // session of the user, so every other client then revoked in turn.
+  it('keeps the session and revokes nothing when the refresh is rate-limited', async () => {
     signIn();
+    const live = useAuthStore.getState().token;
     mockFetch.mockResolvedValue(errorResponse(401));
     vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('rate limited', 429));
 
     await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
 
-    expect(logoutSession).toHaveBeenCalledTimes(1);
+    expect(logoutSession).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe(live);
+  });
+
+  // fix(#2038): a dropped connection is no evidence the credential is dead.
+  it('keeps the session and revokes nothing when the refresh cannot reach the server', async () => {
+    signIn();
+    const live = useAuthStore.getState().token;
+    mockFetch.mockResolvedValue(errorResponse(401));
+    vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('network error', 0));
+
+    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+
+    expect(logoutSession).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe(live);
+  });
+
+  // fix(#2038): a rejected refresh row has nothing left to revoke server-side.
+  it('clears local state without a server revocation when the refresh is rejected', async () => {
+    signIn();
+    mockFetch.mockResolvedValue(errorResponse(401));
+    vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('unauthorized', 401));
+
+    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+
+    expect(logoutSession).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().token).toBeNull();
   });

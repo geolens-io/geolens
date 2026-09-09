@@ -4,9 +4,6 @@ import type { TokenResponse } from '@/types/api';
 
 vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
-  // fix(#1446): the 401 path now dispatches a best-effort server revocation,
-  // because a transiently-failed refresh leaves a live httpOnly cookie that
-  // clearing the store cannot reach.
   logoutSession: vi.fn(() => Promise.resolve()),
 }));
 
@@ -270,7 +267,8 @@ describe('apiFetch', () => {
   // attempt a refresh. Only when that refresh also fails is the session dead.
   it('still attempts a cookie refresh on 401 with no stored refresh token', async () => {
     const { refreshAccessToken } = await import('@/api/auth');
-    vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('refresh failed'));
+    // fix(#2038): 401 is what makes the session dead rather than merely stalled.
+    vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('unauthorized', 401));
 
     useAuthStore.setState({ token: 'cookie-session-token', refreshToken: null });
     // fix(#1849): a failed refresh no longer retries with the dead token, so
@@ -293,9 +291,9 @@ describe('apiFetch', () => {
     expect(refreshAccessToken).not.toHaveBeenCalled();
   });
 
-  it('logs out and throws on 401 when refresh fails', async () => {
+  it('logs out and throws on 401 when the refresh credential is rejected', async () => {
     const { refreshAccessToken } = await import('@/api/auth');
-    vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('refresh failed'));
+    vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('unauthorized', 401));
 
     // A distinct access token per test: the session-death latch dedupes on it,
     // and real sessions never reuse one (every JWT carries a fresh jti).
@@ -358,7 +356,8 @@ describe('apiFetch', () => {
 
         expect(result).toBeInstanceOf(ApiError);
         expect(mockFetch).toHaveBeenCalledTimes(1);
-        expect(useAuthStore.getState().token).toBeNull();
+        // fix(#2038): rate-limited is transient, so the session survives it.
+        expect(useAuthStore.getState().token).toBe('expired-token-1849c');
       } finally {
         vi.useRealTimers();
       }

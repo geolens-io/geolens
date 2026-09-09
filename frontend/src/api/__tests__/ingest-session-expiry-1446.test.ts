@@ -1,15 +1,14 @@
 import { useAuthStore } from '@/stores/auth-store';
-import { onSessionExpired } from '@/api/client';
+import { ApiError, onSessionExpired } from '@/api/client';
 
-// fix(#1446): the XHR upload path cleared the store directly on a terminal
-// 401. Since the refresh credential became an httpOnly cookie, that leaves it
-// and its server-side row alive while the client considers the user signed
-// out. It also skipped the signed-out prompt every other surface shows
-// (fix(#628)). It now routes through notifySessionExpired.
+// fix(#1446): the XHR upload path cleared the store directly on a terminal 401,
+// skipping the single signed-out prompt every other surface shows (fix(#628)).
+// It now routes through notifySessionExpired.
 
 const mockLogoutSession = vi.fn<() => Promise<void>>();
+const mockRefresh = vi.fn<() => Promise<never>>();
 vi.mock('@/api/auth', () => ({
-  refreshAccessToken: vi.fn(() => Promise.reject(new Error('rate limited'))),
+  refreshAccessToken: () => mockRefresh(),
   logoutSession: () => mockLogoutSession(),
 }));
 
@@ -36,6 +35,7 @@ describe('upload auth failure (fix #1446)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLogoutSession.mockResolvedValue(undefined);
+    mockRefresh.mockRejectedValue(new ApiError('unauthorized', 401));
     handler = vi.fn<() => void>();
     unregister = onSessionExpired(handler);
     (globalThis as unknown as { XMLHttpRequest: unknown }).XMLHttpRequest = FakeXHR;
@@ -46,10 +46,9 @@ describe('upload auth failure (fix #1446)', () => {
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
   });
 
-  it('revokes server-side and prompts once when an upload 401s terminally', async () => {
+  it('clears local state and prompts once when an upload 401s terminally', async () => {
     const { uploadFile } = await import('@/api/ingest');
-    // Both the original attempt and the post-refresh retry return 401.
-    FakeXHR.queue = [401, 401];
+    FakeXHR.queue = [401];
     useAuthStore.setState({
       token: 'stale-access',
       refreshToken: null,
@@ -60,9 +59,31 @@ describe('upload auth failure (fix #1446)', () => {
       uploadFile(new File(['x'], 'a.geojson')),
     ).rejects.toMatchObject({ status: 401 });
 
-    expect(mockLogoutSession).toHaveBeenCalledTimes(1);
+    // fix(#2038): local teardown only — /auth/logout/ revokes every device.
+    expect(mockLogoutSession).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  // fix(#2038): the upload door shares the rule — only a rejected refresh
+  // credential ends the session.
+  it('keeps the session when the upload 401s but the refresh failed transiently', async () => {
+    const { uploadFile } = await import('@/api/ingest');
+    mockRefresh.mockRejectedValue(new ApiError('service unavailable', 503));
+    FakeXHR.queue = [401];
+    useAuthStore.setState({
+      token: 'live-access',
+      refreshToken: null,
+      expiresAt: Date.now() + 120_000,
+    });
+
+    await expect(
+      uploadFile(new File(['x'], 'a.geojson')),
+    ).rejects.toMatchObject({ status: 401 });
+
+    expect(mockLogoutSession).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe('live-access');
   });
 
   it('does not revoke on an anonymous upload 401 (no session to end)', async () => {
