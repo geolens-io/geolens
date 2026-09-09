@@ -37,7 +37,7 @@ from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import purge_queue_row_tokens, purge_terminal_job_tokens
 from app.processing.ingest import tasks_reupload, tasks_vector
 from app.processing.ingest.tasks_common import (
-    purge_queued_job_token,
+    purge_queued_job_arg,
     purge_token_on_failure,
 )
 from tests.factories import get_user_id
@@ -268,7 +268,7 @@ class TestTheTaskStripsItsOwnRow:
     async def test_the_purge_never_displaces_the_real_failure(self):
         """A broken purge is a warning, not a second exception."""
         with patch("app.core.db.async_session", side_effect=RuntimeError("db is gone")):
-            await purge_queued_job_token(SimpleNamespace(job=SimpleNamespace(id=1)))
+            await purge_queued_job_arg(SimpleNamespace(job=SimpleNamespace(id=1)))
 
 
 class TestBothServiceTasksAreWired:

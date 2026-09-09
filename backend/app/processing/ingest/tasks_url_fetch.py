@@ -17,6 +17,7 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import structlog
 from sqlalchemy import select
@@ -34,6 +35,7 @@ from app.processing.ingest.service import raster_stamped_metadata
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
+    purge_queued_job_arg,
     task_app,
 )
 from app.processing.ingest.url_fetch import fetch_url_to_path
@@ -60,7 +62,7 @@ _LEASE_LOST_DETAIL = (
 
 
 async def _adopt_running_lease(
-    session, job_id: uuid.UUID, attempt_id: uuid.UUID
+    session, job_id: uuid.UUID, attempt_id: uuid.UUID, local_dest: Path
 ) -> bool:
     """Take over the lease the door committed, or report that it is gone.
 
@@ -68,6 +70,11 @@ async def _adopt_running_lease(
     the ordinary pending->running claim does not apply. The fence is the one
     every other task uses; a miss means a cancel, a retry or the stale sweep
     settled the row first, and this delivery must touch nothing.
+
+    fix(#1710): ``file_path`` names the destination BEFORE the first byte
+    lands, so a hard-killed worker leaves a partial the retention purge's
+    ``_reap_committed_staged_paths`` can still find. The success CAS
+    overwrites it with wherever the file was actually staged.
     """
     adopted = await update_ingest_job_for_attempt(
         session,
@@ -77,6 +84,7 @@ async def _adopt_running_lease(
             "heartbeat_at": datetime.now(timezone.utc),
             "current_step": "downloading",
             "progress": 0.0,
+            "file_path": str(local_dest),
         },
         expected_status="running",
     )
@@ -121,9 +129,12 @@ async def _staged_values(
     }
 
 
-@task_app.task(queue="ingest", retry=0)
+@task_app.task(queue="ingest", retry=0, pass_context=True)
 @tenant_task
 async def fetch_url(
+    job_context: Any = None,
+    /,
+    *,
     job_id: str,
     url: str,
     user_id: str,
@@ -158,16 +169,23 @@ async def fetch_url(
 
     try:
         async with db_module.async_session() as session:
-            if not await _adopt_running_lease(session, job_uuid, attempt_uuid):
+            if not await _adopt_running_lease(
+                session, job_uuid, attempt_uuid, local_dest
+            ):
                 logger.info("url_fetch_lease_already_settled", job_id=job_id)
                 return
+        # fix(#1710): the URL is in memory now, and `retry=0` means nothing
+        # re-runs from these args, so drop it from the queue row before the
+        # transfer. A presigned S3 or SAS link is bearer-equivalent, and the
+        # worker deletes only SUCCESSFUL rows.
+        await purge_queued_job_arg(job_context, arg_key="url")
         heartbeat_task = asyncio.create_task(
             maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
         )
-        # INVARIANT: every step after the lease is adopted runs inside the
-        # settlement below. A refusal raised outside it (the quota preflight
-        # was one) leaves the row 'running' for the whole lease with nothing
-        # to tell the owner why.
+        # INVARIANT: every step after the lease is adopted settles the row.
+        # The staging block owns the ones that can hold staged bytes; the
+        # handler below is the backstop for the rest, including a session
+        # this block cannot even open.
         await _stage_downloaded_file(
             db_module,
             url=url,
@@ -188,13 +206,18 @@ async def fetch_url(
         # matches zero rows and keeps whatever verdict it has.
         if not getattr(exc, _SETTLED_ATTR, False):
             async with db_module.async_session() as settle_session:
+                # local_dest is None on purpose: this handler owns no bytes.
+                # It also catches a teardown raised AFTER the transition
+                # committed, where on local storage local_dest IS the
+                # published file_path. `fetch_url_to_path` already unlinks
+                # its own partial, so nothing here needs deleting.
                 await _settle_failed_url_import(
                     settle_session,
                     exc,
                     job_id=job_uuid,
                     attempt_id=attempt_uuid,
                     s3_key=None,
-                    local_dest=local_dest,
+                    local_dest=None,
                 )
         # Swallowed so an ordinary refusal (size cap, content mismatch, dead
         # origin) is not reported as a crashed worker. The URL never enters

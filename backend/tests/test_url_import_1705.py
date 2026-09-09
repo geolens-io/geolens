@@ -1269,7 +1269,10 @@ class TestUrlImportStagingDirFailure:
         assert resp.status_code == 201, resp.text
         job = await _job_by_name(test_db_session, "roparent.geojson")
         assert job.status == "failed"
-        assert not job.file_path
+        # fix(#1710): file_path names the intended destination from adoption
+        # on, so the reaper can find a partial. What matters is that nothing
+        # landed there and the job never became previewable.
+        assert not Path(job.file_path).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1322,7 +1325,7 @@ class TestUrlImportQuotaCappedStream:
         job = await _job_by_name(test_db_session, "atcap.geojson")
         assert job.status == "failed"
         assert "Storage quota exceeded" in job.error_message
-        assert not job.file_path
+        assert not Path(job.file_path).exists()
 
     async def test_near_cap_stream_cut_at_remaining_quota(
         self,

@@ -1022,25 +1022,45 @@ def publish_refresh_reconciliation(outcome: StaleCleanupOutcome) -> None:
         refresh_sweep_reconciled_total.inc(outcome._refresh_runs_reconciled)
 
 
-_PURGE_JOB_TOKENS_BY_ID_SQL = (
-    "UPDATE catalog.procrastinate_jobs SET args = args - 'token' "
-    "WHERE id = ANY(:job_ids)"
-)
+# fix(#1710): one literal statement per key rather than a built string, so no
+# caller can reach this with an identifier of its own.
+_PURGE_JOB_ARGS_BY_ID_SQL = {
+    "token": (
+        "UPDATE catalog.procrastinate_jobs SET args = args - 'token' "
+        "WHERE id = ANY(:job_ids)"
+    ),
+    "url": (
+        "UPDATE catalog.procrastinate_jobs SET args = args - 'url' "
+        "WHERE id = ANY(:job_ids)"
+    ),
+}
 
 
-async def purge_queue_row_tokens(db: AsyncSession, job_ids: Sequence[int]) -> None:
-    """Drop the raw service token from the named queue rows.
+async def purge_queue_row_args(
+    db: AsyncSession, job_ids: Sequence[int], *, arg_key: str = "token"
+) -> None:
+    """Drop one credential-bearing key from the named queue rows.
 
-    fix(#1755 item 12): the one statement both immediate purge sites use —
+    fix(#1755 item 12): the one statement every immediate purge site uses —
     a task that fails on its own (``purge_token_on_failure``) and the
     stalled sweep, which is the first moment a crashed worker's token is
-    provably dead weight. Both service tasks are ``retry=0``, so nothing
+    provably dead weight. Every dispatching task is ``retry=0``, so nothing
     re-runs from these args.
+
+    fix(#1710): ``arg_key`` because the URL import purges its submitted URL
+    the same way, on adoption rather than on failure.
     """
     if not job_ids:
         return
-    await db.execute(text(_PURGE_JOB_TOKENS_BY_ID_SQL), {"job_ids": list(job_ids)})
+    await db.execute(
+        text(_PURGE_JOB_ARGS_BY_ID_SQL[arg_key]), {"job_ids": list(job_ids)}
+    )
     await db.commit()
+
+
+async def purge_queue_row_tokens(db: AsyncSession, job_ids: Sequence[int]) -> None:
+    """Token spelling of :func:`purge_queue_row_args`, kept for its callers."""
+    await purge_queue_row_args(db, job_ids)
 
 
 async def purge_terminal_job_tokens(db: AsyncSession) -> None:

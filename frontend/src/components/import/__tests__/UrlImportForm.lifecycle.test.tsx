@@ -154,7 +154,12 @@ beforeEach(() => {
 afterEach(() => clearUrlImport());
 
 async function driveToReview(preview: unknown, jobId: string) {
-  mockUploadFromUrl.mockResolvedValue({ job_id: jobId, status: 'pending' });
+  // fix(#1710): the submit call only queues a download, so the form parks on
+  // the job poll until it reads `pending`. Answer that here, then restore
+  // whatever tracking status the test configured before calling this.
+  const tracking = mockUseJobStatus(null) ?? { data: undefined };
+  mockUseJobStatus.mockReturnValue({ data: { status: 'pending' } });
+  mockUploadFromUrl.mockResolvedValue({ job_id: jobId, status: 'running' });
   mockPreviewFile.mockResolvedValue(preview);
   const user = userEvent.setup();
   await user.type(
@@ -165,6 +170,7 @@ async function driveToReview(preview: unknown, jobId: string) {
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'commit-stub' })).toBeInTheDocument(),
   );
+  mockUseJobStatus.mockReturnValue(tracking);
   return user;
 }
 

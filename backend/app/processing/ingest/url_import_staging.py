@@ -138,7 +138,7 @@ async def _settle_failed_url_import(
     job_id: uuid.UUID,
     attempt_id: uuid.UUID,
     s3_key: str | None,
-    local_dest: Path,
+    local_dest: Path | None,
     staged_path: str | None = None,
 ) -> None:
     """Everything that must happen when the URL-import fetch task raises.
@@ -174,6 +174,13 @@ async def _settle_failed_url_import(
     'running'. A retry rotates the token, so a worker whose lease expired
     and later resumed must not stamp a newer attempt's row failed; zero rows
     means something external already settled it, and that verdict stands.
+
+    fix(#1710): ``local_dest`` is None for a caller that does not own staged
+    bytes. The task's outer handler is one: it settles failures raised
+    outside the staging block, which happen either before any byte exists or
+    AFTER the transition committed, and on local storage the published
+    ``file_path`` IS ``local_dest`` — deleting it there would leave a durable
+    pending row pointing at nothing.
     """
     from sqlalchemy import update as sa_update
 
@@ -207,7 +214,7 @@ async def _settle_failed_url_import(
         #     staging key, so the local file is a redundant sniff copy that
         #     nothing downstream can discover — left behind, repeated
         #     ambiguous commits fill the staging volume.
-        if staged_path != str(local_dest):
+        if local_dest is not None and staged_path != str(local_dest):
             try:
                 # codeql[py/path-injection] fix(#1708): clamped, staging-rooted path — see fetch_url
                 local_dest.unlink(missing_ok=True)
@@ -230,8 +237,9 @@ async def _settle_failed_url_import(
             # the heartbeat renews the lease while a degraded provider
             # spends its own connect/read timeouts and retries.
             await _cleanup_saved_upload(s3_key, str(job_id))
-        # codeql[py/path-injection] fix(#1708): clamped, staging-rooted path — see fetch_url
-        local_dest.unlink(missing_ok=True)
+        if local_dest is not None:
+            # codeql[py/path-injection] fix(#1708): clamped, staging-rooted path — see fetch_url
+            local_dest.unlink(missing_ok=True)
     except BaseException:
         logger.warning("url_import_cleanup_failed", job_id=str(job_id))
     try:

@@ -21203,6 +21203,10 @@ export type UploadFromUrlIngestUploadUrlPostErrors = {
      */
     409: ProblemDetail;
     /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;

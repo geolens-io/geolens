@@ -258,28 +258,36 @@ task_app = App(
 # the raw token in job kwargs; the worker only deletes SUCCESSFUL rows, so a
 # terminal failure leaves it in `procrastinate_jobs.args->>'token'`
 # indefinitely.
-async def purge_queued_job_token(job_context: Any) -> None:
-    """Best-effort: drop `token` from the running job's own queue row.
+#
+# fix(#1710): `url` joins `token` as a key worth purging. A submitted file URL
+# can be a presigned S3 or SAS link, which is bearer-equivalent, and it sits in
+# the row for the whole transfer plus forever after any non-successful
+# delivery. The statement itself stays in platform/jobs/sweep.py (#1755 item
+# 12), so there is still one home for it.
+async def purge_queued_job_arg(job_context: Any, *, arg_key: str = "token") -> None:
+    """Best-effort: drop one credential-bearing key from this job's queue row.
 
     Takes the Procrastinate ``JobContext`` (not a bare id) so a direct call
     passing ``None`` is a no-op instead of an error.
 
-    Never raises — runs while a real failure is being handled, and
-    displacing that exception would cost the diagnosis. The warning logs
-    only the row id, never the value it failed to remove.
+    Never raises — a failure caller runs this while a real exception is being
+    handled, and displacing that would cost the diagnosis. The warning logs
+    only the row id and the key name, never the value it failed to remove.
     """
     row_id = getattr(getattr(job_context, "job", None), "id", None)
     if row_id is None:
         return
     from app.core.db import async_session
-    from app.platform.jobs.sweep import purge_queue_row_tokens
+    from app.platform.jobs.sweep import purge_queue_row_args
 
     try:
         async with async_session() as session:
-            await purge_queue_row_tokens(session, [row_id])
+            await purge_queue_row_args(session, [row_id], arg_key=arg_key)
     except Exception:  # broad: a purge failure must not replace the real one
         structlog.get_logger().warning(
-            "queued_job_token_purge_failed", procrastinate_job_id=row_id
+            "queued_job_arg_purge_failed",
+            procrastinate_job_id=row_id,
+            arg_key=arg_key,
         )
 
 
@@ -302,7 +310,7 @@ def purge_token_on_failure(fn):
         try:
             return await fn(**kwargs)
         except Exception:  # broad: every terminal failure strands the token
-            await purge_queued_job_token(job_context)
+            await purge_queued_job_arg(job_context)
             raise
 
     return _wrapper

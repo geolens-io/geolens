@@ -713,6 +713,10 @@ async def upload_file(
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        # fix(#1710): 413 stays documented. The download moved to the worker,
+        # but `check_upload_quota` still refuses an over-quota caller here,
+        # and dropping it took the branch out of both SDKs.
+        413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
 )

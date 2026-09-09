@@ -3563,7 +3563,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the .zip suffix, plus the import and the comment saying why (a File
     # Geodatabase arrives in a .zip and has no DBF). Cap 2308 -> 2311, exact.
     # fix(#1746): +69 — the shared token purge both service tasks now run on
-    # their terminal failure path: `purge_queued_job_token` (a best-effort
+    # their terminal failure path: `purge_queued_job_arg` (a best-effort
     # `args - 'token'` UPDATE against the task's own procrastinate row) and
     # the `purge_token_on_failure` decorator that absorbs the JobContext
     # procrastinate passes in so the tasks keep their existing signatures.

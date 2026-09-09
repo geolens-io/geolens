@@ -14,6 +14,7 @@ What this file pins, beyond the two-phase coverage in
 """
 
 import asyncio
+import socket
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,12 +22,11 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
 from app.core.config import settings
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS, fail_stale_jobs
-from app.platform.security import SSRFError
 from app.processing.ingest import tasks_url_fetch
 from app.processing.ingest.url_fetch import fetch_url_to_path
 
@@ -46,9 +46,9 @@ def _capture_defer(monkeypatch) -> list[dict]:
     return captured
 
 
-async def _run_task(kwargs: dict) -> None:
+async def _run_task(kwargs: dict, job_context=None) -> None:
     payload = {k: v for k, v in kwargs.items() if k != "tenant_id"}
-    await tasks_url_fetch.fetch_url.func(**payload)
+    await tasks_url_fetch.fetch_url.func(job_context, **payload)
 
 
 async def _get_job(session, job_id) -> IngestJob | None:
@@ -135,15 +135,20 @@ class TestEndpointReturnsBeforeTheDownload:
         assert not job.file_path
 
 
-class TestWorkerKeepsTheSsrfPosture:
-    async def test_connect_time_private_address_is_refused_on_the_worker(
+class TestWorkerRunsTheRealSafeClient:
+    """The download keeps Rule 2 on the worker: the real `make_safe_client`
+    re-resolves and validates at connect time, so a host that answers public
+    at submission and private at connect is refused there."""
+
+    async def test_connect_time_private_resolution_fails_the_job(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
     ):
-        """A URL that only resolves privately at connect time fails the job.
+        """A host resolving to link-local at connect time settles the job failed.
 
-        Counterfactual: with the safe client replaced by a plain
-        `httpx.AsyncClient`, the same run stages the body and the job reaches
-        'pending' instead of settling failed.
+        The real client and transport run; only `socket.getaddrinfo` is
+        stubbed. The positive control below proves the same wiring reaches a
+        200 when resolution is public, so this is the guard refusing rather
+        than the harness failing to connect.
         """
         monkeypatch.setattr(
             "app.platform.security.validate_url_for_ssrf", _accept_any_url()
@@ -156,20 +161,66 @@ class TestWorkerKeepsTheSsrfPosture:
         )
         assert resp.status_code == 201, resp.text
 
-        def factory(timeout=None, **_kwargs):
-            async def _handle(request: httpx.Request) -> httpx.Response:
-                raise SSRFError("URL resolves to a private address: 169.254.169.254")
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda h, p, *a, **k: _addrinfo("169.254.169.254", p),
+        )
+        # The guard raises BEFORE delegating, so a reached connection means
+        # the refusal did not happen and a transport error is standing in for
+        # it. Returning 200 here makes that substitution fail the test.
+        connected: list[str] = []
 
-            return httpx.AsyncClient(transport=httpx.MockTransport(_handle))
+        async def _record_connect(self, request):
+            connected.append(str(request.url))
+            return httpx.Response(200, stream=_Body(GEOJSON))
 
-        monkeypatch.setattr("app.processing.ingest.url_fetch.make_safe_client", factory)
+        monkeypatch.setattr(
+            httpx.AsyncHTTPTransport, "handle_async_request", _record_connect
+        )
+        await _run_task(captured[0])
+
+        assert connected == []
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == (
+            "URLs targeting private/internal networks are not allowed"
+        )
+        assert _staged_files() == []
+
+    async def test_public_resolution_reaches_the_origin_and_stages(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """Positive control for the test above: same real client and transport,
+        public resolution, and the body is staged."""
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://public.example.test/roads.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        monkeypatch.setattr(
+            socket, "getaddrinfo", lambda h, p, *a, **k: _addrinfo("93.184.216.34", p)
+        )
+
+        async def _fake_connect(self, request):
+            return httpx.Response(200, stream=_Body(GEOJSON))
+
+        monkeypatch.setattr(
+            httpx.AsyncHTTPTransport, "handle_async_request", _fake_connect
+        )
         await _run_task(captured[0])
 
         job = await _get_job(test_db_session, resp.json()["job_id"])
         await test_db_session.refresh(job)
-        assert job.status == "failed"
-        assert "private address" in job.error_message
-        assert _staged_files() == []
+        assert job.status == "pending"
+        assert Path(job.file_path).read_bytes() == GEOJSON
 
 
 class TestWorkerCapsAndQuota:
@@ -318,7 +369,9 @@ class TestWorkerTransition:
         job = await _get_job(test_db_session, job_id)
         await test_db_session.refresh(job)
         assert job.status == "cancelled"
-        assert not job.file_path
+        # The row names the intended destination from adoption on; nothing
+        # was staged there and the job never became previewable.
+        assert not Path(job.file_path).exists()
         assert _staged_files() == []
 
 
@@ -358,6 +411,48 @@ class TestEveryFailureSettles:
         assert job.status == "failed"
         assert job.error_message == "URL import failed"
         assert "pw@origin.test" not in job.error_message
+
+    async def test_a_failed_session_checkout_for_staging_settles_the_row(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """A session the staging block cannot open still settles the job.
+
+        The acquisition sits outside the block's own try, so the task's outer
+        handler is what covers it, on a session of its own.
+
+        Counterfactual: without that handler the row stays running with no
+        error_message until the lease reaper.
+        """
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/checkout.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        import app.core.db as db_module
+
+        real_session = db_module.async_session
+        calls = {"n": 0}
+
+        def _fail_the_staging_checkout(*args, **kwargs):
+            calls["n"] += 1
+            # 1 is the adoption, 2 is staging, 3 is the outer settle.
+            if calls["n"] == 2:
+                raise RuntimeError("pool checkout timed out")
+            return real_session(*args, **kwargs)
+
+        monkeypatch.setattr(db_module, "async_session", _fail_the_staging_checkout)
+        await _run_task(captured[0])
+
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == "URL import failed"
 
     async def test_a_composed_refusal_keeps_its_text_with_the_url_redacted(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
@@ -434,6 +529,97 @@ class TestEveryFailureSettles:
         assert "Storage quota exceeded" in job.error_message
         assert issubclass(UrlImportRefused, ValueError)
         assert UrlImportRefused.__module__.startswith("app.")
+
+
+class TestQueueRowHygiene:
+    async def test_the_url_is_purged_from_the_queue_row_after_adoption(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """The submitted URL leaves `procrastinate_jobs.args` before the transfer.
+
+        Counterfactual: without the purge the key is still there after the
+        task runs, and the worker deletes only successful rows, so a presigned
+        link outlives every non-successful delivery.
+        """
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        url = "https://files.example.test/presigned.geojson?X-Amz-Signature=abc"
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": url, "filename": "presigned.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        row_id = (
+            await test_db_session.execute(
+                text(
+                    "INSERT INTO catalog.procrastinate_jobs "
+                    "(queue_name, task_name, args, status) VALUES "
+                    "('ingest', 'fetch_url', jsonb_build_object("
+                    "'job_id', CAST(:j AS text), 'url', CAST(:u AS text)), 'doing') "
+                    "RETURNING id"
+                ),
+                {"j": resp.json()["job_id"], "u": url},
+            )
+        ).scalar_one()
+        await test_db_session.commit()
+
+        _install_body(monkeypatch, GEOJSON)
+        await _run_task(
+            captured[0], job_context=SimpleNamespace(job=SimpleNamespace(id=row_id))
+        )
+
+        args = (
+            await test_db_session.execute(
+                text("SELECT args FROM catalog.procrastinate_jobs WHERE id = :i"),
+                {"i": row_id},
+            )
+        ).scalar_one()
+        assert "url" not in args
+        assert args["job_id"] == resp.json()["job_id"]
+
+
+class TestPublishedArtifactSurvivesTeardown:
+    async def test_a_raise_after_the_transition_keeps_the_staged_file(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """A teardown failure after publication must not delete the artifact.
+
+        On local storage the published `file_path` IS the local staging file,
+        so an outer settle that owned it would leave a durable pending row
+        pointing at nothing.
+
+        Counterfactual: passing `local_dest` to the outer settle instead of
+        None deletes the file this asserts still exists.
+        """
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/teardown.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        _install_body(monkeypatch, GEOJSON)
+        real_stage = tasks_url_fetch._stage_downloaded_file
+
+        async def _stage_then_fail(*args, **kwargs):
+            await real_stage(*args, **kwargs)
+            raise RuntimeError("session teardown after the transition committed")
+
+        monkeypatch.setattr(tasks_url_fetch, "_stage_downloaded_file", _stage_then_fail)
+        await _run_task(captured[0])
+
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert job.status == "pending"
+        assert Path(job.file_path).read_bytes() == GEOJSON
 
 
 class TestCrashRecovery:
@@ -524,6 +710,11 @@ def _usage_at_cap():
             bytes_used=1000, storage_cap=1000, dataset_count=0, count_cap=0
         )
     )
+
+
+def _addrinfo(ip: str, port: int | None):
+    fam = socket.AF_INET6 if ":" in ip else socket.AF_INET
+    return [(fam, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, port or 0))]
 
 
 def _accept_any_url():
