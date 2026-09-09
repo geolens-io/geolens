@@ -33,6 +33,7 @@ from sqlalchemy import func, select, update
 from app.core.geo import bbox_to_extent_wkt
 from app.core.service_tokens import (
     STAC_SERVICE_FORMAT,
+    ServiceCredential,
     credential_from_header_line,
 )
 
@@ -46,7 +47,11 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
     write_job_failure_for_attempt,
 )
-from app.platform.refresh.credentials import resolve_worker_credential
+from app.platform.refresh.credentials import (
+    CredentialExpiredError,
+    CredentialStoreUnavailable,
+    resolve_worker_credential,
+)
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
@@ -76,32 +81,12 @@ _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
 _ERROR_CODE_GENERIC = "stac_refresh_failed"
 _ERROR_CODE_SUPERSEDED = "superseded"
 
-# Written for the person reading the refresh history, and composed here
-# rather than from anything the origin sent: ADR-002 Decision 3 forbids a
-# provider's error text, a response body or a URL in a stored reason string,
-# and an origin URI may legitimately carry a signed query.
-# fix(#1266): says what is established on every path that reaches it, no
-# more — reached both from a search that answered without the item and from
-# a catalog offering no way to look, so it may not claim a search result.
-_WITHDRAWN_MESSAGE = (
-    "The STAC item this dataset was imported from is no longer at the "
-    "address its catalog published, and GeoLens could not locate it "
-    "anywhere else in its collection. The dataset keeps pointing at the "
-    "asset it always did; re-import it from a live item to move it."
-)
-# fix(#1266): a DIFFERENT missing — the item still resolves, but the asset
-# it was bound to is gone. Saying the item disappeared would misdiagnose it
-# and send the reader to re-import from the item they already have.
-_ASSET_REMOVED_MESSAGE = (
-    "The STAC item this dataset was imported from no longer publishes the "
-    "asset it was bound to. The item itself is still on the catalog, and the "
-    "dataset keeps pointing at the asset it always did; re-import it from "
-    "that item to bind to one of the assets it publishes now."
-)
-_UNREACHABLE_MESSAGE = (
-    "GeoLens could not read the STAC item this dataset was imported from, "
-    "and the catalog's answer did not establish whether the item is still "
-    "published. Nothing was changed. Try again."
+# fix(#1764): the credential message a caller sees, composed here so it never
+# carries the store's own error text, which can echo the key it was asked for.
+_CREDENTIAL_UNUSABLE_MESSAGE = (
+    "The credential for this refresh could not be read, so the catalog was "
+    "not contacted and nothing was changed. Start the refresh again with a "
+    "fresh credential."
 )
 
 
@@ -133,6 +118,70 @@ class StacRefreshError(Exception):
         # `last_checked_at` should date. Defaults False so a failure raised
         # before any request cannot date a contact that never happened.
         self.contacted = contacted
+
+
+def _refresh_error_code(exc: BaseException) -> str:
+    """Map a STAC refresh failure onto its run ``error_code``.
+
+    fix(#1764): three codes send the reader to three places — a fresh
+    credential, an operator for an unreachable store, or the origin. Mirrors
+    ``tasks_reupload._service_refresh_error_code``; ``error_code`` is a
+    closed vocabulary the history UI reads, so the mapping lives in one
+    function per strategy.
+    """
+    if isinstance(exc, CredentialExpiredError):
+        return "credential_expired"
+    if isinstance(exc, CredentialStoreUnavailable):
+        return "credential_store_unavailable"
+    return getattr(exc, "error_code", _ERROR_CODE_GENERIC)
+
+
+def _claimed_credential(credential_line: str | None) -> ServiceCredential | None:
+    """The credential a claimed wire line describes.
+
+    fix(#1764): a non-empty line that yields nothing raises rather than
+    degrading to an anonymous fetch, which would reach a protected catalog,
+    collect a 401, and report a live dataset as inaccessible.
+    """
+    if not credential_line:
+        return None
+    credential = credential_from_header_line(
+        credential_line, service_format=STAC_SERVICE_FORMAT
+    )
+    if credential is None:
+        raise StacRefreshError(
+            _CREDENTIAL_UNUSABLE_MESSAGE, error_code="credential_expired"
+        )
+    return credential
+
+
+# Written for the person reading the refresh history, and composed here
+# rather than from anything the origin sent: ADR-002 Decision 3 forbids a
+# provider's error text, a response body or a URL in a stored reason string,
+# and an origin URI may legitimately carry a signed query.
+# fix(#1266): says what is established on every path that reaches it, no
+# more — reached both from a search that answered without the item and from
+# a catalog offering no way to look, so it may not claim a search result.
+_WITHDRAWN_MESSAGE = (
+    "The STAC item this dataset was imported from is no longer at the "
+    "address its catalog published, and GeoLens could not locate it "
+    "anywhere else in its collection. The dataset keeps pointing at the "
+    "asset it always did; re-import it from a live item to move it."
+)
+# fix(#1266): a DIFFERENT missing — the item still resolves, but the asset
+# it was bound to is gone. Saying the item disappeared would misdiagnose it
+# and send the reader to re-import from the item they already have.
+_ASSET_REMOVED_MESSAGE = (
+    "The STAC item this dataset was imported from no longer publishes the "
+    "asset it was bound to. The item itself is still on the catalog, and the "
+    "dataset keeps pointing at the asset it always did; re-import it from "
+    "that item to bind to one of the assets it publishes now."
+)
+_UNREACHABLE_MESSAGE = (
+    "GeoLens could not read the STAC item this dataset was imported from, "
+    "and the catalog's answer did not establish whether the item is still "
+    "published. Nothing was changed. Try again."
+)
 
 
 def _binding(dataset: Any) -> tuple:
@@ -447,14 +496,7 @@ async def refresh_stac(
         return
     job_uuid, attempt_uuid = resolved_attempt
     dataset_uuid = uuid.UUID(dataset_id)
-    # feat(#1764): the D9 wire line, turned back into the credential it
-    # describes so every read below composes through the one producer. A ref
-    # that names nothing raises rather than falling through to an anonymous
-    # fetch, which would collect a 401 and report a live catalog as broken.
-    credential_line = await resolve_worker_credential(None, credential_ref)
-    credential = credential_from_header_line(
-        credential_line, service_format=STAC_SERVICE_FORMAT
-    )
+    credential: ServiceCredential | None = None
     heartbeat_task: asyncio.Task[None] | None = None
     # The binding this attempt resolved against, for the failure handler's
     # guarded write and the write transaction's own guard. Left None until
@@ -501,6 +543,13 @@ async def refresh_stac(
             await claim_run_for_job(session, job_uuid)
             await session.commit()
 
+        # fix(#1764): redeemed AFTER phase 1 and inside the handled region,
+        # the placement `tasks_reupload` records — phase 1 detects a
+        # superseded attempt, and a claim above it spends the secret anyway.
+        credential = _claimed_credential(
+            await resolve_worker_credential(None, credential_ref)
+        )
+
         # Phase 2: ASK THE PUBLISHER, holding no database session. Three
         # requests at worst (item, a re-search on 404, a probe of the asset
         # href) against a host that owes GeoLens no latency guarantee — a
@@ -513,6 +562,10 @@ async def refresh_stac(
             asset_href=asset_href,
             asset_key=asset_key,
             credential=credential,
+            # fix(#1764): the catalog address the credential was given for.
+            # Read from the binding under this attempt's guard, so a read the
+            # item document steers to another origin is made anonymously.
+            credential_origin=item_href,
         )
         if not resolution.resolved:
             raise _failure_for(resolution)
@@ -699,7 +752,7 @@ async def refresh_stac(
 
     except Exception as exc:  # broad: any step here is a network or database read
         logger.exception("STAC refresh failed", job_id=job_id, task="refresh_stac")
-        error_code = getattr(exc, "error_code", _ERROR_CODE_GENERIC)
+        error_code = _refresh_error_code(exc)
         async with async_session() as err_session:
             # fix(#1957): the job row is the one a retry of this refresh
             # contends for. An expiry leaves it `running` for the stale sweep

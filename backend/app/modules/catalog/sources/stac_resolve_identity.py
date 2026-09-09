@@ -12,8 +12,35 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import unquote, urlsplit, urlunsplit
 
+from app.core.service_tokens import ServiceCredential
+from app.platform.security import same_origin
+
 _COLLECTIONS_SEGMENT = "/collections/"
 _ITEMS_SEGMENT = "/items/"
+
+
+def credential_for_read(
+    credential: ServiceCredential | None,
+    *,
+    url: str,
+    credential_origin: str | None,
+) -> ServiceCredential | None:
+    """The credential a read of *url* may carry, or None for an anonymous one.
+
+    fix(#1764): ``make_safe_client(credential_header=...)`` guards REDIRECT
+    hops. An item document names its own self link and its assets, both
+    fetched as fresh first-hop requests no redirect hook ever sees, so
+    without this the catalog's key goes wherever the document points.
+    ``same_origin`` is the repo's answer to that class
+    (``adapters/ogcapi.py``, ``platform/service_items.py``): the document
+    chose the address and does not get to choose the credential.
+
+    Total, and ``same_origin`` is False on a parse error, so an address this
+    cannot read is read anonymously rather than credentialed.
+    """
+    if credential is None or credential_origin is None:
+        return None
+    return credential if same_origin(credential_origin, url) else None
 
 
 def _standard_item_path(url: str) -> tuple[str, str, str] | None:
@@ -149,6 +176,7 @@ def _contradicts_stored_identity(
 
 __all__ = [
     "_contradicts_stored_identity",
+    "credential_for_read",
     "_search_root_and_item_id",
     "_standard_item_path",
     "_url_contradicts_identity",

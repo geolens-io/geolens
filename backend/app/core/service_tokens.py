@@ -33,9 +33,8 @@ from enum import StrEnum
 # to ``GDAL_HTTP_HEADER_FILE``, and (c) checked by
 # ``assert_endpoints_stay_on_origin``. All three exclude ArcGIS.
 #
-# feat(#1764): a fourth question, "crossed to the worker as a finished header
-# LINE" (plan D9), moved to ``HEADER_LINE_SERVICE_FORMATS`` below — STAC
-# answers yes to that one and no to these three.
+# feat(#1764): the fourth question, "crossed to the worker as a finished
+# header LINE" (plan D9), is ``HEADER_LINE_SERVICE_FORMATS`` below.
 #
 # fix(#1840): (d) was missing here, producing a P1 —
 # ``wire_credential`` picked its branch by whether ``build_credential_header``
@@ -62,15 +61,16 @@ ARCGIS_SERVICE_FORMAT = "arcgis_featureserver"
 STAC_SERVICE_FORMAT = "stac"
 
 # feat(#1764): formats whose credential is a header LINE rather than a URL
-# query parameter, on every transport that carries it — including the queue
-# hop to the worker (``platform/service_auth.py::wire_credential``, plan D9).
-# This is the question "can this service present a basic or header-key
-# credential at all", so it also gates ``service_carries_method``.
+# query parameter, on every transport including the queue hop (plan D9). Also
+# the question ``service_carries_method`` asks about basic and header-key.
 #
-# Wider than ``HEADER_AUTH_SERVICE_FORMATS`` by exactly STAC, whose catalog,
-# item and asset reads are all httpx and never GDAL: nothing writes a STAC
-# credential to the header file, and no STAC read follows a description that
-# ``assert_endpoints_stay_on_origin`` could check.
+# Wider than ``HEADER_AUTH_SERVICE_FORMATS`` by exactly STAC, whose reads are
+# httpx and never GDAL, so no STAC credential reaches the 0600 header file.
+#
+# fix(#1764): STAC DOES follow service-described endpoints (an item's self
+# link, its asset hrefs); they are checked by
+# ``stac_resolve_identity.credential_for_read``, not by
+# ``assert_endpoints_stay_on_origin``, which asks a GDAL question.
 HEADER_LINE_SERVICE_FORMATS: frozenset[str] = HEADER_AUTH_SERVICE_FORMATS | {
     STAC_SERVICE_FORMAT
 }

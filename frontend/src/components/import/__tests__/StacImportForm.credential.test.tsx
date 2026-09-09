@@ -1,10 +1,7 @@
 /**
- * feat(#1764) — the STAC import wizard's credential block.
- *
- * Three claims: the credential the user types reaches connect, collections
- * and search as one `auth` object; switching methods discards the other
- * branch's fields rather than sending a stale one; and an incomplete method
- * sends nothing rather than a body the door would refuse.
+ * feat(#1764) — the STAC import wizard's credential block. What is pinned:
+ * one `auth` object reaches connect, collections and search; a stale
+ * method's or a stale catalog's fields are never sent.
  */
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -87,11 +84,14 @@ async function chooseMethod(user: ReturnType<typeof userEvent.setup>, label: str
   await user.click(await screen.findByRole('option', { name: label }));
 }
 
-async function typeUrlAndConnect(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(
-    screen.getByPlaceholderText('https://earth-search.aws.element84.com/v1'),
-    'https://catalog.test/v1',
-  );
+async function typeUrl(
+  user: ReturnType<typeof userEvent.setup>,
+  url = 'https://catalog.test/v1',
+) {
+  await user.type(screen.getByPlaceholderText('https://earth-search.aws.element84.com/v1'), url);
+}
+
+async function connect(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'stac.connect' }));
 }
 
@@ -105,13 +105,14 @@ describe('StacImportForm credential block', () => {
     const user = userEvent.setup();
     render(<StacImportForm />, { wrapper: Wrapper });
 
+    await typeUrl(user);
     await chooseMethod(user, 'stac.credentialMethodHeader');
     await user.type(
       screen.getByLabelText('stac.credentialHeaderNameLabel'),
       'Ocp-Apim-Subscription-Key',
     );
     await user.type(screen.getByLabelText('stac.credentialHeaderValueLabel'), 'k-secret');
-    await typeUrlAndConnect(user);
+    await connect(user);
 
     const expected = {
       method: 'header',
@@ -128,9 +129,10 @@ describe('StacImportForm credential block', () => {
     const user = userEvent.setup();
     render(<StacImportForm />, { wrapper: Wrapper });
 
+    await typeUrl(user);
     await chooseMethod(user, 'stac.credentialMethodBearer');
     await user.type(screen.getByLabelText('stac.credentialTokenLabel'), 'tok-secret');
-    await typeUrlAndConnect(user);
+    await connect(user);
 
     await user.click(await screen.findByText('Test Collection'));
     await waitFor(() =>
@@ -144,12 +146,13 @@ describe('StacImportForm credential block', () => {
     const user = userEvent.setup();
     render(<StacImportForm />, { wrapper: Wrapper });
 
+    await typeUrl(user);
     await chooseMethod(user, 'stac.credentialMethodBearer');
     await user.type(screen.getByLabelText('stac.credentialTokenLabel'), 'tok-secret');
     await chooseMethod(user, 'stac.credentialMethodBasic');
     await user.type(screen.getByLabelText('stac.credentialUsernameLabel'), 'reader');
     await user.type(screen.getByLabelText('stac.credentialPasswordLabel'), 'pw');
-    await typeUrlAndConnect(user);
+    await connect(user);
 
     await waitFor(() => expect(mockConnectStac).toHaveBeenCalled());
     const [, auth] = mockConnectStac.mock.calls[0];
@@ -161,9 +164,10 @@ describe('StacImportForm credential block', () => {
     const user = userEvent.setup();
     render(<StacImportForm />, { wrapper: Wrapper });
 
+    await typeUrl(user);
     await chooseMethod(user, 'stac.credentialMethodBasic');
     await user.type(screen.getByLabelText('stac.credentialUsernameLabel'), 'reader');
-    await typeUrlAndConnect(user);
+    await connect(user);
 
     await waitFor(() => expect(mockConnectStac).toHaveBeenCalled());
     expect(mockConnectStac).toHaveBeenCalledWith('https://catalog.test/v1', undefined);
@@ -173,8 +177,32 @@ describe('StacImportForm credential block', () => {
     const user = userEvent.setup();
     render(<StacImportForm />, { wrapper: Wrapper });
 
-    await typeUrlAndConnect(user);
+    await typeUrl(user);
+    await connect(user);
     await waitFor(() => expect(mockConnectStac).toHaveBeenCalled());
     expect(mockConnectStac).toHaveBeenCalledWith('https://catalog.test/v1', undefined);
+  });
+
+  it('drops a credential typed for one catalog when the URL moves to another', async () => {
+    const user = userEvent.setup();
+    mockConnectStac.mockRejectedValueOnce(new Error('nope'));
+    render(<StacImportForm />, { wrapper: Wrapper });
+
+    await typeUrl(user);
+    await chooseMethod(user, 'stac.credentialMethodBearer');
+    await user.type(screen.getByLabelText('stac.credentialTokenLabel'), 'first-secret');
+    await connect(user);
+    await waitFor(() => expect(mockConnectStac).toHaveBeenCalledTimes(1));
+
+    await user.clear(
+      screen.getByPlaceholderText('https://earth-search.aws.element84.com/v1'),
+    );
+    await typeUrl(user, 'https://other.test/v1');
+    await connect(user);
+
+    await waitFor(() => expect(mockConnectStac).toHaveBeenCalledTimes(2));
+    // The first catalog got the key it was typed for; the second gets none.
+    expect(mockConnectStac).toHaveBeenLastCalledWith('https://other.test/v1', undefined);
+    expect(JSON.stringify(mockConnectStac.mock.calls[1])).not.toContain('first-secret');
   });
 });

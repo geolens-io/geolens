@@ -1,18 +1,13 @@
 """Request-only authentication for STAC sources (feat(#1764)).
 
-STAC is the third service family to carry a credential, and it is the first
-whose credential never reaches GDAL: the catalog, the item document and the
-asset are all read over httpx. So it answers yes to "is this credential a
-header line" and no to the three questions ``HEADER_AUTH_SERVICE_FORMATS``
-asks, which is why the format sets are asserted apart from each other here.
+A STAC credential is a header on every hop and reaches no GDAL header file,
+so the format sets, the charset and the wire-line round trip are asserted
+separately from the WFS/OAPIF ones. The credential goes to the catalog
+origin and nowhere else, whether the other address arrives in a 302 or in
+the item document itself, and a refused one is never echoed.
 
-What these tests pin, in order: the format vocabulary; the wire line's
-round trip, which is what lets the refresh worker compose at its own write
-sites instead of carrying a finished header; the transport, one test per
-door and per method; the two security invariants (a credential does not
-follow a cross-origin redirect, and a refused credential is never echoed);
-The refresh path's own tests live beside the strategy they exercise, in
-``test_stac_refresh_1266.py``, which already owns the dispatch harness.
+The refresh path's own tests are in ``test_stac_refresh_1266.py``, which
+owns the dispatch harness.
 """
 
 import json as _json
@@ -39,6 +34,7 @@ from app.core.service_tokens import (
 )
 from app.modules.catalog.sources import origin_probe
 from app.modules.catalog.sources.adapters import stac as stac_adapter
+from app.modules.catalog.sources.stac_resolve import resolve_stac_binding
 from app.platform import security
 from app.platform.security import SSRFError
 from app.platform.service_auth import service_carries_method
@@ -50,19 +46,29 @@ _HEADER_NAME = "Ocp-Apim-Subscription-Key"
 _LANDING = {"stac_version": "1.0.0", "id": "cat", "title": "Cat", "type": "Catalog"}
 
 
+# Bound to the STAC format at construction: `origin_probe` composes from the
+# credential as given, so an unbound one reads anonymously by design.
 def _bearer(token: str = _KEY) -> ServiceCredential:
-    return ServiceCredential(method=CredentialMethod.BEARER, token=token)
+    return ServiceCredential(
+        method=CredentialMethod.BEARER,
+        service_format=STAC_SERVICE_FORMAT,
+        token=token,
+    )
 
 
 def _basic(username: str = "reader", password: str = "pw-123") -> ServiceCredential:
     return ServiceCredential(
-        method=CredentialMethod.BASIC, username=username, password=password
+        method=CredentialMethod.BASIC,
+        service_format=STAC_SERVICE_FORMAT,
+        username=username,
+        password=password,
     )
 
 
 def _header_key(value: str = _KEY) -> ServiceCredential:
     return ServiceCredential(
         method=CredentialMethod.HEADER_KEY,
+        service_format=STAC_SERVICE_FORMAT,
         header_name=_HEADER_NAME,
         header_value=value,
     )
@@ -293,14 +299,34 @@ class TestEveryStacReadCarriesTheCredential:
 
     @pytest.mark.anyio
     async def test_the_asset_probe_carries_it(self, stac_transport) -> None:
+        """An asset the catalog serves itself. Whether a credential reaches an
+        asset on ANOTHER origin is the resolve gate's decision, pinned in
+        TestTheCredentialStaysOnItsOrigin."""
         recorded = stac_transport(status=206)
         result = await origin_probe.probe_remote_uri(
-            "https://assets.test/scene.tif", credential=_header_key()
+            f"{_ROOT}/assets/scene.tif", credential=_header_key()
         )
         assert result.ok
         assert recorded[0].headers[_HEADER_NAME] == _KEY
         # Still a ranged read: the credential is added, nothing is replaced.
         assert recorded[0].headers["Range"] == "bytes=0-0"
+
+    @pytest.mark.anyio
+    async def test_an_unbound_credential_composes_no_header(
+        self, stac_transport
+    ) -> None:
+        """`origin_probe` serves every origin kind, so it composes from the
+        credential as bound rather than relabelling it."""
+        recorded = stac_transport(status=206)
+        await origin_probe.probe_remote_uri(
+            f"{_ROOT}/assets/scene.tif",
+            credential=ServiceCredential(
+                method=CredentialMethod.HEADER_KEY,
+                header_name=_HEADER_NAME,
+                header_value=_KEY,
+            ),
+        )
+        assert _HEADER_NAME not in recorded[0].headers
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +407,114 @@ class TestTheCredentialStaysOnItsOrigin:
         with pytest.raises(SSRFError):
             await stac_adapter.list_stac_collections(_ROOT, _bearer())
         assert len(recorded) == 1
+
+
+_ITEM_URL = f"{_ROOT}/collections/c/items/x"
+_MIRROR_ITEM = "https://mirror.test/v1/collections/c/items/x"
+_FOREIGN_ASSET = "https://assets.example/scene.tif"
+
+
+def _item_document(self_href: str, asset_href: str) -> dict:
+    return {
+        "type": "Feature",
+        "id": "x",
+        "collection": "c",
+        "properties": {},
+        "bbox": [0.0, 0.0, 1.0, 1.0],
+        "links": [{"rel": "self", "href": self_href}],
+        "assets": {"data": {"href": asset_href, "roles": ["data"]}},
+    }
+
+
+class TestTheCatalogChoosesTheCredentialNotTheDocument:
+    """A STAC item document names its own self link and its assets, and both
+    are fetched first-hop, where no redirect hook runs. The credential goes
+    only to the origin it was given for."""
+
+    @pytest.mark.anyio
+    async def test_a_self_link_and_an_asset_on_other_origins_get_no_credential(
+        self, stac_transport
+    ) -> None:
+        def routes(request: httpx.Request) -> httpx.Response:
+            if str(request.url).startswith(_ROOT):
+                return json_response(200, _item_document(_MIRROR_ITEM, _FOREIGN_ASSET))
+            if str(request.url).startswith("https://mirror.test"):
+                return json_response(200, _item_document(_MIRROR_ITEM, _FOREIGN_ASSET))
+            return json_response(206, None)
+
+        recorded = stac_transport(routes)
+        result = await resolve_stac_binding(
+            item_href=_ITEM_URL,
+            item_id="x",
+            collection_id="c",
+            asset_href=_FOREIGN_ASSET,
+            asset_key="data",
+            credential=_header_key(),
+            credential_origin=_ITEM_URL,
+        )
+
+        by_host = {request.url.host: request for request in recorded}
+        assert by_host["catalog.test"].headers[_HEADER_NAME] == _KEY
+        for host, request in by_host.items():
+            if host != "catalog.test":
+                assert _HEADER_NAME not in request.headers, host
+        # The off-origin self link is dropped rather than fetched, so the
+        # stored pointer cannot drift off the catalog across refreshes.
+        assert "mirror.test" not in by_host
+        # The asset is still resolved: a catalog serving assets from someone
+        # else's bucket is the ordinary case, not a refusal.
+        assert result.asset_href == _FOREIGN_ASSET
+        assert result.item_href == _ITEM_URL
+
+    @pytest.mark.anyio
+    async def test_a_self_link_on_the_catalog_origin_is_still_followed(
+        self, stac_transport
+    ) -> None:
+        # A permalink: states no identity of its own, so it is adopted on
+        # the strength of the document it serves rather than refused.
+        moved = f"{_ROOT}/permalink/x"
+        document = _item_document(moved, f"{_ROOT}/assets/scene.tif")
+
+        def routes(request: httpx.Request) -> httpx.Response:
+            if request.url.host != "catalog.test":
+                return json_response(404, None)
+            if str(request.url).endswith(".tif"):
+                return json_response(206, None)
+            return json_response(200, document)
+
+        recorded = stac_transport(routes)
+        result = await resolve_stac_binding(
+            item_href=_ITEM_URL,
+            item_id="x",
+            collection_id="c",
+            asset_href=f"{_ROOT}/assets/scene.tif",
+            asset_key="data",
+            credential=_header_key(),
+            credential_origin=_ITEM_URL,
+        )
+        assert result.item_href == moved
+        assert all(request.headers[_HEADER_NAME] == _KEY for request in recorded)
+
+    @pytest.mark.anyio
+    async def test_an_anonymous_resolution_is_unchanged(self, stac_transport) -> None:
+        """No credential, no gate: a public catalog's off-origin self link is
+        followed exactly as it was before."""
+
+        def routes(request: httpx.Request) -> httpx.Response:
+            if str(request.url).endswith(".tif"):
+                return json_response(206, None)
+            return json_response(200, _item_document(_MIRROR_ITEM, _FOREIGN_ASSET))
+
+        recorded = stac_transport(routes)
+        result = await resolve_stac_binding(
+            item_href=_ITEM_URL,
+            item_id="x",
+            collection_id="c",
+            asset_href=_FOREIGN_ASSET,
+            asset_key="data",
+        )
+        assert result.asset_href == _FOREIGN_ASSET
+        assert any(request.url.host == "mirror.test" for request in recorded)
 
 
 class TestARefusedCredentialIsNeverEchoed:

@@ -3849,11 +3849,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `build_arcgis_count_query_url`. Cap 1374 -> 1376, exact.
     # chore(#1812): -9, the refresh door no longer judges a queue on the composed line
     # or configures the deferred task with it. Cap 1376 -> 1367, exact.
-    # feat(#1764): +57 — the STAC branch stages a credential through the same
+    # feat(#1764): +50 — the STAC branch stages a credential through the same
     # single-use store the service branch uses, and applies the marked-origin
     # refusal before AND after the reservation plus the store-availability
-    # check. Cap 1221 -> 1278, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1278,
+    # check. Cap 1221 -> 1271, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1271,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,

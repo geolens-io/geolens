@@ -81,10 +81,9 @@ router = APIRouter(
 )
 
 
-# feat(#1764): the two credential fields every STAC door that CONTACTS the
-# catalog accepts. Request-only: nothing here is stored, and `/import` takes
-# neither, because it contacts no catalog and would be accepting a secret it
-# then drops.
+# feat(#1764): the credential fields every STAC door that CONTACTS the
+# catalog accepts. `/import` takes neither: it contacts no catalog, so it
+# would be accepting a secret it then drops.
 _STAC_TOKEN_DESCRIPTION = (
     "Optional auth token for a protected STAC catalog." + DEPRECATED_TOKEN_SUFFIX
 )

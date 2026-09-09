@@ -24,16 +24,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
-from app.core.service_tokens import (
-    STAC_SERVICE_FORMAT,
-    ServiceCredential,
-    build_credential_header,
-)
+from app.core.service_tokens import ServiceCredential, build_credential_header
 from app.modules.catalog.sources.adapters.arcgis import (
     build_arcgis_count_query_url,
 )
@@ -174,10 +170,10 @@ async def probe_remote_uri(
     context-manager close bounds the body even if the range header is
     ignored.
 
-    feat(#1764): a STAC asset behind an API key is probed WITH that key, so
-    a protected asset reads as healthy rather than as ``unauthorized``. The
-    credential reaches this function from a door or from the refresh
-    worker's single-use claim.
+    fix(#1764): ``credential`` must already carry its ``service_format``.
+    This module serves every origin kind, so re-binding one here would
+    relabel the next caller's credential and judge it by another format's
+    charset; an unbound one composes no header and reads anonymously.
     """
     # fix(#1271): records whether ANY response hop arrived, so a
     # mid-chain policy refusal (public origin redirecting to a blocked
@@ -192,9 +188,7 @@ async def probe_remote_uri(
     headers = {"Range": "bytes=0-0"}
     pair: tuple[str, str] | None = None
     if credential is not None:
-        pair = build_credential_header(
-            replace(credential, service_format=STAC_SERVICE_FORMAT)
-        )
+        pair = build_credential_header(credential)
         if pair is not None:
             headers[pair[0]] = pair[1]
     try:
@@ -354,10 +348,10 @@ async def fetch_json_document(
     the wrong host. The SSRF transport restores the hostname after each
     pinned hop, so this is never the pinned IP.
 
-    feat(#1764): ``credential`` is the key a protected catalog needs.
-    Composed here rather than passed in as a finished header, so the
-    single-producer rule holds on this path too, and declared to the client
-    so a 302 cannot carry the key to the origin the Location names.
+    fix(#1764): ``credential`` arrives already bound to its service format,
+    for the reason ``probe_remote_uri`` gives. Composed here rather than
+    passed in finished, so the single-producer rule holds, and declared to
+    the client so a 302 cannot carry it to the origin the Location names.
     """
     responded = False
     final_url = uri
@@ -369,9 +363,7 @@ async def fetch_json_document(
     headers = {"Accept": "application/geo+json, application/json"}
     pair: tuple[str, str] | None = None
     if credential is not None:
-        pair = build_credential_header(
-            replace(credential, service_format=STAC_SERVICE_FORMAT)
-        )
+        pair = build_credential_header(credential)
         if pair is not None:
             headers[pair[0]] = pair[1]
     raw = bytearray()

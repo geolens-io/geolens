@@ -12,7 +12,10 @@ from typing import Any
 from app.core.service_tokens import ServiceCredential
 from app.modules.catalog.sources.origin_probe import MISSING, fetch_json_document
 from app.modules.catalog.sources.stac_resolve_asset_gate import _resolve_from_item
-from app.modules.catalog.sources.stac_resolve_identity import _search_root_and_item_id
+from app.modules.catalog.sources.stac_resolve_identity import (
+    _search_root_and_item_id,
+    credential_for_read,
+)
 from app.modules.catalog.sources.stac_resolve_taxonomy import (
     StacResolution,
     _SEARCH_UNUSABLE,
@@ -54,6 +57,7 @@ async def _resolve_by_search(
     asset_href: str | None,
     asset_key: str | None,
     credential: ServiceCredential | None = None,
+    credential_origin: str | None = None,
 ) -> StacResolution:
     """Look the item up by identity after its own URL stopped resolving.
 
@@ -72,7 +76,9 @@ async def _resolve_by_search(
         search_url,
         method="POST",
         json_body={"collections": [collection_id], "ids": [wanted_id], "limit": 1},
-        credential=credential,
+        credential=credential_for_read(
+            credential, url=search_url, credential_origin=credential_origin
+        ),
     )
     if not result.ok:
         # fix(#1266): a search that couldn't be carried out establishes
@@ -114,6 +120,7 @@ async def _resolve_by_search(
         asset_href=asset_href,
         asset_key=asset_key,
         credential=credential,
+        credential_origin=credential_origin,
     )
 
 

@@ -452,6 +452,15 @@ async def _run_for(dataset_id: uuid.UUID) -> DatasetRefreshRun | None:
         ).scalar_one_or_none()
 
 
+async def _run_by_id(run_id: uuid.UUID) -> DatasetRefreshRun:
+    async with _fresh_session() as session:
+        return (
+            await session.execute(
+                select(DatasetRefreshRun).where(DatasetRefreshRun.id == run_id)
+            )
+        ).scalar_one()
+
+
 async def _origin_asset_rows(dataset_id: uuid.UUID) -> list[DatasetAsset]:
     """Every served ``dataset_assets`` row for the dataset (feat #1692)."""
     async with _fresh_session() as session:
@@ -3112,7 +3121,7 @@ class TestCredentialedRefresh:
         refreshed = await _reload(dataset.id)
         assert "auth_required" not in refreshed.origin_ref
 
-    async def test_a_spent_credential_fails_rather_than_fetching_anonymously(
+    async def test_a_spent_credential_is_recorded_as_a_failed_run(
         self,
         client,
         admin_auth_header,
@@ -3120,9 +3129,10 @@ class TestCredentialedRefresh:
         stac_transport,
         credential_backend,
     ) -> None:
-        """A single-use credential is gone after one claim. Falling through to
-        an anonymous read would reach the catalog, collect a 401, and report a
-        protected dataset as broken."""
+        """fix(#1764): a single-use credential is gone after one claim. The
+        attempt fails without contacting the catalog, and the failure is
+        WRITTEN, so the run does not sit pending and hold the dataset against
+        the admission index for an hour."""
         install, recorded = stac_transport
         install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
         admin_id = await get_user_id(test_db_session, "admin")
@@ -3145,7 +3155,20 @@ class TestCredentialedRefresh:
         )
         with pytest.raises(creds.CredentialExpiredError):
             await _execute_with_credential(test_db_session, retry, ref)
+
         assert recorded == []
+        run = await _run_by_id(uuid.UUID(retry["run_id"]))
+        assert run.status == "failed"
+        assert run.error_code == "credential_expired"
+        # And the dataset is free: a later refresh is admitted rather than
+        # answered 409 dataset_busy by the one-active-run index. Credentialed,
+        # because the first success marked the origin.
+        await _dispatch_with_credential(
+            client,
+            admin_auth_header,
+            dataset.id,
+            {"method": "bearer", "token": "ijklmnop"},
+        )
 
 
 class TestOriginAssetRepair:

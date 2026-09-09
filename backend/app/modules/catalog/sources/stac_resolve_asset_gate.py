@@ -37,6 +37,7 @@ from app.modules.catalog.sources.stac_resolve_identity import (
     _contradicts_stored_identity,
     _standard_item_path,
     _url_contradicts_identity,
+    credential_for_read,
 )
 from app.modules.catalog.sources.stac_resolve_taxonomy import (
     StacResolution,
@@ -141,15 +142,18 @@ async def _resolve_from_item(
     asset_href: str | None,
     asset_key: str | None,
     credential: ServiceCredential | None = None,
+    credential_origin: str | None = None,
 ) -> StacResolution:
     """Turn a fetched item document into a resolution, health included.
 
     One reading of one document, used by both paths, so the direct fetch and
     the re-search cannot reach different verdicts about the same shape.
 
-    feat(#1764): the two reads this gate makes of its own — the self link and
-    the asset probe — carry the caller's credential, so a protected asset
-    probes as healthy instead of as ``unauthorized``.
+    fix(#1764): the two reads this gate makes of its own go to addresses THIS
+    DOCUMENT named, so each is gated on ``credential_origin`` — the self link
+    is dropped rather than fetched off-origin, and an off-origin asset is
+    probed anonymously, which is the ordinary shape for a catalog whose
+    assets live in someone else's bucket.
     """
     refusal = _identity_refusal(
         item,
@@ -196,6 +200,7 @@ async def _resolve_from_item(
         collection_id=collection_id,
         asset_key=key,
         credential=credential,
+        credential_origin=credential_origin,
     )
 
     # fix(#1266): `item_base` is the item's own fetch URL on the direct path
@@ -228,7 +233,16 @@ async def _resolve_from_item(
     # unresolvable.
     resolved_item_href = self_href or fallback_item_href
 
-    probed = await probe_remote_uri(href, credential=credential)
+    # fix(#1764): the asset href is the item's own choice of address and is
+    # legitimately on another origin (a catalog's bucket), so it is probed
+    # anonymously there rather than refused; the verdict is then the truth
+    # about what GeoLens can read.
+    probed = await probe_remote_uri(
+        href,
+        credential=credential_for_read(
+            credential, url=href, credential_origin=credential_origin
+        ),
+    )
     if probed.detail == BLOCKED_BY_POLICY:
         # fix(#1266): refused, not merely reported — this is a fact about
         # GeoLens (the SSRF guard won't fetch this address, at the first hop
@@ -303,6 +317,7 @@ async def _trustworthy_self_href(
     collection_id: str | None,
     asset_key: str,
     credential: ServiceCredential | None = None,
+    credential_origin: str | None = None,
 ) -> tuple[str | None, str | None, dict[str, Any] | None]:
     """``(pointer to store, base for relative hrefs, the document at it)``.
 
@@ -340,8 +355,19 @@ async def _trustworthy_self_href(
     ):
         logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
         return None, None, None
+    # fix(#1764): a self link off the catalog's origin is DROPPED, not
+    # fetched anonymously: an anonymous answer about a credentialed catalog
+    # is evidence for a different request than the one the refresh makes,
+    # and the pointer it would replace is optional. Same rule and same
+    # reason as the OGC API probe's conformance link.
+    self_credential = credential_for_read(
+        credential, url=self_href, credential_origin=credential_origin
+    )
+    if credential is not None and self_credential is None:
+        logger.info("stac_self_link_off_catalog_origin")
+        return None, None, None
     result, document, final_url = await fetch_json_document(
-        self_href, credential=credential
+        self_href, credential=self_credential
     )
     if not result.ok:
         logger.info("stac_self_link_not_adopted", detail=result.detail)

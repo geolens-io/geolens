@@ -120,11 +120,9 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # is a rebinding primitive, not a pointer (fix(#1266) review round 9).
     # With it stored, a refresh can refuse a document answering for a
     # different item even when the item's URL states no identity of its own.
-    # `auth_required` (feat(#1764)) carries the same meaning here as on the
-    # service kind: the last SUCCESSFUL refresh used a credential, written by
-    # the worker from the credential it actually used, never the credential.
-    # True or absent, never False. Import never sets it — the import door
-    # contacts no catalog — so it appears on the first credentialed refresh.
+    # feat(#1764): `auth_required` means here what it means on the service
+    # kind — the last SUCCESSFUL refresh used a credential, True or absent.
+    # Import never sets it; the import door contacts no catalog.
     "stac": frozenset(
         {
             "item_href",

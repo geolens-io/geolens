@@ -502,6 +502,7 @@ class DefaultProcessingPort:
         asset_href,
         asset_key,
         credential=None,
+        credential_origin=None,
     ):
         from app.modules.catalog.sources.stac_resolve import resolve_stac_binding
 
@@ -512,6 +513,7 @@ class DefaultProcessingPort:
             asset_href=asset_href,
             asset_key=asset_key,
             credential=credential,
+            credential_origin=credential_origin,
         )
 
     # Preserves the joinedload semantics metadata_service._build_dataset_context

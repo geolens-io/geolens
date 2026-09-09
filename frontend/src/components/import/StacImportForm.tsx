@@ -32,6 +32,7 @@ import type {
   StacImportItem,
   StacImportResult,
 } from '@/types/api';
+import { originOf } from './utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -43,10 +44,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-// feat(#1764): the four-way choice the backend's CredentialMethod enum names,
-// spelled the way the service wizard spells it. A separate copy rather than a
-// shared component for now, matching ServiceCredentialBlock's own note that
-// converging the two is a follow-up.
+// feat(#1764): the four-way choice the backend's CredentialMethod enum names.
+// A copy rather than a shared component, matching ServiceCredentialBlock's
+// own note that converging the two is a follow-up.
 type StacCredentialMethod = 'none' | 'bearer' | 'basic' | 'header';
 
 type Step =
@@ -99,11 +99,19 @@ export function StacImportForm() {
   const matchedCount = searchResult.matched;
   const selectableItems = useMemo(() => items.filter((i) => i.data_asset_href), [items]);
 
+  // fix(#1764): a failed Connect returns here with the credential intact, so
+  // editing the URL to another catalog would send the first catalog's key to
+  // the second. Same reset, same reason, as ServiceUrlForm's.
+  const authOrigin = originOf(url);
+  const lastAuthOriginRef = useRef(authOrigin);
+  useEffect(() => {
+    if (authOrigin === lastAuthOriginRef.current) return;
+    lastAuthOriginRef.current = authOrigin;
+    clearCredential('none');
+  }, [authOrigin]);
+
   // Switching methods discards the other branches' fields rather than
   // half-honouring them, mirroring the backend's own oneOf-shaped `auth`.
-  // No URL-origin reset beside it, unlike the service wizard: the URL and the
-  // credential are submitted together from one visible form here, so there is
-  // no window in which a credential outlives the address it was typed for.
   function clearCredential(next: StacCredentialMethod) {
     setCredentialMethod(next);
     setToken('');
@@ -113,10 +121,9 @@ export function StacImportForm() {
     setHeaderValue('');
   }
 
-  // The `ServiceAuthRequest` the credential block currently describes, or
-  // undefined for 'none' and for a method whose fields are incomplete — the
-  // door refuses a half-filled one, so staying anonymous until both fields
-  // are present matches how an empty optional token always behaved.
+  // The `ServiceAuthRequest` the credential block describes, or undefined for
+  // 'none' and for an incomplete method — the door refuses a half-filled one,
+  // so staying anonymous matches how an empty optional token behaved.
   function buildStacAuth(): ServiceAuthRequest | undefined {
     switch (credentialMethod) {
       case 'bearer':
@@ -824,9 +831,9 @@ export function StacImportForm() {
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 className="font-mono text-sm"
-                // fix(#1746): a request-only service credential, not a login —
-                // autocomplete="off" alone does not stop Chrome offering a
-                // saved password, so opt every manager out explicitly.
+                // fix(#1746): autocomplete="off" alone does not stop Chrome
+                // offering a saved password on a service credential, so opt
+                // every password manager out explicitly.
                 autoComplete="new-password"
                 data-1p-ignore
                 data-lpignore="true"

@@ -663,20 +663,15 @@ async def _dispatch_stac_refresh(
     """
     candidate = _resolve_stac_origin(dataset)
 
-    # feat(#1764): the same rule the WFS/OGC API branch applies, and for the
-    # same reason: the marker means the last successful refresh used a
-    # credential, so a token-less one would reach the catalog, collect a 401
-    # and report a live dataset as inaccessible. No probe — a STAC item read
-    # is the resource the worker fetches, so an anonymous pre-check would
-    # cost a request to learn what the marker already says.
+    # feat(#1764): the WFS/OGC API rule, for its reason — the marker means
+    # the last successful refresh used a credential, so a token-less one
+    # collects a 401 and reports a live dataset as inaccessible. No probe.
     marked_before = service_auth_required(dataset.origin_ref)
     if not token and marked_before:
         raise _service_token_required()
 
     # Refused before anything is written, for the reason the service path
-    # gives: without a shared store the secret cannot reach the worker, and
-    # dispatching anyway fails an hour later for a reason that is a missing
-    # setting rather than the credential.
+    # gives: without a shared store the secret cannot reach the worker.
     if token and not credential_store_available():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -833,10 +828,8 @@ async def _dispatch_stac_refresh(
             job_id=str(job_id),
             attempt_id=str(attempt_id),
             dataset_id=str(dataset_id),
-            # The REFERENCE, never the secret. Task arguments are durable
-            # rows; this value means nothing once claimed or expired. An
-            # old-generation worker takes **kwargs and discards it, so a
-            # rolling deploy fails the run promptly instead of hanging it.
+            # The REFERENCE, never the secret: a task argument is a durable
+            # row, and this value means nothing once claimed or expired.
             credential_ref=credential_ref,
         )
 
