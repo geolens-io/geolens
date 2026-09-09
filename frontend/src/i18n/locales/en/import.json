@@ -190,7 +190,23 @@
       "backToSelection": "Back to selection",
       "confirmImport_one": "Confirm and import {{count}} item",
       "confirmImport_other": "Confirm and import {{count}} items"
-    }
+    },
+    "credentialMethodLabel": "Authentication",
+    "credentialMethodNone": "No authentication",
+    "credentialMethodBearer": "Bearer token",
+    "credentialMethodBasic": "Username and password",
+    "credentialMethodHeader": "API key in a header",
+    "credentialTokenLabel": "Bearer token",
+    "credentialTokenPlaceholder": "Paste your bearer token",
+    "credentialUsernameLabel": "Username",
+    "credentialUsernamePlaceholder": "Username",
+    "credentialPasswordLabel": "Password",
+    "credentialPasswordPlaceholder": "Password",
+    "credentialHeaderNameLabel": "Header name",
+    "credentialHeaderNamePlaceholder": "e.g. Ocp-Apim-Subscription-Key",
+    "credentialHeaderValueLabel": "Header value",
+    "credentialHeaderValuePlaceholder": "Your API key",
+    "credentialHelpText": "Choose the method your catalog documents. A bearer token is sent as an Authorization header; a username and password are sent as HTTP Basic auth; an API key can go under whatever header name the provider specifies — for example X-API-Key, Ocp-Apim-Subscription-Key, or key. It authenticates the catalog, its collections and its items; tiles are rendered from the asset URL and carry no credential."
   },
   "serviceUrl": {
     "label": "Service URL",

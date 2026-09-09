@@ -176,7 +176,23 @@
       "backToSelection": "Retour à la sélection",
       "confirmImport_one": "Confirmer et importer {{count}} élément",
       "confirmImport_other": "Confirmer et importer {{count}} éléments"
-    }
+    },
+    "credentialMethodLabel": "Authentification",
+    "credentialMethodNone": "Aucune authentification",
+    "credentialMethodBearer": "Jeton bearer",
+    "credentialMethodBasic": "Nom d'utilisateur et mot de passe",
+    "credentialMethodHeader": "Clé API dans un en-tête",
+    "credentialTokenLabel": "Jeton bearer",
+    "credentialTokenPlaceholder": "Collez votre jeton bearer",
+    "credentialUsernameLabel": "Nom d'utilisateur",
+    "credentialUsernamePlaceholder": "Nom d'utilisateur",
+    "credentialPasswordLabel": "Mot de passe",
+    "credentialPasswordPlaceholder": "Mot de passe",
+    "credentialHeaderNameLabel": "Nom de l'en-tête",
+    "credentialHeaderNamePlaceholder": "p. ex. Ocp-Apim-Subscription-Key",
+    "credentialHeaderValueLabel": "Valeur de l'en-tête",
+    "credentialHeaderValuePlaceholder": "Votre clé API",
+    "credentialHelpText": "Choisissez la méthode documentée par votre catalogue. Un jeton bearer est envoyé comme en-tête Authorization ; un nom d'utilisateur et un mot de passe sont envoyés en authentification HTTP Basic ; une clé API peut être envoyée sous le nom d'en-tête que le fournisseur indique, par exemple X-API-Key, Ocp-Apim-Subscription-Key ou key. Elle authentifie le catalogue, ses collections et ses éléments ; les tuiles sont rendues depuis l'URL de la ressource et ne portent aucune information d'authentification."
   },
   "serviceUrl": {
     "label": "URL de service",

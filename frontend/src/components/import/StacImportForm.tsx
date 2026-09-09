@@ -25,13 +25,29 @@ import {
   type StacImportContext,
 } from '@/api/stac-import-session';
 import type {
+  ServiceAuthRequest,
   StacConnectResponse,
   StacCollectionSummary,
   StacItemSummary,
   StacImportItem,
   StacImportResult,
 } from '@/types/api';
+import { originOf } from './utils';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+// feat(#1764): the four-way choice the backend's CredentialMethod enum names.
+// A copy rather than a shared component, matching ServiceCredentialBlock's
+// own note that converging the two is a follow-up.
+type StacCredentialMethod = 'none' | 'bearer' | 'basic' | 'header';
 
 type Step =
   | 'idle'
@@ -47,6 +63,12 @@ export function StacImportForm() {
   const { t } = useTranslation('import');
   const [step, setStep] = useState<Step>('idle');
   const [url, setUrl] = useState('');
+  const [credentialMethod, setCredentialMethod] = useState<StacCredentialMethod>('none');
+  const [token, setToken] = useState('');
+  const [basicUsername, setBasicUsername] = useState('');
+  const [basicPassword, setBasicPassword] = useState('');
+  const [headerName, setHeaderName] = useState('');
+  const [headerValue, setHeaderValue] = useState('');
   const [catalogInfo, setCatalogInfo] = useState<StacConnectResponse | null>(null);
   const [collections, setCollections] = useState<StacCollectionSummary[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<StacCollectionSummary | null>(null);
@@ -77,9 +99,52 @@ export function StacImportForm() {
   const matchedCount = searchResult.matched;
   const selectableItems = useMemo(() => items.filter((i) => i.data_asset_href), [items]);
 
+  // fix(#1764): a failed Connect returns here with the credential intact, so
+  // editing the URL to another catalog would send the first catalog's key to
+  // the second. Same reset, same reason, as ServiceUrlForm's.
+  const authOrigin = originOf(url);
+  const lastAuthOriginRef = useRef(authOrigin);
+  useEffect(() => {
+    if (authOrigin === lastAuthOriginRef.current) return;
+    lastAuthOriginRef.current = authOrigin;
+    clearCredential('none');
+  }, [authOrigin]);
+
+  // Switching methods discards the other branches' fields rather than
+  // half-honouring them, mirroring the backend's own oneOf-shaped `auth`.
+  function clearCredential(next: StacCredentialMethod) {
+    setCredentialMethod(next);
+    setToken('');
+    setBasicUsername('');
+    setBasicPassword('');
+    setHeaderName('');
+    setHeaderValue('');
+  }
+
+  // The `ServiceAuthRequest` the credential block describes, or undefined for
+  // 'none' and for an incomplete method — the door refuses a half-filled one,
+  // so staying anonymous matches how an empty optional token behaved.
+  function buildStacAuth(): ServiceAuthRequest | undefined {
+    switch (credentialMethod) {
+      case 'bearer':
+        return token.trim() ? { method: 'bearer', token: token.trim() } : undefined;
+      case 'basic':
+        return basicUsername.trim() && basicPassword
+          ? { method: 'basic', username: basicUsername.trim(), password: basicPassword }
+          : undefined;
+      case 'header':
+        return headerName.trim() && headerValue
+          ? { method: 'header', header_name: headerName.trim(), header_value: headerValue }
+          : undefined;
+      default:
+        return undefined;
+    }
+  }
+
   const reset = () => {
     setStep('idle');
     setUrl('');
+    clearCredential('none');
     setCatalogInfo(null);
     setCollections([]);
     setSelectedCollection(null);
@@ -112,9 +177,10 @@ export function StacImportForm() {
     setError(null);
 
     try {
+      const auth = buildStacAuth();
       const [info, collectionsResult] = await Promise.all([
-        connectStac(trimmed),
-        fetchStacCollections(trimmed),
+        connectStac(trimmed, auth),
+        fetchStacCollections(trimmed, auth),
       ]);
       setCatalogInfo(info);
       setCollections(collectionsResult.collections);
@@ -134,10 +200,14 @@ export function StacImportForm() {
     setError(null);
 
     try {
+      // feat(#1764): the same credential the connect step used, so search
+      // sees what connect saw rather than the anonymous view.
+      const auth = buildStacAuth();
       const result = await searchStacItems({
         url: catalogInfo!.url,
         collections: [collection.id],
         limit: 50,
+        ...(auth ? { auth } : {}),
       });
       setSearchResult({ items: result.items, matched: result.matched });
       setSelectedItems(new Set());
@@ -218,7 +288,16 @@ export function StacImportForm() {
       searchResult,
       selectedItemIds: Array.from(selectedItems),
     };
-    const session = startStacImport(catalogInfo!.url, importItems, context);
+    // feat(#1764): a boolean, never the credential. `/import` contacts no
+    // catalog, so this is the only way the dataset can learn that browsing
+    // this one needed a credential and its first refresh should ask for one.
+    const session = startStacImport(
+      catalogInfo!.url,
+      importItems,
+      context,
+      undefined,
+      buildStacAuth() !== undefined,
+    );
     try {
       const result = await session.promise;
       // fix(#1712): if this mount unmounted while the request was in
@@ -722,6 +801,137 @@ export function StacImportForm() {
               </code>
             </span>
           </div>
+        </div>
+
+        <div className="space-y-3" data-testid="stac-credential-block">
+          <div className="space-y-2">
+            <Label htmlFor="stac-credential-method" className="text-xs text-muted-foreground">
+              {t('stac.credentialMethodLabel')}
+            </Label>
+            <Select
+              value={credentialMethod}
+              onValueChange={(value) => clearCredential(value as StacCredentialMethod)}
+            >
+              <SelectTrigger
+                id="stac-credential-method"
+                aria-label={t('stac.credentialMethodLabel')}
+                className="w-full"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t('stac.credentialMethodNone')}</SelectItem>
+                <SelectItem value="bearer">{t('stac.credentialMethodBearer')}</SelectItem>
+                <SelectItem value="basic">{t('stac.credentialMethodBasic')}</SelectItem>
+                <SelectItem value="header">{t('stac.credentialMethodHeader')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {credentialMethod === 'bearer' && (
+            <div className="space-y-2">
+              <Label htmlFor="stac-credential-token" className="text-xs text-muted-foreground">
+                {t('stac.credentialTokenLabel')}
+              </Label>
+              <Input
+                id="stac-credential-token"
+                type="password"
+                placeholder={t('stac.credentialTokenPlaceholder')}
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                className="font-mono text-sm"
+                // fix(#1746): autocomplete="off" alone does not stop Chrome
+                // offering a saved password on a service credential, so opt
+                // every password manager out explicitly.
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore
+              />
+            </div>
+          )}
+
+          {credentialMethod === 'basic' && (
+            <div className="space-y-3 rounded-lg border border-border bg-surface-0 p-3.5">
+              <div className="space-y-2">
+                <Label htmlFor="stac-credential-username" className="text-xs text-muted-foreground">
+                  {t('stac.credentialUsernameLabel')}
+                </Label>
+                <Input
+                  id="stac-credential-username"
+                  type="text"
+                  autoComplete="username"
+                  placeholder={t('stac.credentialUsernamePlaceholder')}
+                  value={basicUsername}
+                  onChange={(e) => setBasicUsername(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="stac-credential-password" className="text-xs text-muted-foreground">
+                  {t('stac.credentialPasswordLabel')}
+                </Label>
+                <Input
+                  id="stac-credential-password"
+                  type="password"
+                  placeholder={t('stac.credentialPasswordPlaceholder')}
+                  value={basicPassword}
+                  onChange={(e) => setBasicPassword(e.target.value)}
+                  className="text-sm"
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
+                />
+              </div>
+            </div>
+          )}
+
+          {credentialMethod === 'header' && (
+            <div className="space-y-3 rounded-lg border border-border bg-surface-0 p-3.5">
+              <div className="space-y-2">
+                <Label
+                  htmlFor="stac-credential-header-name"
+                  className="text-xs text-muted-foreground"
+                >
+                  {t('stac.credentialHeaderNameLabel')}
+                </Label>
+                <Input
+                  id="stac-credential-header-name"
+                  type="text"
+                  autoComplete="off"
+                  placeholder={t('stac.credentialHeaderNamePlaceholder')}
+                  value={headerName}
+                  onChange={(e) => setHeaderName(e.target.value)}
+                  className="font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label
+                  htmlFor="stac-credential-header-value"
+                  className="text-xs text-muted-foreground"
+                >
+                  {t('stac.credentialHeaderValueLabel')}
+                </Label>
+                <Input
+                  id="stac-credential-header-value"
+                  type="password"
+                  placeholder={t('stac.credentialHeaderValuePlaceholder')}
+                  value={headerValue}
+                  onChange={(e) => setHeaderValue(e.target.value)}
+                  className="font-mono text-sm"
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
+                />
+              </div>
+            </div>
+          )}
+
+          {credentialMethod !== 'none' && (
+            <p className="text-xs text-muted-foreground">{t('stac.credentialHelpText')}</p>
+          )}
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}

@@ -9612,6 +9612,16 @@ export type StacConnectRequest = {
      * STAC API root URL to connect to.
      */
     url: string;
+    /**
+     * Token
+     *
+     * Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
+     */
+    token?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**
@@ -9771,6 +9781,12 @@ export type StacImportRequest = {
      * Visibility for imported datasets.
      */
     visibility?: 'private' | 'restricted' | 'internal' | 'public';
+    /**
+     * Catalog Auth Required
+     *
+     * Whether browsing this catalog needed a credential. Set it when the search that produced these items carried one, so the first refresh asks for a credential instead of failing anonymously.
+     */
+    catalog_auth_required?: boolean;
 };
 
 /**
@@ -10234,6 +10250,16 @@ export type StacSearchRequest = {
      * Maximum items to return.
      */
     limit?: number;
+    /**
+     * Token
+     *
+     * Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
+     */
+    token?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**

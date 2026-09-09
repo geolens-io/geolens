@@ -234,7 +234,9 @@ class TestTheFormatSets:
             assert sends_credential_as_header(source_format) is True
 
     def test_a_format_nobody_taught_it_is_in_neither(self) -> None:
-        for source_format in (None, "", "stac", "geojson"):
+        # feat(#1764): `stac` is no longer one of them; it sends a header and
+        # is a header-LINE format, which test_stac_service_auth_1764 pins.
+        for source_format in (None, "", "geojson", "geopackage"):
             assert sends_credential_as_header(source_format) is False
 
 

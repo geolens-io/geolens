@@ -29,6 +29,7 @@ from typing import Any
 
 import httpx
 
+from app.core.service_tokens import ServiceCredential, build_credential_header
 from app.modules.catalog.sources.adapters.arcgis import (
     build_arcgis_count_query_url,
 )
@@ -165,6 +166,10 @@ async def probe_remote_uri(
     three-value vocabulary exists to remove. Streaming plus the
     context-manager close bounds the body even if the range header is
     ignored.
+
+    fix(#1764): takes no credential, deliberately. Its one credentialed
+    caller would have been the STAC asset probe, and that has to ask what
+    Titiler will ask, which is an anonymous read.
     """
     # fix(#1271): records whether ANY response hop arrived, so a
     # mid-chain policy refusal (public origin redirecting to a blocked
@@ -176,6 +181,7 @@ async def probe_remote_uri(
         nonlocal responded
         responded = True
 
+    headers = {"Range": "bytes=0-0"}
     try:
         # fix(#1271): hard deadline around the WHOLE op — the guard
         # transport resolves DNS before httpx's phase timeouts apply, so a
@@ -193,9 +199,7 @@ async def probe_remote_uri(
                         *hooks.get("response", []),
                     ]
                     client.event_hooks = hooks
-                async with client.stream(
-                    "GET", uri, headers={"Range": "bytes=0-0"}
-                ) as response:
+                async with client.stream("GET", uri, headers=headers) as response:
                     status_code = response.status_code
     except (
         Exception
@@ -314,6 +318,7 @@ async def fetch_json_document(
     json_body: Any | None = None,
     timeout: float = PROBE_TIMEOUT_SECONDS,
     max_bytes: int = MAX_DOCUMENT_BYTES,
+    credential: ServiceCredential | None = None,
 ) -> tuple[OriginProbeResult, Any | None, str]:
     """Fetch *uri* and return its verdict, its parsed body, and its final URL.
 
@@ -331,6 +336,11 @@ async def fetch_json_document(
     the requested URL instead would point a redirected catalog's assets at
     the wrong host. The SSRF transport restores the hostname after each
     pinned hop, so this is never the pinned IP.
+
+    fix(#1764): ``credential`` arrives already bound to its service format,
+    for the reason ``probe_remote_uri`` gives. Composed here rather than
+    passed in finished, so the single-producer rule holds, and declared to
+    the client so a 302 cannot carry it to the origin the Location names.
     """
     responded = False
     final_url = uri
@@ -339,13 +349,21 @@ async def fetch_json_document(
         nonlocal responded
         responded = True
 
+    headers = {"Accept": "application/geo+json, application/json"}
+    pair: tuple[str, str] | None = None
+    if credential is not None:
+        pair = build_credential_header(credential)
+        if pair is not None:
+            headers[pair[0]] = pair[1]
     raw = bytearray()
     try:
         # The same doubled hard deadline probe_remote_uri takes, and for the
         # same reason: httpx's phase timeouts do not cover the guard
         # transport's DNS resolution.
         async with asyncio.timeout(timeout * 2):
-            async with make_safe_client(timeout=timeout) as client:
+            async with make_safe_client(
+                timeout=timeout, credential_header=None if pair is None else pair[0]
+            ) as client:
                 if hasattr(client, "event_hooks"):
                     hooks = client.event_hooks
                     hooks["response"] = [_mark_responded, *hooks.get("response", [])]
@@ -354,7 +372,7 @@ async def fetch_json_document(
                     method,
                     uri,
                     json=json_body,
-                    headers={"Accept": "application/geo+json, application/json"},
+                    headers=headers,
                 ) as response:
                     status_code = response.status_code
                     final_url = str(response.url)

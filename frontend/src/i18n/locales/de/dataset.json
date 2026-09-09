@@ -879,6 +879,9 @@
           "headerValueLabel": "Header-Wert",
           "headerValuePlaceholder": "Ihr API-Schlüssel",
           "helpText": "Ein Bearer-Token wird als Authorization-Header gesendet; Benutzername und Passwort werden als HTTP-Basic-Authentifizierung gesendet; ein API-Schlüssel kann unter dem vom Anbieter angegebenen Header-Namen gesendet werden, zum Beispiel X-API-Key, Ocp-Apim-Subscription-Key oder key."
+        },
+        "stac": {
+          "escapeHatch": "Wenn der Katalog jetzt öffentlich ist, importieren Sie das Item ohne Zugangsdaten erneut aus dem STAC-Katalog, um diese Anforderung aufzuheben."
         }
       },
       "history": {

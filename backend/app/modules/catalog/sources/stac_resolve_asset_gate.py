@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 import structlog
 
+from app.core.service_tokens import ServiceCredential
 from app.modules.catalog.sources.adapters.stac import (
     pick_data_asset,
     projection_epsg,
@@ -31,11 +32,12 @@ from app.modules.catalog.sources.origin_probe import (
     fetch_json_document,
     probe_remote_uri,
 )
-from app.platform.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
 from app.modules.catalog.sources.stac_resolve_identity import (
     _contradicts_stored_identity,
     _standard_item_path,
     _url_contradicts_identity,
+    credential_for_read,
 )
 from app.modules.catalog.sources.stac_resolve_taxonomy import (
     StacResolution,
@@ -139,11 +141,19 @@ async def _resolve_from_item(
     collection_affirmed: bool,
     asset_href: str | None,
     asset_key: str | None,
+    credential: ServiceCredential | None = None,
+    catalog_origin: str | None = None,
 ) -> StacResolution:
     """Turn a fetched item document into a resolution, health included.
 
     One reading of one document, used by both paths, so the direct fetch and
     the re-search cannot reach different verdicts about the same shape.
+
+    fix(#1764): the two reads this gate makes of its own go to addresses THIS
+    DOCUMENT named, so each is gated on ``catalog_origin`` — the self link
+    is dropped rather than fetched off-origin, and an off-origin asset is
+    probed anonymously, which is the ordinary shape for a catalog whose
+    assets live in someone else's bucket.
     """
     refusal = _identity_refusal(
         item,
@@ -189,6 +199,8 @@ async def _resolve_from_item(
         fallback_is_live=item_base is not None,
         collection_id=collection_id,
         asset_key=key,
+        credential=credential,
+        catalog_origin=catalog_origin,
     )
 
     # fix(#1266): `item_base` is the item's own fetch URL on the direct path
@@ -221,6 +233,10 @@ async def _resolve_from_item(
     # unresolvable.
     resolved_item_href = self_href or fallback_item_href
 
+    # fix(#1764): ANONYMOUS, always. Titiler serves this href out of process
+    # and cannot carry a request-only credential, so a probe that used one
+    # would report `healthy` for tiles that stay unreadable. The verdict has
+    # to answer the question the tiler will ask.
     probed = await probe_remote_uri(href)
     if probed.detail == BLOCKED_BY_POLICY:
         # fix(#1266): refused, not merely reported — this is a fact about
@@ -244,6 +260,9 @@ async def _resolve_from_item(
             await validate_url_for_ssrf(href)
         except SSRFError:
             return _ASSET_BLOCKED
+        # feat(#1764): Titiler fetches this URL itself, in another process,
+        # so a credentialed asset that MOVED reads as unreadable rather than
+        # re-describing. Carrying a key to the tiler is overlay work.
         metadata = await fetch_cog_info(href)
         if metadata is None:
             # fix(#1266): the probe may have already settled this — 404/410
@@ -292,6 +311,8 @@ async def _trustworthy_self_href(
     fallback_is_live: bool,
     collection_id: str | None,
     asset_key: str,
+    credential: ServiceCredential | None = None,
+    catalog_origin: str | None = None,
 ) -> tuple[str | None, str | None, dict[str, Any] | None]:
     """``(pointer to store, base for relative hrefs, the document at it)``.
 
@@ -329,7 +350,21 @@ async def _trustworthy_self_href(
     ):
         logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
         return None, None, None
-    result, document, final_url = await fetch_json_document(self_href)
+    # fix(#1764): a self link off the catalog's origin is DROPPED, whether or
+    # not THIS refresh carries a credential. It becomes the stored pointer,
+    # which is the origin every later refresh sends its credential to, so an
+    # anonymous one adopting it moves that anchor. Unconditional, like the two
+    # `same_origin` references in `platform/service_items.py`; dropping a self
+    # link is already the ordinary outcome here and keeps the working pointer.
+    if catalog_origin is not None and not same_origin(catalog_origin, self_href):
+        logger.info("stac_self_link_off_catalog_origin")
+        return None, None, None
+    self_credential = credential_for_read(
+        credential, url=self_href, credential_origin=catalog_origin
+    )
+    result, document, final_url = await fetch_json_document(
+        self_href, credential=self_credential
+    )
     if not result.ok:
         logger.info("stac_self_link_not_adopted", detail=result.detail)
         return None, None, None

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import structlog
 
+from app.core.service_tokens import ServiceCredential
 from app.modules.catalog.sources.origin_probe import MISSING, fetch_json_document
 from app.modules.catalog.sources.stac_resolve_asset_gate import (
     _bound_asset_key,  # noqa: F401 -- re-exported, see __all__
@@ -43,6 +44,7 @@ from app.modules.catalog.sources.stac_resolve_by_search import _resolve_by_searc
 from app.modules.catalog.sources.stac_resolve_identity import (
     _search_root_and_item_id,
     _standard_item_path,
+    credential_for_read,
     states_verifiable_identity,  # noqa: F401 -- re-exported, see __all__
 )
 from app.modules.catalog.sources.stac_resolve_taxonomy import (
@@ -70,12 +72,23 @@ async def resolve_stac_binding(
     collection_id: str | None = None,
     asset_href: str | None = None,
     asset_key: str | None = None,
+    credential: ServiceCredential | None = None,
+    catalog_origin: str | None = None,
 ) -> StacResolution:
     """Ask the publisher where this dataset's asset lives now.
 
     Pure network and pure computation: nothing here reads or writes the
     database, and the caller is free to hold no session across it.
+
+    feat(#1764): the refresh door stashes ``credential`` for one attempt and
+    the worker claims it once. ``catalog_origin`` is the catalog origin it
+    was given for; a read the item document steers elsewhere is made
+    anonymously (``credential_for_read``). Defaults to the stored item URL's
+    origin, which is what the door validated and cannot drift, since an
+    off-origin self link is no longer adopted.
     """
+    if catalog_origin is None:
+        catalog_origin = item_href
     # The BINDING is checked first (exact); falls back to reading the id out
     # of the URL for datasets imported before it was recorded — only ever a
     # reading of the stored href, never a guess.
@@ -98,7 +111,12 @@ async def resolve_stac_binding(
         logger.info("stac_identity_unverifiable")
         return _UNVERIFIABLE
 
-    result, document, item_url = await fetch_json_document(item_href)
+    result, document, item_url = await fetch_json_document(
+        item_href,
+        credential=credential_for_read(
+            credential, url=item_href, credential_origin=catalog_origin
+        ),
+    )
     if result.ok:
         return await _resolve_from_item(
             document,
@@ -114,6 +132,8 @@ async def resolve_stac_binding(
             collection_affirmed=_standard_item_path(item_url) is not None,
             asset_href=asset_href,
             asset_key=asset_key,
+            credential=credential,
+            catalog_origin=catalog_origin,
         )
     if result.health == MISSING:
         return await _resolve_by_search(
@@ -122,6 +142,8 @@ async def resolve_stac_binding(
             collection_id=effective_collection,
             asset_href=asset_href,
             asset_key=asset_key,
+            credential=credential,
+            catalog_origin=catalog_origin,
         )
     # Inconclusive: a timeout, a 5xx, a 401/403, a policy refusal. Nothing was
     # established about where the asset is, so the caller keeps every stored
@@ -145,6 +167,7 @@ __all__ = [
     "_search_root_and_item_id",
     "_standard_item_path",
     "_WITHDRAWN",
+    "credential_for_read",
     "resolve_stac_binding",
     "states_verifiable_identity",
 ]

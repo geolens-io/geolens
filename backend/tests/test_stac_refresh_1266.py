@@ -33,7 +33,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.orm import joinedload
 
 from app.modules.catalog.datasets.api import router_refresh
@@ -43,7 +43,9 @@ from app.modules.catalog.sources.adapters.stac import pick_data_asset
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
 from app.platform.security import SSRFError, SSRFResolutionError
 from app.modules.catalog.sources.stac_resolve import resolve_stac_binding
+from app.platform import refresh as _refresh_pkg  # noqa: F401 -- see credentials import below
 from app.platform.dataset_origin import SOURCE_HEALTH_VALUES, build_origin_ref
+from app.platform.refresh import credentials as creds
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest import tasks_stac_refresh
@@ -257,6 +259,7 @@ async def _stac_dataset(
     asset_key: str | None = "data",
     collection_id: str | None = "scenes",
     source_health: str | None = None,
+    url: str | None = _ROOT,
 ) -> Dataset:
     """A STAC dataset with a remote raster asset, as the import path makes one."""
     dataset = await _create_dataset(
@@ -271,6 +274,7 @@ async def _stac_dataset(
     dataset.origin_uri = asset_href
     dataset.origin_ref = build_origin_ref(
         "stac",
+        url=url,
         asset_href=asset_href,
         item_href=item_href,
         item_id=item_id,
@@ -292,6 +296,33 @@ async def _stac_dataset(
     await session.commit()
     await session.refresh(dataset)
     return dataset
+
+
+class _FakeCredentialBackend:
+    """An in-memory stand-in for the single-use credential store."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+
+    async def put(self, key: str, value: str, ttl_seconds: int) -> None:
+        self.store[key] = value
+
+    async def take(self, key: str) -> str | None:
+        return self.store.pop(key, None)
+
+    async def renew(self, key: str, ttl_seconds: int) -> bool:
+        return key in self.store
+
+
+@pytest.fixture
+def credential_backend():
+    """Install a fake credential store for the duration of one test."""
+    backend = _FakeCredentialBackend()
+    creds.set_credential_backend(backend)
+    try:
+        yield backend
+    finally:
+        creds.set_credential_backend(None)
 
 
 @asynccontextmanager
@@ -319,6 +350,33 @@ async def _dispatch(client: AsyncClient, headers: dict, dataset_id: uuid.UUID) -
         resp = await client.post(f"/datasets/{dataset_id}/refresh", headers=headers)
     assert resp.status_code == 202, resp.text
     return resp.json()
+
+
+async def _execute_with_credential(session, payload: dict, credential_ref: str) -> None:
+    """Run the worker for a credentialed dispatch, as the queue would."""
+    job = (
+        await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(payload["job_id"]))
+        )
+    ).scalar_one()
+    await refresh_stac.func(
+        job_id=payload["job_id"],
+        dataset_id=payload["dataset_id"],
+        attempt_id=str(job.attempt_id),
+        credential_ref=credential_ref,
+    )
+
+
+async def _dispatch_with_credential(
+    client: AsyncClient, headers: dict, dataset_id: uuid.UUID, auth: dict
+) -> tuple[dict, str]:
+    """Dispatch a credentialed refresh; return the payload and its ref."""
+    async with _dispatch_harness() as task:
+        resp = await client.post(
+            f"/datasets/{dataset_id}/refresh", headers=headers, json={"auth": auth}
+        )
+    assert resp.status_code == 202, resp.text
+    return resp.json(), task.defer_async.await_args.kwargs["credential_ref"]
 
 
 async def _execute(session, payload: dict) -> None:
@@ -394,6 +452,15 @@ async def _run_for(dataset_id: uuid.UUID) -> DatasetRefreshRun | None:
                 )
             )
         ).scalar_one_or_none()
+
+
+async def _run_by_id(run_id: uuid.UUID) -> DatasetRefreshRun:
+    async with _fresh_session() as session:
+        return (
+            await session.execute(
+                select(DatasetRefreshRun).where(DatasetRefreshRun.id == run_id)
+            )
+        ).scalar_one()
 
 
 async def _origin_asset_rows(dataset_id: uuid.UUID) -> list[DatasetAsset]:
@@ -2259,21 +2326,144 @@ class TestDispatch:
         assert resp.json()["detail"]["code"] == "origin_unavailable"
         assert await _run_for(dataset.id) is None
 
-    async def test_a_credential_is_refused_rather_than_dropped(
+    async def test_a_credential_is_staged_by_reference_never_as_an_argument(
+        self, client, admin_auth_header, test_db_session, credential_backend
+    ) -> None:
+        """feat(#1764): the catalog may be protected, so the credential is
+        carried — but a task argument is a durable row, so only the reference
+        crosses and the secret lives in the single-use store."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        secret = "sentinel-" + uuid.uuid4().hex
+        async with _dispatch_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                headers=admin_auth_header,
+                json={"auth": {"method": "bearer", "token": secret}},
+            )
+        assert resp.status_code == 202, resp.text
+        kwargs = task.defer_async.await_args.kwargs
+        assert secret not in str(kwargs)
+        ref = kwargs["credential_ref"]
+        assert ref
+        assert secret in credential_backend.store[creds._KEY_PREFIX + ref]
+
+    async def test_a_credential_the_rules_refuse_never_reaches_a_response(
+        self, client, admin_auth_header, test_db_session, credential_backend
+    ) -> None:
+        """The 422 names the policy; echoing the value would put a fragment of
+        a submitted credential in a response body and a log line."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        secret = "sentinel-" + uuid.uuid4().hex
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                headers=admin_auth_header,
+                json={
+                    "auth": {
+                        "method": "header",
+                        "header_name": "Cookie",
+                        "header_value": secret,
+                    }
+                },
+            )
+        assert resp.status_code == 422, resp.text
+        assert secret not in resp.text
+        assert await _run_for(dataset.id) is None
+
+    async def test_a_marked_dataset_refuses_a_token_less_refresh(
         self, client, admin_auth_header, test_db_session
     ) -> None:
-        """Answering 202 to a request that handed GeoLens a secret it silently
-        discarded leaves the caller no way to learn their token went nowhere."""
+        """feat(#1764): the marker says the last successful refresh used a
+        credential, so an anonymous one would reach the catalog, collect a 401
+        and report a live dataset as inaccessible."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        dataset.origin_ref = {**dataset.origin_ref, "auth_required": True}
+        await test_db_session.commit()
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "service_token_required"
+        assert await _run_for(dataset.id) is None
+
+    async def test_a_marker_that_appears_during_the_reservation_is_caught(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """feat(#1764): a credentialed refresh finishing inside the window
+        marks the dataset without moving its origin, so the binding check
+        passes and only the post-reservation recheck notices."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        real_refresh = router_refresh.AsyncSession.refresh
+
+        async def _mark_then_refresh(session, instance, attrs=None, **kwargs):
+            await session.execute(
+                update(Dataset)
+                .where(Dataset.id == dataset.id)
+                .values(origin_ref={**dataset.origin_ref, "auth_required": True})
+            )
+            return await real_refresh(session, instance, attrs, **kwargs)
+
+        async with _dispatch_harness():
+            with patch.object(
+                router_refresh.AsyncSession, "refresh", _mark_then_refresh
+            ):
+                resp = await client.post(
+                    f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "service_token_required"
+        # The reservation is released, so a later refresh is not blocked.
+        assert await _run_for(dataset.id) is None
+
+    async def test_a_binding_recording_no_catalog_refuses_a_credential(
+        self, client, admin_auth_header, test_db_session, credential_backend
+    ) -> None:
+        """fix(#1764): a credential is anchored on the catalog URL the caller
+        submitted at import. A binding from before that was recorded has no
+        anchor, and falling back to the stored item pointer would let a
+        document from that era name where the credential goes."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id, url=None)
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                headers=admin_auth_header,
+                json={"auth": {"method": "bearer", "token": "abcdefgh"}},
+            )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "origin_unavailable"
+        assert await _run_for(dataset.id) is None
+
+    async def test_the_same_binding_still_refreshes_anonymously(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """The refusal is scoped to the new capability: an ordinary refresh of
+        a pre-existing binding is unchanged."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id, url=None)
+        await _dispatch(client, admin_auth_header, dataset.id)
+
+    async def test_a_credentialed_refresh_needs_the_shared_store(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """Without it the secret cannot reach the worker at all, so a 202 here
+        would buy a background failure whose real cause is a missing setting."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _stac_dataset(test_db_session, created_by=admin_id)
         async with _dispatch_harness():
             resp = await client.post(
                 f"/datasets/{dataset.id}/refresh",
                 headers=admin_auth_header,
-                json={"token": "not-applicable-here"},
+                json={"auth": {"method": "bearer", "token": "abcdefgh"}},
             )
-        assert resp.status_code == 422, resp.text
-        assert resp.json()["detail"]["code"] == "credential_not_applicable"
+        assert resp.status_code == 503, resp.text
+        assert resp.json()["detail"]["code"] == "credential_store_unavailable"
         assert await _run_for(dataset.id) is None
 
     async def test_a_stored_url_that_no_longer_passes_ssrf_is_refused(
@@ -2889,6 +3079,133 @@ class TestWorker:
         assert finished.claimed_at is not None
         # No data moved, so there is no new version of it to point at.
         assert finished.dataset_version_id is None
+
+
+class TestCredentialedRefresh:
+    """feat(#1764): a protected catalog is re-read as the same caller the
+    import was, and the marker that records it is written from the credential
+    the attempt actually used."""
+
+    async def test_every_read_carries_the_credential_and_the_marker_is_written(
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        stac_transport,
+        credential_backend,
+    ) -> None:
+        install, recorded = stac_transport
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        secret = "sentinel-" + uuid.uuid4().hex
+
+        payload, ref = await _dispatch_with_credential(
+            client,
+            admin_auth_header,
+            dataset.id,
+            {"method": "header", "header_name": "X-Api-Key", "header_value": secret},
+        )
+        await _execute_with_credential(test_db_session, payload, ref)
+
+        assert recorded, "the worker made no request"
+        # Every catalog read carries it; the asset probe does not, because
+        # Titiler fetches that URL out of process and cannot.
+        catalog_reads = [r for r in recorded if not r.url.path.endswith(".tif")]
+        assert catalog_reads
+        for request in catalog_reads:
+            assert request.headers["X-Api-Key"] == secret
+        for request in recorded:
+            if request.url.path.endswith(".tif"):
+                assert "X-Api-Key" not in request.headers
+        refreshed = await _reload(dataset.id)
+        assert refreshed.origin_ref["auth_required"] is True
+        assert refreshed.origin_ref["asset_href"] == _MOVED_ASSET
+        # The credential is in nothing the refresh persisted.
+        assert secret not in str(refreshed.origin_ref)
+        assert secret not in (refreshed.source_url or "")
+        run = await _run_for(dataset.id)
+        assert run.status == "succeeded"
+        assert secret not in (run.error_message or "")
+
+    async def test_a_token_less_success_clears_the_marker(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """The marker means "the last successful refresh used one", so it is
+        rewritten from each attempt rather than accumulating."""
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        # Marked after the door admitted the token-less request, so the worker
+        # runs anonymously against a marked binding — the state the door's own
+        # refusal keeps a caller out of, reached here to pin the write.
+        await test_db_session.execute(
+            update(Dataset)
+            .where(Dataset.id == dataset.id)
+            .values(origin_ref={**dataset.origin_ref, "auth_required": True})
+        )
+        await test_db_session.commit()
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(dataset.id)
+        assert "auth_required" not in refreshed.origin_ref
+
+    async def test_a_spent_credential_is_recorded_as_a_failed_run(
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        stac_transport,
+        credential_backend,
+    ) -> None:
+        """fix(#1764): a single-use credential is gone after one claim. The
+        attempt fails without contacting the catalog, and the failure is
+        WRITTEN, so the run does not sit pending and hold the dataset against
+        the admission index for an hour."""
+        install, recorded = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload, ref = await _dispatch_with_credential(
+            client,
+            admin_auth_header,
+            dataset.id,
+            {"method": "bearer", "token": "abcdefgh"},
+        )
+        await _execute_with_credential(test_db_session, payload, ref)
+        recorded.clear()
+
+        retry, _fresh_ref = await _dispatch_with_credential(
+            client,
+            admin_auth_header,
+            dataset.id,
+            {"method": "bearer", "token": "abcdefgh"},
+        )
+        with pytest.raises(creds.CredentialExpiredError):
+            await _execute_with_credential(test_db_session, retry, ref)
+
+        assert recorded == []
+        run = await _run_by_id(uuid.UUID(retry["run_id"]))
+        assert run.status == "failed"
+        assert run.error_code == "credential_expired"
+        # And the dataset is free: a later refresh is admitted rather than
+        # answered 409 dataset_busy by the one-active-run index. Credentialed,
+        # because the first success marked the origin.
+        await _dispatch_with_credential(
+            client,
+            admin_auth_header,
+            dataset.id,
+            {"method": "bearer", "token": "ijklmnop"},
+        )
 
 
 class TestOriginAssetRepair:

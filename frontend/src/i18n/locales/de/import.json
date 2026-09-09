@@ -176,7 +176,23 @@
       "backToSelection": "Zurück zur Auswahl",
       "confirmImport_one": "{{count}} Objekt bestätigen und importieren",
       "confirmImport_other": "{{count}} Objekte bestätigen und importieren"
-    }
+    },
+    "credentialMethodLabel": "Authentifizierung",
+    "credentialMethodNone": "Keine Authentifizierung",
+    "credentialMethodBearer": "Bearer-Token",
+    "credentialMethodBasic": "Benutzername und Passwort",
+    "credentialMethodHeader": "API-Schlüssel in einem Header",
+    "credentialTokenLabel": "Bearer-Token",
+    "credentialTokenPlaceholder": "Bearer-Token einfügen",
+    "credentialUsernameLabel": "Benutzername",
+    "credentialUsernamePlaceholder": "Benutzername",
+    "credentialPasswordLabel": "Passwort",
+    "credentialPasswordPlaceholder": "Passwort",
+    "credentialHeaderNameLabel": "Header-Name",
+    "credentialHeaderNamePlaceholder": "z. B. Ocp-Apim-Subscription-Key",
+    "credentialHeaderValueLabel": "Header-Wert",
+    "credentialHeaderValuePlaceholder": "Ihr API-Schlüssel",
+    "credentialHelpText": "Wählen Sie die Methode, die Ihr Katalog dokumentiert. Ein Bearer-Token wird als Authorization-Header gesendet; Benutzername und Passwort werden als HTTP-Basic-Authentifizierung gesendet; ein API-Schlüssel kann unter dem vom Anbieter angegebenen Header-Namen gesendet werden, zum Beispiel X-API-Key, Ocp-Apim-Subscription-Key oder key. Sie authentifiziert den Katalog, seine Collections und seine Items; Kacheln werden aus der Asset-URL gerendert und tragen keine Zugangsdaten."
   },
   "serviceUrl": {
     "label": "Service-URL",

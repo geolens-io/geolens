@@ -115,6 +115,8 @@ def sync_detailed(
 
      Search items in a STAC API with spatial/temporal filters.
 
+    Accepts a credential for a protected catalog, applied to this call.
+
     Args:
         body (StacSearchRequest):
 
@@ -146,6 +148,8 @@ def sync(
 
      Search items in a STAC API with spatial/temporal filters.
 
+    Accepts a credential for a protected catalog, applied to this call.
+
     Args:
         body (StacSearchRequest):
 
@@ -171,6 +175,8 @@ async def asyncio_detailed(
     """Stac Search
 
      Search items in a STAC API with spatial/temporal filters.
+
+    Accepts a credential for a protected catalog, applied to this call.
 
     Args:
         body (StacSearchRequest):
@@ -200,6 +206,8 @@ async def asyncio(
     """Stac Search
 
      Search items in a STAC API with spatial/temporal filters.
+
+    Accepts a credential for a protected catalog, applied to this call.
 
     Args:
         body (StacSearchRequest):

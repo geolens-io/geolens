@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from typing import Any, TypedDict
 from urllib.parse import urljoin
 
@@ -15,8 +16,17 @@ import httpx
 import structlog
 from pydantic import HttpUrl
 
-from app.core.url_redaction import has_url_credentials, redact_exception_text
-from app.platform.security import make_safe_client
+from app.core.service_tokens import (
+    STAC_SERVICE_FORMAT,
+    ServiceCredential,
+    build_credential_header,
+)
+from app.core.url_redaction import (
+    carries_registered_credential,
+    has_url_credentials,
+    redact_exception_text,
+)
+from app.platform.security import make_safe_client, same_origin
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
@@ -131,10 +141,17 @@ def storable_href(href: Any, base_url: str) -> str | None:
         return None
     if len(resolved) > 4096 or has_url_credentials(resolved):
         return None
+    # fix(#1764): and the origin does not get to hand the caller's own
+    # credential back for storage. `has_url_credentials` allowlists parameter
+    # NAMES; this asks whether the value is one this request composed.
+    if carries_registered_credential(resolved):
+        return None
     return resolved
 
 
-def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
+def self_link_href(
+    feature: dict[str, Any], base_url: str, catalog_url: str | None = None
+) -> str | None:
     """The item's own canonical href, from its ``rel="self"`` link.
 
     feat(#1222): search is the ONE place GeoLens holds a STAC item document,
@@ -147,6 +164,11 @@ def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
     drops a non-http(s) or credentialed href rather than surfacing it: a
     credentialed one would otherwise turn an optional convenience into a
     422 for the caller's whole import batch.
+
+    fix(#1764): ``catalog_url`` fences the result to the origin the caller
+    submitted. This pointer becomes ``origin_ref["item_href"]``, which a
+    later credentialed refresh anchors on, so a catalog that advertises an
+    off-origin self link here could name the host its own key is sent to.
     """
     links = feature.get("links")
     # fix(#1271): a malformed scalar `links` must cost only this
@@ -155,37 +177,60 @@ def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
         if not isinstance(link, dict) or link.get("rel") != "self":
             continue
         resolved = storable_href(link.get("href"), base_url)
-        if resolved is not None:
-            return resolved
+        if resolved is None:
+            continue
+        if catalog_url is not None and not same_origin(catalog_url, resolved):
+            logger.warning("STAC search: self link is off the submitted origin")
+            continue
+        return resolved
     return None
 
 
-def _make_client() -> httpx.AsyncClient:
+def _make_client(credential_header: str | None = None) -> httpx.AsyncClient:
     """Shared httpx client for STAC API requests.
 
     Phase 1061 SEC-S04: uses make_safe_client() so the per-hop SSRF
     revalidation hook covers every redirect a STAC probe follows.
+
+    feat(#1764): ``credential_header`` names the header this request carries,
+    so a 302 to another origin is refused rather than followed with the
+    caller's key. Passed even for ``Authorization``, which httpx would
+    silently strip — a refusal says what happened.
     """
-    return make_safe_client(timeout=STAC_TIMEOUT)
+    return make_safe_client(timeout=STAC_TIMEOUT, credential_header=credential_header)
 
 
-async def connect_stac_api(url: str) -> dict | None:
+async def connect_stac_api(
+    url: str, credential: ServiceCredential | None = None
+) -> dict | None:
     """Validate a STAC API URL and return landing page info, or None.
 
     fix(#1770): the whole function runs under ``DEFAULT_CHECK_TIMEOUT``,
     same reasoning as ``probe_ogcapi``.
+
+    feat(#1764): ``credential`` becomes a header here, keeping
+    ``build_credential_header`` the tree's only producer of one.
     """
     try:
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
-            return await _connect_stac_api_within_deadline(url)
+            return await _connect_stac_api_within_deadline(url, credential)
     except TimeoutError:
         logger.debug("STAC connect: deadline exceeded", url=url)
         return None
 
 
-async def _connect_stac_api_within_deadline(url: str) -> dict | None:
-    async with _make_client() as client:
-        headers = {"Accept": "application/json"}
+async def _connect_stac_api_within_deadline(
+    url: str, credential: ServiceCredential | None = None
+) -> dict | None:
+    headers = {"Accept": "application/json"}
+    pair: tuple[str, str] | None = None
+    if credential is not None:
+        pair = build_credential_header(
+            replace(credential, service_format=STAC_SERVICE_FORMAT)
+        )
+        if pair is not None:
+            headers[pair[0]] = pair[1]
+    async with _make_client(None if pair is None else pair[0]) as client:
         try:
             # fix(#1770): bounded read, not a plain `client.get` — see
             # `bounded_probe_read`'s docstring.
@@ -245,16 +290,28 @@ class StacCollectionDict(TypedDict):
     item_count: int | None
 
 
-async def list_stac_collections(url: str) -> list[StacCollectionDict]:
+async def list_stac_collections(
+    url: str, credential: ServiceCredential | None = None
+) -> list[StacCollectionDict]:
     """Fetch collections from a STAC API.
 
     Returns a list of collection dicts with id, title, description,
     spatial_extent, temporal_extent, and item_count (if available).
+
+    feat(#1764): carries the same credential the landing-page read carried,
+    so a protected catalog answers both or neither.
     """
     collections_url = url.rstrip("/") + "/collections"
 
-    async with _make_client() as client:
-        headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json"}
+    pair: tuple[str, str] | None = None
+    if credential is not None:
+        pair = build_credential_header(
+            replace(credential, service_format=STAC_SERVICE_FORMAT)
+        )
+        if pair is not None:
+            headers[pair[0]] = pair[1]
+    async with _make_client(None if pair is None else pair[0]) as client:
         resp = await client.get(collections_url, headers=headers)
         resp.raise_for_status()
         data = resp.json()
@@ -302,10 +359,15 @@ async def search_stac_items(
     bbox: list[float] | None = None,
     datetime_range: str | None = None,
     limit: int = 20,
+    credential: ServiceCredential | None = None,
 ) -> dict[str, Any]:
     """Search for items in a STAC API.
 
     Returns a dict with items list and matched count.
+
+    feat(#1764): carries the same credential the connect and collections
+    reads carried, so search and import agree about what the catalog
+    publishes.
     """
     search_url = url.rstrip("/") + "/search"
     limit = min(limit, MAX_SEARCH_ITEMS)
@@ -318,11 +380,18 @@ async def search_stac_items(
     if datetime_range:
         body["datetime"] = datetime_range
 
-    async with _make_client() as client:
-        headers = {
-            "Accept": "application/geo+json, application/json",
-            "Content-Type": "application/json",
-        }
+    headers = {
+        "Accept": "application/geo+json, application/json",
+        "Content-Type": "application/json",
+    }
+    pair: tuple[str, str] | None = None
+    if credential is not None:
+        pair = build_credential_header(
+            replace(credential, service_format=STAC_SERVICE_FORMAT)
+        )
+        if pair is not None:
+            headers[pair[0]] = pair[1]
+    async with _make_client(None if pair is None else pair[0]) as client:
         resp = await client.post(search_url, json=body, headers=headers)
         resp.raise_for_status()
         data = resp.json()
@@ -332,6 +401,16 @@ async def search_stac_items(
 
     items = []
     for f in features:
+        # fix(#1764): a catalog can reflect the credential it was just sent
+        # into anything it publishes, and only `item_href` passes
+        # `storable_href` here. The rest of this item is echoed back to
+        # `/import` by the client, whose own request registers no credential
+        # and so cannot recognise one, and is then stored. Judged over the
+        # whole feature rather than one field, since `id`, `collection` and
+        # `title` reach storage too.
+        if carries_registered_credential(json.dumps(f)):
+            logger.warning("STAC search: item reflects the request credential")
+            continue
         props = f.get("properties", {})
         assets = f.get("assets", {})
 
@@ -365,7 +444,7 @@ async def search_stac_items(
                 # transport restores the hostname after each pinned hop
                 # (_SSRFGuardTransport) — so a relative self link resolves
                 # against the caller's host, never the pinned IP.
-                "item_href": self_link_href(f, str(resp.url)),
+                "item_href": self_link_href(f, str(resp.url), url),
                 "bbox": f.get("bbox"),
                 "datetime": dt,
                 "datetime_start": dt_start,

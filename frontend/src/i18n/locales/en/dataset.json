@@ -830,6 +830,9 @@
           "headerValueLabel": "Header value",
           "headerValuePlaceholder": "Your API key",
           "helpText": "A bearer token is sent as an Authorization header; a username and password are sent as HTTP Basic auth; an API key can go under whatever header name the provider specifies — for example X-API-Key, Ocp-Apim-Subscription-Key, or key."
+        },
+        "stac": {
+          "escapeHatch": "If the catalog is public now, import the item again from the STAC catalog with no credential to clear this requirement."
         }
       },
       "history": {

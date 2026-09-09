@@ -91,12 +91,13 @@ export function startStacImport(
   items: StacImportItem[],
   context: StacImportContext,
   visibility?: string,
+  catalogAuthRequired?: boolean,
 ): StacImportSession {
   const key = sessionKey(url, items);
   if (current && current.key === key && current.status === 'pending') {
     return current;
   }
-  const promise = importStacItems(url, items, visibility);
+  const promise = importStacItems(url, items, visibility, catalogAuthRequired);
   const session: StacImportSession = {
     key,
     status: 'pending',

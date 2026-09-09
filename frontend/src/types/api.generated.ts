@@ -4515,6 +4515,8 @@ export interface paths {
         /**
          * Stac Collections
          * @description List collections from a connected STAC API.
+         *
+         *     Accepts a credential for a protected catalog, applied to this call.
          */
         post: operations["stac_collections_services_stac_collections_post"];
         delete?: never;
@@ -4535,6 +4537,8 @@ export interface paths {
         /**
          * Stac Connect
          * @description Connect to a STAC API and validate the endpoint.
+         *
+         *     Accepts a credential for a protected catalog, applied to this call.
          */
         post: operations["stac_connect_services_stac_connect_post"];
         delete?: never;
@@ -4579,6 +4583,8 @@ export interface paths {
         /**
          * Stac Search
          * @description Search items in a STAC API with spatial/temporal filters.
+         *
+         *     Accepts a credential for a protected catalog, applied to this call.
          */
         post: operations["stac_search_services_stac_search_post"];
         delete?: never;
@@ -12528,6 +12534,13 @@ export interface components {
              * @description STAC API root URL to connect to.
              */
             url: string;
+            /**
+             * Token
+             * @description Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
+             */
+            token?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /** StacConnectResponse */
         StacConnectResponse: {
@@ -12654,6 +12667,12 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "restricted" | "internal" | "public";
+            /**
+             * Catalog Auth Required
+             * @description Whether browsing this catalog needed a credential. Set it when the search that produced these items carried one, so the first refresh asks for a credential instead of failing anonymously.
+             * @default false
+             */
+            catalog_auth_required: boolean;
         };
         /** StacImportResponse */
         StacImportResponse: {
@@ -13061,6 +13080,13 @@ export interface components {
              * @default 20
              */
             limit: number;
+            /**
+             * Token
+             * @description Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
+             */
+            token?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /** StacSearchResponse */
         StacSearchResponse: {

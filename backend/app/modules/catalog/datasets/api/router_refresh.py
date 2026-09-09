@@ -657,23 +657,50 @@ async def _dispatch_stac_refresh(
     binding before the reservation, then every dispatched value re-read once
     the reservation exists. What differs is only what is unpacked and which
     task is deferred.
+
+    feat(#1764): ``token`` is the composed header line for a protected
+    catalog, staged through the same single-use store the service path uses.
     """
     candidate = _resolve_stac_origin(dataset)
 
-    if token:
-        # Refused rather than ignored, as on the registered-table path.
-        # Nothing here could use a credential — the item document is fetched
-        # unauthenticated and a credentialed href is refused at import — and
-        # answering 202 to a request that handed GeoLens a secret it silently
-        # dropped leaves the caller no way to learn their token went nowhere.
+    # feat(#1764): the WFS/OGC API rule, for its reason — the marker means
+    # the last successful refresh used a credential, so a token-less one
+    # collects a 401 and reports a live dataset as inaccessible. No probe.
+    marked_before = service_auth_required(dataset.origin_ref)
+    if not token and marked_before:
+        raise _service_token_required()
+
+    # fix(#1764): a credential is anchored on the catalog URL the caller
+    # submitted at import, the one value on the binding the catalog never
+    # chose. A binding from before that was recorded has no anchor, and
+    # falling back to the stored item pointer would let a document from that
+    # era name where the credential goes.
+    if token and not (dataset.origin_ref or {}).get("url"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_409_CONFLICT,
             detail={
-                "code": "credential_not_applicable",
+                "code": "origin_unavailable",
                 "message": (
-                    "Refreshing a STAC dataset re-reads a public item "
-                    "document and needs no credential. Send the request "
-                    "without a token."
+                    "This dataset's source binding does not record which STAC "
+                    "catalog it was imported from, so GeoLens cannot tell "
+                    "which host the credential belongs to. Re-import it from "
+                    "the catalog, or refresh it without a credential."
+                ),
+                "origin_kind": "stac",
+            },
+        )
+
+    # Refused before anything is written, for the reason the service path
+    # gives: without a shared store the secret cannot reach the worker.
+    if token and not credential_store_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "credential_store_unavailable",
+                "message": (
+                    "Refreshing a protected catalog needs a shared credential "
+                    "store so the credential can reach the worker without "
+                    "being written to disk. Set REDIS_URL and try again."
                 ),
             },
         )
@@ -757,17 +784,51 @@ async def _dispatch_stac_refresh(
             },
         )
 
+    # feat(#1764): the binding can be identical and the answer still
+    # different — a credentialed refresh that finished inside the reservation
+    # window marks the dataset without moving its origin, so the check above
+    # passes and only this one notices. Same helper the service path uses.
+    await _recheck_service_token_after_reservation(
+        db, dataset, token, marked_before=marked_before
+    )
+
     # The job carries no source pointer of its own — the worker reads the
     # binding, the same way this handler does. The filename slot is what the
     # job list renders, and the item id is the only name this operation has.
     job.source_filename = dataset.source_filename
+    if token:
+        # feat(#1764): a boolean, never the credential — the same marker the
+        # service door writes, recording that this attempt's credential was
+        # request-scoped and a retry cannot reproduce the authenticated read.
+        job.user_metadata = {**(job.user_metadata or {}), "service_auth_required": True}
+
+    # Stashed before the commit, for the reason the service door gives: a
+    # store failure rolls the whole request back rather than leaving a
+    # dispatch that can never authenticate.
+    credential_ref: str | None = None
+    if token:
+        try:
+            credential_ref = await stash_service_credential(token)
+        except CredentialStoreUnavailable as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "credential_store_unavailable",
+                    "message": (
+                        "Could not stage the credential for this refresh. "
+                        "Check that the credential store is reachable and "
+                        "try again."
+                    ),
+                },
+            ) from exc
 
     job_id = job.id
     attempt_id = job.attempt_id
     run_id = run.id
     await db.commit()
 
-    rollback = make_refresh_run_failed_rollback(
+    inner_rollback = make_refresh_run_failed_rollback(
         make_ingest_job_failed_rollback(
             job, message_prefix="Failed to queue refresh task"
         ),
@@ -775,15 +836,24 @@ async def _dispatch_stac_refresh(
         ingest_job_id=job_id,
     )
 
+    async def _rollback(defer_exc: BaseException) -> None:
+        await inner_rollback(defer_exc)
+        # The worker will never come for it, and the run is already terminal.
+        # Best-effort; the TTL is the real guarantee.
+        await discard_service_credential(credential_ref)
+
     async def _defer_refresh() -> None:
         await defer_async_with_tenant(
             get_catalog_port().refresh_stac_task(),
             job_id=str(job_id),
             attempt_id=str(attempt_id),
             dataset_id=str(dataset_id),
+            # The REFERENCE, never the secret: a task argument is a durable
+            # row, and this value means nothing once claimed or expired.
+            credential_ref=credential_ref,
         )
 
-    await defer_with_orphan_guard(_defer_refresh, rollback=rollback, db=db, job=job)
+    await defer_with_orphan_guard(_defer_refresh, rollback=_rollback, db=db, job=job)
 
     return DatasetRefreshResponse(
         run_id=run_id,

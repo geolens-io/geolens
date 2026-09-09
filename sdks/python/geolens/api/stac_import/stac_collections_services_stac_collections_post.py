@@ -115,6 +115,8 @@ def sync_detailed(
 
      List collections from a connected STAC API.
 
+    Accepts a credential for a protected catalog, applied to this call.
+
     Args:
         body (StacConnectRequest):
 
@@ -146,6 +148,8 @@ def sync(
 
      List collections from a connected STAC API.
 
+    Accepts a credential for a protected catalog, applied to this call.
+
     Args:
         body (StacConnectRequest):
 
@@ -171,6 +175,8 @@ async def asyncio_detailed(
     """Stac Collections
 
      List collections from a connected STAC API.
+
+    Accepts a credential for a protected catalog, applied to this call.
 
     Args:
         body (StacConnectRequest):
@@ -200,6 +206,8 @@ async def asyncio(
     """Stac Collections
 
      List collections from a connected STAC API.
+
+    Accepts a credential for a protected catalog, applied to this call.
 
     Args:
         body (StacConnectRequest):
