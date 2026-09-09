@@ -30,24 +30,19 @@ DEFAULT_TIMEOUT_MS = 10_000
 _SINGLE_TENANT_READER_ROLE = "geolens_reader"
 
 
-def _logical_data_span(
-    identifier: exp.Expression | None, sql: str
-) -> tuple[int, int] | None:
-    """Source offsets of one logical ``data`` schema qualifier in ``sql``.
+def _is_logical_data_schema(identifier: exp.Identifier) -> bool:
+    """True when ``identifier`` folds to the logical ``data`` schema: unquoted
+    folds to lowercase, quoted keeps its case, so quoted ``"DATA"`` is not it."""
+    name = identifier.name if identifier.quoted else identifier.name.lower()
+    return name == "data"
 
-    ``None`` when the qualifier names another schema. An unquoted identifier
-    folds to lowercase as PostgreSQL folds it, so every spelling of ``data``
-    is the logical schema while quoted ``"DATA"`` stays a different one
-    (fix(#1891)).
+
+def _logical_data_span(identifier: exp.Identifier, sql: str) -> tuple[int, int]:
+    """Source offsets of one logical ``data`` schema qualifier in ``sql``.
 
     fix(#1892): the slice must spell exactly what sqlglot parsed. An absent or
     shifted offset would move an unrelated span, so it fails closed instead.
     """
-    if not isinstance(identifier, exp.Identifier):
-        return None
-    if (identifier.name if identifier.quoted else identifier.name.lower()) != "data":
-        return None
-
     start = identifier.meta.get("start")
     end = identifier.meta.get("end")
     spelling = f'"{identifier.name}"' if identifier.quoted else identifier.name
@@ -57,7 +52,9 @@ def _logical_data_span(
         or not 0 <= start <= end < len(sql)
         or sql[start : end + 1] != spelling
     ):
-        logger.error("sandbox.schema_span_unusable", sql=sql)
+        logger.warning(
+            "sandbox.schema_span_unusable", start=start, end=end, length=len(sql)
+        )
         raise SandboxError("query_failed", "Query failed")
     return start, end
 
@@ -80,26 +77,36 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     only a normalized UUID-derived identifier in multi-tenant mode.
     """
     try:
-        statement = sqlglot.parse_one(sql, dialect="postgres")
+        statements = sqlglot.parse(sql, dialect="postgres")
     except sqlglot.errors.SqlglotError as exc:
         # execute_safe receives validated SQL in normal operation.  Keep direct
         # callers fail-closed if that contract is accidentally violated (covers
         # both tokenize and parse failures).
         raise SandboxError("invalid_query", "Invalid SQL syntax") from exc
 
+    # fix(#1892): `parse`, not `parse_one`, which reports a second statement as
+    # one Block and would rewrite a caller-supplied `a; b` in both halves.
+    statements = [statement for statement in statements if statement is not None]
+    if len(statements) != 1:
+        logger.warning("sandbox.rewrite_multi_statement", count=len(statements))
+        raise SandboxError("invalid_query", "Only single statements are allowed")
+
     spans: set[tuple[int, int]] = set()
-    for node in statement.walk():
-        if isinstance(node, (exp.Table, exp.Column)):
-            span = _logical_data_span(node.args.get("db"), sql)
-            if span is not None:
-                spans.add(span)
+    for node in statements[0].walk():
+        if not isinstance(node, (exp.Table, exp.Column)):
+            continue
+        identifier = node.args.get("db")
+        if isinstance(identifier, exp.Identifier) and _is_logical_data_schema(
+            identifier
+        ):
+            spans.add(_logical_data_span(identifier, sql))
 
     replacement = '"' + physical_schema.replace('"', '""') + '"'
     tail = len(sql)
     for start, end in sorted(spans, reverse=True):
         if end >= tail:
             # Overlapping spans would splice into text already replaced.
-            logger.error("sandbox.schema_span_overlap", sql=sql)
+            logger.warning("sandbox.schema_span_overlap", start=start, end=end)
             raise SandboxError("query_failed", "Query failed")
         sql = sql[:start] + replacement + sql[end + 1 :]
         tail = start

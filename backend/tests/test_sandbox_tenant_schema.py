@@ -155,7 +155,7 @@ def test_rewrite_refuses_unusable_source_offsets(monkeypatch, meta):
         identifier = table.args["db"]
         identifier.meta.clear()
         identifier.meta.update(meta)
-    monkeypatch.setattr(sqlglot, "parse_one", lambda *args, **kwargs: statement)
+    monkeypatch.setattr(sqlglot, "parse", lambda *args, **kwargs: [statement])
 
     with pytest.raises(SandboxError) as exc_info:
         executor._rewrite_logical_data_schema(sql, _SCHEMA_A)
@@ -192,26 +192,39 @@ def test_analysis_preview_sql_binds_to_the_tenant_schema():
     )
 
 
-def test_validator_strips_a_trailing_statement_terminator():
+@pytest.mark.parametrize("suffix", [";", " ;  ", ";;", " ; ;", ";;;", ";; -- pasted"])
+def test_validator_strips_the_trailing_terminator_run(suffix):
     """fix(#1892): execute_safe splices validated SQL inside a LIMIT wrapper, so
-    a surviving ``;`` is a syntax error. A ``;`` in a comment is not a terminator,
-    and a second statement is still rejected."""
+    any surviving ``;`` is a syntax error. ``;;`` is ordinary paste damage."""
     from app.platform.sandbox.validator import validate_sql
 
-    assert validate_sql("SELECT id FROM data.roads;").sql == (
+    assert validate_sql(f"SELECT id FROM data.roads{suffix}").sql == (
         "SELECT id FROM data.roads"
     )
-    assert validate_sql("SELECT id FROM data.roads ;  ").sql == (
-        "SELECT id FROM data.roads"
-    )
-    assert validate_sql("SELECT id FROM data.roads --;").sql == (
-        "SELECT id FROM data.roads --;"
-    )
-    assert validate_sql("SELECT ';' AS a FROM data.roads").sql == (
-        "SELECT ';' AS a FROM data.roads"
-    )
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT id FROM data.roads --;",
+        "SELECT ';' AS a FROM data.roads",
+        "SELECT ';;' AS a FROM data.roads",
+    ],
+)
+def test_validator_keeps_a_semicolon_that_is_not_a_terminator(sql):
+    from app.platform.sandbox.validator import validate_sql
+
+    assert validate_sql(sql).sql == sql
+
+
+@pytest.mark.parametrize("sql", ["SELECT 1; SELECT 2;", ";", ";;"])
+def test_validator_still_rejects_what_the_strip_leaves(sql):
+    """Stripping the run leaves a second statement in place, and reduces a bare
+    terminator to nothing; both fail the single-statement check."""
+    from app.platform.sandbox.validator import validate_sql
+
     with pytest.raises(SandboxError) as exc_info:
-        validate_sql("SELECT 1; SELECT 2;")
+        validate_sql(sql)
     assert exc_info.value.category == "invalid_query"
 
 
@@ -301,11 +314,21 @@ async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
     assert "'data.alpha'" in query
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT id FROM data.alpha WHERE note = 'unterminated",
+        # fix(#1892): parse_one reports a second statement as one Block, so the
+        # rewrite used to pass `a; b` through and rewrite both halves.
+        "SELECT 1; DROP TABLE data.alpha",
+        "SELECT id FROM data.alpha; SELECT * FROM data.beta",
+    ],
+)
 @pytest.mark.asyncio
-async def test_multi_tenant_rejects_invalid_sql_before_connecting(monkeypatch):
-    """fix(#1892): the rewrite parses before anything is executed, so a
-    statement it cannot parse raises SandboxError with no connection opened.
-    execute_safe has direct callers that skip the validator."""
+async def test_multi_tenant_rejects_unusable_sql_before_connecting(monkeypatch, sql):
+    """fix(#1892): the rewrite parses before anything is executed, so SQL it
+    cannot bind raises SandboxError with no connection opened. execute_safe has
+    direct callers that skip the validator."""
     monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)
     monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
 
@@ -318,9 +341,7 @@ async def test_multi_tenant_rejects_invalid_sql_before_connecting(monkeypatch):
     try:
         with patch.object(db_module, "engine", engine):
             with pytest.raises(SandboxError) as exc_info:
-                await execute_safe(
-                    MagicMock(), "SELECT id FROM data.alpha WHERE note = 'unterminated"
-                )
+                await execute_safe(MagicMock(), sql)
     finally:
         current_tenant_var.reset(token)
 

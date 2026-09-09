@@ -951,18 +951,22 @@ def _check_function_allowlist(
 
 
 def _strip_statement_terminator(sql: str) -> str:
-    """Drop one trailing ``;`` and anything after it.
+    """Drop the whole trailing run of ``;`` and anything after it.
 
     fix(#1892): ``execute_safe`` splices the validated SQL into
     ``SELECT * FROM (<sql>) AS _q LIMIT n``, and a terminator inside those
-    parentheses is a syntax error. Cutting at the last SEMICOLON *token* leaves
-    a ``;`` inside a literal or a comment alone, and leaves a second statement
-    in place for the multi-statement check below to reject.
+    parentheses is a syntax error. Cutting at the first of the trailing
+    SEMICOLON *tokens* takes ``;;`` and ``; ;`` (ordinary paste damage) with it,
+    leaves a ``;`` inside a literal or a comment alone, and leaves a second
+    statement in place for the multi-statement check below to reject.
     """
     tokens = sqlglot.tokenize(sql, dialect="postgres")
-    if not tokens or tokens[-1].token_type != TokenType.SEMICOLON:
+    index = len(tokens)
+    while index and tokens[index - 1].token_type == TokenType.SEMICOLON:
+        index -= 1
+    if index == len(tokens):
         return sql
-    return sql[: tokens[-1].start].rstrip()
+    return sql[: tokens[index].start].rstrip()
 
 
 def validate_sql(
