@@ -523,6 +523,53 @@ async def test_a_pair_split_across_two_workers_still_spends_one_token(
         service_semantic._query_claims_clear()
 
 
+def test_a_recorded_claim_is_mirrored_locally_even_when_the_store_takes_it(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """fix(#2018): the local fallback must not depend on call ordering.
+
+    A store that accepts SET but refuses GETDEL (older server, narrow ACL)
+    leaves the sibling nothing if the claim lives only in the store. The
+    cooldown happens to cover that, since consume always runs first and arms
+    it, but the mirror removes the dependence on that argument. The store's
+    own verdict still drops the mirror, so a later outage cannot re-serve a
+    claim already redeemed.
+    """
+    server = fakeredis.FakeServer()
+    monkeypatch.setattr(ratelimit_claims, "_store_resolved", True)
+    monkeypatch.setattr(ratelimit_claims, "_store", _worker_claim_store(server))
+    service_semantic._query_claims_clear()
+
+    service_semantic.record_paired_query_claim(
+        "203.0.113.9", "mirror probe", "datasets"
+    )
+    assert service_semantic._query_claims, (
+        "a claim the store accepted must also be in the local registry"
+    )
+
+    assert (
+        service_semantic.consume_paired_query_claim(
+            "203.0.113.9", "mirror probe", "facets"
+        )
+        is True
+    )
+    assert not service_semantic._query_claims, (
+        "the store's verdict must take the mirror with it"
+    )
+
+    service_semantic.record_paired_query_claim(
+        "203.0.113.9", "mirror probe", "datasets"
+    )
+    monkeypatch.setattr(ratelimit_claims, "_store", None)
+    assert (
+        service_semantic.consume_paired_query_claim(
+            "203.0.113.9", "mirror probe", "facets"
+        )
+        is True
+    ), "with the store gone the mirror is what the sibling redeems"
+    service_semantic._query_claims_clear()
+
+
 async def test_a_claim_store_outage_falls_back_to_the_process_local_registry(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):

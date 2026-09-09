@@ -58,19 +58,21 @@ def test_no_configured_store_keeps_counting_per_process_and_says_so(
     assert ratelimit_claims._build_store() is None
 
 
-def test_a_socket_timeout_raised_in_the_url_is_dropped(
+def test_url_parameters_that_lengthen_one_call_are_dropped(
     monkeypatch: pytest.MonkeyPatch, uncached_storage_uri
 ):
     """redis-py lets the querystring beat the keyword arguments.
 
-    Measured: ``from_url(..?socket_timeout=30, socket_timeout=0.25)`` leaves
-    30 in effect, on both the claim client and the limits storage. The call
-    runs on the event loop, so that bound is not the operator's to widen.
+    Measured on redis-py 7.4.1: a URL ``socket_timeout=30`` leaves 30 in
+    effect over the code's 0.25, on the limits storage as well, and either
+    retry flag lifts retries 0 to 1, doubling the bound again. The call runs
+    on the event loop, so that bound is not the operator's to widen.
     """
     monkeypatch.setattr(
         settings,
         "redis_url",
-        "redis://valkey/0?socket_timeout=30&socket_connect_timeout=30&db=2",
+        "redis://valkey/0?socket_timeout=30&socket_connect_timeout=30"
+        "&retry_on_timeout=true&retry_on_error=ConnectionError&db=2",
     )
 
     with structlog.testing.capture_logs() as captured:
@@ -80,10 +82,15 @@ def test_a_socket_timeout_raised_in_the_url_is_dropped(
     overrides = [
         e
         for e in captured
-        if e["event"] == "rate_limit_storage_socket_timeout_override_ignored"
+        if e["event"] == "rate_limit_storage_call_duration_override_ignored"
     ]
     assert len(overrides) == 1, captured
-    assert overrides[0]["parameters"] == ["socket_connect_timeout", "socket_timeout"]
+    assert overrides[0]["parameters"] == [
+        "retry_on_error",
+        "retry_on_timeout",
+        "socket_connect_timeout",
+        "socket_timeout",
+    ]
 
 
 def test_a_url_without_timeout_overrides_is_passed_through_untouched(

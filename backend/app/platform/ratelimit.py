@@ -45,14 +45,17 @@ _SHARED_STORAGE_SCHEMES = frozenset({"redis", "rediss"})
 # so a hung store has to fail into the in-memory fallback fast.
 STORAGE_SOCKET_TIMEOUT_SECONDS = 0.25
 
-# fix(#2018): redis-py parses these from the URL and lets the querystring win
-# over the keyword arguments, so a raised value there would hold the event
-# loop for that long. The bound above is not the operator's to widen.
-_PINNED_TIMEOUT_PARAMS = frozenset({"socket_timeout", "socket_connect_timeout"})
+# fix(#2018): every URL parameter that can widen how long ONE call holds the
+# event loop. redis-py parses each from the URL and lets the querystring win
+# over the keyword arguments; either retry flag also lifts retries 0 -> 1,
+# doubling the bound. That bound is not the operator's to widen.
+_PINNED_CLIENT_PARAMS = frozenset(
+    {"socket_timeout", "socket_connect_timeout", "retry_on_timeout", "retry_on_error"}
+)
 
 
-def _pin_socket_timeouts(url: str) -> str:
-    """Return *url* without any socket-timeout query parameter."""
+def _pin_call_duration(url: str) -> str:
+    """Return *url* without any query parameter that lengthens one call."""
     parts = urlsplit(url)
     if not parts.query:
         return url
@@ -60,12 +63,12 @@ def _pin_socket_timeouts(url: str) -> str:
     # once at import, the same class as config.py's DATABASE_URL_OVERRIDE
     # sites; a raise here would fail boot rather than refuse a request.
     pairs = parse_qsl(parts.query, keep_blank_values=True)  # parse_qs: unbounded
-    kept = [(k, v) for k, v in pairs if k.lower() not in _PINNED_TIMEOUT_PARAMS]
+    kept = [(k, v) for k, v in pairs if k.lower() not in _PINNED_CLIENT_PARAMS]
     if len(kept) == len(pairs):
         return url
     logger.warning(
-        "rate_limit_storage_socket_timeout_override_ignored",
-        parameters=sorted({k.lower() for k, _ in pairs} & _PINNED_TIMEOUT_PARAMS),
+        "rate_limit_storage_call_duration_override_ignored",
+        parameters=sorted({k.lower() for k, _ in pairs} & _PINNED_CLIENT_PARAMS),
         consequence="the store is held to the built-in socket timeout",
     )
     return urlunsplit(
@@ -93,7 +96,7 @@ def shared_storage_uri() -> str | None:
     except ValueError:
         scheme = ""
     if scheme in _SHARED_STORAGE_SCHEMES:
-        return _pin_socket_timeouts(url)
+        return _pin_call_duration(url)
     # fix(#2018): the scheme, never the URL -- REDIS_URL commonly carries a
     # password in its userinfo, and redact_url_credentials only rewrites
     # http(s), so it would hand a credential straight to the log.

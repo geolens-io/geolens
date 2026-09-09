@@ -1811,8 +1811,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # first, so the pair coordinates across uvicorn workers; the local
         # registry is the fallback for a store that does not answer, and the
         # pairing window is derived from that store rather than copied.
-        # Cap 466 -> 477, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 477,
+        # fix(#2018 codex r1): +6. Every claim is mirrored locally and the
+        # mirror is dropped on the store's own verdict, so a store that takes
+        # a SET but refuses GETDEL still leaves the sibling a fallback.
+        # Cap 477 -> 483, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 483,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
