@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import (
+    Dataset,
     Record,
     RecordContact,
     RecordDistribution,
@@ -307,6 +308,22 @@ async def delete_keyword(
 # ---------------------------------------------------------------------------
 # Distributions
 # ---------------------------------------------------------------------------
+
+
+async def record_publication_version(
+    session: AsyncSession, record_id: uuid.UUID
+) -> int | None:
+    """The counter a stored tile template on this record is republished at.
+
+    fix(#2007): a distribution row is written once at ingest, so the vector
+    template it stores has to be rewritten at read time to name the dataset's
+    current publication version. None when the record has no dataset.
+    """
+    return (
+        await session.execute(
+            select(Dataset.publication_version).where(Dataset.record_id == record_id)
+        )
+    ).scalar_one_or_none()
 
 
 async def list_distributions(

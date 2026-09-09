@@ -5967,7 +5967,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1778): +3 -- RecordContact.id tiebreaker on the paginated contacts
     # list, sort_order being a non-unique server-default. Cap 1026 -> 1029,
     # exact.
-    "backend/app/modules/catalog/records/service.py": 883,
+    # fix(#2007): +17. The distributions endpoint reads the dataset counter a
+    # stored tile template is republished at. Cap 883 -> 900, exact.
+    "backend/app/modules/catalog/records/service.py": 900,
     # fix(#1528): crossed the inclusion threshold, and this is the file the
     # inclusion rule's own comment named as one of the two "routers-by-role the
     # glob's filename match cannot see ... watched by nothing until they cross

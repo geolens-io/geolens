@@ -473,3 +473,66 @@ class TestTheRecordDocumentRepublishesAStoredTemplate:
             assert not any(u.endswith(".pbf?pv=0") for u in after), after
         finally:
             await _drop_table(test_db_session, dataset.table_name)
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+class TestTheConnectEndpointRepublishesAStoredTemplate:
+    """The Connect panel copies its vector template out of this endpoint.
+
+    Versioning it is safe in a way the raster Connect template is not: a frozen
+    counter there would pin an edge entry, while the vector key is derived from
+    the row, so a stale one costs shared caching and never stale bytes.
+    """
+
+    async def _urls(
+        self, client: AsyncClient, record_id, admin_auth_header: dict
+    ) -> dict[str, str]:
+        resp = await client.get(
+            f"/records/{record_id}/distributions/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        return {d["distribution_type"]: d["url"] for d in resp.json()["distributions"]}
+
+    async def test_it_rolls_after_an_unpublish(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        dataset = await _make_vector(
+            test_db_session, created_by=await _admin_id(test_db_session)
+        )
+        download_url = f"/datasets/{dataset.id}/export?format=gpkg"
+        try:
+            for row in (
+                RecordDistribution(
+                    record_id=dataset.record_id,
+                    distribution_type="vector_tiles",
+                    format="pbf",
+                    url=f"/tiles/data.{dataset.table_name}/{{z}}/{{x}}/{{y}}.pbf",
+                    title="Vector Tiles",
+                    media_type="application/vnd.mapbox-vector-tile",
+                    auto_generated=True,
+                ),
+                RecordDistribution(
+                    record_id=dataset.record_id,
+                    distribution_type="download",
+                    format="gpkg",
+                    url=download_url,
+                    title="Download as GPKG",
+                    media_type="application/geopackage+sqlite3",
+                    auto_generated=True,
+                ),
+            ):
+                test_db_session.add(row)
+            await test_db_session.commit()
+
+            before = await self._urls(client, dataset.record_id, admin_auth_header)
+            assert before["vector_tiles"].endswith(".pbf?pv=0"), before
+            assert before["download"] == download_url
+
+            await _set_status(client, dataset.id, admin_auth_header, "internal")
+            after = await self._urls(client, dataset.record_id, admin_auth_header)
+
+            assert after["vector_tiles"].endswith(".pbf?pv=1"), after
+            assert "pv=0" not in after["vector_tiles"]
+            assert after["download"] == download_url
+        finally:
+            await _drop_table(test_db_session, dataset.table_name)
