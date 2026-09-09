@@ -20,7 +20,6 @@ Per-test pattern:
     4. Re-disable the limiter and reset storage.
 """
 
-import time
 import uuid
 
 import pytest
@@ -185,51 +184,46 @@ async def test_search_datasets_and_facets_share_one_bucket(
         _reset_limiter_storage()
 
 
-async def test_facets_exempt_from_bucket_when_query_embedding_is_cached(
-    client: AsyncClient,
+@pytest.mark.parametrize("first_route", ["/search/datasets/", "/search/facets/"])
+async def test_paired_query_claims_the_bucket_once_whichever_route_is_first(
+    client: AsyncClient, first_route: str
 ):
-    """fix(#1903): a facets call for an ALREADY-EMBEDDED query spends no token.
+    """fix(#1903): the SPA's unordered paired request spends one token, not two.
 
-    The SPA fires /search/datasets/ and /search/facets/ as a pair on every
-    query change; the results call embeds first, so the facets call for the
-    same ``q`` is a cache hit and must not need a token of its own -- proven
-    by spending a 1-token bucket on the results call, then confirming the
-    paired facets call still succeeds. A facets call for a genuinely novel
-    query still spends the (already-empty) bucket, so the shared-bucket cap
-    is not weakened for a facets-only caller.
+    The SPA fires /search/datasets/ and /search/facets/ together on every
+    query change with neither awaiting the other, so which one reaches its
+    rate-limit gate first is a race -- proven here by running the pair in
+    BOTH orders for the same ``q`` against a 1-token bucket: the second call,
+    whichever route it lands on, must be exempt. A facets call for a
+    genuinely novel query still spends the (already-empty) bucket, so the
+    shared-bucket cap is not weakened for a facets-only caller.
 
-    Counterfactual: reverting the router's ``exempt_when`` (or its
-    ``embedding_cache_has_hit`` check) 429s the second assertion below, since
-    both routes drew on the same single-token bucket unconditionally.
+    Counterfactual: reverting the routers' ``exempt_when`` (or scoping
+    ``claim_semantic_search_query`` per-route instead of sharing it) 429s the
+    second assertion below, since both routes drew on the same single-token
+    bucket unconditionally.
     """
+    routes = ["/search/datasets/", "/search/facets/"]
+    if first_route != routes[0]:
+        routes.reverse()
+    second_route = routes[1]
     q = f"sec-1903-{uuid.uuid4().hex}"
     _set_cache_limit("semantic_search_rate_limit", 1)
     limiter.enabled = True
     _reset_limiter_storage()
-    service_semantic._embedding_cache_clear()
+    service_semantic._query_claims_clear()
 
     try:
-        # Seed the cache as if /search/datasets/ had already embedded this
-        # exact query -- avoids depending on a live embedding provider.
-        cache_key = (
-            service_semantic.tenant_cache_key(q.strip().lower()),
-            "test-model",
-            "test-fingerprint",
-        )
-        service_semantic._embedding_cache[cache_key] = (
-            time.monotonic() + 60,
-            [0.1, 0.2, 0.3],
-        )
-
-        first = await client.get(f"/search/datasets/?q={q}")
+        first = await client.get(f"{first_route}?q={q}")
         assert first.status_code == 200, (
-            f"expected the results call to spend the bucket, got {first.status_code}"
+            f"expected the first call ({first_route}) to spend the bucket, "
+            f"got {first.status_code}"
         )
 
-        second = await client.get(f"/search/facets/?q={q}")
+        second = await client.get(f"{second_route}?q={q}")
         assert second.status_code == 200, (
-            "facets call for an already-cached query should be exempt from "
-            f"the spent bucket, got {second.status_code}"
+            f"the paired call ({second_route}) for the same query should be "
+            f"exempt from the spent bucket, got {second.status_code}"
         )
 
         novel_q = f"sec-1903-novel-{uuid.uuid4().hex}"
@@ -242,7 +236,7 @@ async def test_facets_exempt_from_bucket_when_query_embedding_is_cached(
         limiter.enabled = False
         _clear_cache_limit("semantic_search_rate_limit")
         _reset_limiter_storage()
-        service_semantic._embedding_cache_clear()
+        service_semantic._query_claims_clear()
 
 
 # ---------------------------------------------------------------------------

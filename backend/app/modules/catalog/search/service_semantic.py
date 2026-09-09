@@ -78,24 +78,46 @@ def _embedding_cache_clear() -> None:
     _embedding_cache.clear()
 
 
-def embedding_cache_has_hit(text: str) -> bool:
-    """True when *text* already has a live cached embedding for this tenant.
+# fix(#1903): the SPA fires /search/datasets/ and /search/facets/ as an
+# UNORDERED pair on every query change (neither awaits the other), so which
+# one reaches its rate-limit gate first is a network/ASGI-scheduling race,
+# not something a fixed "results always embeds first" assumption can rely
+# on. This registry lets whichever gate runs first claim the query and pay
+# the shared token; the other, arriving within the window, is exempt.
+# Deliberately much shorter than the embedding cache TTL above: it
+# coordinates one paired request, not a repeat-query amnesty, and it never
+# looks at the embedding cache -- so a config change mid-window cannot make
+# a stale-model match exempt a call that ends up billing the provider.
+_QUERY_CLAIM_TTL_SECONDS = 5.0
+_QUERY_CLAIM_MAX_SIZE = 256
+_query_claims: "OrderedDict[str, float]" = OrderedDict()
 
-    fix(#1903): matches on tenant + normalized text only, ignoring model and
-    fingerprint -- resolving those needs a DB session this helper doesn't
-    have (it backs a synchronous rate-limit exemption check). A stale match
-    only skips a token early; ``generate_embedding`` still keys its own
-    lookup on the full tuple, so it can never serve a wrong vector.
+
+def claim_semantic_search_query(text: str) -> bool:
+    """True when *text* was already claimed by a sibling request; else claims it.
+
+    Called from both search routes' rate-limit ``exempt_when`` hooks, which
+    run before either handler body -- so the first of a paired request to
+    reach its gate claims the query, the second (whichever route) is exempt.
     """
     normalized = text.strip().lower()
     if not normalized:
         return False
-    prefix = tenant_cache_key(normalized)
+    key = tenant_cache_key(normalized)
     now = time.monotonic()
-    return any(
-        key[0] == prefix and expires_at >= now
-        for key, (expires_at, _vector) in _embedding_cache.items()
-    )
+    expires_at = _query_claims.get(key)
+    if expires_at is not None and expires_at >= now:
+        return True
+    _query_claims[key] = now + _QUERY_CLAIM_TTL_SECONDS
+    _query_claims.move_to_end(key)
+    while len(_query_claims) > _QUERY_CLAIM_MAX_SIZE:
+        _query_claims.popitem(last=False)
+    return False
+
+
+def _query_claims_clear() -> None:
+    """Clear the claim registry (test-helper)."""
+    _query_claims.clear()
 
 
 # fix(#448): the provider default timeout (130s) is sized for backfill; a hung

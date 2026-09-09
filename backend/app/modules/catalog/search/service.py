@@ -31,7 +31,7 @@ from app.modules.catalog.search.service_records import (
 )
 from app.modules.catalog.search.service_semantic import (
     _compute_rrf_scores,
-    embedding_cache_has_hit,
+    claim_semantic_search_query,
 )
 
 __all__ = [
@@ -44,7 +44,7 @@ __all__ = [
     "build_assets",
     "dataset_to_ogc_record",
     "parse_ogc_datetime",
-    "embedding_cache_has_hit",
+    "claim_semantic_search_query",
     "_build_text_filter",
     "_apply_common_filters",
     "_compute_rrf_scores",

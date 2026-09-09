@@ -70,9 +70,9 @@ from app.modules.catalog.search.records_protocol import (
 )
 from app.modules.catalog.search.service import (
     SearchFilters,
+    claim_semantic_search_query,
     count_collections,
     dataset_to_ogc_record,
-    embedding_cache_has_hit,
     get_facet_counts,
     search_collections,
     search_datasets,
@@ -414,14 +414,15 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_semantic_search_rate_limit()}/minute"
 
 
-def _facets_query_embedding_cached(request: Request) -> bool:
-    """fix(#1903): skip the shared bucket when q's embedding is already cached.
+def _semantic_search_query_already_claimed(request: Request) -> bool:
+    """fix(#1903): true when a sibling request already claimed this query.
 
-    The SPA pairs this with /search/datasets/, which embeds first, so a
-    cached hit means the provider was already paid for exactly this query.
+    Applied to BOTH search routes: the SPA fires them as an unordered pair,
+    so whichever one reaches this gate first pays the shared rate-limit
+    token and the other, arriving within the coordination window, is exempt.
     """
     query_text = request.query_params.get("q")
-    return bool(query_text) and embedding_cache_has_hit(query_text)
+    return bool(query_text) and claim_semantic_search_query(query_text)
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — slash form is canonical
@@ -439,7 +440,7 @@ def _facets_query_embedding_cached(request: Request) -> bool:
 @limiter.shared_limit(
     _semantic_search_rate_limit,
     scope="semantic_search",
-    exempt_when=_facets_query_embedding_cached,
+    exempt_when=_semantic_search_query_already_claimed,
     override_defaults=False,
 )
 async def search_facets_endpoint(
@@ -528,7 +529,14 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
 )
-@limiter.shared_limit(_semantic_search_rate_limit, scope="semantic_search")
+# fix(#1903): the facets route's exempt_when/override_defaults note above
+# applies here symmetrically -- this route can be the SECOND of the pair too.
+@limiter.shared_limit(
+    _semantic_search_rate_limit,
+    scope="semantic_search",
+    exempt_when=_semantic_search_query_already_claimed,
+    override_defaults=False,
+)
 async def search_datasets_endpoint(
     request: Request,
     response: Response,
