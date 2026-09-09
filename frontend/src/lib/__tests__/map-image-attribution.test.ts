@@ -1703,3 +1703,86 @@ describe('export canvas ceiling', () => {
     expectTotal(measured.lines, credits);
   });
 });
+
+/* feat(#1553): the layout fits only what the budget can hold. The bound is
+ * sound only if it cannot change an answer, which these assert — including on
+ * the word-wrapper path, where a misplaced bound would pick the wrong one. */
+describe('bounded layout (#1553)', () => {
+  const shapes: Array<{ name: string; credits: string[] }> = [
+    { name: 'the real five-provider load', credits: [
+      '© OpenStreetMap contributors',
+      '© OpenMapTiles',
+      'Swisstopo',
+      'NOAA National Centers for Environmental Information',
+      'US Census Bureau TIGER/Line',
+    ] },
+    { name: 'many short credits', credits: Array.from({ length: 40 }, (_, i) => `© P${i}`) },
+    { name: 'one credit wider than the line', credits: ['© A', 'B'.repeat(400), '© C'] },
+    { name: 'every credit wider than the line', credits: Array.from(
+      { length: 6 }, (_, i) => `© P${i} ` + 'x'.repeat(300)) },
+    { name: 'a single unbreakable run', credits: ['x'.repeat(900)] },
+  ];
+
+  for (const { name, credits } of shapes) {
+    for (const maxLines of [1, 2, 3, 7, 40]) {
+      it(`agrees with the full layout for ${name} at ${maxLines} lines`, () => {
+        const ctx = makeCtx();
+        const opts = { maxWidth: 300, fontPx: 12 };
+        const full = fitAttributionText(ctx as never, credits, opts);
+        const bounded = fitAttributionText(ctx as never, credits, { ...opts, maxLines });
+        if (full.lines.length <= maxLines) {
+          expect(bounded.lines).toEqual(full.lines);
+        } else {
+          // Over budget the lines are a prefix, and the only thing the callers
+          // read is that it exceeded — which it must still say.
+          expect(bounded.lines.length).toBeGreaterThan(maxLines);
+          expect(full.lines.slice(0, bounded.lines.length - 1)).toEqual(
+            bounded.lines.slice(0, bounded.lines.length - 1),
+          );
+        }
+      });
+    }
+  }
+
+  it('draws the same overlay it drew before the bound', () => {
+    // The end-to-end statement of the same property: identical pixels, at a
+    // load that crosses the capacity and produces the counted marker.
+    const credits = Array.from({ length: 30 }, (_, i) => `© Provider ${i} and licensors`);
+    const ctx = makeCtx();
+    expect(
+      drawAttributionOverlay(makeCanvas(400, 250, ctx), credits, THUMBNAIL_ATTRIBUTION),
+    ).toBe(true);
+    const drawn = ctx.fillText.mock.calls.map((call) => String(call[0]));
+    expect(drawn.length).toBeGreaterThan(1);
+    expect(drawn.length).toBeLessThanOrEqual(
+      overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 250),
+    );
+    expect(drawn[0]).toBe('© Provider 0 and licensors | © Provider 1 and licensors');
+    // Nothing is lost without being counted: the marker names exactly the
+    // credits the visible lines do not carry.
+    const marker = drawn[drawn.length - 1];
+    const rendered = drawn.slice(0, -1).join(' ');
+    const shown = credits.filter((credit) => rendered.includes(credit)).length;
+    expect(marker).toContain(String(credits.length - shown));
+    expect(shown + (credits.length - shown)).toBe(credits.length);
+  });
+
+  it('measures a bounded multiple of the budget, not of the input', () => {
+    // The contract's maximum on both axes. Against this stub the band took
+    // 71,552 measureText calls unbounded and 5,024 bounded, the card 81,336
+    // and 3,129; the threshold is loose because the figure moves with the wrap.
+    const credits = Array.from({ length: 200 }, (_, i) => `© P${i} ` + 'x'.repeat(4990));
+
+    const bandCtx = makeCtx();
+    measureAttributionBand(bandCtx as never, credits, {
+      maxWidth: 1016,
+      dpr: 1,
+      maxHeight: 600,
+    });
+    expect(bandCtx.measureText.mock.calls.length).toBeLessThan(20_000);
+
+    const cardCtx = makeCtx();
+    drawAttributionOverlay(makeCanvas(1200, 630, cardCtx), credits, OG_ATTRIBUTION);
+    expect(cardCtx.measureText.mock.calls.length).toBeLessThan(20_000);
+  });
+});
