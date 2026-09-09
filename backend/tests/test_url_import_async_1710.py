@@ -675,6 +675,60 @@ class TestNoTransactionAcrossTheDownload:
         assert Path(job.file_path).read_bytes() == GEOJSON
 
 
+class TestTerminalQueueRowPurge:
+    async def test_a_cancel_before_adoption_still_loses_the_url(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """A URL import cancelled while queued does not keep its URL in args.
+
+        The task's own purge runs after adoption, which a job cancelled while
+        `todo` never reaches, and cancelling converts the row rather than
+        deleting it.
+
+        Counterfactual: with the terminal backstop stripping only `token`,
+        the URL survives here until the 30-day terminal-row purge.
+        """
+        from app.platform.jobs.sweep import purge_terminal_job_tokens
+
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        _capture_defer(monkeypatch)
+        url = "https://files.example.test/queued.geojson?X-Amz-Signature=abc"
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": url, "filename": "queued.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        await test_db_session.execute(text("SET LOCAL search_path = catalog, public"))
+        row_id = (
+            await test_db_session.execute(
+                text(
+                    "INSERT INTO catalog.procrastinate_jobs "
+                    "(queue_name, task_name, args, status) VALUES "
+                    "('download', 'fetch_url', jsonb_build_object("
+                    "'job_id', CAST(:j AS text), 'url', CAST(:u AS text)), "
+                    "'cancelled') RETURNING id"
+                ),
+                {"j": resp.json()["job_id"], "u": url},
+            )
+        ).scalar_one()
+        await test_db_session.commit()
+
+        await purge_terminal_job_tokens(test_db_session)
+
+        args = (
+            await test_db_session.execute(
+                text("SELECT args FROM catalog.procrastinate_jobs WHERE id = :i"),
+                {"i": row_id},
+            )
+        ).scalar_one()
+        assert "url" not in args
+        assert args["job_id"] == resp.json()["job_id"]
+
+
 class TestDownloadQueueIsolation:
     def test_the_fetch_task_has_its_own_queue(self):
         """The download does not share the ingest queue.

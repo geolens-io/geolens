@@ -1083,18 +1083,26 @@ async def purge_queue_row_tokens(db: AsyncSession, job_ids: Sequence[int]) -> No
 
 
 async def purge_terminal_job_tokens(db: AsyncSession) -> None:
-    """Backstop the token purge the service tasks run on their own failure.
+    """Backstop the credential purge the tasks run on their own failure.
 
-    Drops the raw service token from terminal queue rows that never reached
-    ``purge_token_on_failure``. fix(#1746): not part of ``fail_stale_jobs``
-    (runs once per TENANT) — the queue table is shared, so
+    Drops the raw service token, and the submitted file URL, from terminal
+    queue rows that never reached their own purge. fix(#1746): not part of
+    ``fail_stale_jobs`` (runs once per TENANT) — the queue table is shared, so
     ``sweep_stale_jobs_once`` calls this once per pass. Deliberately
     unindexed: a sequential scan beats a write-amplifying index here.
+
+    fix(#1710): ``url`` joins ``token``. A URL import cancelled while its row
+    is still ``todo``, or whose worker died between claim and task adoption,
+    never reaches the purge in ``fetch_url``; ``cancel_job_by_id_async``
+    converts the row to ``cancelled`` rather than deleting it, so a presigned
+    or SAS link would otherwise sit here until the 30-day terminal purge.
     """
     await db.execute(
         text(
-            "UPDATE catalog.procrastinate_jobs SET args = args - 'token' "
-            "WHERE status NOT IN ('todo', 'doing') AND args ? 'token'"
+            "UPDATE catalog.procrastinate_jobs "
+            "SET args = args - 'token' - 'url' "
+            "WHERE status NOT IN ('todo', 'doing') "
+            "AND (args ? 'token' OR args ? 'url')"
         )
     )
     await db.commit()
