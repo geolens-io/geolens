@@ -131,11 +131,9 @@ async def fetch_cog_info(url: str) -> dict | None:
     any upstream fetch), so ``last_checked_at`` is stamped only on success;
     every failure leaves it NULL for the probe to settle.
 
-    SEC-OBSV-02: dual SSRF gate, both halves required for every caller.
-    Gate 1 (caller-side): ``validate_url_for_ssrf`` before calling this.
-    Gate 2 (Titiler-side): its own CPL_VSIL_CURL_ALLOWED_EXTENSIONS clamp
-    rejects a non-raster extension that slipped past Gate 1. Removing
-    either is an SSRF regression, not a refactor side-effect (#1927).
+    SEC-OBSV-02 (#1927): dual SSRF gate, both halves required. Gate 1
+    (caller-side) is ``validate_url_for_ssrf`` before calling this; Gate 2
+    (Titiler-side) is its own CPL_VSIL_CURL_ALLOWED_EXTENSIONS clamp.
     """
     try:
         async with httpx.AsyncClient(
