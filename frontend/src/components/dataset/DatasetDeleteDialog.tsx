@@ -88,7 +88,7 @@ export function deleteDetachesTable(dataset: DatasetResponse): boolean {
  * still exist would be wrong in both cases, and the backend's live
  * `_relation_exists` probe would find nothing and retire the name.
  *
- * That is a contract on the STRING, in all four locales, and no gate can
+ * That is a contract on the STRING, in all five locales, and no gate can
  * check it: fix(#1452 review round 6) caught the English being corrected
  * while es/fr/de still said the contents remain intact. When editing
  * `descriptionRegistered`, describe what GeoLens does to the table and never

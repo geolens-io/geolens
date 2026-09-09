@@ -7,6 +7,7 @@ import enCommon from '@/i18n/locales/en/common.json';
 import esCommon from '@/i18n/locales/es/common.json';
 import frCommon from '@/i18n/locales/fr/common.json';
 import deCommon from '@/i18n/locales/de/common.json';
+import zhCommon from '@/i18n/locales/zh/common.json';
 
 const counts = vi.hoisted(() => ({ users: 0, failed: 0, audit: 0, published: 0 }));
 const permissionState = vi.hoisted(() => ({ manageUsers: true, manageSettings: true }));
@@ -389,11 +390,11 @@ describe('AdminSidebar failed-jobs alert badge (#1185)', () => {
 
 // The source-key guard skips keys that are not string literals inside a t()
 // call, and this one lives in the `operationsItems` table — so pin the bundle
-// contents directly. All four locales carry the pair, and every `_one` value
+// contents directly. All five locales carry the pair, and every `_one` value
 // interpolates {{count}} (French resolves count 0 to `_one`, so a hardcoded
 // "1" there would render "1 failed job" for zero).
 describe('adminNav.failedJobs bundle coverage (#1185)', () => {
-  const bundles = { en: enCommon, es: esCommon, fr: frCommon, de: deCommon };
+  const bundles = { en: enCommon, es: esCommon, fr: frCommon, de: deCommon, zh: zhCommon };
 
   it.each(Object.entries(bundles))('%s carries both plural forms with {{count}}', (_locale, bundle) => {
     const adminNav = (bundle as { adminNav: Record<string, string> }).adminNav;
