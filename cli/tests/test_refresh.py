@@ -1638,3 +1638,64 @@ class TestUnreadableMemberNeverDeletesOrRefreshes:
             # (round 27/30), so the refresh proceeds normally.
             assert result.exit_code == 0, result.output
             assert refresh_calls["count"] == 1, member
+
+
+class TestCodedFailureReasonsRenderAsSentences:
+    def test_every_code_the_door_can_emit_is_mapped(self) -> None:
+        from geolens_cli.refresh import (
+            FAILURE_REASON_MESSAGES,
+            INTERNAL_FAILURE_REASON,
+            describe_failure_reason,
+        )
+
+        assert INTERNAL_FAILURE_REASON in FAILURE_REASON_MESSAGES
+        for code, sentence in FAILURE_REASON_MESSAGES.items():
+            assert describe_failure_reason(code) == sentence
+            assert sentence != code
+
+    def test_a_composed_reason_is_left_alone(self) -> None:
+        from geolens_cli.refresh import describe_failure_reason
+
+        composed = "Layer 'parcels' has no geometry column"
+        assert describe_failure_reason(composed) == composed
+
+    def test_the_refresh_view_prints_the_sentence_and_not_the_code(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+        from geolens_cli.refresh import (
+            FAILURE_REASON_MESSAGES,
+            INTERNAL_FAILURE_REASON,
+        )
+
+        _seed_login(mock_keyring)
+        _patch_refresh_endpoint(monkeypatch, _accepted())
+        _patch_job(monkeypatch, status="failed", error_message=INTERNAL_FAILURE_REASON)
+
+        result = runner.invoke(app, ["refresh", str(DATASET_ID), "--wait"])
+
+        assert result.exit_code == 1
+        assert INTERNAL_FAILURE_REASON not in result.output
+        assert FAILURE_REASON_MESSAGES[INTERNAL_FAILURE_REASON].split(".")[0] in (
+            " ".join(result.output.split())
+        )
+
+    def test_the_json_payload_carries_the_same_sentence(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+        from geolens_cli.refresh import (
+            FAILURE_REASON_MESSAGES,
+            INTERNAL_FAILURE_REASON,
+        )
+
+        _seed_login(mock_keyring)
+        _patch_refresh_endpoint(monkeypatch, _accepted())
+        _patch_job(monkeypatch, status="failed", error_message=INTERNAL_FAILURE_REASON)
+
+        result = runner.invoke(app, ["--json", "refresh", str(DATASET_ID), "--wait"])
+
+        assert result.exit_code == 1
+        assert json.loads(result.output)["error_message"] == (
+            FAILURE_REASON_MESSAGES[INTERNAL_FAILURE_REASON]
+        )

@@ -90,6 +90,24 @@ _REFUSAL_MESSAGES: dict[str, str] = {
 }
 
 
+# The code the server stores instead of a failure it did not compose
+# (`backend/app/core/failure_reason.py`). Same vocabulary as
+# `frontend/src/lib/failure-reason.ts`.
+INTERNAL_FAILURE_REASON = "internal_error"
+
+FAILURE_REASON_MESSAGES: dict[str, str] = {
+    INTERNAL_FAILURE_REASON: (
+        "The job failed for a reason the server could not report safely. "
+        "Ask an operator to check the server log for this job."
+    ),
+}
+
+
+def describe_failure_reason(reason: str) -> str:
+    """The stored reason, or the sentence it stands for when it is a code."""
+    return FAILURE_REASON_MESSAGES.get(reason, reason)
+
+
 def start_refresh(client: Any, dataset_id: UUID, token: str | None = None) -> Any:
     """Dispatch a refresh through the generated SDK.
 
@@ -256,9 +274,16 @@ def wait_for_refresh(
                 return RefreshPollResult(status=status)
             if status in {"failed", "cancelled"}:
                 error = getattr(job, "error_message", None)
+                # fix(#2010): the one point a stored reason enters the CLI, so
+                # the human views and the JSON payload cannot disagree about
+                # whether a coded reason reads as an identifier or a sentence.
                 return RefreshPollResult(
                     status=status,
-                    error_message=_redact_secret(str(error), token) if error else None,
+                    error_message=(
+                        describe_failure_reason(_redact_secret(str(error), token))
+                        if error
+                        else None
+                    ),
                 )
             if deadline is None:
                 sleep(interval)

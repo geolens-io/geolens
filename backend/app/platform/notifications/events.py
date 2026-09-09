@@ -65,16 +65,23 @@ def build_event_notification(
     may be None) in ``data["to"]``. *reason* (EVENT-03 failure path) is
     appended to *body* and placed in ``data["reason"]`` — it's the job's
     error_message surfaced to the dataset owner, not a secret (T-1230-01).
+    A reason the door stored as a code becomes the sentence it stands for.
     *extra* is merged into ``data`` last for structured context (job_id,
     dataset name, etc.).
     """
     # Deferred import — Phase 214 discipline.
     from app.core.config import settings as app_settings
+    from app.core.failure_reason import describe_failure_reason
     from app.platform.extensions.protocols import Notification
 
     recipient: str | None = getattr(
         app_settings, "notification_admin_email", None
     ) or getattr(app_settings, "smtp_from_address", None)
+
+    # fix(#2010): mail is a reader like the web app, and a code is not a
+    # sentence. Mapped here rather than at each call site, so a new event
+    # that carries a reason cannot reintroduce the raw identifier.
+    reason = describe_failure_reason(reason) if reason else reason
 
     final_body = body
     if reason:
