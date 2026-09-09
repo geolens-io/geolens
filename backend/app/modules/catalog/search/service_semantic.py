@@ -84,47 +84,58 @@ def _embedding_cache_clear() -> None:
 # not something a fixed "results always embeds first" assumption can rely
 # on. This registry lets whichever gate runs first claim the query and pay
 # the shared token; the OTHER route, arriving within the window, is exempt
-# -- once. Exempting is a single-use, cross-route consume, not a standing
-# amnesty: a same-route repeat never matches its own claim (so a burst
-# hitting one route before the first embed lands still pays per request),
-# and the opposite route's exemption deletes the claim, so a third request
-# for the same text -- either route -- pays fresh. Deliberately much
-# shorter than the embedding cache TTL above: it coordinates one paired
-# request, and it never looks at the embedding cache, so a config change
-# mid-window cannot make a stale-model match exempt a call that ends up
-# billing the provider.
+# -- once. Keyed on (client, tenant, text), matching the limiter's own
+# key_func: a claim scoped to text alone would let a different client's
+# request for the same popular query consume this client's claim and skip
+# its own bucket. Exempting is a single-use, cross-route consume, not a
+# standing amnesty: a same-route repeat never matches its own claim, and
+# the opposite route's exemption deletes it, so a third request pays fresh.
+# Deliberately much shorter than the embedding cache TTL above, and it
+# never looks at that cache, so a config change mid-window cannot make a
+# stale-model match exempt a call that ends up billing the provider.
 _QUERY_CLAIM_TTL_SECONDS = 5.0
 _QUERY_CLAIM_MAX_SIZE = 256
 _query_claims: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
 
 
-def claim_semantic_search_query(text: str, route: str) -> bool:
-    """True when the OTHER route already claimed *text*; else claims it for *route*.
-
-    Called from both search routes' rate-limit ``exempt_when`` hooks, which
-    run before either handler body -- so the first of a paired request to
-    reach its gate claims the query for its own route, and only the sibling
-    route's request, arriving within the window, is exempt (the claim is
-    then deleted, so this is a one-time consume, not a standing exemption).
-    """
+def _query_claim_key(client_key: str, text: str) -> str | None:
     normalized = text.strip().lower()
     if not normalized:
+        return None
+    return f"{client_key}:{tenant_cache_key(normalized)}"
+
+
+def consume_paired_query_claim(client_key: str, text: str, route: str) -> bool:
+    """True when the OTHER route already claimed this (client, text); consumes it.
+
+    Read-only otherwise -- it never creates a claim. fix(#1903 review r3):
+    claiming must not be a side effect of the rate-limit pre-check, which
+    runs for a request the bucket goes on to reject too; only
+    ``record_paired_query_claim``, called from a handler that is provably
+    running (the rate limit admitted it), may create one.
+    """
+    key = _query_claim_key(client_key, text)
+    if key is None:
         return False
-    key = tenant_cache_key(normalized)
-    now = time.monotonic()
     claimed = _query_claims.get(key)
-    if claimed is not None:
-        claimant_route, expires_at = claimed
-        if expires_at >= now:
-            if claimant_route == route:
-                return False
-            del _query_claims[key]
-            return True
-    _query_claims[key] = (route, now + _QUERY_CLAIM_TTL_SECONDS)
+    if claimed is None:
+        return False
+    claimant_route, expires_at = claimed
+    if expires_at < time.monotonic() or claimant_route == route:
+        return False
+    del _query_claims[key]
+    return True
+
+
+def record_paired_query_claim(client_key: str, text: str, route: str) -> None:
+    """Claim (client, text) for *route*. Call only once a request is admitted."""
+    key = _query_claim_key(client_key, text)
+    if key is None:
+        return
+    _query_claims[key] = (route, time.monotonic() + _QUERY_CLAIM_TTL_SECONDS)
     _query_claims.move_to_end(key)
     while len(_query_claims) > _QUERY_CLAIM_MAX_SIZE:
         _query_claims.popitem(last=False)
-    return False
 
 
 def _query_claims_clear() -> None:

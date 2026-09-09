@@ -1809,7 +1809,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # the opposite route's exemption) so a same-route burst before the
         # first embed lands cannot ride the claim past the first pair. Cap
         # 401 -> 413, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 413,
+        # fix(#1903 review r3): +11 — the claim key gains the limiter's own
+        # client identity, and claiming split into a read-only consume (the
+        # exempt_when hook) plus a record step called only once a request is
+        # admitted, so a request the bucket goes on to reject can no longer
+        # seed a claim a follow-up call redeems. Cap 413 -> 424, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 424,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -5688,7 +5693,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1903 review r2): +5 — the exempt_when callable now derives a
     # route tag from the request path and passes it through, so the claim
     # can require the OTHER route before exempting. Cap 1407 -> 1412, exact.
-    "backend/app/modules/catalog/search/router.py": 1412,
+    # fix(#1903 review r3): +26 — exempt_when now only consumes a claim; a
+    # new finalize helper, called at the top of each handler, records one
+    # instead, so only a request the rate limit actually admitted can seed
+    # a claim, keyed with the limiter's own client identity. Cap 1412 ->
+    # 1438, exact.
+    "backend/app/modules/catalog/search/router.py": 1438,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.

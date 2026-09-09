@@ -285,6 +285,104 @@ async def test_same_route_repeat_does_not_ride_a_cross_route_claim(
         service_semantic._query_claims_clear()
 
 
+async def test_rejected_request_does_not_seed_a_claim(client: AsyncClient):
+    """fix(#1903 review r3): a 429'd request must not create an exemption.
+
+    exempt_when runs before the limiter's own admit/reject check, so it
+    fires for a request that gets rejected too. Exhaust the bucket on an
+    unrelated query, then send a NEW query to /search/datasets/ while the
+    bucket is spent (rejected). A /search/facets/ call for that SAME new
+    query must also be rejected -- nothing was admitted to claim it.
+
+    Counterfactual: writing the claim inside ``exempt_when`` itself (rather
+    than only from ``_finalize_semantic_search_claim`` in an admitted
+    handler) turns the facets call below into a 200.
+    """
+    q = f"sec-1903-rejected-{uuid.uuid4().hex}"
+    _set_cache_limit("semantic_search_rate_limit", 1)
+    limiter.enabled = True
+    _reset_limiter_storage()
+    service_semantic._query_claims_clear()
+
+    try:
+        spend = await client.get(
+            f"/search/datasets/?q=sec-1903-spend-{uuid.uuid4().hex}"
+        )
+        assert spend.status_code == 200, (
+            f"expected the spend call to succeed, got {spend.status_code}"
+        )
+
+        rejected = await client.get(f"/search/datasets/?q={q}")
+        assert rejected.status_code == 429, (
+            f"expected the bucket to already be spent, got {rejected.status_code}"
+        )
+
+        second = await client.get(f"/search/facets/?q={q}")
+        assert second.status_code == 429, (
+            "a facets call following a REJECTED datasets call for the same "
+            f"query must not be exempt, got {second.status_code}"
+        )
+    finally:
+        limiter.enabled = False
+        _clear_cache_limit("semantic_search_rate_limit")
+        _reset_limiter_storage()
+        service_semantic._query_claims_clear()
+
+
+async def test_claim_is_scoped_to_the_requesting_client(client: AsyncClient):
+    """fix(#1903 review r3): a claim is scoped to the client that made it.
+
+    The SEC-S11 bucket is per-IP, so two different clients requesting the
+    same query must not be able to consume each other's claim: client B's
+    own bucket has full capacity regardless of what client A just did.
+    Proven by having client A admit a query, then client B request the
+    SAME query -- B must spend its OWN token (not ride A's claim), so a
+    second B call for a different query must then find B's bucket spent.
+
+    Counterfactual: dropping the client key from the claim registry (so it
+    matches on query text alone) turns B's second call below into a 200,
+    since B's first call would have been wrongly exempted.
+    """
+    from httpx import ASGITransport, AsyncClient as _AsyncClient
+
+    from app.api.main import app
+
+    q = f"sec-1903-crossclient-{uuid.uuid4().hex}"
+    _set_cache_limit("semantic_search_rate_limit", 1)
+    limiter.enabled = True
+    _reset_limiter_storage()
+    service_semantic._query_claims_clear()
+
+    other_transport = ASGITransport(app=app, client=("10.0.0.9", 12345))
+    try:
+        async with _AsyncClient(
+            transport=other_transport, base_url="http://test"
+        ) as other_client:
+            first = await client.get(f"/search/datasets/?q={q}")
+            assert first.status_code == 200, (
+                f"expected client A's call to spend A's bucket, got {first.status_code}"
+            )
+
+            second = await other_client.get(f"/search/facets/?q={q}")
+            assert second.status_code == 200, (
+                "client B has its own untouched bucket for the same query, "
+                f"got {second.status_code}"
+            )
+
+            third = await other_client.get(
+                f"/search/facets/?q=sec-1903-crossclient-novel-{uuid.uuid4().hex}"
+            )
+            assert third.status_code == 429, (
+                "client B's own token must have been spent by its first "
+                f"call, not exempted via client A's claim, got {third.status_code}"
+            )
+    finally:
+        limiter.enabled = False
+        _clear_cache_limit("semantic_search_rate_limit")
+        _reset_limiter_storage()
+        service_semantic._query_claims_clear()
+
+
 # ---------------------------------------------------------------------------
 # Task 3: /datasets/{id}/related/ rate limiting (SEC-S11)
 # ---------------------------------------------------------------------------

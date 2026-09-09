@@ -70,10 +70,11 @@ from app.modules.catalog.search.records_protocol import (
 )
 from app.modules.catalog.search.service import (
     SearchFilters,
-    claim_semantic_search_query,
+    consume_paired_query_claim,
     count_collections,
     dataset_to_ogc_record,
     get_facet_counts,
+    record_paired_query_claim,
     search_collections,
     search_datasets,
 )
@@ -82,6 +83,7 @@ from app.core.persistent_config import (
     get_cached_semantic_search_rate_limit,
 )
 from app.platform.ratelimit import limiter
+from slowapi.util import get_remote_address
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -422,12 +424,34 @@ def _semantic_search_query_already_claimed(request: Request) -> bool:
     token and only the sibling ROUTE's request, arriving within the
     coordination window, is exempt -- a same-route repeat never matches its
     own claim, so a burst against one route still pays per request.
+
+    Never creates a claim: this runs before the limiter's own admit/reject
+    check, so a request the bucket goes on to 429 must not seed a claim a
+    follow-up call could redeem. A non-exempt outcome instead stashes the
+    (client, text, route) on ``request.state`` for ``_finalize_semantic_
+    search_claim`` to record -- only reached if the request is admitted.
     """
     query_text = request.query_params.get("q")
     if not query_text:
         return False
     route = "facets" if "facets" in request.url.path else "datasets"
-    return claim_semantic_search_query(query_text, route)
+    client_key = get_remote_address(request)
+    if consume_paired_query_claim(client_key, query_text, route):
+        return True
+    request.state.semantic_search_claim = (client_key, query_text, route)
+    return False
+
+
+def _finalize_semantic_search_claim(request: Request) -> None:
+    """fix(#1903): record this request's claim once it is known to be admitted.
+
+    Call at the very top of a search handler -- reaching that point already
+    proves the rate limit let the request through. A no-op when the gate
+    exempted this request (nothing pending) or the query didn't qualify.
+    """
+    pending = getattr(request.state, "semantic_search_claim", None)
+    if pending is not None:
+        record_paired_query_claim(*pending)
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — slash form is canonical
@@ -477,6 +501,7 @@ async def search_facets_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> FacetCountResponse:
     """Return record_type facet counts for the given filters."""
+    _finalize_semantic_search_claim(request)
     geometry_geojson, bbox_parsed = parse_spatial_params(geometry, bbox)
 
     if user is not None:
@@ -550,6 +575,7 @@ async def search_datasets_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""
+    _finalize_semantic_search_claim(request)
     params = _resolve_filter_lang(params, request)
     result = await _handle_search(db, user, request, params)
     for name, value in standard_response_headers(
