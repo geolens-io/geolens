@@ -335,7 +335,6 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "platform/notifications/webhook_channel.py": 7,
     "platform/refresh/credentials.py": 1,
     "platform/refresh/models.py": 1,
-    "platform/refresh/service.py": 1,
     "platform/security.py": 8,
     "platform/service_auth.py": 1,
     "platform/storage/azure.py": 2,

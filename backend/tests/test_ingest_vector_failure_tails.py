@@ -22,6 +22,7 @@ from sqlalchemy import delete, select
 
 from app.modules.auth.models import User
 from app.platform.jobs.models import IngestJob
+from app.processing.ingest.ogr import IngestionError
 from app.processing.ingest.tasks_vector import ingest_file
 
 pytestmark = pytest.mark.anyio
@@ -136,8 +137,11 @@ class TestVectorFailureEmitsTheOperatorNotification:
 
     @staticmethod
     def _break_ogrinfo(monkeypatch, message: str) -> None:
+        # fix(#1953): the type production raises here. A library exception
+        # stores `internal_error` under ADR-002 Decision 3, so a stand-in
+        # would assert the operator reads text no real failure produces.
         async def _raise(*args, **kwargs):
-            raise RuntimeError(message)
+            raise IngestionError(message)
 
         monkeypatch.setattr(
             "app.processing.ingest.ogr.run_ogrinfo", _raise, raising=True
@@ -149,7 +153,7 @@ class TestVectorFailureEmitsTheOperatorNotification:
         admin_id = await _admin_id(session)
         job = await _queue_upload(session, file_path=str(source), user_id=admin_id)
         self._break_ogrinfo(monkeypatch, message)
-        with pytest.raises(RuntimeError):
+        with pytest.raises(IngestionError):
             await ingest_file.func(
                 job_id=str(job.id),
                 file_path=str(source),
@@ -293,7 +297,7 @@ class TestACleanupFailureCannotSwallowTheFailureWrite:
                     err_session,
                     staging_table="roads_staging_deadbeef",
                     job=err_job,
-                    exc=RuntimeError("ogr2ogr could not read the layer"),
+                    exc=IngestionError("ogr2ogr could not read the layer"),
                     task_name="ingest_file",
                     attempt_id=attempt_id,
                 )

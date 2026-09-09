@@ -523,7 +523,9 @@ class TestDeferWithOrphanGuard:
 
             assert job.status == "failed"
             assert "Failed to queue custom task" in job.error_message
-            assert "queue dead" in job.error_message
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in job.error_message
+            assert "queue dead" not in job.error_message
             assert job.completed_at is not None
 
         asyncio.run(_check())
@@ -575,10 +577,14 @@ class TestDeferWithOrphanGuard:
             assert vrt_asset.current_generation_id == previous_generation_id
             assert generation.status == "failed"
             assert generation.completed_at is not None
-            assert "procrastinate unreachable" in generation.error_message
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in generation.error_message
+            assert "procrastinate unreachable" not in generation.error_message
             assert job.status == "failed"
             assert job.completed_at is not None
-            assert "procrastinate unreachable" in job.error_message
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in job.error_message
+            assert "procrastinate unreachable" not in job.error_message
 
         asyncio.run(_check())
 
@@ -700,7 +706,9 @@ class TestReuploadOrphanGuard:
 
             assert exc_info.value.status_code == 503
             assert job.status == "failed"
-            assert "reupload_service queue down" in job.error_message
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in job.error_message
+            assert "reupload_service queue down" not in job.error_message
             assert job.completed_at is not None
 
         asyncio.run(_check())
@@ -758,7 +766,9 @@ class TestReuploadOrphanGuard:
 
             assert exc_info.value.status_code == 503
             assert job.status == "failed"
-            assert "priority queue dead" in job.error_message
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in job.error_message
+            assert "priority queue dead" not in job.error_message
 
         asyncio.run(_check())
 
@@ -810,7 +820,9 @@ class TestReuploadOrphanGuard:
 
             assert exc_info.value.status_code == 503
             assert job.status == "failed"
-            assert "default queue dead" in job.error_message
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in job.error_message
+            assert "default queue dead" not in job.error_message
 
         asyncio.run(_check())
 
@@ -959,7 +971,9 @@ class TestVrtSourceOrphanGuard:
             assert vrt_asset.current_generation_id == original_generation_id
             # IngestJob marked failed
             assert mock_job.status == "failed"
-            assert "vrt add_source queue dead" in mock_job.error_message
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in mock_job.error_message
+            assert "vrt add_source queue dead" not in mock_job.error_message
             # fix(#1327): the link table was only READ. No INSERT to undo, so
             # no DELETE to issue — the compensation the rollback used to owe.
             statements = "\n".join(
@@ -1054,7 +1068,9 @@ class TestVrtSourceOrphanGuard:
             assert vrt_asset.current_generation_id == original_generation_id
             # IngestJob marked failed
             assert mock_job.status == "failed"
-            assert "vrt remove_source queue dead" in mock_job.error_message
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in mock_job.error_message
+            assert "vrt remove_source queue dead" not in mock_job.error_message
             # fix(#1327): the member set was only READ — the removal lived on
             # the generation and died with it.
             statements = "\n".join(
@@ -1189,10 +1205,14 @@ class TestDatasetsVrtOrphanGuard:
             assert vrt_asset.current_generation_id == original_generation_id
             # VrtGeneration marked failed
             assert generation.status == "failed"
-            assert "regenerate_vrt queue dead" in (generation.error_message or "")
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in (generation.error_message or "")
+            assert "regenerate_vrt queue dead" not in (generation.error_message or "")
             assert generation.completed_at is not None
             # IngestJob marked failed
             assert mock_job.status == "failed"
-            assert "regenerate_vrt queue dead" in mock_job.error_message
+            # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
+            assert "(RuntimeError)" in mock_job.error_message
+            assert "regenerate_vrt queue dead" not in mock_job.error_message
 
         asyncio.run(_check())

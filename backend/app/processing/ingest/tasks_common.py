@@ -27,7 +27,8 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.core.config import settings
 from app.core.service_tokens import reset_registered_credential_secrets
-from app.core.url_redaction import redact_exception_text, redact_url_credentials
+from app.core.failure_reason import redact_failure_reason
+from app.core.url_redaction import redact_exception_text
 from app.processing.embeddings.helpers import defer_embedding
 from app.processing.ingest.source_format import derive_source_format
 from app.platform.storage import get_storage
@@ -1179,7 +1180,7 @@ async def _cleanup_staging_on_failure(
     """Mark the job failed, then drop the staging table, in that order.
 
     The single terminal-write site for ``reupload_file``/``reupload_service``
-    and the import tasks: applies the ``redact_url_credentials`` backstop,
+    and the import tasks: applies the ``redact_failure_reason`` backstop,
     the ``pending``-inclusive attempt fence (fix(#1274): a worker-time refusal
     that raises before the claim must still finalize the job it owns rather
     than leave it for the stale sweep), and the ``ingest_failed`` notification.
@@ -1215,10 +1216,11 @@ async def _cleanup_staging_on_failure(
     completed_at = datetime.now(timezone.utc)
     # fix(#1277): last boundary before this text becomes durable — feeds the
     # persisted error_message, the log record, and the notification reason,
-    # so redacting once here covers all three for every caller. Pattern-based
-    # (also scrubs the reupload commit door's token, never held as a distinct
-    # value). The exception object itself is left unmodified.
-    error_message = redact_url_credentials(str(exc))
+    # so redacting once here covers all three for every caller.
+    # fix(#1953): ADR-002 Decision 3 now covers this sink, and it is the
+    # exception rather than its text that crosses, so a library exception
+    # becomes a code instead of its statement-and-parameters dump.
+    error_message = redact_failure_reason(exc)
     await session.rollback()
 
     failure_update = sa_update(type(job)).where(type(job).id == job_id)

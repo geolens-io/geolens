@@ -66,6 +66,11 @@ type ReuploadStep =
   | 'error';
 
 
+// fix(#1953): the code ADR-002 Decision 3 stores in place of a failure the
+// server did not compose (backend/app/core/failure_reason.py). Rendering it
+// raw would put an untranslated identifier in front of the user.
+const INTERNAL_FAILURE_REASON = 'internal_error';
+
 const AUTH_ERROR_HINTS = [
   '401',
   '403',
@@ -263,7 +268,11 @@ export function ReuploadDialog({
         cancelled = true;
       };
     } else if (jobData.status === 'failed') {
-      const message = jobData.error_message ?? t('reupload.jobFailed');
+      const reason = jobData.error_message;
+      const message =
+        !reason || reason === INTERNAL_FAILURE_REASON
+          ? t('reupload.jobFailed')
+          : reason;
       setError(
         sourceType === 'service_url'
           ? appendRetryGuidance(message)

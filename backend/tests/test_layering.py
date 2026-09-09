@@ -3641,10 +3641,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r2-r5): +55 — `load_job_for_error_write`, the guarded job
     # load the two re-upload tails share, which also ends the transaction on a
     # miss so the run row they write next is unbudgeted. Cap 2668 -> 2723, exact.
-    # fix(#1755 item 12): -8 — the by-id purge statement moved to
-    # `platform/jobs/sweep.py`, which the stalled sweep also calls.
-    # Cap 2421 -> 2413, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2413,
+    # fix(#1755 item 12): -8 and fix(#1953): +2 merged; re-measured after both landed. Cap 2415, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2415,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
