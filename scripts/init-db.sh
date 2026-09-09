@@ -20,7 +20,9 @@ set -e
 : "${POSTGRES_USER:?POSTGRES_USER is required}"
 : "${POSTGRES_DB:?POSTGRES_DB is required}"
 
-psql_args=(-v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
+# fix(#1992): -X skips a host .psqlrc that could `\set ON_ERROR_STOP off` and
+# let a failed statement below fall through, so the script exits 0 unfixed.
+psql_args=(-X -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
 if [ -n "${POSTGRES_HOST:-}" ]; then
     psql_args+=(--host "$POSTGRES_HOST")
 elif [ -n "${PGHOST:-}" ]; then
