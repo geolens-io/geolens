@@ -101,7 +101,10 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
   // threaded in as a prop so this component stays self-contained; it is the
   // same derivation DetailPanel uses for the REFRESHABLE_ORIGINS gate.
   const origin = dataset.origin ?? datasetOrigin(dataset);
-  const supportsToken = origin === 'service';
+  // feat(#1764): a STAC origin joined the credential path — its refresh
+  // re-reads the catalog over HTTP, so it takes the same four-way choice
+  // WFS and OGC API Features take. A registered table still takes none.
+  const supportsToken = origin === 'service' || origin === 'stac';
   // fix(#1755 item 4, plan 3.7): the two service families that can hit this
   // refusal read differently -- ArcGIS was asked a probe question and lost,
   // so it gets the full sign-in taxonomy; WFS and OGC API Features were
@@ -299,7 +302,14 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
                 />
                 {serviceTokenRequired && (
                   <p className="text-xs text-muted-foreground">
-                    {t('sourcePanel.refresh.credential.wfs.escapeHatch')}
+                    {/* feat(#1764): the way out differs by origin — a STAC
+                        dataset has no Re-Upload dialog, it is re-imported
+                        from the catalog. */}
+                    {t(
+                      origin === 'stac'
+                        ? 'sourcePanel.refresh.credential.stac.escapeHatch'
+                        : 'sourcePanel.refresh.credential.wfs.escapeHatch',
+                    )}
                   </p>
                 )}
               </div>

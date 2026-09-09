@@ -879,6 +879,9 @@
           "headerValueLabel": "Valor del encabezado",
           "headerValuePlaceholder": "Su clave API",
           "helpText": "Un token bearer se envía como encabezado Authorization; un usuario y contraseña se envían como autenticación HTTP Basic; una clave API puede enviarse bajo el nombre de encabezado que especifique el proveedor, por ejemplo X-API-Key, Ocp-Apim-Subscription-Key o key."
+        },
+        "stac": {
+          "escapeHatch": "Si el catálogo ya es público, vuelva a importar el elemento desde el catálogo STAC sin credencial para eliminar este requisito."
         }
       },
       "history": {

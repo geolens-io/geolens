@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import structlog
 
+from app.core.service_tokens import ServiceCredential
 from app.modules.catalog.sources.origin_probe import MISSING, fetch_json_document
 from app.modules.catalog.sources.stac_resolve_asset_gate import (
     _bound_asset_key,  # noqa: F401 -- re-exported, see __all__
@@ -70,11 +71,17 @@ async def resolve_stac_binding(
     collection_id: str | None = None,
     asset_href: str | None = None,
     asset_key: str | None = None,
+    credential: ServiceCredential | None = None,
 ) -> StacResolution:
     """Ask the publisher where this dataset's asset lives now.
 
     Pure network and pure computation: nothing here reads or writes the
     database, and the caller is free to hold no session across it.
+
+    feat(#1764): the refresh door stashes ``credential`` for one attempt and
+    the worker claims it once. Every read below carries it, so the item
+    document, the fallback search, the self link and the asset probe all
+    speak to the catalog as the same caller.
     """
     # The BINDING is checked first (exact); falls back to reading the id out
     # of the URL for datasets imported before it was recorded — only ever a
@@ -98,7 +105,9 @@ async def resolve_stac_binding(
         logger.info("stac_identity_unverifiable")
         return _UNVERIFIABLE
 
-    result, document, item_url = await fetch_json_document(item_href)
+    result, document, item_url = await fetch_json_document(
+        item_href, credential=credential
+    )
     if result.ok:
         return await _resolve_from_item(
             document,
@@ -114,6 +123,7 @@ async def resolve_stac_binding(
             collection_affirmed=_standard_item_path(item_url) is not None,
             asset_href=asset_href,
             asset_key=asset_key,
+            credential=credential,
         )
     if result.health == MISSING:
         return await _resolve_by_search(
@@ -122,6 +132,7 @@ async def resolve_stac_binding(
             collection_id=effective_collection,
             asset_href=asset_href,
             asset_key=asset_key,
+            credential=credential,
         )
     # Inconclusive: a timeout, a 5xx, a 401/403, a policy refusal. Nothing was
     # established about where the asset is, so the caller keeps every stored

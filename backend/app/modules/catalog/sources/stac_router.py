@@ -11,7 +11,7 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +39,17 @@ from app.modules.catalog.sources.adapters.stac import (
     search_stac_items,
 )
 from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
+from app.modules.catalog.sources.schemas import (
+    DEPRECATED_TOKEN_SUFFIX,
+    SERVICE_AUTH_FIELD_DESCRIPTION,
+    ServiceAuthRequest,
+    _validate_safe_token,
+    reject_service_auth_conflict,
+    service_credential_from_request,
+)
+from app.core.service_tokens import STAC_SERVICE_FORMAT, ServiceCredential
 from app.platform.security import SSRFError, validate_url_for_ssrf
+from app.platform.service_auth import credential_or_422
 
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -71,6 +81,15 @@ router = APIRouter(
 )
 
 
+# feat(#1764): the two credential fields every STAC door that CONTACTS the
+# catalog accepts. Request-only: nothing here is stored, and `/import` takes
+# neither, because it contacts no catalog and would be accepting a secret it
+# then drops.
+_STAC_TOKEN_DESCRIPTION = (
+    "Optional auth token for a protected STAC catalog." + DEPRECATED_TOKEN_SUFFIX
+)
+
+
 class StacConnectRequest(BaseModel):
     url: str = Field(
         min_length=1,
@@ -78,6 +97,17 @@ class StacConnectRequest(BaseModel):
         description="STAC API root URL to connect to.",
     )
     _validate_url = field_validator("url")(_validate_stac_http_url)
+    token: str | None = Field(
+        default=None, max_length=1000, description=_STAC_TOKEN_DESCRIPTION
+    )
+    _validate_token = field_validator("token")(_validate_safe_token)
+    # fix(#1760): auth is declared LAST on every request model — the generated
+    # SDK positions fields by declaration order, so an earlier insertion would
+    # shift an existing positional caller's argument into it.
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
 class StacConnectResponse(BaseModel):
@@ -141,6 +171,14 @@ class StacSearchRequest(BaseModel):
         le=100,
         description="Maximum items to return.",
     )
+    token: str | None = Field(
+        default=None, max_length=1000, description=_STAC_TOKEN_DESCRIPTION
+    )
+    _validate_token = field_validator("token")(_validate_safe_token)
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
 class StacItemSummary(BaseModel):
@@ -292,20 +330,40 @@ class StacImportResponse(BaseModel):
     errors: int = Field(description="Number of items that failed.")
 
 
+def _stac_credential(
+    request: StacConnectRequest | StacSearchRequest,
+) -> ServiceCredential | None:
+    """The credential this request may send to the catalog, or None.
+
+    feat(#1764): one door helper for all three STAC endpoints, so they cannot
+    judge the same credential three ways. ``credential_or_422`` binds the STAC
+    service format and raises the coded 422 for an input the rules refuse; the
+    header itself is composed later, at each write site.
+    """
+    return credential_or_422(
+        service_credential_from_request(request.auth, request.token),
+        service_format=STAC_SERVICE_FORMAT,
+    )
+
+
 @router.post("/connect", response_model=StacConnectResponse)
 async def stac_connect(
     request: StacConnectRequest,
     user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> StacConnectResponse:
-    """Connect to a STAC API and validate the endpoint."""
+    """Connect to a STAC API and validate the endpoint.
+
+    Accepts a credential for a protected catalog, applied to this call.
+    """
     safe_url = redact_url_credentials(request.url)
+    credential = _stac_credential(request)
     try:
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    result = await connect_stac_api(request.url)
+    result = await connect_stac_api(request.url, credential)
     if result is None:
         await audit_emit(
             db,
@@ -355,15 +413,19 @@ async def stac_collections(
     request: StacConnectRequest,
     user: Identity = Depends(require_permission("create_layers")),
 ) -> StacCollectionsResponse:
-    """List collections from a connected STAC API."""
+    """List collections from a connected STAC API.
+
+    Accepts a credential for a protected catalog, applied to this call.
+    """
     safe_url = redact_url_credentials(request.url)
+    credential = _stac_credential(request)
     try:
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     try:
-        collections = await list_stac_collections(request.url)
+        collections = await list_stac_collections(request.url, credential)
     except Exception as exc:  # broad: STAC client/HTTP/parse can throw varied errors; map to 502 for the user
         logger.warning("STAC collections fetch failed", url=safe_url, error=str(exc))
         raise HTTPException(
@@ -386,8 +448,12 @@ async def stac_search(
     request: StacSearchRequest,
     user: Identity = Depends(require_permission("create_layers")),
 ) -> StacSearchResponse:
-    """Search items in a STAC API with spatial/temporal filters."""
+    """Search items in a STAC API with spatial/temporal filters.
+
+    Accepts a credential for a protected catalog, applied to this call.
+    """
     safe_url = redact_url_credentials(request.url)
+    credential = _stac_credential(request)
     try:
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
@@ -400,6 +466,7 @@ async def stac_search(
             bbox=request.bbox,
             datetime_range=request.datetime_range,
             limit=request.limit,
+            credential=credential,
         )
     except Exception as exc:  # broad: STAC /search client/HTTP/parse can throw varied errors; map to 502 for the user
         logger.warning("STAC search failed", url=safe_url, error=str(exc))

@@ -5068,6 +5068,8 @@ export const probeServiceUrlServicesProbePost = <ThrowOnError extends boolean = 
  * Stac Collections
  *
  * List collections from a connected STAC API.
+ *
+ * Accepts a credential for a protected catalog, applied to this call.
  */
 export const stacCollectionsServicesStacCollectionsPost = <ThrowOnError extends boolean = false>(options: Options<StacCollectionsServicesStacCollectionsPostData, ThrowOnError>): RequestResult<StacCollectionsServicesStacCollectionsPostResponses, StacCollectionsServicesStacCollectionsPostErrors, ThrowOnError> => (options.client ?? client).post<StacCollectionsServicesStacCollectionsPostResponses, StacCollectionsServicesStacCollectionsPostErrors, ThrowOnError>({
     security: [
@@ -5091,6 +5093,8 @@ export const stacCollectionsServicesStacCollectionsPost = <ThrowOnError extends 
  * Stac Connect
  *
  * Connect to a STAC API and validate the endpoint.
+ *
+ * Accepts a credential for a protected catalog, applied to this call.
  */
 export const stacConnectServicesStacConnectPost = <ThrowOnError extends boolean = false>(options: Options<StacConnectServicesStacConnectPostData, ThrowOnError>): RequestResult<StacConnectServicesStacConnectPostResponses, StacConnectServicesStacConnectPostErrors, ThrowOnError> => (options.client ?? client).post<StacConnectServicesStacConnectPostResponses, StacConnectServicesStacConnectPostErrors, ThrowOnError>({
     security: [
@@ -5141,6 +5145,8 @@ export const stacImportServicesStacImportPost = <ThrowOnError extends boolean = 
  * Stac Search
  *
  * Search items in a STAC API with spatial/temporal filters.
+ *
+ * Accepts a credential for a protected catalog, applied to this call.
  */
 export const stacSearchServicesStacSearchPost = <ThrowOnError extends boolean = false>(options: Options<StacSearchServicesStacSearchPostData, ThrowOnError>): RequestResult<StacSearchServicesStacSearchPostResponses, StacSearchServicesStacSearchPostErrors, ThrowOnError> => (options.client ?? client).post<StacSearchServicesStacSearchPostResponses, StacSearchServicesStacSearchPostErrors, ThrowOnError>({
     security: [

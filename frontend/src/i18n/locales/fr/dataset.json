@@ -879,6 +879,9 @@
           "headerValueLabel": "Valeur de l'en-tête",
           "headerValuePlaceholder": "Votre clé API",
           "helpText": "Un jeton bearer est envoyé comme en-tête Authorization ; un nom d'utilisateur et un mot de passe sont envoyés en authentification HTTP Basic ; une clé API peut être envoyée sous le nom d'en-tête que le fournisseur indique, par exemple X-API-Key, Ocp-Apim-Subscription-Key ou key."
+        },
+        "stac": {
+          "escapeHatch": "Si le catalogue est désormais public, réimportez l'élément depuis le catalogue STAC sans information d'authentification pour lever cette exigence."
         }
       },
       "history": {

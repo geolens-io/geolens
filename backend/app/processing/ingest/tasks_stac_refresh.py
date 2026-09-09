@@ -31,6 +31,10 @@ import structlog
 from sqlalchemy import func, select, update
 
 from app.core.geo import bbox_to_extent_wkt
+from app.core.service_tokens import (
+    STAC_SERVICE_FORMAT,
+    credential_from_header_line,
+)
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -42,6 +46,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
     write_job_failure_for_attempt,
 )
+from app.platform.refresh.credentials import resolve_worker_credential
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
@@ -203,7 +208,13 @@ def _failure_for(resolution: Any) -> StacRefreshError:
     )
 
 
-def _rebind(dataset: Any, resolution: Any, *, collection_id: str | None) -> None:
+def _rebind(
+    dataset: Any,
+    resolution: Any,
+    *,
+    collection_id: str | None,
+    auth_required: bool | None,
+) -> None:
     """Point the dataset at where the publisher now says its asset is.
 
     Through ``set_dataset_origin``, the only door into ``origin_ref``, which
@@ -221,6 +232,10 @@ def _rebind(dataset: Any, resolution: Any, *, collection_id: str | None) -> None
     sets the pointer to the asset href, and the duplicate-source guard keys
     on it). ``source_url`` is deliberately left alone: it's in the metadata
     PATCH's field map and belongs to the owner, not this door.
+
+    feat(#1764): ``auth_required`` is True when THIS attempt used a
+    credential and None when it did not, so a token-less success clears the
+    marker the same way the service path's does. Never the credential.
     """
     set_dataset_origin(
         dataset,
@@ -233,6 +248,7 @@ def _rebind(dataset: Any, resolution: Any, *, collection_id: str | None) -> None
         item_id=resolution.item_id,
         collection_id=collection_id,
         asset_key=resolution.asset_key,
+        auth_required=auth_required,
     )
 
 
@@ -399,6 +415,7 @@ async def refresh_stac(
     job_id: str,
     dataset_id: str,
     attempt_id: str | None = None,
+    credential_ref: str | None = None,
     **kwargs: Any,
 ) -> None:
     """Background task: re-resolve this dataset's STAC item and asset pointer.
@@ -407,6 +424,10 @@ async def refresh_stac(
     takes none: this creates no ``DatasetVersion`` and stamps no uploader,
     because no data moved. The actor is already on the run row as
     ``triggered_by``, which is where this operation's audit trail lives.
+
+    feat(#1764): ``credential_ref`` names a single-use credential the door
+    staged; the secret itself never becomes a task argument. Claimed once,
+    after the attempt check, so a dispatch that never runs spends nothing.
     """
     _bind_task_log_context(
         task_name="refresh_stac", job_id=job_id, dataset_id=dataset_id
@@ -426,6 +447,14 @@ async def refresh_stac(
         return
     job_uuid, attempt_uuid = resolved_attempt
     dataset_uuid = uuid.UUID(dataset_id)
+    # feat(#1764): the D9 wire line, turned back into the credential it
+    # describes so every read below composes through the one producer. A ref
+    # that names nothing raises rather than falling through to an anonymous
+    # fetch, which would collect a 401 and report a live catalog as broken.
+    credential_line = await resolve_worker_credential(None, credential_ref)
+    credential = credential_from_header_line(
+        credential_line, service_format=STAC_SERVICE_FORMAT
+    )
     heartbeat_task: asyncio.Task[None] | None = None
     # The binding this attempt resolved against, for the failure handler's
     # guarded write and the write transaction's own guard. Left None until
@@ -483,6 +512,7 @@ async def refresh_stac(
             collection_id=collection_id,
             asset_href=asset_href,
             asset_key=asset_key,
+            credential=credential,
         )
         if not resolution.resolved:
             raise _failure_for(resolution)
@@ -557,15 +587,26 @@ async def refresh_stac(
             # resolution checked it against; one that has a collection keeps
             # it, because only the stored value may name what this dataset is.
             learned_collection = collection_id or resolution.collection_id
+            # feat(#1764): True or None, never False — the origin_ref
+            # allowlist drops a None-valued key, which is how "no credential
+            # was used" is spelled on both origin kinds.
+            auth_required = True if credential is not None else None
+            marked_before = (dataset.origin_ref or {}).get("auth_required") is True
             rebound = (
                 moved
                 or resolution.item_href != item_href
                 or resolution.item_id != item_id
                 or resolution.asset_key != asset_key
                 or learned_collection != collection_id
+                or marked_before != (auth_required is True)
             )
             if rebound:
-                _rebind(dataset, resolution, collection_id=learned_collection)
+                _rebind(
+                    dataset,
+                    resolution,
+                    collection_id=learned_collection,
+                    auth_required=auth_required,
+                )
             if moved:
                 await _repoint_remote_asset(
                     session,

@@ -2100,6 +2100,8 @@ export interface StacSearchRequest {
   bbox?: number[];
   datetime_range?: string;
   limit?: number;
+  // feat(#1764): a credential for a protected catalog, applied to this call.
+  auth?: ServiceAuthRequest;
 }
 
 export interface StacItemSummary {

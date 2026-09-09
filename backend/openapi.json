@@ -16306,6 +16306,30 @@
             "minLength": 1,
             "title": "Url",
             "type": "string"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.",
+            "title": "Token"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "required": [
@@ -17395,6 +17419,30 @@
             "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.",
+            "title": "Token"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "required": [
@@ -54241,7 +54289,7 @@
     },
     "/services/stac/collections": {
       "post": {
-        "description": "List collections from a connected STAC API.",
+        "description": "List collections from a connected STAC API.\n\nAccepts a credential for a protected catalog, applied to this call.",
         "operationId": "stac_collections_services_stac_collections_post",
         "requestBody": {
           "content": {
@@ -54393,7 +54441,7 @@
     },
     "/services/stac/connect": {
       "post": {
-        "description": "Connect to a STAC API and validate the endpoint.",
+        "description": "Connect to a STAC API and validate the endpoint.\n\nAccepts a credential for a protected catalog, applied to this call.",
         "operationId": "stac_connect_services_stac_connect_post",
         "requestBody": {
           "content": {
@@ -54677,7 +54725,7 @@
     },
     "/services/stac/search": {
       "post": {
-        "description": "Search items in a STAC API with spatial/temporal filters.",
+        "description": "Search items in a STAC API with spatial/temporal filters.\n\nAccepts a credential for a protected catalog, applied to this call.",
         "operationId": "stac_search_services_stac_search_post",
         "requestBody": {
           "content": {

@@ -120,8 +120,20 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # is a rebinding primitive, not a pointer (fix(#1266) review round 9).
     # With it stored, a refresh can refuse a document answering for a
     # different item even when the item's URL states no identity of its own.
+    # `auth_required` (feat(#1764)) carries the same meaning here as on the
+    # service kind: the last SUCCESSFUL refresh used a credential, written by
+    # the worker from the credential it actually used, never the credential.
+    # True or absent, never False. Import never sets it — the import door
+    # contacts no catalog — so it appears on the first credentialed refresh.
     "stac": frozenset(
-        {"item_href", "item_id", "asset_href", "collection_id", "asset_key"}
+        {
+            "item_href",
+            "item_id",
+            "asset_href",
+            "collection_id",
+            "asset_key",
+            "auth_required",
+        }
     ),
     "upload": frozenset({"filename", "file_hash"}),
     # Gate 2: GeoLens-internal table only. No host/port/DSN/credential key.
@@ -242,11 +254,14 @@ def geolens_owns_table(
 
 
 def service_auth_required(origin_ref: Any) -> bool:
-    """Whether the last successful pull of this service origin used a token.
+    """Whether the last successful pull of this origin used a credential.
 
     A token was USED, not demanded: no caller may read this as "the origin
     requires authentication" — the refresh door checks that separately
     (fix(#1746) codex r1).
+
+    feat(#1764): reads the key on the STAC kind too, which stores it under
+    the same name and the same rule.
 
     fix(#1746): ``is True``, not truthiness, same reason as
     ``geolens_owns_table`` — this gates an outbound request/refusal, and a

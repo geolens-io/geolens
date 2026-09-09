@@ -9612,6 +9612,16 @@ export type StacConnectRequest = {
      * STAC API root URL to connect to.
      */
     url: string;
+    /**
+     * Token
+     *
+     * Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
+     */
+    token?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**
@@ -10234,6 +10244,16 @@ export type StacSearchRequest = {
      * Maximum items to return.
      */
     limit?: number;
+    /**
+     * Token
+     *
+     * Optional auth token for a protected STAC catalog. Deprecated: use the auth object with method bearer.
+     */
+    token?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**

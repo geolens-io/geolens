@@ -30,10 +30,12 @@ from enum import StrEnum
 # parameter, urlencoded into the ESRIJSON source URL, so it never carries the
 # smuggling risk this charset guards against. This set answers whether a
 # format's credential is (a) judged by ``HEADER_TOKEN_CHARSET``, (b) written
-# to ``GDAL_HTTP_HEADER_FILE``, (c) checked by
-# ``assert_endpoints_stay_on_origin``, and (d) crossed to the worker as a
-# finished header LINE (``platform/service_auth.py::wire_credential``, plan
-# D9). All four exclude ArcGIS.
+# to ``GDAL_HTTP_HEADER_FILE``, and (c) checked by
+# ``assert_endpoints_stay_on_origin``. All three exclude ArcGIS.
+#
+# feat(#1764): a fourth question, "crossed to the worker as a finished header
+# LINE" (plan D9), moved to ``HEADER_LINE_SERVICE_FORMATS`` below — STAC
+# answers yes to that one and no to these three.
 #
 # fix(#1840): (d) was missing here, producing a P1 —
 # ``wire_credential`` picked its branch by whether ``build_credential_header``
@@ -54,6 +56,25 @@ HEADER_AUTH_SERVICE_FORMATS: frozenset[str] = frozenset({"wfs", "ogcapi_features
 # re-exports this name.
 ARCGIS_SERVICE_FORMAT = "arcgis_featureserver"
 
+# feat(#1764): STAC's own service format, spelled here for the same reason.
+# It matches ``datasets.source_format`` for a STAC-imported dataset, which is
+# what the refresh door reads before it composes anything.
+STAC_SERVICE_FORMAT = "stac"
+
+# feat(#1764): formats whose credential is a header LINE rather than a URL
+# query parameter, on every transport that carries it — including the queue
+# hop to the worker (``platform/service_auth.py::wire_credential``, plan D9).
+# This is the question "can this service present a basic or header-key
+# credential at all", so it also gates ``service_carries_method``.
+#
+# Wider than ``HEADER_AUTH_SERVICE_FORMATS`` by exactly STAC, whose catalog,
+# item and asset reads are all httpx and never GDAL: nothing writes a STAC
+# credential to the header file, and no STAC read follows a description that
+# ``assert_endpoints_stay_on_origin`` could check.
+HEADER_LINE_SERVICE_FORMATS: frozenset[str] = HEADER_AUTH_SERVICE_FORMATS | {
+    STAC_SERVICE_FORMAT
+}
+
 # feat(C2): formats whose credential travels as an HTTP header on GeoLens's
 # OWN httpx requests — wider than the set above. ArcGIS Server has accepted a
 # bearer token in a header since 10.5.1, and hosted ArcGIS Online always has;
@@ -69,7 +90,7 @@ ARCGIS_SERVICE_FORMAT = "arcgis_featureserver"
 # refuse tokens holding ``+``/``/``, nothing writes ArcGIS to the GDAL header
 # file, and the adapter composes URLs from its own base rather than
 # following a service-described endpoint.
-HEADER_TRANSPORT_SERVICE_FORMATS: frozenset[str] = HEADER_AUTH_SERVICE_FORMATS | {
+HEADER_TRANSPORT_SERVICE_FORMATS: frozenset[str] = HEADER_LINE_SERVICE_FORMATS | {
     ARCGIS_SERVICE_FORMAT
 }
 
@@ -124,6 +145,18 @@ def requires_header_token_policy(source_format: str | None) -> bool:
     requests and includes ArcGIS.
     """
     return source_format in HEADER_AUTH_SERVICE_FORMATS
+
+
+def carries_credential_as_header_line(source_format: str | None) -> bool:
+    """Whether *source_format*'s credential is a header line, not a query key.
+
+    feat(#1764): the question a door asks before accepting a basic or
+    header-key credential, and the one ``wire_credential`` asks before
+    composing the line that crosses the queue. Wider than
+    :func:`requires_header_token_policy` by exactly STAC, whose credential is
+    a header on every hop and never reaches GDAL.
+    """
+    return source_format in HEADER_LINE_SERVICE_FORMATS
 
 
 def sends_credential_as_header(source_format: str | None) -> bool:
@@ -416,8 +449,12 @@ def _bearer_token_rejection(auth: ServiceCredential) -> str | None:
     instead — and legitimately holds ``+``/``/``, so it's judged as a header
     VALUE (printable ASCII, no whitespace) instead: CR/LF still banned, only
     the collateral damage differs.
+
+    feat(#1764): the branch asks ``requires_header_token_policy`` rather than
+    naming ArcGIS, so STAC takes the wider charset too — its credential is
+    httpx-only, and httpx refuses a CR/LF header value itself.
     """
-    if auth.service_format == ARCGIS_SERVICE_FORMAT:
+    if not requires_header_token_policy(auth.service_format):
         # Rejects ``None`` on its own, unlike its header-token sibling, which
         # reads ``None`` as "no token supplied and none required".
         return credential_input_rejection_reason(auth.token)
@@ -516,3 +553,62 @@ def credential_header_line(pair: tuple[str, str]) -> str:
     """
     name, value = pair
     return f"{name}{HEADER_LINE_SEPARATOR}{value}"
+
+
+def credential_from_header_line(
+    line: str | None, *, service_format: str | None = None
+) -> ServiceCredential | None:
+    """The credential a D9 wire line describes, or None if it describes none.
+
+    feat(#1764): the inverse of ``build_credential_header`` +
+    :func:`credential_header_line`, for the one hop that cannot compose at
+    the write site. A WFS/OAPIF worker writes the line straight to the GDAL
+    header file; a STAC worker issues httpx requests of its own, and every
+    one of those has to compose through the single producer like any other
+    write site. Recovering the credential here is what lets it.
+
+    Round-trips exactly: recomposing the result yields the same line, which
+    ``test_stac_service_auth_1764`` pins. Basic is base64-decoded back to the
+    username and password the builder encoded, and the builder already
+    refused a colon in the username, so the split point is unambiguous.
+
+    Returns None for anything this cannot round-trip — no separator, an empty
+    name or value, an unrecognized ``Authorization`` scheme, or a Basic blob
+    that is not ASCII base64 of ``user:password``. None means "no credential",
+    which sends an anonymous request rather than a mis-composed one.
+    """
+    if not line:
+        return None
+    name, separator, value = line.partition(HEADER_LINE_SEPARATOR)
+    if not separator or not name or not value:
+        return None
+    if name.lower() != "authorization":
+        return ServiceCredential(
+            method=CredentialMethod.HEADER_KEY,
+            service_format=service_format,
+            header_name=name,
+            header_value=value,
+        )
+    if value.startswith(BEARER_SCHEME):
+        return ServiceCredential(
+            method=CredentialMethod.BEARER,
+            service_format=service_format,
+            token=value[len(BEARER_SCHEME) :],
+        )
+    if not value.startswith(BASIC_SCHEME):
+        return None
+    try:
+        decoded = base64.b64decode(
+            value[len(BASIC_SCHEME) :].encode("ascii"), validate=True
+        ).decode("ascii")
+    except (ValueError, UnicodeDecodeError):
+        return None
+    username, colon, password = decoded.partition(":")
+    if not colon:
+        return None
+    return ServiceCredential(
+        method=CredentialMethod.BASIC,
+        service_format=service_format,
+        username=username,
+        password=password,
+    )

@@ -176,7 +176,23 @@
       "backToSelection": "Volver a la selección",
       "confirmImport_one": "Confirmar e importar {{count}} elemento",
       "confirmImport_other": "Confirmar e importar {{count}} elementos"
-    }
+    },
+    "credentialMethodLabel": "Autenticación",
+    "credentialMethodNone": "Sin autenticación",
+    "credentialMethodBearer": "Token bearer",
+    "credentialMethodBasic": "Usuario y contraseña",
+    "credentialMethodHeader": "Clave API en un encabezado",
+    "credentialTokenLabel": "Token bearer",
+    "credentialTokenPlaceholder": "Pegue su token bearer",
+    "credentialUsernameLabel": "Usuario",
+    "credentialUsernamePlaceholder": "Usuario",
+    "credentialPasswordLabel": "Contraseña",
+    "credentialPasswordPlaceholder": "Contraseña",
+    "credentialHeaderNameLabel": "Nombre del encabezado",
+    "credentialHeaderNamePlaceholder": "p. ej. Ocp-Apim-Subscription-Key",
+    "credentialHeaderValueLabel": "Valor del encabezado",
+    "credentialHeaderValuePlaceholder": "Su clave API",
+    "credentialHelpText": "Elija el método que documenta su catálogo. Un token bearer se envía como encabezado Authorization; un usuario y contraseña se envían como autenticación HTTP Basic; una clave API puede enviarse bajo el nombre de encabezado que especifique el proveedor, por ejemplo X-API-Key, Ocp-Apim-Subscription-Key o key. Autentica el catálogo, sus colecciones y sus elementos; los teselados se generan desde la URL del recurso y no llevan credencial."
   },
   "serviceUrl": {
     "label": "URL de servicio",

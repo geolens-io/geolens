@@ -421,9 +421,8 @@ class TestBuildCredentialHeaderReturnsNone:
                 )
             )
 
-    @pytest.mark.parametrize(
-        "service_format", [None, "stac", "geojson", "shapefile", ""]
-    )
+    # feat(#1764): `stac` left this list when it gained a credential path.
+    @pytest.mark.parametrize("service_format", [None, "geojson", "shapefile", ""])
     def test_a_format_whose_credential_is_not_a_header(
         self, service_format: str | None
     ) -> None:

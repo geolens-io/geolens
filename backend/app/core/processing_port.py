@@ -386,6 +386,9 @@ class ProcessingPort(Protocol):
     # asks for the answer through this port and holds no HTTP client of its
     # own. Returns a ``StacResolution``, typed Any since core/ may not
     # import modules.*.
+    # feat(#1764): ``credential`` is the ``ServiceCredential`` a credentialed
+    # refresh claimed for this one attempt; typed Any for the same reason the
+    # return is, and None for a public catalog.
     async def resolve_stac_binding(
         self,
         *,
@@ -394,6 +397,7 @@ class ProcessingPort(Protocol):
         collection_id: str | None,
         asset_href: str | None,
         asset_key: str | None,
+        credential: Any = None,
     ) -> Any: ...
 
     # Preserves joinedload semantics for metadata_service._build_dataset_context.

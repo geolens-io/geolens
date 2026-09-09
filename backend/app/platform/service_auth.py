@@ -48,10 +48,10 @@ from app.core.service_tokens import (
     ServiceCredential,
     build_credential_header,
     credential_header_line,
+    carries_credential_as_header_line,
     credential_input_rejection_reason,
     header_name_rejection_reason,
     header_token_rejection_reason,
-    requires_header_token_policy,
 )
 
 UNSUPPORTED_AUTH_METHOD_CODE = "unsupported_auth_method"
@@ -179,11 +179,15 @@ def service_carries_method(
     Basic and a named API key exist only as a header, so they need a
     service kind whose credential travels as one. Anything else is a
     method this build doesn't know how to send anywhere.
+
+    feat(#1764): the header-or-query question is
+    ``carries_credential_as_header_line``, not the GDAL header-file one —
+    STAC carries all three methods and writes no header file.
     """
     if method in (CredentialMethod.NONE, CredentialMethod.BEARER):
         return True
     if method in (CredentialMethod.BASIC, CredentialMethod.HEADER_KEY):
-        return requires_header_token_policy(service_format)
+        return carries_credential_as_header_line(service_format)
     return False
 
 
@@ -201,13 +205,13 @@ def credential_or_422(
     ``service_format`` is bound onto the returned credential rather than
     left to the caller to pass again, since it decides whether a header
     may be composed at all: ``build_credential_header`` reads it and
-    answers None outside ``HEADER_AUTH_SERVICE_FORMATS``, plan D9's
+    answers None outside ``HEADER_TRANSPORT_SERVICE_FORMATS``, plan D9's
     ArcGIS invariant expressed as an allowlist.
     """
     if credential is None or credential.method == CredentialMethod.NONE:
         return None
     bound = replace(credential, service_format=service_format)
-    if not requires_header_token_policy(service_format):
+    if not carries_credential_as_header_line(service_format):
         # A URL-query transport, or a format nobody has taught this to
         # carry. Bearer is the only spelling that fits a query parameter.
         bearer_token_for_credential(bound)
@@ -248,6 +252,11 @@ def wire_credential(
     ``requires_header_token_policy``/``HEADER_AUTH_SERVICE_FORMATS``
     answer; asking the builder was a proxy for it that stopped being
     equivalent.
+
+    feat(#1764): the predicate widened to
+    ``carries_credential_as_header_line`` so a STAC refresh crosses as a
+    line too; its worker recovers the credential with
+    ``credential_from_header_line`` and composes at each write site.
     """
     resolved = (
         service_format
@@ -257,7 +266,7 @@ def wire_credential(
     bound = credential_or_422(credential, service_format=resolved)
     if bound is None:
         return None
-    if not requires_header_token_policy(resolved):
+    if not carries_credential_as_header_line(resolved):
         # A URL-query transport: ArcGIS, whose worker-side token is the
         # bare value `build_gdal_source` percent-encodes into ESRIJSON.
         return bearer_token_for_credential(bound)

@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 import structlog
 
+from app.core.service_tokens import ServiceCredential
 from app.modules.catalog.sources.adapters.stac import (
     pick_data_asset,
     projection_epsg,
@@ -139,11 +140,16 @@ async def _resolve_from_item(
     collection_affirmed: bool,
     asset_href: str | None,
     asset_key: str | None,
+    credential: ServiceCredential | None = None,
 ) -> StacResolution:
     """Turn a fetched item document into a resolution, health included.
 
     One reading of one document, used by both paths, so the direct fetch and
     the re-search cannot reach different verdicts about the same shape.
+
+    feat(#1764): the two reads this gate makes of its own — the self link and
+    the asset probe — carry the caller's credential, so a protected asset
+    probes as healthy instead of as ``unauthorized``.
     """
     refusal = _identity_refusal(
         item,
@@ -189,6 +195,7 @@ async def _resolve_from_item(
         fallback_is_live=item_base is not None,
         collection_id=collection_id,
         asset_key=key,
+        credential=credential,
     )
 
     # fix(#1266): `item_base` is the item's own fetch URL on the direct path
@@ -221,7 +228,7 @@ async def _resolve_from_item(
     # unresolvable.
     resolved_item_href = self_href or fallback_item_href
 
-    probed = await probe_remote_uri(href)
+    probed = await probe_remote_uri(href, credential=credential)
     if probed.detail == BLOCKED_BY_POLICY:
         # fix(#1266): refused, not merely reported — this is a fact about
         # GeoLens (the SSRF guard won't fetch this address, at the first hop
@@ -244,6 +251,9 @@ async def _resolve_from_item(
             await validate_url_for_ssrf(href)
         except SSRFError:
             return _ASSET_BLOCKED
+        # feat(#1764): Titiler fetches this URL itself, in another process,
+        # so a credentialed asset that MOVED reads as unreadable rather than
+        # re-describing. Carrying a key to the tiler is overlay work.
         metadata = await fetch_cog_info(href)
         if metadata is None:
             # fix(#1266): the probe may have already settled this — 404/410
@@ -292,6 +302,7 @@ async def _trustworthy_self_href(
     fallback_is_live: bool,
     collection_id: str | None,
     asset_key: str,
+    credential: ServiceCredential | None = None,
 ) -> tuple[str | None, str | None, dict[str, Any] | None]:
     """``(pointer to store, base for relative hrefs, the document at it)``.
 
@@ -329,7 +340,9 @@ async def _trustworthy_self_href(
     ):
         logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
         return None, None, None
-    result, document, final_url = await fetch_json_document(self_href)
+    result, document, final_url = await fetch_json_document(
+        self_href, credential=credential
+    )
     if not result.ok:
         logger.info("stac_self_link_not_adopted", detail=result.detail)
         return None, None, None

@@ -2437,12 +2437,15 @@ class TestServiceTokenPolicy:
         # And the entry point every door now routes through names all four
         # rules, so a method added without a rule fails here rather than
         # silently composing an unjudged header.
+        # feat(#1764): the format predicate the gate applies is
+        # `carries_credential_as_header_line` — wider than the GDAL
+        # header-file one by STAC, which carries all three methods.
         gate_source = inspect.getsource(service_auth)
         for rule in (
             "header_token_rejection_reason",
             "credential_input_rejection_reason",
             "header_name_rejection_reason",
-            "requires_header_token_policy",
+            "carries_credential_as_header_line",
         ):
             assert rule in gate_source, rule
 

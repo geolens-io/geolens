@@ -110,6 +110,8 @@ def sync_detailed(
 
      Connect to a STAC API and validate the endpoint.
 
+    Accepts a credential for a protected catalog, applied to this call.
+
     Args:
         body (StacConnectRequest):
 
@@ -141,6 +143,8 @@ def sync(
 
      Connect to a STAC API and validate the endpoint.
 
+    Accepts a credential for a protected catalog, applied to this call.
+
     Args:
         body (StacConnectRequest):
 
@@ -166,6 +170,8 @@ async def asyncio_detailed(
     """Stac Connect
 
      Connect to a STAC API and validate the endpoint.
+
+    Accepts a credential for a protected catalog, applied to this call.
 
     Args:
         body (StacConnectRequest):
@@ -195,6 +201,8 @@ async def asyncio(
     """Stac Connect
 
      Connect to a STAC API and validate the endpoint.
+
+    Accepts a credential for a protected catalog, applied to this call.
 
     Args:
         body (StacConnectRequest):
