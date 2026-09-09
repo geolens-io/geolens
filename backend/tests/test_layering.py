@@ -2571,7 +2571,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its own transaction and reaps the staged copy once a committed attempt
     # left the row failed, best effort. Cap 1130 -> 1146, exact.
     # fix(#2017): +15. Bounds the admit-plus-bind step under its own deadline and fix(#1953): +1 merged; re-measured after both landed. Cap 1152, exact.
-    "backend/app/processing/ingest/manifest_service.py": 1152,
+    # fix(#2032): +11. `_classify_dataset` refuses a metadata.crs that names
+    # no spatial_ref_sys row, so a dry run reports it. Cap 1152 -> 1163, exact.
+    "backend/app/processing/ingest/manifest_service.py": 1163,
     # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
     # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
     # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/
@@ -3422,7 +3424,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # processing/ingest/tasks_url_fetch.py, taking the proxy-deadline budget
     # with them. RECONCILED: four PRs moved this cap from different baselines,
     # so the value is MEASURED on the merged file, never composed.
-    "backend/app/processing/ingest/router.py": 1819,
+    # fix(#2032): +11. The import commit door refuses an srid_override that
+    # names no spatial_ref_sys row. Cap 1819 -> 1830, exact.
+    "backend/app/processing/ingest/router.py": 1830,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -4593,7 +4597,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Cap 1428 -> 1436, exact.
     # fix(#2043): +9. The ceiling refusal gets its own except clause and the
     # port binding it reads. Cap 1436 -> 1445, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1445,
+    # fix(#2032): +9. The re-upload commit door refuses an srid_override that
+    # names no spatial_ref_sys row. Cap 1445 -> 1454, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1454,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

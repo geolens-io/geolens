@@ -266,6 +266,18 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
+  // fix(#2032): the commit doors' srid_override refusal. The code the caller
+  // typed is the whole message; the spatial_ref_sys mechanics are diagnostic.
+  const unknownSrid = message.match(
+    /^srid_override (\d+) is not a known coordinate system/i,
+  );
+  if (unknownSrid) {
+    return {
+      key: 'errors.unknownSridOverride',
+      values: { srid: unknownSrid[1] },
+    };
+  }
+
   // Anchored on the setting name and the first clause only: the server's
   // example origins are prose that may well be reworded.
   if (/^Validation error for 'cors_allowed_origins': Wildcard/i.test(message)) {

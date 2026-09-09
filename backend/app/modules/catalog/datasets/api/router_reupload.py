@@ -20,6 +20,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import redact_failure_reason
+from app.core.geo import unknown_srid_refusal
 from app.core.upload_errors import UnsafeUploadError
 from app.core.identity import Identity
 from app.core.async_io import (
@@ -917,6 +918,14 @@ async def reupload_commit(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job already processed",
+        )
+
+    # fix(#2032): an unassigned EPSG code committed and was then ignored.
+    srid_refusal = await unknown_srid_refusal(db, request.srid_override)
+    if srid_refusal:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=srid_refusal,
         )
 
     # fix(#1746): judge the credential by the WORKER's policy for this

@@ -7,7 +7,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, case, column, func, or_, select
+from sqlalchemy import and_, case, column, func, or_, select, text
 from sqlalchemy import table as sql_table
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -441,6 +441,29 @@ def make_bbox_filter(
     else:
         envelope = func.ST_MakeEnvelope(west, south, east, north, 4326)
         return and_(geom_col.op("&&")(envelope), spatial_fn(geom_col, envelope))
+
+
+async def unknown_srid_refusal(
+    session: AsyncSession, srid: int | None, *, field: str = "srid_override"
+) -> str | None:
+    """The refusal when a caller-supplied SRID names no ``spatial_ref_sys`` row.
+
+    fix(#2032): both commit doors and the manifest accepted an unassigned EPSG
+    code, then ingested under the DETECTED CRS instead — the coordinates were
+    read under a system nobody asked for, with no note in the response.
+    """
+    if srid is None:
+        return None
+    known = await session.scalar(
+        text("SELECT 1 FROM spatial_ref_sys WHERE srid = :srid"), {"srid": srid}
+    )
+    if known:
+        return None
+    return (
+        f"{field} {srid} is not a known coordinate system: PostGIS "
+        f"spatial_ref_sys has no such SRID. Use an assigned EPSG code, or "
+        f"omit {field} to keep the source CRS."
+    )
 
 
 # fix(#961): had a twin in processing/raster/vrt.py; both sites now go

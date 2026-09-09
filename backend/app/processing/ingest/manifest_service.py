@@ -24,6 +24,7 @@ from app.core.async_io import (
 )
 from app.core.config import settings
 from app.core.failure_reason import prefixed_failure_reason
+from app.core.geo import unknown_srid_refusal
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.identity import Identity
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
@@ -60,6 +61,7 @@ from app.processing.ingest.manifest_sources import (
     classify_manifest_source,
     manifest_dataset_fingerprint,
     manifest_job_metadata,
+    parse_manifest_crs,
     publication_to_catalog_fields,
     validate_publication_intent,
 )
@@ -579,6 +581,15 @@ async def _classify_dataset(
     # before any staging, download, or queue work — and before the dry_run
     # early return, which is the branch operators use to validate a manifest.
     validate_publication_intent(dataset.publication)
+    # fix(#2032): the manifest's own spelling of srid_override, refused here so
+    # a dry run reports it too.
+    crs_refusal = await unknown_srid_refusal(
+        db,
+        parse_manifest_crs(dataset.metadata.crs if dataset.metadata else None),
+        field="metadata.crs",
+    )
+    if crs_refusal:
+        raise ManifestSourceError(crs_refusal)
     # feat(#1691): an intent resolving to public goes through the same
     # admin gate as every visibility-accepting API mutation, raising 403
     # for a non-admin when restrict_public_visibility is on. Checked before

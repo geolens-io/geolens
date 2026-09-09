@@ -189,6 +189,7 @@
     "refreshSourceUrlBlocked": "Die gespeicherte Quell-URL dieses Datensatzes hat eine Sicherheitsprüfung nicht bestanden und kann nicht automatisch aktualisiert werden. Wenden Sie sich an einen Administrator.",
     "reuploadOriginChanged": "Die Quelle dieses Datensatzes hat sich geändert, während die Ersetzung vorbereitet wurde, daher wurde nichts in die Warteschlange gestellt. Prüfen Sie die Quelle des Datensatzes, bevor Sie seine Daten ersetzen.",
     "unknownLayers": "Diese Layer wurden in der hochgeladenen Datei nicht gefunden: {{layers}}.",
+    "unknownSridOverride": "EPSG:{{srid}} ist kein Koordinatensystem, das diese Instanz kennt. Geben Sie einen zugewiesenen EPSG-Code ein oder lassen Sie die CRS-Überschreibung leer, um das Koordinatensystem der Quelle zu behalten.",
     "sourceValidationCrsMismatch": "Das Koordinatenreferenzsystem der Quelle {{source}} stimmt nicht mit den anderen Quellen überein.",
     "sourceValidationBandCountMismatch": "Die Bandanzahl der Quelle {{source}} stimmt nicht mit den anderen Quellen überein.",
     "sourceValidationSingleBandRequired": "Die Quelle {{source}} hat mehr als ein Band; Band-Stack-Quellen müssen einbändig sein.",

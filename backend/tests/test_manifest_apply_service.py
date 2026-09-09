@@ -1538,6 +1538,30 @@ class TestManifestDryRun:
         assert "draft, ready, internal, published" in response.results[0].message
         stage.assert_not_awaited()
 
+    async def test_dry_run_reports_a_crs_the_database_does_not_know(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#2032): the manifest's spelling of srid_override, refused before staging."""
+        user = await _admin_user(test_db_session)
+        request = _request(
+            _manifest_dataset(key="manifest-dry-crs", crs="EPSG:99999"),
+            dry_run=True,
+        )
+
+        with patch(
+            "app.processing.ingest.manifest_service._stage_source_if_needed",
+            new=AsyncMock(),
+        ) as stage:
+            response = await apply_manifest(
+                test_db_session, request, user, _http_request()
+            )
+
+        assert response.accepted is False
+        assert response.results[0].action == "error"
+        assert "metadata.crs" in response.results[0].message
+        assert "99999" in response.results[0].message
+        stage.assert_not_awaited()
+
     async def test_dry_run_accepts_an_overlay_defined_intent(
         self, test_db_session, clean_tables
     ):

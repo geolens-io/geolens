@@ -314,6 +314,7 @@
     "refreshSourceUrlBlocked": "此数据集存储的数据源 URL 未通过安全检查，无法自动刷新。请联系管理员。",
     "reuploadOriginChanged": "在准备替换数据期间，此数据集的数据源发生了变化，因此未将任何任务加入队列。请在替换数据前检查该数据集的数据源。",
     "unknownLayers": "上传的文件中未找到这些图层：{{layers}}。",
+    "unknownSridOverride": "本实例不认识 EPSG:{{srid}} 这个坐标系。请填写已分配的 EPSG 代码，或将坐标系覆盖留空以保留源坐标系。",
     "sourceValidationCrsMismatch": "数据源 {{source}} 的坐标参考系统与其他数据源不匹配。",
     "sourceValidationBandCountMismatch": "数据源 {{source}} 的波段数与其他数据源不匹配。",
     "sourceValidationSingleBandRequired": "数据源 {{source}} 包含多个波段；波段堆叠的数据源必须为单波段。",
