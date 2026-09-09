@@ -1014,10 +1014,10 @@ async def get_embedding_stats(
     return await service.get_embedding_stats()
 
 
-async def _settle_cancelled_backfill(
+async def _settle_undispatched_backfill(
     db: AsyncSession, job_uuid: uuid.UUID, audit_context: dict[str, Any]
 ) -> None:
-    """Close a backfill whose request was cancelled before a worker took it.
+    """Close a backfill whose request ended before a worker took it.
 
     Shielded so the cancellation that triggered it cannot cancel the cleanup,
     and bounded so a hung database cannot stall a deploy. Never raises: the
@@ -1159,12 +1159,12 @@ async def trigger_backfill(
             force=force,
             detected_by="unique_index",
         )
-    except asyncio.CancelledError:
-        # fix(#1556): a cancelled commit can apply without acknowledging,
-        # stranding a `pending` row and a `requested` trail. One that never
-        # landed matches no row, so the dispatch arm's cleanup is safe here.
+    except BaseException:
+        # fix(#1556 review): ANY failure of that commit can be a lost
+        # acknowledgement, not only a cancellation, and one that never landed
+        # matches no row — so the fenced cleanup is right for the whole class.
         if pending_job_id is not None:
-            await _settle_cancelled_backfill(
+            await _settle_undispatched_backfill(
                 db, pending_job_id, {**audit_context, "job_id": str(pending_job_id)}
             )
         raise
@@ -1242,7 +1242,7 @@ async def trigger_backfill(
         # fix(#1550): the orphan guard catches `Exception`, so cancellation here
         # bypasses it and `DeferFailed` above. Cleanup is fenced on `pending`
         # and shielded, and the cancellation is re-raised so shutdown still works.
-        await _settle_cancelled_backfill(
+        await _settle_undispatched_backfill(
             db, job.id, {**audit_context, "job_id": job_id}
         )
         raise

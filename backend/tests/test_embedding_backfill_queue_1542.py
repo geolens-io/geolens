@@ -2199,17 +2199,24 @@ async def test_the_worker_startup_recovery_closes_the_trail_it_settles(
 
 
 @pytest.mark.anyio
-async def test_a_cancelled_creation_commit_does_not_leave_the_slot_held(
+@pytest.mark.parametrize(
+    "lost_ack",
+    [asyncio.CancelledError, OSError("connection reset by peer")],
+    ids=["cancelled", "connection_lost"],
+)
+async def test_an_unacknowledged_creation_commit_does_not_leave_the_slot_held(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session: AsyncSession,
     monkeypatch,
+    lost_ack: type[BaseException] | BaseException,
 ):
     """The commit applies, its acknowledgement is lost, the request unwinds.
 
     A durable `pending` row and a durable `requested` entry, with no worker
     queued and no dispatch arm reached — the shape #1550 fixed one statement
-    later in the same handler.
+    later in the same handler. fix(#1556 review): a shutdown and a dropped
+    connection leave the same row, so both take the same recovery.
     """
     monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
 
@@ -2226,7 +2233,7 @@ async def test_a_cancelled_creation_commit_does_not_leave_the_slot_held(
         await real_commit(self, *args, **kwargs)
         if self is armed["session"] and not armed["fired"]:
             armed["fired"] = True
-            raise asyncio.CancelledError()
+            raise lost_ack
 
     monkeypatch.setattr(admin_router, "audit_emit", _arm_on_the_request_entry)
     monkeypatch.setattr(AsyncSession, "commit", _commit_losing_its_acknowledgement)
@@ -2236,7 +2243,7 @@ async def test_a_cancelled_creation_commit_does_not_leave_the_slot_held(
         await client.post(_FORCE_URL, headers=admin_auth_header)
     except BaseException as exc:  # noqa: BLE001 - the transport rewraps it
         raised = exc
-    assert raised is not None, "the cancellation did not propagate"
+    assert raised is not None, "the failure did not propagate"
     assert armed["fired"], "the creation commit never ran — nothing under test"
 
     monkeypatch.setattr(AsyncSession, "commit", real_commit)
