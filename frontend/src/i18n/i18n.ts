@@ -22,9 +22,29 @@ function updateDocumentLanguage(lng?: string) {
   document.documentElement.dir = rtlLanguages.has(resolvedLng) ? 'rtl' : 'ltr';
 }
 
+// fix(#2029): `zh` here is Simplified Chinese only. Ask Intl.Locale for the
+// tag's actual script (zh-MY maximizes to Hans, zh-TW to Hant) rather than
+// guessing from a region allowlist or discarding the region entirely.
+function isSimplifiedChineseTag(tag: string): boolean {
+  try {
+    return new Intl.Locale(tag).maximize().script === 'Hans';
+  } catch {
+    return false;
+  }
+}
+
+function matchSupportedLanguage(value: string): (typeof supportedLngs)[number] | undefined {
+  const lowerTag = value.toLowerCase();
+  if (lowerTag === 'zh' || lowerTag.startsWith('zh-')) {
+    return isSimplifiedChineseTag(value) ? 'zh' : undefined;
+  }
+  const baseLanguage = lowerTag.split('-')[0];
+  return supportedLngs.find((lng) => lng === baseLanguage);
+}
+
 function normalizeLanguage(value?: string | null) {
-  const baseLanguage = value?.toLowerCase().split('-')[0];
-  return supportedLngs.find((lng) => lng === baseLanguage) ?? fallbackLng;
+  if (!value) return fallbackLng;
+  return matchSupportedLanguage(value) ?? fallbackLng;
 }
 
 function detectInitialLanguage() {
@@ -42,10 +62,7 @@ function detectInitialLanguage() {
   }
 
   const browserLanguage =
-    window.navigator.languages?.find((candidate) => {
-      const baseLanguage = candidate.toLowerCase().split('-')[0];
-      return supportedLngs.includes(baseLanguage as (typeof supportedLngs)[number]);
-    }) ??
+    window.navigator.languages?.find((candidate) => matchSupportedLanguage(candidate) !== undefined) ??
     window.navigator.language;
 
   return normalizeLanguage(browserLanguage);
@@ -55,9 +72,12 @@ async function buildInitialResources() {
   const initialLanguage = detectInitialLanguage();
 
   if (initialLanguage === fallbackLng) {
+    // fix(#2029 P1): `resources` is frozen/non-extensible; passed by
+    // reference, a later addResourceBundle() for another language throws.
+    // Clone it so the store stays extensible without mutating the export.
     return {
       initialLanguage,
-      initialResources: resources,
+      initialResources: { ...resources },
     };
   }
 
@@ -104,7 +124,10 @@ export async function changeAppLanguage(lng: string) {
   const nextLanguage = normalizeLanguage(lng);
   await initializeI18n();
 
-  if (!i18n.hasLoadedNamespace(defaultNS, { lng: nextLanguage })) {
+  // fix(#2029 P1): hasLoadedNamespace resolves through the fallback chain
+  // and falsely reports an unregistered language "loaded", skipping this
+  // load. hasResourceBundle checks the actual store, not the fallback.
+  if (!i18n.hasResourceBundle(nextLanguage, defaultNS)) {
     const localeResources = await loadLocaleResources(nextLanguage);
     for (const ns of namespaces) {
       i18n.addResourceBundle(nextLanguage, ns, localeResources[ns], true, true);
@@ -122,6 +145,6 @@ export async function changeAppLanguage(lng: string) {
   }
 }
 
-export { defaultNS, fallbackLng, namespaces, resources, supportedLngs };
+export { defaultNS, fallbackLng, namespaces, normalizeLanguage, resources, supportedLngs };
 export type { Namespace, SupportedLng } from './config';
 export default i18n;

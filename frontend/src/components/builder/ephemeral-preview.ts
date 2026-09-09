@@ -23,7 +23,7 @@ export interface EphemeralCountInput {
 /**
  * feat(#1241): why the preview's "Save as dataset…" affordance is disabled.
  * A closed union rather than a free string so the copy stays in the component
- * (and therefore in all four locales) instead of at each call site.
+ * (and therefore in all five locales) instead of at each call site.
  */
 export type PreviewSaveDisabledReason = 'truncated';
 

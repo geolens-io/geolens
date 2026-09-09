@@ -11,7 +11,7 @@
     if (isDark) document.documentElement.classList.add('dark');
     // Sync lang attribute before React hydration (must match i18n supportedLngs)
     var lang = localStorage.getItem('i18nextLng');
-    if (lang && /^(en|de|fr|es)$/.test(lang)) {
+    if (lang && /^(en|de|fr|es|zh)$/.test(lang)) {
       document.documentElement.lang = lang;
     }
   } catch (e) {}

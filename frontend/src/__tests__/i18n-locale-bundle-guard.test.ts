@@ -33,8 +33,13 @@ function callsWithoutHelper(source: string): boolean {
   return CALL_PATTERN.test(stripped) && !HELPER_IMPORT.test(stripped);
 }
 
+// fix(#2029): i18n.test.ts calls changeAppLanguage on a standalone
+// i18next.createInstance(), not the shared frozen-resource harness the
+// helper works around, so it's exempt from this check.
+const HELPER_EXEMPT_FILES = new Set(['/src/i18n/i18n.test.ts']);
+
 const violations = Object.entries(TEST_FILES)
-  .filter(([, source]) => callsWithoutHelper(source))
+  .filter(([file, source]) => !HELPER_EXEMPT_FILES.has(file) && callsWithoutHelper(source))
   .map(([file]) => file);
 
 describe('#1866: vitest language switches must load real locale bundles', () => {
