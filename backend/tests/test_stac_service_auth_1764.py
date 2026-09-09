@@ -436,9 +436,7 @@ class TestTheCatalogChoosesTheCredentialNotTheDocument:
         self, stac_transport
     ) -> None:
         def routes(request: httpx.Request) -> httpx.Response:
-            if str(request.url).startswith(_ROOT):
-                return json_response(200, _item_document(_MIRROR_ITEM, _FOREIGN_ASSET))
-            if str(request.url).startswith("https://mirror.test"):
+            if request.url.host in ("catalog.test", "mirror.test"):
                 return json_response(200, _item_document(_MIRROR_ITEM, _FOREIGN_ASSET))
             return json_response(206, None)
 
@@ -478,7 +476,7 @@ class TestTheCatalogChoosesTheCredentialNotTheDocument:
         def routes(request: httpx.Request) -> httpx.Response:
             if request.url.host != "catalog.test":
                 return json_response(404, None)
-            if str(request.url).endswith(".tif"):
+            if request.url.path.endswith(".tif"):
                 return json_response(206, None)
             return json_response(200, document)
 
@@ -501,7 +499,7 @@ class TestTheCatalogChoosesTheCredentialNotTheDocument:
         followed exactly as it was before."""
 
         def routes(request: httpx.Request) -> httpx.Response:
-            if str(request.url).endswith(".tif"):
+            if request.url.path.endswith(".tif"):
                 return json_response(206, None)
             return json_response(200, _item_document(_MIRROR_ITEM, _FOREIGN_ASSET))
 
@@ -515,6 +513,108 @@ class TestTheCatalogChoosesTheCredentialNotTheDocument:
         )
         assert result.asset_href == _FOREIGN_ASSET
         assert any(request.url.host == "mirror.test" for request in recorded)
+
+
+class TestAReflectedCredentialIsNeverStored:
+    """An origin can hand the caller's own credential back inside a URL it
+    publishes. ``DatasetResponse.origin_ref`` promises it never contains
+    credentials, and ADR-002 invariant 4 says the same, so a reflected one is
+    refused at the one gate every stored value passes."""
+
+    @pytest.mark.anyio
+    async def test_an_asset_href_reflecting_the_credential_is_refused(
+        self, stac_transport, monkeypatch
+    ) -> None:
+        """Under an unlisted parameter name: ``has_url_credentials``
+        allowlists NAMES, so only the value check catches this.
+
+        The moved-href probes are stubbed so the refusal cannot be confused
+        with a Titiler read that simply failed.
+        """
+        reflected = f"{_ROOT}/assets/scene.tif?catalog_ref={_KEY}"
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
+            AsyncMock(return_value={"band_count": 1}),
+        )
+
+        def routes(request: httpx.Request) -> httpx.Response:
+            if request.url.path.startswith("/v1/assets/"):
+                return json_response(206, None)
+            return json_response(200, _item_document(_ITEM_URL, reflected))
+
+        stac_transport(routes)
+        result = await resolve_stac_binding(
+            item_href=_ITEM_URL,
+            item_id="x",
+            collection_id="c",
+            asset_href=f"{_ROOT}/assets/scene.tif",
+            asset_key="data",
+            credential=_header_key(),
+            credential_origin=_ITEM_URL,
+        )
+        assert result.resolved is False
+        assert result.asset_href is None
+        assert result.detail == origin_probe.UNAUTHORIZED
+        assert _KEY not in str(result)
+
+    @pytest.mark.anyio
+    async def test_a_self_link_reflecting_the_credential_is_not_adopted(
+        self, stac_transport
+    ) -> None:
+        """The self link becomes the stored item pointer, so it passes the
+        same gate before anything can write it."""
+        asset = f"{_ROOT}/assets/scene.tif"
+        reflected_self = f"{_ROOT}/permalink/x?catalog_ref={_KEY}"
+
+        def routes(request: httpx.Request) -> httpx.Response:
+            if request.url.path.startswith("/v1/assets/"):
+                return json_response(206, None)
+            return json_response(200, _item_document(reflected_self, asset))
+
+        stac_transport(routes)
+        result = await resolve_stac_binding(
+            item_href=_ITEM_URL,
+            item_id="x",
+            collection_id="c",
+            asset_href=asset,
+            asset_key="data",
+            credential=_header_key(),
+            credential_origin=_ITEM_URL,
+        )
+        # The asset still resolves; only the poisoned pointer is dropped, so
+        # the stored one stays what it was.
+        assert result.asset_href == asset
+        assert result.item_href == _ITEM_URL
+        assert _KEY not in str(result)
+
+    @pytest.mark.anyio
+    async def test_an_href_carrying_no_credential_is_still_stored(
+        self, stac_transport
+    ) -> None:
+        """The gate reads the registry, so an ordinary query string on a
+        credentialed refresh is untouched."""
+        asset = f"{_ROOT}/assets/scene.tif?version=3"
+
+        def routes(request: httpx.Request) -> httpx.Response:
+            if request.url.path.startswith("/v1/assets/"):
+                return json_response(206, None)
+            return json_response(200, _item_document(_ITEM_URL, asset))
+
+        stac_transport(routes)
+        result = await resolve_stac_binding(
+            item_href=_ITEM_URL,
+            item_id="x",
+            collection_id="c",
+            asset_href=asset,
+            asset_key="data",
+            credential=_header_key(),
+            credential_origin=_ITEM_URL,
+        )
+        assert result.asset_href == asset
 
 
 class TestARefusedCredentialIsNeverEchoed:

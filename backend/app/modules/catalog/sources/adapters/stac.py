@@ -21,7 +21,11 @@ from app.core.service_tokens import (
     ServiceCredential,
     build_credential_header,
 )
-from app.core.url_redaction import has_url_credentials, redact_exception_text
+from app.core.url_redaction import (
+    carries_registered_credential,
+    has_url_credentials,
+    redact_exception_text,
+)
 from app.platform.security import make_safe_client
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
@@ -136,6 +140,11 @@ def storable_href(href: Any, base_url: str) -> str | None:
     except ValueError:
         return None
     if len(resolved) > 4096 or has_url_credentials(resolved):
+        return None
+    # fix(#1764): and the origin does not get to hand the caller's own
+    # credential back for storage. `has_url_credentials` allowlists parameter
+    # NAMES; this asks whether the value is one this request composed.
+    if carries_registered_credential(resolved):
         return None
     return resolved
 

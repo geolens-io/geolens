@@ -377,6 +377,29 @@ def scrub_secret_value(text: str, secret: str | None) -> str:
     return text
 
 
+def carries_registered_credential(text: str) -> bool:
+    """Whether *text* contains a credential composed in this request/job.
+
+    fix(#1764): the non-destructive form of :func:`scrub_secret_value`, for a
+    caller deciding whether to STORE a string rather than whether to log one.
+    An origin can reflect the credential it was sent into a URL it publishes,
+    under any parameter name, and ``has_url_credentials`` is an allowlist of
+    NAMES rather than a check of values.
+
+    Reads the same ``_secret_variants`` vocabulary, so the tail after ``": "``,
+    the part after an auth scheme, a Basic blob's cleartext and every
+    percent-encoded spelling all count. Empty registry, so no credential in
+    this context, means False.
+    """
+    if not text:
+        return False
+    for secret in registered_credential_secrets():
+        for variant in _secret_variants(secret):
+            if variant and variant in text:
+                return True
+    return False
+
+
 def scrub_secret_from_exception(exc: BaseException, secret: str | None) -> None:
     """Scrub *secret* out of an exception's message, in place.
 
