@@ -3677,7 +3677,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#2026): -575. The staging acquisition and cleanup half moved to
     # `tasks_staging.py` (599 lines, under the inclusion threshold), which also
     # took five imports nothing left here uses. Cap 2423 -> 1848, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1848,
+    # fix(#2039): +45. The manifest read-back copies license and organization
+    # and inserts tags as theme keywords, skipping the ones a re-apply already
+    # wrote. Cap 1848 -> 1893, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1893,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

@@ -1642,6 +1642,100 @@ class TestManifestMetadataPropagation:
             )
             await test_db_session.commit()
 
+    async def test_vector_finalize_applies_license_organization_and_tags(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#2039): the ledger's other three metadata fields reach the record."""
+        from app.modules.catalog.datasets.domain.models import RecordKeyword
+        from app.processing.ingest.tasks_common import IngestContext, _finalize_ingest
+
+        user = await _admin_user(test_db_session)
+        table_name = f"manifest_meta_{uuid.uuid4().hex[:10]}"
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, name text)")
+        )
+        await test_db_session.commit()
+        request = _request(
+            _manifest_dataset(key="manifest-metadata", tags=["Trails", "recreation"])
+        )
+        prepared = await classify_manifest_source(request.datasets[0].sources[0])
+        ledger = manifest_job_metadata(
+            request.datasets[0], prepared, fingerprint="deadbeef"
+        )
+        job = IngestJob(
+            source_filename="roads.geojson",
+            file_path="tests/fixtures/ingest/basic_attrs.geojson",
+            created_by=user.id,
+            status="running",
+            user_metadata=ledger,
+        )
+        test_db_session.add(job)
+        await test_db_session.flush()
+
+        try:
+            with (
+                patch(
+                    "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+                    new=AsyncMock(),
+                ),
+                patch(
+                    "app.processing.ingest.tasks_common.defer_embedding",
+                    new=AsyncMock(),
+                ),
+            ):
+                dataset = await _finalize_ingest(
+                    IngestContext(
+                        session=test_db_session,
+                        job=job,
+                        table_name=table_name,
+                        user_id=str(user.id),
+                        has_geometry=False,
+                        effective_srid=None,
+                        source_format="geojson",
+                        source_filename="roads.geojson",
+                        original_srid=None,
+                        user_metadata=job.user_metadata,
+                    )
+                )
+            assert dataset.record.license == "CC-BY-4.0"
+            assert dataset.record.source_organization == "City GIS"
+            assert dataset.record.attribution == "City GIS"
+            keywords = await test_db_session.scalars(
+                select(RecordKeyword.keyword).where(
+                    RecordKeyword.record_id == dataset.record.id
+                )
+            )
+            assert sorted(keywords) == ["recreation", "trails"]
+        finally:
+            await test_db_session.execute(
+                text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
+            )
+            await test_db_session.commit()
+
+    async def test_manifest_tags_are_not_reinserted_on_a_reapply(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#2039): uq_record_keyword would fail the whole swap transaction."""
+        from app.modules.catalog.datasets.domain.models import RecordKeyword
+        from app.processing.ingest.tasks_common import apply_manifest_record_metadata
+
+        user = await _admin_user(test_db_session)
+        dataset = await create_dataset(test_db_session, created_by=user.id)
+        ledger = {"manifest_tags": ["Trails", "recreation"]}
+
+        for _ in range(2):
+            await apply_manifest_record_metadata(
+                test_db_session, dataset.record, ledger
+            )
+            await test_db_session.flush()
+
+        keywords = await test_db_session.scalars(
+            select(RecordKeyword.keyword).where(
+                RecordKeyword.record_id == dataset.record.id
+            )
+        )
+        assert sorted(keywords) == ["recreation", "trails"]
+
     async def test_raster_dataset_creation_uses_manifest_record_status(
         self, test_db_session, clean_tables
     ):

@@ -110,6 +110,11 @@ logger = logging.getLogger(__name__)
 # error class whose message it must pass through verbatim crosses the port.
 # Called on every re-upload preview import of the module; an overlay missing
 # it raises AttributeError at import time, not on first use.
+#
+# Riding the same bump (fix(#2039)): ProcessingPort gained a required
+# ``get_record_keyword_orm_class`` method, the accessor the manifest metadata
+# read-back inserts `metadata.tags` through. Both land in one commit, so
+# there is no commit on main carrying only one of the two.
 EXTENSION_API_VERSION: int = 10
 
 

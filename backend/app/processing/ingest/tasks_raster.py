@@ -494,7 +494,7 @@ async def ingest_raster(
             # feat(#1472): the manifest's credit line. Covers both branches
             # above — a manifest raster and a manifest-driven VRT alike, since
             # neither create_*_dataset takes the field.
-            apply_manifest_record_metadata(record, um)
+            await apply_manifest_record_metadata(session, record, um)
 
             # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
             parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(

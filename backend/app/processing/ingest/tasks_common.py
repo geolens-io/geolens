@@ -422,7 +422,41 @@ def _parse_temporal_fields(
     return parsed_start, parsed_end, errors
 
 
-def apply_manifest_record_metadata(record: Any, user_metadata: dict | None) -> None:
+def _manifest_text(user_metadata: dict, key: str) -> str | None:
+    """A manifest-namespaced string value, or None when it has nothing in it."""
+    value = user_metadata.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+async def _apply_manifest_tags(session: Any, record: Any, tags: Any) -> None:
+    """Add ``metadata.tags`` as theme keywords the record does not already have.
+
+    fix(#2039): a re-apply reaches the reupload swap with the same list, and
+    ``uq_record_keyword`` is a unique index — an unconditional insert would
+    fail the whole swap transaction on the second apply of one manifest.
+    """
+    if not isinstance(tags, list):
+        return
+    wanted = {t.strip().lower() for t in tags if isinstance(t, str) and t.strip()}
+    if not wanted:
+        return
+
+    from app.platform.extensions import get_processing_port
+
+    port = get_processing_port()
+    RecordKeyword = port.get_record_keyword_orm_class()
+    existing = set(await port.get_keywords_for_records(session, [record.id]))
+    for keyword in sorted(wanted - existing):
+        session.add(
+            RecordKeyword(record_id=record.id, keyword=keyword, keyword_type="theme")
+        )
+
+
+async def apply_manifest_record_metadata(
+    session: Any, record: Any, user_metadata: dict | None
+) -> None:
     """Copy manifest-supplied catalog metadata onto a freshly created record.
 
     ``record`` is duck-typed rather than annotated ``Record``: importing the
@@ -434,6 +468,10 @@ def apply_manifest_record_metadata(record: Any, user_metadata: dict | None) -> N
     record exists and before the phase transaction commits — without it an
     operator-supplied attribution credit was accepted then silently dropped.
 
+    fix(#2039): ``license``, ``organization`` and ``tags`` are the same
+    shape of accepted-then-dropped field, and every manifest under
+    ``examples/manifests/`` sets them.
+
     Only manifest-namespaced keys are copied; un-namespaced ``title``/
     ``summary``/``visibility`` go through ``create_dataset``'s own
     arguments, since non-manifest ingests set those too and this helper
@@ -441,9 +479,16 @@ def apply_manifest_record_metadata(record: Any, user_metadata: dict | None) -> N
     """
     if not user_metadata:
         return
-    attribution = user_metadata.get("manifest_attribution")
-    if isinstance(attribution, str) and attribution.strip():
-        record.attribution = attribution.strip()
+    attribution = _manifest_text(user_metadata, "manifest_attribution")
+    if attribution is not None:
+        record.attribution = attribution
+    license_name = _manifest_text(user_metadata, "manifest_license")
+    if license_name is not None:
+        record.license = license_name
+    organization = _manifest_text(user_metadata, "manifest_organization")
+    if organization is not None:
+        record.source_organization = organization
+    await _apply_manifest_tags(session, record, user_metadata.get("manifest_tags"))
 
 
 @asynccontextmanager
@@ -1102,7 +1147,7 @@ async def _finalize_ingest(ctx: IngestContext):
 
     # feat(#1472): the manifest's credit line, which create_dataset has no
     # argument for. Same transaction as the record it annotates.
-    apply_manifest_record_metadata(dataset.record, user_metadata)
+    await apply_manifest_record_metadata(session, dataset.record, user_metadata)
 
     # feat(#1218): system-managed origin pointer, in the same transaction that
     # creates the dataset. Service ingest supplies the enriched URL through

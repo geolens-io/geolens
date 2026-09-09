@@ -320,6 +320,11 @@ class DefaultProcessingPort:
         result = await session.execute(stmt)
         return [row[0] for row in result.all()]
 
+    def get_record_keyword_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.models import RecordKeyword
+
+        return RecordKeyword
+
     async def get_keywords_for_records(self, session, record_ids):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
 

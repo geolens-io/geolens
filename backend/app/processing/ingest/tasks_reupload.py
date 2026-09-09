@@ -450,7 +450,7 @@ async def reupload_file(
             # metadata.attribution — without this the swap installs new
             # data but leaves the old (now wrong) credit on it.
             # `dataset.record` is joinedloaded here, so no lazy load runs.
-            apply_manifest_record_metadata(dataset.record, user_metadata)
+            await apply_manifest_record_metadata(session, dataset.record, user_metadata)
 
             # Captured pre-commit: the ORM attribute may be expired after commit.
             live_table_name = dataset.table_name
