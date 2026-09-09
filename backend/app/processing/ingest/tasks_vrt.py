@@ -152,11 +152,10 @@ async def _settle_failed_vrt_asset(
 ) -> bool:
     """Release the VRT asset from the attempt that failed, in its own transaction.
 
-    Fenced on the pointer, so a newer retry that already owns it keeps its
-    status. fix(#1962 codex r2): a legacy delivery reaches here having bound no
-    generation, and the sweep finds assets only through one, so a NULL pointer
-    is settled too. That branch also fences on ``regenerating`` rather than the
-    pointer alone, which would fail an asset the sweep already restored.
+    Releases it when it points at *generation_uuid*, and otherwise when it is
+    ``regenerating`` with no live generation owning it. A newer attempt whose
+    generation is pending or running keeps the asset, and a ``ready`` one is
+    never touched.
 
     Never raises. Returns whether the asset is provably no longer pointing at
     *generation_uuid*; on False the caller MUST leave the generation
