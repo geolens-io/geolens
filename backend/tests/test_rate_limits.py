@@ -533,6 +533,64 @@ class _FrozenClock:
         return self.now
 
 
+class _DeadClaimClient:
+    """A store client whose every call fails."""
+
+    def set(self, *_args, **_kwargs):
+        raise ConnectionError("claim store unreachable")
+
+    def getdel(self, *_args, **_kwargs):
+        raise ConnectionError("claim store unreachable")
+
+
+def test_a_claim_another_worker_redeemed_is_not_re_served_locally(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """fix(#2018): one charged token must never fund two exemptions.
+
+    Worker A records into the shared store and worker B redeems it there, so
+    A never sees that consume and cannot drop a local copy of the claim. A
+    copy kept alongside the store one would therefore survive A's whole
+    window, and A would serve it again the moment its own store call failed.
+    That is why a claim the store accepted is not written locally at all.
+    """
+    server = fakeredis.FakeServer()
+    monkeypatch.setattr(ratelimit_claims, "_store_resolved", True)
+
+    monkeypatch.setattr(ratelimit_claims, "_store", _worker_claim_store(server))
+    service_semantic._query_claims_clear()
+    service_semantic.record_paired_query_claim("203.0.113.11", "shared q", "datasets")
+    worker_a_registry = dict(service_semantic._query_claims)
+    assert worker_a_registry == {}, (
+        "a claim the store accepted must not also be kept in the local registry"
+    )
+
+    monkeypatch.setattr(ratelimit_claims, "_store", _worker_claim_store(server))
+    service_semantic._query_claims_clear()
+    assert (
+        service_semantic.consume_paired_query_claim(
+            "203.0.113.11", "shared q", "facets"
+        )
+        is True
+    ), "worker B must redeem the claim from the shared store"
+
+    service_semantic._query_claims.update(worker_a_registry)
+    monkeypatch.setattr(
+        ratelimit_claims,
+        "_store",
+        ratelimit_claims.SharedClaimStore(_DeadClaimClient()),
+    )
+    try:
+        assert (
+            service_semantic.consume_paired_query_claim(
+                "203.0.113.11", "shared q", "facets"
+            )
+            is False
+        ), "a claim another worker already redeemed must not be served again here"
+    finally:
+        service_semantic._query_claims_clear()
+
+
 def test_a_fallback_claim_outliving_the_cooldown_is_still_redeemed(
     monkeypatch: pytest.MonkeyPatch,
 ):
