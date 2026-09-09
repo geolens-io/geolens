@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import structlog
 from sqlalchemy import desc, func, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,8 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
+
+log = structlog.get_logger()
 
 # fix(#1814): the pre-queue stage a manifest job is in. This module's exits
 # clear it; a row the running sweep or worker recovery settles keeps it, which
@@ -156,6 +159,16 @@ async def bind_reservation_to_staged_source(
         .execution_options(synchronize_session=False)
     )
     if not result.rowcount:
+        # fix(#2017): distinguishes a sweep reaping the row from a cancel,
+        # for the same job the CAS just missed on.
+        observed = (
+            await db.execute(select(IngestJob.status).where(IngestJob.id == job.id))
+        ).scalar_one_or_none()
+        log.warning(
+            "Manifest reservation bind missed its CAS",
+            job_id=str(job.id),
+            observed_status=observed,
+        )
         return False
     # fix(#1814): `set_committed_value`, not assignment — a dirty attribute
     # would have the caller's own commit flush a second, unfenced update.
