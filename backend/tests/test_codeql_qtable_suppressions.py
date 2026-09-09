@@ -298,15 +298,32 @@ def _builds_a_path(value: ast.expr, known: set[str]) -> bool:
     return False
 
 
-def _path_typed_names(tree: ast.Module) -> set[str]:
-    """Names this module annotates as, or builds as, a ``pathlib.Path``.
+def _scope_nodes(scope: ast.AST) -> list[ast.AST]:
+    """Every node lexically inside ``scope``, stopping at a nested function.
 
-    Module-scoped and deliberately shallow. It exists to reject a receiver the
-    module never treats as a path, so that an unrelated ``connection.open()``
-    cannot stand in for the filesystem call a marker was written for.
+    A nested body is its own scope and is visited separately, so a name bound
+    there never leaks outwards.
+    """
+    nodes: list[ast.AST] = []
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        nodes.append(node)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            continue
+        stack.extend(ast.iter_child_nodes(node))
+    return nodes
+
+
+def _path_typed_names(nodes: list[ast.AST]) -> set[str]:
+    """Names this scope annotates as, or builds as, a ``pathlib.Path``.
+
+    It exists to reject a receiver the code never treats as a path, so that an
+    unrelated ``connection.open()`` cannot stand in for the filesystem call a
+    marker was written for.
     """
     names: set[str] = set()
-    for node in ast.walk(tree):
+    for node in nodes:
         annotation = getattr(node, "annotation", None)
         if annotation is None or not any(
             isinstance(inner, ast.Name) and inner.id == "Path"
@@ -321,7 +338,7 @@ def _path_typed_names(tree: ast.Module) -> set[str]:
     # Assignments reach a fixpoint rather than being read in walk order, so a
     # path built from a name bound earlier in the same body is proven whichever
     # order the two statements are visited in.
-    assignments = [node for node in ast.walk(tree) if isinstance(node, ast.Assign)]
+    assignments = [node for node in nodes if isinstance(node, ast.Assign)]
     settled = False
     while not settled:
         settled = True
@@ -340,32 +357,37 @@ def _path_typed_names(tree: ast.Module) -> set[str]:
 def _path_sink_lines(source: str) -> set[int]:
     """1-based start line of every call that acts on a filesystem path.
 
-    Accepts the builtin ``open`` and a ``PATH_SINK_METHODS`` call on a receiver
-    the module itself types as a path. Both halves are needed: the method names
-    alone match any object that happens to expose one, and CodeQL does not
-    report ``py/path-injection`` at those.
+    Accepts the builtin ``open``, and a ``PATH_SINK_METHODS`` call whose
+    receiver the enclosing scope types as a path. Both halves are needed: the
+    method names alone match any object that happens to expose one, and CodeQL
+    does not report ``py/path-injection`` at those.
 
     The set is exactly the shapes the markers sit above today. A sink written
     another way (``shutil.copy``, ``os.remove``) fails this test instead of
     passing quietly, and the fix is to name it here.
     """
-    tree = ast.parse(source)
-    path_names = _path_typed_names(tree)
     lines: set[int] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if isinstance(func, ast.Name):
-            if func.id == "open":
-                lines.add(node.lineno)
-        elif (
-            isinstance(func, ast.Attribute)
-            and func.attr in PATH_SINK_METHODS
-            and isinstance(func.value, ast.Name)
-            and func.value.id in path_names
-        ):
-            lines.add(node.lineno)
+
+    def visit(scope: ast.AST, inherited: set[str]) -> None:
+        nodes = _scope_nodes(scope)
+        names = inherited | _path_typed_names(nodes)
+        for node in nodes:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                visit(node, names)
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name):
+                    if func.id == "open":
+                        lines.add(node.lineno)
+                elif (
+                    isinstance(func, ast.Attribute)
+                    and func.attr in PATH_SINK_METHODS
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id in names
+                ):
+                    lines.add(node.lineno)
+
+    visit(ast.parse(source), set())
     return lines
 
 
