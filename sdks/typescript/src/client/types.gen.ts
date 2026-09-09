@@ -1091,6 +1091,29 @@ export type AuditLogResponse = {
 };
 
 /**
+ * BackfillEstimate
+ *
+ * How long each backfill action should take, before starting one.
+ *
+ * Both figures come from the throughput of the most recent completed run, so
+ * they describe this deployment's own provider rather than a generic rate.
+ */
+export type BackfillEstimate = {
+    /**
+     * Missing Seconds
+     *
+     * Estimated seconds to embed the records that lack a usable vector.
+     */
+    missing_seconds: number;
+    /**
+     * All Seconds
+     *
+     * Estimated seconds to regenerate every record in the catalog.
+     */
+    all_seconds: number;
+};
+
+/**
  * BackfillResponse
  *
  * Acknowledgement that a backfill run was queued (fix(#1542)).
@@ -1112,6 +1135,94 @@ export type BackfillResponse = {
      * Job status at enqueue time ('pending').
      */
     status: string;
+};
+
+/**
+ * BackfillRunProgress
+ *
+ * The embedding backfill run currently holding the single run slot.
+ */
+export type BackfillRunProgress = {
+    /**
+     * Job Id
+     *
+     * Identifier of the run in flight.
+     */
+    job_id: string;
+    /**
+     * Status
+     *
+     * Job status: 'pending' or 'running'.
+     */
+    status: string;
+    /**
+     * Records Processed
+     *
+     * Records the run has embedded so far.
+     */
+    records_processed: number;
+    /**
+     * Records Total
+     *
+     * Records the run will embed in total. Null until the run has selected its records.
+     */
+    records_total?: number | null;
+    /**
+     * Started At
+     *
+     * When a worker picked the run up.
+     */
+    started_at?: string | null;
+    /**
+     * Heartbeat At
+     *
+     * Last time the running worker renewed its lease.
+     */
+    heartbeat_at?: string | null;
+};
+
+/**
+ * BackfillRunSummary
+ *
+ * One finished embedding backfill run.
+ */
+export type BackfillRunSummary = {
+    /**
+     * Job Id
+     *
+     * Identifier of the finished run.
+     */
+    job_id: string;
+    /**
+     * Status
+     *
+     * How the run ended: 'complete', 'failed' or 'cancelled'.
+     */
+    status: string;
+    /**
+     * Started At
+     *
+     * When a worker picked the run up.
+     */
+    started_at?: string | null;
+    /**
+     * Finished At
+     *
+     * When the run reached its final status.
+     */
+    finished_at?: string | null;
+    /**
+     * Records Processed
+     *
+     * Records the run embedded.
+     */
+    records_processed: number;
+    /**
+     * Error Code
+     *
+     * Short code identifying how a run failed, when it failed.
+     */
+    error_code?: string | null;
 };
 
 /**
@@ -4393,6 +4504,20 @@ export type EmbeddingStatsResponse = {
      * Embedding coverage as a percentage (0-100).
      */
     coverage_percent: number;
+    /**
+     * The backfill run in flight, or null when none is running.
+     */
+    current_run?: BackfillRunProgress | null;
+    /**
+     * Recent Runs
+     *
+     * The most recent finished backfill runs, newest first.
+     */
+    recent_runs?: Array<BackfillRunSummary>;
+    /**
+     * Expected duration of each backfill action, or null until one run has completed and measured this deployment's throughput.
+     */
+    estimate?: BackfillEstimate | null;
 };
 
 /**

@@ -1628,6 +1628,32 @@ export interface AIStatusResponse {
   probe?: AIProbeReport;
 }
 
+// fix(#2025): the backfill run in flight, as the admin panel's progress bar
+// reads it. records_total is null until the run has selected its records.
+export interface BackfillRunProgress {
+  job_id: string;
+  status: string;
+  records_processed: number;
+  records_total: number | null;
+  started_at: string | null;
+  heartbeat_at: string | null;
+}
+
+export interface BackfillRunSummary {
+  job_id: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  records_processed: number;
+  error_code: string | null;
+}
+
+// Seconds each action should take at the last completed run's measured rate.
+export interface BackfillEstimate {
+  missing_seconds: number;
+  all_seconds: number;
+}
+
 export interface EmbeddingStatsResponse {
   total_records: number;
   // fix(#1503): scoped to the ACTIVE embedding model — the only vectors
@@ -1638,6 +1664,9 @@ export interface EmbeddingStatsResponse {
   // Cleared by Regenerate All, not by Generate Missing.
   stale_records: number;
   coverage_percent: number;
+  current_run: BackfillRunProgress | null;
+  recent_runs: BackfillRunSummary[];
+  estimate: BackfillEstimate | null;
 }
 
 // fix(#1542): the backfill runs on the job queue, so this is an

@@ -631,11 +631,16 @@ async def _preflight_embedding(
         )
 
 
+async def _no_progress(processed: int, total: int) -> None:
+    """Stand-in for a caller that does not track progress."""
+
+
 async def backfill_embeddings(
     session: AsyncSession,
     *,
     force: bool = False,
     should_continue: Any = None,
+    on_progress: Any = None,
 ) -> dict:
     """Generate embeddings for records.
 
@@ -647,6 +652,9 @@ async def backfill_embeddings(
         should_continue: optional async callable polled once per batch
                BEFORE its provider call; False stops the run at the
                boundary (fix(#1709)).
+        on_progress: optional async callable ``(processed, total)``, called
+               once before the first batch and once after each one, so an
+               operator can watch a long run advance (fix(#2025)).
 
     Returns:
         Dict with counts: processed, created, skipped, errors.
@@ -658,6 +666,7 @@ async def backfill_embeddings(
             cases.
     """
     port = get_processing_port()
+    report_progress = on_progress or _no_progress
 
     pinned: tuple[str, int | None, str | None] | None = None
     # fix(#1533): the storage width the run commits to, read off `pg_attribute`
@@ -772,6 +781,10 @@ async def backfill_embeddings(
 
     logger.info("Backfill: starting", total_records=total, batch_size=_BATCH_SIZE)
 
+    # Before the first batch, so a run whose provider is slow still reports the
+    # size of the job rather than an empty bar.
+    await report_progress(0, len(items))
+
     created = 0
     errors = 0
     # fix(#1544): the run's traceback budget, one per distinct exception type.
@@ -868,13 +881,15 @@ async def backfill_embeddings(
             created += made
             errors += failed
 
+        processed_so_far = min(start + _BATCH_SIZE, len(items))
         logger.info(
             "Backfill progress",
-            processed=min(start + _BATCH_SIZE, len(items)),
+            processed=processed_so_far,
             total=len(items),
             created=created,
             errors=errors,
         )
+        await report_progress(processed_so_far, len(items))
 
     # fix(#1549): records with no embeddable text have a stale vector and no
     # replacement to pair a delete with, so they are reclaimed LAST, bounded to

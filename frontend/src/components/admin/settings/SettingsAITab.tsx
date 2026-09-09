@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Info, Loader2, XCircle, AlertTriangle, Zap } from 'lucide-react';
 import { SettingsFormActions } from './SettingsFormActions';
+import { BackfillRunStatus } from './BackfillRunStatus';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
@@ -486,6 +487,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
               {embeddingStats.missing_records === 0 && embeddingStats.embedded_records > 0 && (
                 <p className="text-xs text-muted-foreground text-center">{t('ai.allEmbedded')}</p>
               )}
+              <BackfillRunStatus stats={embeddingStats} />
             </div>
           )}
         </div>

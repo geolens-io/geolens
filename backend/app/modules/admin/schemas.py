@@ -331,6 +331,63 @@ class AIStatusUpdate(BaseModel):
     )
 
 
+class BackfillRunProgress(BaseModel):
+    """The embedding backfill run currently holding the single run slot."""
+
+    job_id: uuid.UUID = Field(description="Identifier of the run in flight.")
+    status: str = Field(description="Job status: 'pending' or 'running'.")
+    records_processed: int = Field(description="Records the run has embedded so far.")
+    records_total: int | None = Field(
+        default=None,
+        description=(
+            "Records the run will embed in total. Null until the run has "
+            "selected its records."
+        ),
+    )
+    started_at: datetime | None = Field(
+        default=None, description="When a worker picked the run up."
+    )
+    heartbeat_at: datetime | None = Field(
+        default=None,
+        description="Last time the running worker renewed its lease.",
+    )
+
+
+class BackfillRunSummary(BaseModel):
+    """One finished embedding backfill run."""
+
+    job_id: uuid.UUID = Field(description="Identifier of the finished run.")
+    status: str = Field(
+        description="How the run ended: 'complete', 'failed' or 'cancelled'."
+    )
+    started_at: datetime | None = Field(
+        default=None, description="When a worker picked the run up."
+    )
+    finished_at: datetime | None = Field(
+        default=None, description="When the run reached its final status."
+    )
+    records_processed: int = Field(description="Records the run embedded.")
+    error_code: str | None = Field(
+        default=None,
+        description="Short code identifying how a run failed, when it failed.",
+    )
+
+
+class BackfillEstimate(BaseModel):
+    """How long each backfill action should take, before starting one.
+
+    Both figures come from the throughput of the most recent completed run, so
+    they describe this deployment's own provider rather than a generic rate.
+    """
+
+    missing_seconds: float = Field(
+        description="Estimated seconds to embed the records that lack a usable vector."
+    )
+    all_seconds: float = Field(
+        description="Estimated seconds to regenerate every record in the catalog."
+    )
+
+
 class EmbeddingStatsResponse(BaseModel):
     total_records: int = Field(description="Total number of records in the catalog.")
     embedded_records: int = Field(
@@ -354,6 +411,21 @@ class EmbeddingStatsResponse(BaseModel):
     )
     coverage_percent: float = Field(
         description="Embedding coverage as a percentage (0-100)."
+    )
+    current_run: BackfillRunProgress | None = Field(
+        default=None,
+        description="The backfill run in flight, or null when none is running.",
+    )
+    recent_runs: list[BackfillRunSummary] = Field(
+        default_factory=list,
+        description="The most recent finished backfill runs, newest first.",
+    )
+    estimate: BackfillEstimate | None = Field(
+        default=None,
+        description=(
+            "Expected duration of each backfill action, or null until one run "
+            "has completed and measured this deployment's throughput."
+        ),
     )
 
 

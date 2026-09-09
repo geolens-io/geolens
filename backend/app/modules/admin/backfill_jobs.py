@@ -29,6 +29,11 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
+from app.modules.admin.schemas import (
+    BackfillEstimate,
+    BackfillRunProgress,
+    BackfillRunSummary,
+)
 from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 from app.processing.ingest.tasks import task_app
 
@@ -67,6 +72,31 @@ UNRESOLVED_OUTCOME = "unresolved"
 # the guard, this query is only the friendly half producing a readable 409.
 SLOT_HOLDING_STATUSES = ("pending", "running")
 
+# Key under the run's ``embedding_backfill`` metadata holding how many records
+# the run set out to embed. Written by the per-batch counter, read by the
+# progress the admin endpoint reports; one name, two sides.
+RECORDS_TOTAL_KEY = "records_total"
+
+# How many finished runs the admin endpoint reports. Small and fixed: the panel
+# lists them, and an unbounded history would grow with the job table.
+RECENT_RUN_LIMIT = 5
+
+
+def _tenant_backfill_select():  # type: ignore[no-untyped-def]
+    """Select this tenant's embedding-backfill job rows.
+
+    One producer for every reader below, so the tenant predicate cannot be
+    present on the active-run query and missing on the history beside it.
+    """
+    from app.core.tenancy import is_multi_tenant
+
+    stmt = select(IngestJob).where(
+        IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY)
+    )
+    if is_multi_tenant():
+        stmt = stmt.where(IngestJob.tenant_id == current_tenant_var.get())
+    return stmt
+
 
 async def find_active_embedding_backfill(session: AsyncSession) -> IngestJob | None:
     """Return the embedding backfill run currently holding the slot, if any.
@@ -81,19 +111,12 @@ async def find_active_embedding_backfill(session: AsyncSession) -> IngestJob | N
     by the stale-job sweeper (60-minute ingest backstop, every 5 minutes).
     Scoped per tenant in hosted mode, matching the index's key.
     """
-    from app.core.tenancy import is_multi_tenant
-
     stmt = (
-        select(IngestJob)
-        .where(
-            IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY),
-            IngestJob.status.in_(SLOT_HOLDING_STATUSES),
-        )
+        _tenant_backfill_select()
+        .where(IngestJob.status.in_(SLOT_HOLDING_STATUSES))
         .order_by(IngestJob.created_at.desc())
         .limit(1)
     )
-    if is_multi_tenant():
-        stmt = stmt.where(IngestJob.tenant_id == current_tenant_var.get())
     return (await session.execute(stmt)).scalars().first()
 
 
@@ -106,6 +129,7 @@ async def _finalize(
     metadata: dict[str, Any] | None,
     result: dict[str, int] | None = None,
     error_message: str | None = None,
+    error_code: str | None = None,
     expected_status: str = "running",
 ) -> bool:
     """Stamp the terminal job state, fenced on the attempt this worker owns.
@@ -123,6 +147,11 @@ async def _finalize(
         else None,
     }
     backfill_meta = dict((metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY) or {})
+    if error_code is not None:
+        # The audit trail carries this too, but the run history the admin page
+        # reads is built from job rows, and "failed" alone cannot tell a
+        # cancelled worker apart from a provider that rejected every record.
+        backfill_meta["error_code"] = error_code
     extra_metadata: dict[str, Any] = {}
     if result is not None:
         backfill_meta["result"] = result
@@ -314,6 +343,7 @@ async def _settle(
             metadata=metadata,
             result=state.result,
             error_message=state.error_message,
+            error_code=state.error_code,
             expected_status=state.expected_status,
         )
         state.row_attempted = True
@@ -553,6 +583,48 @@ async def settle_undispatched_run(
     )
 
 
+def _progress_writer(
+    session: AsyncSession,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    metadata: dict[str, Any],
+) -> Any:
+    """Build the per-batch counter write the backfill loop calls.
+
+    Fenced on this attempt like every other write here, and best effort: an
+    operator's progress bar is never worth failing a run for. ``metadata`` is
+    updated in place because ``_finalize`` REPLACES ``user_metadata`` from it,
+    and would otherwise erase the record total this writes.
+    """
+
+    async def _write(processed: int, total: int) -> None:
+        backfill_meta = dict(metadata.get(EMBEDDING_BACKFILL_METADATA_KEY) or {})
+        backfill_meta[RECORDS_TOTAL_KEY] = total
+        metadata[EMBEDDING_BACKFILL_METADATA_KEY] = backfill_meta
+        try:
+            await update_ingest_job_for_attempt(
+                session,
+                job_uuid,
+                attempt_uuid,
+                values={
+                    "rows_processed": processed,
+                    "progress": (processed / total) if total else 0.0,
+                    "current_step": "embedding",
+                    "user_metadata": dict(metadata),
+                },
+            )
+            await session.commit()
+        except Exception:  # broad: progress reporting must not decide the run's outcome
+            logger.warning(
+                "embedding_backfill_progress_write_failed",
+                job_id=str(job_uuid),
+                exc_info=True,
+            )
+            await session.rollback()
+
+    return _write
+
+
 @task_app.task(queue="ingest", retry=0)
 @tenant_task
 async def run_embedding_backfill(
@@ -652,7 +724,12 @@ async def run_embedding_backfill(
 
             try:
                 result = await backfill_embeddings(
-                    session, force=force, should_continue=_job_still_running
+                    session,
+                    force=force,
+                    should_continue=_job_still_running,
+                    on_progress=_progress_writer(
+                        session, job_uuid, attempt_uuid, metadata
+                    ),
                 )
             except Exception:  # broad: the backfill spans the embedding SDK and DB writes; every failure ends the run the same way
                 logger.exception(
@@ -762,3 +839,103 @@ async def run_embedding_backfill(
             raise
         finally:
             await stop_ingest_job_heartbeat(heartbeat)
+
+
+async def find_recent_embedding_backfills(
+    session: AsyncSession, *, limit: int = RECENT_RUN_LIMIT
+) -> list[IngestJob]:
+    """Return this tenant's finished backfill runs, newest first."""
+    stmt = (
+        _tenant_backfill_select()
+        .where(IngestJob.status.in_(tuple(sorted(_TERMINAL_STATUSES))))
+        .order_by(IngestJob.created_at.desc())
+        .limit(limit)
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def find_last_completed_backfill(session: AsyncSession) -> IngestJob | None:
+    """Return the newest completed run that measured its own throughput.
+
+    Deliberately its own query rather than a scan of the bounded history: a
+    deployment whose last few runs all failed still has a rate to quote.
+    """
+    stmt = (
+        _tenant_backfill_select()
+        .where(
+            IngestJob.status == "complete",
+            IngestJob.started_at.is_not(None),
+            IngestJob.completed_at.is_not(None),
+            IngestJob.rows_processed > 0,
+        )
+        .order_by(IngestJob.completed_at.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalars().first()
+
+
+def _backfill_meta(job: IngestJob) -> dict[str, Any]:
+    return dict((job.user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY) or {})
+
+
+def _run_progress(job: IngestJob) -> BackfillRunProgress:
+    total = _backfill_meta(job).get(RECORDS_TOTAL_KEY)
+    return BackfillRunProgress(
+        job_id=job.id,
+        status=job.status,
+        records_processed=job.rows_processed or 0,
+        records_total=total if isinstance(total, int) else None,
+        started_at=job.started_at,
+        heartbeat_at=job.heartbeat_at,
+    )
+
+
+def _run_summary(job: IngestJob) -> BackfillRunSummary:
+    error_code = _backfill_meta(job).get("error_code")
+    return BackfillRunSummary(
+        job_id=job.id,
+        status=job.status,
+        started_at=job.started_at,
+        finished_at=job.completed_at,
+        records_processed=job.rows_processed or 0,
+        error_code=error_code if isinstance(error_code, str) else None,
+    )
+
+
+def _estimate(
+    job: IngestJob | None, *, missing_records: int, total_records: int
+) -> BackfillEstimate | None:
+    """Project both backfill actions at the last completed run's rate."""
+    if job is None or job.started_at is None or job.completed_at is None:
+        return None
+    seconds = (job.completed_at - job.started_at).total_seconds()
+    processed = job.rows_processed or 0
+    if seconds <= 0 or processed <= 0:
+        return None
+    per_record = seconds / processed
+    return BackfillEstimate(
+        missing_seconds=round(missing_records * per_record, 1),
+        all_seconds=round(total_records * per_record, 1),
+    )
+
+
+async def collect_backfill_observability(
+    session: AsyncSession, *, missing_records: int, total_records: int
+) -> dict[str, Any]:
+    """Assemble the run fields of the admin embedding-stats response.
+
+    Every read is tenant-scoped through ``_tenant_backfill_select``, so one
+    tenant's operator never sees another's runs.
+    """
+    active = await find_active_embedding_backfill(session)
+    recent = await find_recent_embedding_backfills(session)
+    last_completed = await find_last_completed_backfill(session)
+    return {
+        "current_run": _run_progress(active) if active is not None else None,
+        "recent_runs": [_run_summary(job) for job in recent],
+        "estimate": _estimate(
+            last_completed,
+            missing_records=missing_records,
+            total_records=total_records,
+        ),
+    }

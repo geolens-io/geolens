@@ -1009,7 +1009,7 @@ async def update_ai_status(
 async def get_embedding_stats(
     db: AsyncSession = Depends(get_db),
 ) -> EmbeddingStatsResponse:
-    """Return semantic-search embedding coverage statistics (admin only)."""
+    """Return embedding coverage and the state of the backfill runs (admin only)."""
     service = AdminService(db)
     return await service.get_embedding_stats()
 

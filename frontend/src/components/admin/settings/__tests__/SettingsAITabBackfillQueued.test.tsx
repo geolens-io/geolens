@@ -49,6 +49,9 @@ vi.mock('@/hooks/use-admin', async (importOriginal) => {
         missing_records: 50,
         stale_records: 0,
         coverage_percent: 50,
+        current_run: null,
+        recent_runs: [],
+        estimate: null,
       },
     }),
     useBackfillEmbeddings: () => ({

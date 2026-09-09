@@ -438,6 +438,11 @@ export function useEmbeddingStats(options?: { enabled?: boolean }) {
     queryFn: getEmbeddingStats,
     staleTime: 30_000,
     enabled: options?.enabled,
+    // fix(#2025): a run in flight is the only thing here that moves on its own,
+    // so the response decides whether to poll. An operator who reloads the page
+    // mid-run still sees the bar advance; an idle instance issues no extra reads.
+    refetchInterval: (q) => (q.state.data?.current_run ? 4_000 : false),
+    refetchIntervalInBackground: false,
   });
 }
 

@@ -22,6 +22,9 @@ const hoisted = vi.hoisted(() => ({
       missing_records: 50,
       stale_records: 0,
       coverage_percent: 50,
+      current_run: null,
+      recent_runs: [],
+      estimate: null,
     },
   })),
 }));
@@ -140,6 +143,9 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
         missing_records: 100,
         stale_records: 100,
         coverage_percent: 0,
+        current_run: null,
+        recent_runs: [],
+        estimate: null,
       },
     });
   });
@@ -153,6 +159,9 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
         missing_records: 50,
         stale_records: 0,
         coverage_percent: 50,
+        current_run: null,
+        recent_runs: [],
+        estimate: null,
       },
     });
   });
@@ -178,6 +187,9 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
         missing_records: 0,
         stale_records: 0,
         coverage_percent: 100,
+        current_run: null,
+        recent_runs: [],
+        estimate: null,
       },
     });
     renderTab();

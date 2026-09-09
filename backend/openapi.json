@@ -1823,6 +1823,27 @@
         "title": "AuditLogResponse",
         "type": "object"
       },
+      "BackfillEstimate": {
+        "description": "How long each backfill action should take, before starting one.\n\nBoth figures come from the throughput of the most recent completed run, so\nthey describe this deployment's own provider rather than a generic rate.",
+        "properties": {
+          "missing_seconds": {
+            "description": "Estimated seconds to embed the records that lack a usable vector.",
+            "title": "Missing Seconds",
+            "type": "number"
+          },
+          "all_seconds": {
+            "description": "Estimated seconds to regenerate every record in the catalog.",
+            "title": "All Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "missing_seconds",
+          "all_seconds"
+        ],
+        "title": "BackfillEstimate",
+        "type": "object"
+      },
       "BackfillResponse": {
         "description": "Acknowledgement that a backfill run was queued (fix(#1542)).\n\nThe run itself happens on the job queue, so this carries no counts \u2014 a full\nregenerate takes minutes and used to hold the HTTP request open past the\n600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.",
         "properties": {
@@ -1843,6 +1864,138 @@
           "status"
         ],
         "title": "BackfillResponse",
+        "type": "object"
+      },
+      "BackfillRunProgress": {
+        "description": "The embedding backfill run currently holding the single run slot.",
+        "properties": {
+          "job_id": {
+            "description": "Identifier of the run in flight.",
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "Job status: 'pending' or 'running'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "records_processed": {
+            "description": "Records the run has embedded so far.",
+            "title": "Records Processed",
+            "type": "integer"
+          },
+          "records_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Records the run will embed in total. Null until the run has selected its records.",
+            "title": "Records Total"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a worker picked the run up.",
+            "title": "Started At"
+          },
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last time the running worker renewed its lease.",
+            "title": "Heartbeat At"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "records_processed"
+        ],
+        "title": "BackfillRunProgress",
+        "type": "object"
+      },
+      "BackfillRunSummary": {
+        "description": "One finished embedding backfill run.",
+        "properties": {
+          "job_id": {
+            "description": "Identifier of the finished run.",
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "How the run ended: 'complete', 'failed' or 'cancelled'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a worker picked the run up.",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the run reached its final status.",
+            "title": "Finished At"
+          },
+          "records_processed": {
+            "description": "Records the run embedded.",
+            "title": "Records Processed",
+            "type": "integer"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Short code identifying how a run failed, when it failed.",
+            "title": "Error Code"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "records_processed"
+        ],
+        "title": "BackfillRunSummary",
         "type": "object"
       },
       "BasemapConfig": {
@@ -7476,6 +7629,36 @@
             "description": "Embedding coverage as a percentage (0-100).",
             "title": "Coverage Percent",
             "type": "number"
+          },
+          "current_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackfillRunProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The backfill run in flight, or null when none is running."
+          },
+          "recent_runs": {
+            "description": "The most recent finished backfill runs, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/BackfillRunSummary"
+            },
+            "title": "Recent Runs",
+            "type": "array"
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackfillEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expected duration of each backfill action, or null until one run has completed and measured this deployment's throughput."
           }
         },
         "required": [
@@ -20918,7 +21101,7 @@
     },
     "/admin/embedding-stats/": {
       "get": {
-        "description": "Return semantic-search embedding coverage statistics (admin only).",
+        "description": "Return embedding coverage and the state of the backfill runs (admin only).",
         "operationId": "get_embedding_stats_admin_embedding_stats__get",
         "responses": {
           "200": {

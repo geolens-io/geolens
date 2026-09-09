@@ -93,7 +93,9 @@ async def test_task_probe_is_the_fenced_job_row_read(
 
     observed: dict = {}
 
-    async def _fake_backfill(session, *, force=False, should_continue=None):
+    async def _fake_backfill(
+        session, *, force=False, should_continue=None, on_progress=None
+    ):
         assert should_continue is not None
         observed["while_running"] = await should_continue()
         # The concurrent cancel, committed on its own connection — the same
