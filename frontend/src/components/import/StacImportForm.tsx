@@ -288,7 +288,16 @@ export function StacImportForm() {
       searchResult,
       selectedItemIds: Array.from(selectedItems),
     };
-    const session = startStacImport(catalogInfo!.url, importItems, context);
+    // feat(#1764): a boolean, never the credential. `/import` contacts no
+    // catalog, so this is the only way the dataset can learn that browsing
+    // this one needed a credential and its first refresh should ask for one.
+    const session = startStacImport(
+      catalogInfo!.url,
+      importItems,
+      context,
+      undefined,
+      buildStacAuth() !== undefined,
+    );
     try {
       const result = await session.promise;
       // fix(#1712): if this mount unmounted while the request was in

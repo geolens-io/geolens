@@ -259,6 +259,7 @@ async def _stac_dataset(
     asset_key: str | None = "data",
     collection_id: str | None = "scenes",
     source_health: str | None = None,
+    url: str | None = _ROOT,
 ) -> Dataset:
     """A STAC dataset with a remote raster asset, as the import path makes one."""
     dataset = await _create_dataset(
@@ -273,6 +274,7 @@ async def _stac_dataset(
     dataset.origin_uri = asset_href
     dataset.origin_ref = build_origin_ref(
         "stac",
+        url=url,
         asset_href=asset_href,
         item_href=item_href,
         item_id=item_id,
@@ -2418,6 +2420,34 @@ class TestDispatch:
         assert resp.json()["detail"]["code"] == "service_token_required"
         # The reservation is released, so a later refresh is not blocked.
         assert await _run_for(dataset.id) is None
+
+    async def test_a_binding_recording_no_catalog_refuses_a_credential(
+        self, client, admin_auth_header, test_db_session, credential_backend
+    ) -> None:
+        """fix(#1764): a credential is anchored on the catalog URL the caller
+        submitted at import. A binding from before that was recorded has no
+        anchor, and falling back to the stored item pointer would let a
+        document from that era name where the credential goes."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id, url=None)
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                headers=admin_auth_header,
+                json={"auth": {"method": "bearer", "token": "abcdefgh"}},
+            )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "origin_unavailable"
+        assert await _run_for(dataset.id) is None
+
+    async def test_the_same_binding_still_refreshes_anonymously(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """The refusal is scoped to the new capability: an ordinary refresh of
+        a pre-existing binding is unchanged."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id, url=None)
+        await _dispatch(client, admin_auth_header, dataset.id)
 
     async def test_a_credentialed_refresh_needs_the_shared_store(
         self, client, admin_auth_header, test_db_session

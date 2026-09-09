@@ -700,6 +700,52 @@ class TestSearchDoesNotHandBackTheCredential:
         assert result["items"][0]["data_asset_href"] == f"{_ROOT}/assets/scene.tif"
 
 
+class TestTheStoredPointerNeverLeavesTheSubmittedCatalog:
+    """The item pointer is what a later credentialed refresh anchors on, so a
+    catalog that advertises an off-origin self link would otherwise name the
+    host its own key is sent to. Fenced at both write sites."""
+
+    @pytest.mark.anyio
+    async def test_search_does_not_publish_an_off_origin_self_link(
+        self, stac_transport
+    ) -> None:
+        feature = {
+            "type": "Feature",
+            "id": "x",
+            "collection": "c",
+            "properties": {},
+            "bbox": [0.0, 0.0, 1.0, 1.0],
+            "links": [{"rel": "self", "href": _MIRROR_ITEM}],
+            "assets": {
+                "data": {"href": f"{_ROOT}/assets/scene.tif", "roles": ["data"]}
+            },
+        }
+        stac_transport(json_body={"features": [feature], "numberMatched": 1})
+        result = await stac_adapter.search_stac_items(_ROOT, credential=_header_key())
+        assert result["returned"] == 1
+        # The item still imports; only the pointer the catalog chose is dropped.
+        assert result["items"][0]["item_href"] is None
+
+    @pytest.mark.anyio
+    async def test_search_still_publishes_a_same_origin_self_link(
+        self, stac_transport
+    ) -> None:
+        feature = {
+            "type": "Feature",
+            "id": "x",
+            "collection": "c",
+            "properties": {},
+            "bbox": [0.0, 0.0, 1.0, 1.0],
+            "links": [{"rel": "self", "href": _ITEM_URL}],
+            "assets": {
+                "data": {"href": f"{_ROOT}/assets/scene.tif", "roles": ["data"]}
+            },
+        }
+        stac_transport(json_body={"features": [feature], "numberMatched": 1})
+        result = await stac_adapter.search_stac_items(_ROOT)
+        assert result["items"][0]["item_href"] == _ITEM_URL
+
+
 class TestAShortCredentialDoesNotRefuseEveryUrl:
     """The gate refuses storage, so over-matching strands a legitimate
     refresh. A variant too short to be evidence has to BE a whole value."""

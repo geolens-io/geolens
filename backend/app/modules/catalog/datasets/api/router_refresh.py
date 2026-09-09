@@ -670,6 +670,26 @@ async def _dispatch_stac_refresh(
     if not token and marked_before:
         raise _service_token_required()
 
+    # fix(#1764): a credential is anchored on the catalog URL the caller
+    # submitted at import, the one value on the binding the catalog never
+    # chose. A binding from before that was recorded has no anchor, and
+    # falling back to the stored item pointer would let a document from that
+    # era name where the credential goes.
+    if token and not (dataset.origin_ref or {}).get("url"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "origin_unavailable",
+                "message": (
+                    "This dataset's source binding does not record which STAC "
+                    "catalog it was imported from, so GeoLens cannot tell "
+                    "which host the credential belongs to. Re-import it from "
+                    "the catalog, or refresh it without a credential."
+                ),
+                "origin_kind": "stac",
+            },
+        )
+
     # Refused before anything is written, for the reason the service path
     # gives: without a shared store the secret cannot reach the worker.
     if token and not credential_store_available():

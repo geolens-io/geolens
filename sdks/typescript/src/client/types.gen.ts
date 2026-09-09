@@ -9781,6 +9781,12 @@ export type StacImportRequest = {
      * Visibility for imported datasets.
      */
     visibility?: 'private' | 'restricted' | 'internal' | 'public';
+    /**
+     * Catalog Auth Required
+     *
+     * Whether browsing this catalog needed a credential. Set it when the search that produced these items carried one, so the first refresh asks for a credential instead of failing anonymously.
+     */
+    catalog_auth_required?: boolean;
 };
 
 /**

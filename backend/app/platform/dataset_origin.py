@@ -122,9 +122,14 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # different item even when the item's URL states no identity of its own.
     # feat(#1764): `auth_required` means here what it means on the service
     # kind — the last SUCCESSFUL refresh used a credential, True or absent.
-    # Import never sets it; the import door contacts no catalog.
+    #
+    # `url` is the catalog root the CALLER submitted at import, and it is the
+    # only value here the catalog itself never chose. A credentialed refresh
+    # anchors on it, so a document that names another host cannot name where
+    # the credential goes. Absent on bindings imported before it existed.
     "stac": frozenset(
         {
+            "url",
             "item_href",
             "item_id",
             "asset_href",

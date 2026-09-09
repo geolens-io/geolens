@@ -474,6 +474,119 @@ class TestStacImport:
         assert detail.json()["last_checked_at"] is None
         assert detail.json()["source_health"] == "unknown"
 
+    async def test_import_refuses_an_off_origin_item_href(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+    ):
+        """fix(#1764): the item pointer is what a later credentialed refresh
+        anchors on, so it may not name a host other than the submitted
+        catalog. Search already drops such a link; this refuses it for a
+        client that did not come from there."""
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": f"off-origin-{uuid.uuid4().hex[:8]}",
+                        "collection": "dem-collection",
+                        "title": "Off-origin pointer",
+                        "data_asset_href": "https://example.com/data/off.tif",
+                        "item_href": "https://mirror.example.net/v1/items/x",
+                    }
+                ],
+                "visibility": "private",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["created"] == 0
+        assert data["errors"] == 1
+        assert data["results"][0]["status"] == "error"
+        assert "different host" in data["results"][0]["error"]
+
+    async def test_import_records_the_catalog_and_the_auth_marker(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+        test_db_session,
+    ):
+        """feat(#1764): `url` is the anchor a credentialed refresh reads, and
+        `auth_required` is a boolean the wizard sets when the search that
+        produced these items carried a credential."""
+        from sqlalchemy import select
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": f"marked-{uuid.uuid4().hex[:8]}",
+                        "collection": "dem-collection",
+                        "title": "Marked import",
+                        "data_asset_href": f"https://example.com/d/{uuid.uuid4().hex}.tif",
+                    }
+                ],
+                "visibility": "private",
+                "catalog_auth_required": True,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        dataset_id = resp.json()["results"][0]["dataset_id"]
+        dataset = (
+            await test_db_session.execute(
+                select(Dataset).where(Dataset.id == uuid.UUID(dataset_id))
+            )
+        ).scalar_one()
+        assert dataset.origin_ref["url"] == "https://stac.example.com/v1"
+        assert dataset.origin_ref["auth_required"] is True
+
+    async def test_import_leaves_the_marker_absent_by_default(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+        test_db_session,
+    ):
+        """True or absent, never False, so an anonymous import's binding is
+        the same shape it was before the key existed."""
+        from sqlalchemy import select
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": f"plain-{uuid.uuid4().hex[:8]}",
+                        "collection": "dem-collection",
+                        "title": "Plain import",
+                        "data_asset_href": f"https://example.com/d/{uuid.uuid4().hex}.tif",
+                    }
+                ],
+                "visibility": "private",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        dataset_id = resp.json()["results"][0]["dataset_id"]
+        dataset = (
+            await test_db_session.execute(
+                select(Dataset).where(Dataset.id == uuid.UUID(dataset_id))
+            )
+        ).scalar_one()
+        assert "auth_required" not in dataset.origin_ref
+
     async def test_import_persists_the_origin_asset_for_generic_clients(
         self,
         client: AsyncClient,

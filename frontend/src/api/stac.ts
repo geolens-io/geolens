@@ -39,13 +39,22 @@ export async function searchStacItems(request: StacSearchRequest): Promise<StacS
   });
 }
 
+// feat(#1764): `catalogAuthRequired` is a boolean, never the credential.
+// It marks the dataset so its first refresh asks for one instead of failing
+// anonymously against a catalog that needs it.
 export async function importStacItems(
   url: string,
   items: StacImportItem[],
   visibility: string = 'private',
+  catalogAuthRequired: boolean = false,
 ): Promise<StacImportResponse> {
   return apiFetch<StacImportResponse>('/services/stac/import', {
     method: 'POST',
-    body: JSON.stringify({ url, items, visibility }),
+    body: JSON.stringify({
+      url,
+      items,
+      visibility,
+      catalog_auth_required: catalogAuthRequired,
+    }),
   });
 }

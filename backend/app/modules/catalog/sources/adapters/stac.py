@@ -26,7 +26,7 @@ from app.core.url_redaction import (
     has_url_credentials,
     redact_exception_text,
 )
-from app.platform.security import make_safe_client
+from app.platform.security import make_safe_client, same_origin
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
@@ -149,7 +149,9 @@ def storable_href(href: Any, base_url: str) -> str | None:
     return resolved
 
 
-def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
+def self_link_href(
+    feature: dict[str, Any], base_url: str, catalog_url: str | None = None
+) -> str | None:
     """The item's own canonical href, from its ``rel="self"`` link.
 
     feat(#1222): search is the ONE place GeoLens holds a STAC item document,
@@ -162,6 +164,11 @@ def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
     drops a non-http(s) or credentialed href rather than surfacing it: a
     credentialed one would otherwise turn an optional convenience into a
     422 for the caller's whole import batch.
+
+    fix(#1764): ``catalog_url`` fences the result to the origin the caller
+    submitted. This pointer becomes ``origin_ref["item_href"]``, which a
+    later credentialed refresh anchors on, so a catalog that advertises an
+    off-origin self link here could name the host its own key is sent to.
     """
     links = feature.get("links")
     # fix(#1271): a malformed scalar `links` must cost only this
@@ -170,8 +177,12 @@ def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
         if not isinstance(link, dict) or link.get("rel") != "self":
             continue
         resolved = storable_href(link.get("href"), base_url)
-        if resolved is not None:
-            return resolved
+        if resolved is None:
+            continue
+        if catalog_url is not None and not same_origin(catalog_url, resolved):
+            logger.warning("STAC search: self link is off the submitted origin")
+            continue
+        return resolved
     return None
 
 
@@ -433,7 +444,7 @@ async def search_stac_items(
                 # transport restores the hostname after each pinned hop
                 # (_SSRFGuardTransport) — so a relative self link resolves
                 # against the caller's host, never the pinned IP.
-                "item_href": self_link_href(f, str(resp.url)),
+                "item_href": self_link_href(f, str(resp.url), url),
                 "bbox": f.get("bbox"),
                 "datetime": dt,
                 "datetime_start": dt_start,

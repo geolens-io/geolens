@@ -197,8 +197,8 @@ def _binding(dataset: Any) -> tuple:
 
 def _stac_pointers(
     origin_ref: dict | None,
-) -> tuple[str, str | None, str | None, str | None, str | None]:
-    """``(item_href, item_id, collection_id, asset_href, asset_key)``.
+) -> tuple[str, str | None, str | None, str | None, str | None, str | None]:
+    """``(item_href, item_id, collection_id, asset_href, asset_key, url)``.
 
     Raises when there is no ``item_href``: only the item document can answer
     where an asset moved TO (the asset href answers a different question). A
@@ -222,6 +222,7 @@ def _stac_pointers(
         ref.get("collection_id"),
         ref.get("asset_href"),
         ref.get("asset_key"),
+        ref.get("url"),
     )
 
 
@@ -263,6 +264,7 @@ def _rebind(
     *,
     collection_id: str | None,
     auth_required: bool | None,
+    catalog_url: str | None,
 ) -> None:
     """Point the dataset at where the publisher now says its asset is.
 
@@ -290,6 +292,9 @@ def _rebind(
         dataset,
         "stac",
         uri=resolution.asset_href,
+        # Carried forward unchanged: a refresh re-resolves a binding, it does
+        # not re-point it at a catalog the caller never submitted.
+        url=catalog_url,
         asset_href=resolution.asset_href,
         item_href=resolution.item_href,
         # fix(#1266): written back on every rebind, so a dataset imported
@@ -539,6 +544,7 @@ async def refresh_stac(
                 collection_id,
                 asset_href,
                 asset_key,
+                catalog_url,
             ) = _stac_pointers(dataset.origin_ref)
             await claim_run_for_job(session, job_uuid)
             await session.commit()
@@ -562,10 +568,11 @@ async def refresh_stac(
             asset_href=asset_href,
             asset_key=asset_key,
             credential=credential,
-            # fix(#1764): the catalog address the credential was given for.
-            # Read from the binding under this attempt's guard, so a read the
-            # item document steers to another origin is made anonymously.
-            catalog_origin=item_href,
+            # fix(#1764): the catalog address the CALLER submitted at import,
+            # the one value on the binding the catalog never chose. Anchoring
+            # on the item pointer instead would let a document name the host
+            # its own credential is sent to.
+            catalog_origin=catalog_url,
         )
         if not resolution.resolved:
             raise _failure_for(resolution)
@@ -659,6 +666,7 @@ async def refresh_stac(
                     resolution,
                     collection_id=learned_collection,
                     auth_required=auth_required,
+                    catalog_url=catalog_url,
                 )
             if moved:
                 await _repoint_remote_asset(

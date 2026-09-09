@@ -48,7 +48,7 @@ from app.modules.catalog.sources.schemas import (
     service_credential_from_request,
 )
 from app.core.service_tokens import STAC_SERVICE_FORMAT, ServiceCredential
-from app.platform.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
 from app.platform.service_auth import credential_or_422
 
 
@@ -84,6 +84,12 @@ router = APIRouter(
 # feat(#1764): the credential fields every STAC door that CONTACTS the
 # catalog accepts. `/import` takes neither: it contacts no catalog, so it
 # would be accepting a secret it then drops.
+# Names the rule, never the href: this reaches a per-item result body.
+_OFF_ORIGIN_ITEM_HREF_MESSAGE = (
+    "This item's own URL is on a different host than the STAC catalog it was "
+    "imported from, so GeoLens will not record it as the item's address."
+)
+
 _STAC_TOKEN_DESCRIPTION = (
     "Optional auth token for a protected STAC catalog." + DEPRECATED_TOKEN_SUFFIX
 )
@@ -308,6 +314,16 @@ class StacImportRequest(BaseModel):
     visibility: Visibility = Field(
         default="private",
         description="Visibility for imported datasets.",
+    )
+    # feat(#1764): a boolean, never the credential. Declared last, so no
+    # positional SDK caller shifts.
+    catalog_auth_required: bool = Field(
+        default=False,
+        description=(
+            "Whether browsing this catalog needed a credential. Set it when "
+            "the search that produced these items carried one, so the first "
+            "refresh asks for a credential instead of failing anonymously."
+        ),
     )
 
 
@@ -550,6 +566,21 @@ async def stac_import(
             )
             skipped += 1
             continue
+        # fix(#1764): the item pointer becomes the origin a later credentialed
+        # refresh anchors on, so it may not name a host other than the catalog
+        # the caller submitted. Search already drops such a link; this refuses
+        # it for a client that did not come from there.
+        if item.item_href is not None and not same_origin(request.url, item.item_href):
+            logger.warning("STAC item self link is off the submitted origin")
+            results.append(
+                StacImportResult(
+                    item_id=item.id,
+                    status="error",
+                    error=_OFF_ORIGIN_ITEM_HREF_MESSAGE,
+                )
+            )
+            errors += 1
+            continue
         try:
             await validate_url_for_ssrf(item.data_asset_href)
         except SSRFError as exc:
@@ -640,11 +671,16 @@ async def stac_import(
                     dataset,
                     "stac",
                     uri=item.data_asset_href,
+                    url=request.url,
                     asset_href=item.data_asset_href,
                     item_href=item.item_href,
                     item_id=item.id,
                     collection_id=item.collection,
                     asset_key=item.data_asset_key,
+                    # feat(#1764): True or None, never False — the allowlist
+                    # drops a None, which is how "no credential" is spelled on
+                    # both origin kinds.
+                    auth_required=True if request.catalog_auth_required else None,
                 )
                 # fix(#1271): info in hand means Titiler reached the COG;
                 # every failure shape stays NULL since a Titiler error is

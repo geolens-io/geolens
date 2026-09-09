@@ -12667,6 +12667,12 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "restricted" | "internal" | "public";
+            /**
+             * Catalog Auth Required
+             * @description Whether browsing this catalog needed a credential. Set it when the search that produced these items carried one, so the first refresh asks for a credential instead of failing anonymously.
+             * @default false
+             */
+            catalog_auth_required: boolean;
         };
         /** StacImportResponse */
         StacImportResponse: {

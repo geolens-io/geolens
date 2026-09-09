@@ -183,6 +183,60 @@ describe('StacImportForm credential block', () => {
     expect(mockConnectStac).toHaveBeenCalledWith('https://catalog.test/v1', undefined);
   });
 
+  it('tells import that browsing the catalog needed a credential', async () => {
+    const user = userEvent.setup();
+    mockSearchStacItems.mockResolvedValue({
+      items: [
+        {
+          id: 'item-1',
+          collection: 'test-col',
+          item_href: null,
+          title: 'item-1',
+          bbox: null,
+          datetime: null,
+          datetime_start: null,
+          datetime_end: null,
+          epsg: null,
+          gsd: null,
+          cloud_cover: null,
+          data_asset_href: 'https://catalog.test/v1/assets/a.tif',
+          data_asset_type: null,
+          data_asset_key: 'data',
+          data_asset_size_bytes: null,
+          thumbnail_href: null,
+          asset_count: 1,
+        },
+      ],
+      matched: 1,
+      returned: 1,
+    });
+    mockImportStacItems.mockResolvedValue({
+      created: 1,
+      skipped: 0,
+      errors: 0,
+      results: [{ item_id: 'item-1', dataset_id: 'ds-1', status: 'created', error: null }],
+    });
+    render(<StacImportForm />, { wrapper: Wrapper });
+
+    await typeUrl(user);
+    await chooseMethod(user, 'stac.credentialMethodBearer');
+    await user.type(screen.getByLabelText('stac.credentialTokenLabel'), 'tok-secret');
+    await connect(user);
+
+    await user.click(await screen.findByText('Test Collection'));
+    await user.click((await screen.findAllByRole('checkbox'))[0]);
+    await user.click(screen.getByRole('button', { name: /stac.importItems/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /stac\.confirm\.confirmImport/i }),
+    );
+
+    await waitFor(() => expect(mockImportStacItems).toHaveBeenCalledTimes(1));
+    // A boolean, never the credential.
+    const call = mockImportStacItems.mock.calls[0];
+    expect(call[3]).toBe(true);
+    expect(JSON.stringify(call)).not.toContain('tok-secret');
+  });
+
   it('drops a credential typed for one catalog when the URL moves to another', async () => {
     const user = userEvent.setup();
     mockConnectStac.mockRejectedValueOnce(new Error('nope'));

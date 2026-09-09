@@ -25,11 +25,15 @@ class StacImportRequest:
         url (str): STAC API URL for provenance.
         items (list[StacImportItem]): Items to import (max 50 per request).
         visibility (StacImportRequestVisibility | Unset): Visibility for imported datasets. Default: 'private'.
+        catalog_auth_required (bool | Unset): Whether browsing this catalog needed a credential. Set it when the search
+            that produced these items carried one, so the first refresh asks for a credential instead of failing
+            anonymously. Default: False.
     """
 
     url: str
     items: list[StacImportItem]
     visibility: StacImportRequestVisibility | Unset = "private"
+    catalog_auth_required: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +48,8 @@ class StacImportRequest:
         if not isinstance(self.visibility, Unset):
             visibility = self.visibility
 
+        catalog_auth_required = self.catalog_auth_required
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -54,6 +60,8 @@ class StacImportRequest:
         )
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
+        if catalog_auth_required is not UNSET:
+            field_dict["catalog_auth_required"] = catalog_auth_required
 
         return field_dict
 
@@ -78,10 +86,13 @@ class StacImportRequest:
         else:
             visibility = check_stac_import_request_visibility(_visibility)
 
+        catalog_auth_required = d.pop("catalog_auth_required", UNSET)
+
         stac_import_request = cls(
             url=url,
             items=items,
             visibility=visibility,
+            catalog_auth_required=catalog_auth_required,
         )
 
         stac_import_request.additional_properties = d
