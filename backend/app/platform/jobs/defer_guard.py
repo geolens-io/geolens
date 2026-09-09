@@ -179,6 +179,19 @@ async def _settle_after_failed_dispatch(
         return False
 
 
+def _render_or_unreadable(render: Callable[[], str]) -> str:
+    """One diagnostic field, or a placeholder when producing it raises.
+
+    fix(#1755): an already-expired ``job`` raises on the ``id`` read and an
+    exception with a failing ``__str__`` raises on render. Neither may
+    escape the log that runs in front of the settlement.
+    """
+    try:
+        return render()
+    except Exception:  # broad: a diagnostic must not replace the failure it reports
+        return "unreadable"
+
+
 def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> None:
     """Record what made a dispatch fail, because nothing downstream will.
 
@@ -186,18 +199,12 @@ def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> 
     ``stage`` separates the two raise sites, which ``cause_class`` alone
     cannot when both fail with the same type.
     """
-    try:
-        job_id = str(job.id)
-    except Exception:  # broad: a diagnostic must not preempt the settlement below
-        # fix(#1755): an already-expired instance raises `MissingGreenlet` on
-        # the read; `reset_session_for_settlement` is what recovers it.
-        job_id = "unreadable"
     logger.warning(
         "ingest_dispatch_failed",
-        job_id=job_id,
+        job_id=_render_or_unreadable(lambda: str(job.id)),
         stage=stage,
         cause_class=type(exc).__name__,
-        error=redact_exception_text(exc),
+        error=_render_or_unreadable(lambda: redact_exception_text(exc)),
     )
 
 

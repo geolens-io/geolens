@@ -305,6 +305,45 @@ class TestDeferWithOrphanGuard:
 
         asyncio.run(_check())
 
+    def test_an_unrenderable_exception_does_not_preempt_the_settlement(self):
+        """fix(#1755 item 10): the dispatch log renders the exception, so an
+        exception whose `__str__` raises must degrade to a placeholder. The
+        readable field beside it keeps its real value.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            class _Unrenderable(RuntimeError):
+                def __str__(self) -> str:
+                    raise ValueError("this exception cannot render itself")
+
+            settled: list[BaseException] = []
+
+            async def _rollback(exc: BaseException) -> None:
+                settled.append(exc)
+
+            async def _defer() -> None:
+                raise _Unrenderable()
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+
+            with patch.object(defer_guard, "logger") as mock_logger:
+                with pytest.raises(defer_guard.DeferFailed) as exc_info:
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=mock_db, job=_job()
+                    )
+
+            assert exc_info.value.cause_class == "_Unrenderable"
+            assert exc_info.value.rolled_back is True
+            assert len(settled) == 1
+            logged = mock_logger.warning.call_args.kwargs
+            assert logged["error"] == "unreadable"
+            assert logged["job_id"] != "unreadable"
+
+        asyncio.run(_check())
+
     def test_rollback_failure_still_raises_503(self):
         """If rollback itself raises, helper still surfaces the 503 to the client."""
 
