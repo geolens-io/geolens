@@ -866,11 +866,9 @@ export interface FittedAttribution {
  * every entry. There is no code path that drops one, which is the property the
  * whole module exists to hold. Leaves `ctx.font` set.
  *
- * feat(#1553): `maxLines` makes it a BOUNDED PROBE — wrapping stops once the
- * budget is known to be exceeded, and the lines are then a PREFIX. Sound only
- * for a caller that discards them in that case, which both do. Under the
- * budget the result is unchanged: both wrappers are greedy and left to right,
- * so an emitted line is one a longer run would emit identically.
+ * feat(#1553): `maxLines` makes it a BOUNDED PROBE whose lines are a PREFIX
+ * once the budget is exceeded, so only a caller that discards them there may
+ * pass it. Both wrappers are greedy, so the under-budget result is unchanged.
  */
 export function fitAttributionText(
   ctx: CanvasRenderingContext2D,

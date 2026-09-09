@@ -1705,10 +1705,8 @@ describe('export canvas ceiling', () => {
 });
 
 /* feat(#1553): the layout fits only what the budget can hold. The bound is
- * sound only if it cannot change an answer, which is what these assert — and
- * over the null-fallback path too, since an entry wider than the line picks a
- * different wrapper, and a bound that skipped a later over-wide entry would
- * pick the wrong one. */
+ * sound only if it cannot change an answer, which these assert — including on
+ * the word-wrapper path, where a misplaced bound would pick the wrong one. */
 describe('bounded layout (#1553)', () => {
   const shapes: Array<{ name: string; credits: string[] }> = [
     { name: 'the real five-provider load', credits: [
@@ -1770,10 +1768,9 @@ describe('bounded layout (#1553)', () => {
   });
 
   it('measures a bounded multiple of the budget, not of the input', () => {
-    // 200 credits of 5,000 characters, the contract's maximum on both axes.
-    // Against this stub the band took 71,552 measureText calls unbounded and
-    // 5,024 bounded; the card 81,336 and 3,129. The threshold is loose because
-    // the exact figure moves with the wrap.
+    // The contract's maximum on both axes. Against this stub the band took
+    // 71,552 measureText calls unbounded and 5,024 bounded, the card 81,336
+    // and 3,129; the threshold is loose because the figure moves with the wrap.
     const credits = Array.from({ length: 200 }, (_, i) => `© P${i} ` + 'x'.repeat(4990));
 
     const bandCtx = makeCtx();
