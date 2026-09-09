@@ -116,6 +116,11 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.refreshDatasetBusy',
   "This dataset's source changed while the refresh was being queued, so it was not started. Check the new source and try again.":
     'errors.refreshOriginChanged',
+  // fix(#2031): the re-upload doors' geometry-loss refusal. Static prose, so
+  // it maps by literal like the rest of this table; the server's own sentence
+  // already names what would be lost and what to do instead.
+  'The replacement has no geometry, and this dataset stores geometry. Replacing it would leave the dataset a plain table, so nothing was changed. Import the file as a new dataset instead.':
+    'errors.reuploadGeometryLoss',
   // fix(#1768): the re-upload commit door's own `origin_changed`. Same code,
   // different literal and a different key, because the two refusals describe
   // different windows: the refresh one is "between your click and the queue",

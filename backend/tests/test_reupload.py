@@ -675,6 +675,48 @@ class TestReuploadPreview:
         assert "above the 5-row ingest limit" in detail, detail
         assert "may be malformed or unsupported" not in detail, detail
 
+    @pytest.mark.parametrize(
+        "record_type,expected_status",
+        [("vector_dataset", 422), ("table", 200)],
+    )
+    async def test_preview_refuses_a_replacement_that_strips_geometry(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_ogrinfo_preview,
+        record_type: str,
+        expected_status: int,
+    ):
+        """fix(#2031): a table has no geometry to lose; a vector dataset does."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(
+            test_db_session, created_by=admin_id, record_type=record_type
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={"file": ("attributes.csv", b"id,name\n1,test\n", "text/csv")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        job_id = resp.json()["job_id"]
+
+        mock_ogrinfo_preview.return_value = {
+            **mock_ogrinfo_preview.return_value,
+            "geometry_type": None,
+        }
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job_id}/preview",
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == expected_status, resp.text
+        if expected_status == 422:
+            detail = resp.json()["detail"]
+            assert detail["code"] == "geometry_loss", detail
+            assert "no geometry" in detail["message"], detail
+
     async def test_s3_preview_download_is_removed_after_use(
         self,
         client: AsyncClient,

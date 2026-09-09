@@ -140,6 +140,21 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.refreshOriginChanged' });
   });
 
+  // fix(#2031): the door sends {code, message}; the object branch falls through
+  // to the message, so the literal is what has to be mapped.
+  it('maps the re-upload geometry-loss refusal', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'geometry_loss',
+          message:
+            'The replacement has no geometry, and this dataset stores geometry. Replacing it would leave the dataset a plain table, so nothing was changed. Import the file as a new dataset instead.',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.reuploadGeometryLoss' });
+  });
+
   // fix(#2032): a plain 422 detail string, so without the matcher it lands on
   // the generic "values are invalid" and the code the user typed is lost.
   it('maps the commit doors srid_override refusal and keeps the code', () => {

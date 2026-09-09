@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
-from app.core.upload_errors import UnsafeUploadError
+from app.core.upload_errors import UnsafeUploadError, geometry_loss_refusal
 from app.core.identity import Identity
 from app.core.async_io import (
     run_in_thread_draining,
@@ -604,6 +604,7 @@ async def reupload_preview(
     job_source_filename = job.source_filename
     prior_columns = dataset.column_info or []
     prior_feature_count = dataset.feature_count
+    prior_record_type = dataset.record.record_type
     await db.rollback()
 
     # Resolve S3 key to local file for ogrinfo
@@ -677,6 +678,18 @@ async def reupload_preview(
                     f"(single-layer file contains '{info['layer_name']}')."
                 ),
             )
+
+    # fix(#2031): the diff below reads attribute columns only, so a geometry
+    # loss reached the client as an unremarkable schema diff.
+    geometry_loss = geometry_loss_refusal(
+        record_type=prior_record_type,
+        source_has_geometry=info.get("geometry_type") is not None,
+    )
+    if geometry_loss:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "geometry_loss", "message": geometry_loss},
+        )
 
     diff = compute_schema_diff(
         prior_columns,

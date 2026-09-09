@@ -3794,7 +3794,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # in this module now goes through. Cap 1245 -> 1246, exact.
     # refactor(#2026): +2 — the staging cluster's names now come from
     # `tasks_staging`, so this module's one import block became two.
-    "backend/app/processing/ingest/tasks_reupload.py": 1248,
+    # fix(#2031): +16. `_detect_reupload_crs` also refuses a replacement that
+    # would strip the dataset's geometry, and takes the record type that
+    # decides it. Cap 1248 -> 1264, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1264,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4602,7 +4605,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # port binding it reads. Cap 1436 -> 1445, exact.
     # fix(#2032): +9. The re-upload commit door refuses an srid_override that
     # names no spatial_ref_sys row. Cap 1445 -> 1454, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1454,
+    # fix(#2031): +13. The preview door refuses a replacement that would strip
+    # the dataset's geometry, which the attribute-only schema diff cannot see.
+    # Cap 1454 -> 1467, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1467,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

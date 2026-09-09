@@ -10,6 +10,7 @@ from sqlalchemy import select, update
 
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import redact_failure_reason
+from app.core.upload_errors import geometry_loss_refusal
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
@@ -97,6 +98,7 @@ async def _detect_reupload_crs(
     user_metadata: dict,
     *,
     original_filename: str | None = None,
+    record_type: str | None,
 ) -> tuple[dict, int]:
     """Detect CRS/geometry for a reupload file and resolve the effective SRID.
 
@@ -106,6 +108,9 @@ async def _detect_reupload_crs(
     fix(#541): applies the same missing-CRS gate as ``ingest_file``,
     raising ``IngestionError`` rather than silently falling through to the
     4326 default and corrupting the replacement dataset.
+
+    fix(#2031): and the preview door's geometry-loss refusal, for the client
+    that skipped the preview. ``record_type`` is the dataset's CURRENT one.
 
     Returns (ogrinfo result dict, effective_srid).
     """
@@ -127,6 +132,12 @@ async def _detect_reupload_crs(
     )
     if missing_crs:
         raise IngestionError(missing_crs)
+
+    geometry_loss = geometry_loss_refusal(
+        record_type=record_type, source_has_geometry=geometry_type is not None
+    )
+    if geometry_loss:
+        raise IngestionError(geometry_loss)
 
     effective_srid = (
         srid_override
@@ -287,6 +298,7 @@ async def reupload_file(
             # these values are immutable for the duration of the task).
             source_filename = job.source_filename
             user_metadata = job.user_metadata or {}
+            prior_record_type = dataset.record.record_type
             # GPKG-01 Phase 1058: snapshot the user-chosen layer so ogr2ogr
             # ingests the correct layer from multi-layer GPKG files.
             layer_name = job.source_layer  # None for single-layer files
@@ -308,7 +320,11 @@ async def reupload_file(
         # 2-3. Detect CRS from the new file, enforce the missing-CRS gate,
         # and resolve the effective SRID (override > detected > 4326).
         info, effective_srid = await _detect_reupload_crs(
-            file_path, layer_name, user_metadata, original_filename=source_filename
+            file_path,
+            layer_name,
+            user_metadata,
+            original_filename=source_filename,
+            record_type=prior_record_type,
         )
         srid = info.get("srid")
         geometry_type = info.get("geometry_type")
