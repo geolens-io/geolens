@@ -162,11 +162,7 @@ class TestWorkerRunsTheRealSafeClient:
         )
         assert resp.status_code == 201, resp.text
 
-        monkeypatch.setattr(
-            socket,
-            "getaddrinfo",
-            lambda h, p, *a, **k: _addrinfo("169.254.169.254", p),
-        )
+        _resolve_only(monkeypatch, "rebind.example.test", "169.254.169.254")
         # The guard raises BEFORE delegating, so a reached connection means
         # the refusal did not happen and a transport error is standing in for
         # it. Returning 200 here makes that substitution fail the test.
@@ -206,9 +202,7 @@ class TestWorkerRunsTheRealSafeClient:
         )
         assert resp.status_code == 201, resp.text
 
-        monkeypatch.setattr(
-            socket, "getaddrinfo", lambda h, p, *a, **k: _addrinfo("93.184.216.34", p)
-        )
+        _resolve_only(monkeypatch, "public.example.test", "93.184.216.34")
 
         async def _fake_connect(self, request):
             return httpx.Response(200, stream=_Body(GEOJSON))
@@ -1133,6 +1127,26 @@ def _usage_at_cap():
 def _addrinfo(ip: str, port: int | None):
     fam = socket.AF_INET6 if ":" in ip else socket.AF_INET
     return [(fam, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, port or 0))]
+
+
+def _resolve_only(monkeypatch, hostname: str, ip: str) -> None:
+    """Answer for ONE hostname; delegate every other name to the real resolver.
+
+    fix(#1710): a blanket `getaddrinfo` stub also answers for the database
+    host. Any connection opened while it is installed is pointed at ``ip``,
+    so the task's own DB work fails and the row is left `running` — which
+    looks exactly like the guard failing to refuse. It only reproduces when
+    the pool has to open a connection during the window, which is why CI saw
+    it and a warm local pool did not.
+    """
+    real_getaddrinfo = socket.getaddrinfo
+
+    def _resolve(host, port, *args, **kwargs):
+        if host == hostname:
+            return _addrinfo(ip, port)
+        return real_getaddrinfo(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", _resolve)
 
 
 def _accept_any_url():
