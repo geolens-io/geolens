@@ -1814,7 +1814,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # exempt_when hook) plus a record step called only once a request is
         # admitted, so a request the bucket goes on to reject can no longer
         # seed a claim a follow-up call redeems. Cap 413 -> 424, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 424,
+        # fix(#1903 review r4): +9 — documents that this registry is
+        # per-process like the SEC-S11 bucket it exempts from, and that
+        # sharing it (or the limiter) across workers is the same tracked
+        # app-wide change query_router.py's fix(#565) note already defers.
+        # Cap 424 -> 433, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 433,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).

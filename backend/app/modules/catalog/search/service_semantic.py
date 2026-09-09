@@ -93,6 +93,15 @@ def _embedding_cache_clear() -> None:
 # Deliberately much shorter than the embedding cache TTL above, and it
 # never looks at that cache, so a config change mid-window cannot make a
 # stale-model match exempt a call that ends up billing the provider.
+# fix(#1903 review r4): this dict is per-process, same as the SEC-S11 bucket
+# it exempts from (app.platform.ratelimit's Limiter uses slowapi's default
+# in-memory storage too). Under the bundled multi-worker production config
+# a paired request that lands on two different workers gets no exemption --
+# each worker pays its own token, same as before this fix -- but a request
+# is never charged MORE than that. Sharing this (or the rate limiter itself)
+# across workers needs a distributed store; per query_router.py's
+# _QUERY_PER_USER_LIMIT (fix(#565)), that is a tracked app-wide change, not
+# forked into an individual fix.
 _QUERY_CLAIM_TTL_SECONDS = 5.0
 _QUERY_CLAIM_MAX_SIZE = 256
 _query_claims: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
