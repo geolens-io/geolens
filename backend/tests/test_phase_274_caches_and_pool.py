@@ -263,12 +263,17 @@ def test_has_embeddings_cache_is_dict_keyed_on_model():
     assert isinstance(helpers._has_embeddings_cache, dict)
 
 
-def test_has_embeddings_static_source_mentions_perf_10():
-    """PERF-10: marker comment is present for traceability."""
+def test_has_embeddings_docstring_documents_model_partitioning():
+    """has_embeddings docstring must document that the cache is partitioned by model name."""
     from app.processing.embeddings import helpers
 
-    src = inspect.getsource(helpers)
-    assert "PERF-10" in src
+    docstring = inspect.getdoc(helpers.has_embeddings) or ""
+    # Collapse wrapped whitespace so the phrase matches regardless of line wrap.
+    normalized = " ".join(docstring.split())
+    assert "partitioned by the active embedding model name" in normalized, (
+        "has_embeddings docstring must explain the cache is partitioned "
+        "per embedding model, so a model swap doesn't serve stale answers."
+    )
 
 
 def test_has_embeddings_cache_bounded():

@@ -1,4 +1,4 @@
-"""Static-analysis tests for Phase 271 / DBM-01 + DBM-06 config + doc deliverables."""
+"""Static-analysis tests for Phase 271 postgresql.conf and Map index-deferral doc deliverables."""
 
 import re
 
@@ -33,20 +33,23 @@ def test_postgresql_conf_documents_hnsw_override_rationale():
     )
 
 
-def test_map_model_documents_dbm_06_deferral():
-    """DBM-06: Map.__table_args__ must have a documented deferral with a revisit trigger."""
+def test_map_model_documents_index_deferral_trigger():
+    """Map.__table_args__ must document the visibility-index deferral with a revisit trigger."""
     text = _MAP_MODEL.read_text()
-    assert "DBM-06" in text, "Map model must reference DBM-06 in a deferral comment."
+    assert "no composite" in text.lower() and "Map.visibility" in text, (
+        "Map model must document why no composite Map.visibility index exists."
+    )
     # Trigger condition should mention seq-scan / EXPLAIN / metric — give some
     # flexibility on phrasing.
     triggers = ["seq scan", "seq-scan", "EXPLAIN", "metric"]
     assert any(t in text for t in triggers), (
-        "DBM-06 deferral must name a clear revisit trigger (e.g., 'EXPLAIN shows seq scan')."
+        "The visibility-index deferral must name a clear revisit trigger "
+        "(e.g., 'EXPLAIN shows seq scan')."
     )
 
 
-def test_db_index_deferrals_doc_exists_with_dbm_06():
-    """DBM-06 deferral rationale stays inline with the model for public release."""
+def test_map_model_index_deferral_names_visibility_column():
+    """The deferral rationale stays inline with the model for public release."""
     text = _MAP_MODEL.read_text()
-    assert "DBM-06" in text
     assert "Map.visibility" in text or "Map visibility" in text
+    assert "no composite" in text.lower()
