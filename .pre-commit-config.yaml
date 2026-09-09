@@ -105,13 +105,19 @@ repos:
           only go down; backend/tests/test_unscoped_finding_markers.py runs the
           same check in CI and pins the detector's behaviour.
 
+          The same run also scans backend/openapi.json's `description` strings
+          (#1946): a string literal the walk above cannot see, but one that
+          still reaches the published API surface and the generated SDKs, so
+          it gets zero tolerance rather than a debt ledger.
+          backend/tests/test_openapi_finding_markers.py pins that half.
+
           Write `fix(#1234): <one line>`, or just drop the tag and let the
           sentence stand — a note about a deliberate limitation does not need a
           prefix to be understood.
         language: system
         entry: python3 backend/tests/finding_markers.py
         pass_filenames: false
-        files: '^backend/(app/.*|tests/finding_markers)\.py$'
+        files: '^backend/(app/.*\.py|openapi\.json|tests/(finding_markers|test_openapi_finding_markers)\.py)$'
 
       - id: no-agent-tag-markers
         name: "AGENTS.md — a `ponytail:` tag needs a same-line fix(#N) anchor outside backend/app"

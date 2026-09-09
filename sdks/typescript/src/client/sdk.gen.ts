@@ -4135,14 +4135,14 @@ export const getMapHistoryEndpointMapsMapIdHistoryGet = <ThrowOnError extends bo
  *
  * Apply incremental layer additions, patches, removals, and ordering.
  *
- * v13.14 fixup: declared on both slash variants directly (mirrors the
- * Phase 280 fix on POST). FastAPI's default redirect_slashes builds a
- * relative Location header that resolves against the request's Host
- * header, which would leak the in-container ``api:8000`` hostname
- * through Vite's dev proxy on a 307 redirect. The canonical
- * (OpenAPI-published) form is the no-slash sub-collection convention
- * documented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);
- * the trailing-slash form is a hidden alias.
+ * Declared on both slash variants directly, mirroring the POST route
+ * below. FastAPI's default redirect_slashes builds a relative Location
+ * header that resolves against the request's Host header, which would
+ * leak the in-container ``api:8000`` hostname through Vite's dev proxy
+ * on a 307 redirect. The canonical (OpenAPI-published) form is the
+ * no-slash sub-collection convention documented in the GeoLens API guide
+ * (https://docs.getgeolens.com/guides/api/); the trailing-slash form is
+ * a hidden alias.
  */
 export const patchMapLayersEndpointMapsMapIdLayersPatch = <ThrowOnError extends boolean = false>(options: Options<PatchMapLayersEndpointMapsMapIdLayersPatchData, ThrowOnError>): RequestResult<PatchMapLayersEndpointMapsMapIdLayersPatchResponses, PatchMapLayersEndpointMapsMapIdLayersPatchErrors, ThrowOnError> => (options.client ?? client).patch<PatchMapLayersEndpointMapsMapIdLayersPatchResponses, PatchMapLayersEndpointMapsMapIdLayersPatchErrors, ThrowOnError>({
     security: [
@@ -4167,9 +4167,9 @@ export const patchMapLayersEndpointMapsMapIdLayersPatch = <ThrowOnError extends 
  *
  * Add a layer to a map.
  *
- * Phase 280: declared on both slash variants directly so neither emits a
- * 307. FastAPI's default redirect_slashes builds a relative Location
- * header that resolves against the request's Host header, leaking the
+ * Declared on both slash variants directly so neither emits a 307.
+ * FastAPI's default redirect_slashes builds a relative Location header
+ * that resolves against the request's Host header, leaking the
  * in-container ``api:8000`` hostname through Vite's dev proxy. The
  * canonical (OpenAPI-published) form is the no-slash sub-collection
  * convention documented in the GeoLens API guide

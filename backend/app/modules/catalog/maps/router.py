@@ -660,14 +660,14 @@ async def patch_map_layers_endpoint(
 ) -> MapResponse:
     """Apply incremental layer additions, patches, removals, and ordering.
 
-    v13.14 fixup: declared on both slash variants directly (mirrors the
-    Phase 280 fix on POST). FastAPI's default redirect_slashes builds a
-    relative Location header that resolves against the request's Host
-    header, which would leak the in-container ``api:8000`` hostname
-    through Vite's dev proxy on a 307 redirect. The canonical
-    (OpenAPI-published) form is the no-slash sub-collection convention
-    documented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);
-    the trailing-slash form is a hidden alias.
+    Declared on both slash variants directly, mirroring the POST route
+    below. FastAPI's default redirect_slashes builds a relative Location
+    header that resolves against the request's Host header, which would
+    leak the in-container ``api:8000`` hostname through Vite's dev proxy
+    on a 307 redirect. The canonical (OpenAPI-published) form is the
+    no-slash sub-collection convention documented in the GeoLens API guide
+    (https://docs.getgeolens.com/guides/api/); the trailing-slash form is
+    a hidden alias.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
@@ -1289,9 +1289,9 @@ async def add_layer_endpoint(
 ) -> MapLayerResponse:
     """Add a layer to a map.
 
-    Phase 280: declared on both slash variants directly so neither emits a
-    307. FastAPI's default redirect_slashes builds a relative Location
-    header that resolves against the request's Host header, leaking the
+    Declared on both slash variants directly so neither emits a 307.
+    FastAPI's default redirect_slashes builds a relative Location header
+    that resolves against the request's Host header, leaking the
     in-container ``api:8000`` hostname through Vite's dev proxy. The
     canonical (OpenAPI-published) form is the no-slash sub-collection
     convention documented in the GeoLens API guide
