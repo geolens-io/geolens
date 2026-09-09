@@ -188,6 +188,34 @@ class TestTheApplicationKeyRollsWithThePublicationVersion:
         finally:
             await _drop_table(test_db_session, dataset.table_name)
 
+    async def test_the_metadata_snapshot_bounds_the_roll(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Without an eviction the pre-transition snapshot still keys the read.
+
+        The counter comes off the same 60 s snapshot that decides visibility
+        and record_status, so the key is never staler than the authorization
+        that admitted the request and both age out together. Pinned rather
+        than hidden: the cases around this one evict first so they assert the
+        key rather than this bound.
+        """
+        dataset = await _make_vector(
+            test_db_session, created_by=await _admin_id(test_db_session)
+        )
+        url = f"/tiles/data.{dataset.table_name}/0/0/0.pbf"
+        try:
+            params = await _mint(client, dataset.id, admin_auth_header)
+            _, published_key = await _serve_with_cache(client, url, params, {})
+            stored = {published_key: gzip.compress(_SENTINEL)}
+
+            await _set_status(client, dataset.id, admin_auth_header, "internal")
+            after, key = await _serve_with_cache(client, url, params, stored)
+
+            assert key == published_key
+            assert after.content == _SENTINEL
+        finally:
+            await _drop_table(test_db_session, dataset.table_name)
+
     async def test_the_key_carries_the_row_not_the_request(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

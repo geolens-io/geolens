@@ -5859,11 +5859,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1963): +17. Mint and verify derive the signed scope through the one
     # shared helper, and both meta snapshots carry the publication counter that
     # scope binds. Cap 2392 -> 2409, exact.
-    # fix(#2007): +66. The two nginx cache-key params are read through one
+    # fix(#2007): +71. The two nginx cache-key params are read through one
     # helper the edge and the api share, a mismatched one loses the shared
     # cache on all three routes, and the vector/cluster key carries the
-    # publication counter. Cap 2409 -> 2475, exact.
-    "backend/app/processing/tiles/router.py": 2475,
+    # publication counter, off the same snapshot that authorized the request.
+    # Cap 2409 -> 2480, exact.
+    "backend/app/processing/tiles/router.py": 2480,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

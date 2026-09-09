@@ -1625,6 +1625,11 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
     query adds a ``tenant_id`` filter, closing the cross-dataset authz leak
     on the data plane. In ``single_tenant`` the key is the bare
     ``table_name``, byte-identical to pre-1209.
+
+    fix(#2007): the tile cache key is derived from THIS snapshot, the same one
+    that decides visibility and record_status, so it can never be staler than
+    the authorization that admitted the request. Re-reading the counter alone
+    would leave that decision on the stale row and fix nothing.
     """
     now = time.monotonic()
 
