@@ -54,13 +54,31 @@ def redact_failure_reason(reason: str | BaseException) -> str:
             return INTERNAL_FAILURE_REASON
         reason = str(reason)
     lines = reason.splitlines()
-    summary = lines[0] if lines else ""
-    # fix(#1953): an exception this codebase raised can still embed a
-    # subprocess's output, so all three scrubbers run on the summary line.
-    redacted = redact_libpq_credentials(
-        scrub_registered_credentials(redact_url_credentials(summary))
+    summary = _scrub(lines[0] if lines else "")
+    # fix(#1953): the scrubbers must see a credential whole, and choosing the
+    # summary line first can hand them half of one. Scrubbing the whole text
+    # cannot replace that (urlsplit deletes the line breaks the payload cut
+    # needs), so it is the cross-check: a line the wider pass would have
+    # changed is not one to keep.
+    if _scrub_stable(summary) not in _scrub_stable(_scrub(reason)):
+        return INTERNAL_FAILURE_REASON
+    return summary[:MAX_REASON_CHARS]
+
+
+def _scrub(text: str) -> str:
+    """Every credential shape a reason can carry, masked."""
+    return redact_libpq_credentials(
+        scrub_registered_credentials(redact_url_credentials(text))
     )
-    return redacted[:MAX_REASON_CHARS]
+
+
+# The characters `urlsplit` deletes, so the cross-check above compares what
+# the scrubbers changed rather than where they were handed a line break.
+_URLSPLIT_STRIPS = str.maketrans("", "", "\t\r\n")
+
+
+def _scrub_stable(text: str) -> str:
+    return text.translate(_URLSPLIT_STRIPS)
 
 
 def coded_failure_reason(prefix: str, exc: BaseException) -> str:

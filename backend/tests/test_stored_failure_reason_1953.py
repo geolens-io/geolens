@@ -96,6 +96,23 @@ class TestTheHelperRefusesWhatDecision3Forbids:
             assert "password=<redacted>" in reason
             assert "dbname=geolens" in reason, "only the secret is masked"
 
+    def test_a_credential_broken_across_a_line_is_still_masked(self) -> None:
+        """Choosing the summary line first would hand the scrubbers a URL cut
+        in half, and half a URL keeps its password."""
+        assert "hunter2" not in redact_failure_reason("https://user:hunter2\n@[::1")
+        assert "hunt er2" not in redact_failure_reason(
+            "ERROR 1: PG:host=db password='hunt\ner2' dbname=x"
+        )
+
+    def test_a_tab_in_the_summary_is_not_read_as_a_straddling_credential(
+        self,
+    ) -> None:
+        """The cross-check's negative control. ``urlsplit`` deletes tabs as
+        well as line breaks, so comparing raw text would refuse this line."""
+        assert redact_failure_reason("ERROR 1:\tCannot open\n[SQL: SELECT 1]") == (
+            "ERROR 1:Cannot open"
+        )
+
     def test_credentials_are_still_stripped(self) -> None:
         assert "hunter2" not in redact_failure_reason(
             IngestionError(
