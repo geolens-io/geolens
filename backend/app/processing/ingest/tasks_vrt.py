@@ -23,6 +23,7 @@ from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
+    JOB_ERROR_WRITE_TIMEOUT_MS,
     arm_job_error_write_budget,
     claim_job_attempt_and_start_heartbeat,
     log_job_error_write_failure,
@@ -161,27 +162,47 @@ async def _settle_failed_vrt_asset(
     *generation_uuid*; on False the caller MUST leave the generation
     non-terminal, or the pair becomes unreachable to the stale sweep.
     """
+    import asyncio
+
+    from sqlalchemy import and_, or_, select
     from sqlalchemy import update as sa_update
 
     from app.core.db import async_session
-    from app.processing.raster.models import RasterAsset
+    from app.processing.raster.models import RasterAsset, VrtGeneration
 
-    fences = [RasterAsset.dataset_id == vrt_dataset_id]
+    # fix(#1962 codex r2/r3): the second arm is the whole rule, not a special
+    # case for a legacy delivery. A `regenerating` asset is released unless a
+    # LIVE generation owns it, because the sweep reaches an asset only through
+    # a pending/running generation. A phantom pointer left by a rolled-back
+    # phase 1, a NULL one, and one naming an already-terminal generation are
+    # all states nothing else can settle.
+    owned_by_a_live_generation = (
+        select(VrtGeneration.id)
+        .where(
+            VrtGeneration.id == RasterAsset.current_generation_id,
+            VrtGeneration.status.in_(("pending", "running")),
+        )
+        .exists()
+    )
+    arms = []
     if generation_uuid is not None:
-        fences.append(RasterAsset.current_generation_id == generation_uuid)
-    else:
-        fences.append(RasterAsset.current_generation_id.is_(None))
-        fences.append(RasterAsset.status == "regenerating")
+        arms.append(RasterAsset.current_generation_id == generation_uuid)
+    arms.append(and_(RasterAsset.status == "regenerating", ~owned_by_a_live_generation))
     try:
         async with async_session() as session:
+            # See `write_job_failure_for_attempt`: SET LOCAL cannot bound the
+            # pool checkout, and nothing is in flight yet, so it is bounded here.
+            await asyncio.wait_for(
+                session.connection(), timeout=JOB_ERROR_WRITE_TIMEOUT_MS / 1000
+            )
             await arm_job_error_write_budget(session)
             await session.execute(
                 sa_update(RasterAsset)
-                .where(*fences)
+                .where(RasterAsset.dataset_id == vrt_dataset_id, or_(*arms))
                 .values(status="failed", current_generation_id=None)
             )
             await session.commit()
-    except SQLAlchemyError as write_failure:
+    except (SQLAlchemyError, TimeoutError) as write_failure:
         # Wider than the budget's own DBAPIError: this runs OUTSIDE the
         # handler's try, so a pool timeout escaping here would replace the
         # build failure and skip the job write below.

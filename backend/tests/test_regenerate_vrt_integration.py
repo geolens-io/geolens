@@ -1140,3 +1140,98 @@ async def test_a_ready_asset_with_no_pointer_is_left_alone(
         "a doomed attempt failed an asset it never owned, so a VRT the sweep "
         "had already restored is reported broken"
     )
+
+
+async def test_a_dangling_pointer_from_a_rolled_back_claim_is_settled(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+):
+    """fix(#1962 codex r3): released unless a LIVE generation owns the asset.
+
+    A pointer at a generation that is already terminal, or at no row at all, is
+    invisible to ``sweep_stale_vrt_assets``, which reaches an asset only through
+    the pending/running generations it has just failed.
+    """
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset
+
+    session = test_db_session
+    vrt_id = vrt_db_state["vrt_dataset_id"]
+    generation_id = await _stage_generation(
+        session, vrt_db_state, vrt_db_state["source_dataset_ids"]
+    )
+    # The generation this attempt will never load: already terminal, with the
+    # asset still pointing at it.
+    await session.execute(
+        text("UPDATE catalog.vrt_generations SET status = 'failed' WHERE id = :id"),
+        {"id": str(generation_id)},
+    )
+    await session.execute(
+        text("DELETE FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"),
+        {"id": vrt_id},
+    )
+    await session.commit()
+
+    with pytest.raises(ValueError, match="no source links"):
+        await regenerate_vrt.func(
+            job_id=vrt_db_state["job_id"],
+            attempt_id=vrt_db_state["attempt_id"],
+            vrt_dataset_id=vrt_id,
+        )
+
+    vrt_asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    await session.refresh(vrt_asset)
+    assert (vrt_asset.status, vrt_asset.current_generation_id) == ("failed", None), (
+        "the asset was left regenerating behind a terminal generation, which "
+        "the stale sweep cannot see and which 409s every later mutation"
+    )
+
+
+async def test_an_asset_a_live_generation_owns_is_left_alone(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+):
+    """The release arm yields to a newer attempt that already claimed the asset."""
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset
+
+    session = test_db_session
+    vrt_id = vrt_db_state["vrt_dataset_id"]
+    newer = await _stage_generation(
+        session, vrt_db_state, vrt_db_state["source_dataset_ids"]
+    )
+    await session.execute(
+        text("DELETE FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"),
+        {"id": vrt_id},
+    )
+    await session.commit()
+
+    with pytest.raises(ValueError, match="no source links"):
+        await regenerate_vrt.func(
+            job_id=vrt_db_state["job_id"],
+            attempt_id=vrt_db_state["attempt_id"],
+            vrt_dataset_id=vrt_id,
+        )
+
+    vrt_asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    await session.refresh(vrt_asset)
+    assert (vrt_asset.status, vrt_asset.current_generation_id) == (
+        "regenerating",
+        newer,
+    ), "a doomed attempt released an asset a pending generation still owns"

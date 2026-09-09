@@ -924,9 +924,10 @@ class TestRegenerateVrtTask:
                 str(call.args[0]) for call in mock_session.execute.await_args_list
             )
             assert "UPDATE catalog.raster_assets" in statements
-            # fix(#1962 codex r2): a legacy delivery binds no generation, so the
-            # NULL-pointer branch is the only thing that can release its asset.
-            assert "current_generation_id IS NULL" in statements
+            # fix(#1962 codex r3): an attempt that bound no generation releases
+            # the asset unless a live generation owns it, which is the only
+            # rule that reaches one the sweep cannot see.
+            assert "catalog.vrt_generations" in statements
 
         asyncio.run(_check())
 
@@ -958,6 +959,31 @@ class TestRegenerateVrtTask:
             assert mock_session.commit.await_count == 1
 
         asyncio.run(_check())
+
+    def test_the_asset_settles_before_the_job_and_generation_write(self):
+        """fix(#1962): the reverse order puts both writes back in one abort."""
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_vrt
+
+        tree = ast.parse(inspect.getsource(tasks_vrt.regenerate_vrt.func))
+        lines = {
+            name: [
+                node.lineno
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and getattr(node.func, "id", None) == name
+            ]
+            for name in ("_settle_failed_vrt_asset", "update_ingest_job_for_attempt")
+        }
+        assert all(len(v) == 1 for v in lines.values()), lines
+        assert (
+            lines["_settle_failed_vrt_asset"][0]
+            < (lines["update_ingest_job_for_attempt"][0])
+        ), (
+            "the asset settles after the job write, so a contended job row "
+            "aborts the transaction the asset write is in again"
+        )
 
     def test_task_sets_status_to_ready_on_success(self):
         """On success, asset.status is set to 'ready' and last_regenerated_at is updated."""

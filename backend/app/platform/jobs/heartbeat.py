@@ -194,16 +194,25 @@ async def write_job_failure_for_attempt(
     Issue it AFTER any rollback on *session*: ``SET LOCAL`` dies with the
     transaction, so a budget armed before one is gone by the next statement.
     """
-    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.exc import SQLAlchemyError
 
     try:
+        # The connection first, on its own deadline: `SET LOCAL` cannot bound a
+        # wait for the POOL, which on an exhausted pool is `db_pool_timeout`
+        # (30s) before any statement runs. Nothing is in flight yet, so this is
+        # the one point in the write that is safe to cancel.
+        await asyncio.wait_for(
+            session.connection(), timeout=JOB_ERROR_WRITE_TIMEOUT_MS / 1000
+        )
         await arm_job_error_write_budget(session)
         fenced = await update_ingest_job_for_attempt(
             session, job_id, attempt_id, values=values
         )
         await session.commit()
         return fenced
-    except DBAPIError as write_failure:
+    except (SQLAlchemyError, TimeoutError) as write_failure:
+        # Wider than DBAPIError: a pool timeout is a SQLAlchemyError, and
+        # letting one out would replace the failure the caller is handling.
         with suppress(Exception):  # broad: best-effort, the caller keeps its cause
             await session.rollback()
         log_job_error_write_failure(write_failure, job_id=str(job_id), task=task_name)

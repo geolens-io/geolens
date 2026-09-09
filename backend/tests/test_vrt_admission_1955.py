@@ -82,6 +82,33 @@ class TestEveryDoorAdmitsThroughOneLock:
             "triggers land in"
         )
 
+    @pytest.mark.parametrize(("module_name", "attr"), _DOORS, ids=lambda v: v)
+    def test_the_door_reads_no_asset_status_before_admitting(
+        self, module_name: str, attr: str
+    ) -> None:
+        """A read hoisted into a local still leaves the window open."""
+        tree = ast.parse(_door_source(module_name, attr))
+        admits = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "admit_vrt_mutation"
+        ]
+        assert len(admits) == 1, f"expected one admission; found {len(admits)}"
+        early = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and node.attr == "status"
+            and getattr(node.value, "id", "").endswith("asset")
+            and node.lineno < admits[0]
+        ]
+        assert not early, (
+            f"{attr} reads the asset status at {early}, before the lock at "
+            f"{admits[0]}. That value is from a snapshot the winner has "
+            "already invalidated"
+        )
+
     def test_the_shared_admission_locks_before_it_reads(self) -> None:
         tree = ast.parse(inspect.getsource(admit_vrt_mutation))
         locks = [

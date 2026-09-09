@@ -174,15 +174,22 @@ class TestEveryRemainingSiteIsArmed:
     def test_the_shared_helper_swallows_its_own_failure(self) -> None:
         tree = ast.parse(inspect.getsource(write_job_failure_for_attempt))
         handlers = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ExceptHandler)
-            and getattr(node.type, "id", None) == "DBAPIError"
+            node for node in ast.walk(tree) if isinstance(node, ast.ExceptHandler)
         ]
         assert len(handlers) == 1, (
-            f"the helper has {len(handlers)} DBAPIError handlers; without "
-            "exactly one an expired budget becomes the task's outcome in "
-            "place of the failure the caller was already handling"
+            f"the helper has {len(handlers)} handlers; without exactly one an "
+            "expired budget becomes the task's outcome in place of the failure "
+            "the caller was already handling"
+        )
+        caught = {
+            getattr(name, "id", None)
+            for name in ast.walk(handlers[0].type)
+            if isinstance(name, ast.Name)
+        }
+        assert "SQLAlchemyError" in caught, (
+            f"the helper catches {sorted(caught)}. A pool checkout timeout is a "
+            "SQLAlchemyError and not a DBAPIError, so a narrower catch lets one "
+            "out in place of the cause"
         )
         assert not [n for n in ast.walk(handlers[0]) if isinstance(n, ast.Raise)], (
             "the helper re-raises, so a timeout is still what the worker reports"
