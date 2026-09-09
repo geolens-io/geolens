@@ -16,14 +16,20 @@ addresses a different entry from one emitted before it.
 
 import gzip
 import re
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
-from app.core.tile_scope import TILE_PUBLICATION_VERSION_PARAM
+from app.core.tile_scope import (
+    TILE_PUBLICATION_VERSION_PARAM,
+    republished_tile_url,
+)
 from app.modules.catalog.maps.style_json import build_maplibre_style
+from app.modules.catalog.datasets.domain.models import RecordDistribution
+from app.standards.distributions import published_distributions
 
 from tests.test_maps_style_json import _layer, _map
 from tests.test_nginx_raster_stretch_cache_key_1778 import (
@@ -353,3 +359,117 @@ class TestTheStyleDocument:
 
         assert f"{TILE_PUBLICATION_VERSION_PARAM}=5" in url
         assert "%3Ap5" in url or ":p5" in url
+
+
+class TestAStoredTemplateIsRepublishedAtTheCurrentCounter:
+    """A ``record_distributions`` row is written once at ingest.
+
+    It predates every transition since, so a feed that passed it through as
+    stored would hand a consumer a URL addressing a pre-transition entry.
+    """
+
+    def test_the_auto_generated_vector_template_gains_the_counter(self):
+        url = republished_tile_url("/tiles/data.roads/{z}/{x}/{y}.pbf", 4)
+        assert url == "/tiles/data.roads/{z}/{x}/{y}.pbf?pv=4"
+
+    def test_a_cluster_template_gains_it_too(self):
+        url = republished_tile_url("/tiles/clusters/data.roads/{z}/{x}/{y}.pbf", 4)
+        assert url.endswith("?pv=4")
+
+    def test_a_stale_counter_on_the_row_is_replaced_not_repeated(self):
+        url = republished_tile_url("/tiles/data.roads/{z}/{x}/{y}.pbf?pv=1", 4)
+        assert url.count("pv=") == 1
+        assert url.endswith("pv=4")
+
+    def test_other_params_on_the_row_survive(self):
+        url = republished_tile_url("/tiles/data.roads/{z}/{x}/{y}.pbf?cols=name", 4)
+        assert "cols=name" in url
+        assert url.endswith("pv=4")
+
+    def test_a_link_to_another_service_is_untouched(self):
+        """Only our own tile routes are rewritten; an operator's URL is theirs."""
+        other = "https://tiles.example.org/roads/{z}/{x}/{y}.pbf"
+        assert republished_tile_url(other, 4) == other
+        assert republished_tile_url("/datasets/x/export?format=gpkg", 4) == (
+            "/datasets/x/export?format=gpkg"
+        )
+
+
+def _stored_vector_tiles_row(table_name: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        distribution_type="vector_tiles",
+        format="pbf",
+        url=f"/tiles/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf",
+        title="Vector Tiles",
+        description=None,
+        media_type="application/vnd.mapbox-vector-tile",
+    )
+
+
+class TestTheDcatFeedRepublishesAStoredTemplate:
+    def test_the_published_distribution_carries_the_current_counter(self):
+        record = SimpleNamespace(
+            record_type="vector_dataset",
+            distributions=[_stored_vector_tiles_row("roads")],
+        )
+        dataset = SimpleNamespace(
+            id="00000000-0000-0000-0000-0000000000ff",
+            record=record,
+            tile_cache_version=1,
+            publication_version=4,
+        )
+
+        entries = published_distributions(
+            dataset,
+            api_base_url="https://api.example.org",
+            app_base_url="https://app.example.org",
+        )
+
+        assert [e.url for e in entries] == [
+            "https://api.example.org/tiles/data.roads/{z}/{x}/{y}.pbf?pv=4"
+        ]
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+class TestTheRecordDocumentRepublishesAStoredTemplate:
+    async def _distribution_urls(
+        self, client: AsyncClient, dataset_id, admin_auth_header: dict
+    ) -> list[str]:
+        resp = await client.get(
+            f"/collections/datasets/items/{dataset_id}", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        return [d["url"] for d in resp.json()["properties"]["distributions"]]
+
+    async def test_it_rolls_after_an_unpublish(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        dataset = await _make_vector(
+            test_db_session, created_by=await _admin_id(test_db_session)
+        )
+        try:
+            test_db_session.add(
+                RecordDistribution(
+                    record_id=dataset.record_id,
+                    distribution_type="vector_tiles",
+                    format="pbf",
+                    url=f"/tiles/data.{dataset.table_name}/{{z}}/{{x}}/{{y}}.pbf",
+                    title="Vector Tiles",
+                    media_type="application/vnd.mapbox-vector-tile",
+                    auto_generated=True,
+                )
+            )
+            await test_db_session.commit()
+
+            before = await self._distribution_urls(
+                client, dataset.id, admin_auth_header
+            )
+            assert any(u.endswith(".pbf?pv=0") for u in before), before
+
+            await _set_status(client, dataset.id, admin_auth_header, "internal")
+            after = await self._distribution_urls(client, dataset.id, admin_auth_header)
+
+            assert any(u.endswith(".pbf?pv=1") for u in after), after
+            assert not any(u.endswith(".pbf?pv=0") for u in after), after
+        finally:
+            await _drop_table(test_db_session, dataset.table_name)

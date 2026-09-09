@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from app.core.record_types import is_raster_family
-from app.core.tile_scope import tile_template_query
+from app.core.tile_scope import republished_tile_url, tile_template_query
 
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import Dataset
@@ -140,7 +140,14 @@ def published_distributions(
             PublishedDistribution(
                 distribution_type=row.distribution_type,
                 format=row.format,
-                url=_absolute(row.url, api_base_url),
+                # fix(#2007): a stored vector-tile template predates every
+                # transition since ingest, so republish it at the row's counter.
+                url=_absolute(
+                    republished_tile_url(
+                        row.url, getattr(dataset, "publication_version", None)
+                    ),
+                    api_base_url,
+                ),
                 title=row.title,
                 description=row.description,
                 media_type=row.media_type,

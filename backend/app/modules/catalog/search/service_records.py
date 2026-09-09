@@ -15,7 +15,7 @@ import structlog
 from app.core.config import settings
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
-from app.core.tile_scope import tile_template_query
+from app.core.tile_scope import republished_tile_url, tile_template_query
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.source_freshness import (
     compute_source_freshness,
@@ -408,8 +408,16 @@ def dataset_to_ogc_record(
                 {
                     "type": d.distribution_type,
                     "format": d.format,
+                    # fix(#2007): as in published_distributions -- a stored
+                    # vector-tile template cannot hold a counter that rolls.
                     "url": (
-                        build_url(d.url, base_url=public_api_url)
+                        build_url(
+                            republished_tile_url(
+                                d.url,
+                                getattr(dataset, "publication_version", None),
+                            ),
+                            base_url=public_api_url,
+                        )
                         if d.url.startswith("/")
                         else d.url
                     ),
