@@ -100,8 +100,13 @@ def _embedding_cache_clear() -> None:
 # each worker pays its own token, same as before this fix -- but a request
 # is never charged MORE than that. Sharing this (or the rate limiter itself)
 # across workers needs a distributed store; per query_router.py's
-# _QUERY_PER_USER_LIMIT (fix(#565)), that is a tracked app-wide change, not
-# forked into an individual fix.
+# _QUERY_PER_USER_LIMIT (fix(#565)), that is a tracked app-wide change,
+# tracked separately at #2018 rather than forked into this fix. Bounded and
+# self-limiting even split across workers: entries expire after
+# _QUERY_CLAIM_TTL_SECONDS, consuming one deletes it (single-use, never a
+# standing grant), and the dict is hard-capped at _QUERY_CLAIM_MAX_SIZE via
+# LRU eviction, so an unconsumed claim can neither grow this structure nor
+# be redeemed more than once.
 _QUERY_CLAIM_TTL_SECONDS = 5.0
 _QUERY_CLAIM_MAX_SIZE = 256
 _query_claims: "OrderedDict[str, tuple[str, float]]" = OrderedDict()

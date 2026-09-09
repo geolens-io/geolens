@@ -1819,7 +1819,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # sharing it (or the limiter) across workers is the same tracked
         # app-wide change query_router.py's fix(#565) note already defers.
         # Cap 424 -> 433, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 433,
+        # fix(#1903 review r4 follow-up): +5 — cites the #2018 tracking issue
+        # and confirms the registry's TTL/size bounds so an unconsumed claim
+        # (the sibling landed on another worker) cannot grow it or be
+        # redeemed twice. Cap 433 -> 438, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 438,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
