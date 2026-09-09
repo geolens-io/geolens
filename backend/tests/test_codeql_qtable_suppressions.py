@@ -80,10 +80,10 @@ SUPPRESSION_QUERY = SUPPRESSION_PACK_DIR / "AlertSuppression.ql"
 # per-site justification naming _qtable.
 MARKER_RE = re.compile(r"\bcodeql\s*\[\s*py/sql-injection\s*\]", re.IGNORECASE)
 
-# Any rule id, for the placement test below. #1708 introduced markers for
-# py/path-injection and py/full-ssrf, so a rule-specific pattern would leave
-# every future rule's markers unguarded the day they are added.
-ANY_MARKER_RE = re.compile(r"\bcodeql\s*\[\s*[^\]]+\]", re.IGNORECASE)
+# Any rule id, for the placement tests below, capturing the id itself. #1708
+# introduced markers for py/path-injection and py/full-ssrf, so a rule-specific
+# pattern would leave every future rule's markers unguarded the day they are added.
+ANY_MARKER_RE = re.compile(r"\bcodeql\s*\[\s*([^\]]+?)\s*\]", re.IGNORECASE)
 
 
 def _dynamic_text_sites(source: str) -> list[int]:
@@ -273,6 +273,108 @@ def test_no_full_ssrf_marker_sits_above_a_non_sink_line() -> None:
     assert not stray, (
         "`# codeql[py/full-ssrf]` marker(s) that do not sit directly above a "
         "`client.<verb>(` sink, so they suppress nothing:\n  " + "\n  ".join(stray)
+    )
+
+
+# fix(#1942): a pure move carries a marker and its call into a new file
+# together, so the placement test above keeps passing even when the two come
+# apart, and CodeQL's PR run cannot dismiss what it re-reports at a new location.
+PATH_SINK_CALLS = frozenset({"open", "stat", "unlink"})
+
+
+def _path_sink_lines(source: str) -> set[int]:
+    """1-based start line of every call that acts on a filesystem path.
+
+    The set is exactly the shapes the ``py/path-injection`` markers sit above
+    today. A sink written another way (``shutil.copy``, ``os.remove``) fails
+    this test instead of passing quietly, and the fix is to name it here.
+    """
+    lines: set[int] = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        if name in PATH_SINK_CALLS:
+            lines.add(node.lineno)
+    return lines
+
+
+def _dynamic_sql_lines(source: str) -> set[int]:
+    """1-based start line of every dynamic ``text()`` argument in a module."""
+    return set(_dynamic_text_sites(source))
+
+
+# The construct each rule reports at. `py/full-ssrf` is absent because the two
+# tests above already pin its markers in both directions, against one shared
+# definition of an SSRF sink.
+MARKER_CONSTRUCTS = {
+    "py/sql-injection": _dynamic_sql_lines,
+    "py/path-injection": _path_sink_lines,
+}
+RULES_CHECKED_ELSEWHERE = frozenset({"py/full-ssrf"})
+
+
+def test_every_marker_sits_above_a_construct_its_own_rule_reports_at() -> None:
+    """Each marker covers a construct its rule flags, not merely a statement.
+
+    The generic placement test asks only that a marker sit alone above some
+    statement. A refactor that moves code between modules satisfies that while
+    still leaving a marker one line, or one call, away from the sink CodeQL
+    reports at, and nothing goes red until the alert opens on ``main``.
+
+    A rule id with no entry in either mapping fails rather than going
+    unchecked, and every entry is asserted to have been exercised, so this
+    cannot report success from an empty walk.
+    """
+    unknown: list[str] = []
+    misplaced: list[str] = []
+    exercised: set[str] = set()
+
+    for path in sorted((REPO_ROOT / "backend/app").rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        lines = source.splitlines()
+        markers = [
+            (index + 1, match.group(1).lower())
+            for index, line in enumerate(lines)
+            if (match := ANY_MARKER_RE.search(line))
+        ]
+        if not markers:
+            continue
+        rel = path.relative_to(REPO_ROOT)
+        sites: dict[str, set[int]] = {}
+        for lineno, rule in markers:
+            exercised.add(rule)
+            if rule in RULES_CHECKED_ELSEWHERE:
+                continue
+            if rule not in MARKER_CONSTRUCTS:
+                unknown.append(f"{rel}:{lineno} — {rule}")
+                continue
+            if rule not in sites:
+                sites[rule] = MARKER_CONSTRUCTS[rule](source)
+            if lineno + 1 not in sites[rule]:
+                covered = lines[lineno].strip() if lineno < len(lines) else ""
+                misplaced.append(f"{rel}:{lineno} — {rule} covers {covered!r}")
+
+    assert not unknown, (
+        "CodeQL marker(s) naming a rule this module cannot check:\n  "
+        + "\n  ".join(unknown)
+        + "\nAdd the construct that rule reports at to MARKER_CONSTRUCTS, or "
+        "list the rule in RULES_CHECKED_ELSEWHERE with the test that pins it."
+    )
+    assert not misplaced, (
+        "CodeQL marker(s) that do not sit directly above a construct their own "
+        "rule reports at, so they suppress nothing:\n  "
+        + "\n  ".join(misplaced)
+        + "\nMove the marker onto the line directly above the flagged call. See "
+        "AGENTS.md > Standing CodeQL policy."
+    )
+
+    unexercised = (set(MARKER_CONSTRUCTS) | RULES_CHECKED_ELSEWHERE) - exercised
+    assert not unexercised, (
+        f"no marker under backend/app names {sorted(unexercised)}, so the "
+        "entr(y/ies) check nothing. Either the markers were removed and the "
+        "entries should go too, or ANY_MARKER_RE has stopped matching them."
     )
 
 
