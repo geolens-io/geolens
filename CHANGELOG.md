@@ -210,6 +210,10 @@ and releases use semantic versioning.
   An unrecognised local-file failure records the tool and its exit status, with the driver's full
   output kept in the structured logs. The CLI job views and the ingest-failure notification
   render the same sentence the web app shows, instead of the stored code. (#2010)
+- Replacing a dataset with a file the server cannot read now answers the same 422 and the
+  same message the import preview gives, instead of a generic server error. The reason
+  recorded for such a file names the file that was uploaded, rather than reporting only the
+  tool and its exit status. (#2036)
 
 ## [1.18.1] - 2026-09-05
 
