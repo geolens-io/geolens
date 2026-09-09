@@ -49,11 +49,9 @@ from app.processing.raster.vrt import gdal_service_safe_env, gdal_vector_safe_en
 # group is optional since some GDAL builds emit bare driver names.
 _OGR_DRIVER_LIST_LINE_RE = re.compile(r"^\s*->\s*'[^']+'\s*(\([^)]*\))?\s*$")
 
-# When no driver can open the source, ogr2ogr prints this line ahead of GDAL's
-# full driver enumeration (100+ lines) — raw text a demo visitor once saw in
-# the job UI. fix(#2036): ogrinfo says it in one line of its own naming the
-# staging path, which the first alternative never matched. Both are anchored
-# tightly so no other failure class (bad SRS, permission denied) matches.
+# fix(#2036): both wordings for a source no driver can open, either of which
+# reaches the job UI raw: ogr2ogr's, ahead of its 100+ line driver enumeration,
+# and ogrinfo's one line naming the staging path. Anchored so nothing else matches.
 _OGR_UNABLE_TO_OPEN_RE = re.compile(
     r"Unable to open datasource `[^']*' with the following drivers\."
     r"|ogrinfo failed - unable to open '[^']*'"

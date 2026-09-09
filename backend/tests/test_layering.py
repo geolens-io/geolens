@@ -5013,10 +5013,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # recognises the class first and composes the reason from the fields that
     # class may carry, since a driver names the source inside its own prose.
     # Cap 1307 -> 1341, exact.
-    # fix(#2036): +2. The unable-to-open pattern gains ogrinfo's own one-line
-    # wording, which ogr2ogr's driver enumeration never matched.
-    # Cap 1341 -> 1343, exact.
-    "backend/app/processing/ingest/ogr.py": 1343,
+    # fix(#2036): net zero. The pattern gained ogrinfo's wording (+2 in #2042)
+    # and the comment above it gives two lines back. Cap 1343 -> 1341, exact.
+    "backend/app/processing/ingest/ogr.py": 1341,
     # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
     # 1000-line threshold when the content check landed: the SQLite schema
     # reader, the archive member walk that identifies members by their bytes
