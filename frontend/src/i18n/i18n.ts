@@ -23,21 +23,22 @@ function updateDocumentLanguage(lng?: string) {
 }
 
 // fix(#2029 review): `zh` here is Simplified Chinese only. A bare
-// `split('-')[0]` would also route zh-TW/zh-Hant (Traditional) browsers to
-// it, so Chinese tags need the script/region checked instead of discarded.
-function isSimplifiedChineseTag(lowerTag: string): boolean {
-  return (
-    lowerTag === 'zh' ||
-    lowerTag.startsWith('zh-cn') ||
-    lowerTag.startsWith('zh-hans') ||
-    lowerTag.startsWith('zh-sg')
-  );
+// `split('-')[0]` would also route Traditional or region-only tags
+// (zh-TW, zh-Hant, zh-MY) to it, so ask Intl.Locale for the tag's actual
+// script rather than guessing from a region allowlist — CLDR maximizes
+// zh-MY to zh-Hans-MY but zh-TW to zh-Hant-TW.
+function isSimplifiedChineseTag(tag: string): boolean {
+  try {
+    return new Intl.Locale(tag).maximize().script === 'Hans';
+  } catch {
+    return false;
+  }
 }
 
 function matchSupportedLanguage(value: string): (typeof supportedLngs)[number] | undefined {
   const lowerTag = value.toLowerCase();
   if (lowerTag === 'zh' || lowerTag.startsWith('zh-')) {
-    return isSimplifiedChineseTag(lowerTag) ? 'zh' : undefined;
+    return isSimplifiedChineseTag(value) ? 'zh' : undefined;
   }
   const baseLanguage = lowerTag.split('-')[0];
   return supportedLngs.find((lng) => lng === baseLanguage);
