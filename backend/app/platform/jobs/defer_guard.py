@@ -28,6 +28,7 @@ from sqlalchemy import inspect as sa_inspect, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
 from sqlalchemy.orm.attributes import set_committed_value
 
+from app.core.logging_config import redact_nested
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     IngestJob,
@@ -158,6 +159,19 @@ async def reset_session_for_settlement(job: IngestJob, *, db: AsyncSession) -> N
         logger.exception("Could not reload the job before settling it")
 
 
+def _render_or_unreadable(render: Callable[[], str]) -> str:
+    """One diagnostic field, or a placeholder when producing it raises.
+
+    fix(#1755): an already-expired ``job`` raises on the ``id`` read and an
+    exception with a failing ``__str__`` raises on render. Neither may
+    escape the log that runs in front of the settlement.
+    """
+    try:
+        return render()
+    except Exception:  # broad: a diagnostic must not replace the failure it reports
+        return "unreadable"
+
+
 async def _settle_after_failed_dispatch(
     rollback: RollbackCallable, exc: BaseException, db: AsyncSession
 ) -> bool:
@@ -173,9 +187,41 @@ async def _settle_after_failed_dispatch(
     except Exception:  # broad: rollback can itself fail with DB errors
         logger.exception(
             "Orphan-guard rollback failed after defer error",
-            defer_error=str(exc),
+            defer_error=_render_or_unreadable(lambda: redact_nested(str(exc))),
         )
         return False
+
+
+def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> None:
+    """Record what made a dispatch fail, because nothing downstream will.
+
+    fix(#1755): FastAPI answers a ``DeferFailed`` without logging it.
+    ``stage`` separates the two raise sites, which ``cause_class`` alone
+    cannot when both fail with the same type.
+
+    fix(#1755): ``error`` is scrubbed HERE, through ``redact_nested``.
+    ``_redact_sensitive_fields`` scrubs free text only under ``event`` and
+    ``exception``, and a defer exception can quote Procrastinate's
+    ``call_string``, which renders a live ``token='...'`` kwarg.
+
+    fix(#1755): ``exc_info`` carries the chain, because Procrastinate wraps
+    a connector failure as ``ConnectorException("Database error.")`` and the
+    top frame alone tells two outages apart from neither. ``format_exc_info``
+    renders it under ``exception``, which the processor does scrub.
+    """
+    # The inner guards degrade one field; this one covers the emit itself, so
+    # a raising processor cannot skip the settlement that follows.
+    try:
+        logger.warning(
+            "ingest_dispatch_failed",
+            job_id=_render_or_unreadable(lambda: str(job.id)),
+            stage=stage,
+            cause_class=type(exc).__name__,
+            error=_render_or_unreadable(lambda: redact_nested(str(exc))),
+            exc_info=exc,
+        )
+    except Exception:  # broad: a diagnostic must not preempt the settlement below
+        pass
 
 
 async def defer_with_orphan_guard(
@@ -215,6 +261,7 @@ async def defer_with_orphan_guard(
     try:
         await stamp_commit_attempted(job, db=db)
     except Exception as stamp_exc:  # broad: a failed marker write is a failed dispatch
+        _log_dispatch_failure(job, stamp_exc, stage="commit_attempted_marker")
         # fix(#1774): reset discards nothing — every caller commits before dispatching.
         await reset_session_for_settlement(job, db=db)
         rolled_back = await _settle_after_failed_dispatch(rollback, stamp_exc, db)
@@ -225,6 +272,7 @@ async def defer_with_orphan_guard(
     except (
         Exception
     ) as defer_exc:  # broad: defer_async can throw various job-runner errors
+        _log_dispatch_failure(job, defer_exc, stage="defer_async")
         rolled_back = await _settle_after_failed_dispatch(rollback, defer_exc, db)
         raise DeferFailed(rolled_back=rolled_back, cause=defer_exc) from defer_exc
 
@@ -289,7 +337,7 @@ async def settle_ingest_job_failed(
         logger.info(
             "orphan_guard_rollback_skipped_job_already_settled",
             job_id=str(job.id),
-            defer_error=str(defer_exc),
+            defer_error=_render_or_unreadable(lambda: redact_nested(str(defer_exc))),
         )
     return landed
 

@@ -214,6 +214,271 @@ class TestDeferWithOrphanGuard:
 
         asyncio.run(_check())
 
+    def test_each_stage_logs_its_cause_with_the_url_redacted(self):
+        """fix(#1755 item 10): FastAPI answers a `DeferFailed` without logging
+        it, so the guard logs the cause itself, under a `stage` that separates
+        the marker write from the defer call, with any URL redacted first.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            async def _rollback(exc: BaseException) -> None:
+                return None
+
+            async def _defer() -> None:
+                raise RuntimeError(
+                    "queue down: https://queue.example.com/d?token=SECRETVALUE1"
+                )
+
+            defer_db = AsyncMock()
+            defer_db.commit = AsyncMock()
+            with patch.object(defer_guard, "logger") as defer_logger:
+                with pytest.raises(defer_guard.DeferFailed):
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=defer_db, job=_job()
+                    )
+
+            marker_db = AsyncMock()
+            marker_db.commit = AsyncMock()
+            marker_db.rollback = AsyncMock()
+            marker_db.refresh = AsyncMock()
+            marker_db.execute = AsyncMock(side_effect=ValueError("bad shape"))
+            with patch.object(defer_guard, "logger") as marker_logger:
+                with pytest.raises(defer_guard.DeferFailed):
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=marker_db, job=_job()
+                    )
+
+            defer_call = defer_logger.warning.call_args
+            marker_call = marker_logger.warning.call_args
+            assert defer_call.args[0] == "ingest_dispatch_failed"
+            assert marker_call.args[0] == "ingest_dispatch_failed"
+            assert defer_call.kwargs["stage"] == "defer_async"
+            assert marker_call.kwargs["stage"] == "commit_attempted_marker"
+            assert defer_call.kwargs["cause_class"] == "RuntimeError"
+            assert marker_call.kwargs["cause_class"] == "ValueError"
+            assert "SECRETVALUE1" not in defer_call.kwargs["error"]
+            assert defer_call.kwargs["error"].startswith("queue down: ")
+
+        asyncio.run(_check())
+
+    def test_an_unreadable_job_id_does_not_preempt_the_settlement(self):
+        """fix(#1755 item 10): reading `job.id` off an already-expired instance
+        raises, and `reset_session_for_settlement` is what recovers it. The log
+        runs first, so it has to absorb that read rather than skip the rollback.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            class _Expired:
+                """A job whose identifier read raises, as an expired ORM instance does."""
+
+                user_metadata = None
+
+                @property
+                def id(self):
+                    raise RuntimeError("greenlet_spawn has not been called")
+
+            settled: list[BaseException] = []
+
+            async def _rollback(exc: BaseException) -> None:
+                settled.append(exc)
+
+            async def _defer() -> None:  # pragma: no cover - never reached
+                raise AssertionError("defer_call must not run")
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+            mock_db.rollback = AsyncMock()
+            mock_db.refresh = AsyncMock()
+
+            with pytest.raises(defer_guard.DeferFailed) as exc_info:
+                await defer_guard.defer_with_orphan_guard(
+                    _defer, rollback=_rollback, db=mock_db, job=_Expired()
+                )
+
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.rolled_back is True
+            assert len(settled) == 1
+
+        asyncio.run(_check())
+
+    def test_an_unrenderable_exception_does_not_preempt_the_settlement(self):
+        """fix(#1755 item 10): the dispatch log renders the exception, so an
+        exception whose `__str__` raises must degrade to a placeholder. The
+        readable field beside it keeps its real value.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            class _Unrenderable(RuntimeError):
+                def __str__(self) -> str:
+                    raise ValueError("this exception cannot render itself")
+
+            settled: list[BaseException] = []
+
+            async def _rollback(exc: BaseException) -> None:
+                settled.append(exc)
+
+            async def _defer() -> None:
+                raise _Unrenderable()
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+
+            with patch.object(defer_guard, "logger") as mock_logger:
+                with pytest.raises(defer_guard.DeferFailed) as exc_info:
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=mock_db, job=_job()
+                    )
+
+            assert exc_info.value.cause_class == "_Unrenderable"
+            assert exc_info.value.rolled_back is True
+            assert len(settled) == 1
+            logged = mock_logger.warning.call_args.kwargs
+            assert logged["error"] == "unreadable"
+            assert logged["job_id"] != "unreadable"
+
+        asyncio.run(_check())
+
+    def test_a_rendered_task_kwarg_is_scrubbed_before_it_reaches_the_record(self):
+        """fix(#1755 item 10): `error` is a plain scalar field, and the log
+        processor scrubs free text only under `event` and `exception`. A defer
+        error quoting Procrastinate's `call_string` must be scrubbed here.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            async def _rollback(exc: BaseException) -> None:
+                return None
+
+            async def _defer() -> None:
+                raise RuntimeError(
+                    "could not enqueue ingest_service[9]"
+                    "(token='PLACEHOLDERSECRET1', credential_ref=None)"
+                )
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+
+            with patch.object(defer_guard, "logger") as mock_logger:
+                with pytest.raises(defer_guard.DeferFailed):
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=mock_db, job=_job()
+                    )
+
+            logged_error = mock_logger.warning.call_args.kwargs["error"]
+            assert "PLACEHOLDERSECRET1" not in logged_error
+            assert "[REDACTED]" in logged_error
+            assert logged_error.startswith("could not enqueue ingest_service[9]")
+
+        asyncio.run(_check())
+
+    def test_the_rollback_failure_log_scrubs_the_same_text(self):
+        """fix(#1755 item 10): the rollback-failure log renders the same defer
+        exception under its own scalar field, so it needs the same scrub.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            async def _rollback(exc: BaseException) -> None:
+                raise ValueError("rollback crashed")
+
+            async def _defer() -> None:
+                raise RuntimeError(
+                    "could not enqueue ingest_service[9]"
+                    "(token='PLACEHOLDERSECRET2', credential_ref=None)"
+                )
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+
+            with patch.object(defer_guard, "logger") as mock_logger:
+                with pytest.raises(defer_guard.DeferFailed):
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=mock_db, job=_job()
+                    )
+
+            logged = mock_logger.exception.call_args.kwargs["defer_error"]
+            assert "PLACEHOLDERSECRET2" not in logged
+            assert "[REDACTED]" in logged
+
+        asyncio.run(_check())
+
+    def test_the_wrapped_cause_reaches_the_record_scrubbed(self):
+        """fix(#1755 item 10): Procrastinate wraps a connector failure as
+        `ConnectorException("Database error.")`, so the top frame alone tells
+        two outages apart from neither. The chain lands under `exception`.
+        """
+        import logging
+
+        from app.platform.jobs.defer_guard import _log_dispatch_failure
+        from tests._logging_state import configured_logging
+
+        records: list[str] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(self.format(record))
+
+        try:
+            raise ValueError(
+                "connect failed for https://db.example.com/?token=PLACEHOLDERSECRET3"
+            )
+        except ValueError as inner:
+            wrapped = RuntimeError("Database error.")
+            wrapped.__cause__ = inner
+
+        handler = _Capture()
+        with configured_logging():
+            logging.getLogger().addHandler(handler)
+            try:
+                _log_dispatch_failure(_job(), wrapped, stage="defer_async")
+            finally:
+                logging.getLogger().removeHandler(handler)
+
+        emitted = "\n".join(records)
+        assert "connect failed for" in emitted
+        assert "PLACEHOLDERSECRET3" not in emitted
+
+    def test_a_logger_that_raises_does_not_preempt_the_settlement(self):
+        """fix(#1755 item 10): a structlog processor can raise while emitting.
+        The whole diagnostic is best-effort, so the rollback still runs and the
+        caller still sees the 503.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            settled: list[BaseException] = []
+
+            async def _rollback(exc: BaseException) -> None:
+                settled.append(exc)
+
+            async def _defer() -> None:
+                raise RuntimeError("queue down")
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+
+            with patch.object(defer_guard, "logger") as mock_logger:
+                mock_logger.warning.side_effect = OSError("log sink is gone")
+                with pytest.raises(defer_guard.DeferFailed) as exc_info:
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=mock_db, job=_job()
+                    )
+
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.rolled_back is True
+            assert len(settled) == 1
+
+        asyncio.run(_check())
+
     def test_rollback_failure_still_raises_503(self):
         """If rollback itself raises, helper still surfaces the 503 to the client."""
 
