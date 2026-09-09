@@ -28,6 +28,7 @@ from sqlalchemy import inspect as sa_inspect, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
 from sqlalchemy.orm.attributes import set_committed_value
 
+from app.core.url_redaction import redact_exception_text
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     IngestJob,
@@ -178,6 +179,22 @@ async def _settle_after_failed_dispatch(
         return False
 
 
+def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> None:
+    """Record what made a dispatch fail, because nothing downstream will.
+
+    fix(#1755): FastAPI answers a ``DeferFailed`` without logging it.
+    ``stage`` separates the two raise sites, which ``cause_class`` alone
+    cannot when both fail with the same type.
+    """
+    logger.warning(
+        "ingest_dispatch_failed",
+        job_id=str(job.id),
+        stage=stage,
+        cause_class=type(exc).__name__,
+        error=redact_exception_text(exc),
+    )
+
+
 async def defer_with_orphan_guard(
     defer_call: DeferCallable,
     *,
@@ -215,6 +232,9 @@ async def defer_with_orphan_guard(
     try:
         await stamp_commit_attempted(job, db=db)
     except Exception as stamp_exc:  # broad: a failed marker write is a failed dispatch
+        # Logged before the reset below, which expires `job` and can leave its
+        # id unreadable.
+        _log_dispatch_failure(job, stamp_exc, stage="commit_attempted_marker")
         # fix(#1774): reset discards nothing — every caller commits before dispatching.
         await reset_session_for_settlement(job, db=db)
         rolled_back = await _settle_after_failed_dispatch(rollback, stamp_exc, db)
@@ -225,6 +245,7 @@ async def defer_with_orphan_guard(
     except (
         Exception
     ) as defer_exc:  # broad: defer_async can throw various job-runner errors
+        _log_dispatch_failure(job, defer_exc, stage="defer_async")
         rolled_back = await _settle_after_failed_dispatch(rollback, defer_exc, db)
         raise DeferFailed(rolled_back=rolled_back, cause=defer_exc) from defer_exc
 

@@ -214,6 +214,55 @@ class TestDeferWithOrphanGuard:
 
         asyncio.run(_check())
 
+    def test_each_stage_logs_its_cause_with_the_url_redacted(self):
+        """fix(#1755 item 10): FastAPI answers a `DeferFailed` without logging
+        it, so the guard logs the cause itself, under a `stage` that separates
+        the marker write from the defer call, with any URL redacted first.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            async def _rollback(exc: BaseException) -> None:
+                return None
+
+            async def _defer() -> None:
+                raise RuntimeError(
+                    "queue down: https://queue.example.com/d?token=SECRETVALUE1"
+                )
+
+            defer_db = AsyncMock()
+            defer_db.commit = AsyncMock()
+            with patch.object(defer_guard, "logger") as defer_logger:
+                with pytest.raises(defer_guard.DeferFailed):
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=defer_db, job=_job()
+                    )
+
+            marker_db = AsyncMock()
+            marker_db.commit = AsyncMock()
+            marker_db.rollback = AsyncMock()
+            marker_db.refresh = AsyncMock()
+            marker_db.execute = AsyncMock(side_effect=ValueError("bad shape"))
+            with patch.object(defer_guard, "logger") as marker_logger:
+                with pytest.raises(defer_guard.DeferFailed):
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=marker_db, job=_job()
+                    )
+
+            defer_call = defer_logger.warning.call_args
+            marker_call = marker_logger.warning.call_args
+            assert defer_call.args[0] == "ingest_dispatch_failed"
+            assert marker_call.args[0] == "ingest_dispatch_failed"
+            assert defer_call.kwargs["stage"] == "defer_async"
+            assert marker_call.kwargs["stage"] == "commit_attempted_marker"
+            assert defer_call.kwargs["cause_class"] == "RuntimeError"
+            assert marker_call.kwargs["cause_class"] == "ValueError"
+            assert "SECRETVALUE1" not in defer_call.kwargs["error"]
+            assert "queue.example.com" in defer_call.kwargs["error"]
+
+        asyncio.run(_check())
+
     def test_rollback_failure_still_raises_503(self):
         """If rollback itself raises, helper still surfaces the 503 to the client."""
 
