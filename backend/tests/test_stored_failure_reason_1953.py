@@ -20,6 +20,7 @@ from app.core.failure_reason import (
     MAX_REASON_CHARS,
     coded_failure_reason,
     is_composed_exception,
+    prefixed_failure_reason,
     redact_failure_reason,
 )
 from app.processing.ingest.ogr import IngestionError
@@ -71,12 +72,12 @@ class TestTheHelperRefusesWhatDecision3Forbids:
 
     def test_gdal_stderr_keeps_only_its_summary_line(self) -> None:
         exc = IngestionError(
-            "ogr2ogr failed (exit 1): ERROR 1: Cannot open datasource\n"
+            "ERROR 1: Cannot open datasource\n"
             "ogr2ogr -f PostgreSQL PG:dbname=geolens /app/staging/abc_roads.gpkg"
         )
         reason = redact_failure_reason(exc)
 
-        assert reason.endswith("Cannot open datasource")
+        assert reason == "ERROR 1: Cannot open datasource"
         assert "/app/staging" not in reason
 
     def test_a_wrapper_around_gdal_stderr_loses_the_libpq_password(self) -> None:
@@ -86,7 +87,7 @@ class TestTheHelperRefusesWhatDecision3Forbids:
         for rendered in ("password=hunter2", "password='hunt er2'"):
             reason = redact_failure_reason(
                 IngestionError(
-                    "ogr2ogr failed (exit 1): ERROR 1: Unable to connect: "
+                    "ERROR 1: Unable to connect: "
                     f"PG:host=db port=5432 dbname=geolens user=gl {rendered} "
                     "sslmode=require"
                 )
@@ -95,6 +96,69 @@ class TestTheHelperRefusesWhatDecision3Forbids:
             assert "hunt er2" not in reason
             assert "password=<redacted>" in reason
             assert "geolens" not in reason, "the topology goes with the secret"
+
+    def test_a_subprocess_diagnostic_ends_at_the_prefix_this_tree_composed(
+        self,
+    ) -> None:
+        """Scrubbing operands out of a command line cannot terminate: the
+        flags and the target table are operands too."""
+        reason = redact_failure_reason(
+            IngestionError(
+                "ogr2ogr failed (exit 1): ogr2ogr -f PostgreSQL PG:host=db "
+                "-nln tenant_private.roads /app/staging/file.gpkg"
+            )
+        )
+
+        assert reason == "ogr2ogr failed (exit 1)"
+        assert "tenant_private" not in reason
+        assert "-nln" not in reason
+
+        # The same command line with nothing composed in front of it leaves
+        # nothing worth storing.
+        assert (
+            redact_failure_reason(
+                IngestionError("ogr2ogr -f PostgreSQL PG:host=db /app/staging/f.gpkg")
+            )
+            == INTERNAL_FAILURE_REASON
+        )
+
+    def test_the_diagnostic_survives_what_the_command_line_does_not(self) -> None:
+        """The refusal half needs its admission. A remote service import that
+        is refused has the origin's status code as its only useful signal."""
+        assert redact_failure_reason(
+            IngestionError(
+                "ogr2ogr failed (exit 1): ERROR 1: HTTP error code : 400\n"
+                "ERROR 1: Unable to open datasource"
+            )
+        ) == ("ogr2ogr failed (exit 1): ERROR 1: HTTP error code : 400")
+
+    def test_naming_gdal_in_prose_is_not_a_command_line(self) -> None:
+        """The cut's negative control: an invocation is followed by a flag or
+        an operand, a mention by a word."""
+        message = "GDAL error: the layer has no geometry column"
+        assert redact_failure_reason(IngestionError(message)) == message
+
+    def test_a_prefix_never_wraps_the_code(self) -> None:
+        """A reader localizes the code by matching it exactly, so a sentence
+        around it is a sentence nobody can translate."""
+        assert (
+            prefixed_failure_reason("Failed to stage manifest source", _driver_error())
+            == INTERNAL_FAILURE_REASON
+        )
+        assert prefixed_failure_reason(
+            "Failed to stage manifest source", ValueError("the archive is empty")
+        ) == ("Failed to stage manifest source: the archive is empty")
+
+    def test_a_decoder_complaint_is_not_this_tree_s_text(self) -> None:
+        """`UnicodeDecodeError` is a `ValueError` a library raises, and its
+        message renders the byte the decoder choked on."""
+        try:
+            b"\xff\xfe".decode()
+        except UnicodeDecodeError as exc:
+            assert not is_composed_exception(exc)
+            assert redact_failure_reason(exc) == INTERNAL_FAILURE_REASON
+        else:  # pragma: no cover
+            raise AssertionError("precondition: the decode must fail")
 
     def test_a_one_line_gdal_echo_keeps_no_path_and_no_topology(self) -> None:
         """The whole leak fits on one line, so the summary cut removes none of
@@ -107,12 +171,9 @@ class TestTheHelperRefusesWhatDecision3Forbids:
             )
         )
 
-        assert "hunter2" not in reason
-        for keyword in ("host", "port", "dbname", "user", "password"):
-            assert f"{keyword}=<redacted>" in reason
-        assert "geolens" not in reason
-        assert "/app/staging" not in reason
-        assert "9f2_roads.gpkg" not in reason
+        assert reason == INTERNAL_FAILURE_REASON
+        for leaked in ("hunter2", "geolens", "/app/staging", "9f2_roads.gpkg"):
+            assert leaked not in reason
 
     def test_a_vsi_handle_is_a_path_too(self) -> None:
         reason = redact_failure_reason(
@@ -189,6 +250,7 @@ def _function(module_path: Path, name: str) -> ast.FunctionDef | ast.AsyncFuncti
 _SANCTIONED_REDACTORS = frozenset(
     {
         "redact_failure_reason",
+        "prefixed_failure_reason",
         "redact_run_error",
         "coded_failure_reason",
         # analysis/tasks.py's SQLSTATE-to-sentence mapper, the same argument

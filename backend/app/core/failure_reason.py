@@ -8,6 +8,8 @@ module, so the clause holds whichever caller composed the text.
 
 from __future__ import annotations
 
+import re
+
 from app.core.url_redaction import (
     redact_filesystem_paths,
     redact_libpq_credentials,
@@ -30,13 +32,13 @@ _OWN_EXCEPTION_ROOT = "app."
 def is_composed_exception(exc: BaseException) -> bool:
     """Whether this codebase, rather than a library, wrote the message.
 
-    fix(#1953): provenance, not shape. A class defined under ``app.``, or a
-    ``ValueError``, which is this tree's spelling for a refusal the user is
-    meant to read. The exceptions that render internals are none of those:
-    SQLAlchemy appends the statement and its parameters, GDAL and
-    subprocesses raise ``RuntimeError``, HTTP clients embed the request URL.
+    fix(#1953): provenance, not shape. A class defined under ``app.``, or
+    ``ValueError`` itself, which is this tree's spelling for a refusal the
+    user is meant to read. Its subclasses are NOT admitted by that half: a
+    library's own is still a library's text, and ``UnicodeDecodeError``
+    renders the byte a decoder choked on.
     """
-    return isinstance(exc, ValueError) or type(exc).__module__.startswith(
+    return type(exc) is ValueError or type(exc).__module__.startswith(
         _OWN_EXCEPTION_ROOT
     )
 
@@ -55,15 +57,34 @@ def redact_failure_reason(reason: str | BaseException) -> str:
             return INTERNAL_FAILURE_REASON
         reason = str(reason)
     lines = reason.splitlines()
-    summary = _scrub(lines[0] if lines else "")
+    summary = _drop_subprocess_output(_scrub(lines[0] if lines else ""))
     # fix(#1953): the scrubbers must see a credential whole, and choosing the
     # summary line first can hand them half of one. Scrubbing the whole text
     # cannot replace that (urlsplit deletes the line breaks the payload cut
     # needs), so it is the cross-check: a line the wider pass would have
     # changed is not one to keep.
-    if _scrub_stable(summary) not in _scrub_stable(_scrub(reason)):
+    if not summary or _scrub_stable(summary) not in _scrub_stable(_scrub(reason)):
         return INTERNAL_FAILURE_REASON
     return summary[:MAX_REASON_CHARS]
+
+
+# fix(#1953): a GDAL invocation, which is the clause's "command line". The
+# lookahead is what tells one from a mention: an invocation is followed by a
+# flag or an operand, never by "failed" or by prose. Scrubbing the operands
+# cannot meet the clause, since the flags and the target table are operands.
+_GDAL_INVOCATION_RE = re.compile(
+    r"(?i)\b(?:ogr2ogr|ogrinfo|ogrtindex|gdal[a-z_]{0,24})\s+(?=-|/|PG:|<redacted>)"
+)
+
+
+def _drop_subprocess_output(summary: str) -> str:
+    """Everything from a GDAL invocation onward, removed.
+
+    What comes before it is this tree's own prefix and GDAL's diagnostic,
+    which is the part a reader needs.
+    """
+    match = _GDAL_INVOCATION_RE.search(summary)
+    return summary[: match.start()].rstrip(" :-") if match else summary
 
 
 def _scrub(text: str) -> str:
@@ -87,6 +108,19 @@ _URLSPLIT_STRIPS = str.maketrans("", "", "\t\r\n")
 
 def _scrub_stable(text: str) -> str:
     return text.translate(_URLSPLIT_STRIPS)
+
+
+def prefixed_failure_reason(prefix: str, reason: str | BaseException) -> str:
+    """``prefix: reason``, or the bare code when there is no reason to give.
+
+    fix(#1953): a prefix wrapped around ``INTERNAL_FAILURE_REASON`` hides the
+    code inside a sentence, and the readers that localize it match the code
+    exactly.
+    """
+    redacted = redact_failure_reason(reason)
+    if redacted == INTERNAL_FAILURE_REASON:
+        return INTERNAL_FAILURE_REASON
+    return f"{prefix}: {redacted}"[:MAX_REASON_CHARS]
 
 
 def coded_failure_reason(prefix: str, exc: BaseException) -> str:
