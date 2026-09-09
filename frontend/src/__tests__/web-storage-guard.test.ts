@@ -117,6 +117,10 @@
  * closes them, and a reader who assumes otherwise will trust this gate for
  * something it was never able to do.
  *
+ * fix(#1552): the follow-up issue's four candidate forms needed no detector
+ * change; each is triaged, with its evidence, at its own fixture block below
+ * (search `#1552` in this file).
+ *
  * WHAT THE PROMISE IS WORTH NOW. Seven rounds is a poor advertisement for the
  * original claim, and the gate is nonetheless much harder to fool than when it
  * started. The honest version of the claim is not "there are no false
@@ -1382,6 +1386,12 @@ describe('#1536: reflective reads', () => {
     ['a key enumeration', `const k = Reflect.ownKeys(window);`],
     ['a non-storage key', `const s = Reflect.get(window, 'somethingElse');`],
     ['a runtime key', `const s = Reflect.get(window, key);`],
+    // fix(#1552): this descriptor is an accessor pair (`get`/`set`), not a
+    // data property, so it has no `value` key and reading one that is not
+    // there cannot call `get`. Same shape from `Reflect.getOwnPropertyDescriptor`.
+    ['a descriptor .value read', `const d = Object.getOwnPropertyDescriptor(window, 'sessionStorage'); void d?.value;`],
+    ['a Reflect descriptor read', `const d = Reflect.getOwnPropertyDescriptor(window, 'sessionStorage');`],
+    ['a Reflect descriptor .value read', `const d = Reflect.getOwnPropertyDescriptor(window, 'sessionStorage'); void d?.value;`],
   ])('ignores %s', (_name, src) => {
     expect(scan(src).accesses).toEqual([]);
   });
@@ -1448,5 +1458,106 @@ describe('#1536: reflective reads, however the callee is spelled', () => {
     ['a bracketed non-get member', `const v = Reflect['has'](window, 'sessionStorage');`],
   ])('ignores %s', (_name, src) => {
     expect(scan(src).accesses).toEqual([]);
+  });
+});
+
+/**
+ * fix(#1552): a differently-named alias is judged at its capture, the
+ * property read, never at its later dereference. Scoped to this gate's own
+ * SecurityError claim — see the last fixture and #1552 for what that excludes.
+ */
+describe('#1552: a captured alias is judged at the capture site, not the dereference', () => {
+  const scan = (src: string) => scanSource('/src/fixture.ts', src);
+
+  it('flags exactly one access, at an unguarded capture, however far the alias travels', () => {
+    const r = scan(
+      `const s = window.sessionStorage; function useIt() { return s.getItem('k'); }`,
+    );
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(false);
+  });
+
+  it('follows the capture site into a try, not the dereference', () => {
+    const r = scan(
+      `let s: Storage | undefined;
+       try { s = window.sessionStorage; } catch {}
+       function useIt() { return s?.getItem('k'); }`,
+    );
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(true);
+  });
+
+  it('flags a capture through an object property the same way as a plain variable', () => {
+    const r = scan(
+      `const cache: { store?: Storage } = {};
+       try { cache.store = window.sessionStorage; } catch {}
+       function useIt() { return cache.store?.getItem('k'); }`,
+    );
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(true);
+  });
+
+  // A parameter default runs on the callee's own frame at call time, which
+  // this walk does not trace, so it is always unguarded here even when every
+  // visible call site is guarded: a false positive, never a false negative.
+  it('flags a capture through a parameter default even when every visible call site is guarded', () => {
+    const r = scan(
+      `try {
+         function useDefault(s = window.sessionStorage) { return s; }
+         useDefault();
+       } catch {}`,
+    );
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(false);
+  });
+
+  // fix(#1552 codex P2): documented gap, not a false pass — see #1552.
+  it('does NOT protect a later fallible call through the alias — a real, untracked gap', () => {
+    const r = scan(
+      `let s: Storage | undefined;
+       try { s = window.sessionStorage; } catch {}
+       function useIt() { return s?.setItem('k', 'v'); }`,
+    );
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(true);
+  });
+});
+
+/**
+ * fix(#1552): an `any`/`unknown`-typed alias is not a new form — this walk
+ * has no type checker, so `w.sessionStorage` parses the same regardless of
+ * what TypeScript believes `w` is.
+ */
+describe('#1552: a type annotation does not hide the property name from this walk', () => {
+  const scan = (src: string) => scanSource('/src/fixture.ts', src);
+  const unguardedCount = (src: string) => scan(src).accesses.filter((a) => !a.guarded).length;
+
+  it.each([
+    ['an any-typed alias', `const w: any = window; w.sessionStorage.getItem('k');`],
+    ['an unknown-typed alias behind a cast', `const w: unknown = window; (w as any).sessionStorage.getItem('k');`],
+    ['an any-typed function parameter', `function f(w: any) { return w.sessionStorage.getItem('k'); }`],
+    ['destructuring through an any-typed alias', `const w: any = window; const { sessionStorage } = w;`],
+  ])('flags %s', (_name, src) => {
+    expect(unguardedCount(src)).toBe(1);
+  });
+
+  it('still recognises the try when the alias is any-typed', () => {
+    const r = scan(`const w: any = window; try { w.sessionStorage.getItem('k'); } catch {}`);
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(true);
+  });
+});
+
+/**
+ * fix(#1552): `with (window) { ... }` is skipped — it changes how a bare
+ * identifier resolves, not how it is spelled, so it cannot hide a read from
+ * a walk that matches spelling. Not a parse failure here; see #1552.
+ */
+describe('#1552: with cannot hide a bare read, because it does not rename anything', () => {
+  it('flags an unguarded access inside a with statement', () => {
+    const r = scanSource('/src/fixture.ts', `with (window) { sessionStorage.getItem('k'); }`);
+    expect(r.failures).toEqual([]);
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(false);
   });
 });
