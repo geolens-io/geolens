@@ -231,6 +231,50 @@ async def test_job_whose_ingest_row_is_still_leasing_is_left_alone():
 
 
 @pytest.mark.anyio
+async def test_the_sweep_purges_the_tokens_of_only_the_rows_it_failed():
+    """fix(#1755 item 12): a crashed worker never reaches
+    `purge_token_on_failure`, so the sweep that declares its row dead is where
+    the token stops being needed. A job left alone may still be running.
+    """
+    live = "11111111-1111-1111-1111-111111111111"
+    dead = "22222222-2222-2222-2222-222222222222"
+    fake = _fake_task_app([_job(1, live), _job(2, dead), _job(None, "unpersisted")])
+    purge = AsyncMock()
+
+    with (
+        patch("app.processing.ingest.tasks.task_app", fake),
+        patch(
+            "app.platform.jobs.worker._ingest_jobs_still_leasing",
+            AsyncMock(return_value={live}),
+        ),
+        patch("app.platform.jobs.sweep.purge_queue_row_tokens", purge),
+    ):
+        await fail_stalled_queue_jobs()
+
+    assert purge.await_args.args[1] == [2]
+
+
+@pytest.mark.anyio
+async def test_a_purge_failure_does_not_abort_the_sweep():
+    """The periodic backstop still covers these rows, so a purge that raises
+    must not cost the transition the sweep just made.
+    """
+    fake = _fake_task_app([_job(5, task_name="ingest_service")])
+
+    with (
+        patch("app.processing.ingest.tasks.task_app", fake),
+        patch(
+            "app.platform.jobs.sweep.purge_queue_row_tokens",
+            AsyncMock(side_effect=OSError("queue table unreachable")),
+        ),
+    ):
+        failed = await fail_stalled_queue_jobs()
+
+    assert failed == 1
+    fake.job_manager.prune_stalled_workers.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_job_with_no_lease_to_read_still_gets_swept():
     """The liveness check must not become a blanket amnesty.
 

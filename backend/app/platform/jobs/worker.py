@@ -362,6 +362,28 @@ async def _leasing_ingest_job_ids(ids: set) -> set[str]:
         return {str(row[0]) for row in rows.all()}
 
 
+async def _purge_stalled_queue_row_tokens(job_ids: list) -> None:
+    """Drop the service tokens of the rows this sweep just failed. Never raises.
+
+    fix(#1755 item 12): a crashed worker never reaches
+    ``purge_token_on_failure``, so this transition is the first moment its
+    token is provably dead weight. Without it the row waits for
+    ``purge_terminal_job_tokens``, a whole API sweeper cadence later.
+    """
+    if not job_ids:
+        return
+    from app.core.db import async_session
+    from app.platform.jobs.sweep import purge_queue_row_tokens
+
+    try:
+        async with async_session() as session:
+            await purge_queue_row_tokens(session, job_ids)
+    except Exception:  # broad: the periodic backstop still covers these rows
+        log.warning(
+            "Stalled queue token purge failed", job_count=len(job_ids), exc_info=True
+        )
+
+
 async def fail_stalled_queue_jobs() -> int:
     """Fail procrastinate rows whose worker died mid-job. Returns the count.
 
@@ -384,6 +406,7 @@ async def fail_stalled_queue_jobs() -> int:
     stalled = list(await manager.get_stalled_jobs(seconds_since_heartbeat=seconds))
     alive = await _ingest_jobs_still_leasing(stalled)
     failed = 0
+    failed_ids: list = []
     for job in stalled:
         if job.id is None:  # unpersisted job — nothing to transition
             continue
@@ -406,11 +429,13 @@ async def fail_stalled_queue_jobs() -> int:
         # sweep mid-loop; metrics bookkeeping must never stop a sweep.
         count_failed_job(getattr(job, "queue", None))
         failed += 1
+        failed_ids.append(job.id)
         log.warning(
             "Failed stalled queue job — its worker stopped heartbeating",
             procrastinate_job_id=job.id,
             task_name=job.task_name,
         )
+    await _purge_stalled_queue_row_tokens(failed_ids)
     # Drop the dead workers' rows too, so the heartbeat table doesn't grow one
     # tombstone per killed worker.
     pruned = await manager.prune_stalled_workers(seconds_since_heartbeat=seconds)

@@ -7,6 +7,7 @@ lifespan sweeper, worker startup recovery, and the admin cleanup endpoint in
 """
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1019,6 +1020,27 @@ def publish_refresh_reconciliation(outcome: StaleCleanupOutcome) -> None:
     """
     if outcome._refresh_runs_reconciled:
         refresh_sweep_reconciled_total.inc(outcome._refresh_runs_reconciled)
+
+
+_PURGE_JOB_TOKENS_BY_ID_SQL = (
+    "UPDATE catalog.procrastinate_jobs SET args = args - 'token' "
+    "WHERE id = ANY(:job_ids)"
+)
+
+
+async def purge_queue_row_tokens(db: AsyncSession, job_ids: Sequence[int]) -> None:
+    """Drop the raw service token from the named queue rows.
+
+    fix(#1755 item 12): the one statement both immediate purge sites use —
+    a task that fails on its own (``purge_token_on_failure``) and the
+    stalled sweep, which is the first moment a crashed worker's token is
+    provably dead weight. Both service tasks are ``retry=0``, so nothing
+    re-runs from these args.
+    """
+    if not job_ids:
+        return
+    await db.execute(text(_PURGE_JOB_TOKENS_BY_ID_SQL), {"job_ids": list(job_ids)})
+    await db.commit()
 
 
 async def purge_terminal_job_tokens(db: AsyncSession) -> None:

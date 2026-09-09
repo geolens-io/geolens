@@ -3635,7 +3635,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r2-r5): +55 — `load_job_for_error_write`, the guarded job
     # load the two re-upload tails share, which also ends the transaction on a
     # miss so the run row they write next is unbudgeted. Cap 2668 -> 2723, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2421,
+    # fix(#1755 item 12): -8 — the by-id purge statement moved to
+    # `platform/jobs/sweep.py`, which the stalled sweep also calls.
+    # Cap 2421 -> 2413, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2413,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4045,7 +4048,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is the comment stating why a set-based UPDATE cannot use `lock_timeout`
     # the way a single-row write does. Cap 2374 -> 2392, exact.
     # chore(#1873): review-history comments trimmed. Cap 2392 -> 1506, exact.
-    "backend/app/platform/jobs/sweep.py": 1472,
+    # fix(#1755 item 12): +22 — `purge_queue_row_tokens`, the by-id token
+    # purge the stalled sweep and the task-side purge now share.
+    # Cap 1472 -> 1494, exact.
+    "backend/app/platform/jobs/sweep.py": 1494,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
