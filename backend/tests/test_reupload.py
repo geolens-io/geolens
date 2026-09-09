@@ -634,6 +634,47 @@ class TestReuploadPreview:
         type_change_names = [c["name"] for c in diff["type_changes"]]
         assert "value" in type_change_names
 
+    async def test_preview_surfaces_the_ingest_ceiling_message(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_ogrinfo_preview,
+    ):
+        """fix(#2043): the ceiling message survives this door, not the generic 422."""
+        from app.processing.ingest.ogr import IngestBudgetExceededError
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (
+                    "update.geojson",
+                    b'{"type":"FeatureCollection","features":[]}',
+                    "application/json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        job_id = resp.json()["job_id"]
+
+        mock_ogrinfo_preview.side_effect = IngestBudgetExceededError(
+            "Parquet file has 6 rows, above the 5-row ingest limit. "
+            "Split the file or load a subset."
+        )
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job_id}/preview",
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert "above the 5-row ingest limit" in detail, detail
+        assert "may be malformed or unsupported" not in detail, detail
+
     async def test_s3_preview_download_is_removed_after_use(
         self,
         client: AsyncClient,

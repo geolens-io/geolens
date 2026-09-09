@@ -88,6 +88,7 @@ logger = structlog.get_logger(__name__)
 
 _catalog_port = get_catalog_port()
 IngestionError = _catalog_port.ingestion_error_class()
+IngestBudgetExceededError = _catalog_port.ingest_budget_exceeded_error_class()
 PresignedCompleteRequest = _catalog_port.presigned_complete_request_model()
 PresignedUploadRequest = _catalog_port.presigned_upload_request_model()
 PresignedUploadResponse = _catalog_port.presigned_upload_response_model()
@@ -624,6 +625,14 @@ async def reupload_preview(
         info = await get_catalog_port().run_ogrinfo_preview(
             file_path, layer_name=layer_name
         )
+    except IngestBudgetExceededError as exc:
+        # fix(#2043): the ceiling message the import preview already answers.
+        # The broad handler below reports "malformed or unsupported", which is
+        # wrong for a file that is merely too large, and hides the way out.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     except UnsafeUploadError as exc:
         # fix(#1846): the same mapping `preview_file` gives it.
         # This block had no `except` at all, so a content refusal -- which is a

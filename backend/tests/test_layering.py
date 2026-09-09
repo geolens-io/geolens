@@ -4591,7 +4591,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#2036): +8. The re-upload preview maps an unreadable file to the
     # import preview's 422 instead of letting it escape as a 500.
     # Cap 1428 -> 1436, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1436,
+    # fix(#2043): +9. The ceiling refusal gets its own except clause and the
+    # port binding it reads. Cap 1436 -> 1445, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1445,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
