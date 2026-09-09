@@ -291,7 +291,6 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "modules/catalog/search/service_records.py": 1,
     "modules/catalog/sources/adapters/stac.py": 3,
     "modules/catalog/sources/classify.py": 4,
-    "modules/catalog/sources/cog_info.py": 1,
     "modules/catalog/sources/origin_probe.py": 2,
     "modules/catalog/sources/preview.py": 3,
     "modules/catalog/sources/probe.py": 7,
