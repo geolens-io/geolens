@@ -458,6 +458,24 @@ class TestReadOnlyTransaction:
         assert result.rows == [[1]]
         assert result.truncated is False
 
+    @pytest.mark.parametrize("suffix", [";", ";;", " ; ;"])
+    async def test_validated_terminator_run_survives_the_limit_wrapper(
+        self, client, test_db_session, suffix
+    ):
+        """fix(#1892): a terminator inside the wrapper's parentheses is a syntax
+        error, so the validator strips the whole run. The raw statement is the
+        control."""
+        from app.platform.sandbox.validator import validate_sql
+
+        session = test_db_session
+        raw = f"SELECT 1 AS a{suffix}"
+        with pytest.raises(SandboxError) as exc_info:
+            await execute_safe(session, raw)
+        assert exc_info.value.category == "query_failed"
+
+        result = await execute_safe(session, validate_sql(raw).sql)
+        assert result.rows == [[1]]
+
 
 # ---------------------------------------------------------------------------
 # SAND-03: Row limit truncation (integration, needs DB)

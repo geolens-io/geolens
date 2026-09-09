@@ -51,94 +51,181 @@ def _mock_engine(executed: list[str], *, fail_role: str | None = None) -> MagicM
     return engine
 
 
-def test_schema_rewrite_preserves_pgvector_cosine_operator():
-    """fix(#557): the rewrite re-renders the parsed AST, and sqlglot mis-parses
-    pgvector ``<=>`` as NullSafeEQ. Without the sentinel guard the schema rewrite
-    silently turns cosine nearest-neighbor ranking into ``IS NOT DISTINCT FROM``,
-    returning the wrong rows in multi-tenant. The operator must survive and the
-    logical ``data`` schema must still be translated."""
+# (original SQL, expected rewrite) with ``<S>`` standing in for the physical
+# tenant schema. Exact text: the rewrite replaces schema identifier spans and
+# nothing else, so single-tenant behaviour and multi-tenant behaviour agree.
+_SPAN_CASES = [
+    (
+        "SELECT marker FROM data.roads WHERE id = 1",
+        'SELECT marker FROM "<S>".roads WHERE id = 1',
+    ),
+    (
+        'SELECT "data"."roads".marker FROM "data"."roads"',
+        'SELECT "<S>"."roads".marker FROM "<S>"."roads"',
+    ),
+    (
+        "SELECT DATA.ROADS.marker FROM DATA.ROADS",
+        'SELECT "<S>".ROADS.marker FROM "<S>".ROADS',
+    ),
+    (
+        'SELECT data."Roads".marker FROM data."Roads"',
+        'SELECT "<S>"."Roads".marker FROM "<S>"."Roads"',
+    ),
+    # fix(#559): a literal that spells a table reference or an operator, in any
+    # quoting form, is not SQL and must survive byte for byte.
+    (
+        "SELECT 'data.roads <=> &&' AS lit, marker FROM data.roads",
+        "SELECT 'data.roads <=> &&' AS lit, marker FROM \"<S>\".roads",
+    ),
+    (
+        "SELECT $$data.roads <=> &&$$ AS lit, marker FROM data.roads",
+        'SELECT $$data.roads <=> &&$$ AS lit, marker FROM "<S>".roads',
+    ),
+    (
+        "SELECT E'\\x41' AS lit, marker FROM data.roads",
+        "SELECT E'\\x41' AS lit, marker FROM \"<S>\".roads",
+    ),
+    (
+        "SELECT 'e\u00e9\U0001f5fa' AS lit, marker FROM data /* c */ . roads -- tail",
+        "SELECT 'e\u00e9\U0001f5fa' AS lit, marker FROM \"<S>\" /* c */ . roads -- tail",
+    ),
+    # fix(#557): sqlglot parses the pgvector cosine operator as NullSafeEQ, so
+    # re-rendering the tree turned ranking into IS NOT DISTINCT FROM.
+    (
+        "SELECT embedding <=> '[1]'::vector AS cos, embedding <-> '[2]'::vector AS l2 "
+        "FROM data.roads",
+        "SELECT embedding <=> '[1]'::vector AS cos, embedding <-> '[2]'::vector AS l2 "
+        'FROM "<S>".roads',
+    ),
+    (
+        "SELECT a IS NOT DISTINCT FROM b, embedding <=> '[1]'::vector FROM data.roads",
+        "SELECT a IS NOT DISTINCT FROM b, embedding <=> '[1]'::vector "
+        'FROM "<S>".roads',
+    ),
+    # fix(#1892): the deleted sentinel swap restored EVERY `&&` as `<=>` once a
+    # real cosine operator was present, so a PostGIS bbox overlap beside one was
+    # rewritten into a distance operator.
+    (
+        "SELECT id FROM data.roads WHERE geom && ST_MakeEnvelope(0, 0, 1, 1, 4326) "
+        "ORDER BY embedding <=> '[1]'::vector",
+        'SELECT id FROM "<S>".roads WHERE geom && ST_MakeEnvelope(0, 0, 1, 1, 4326) '
+        "ORDER BY embedding <=> '[1]'::vector",
+    ),
+    (
+        "WITH roads AS (SELECT 1 AS x) SELECT marker FROM data.roads",
+        'WITH roads AS (SELECT 1 AS x) SELECT marker FROM "<S>".roads',
+    ),
+    # A CTE named `data` qualifies columns, not schemas: only the inner table
+    # reference is a schema qualifier.
+    (
+        "WITH data AS (SELECT marker FROM data.roads) SELECT data.marker FROM data",
+        'WITH data AS (SELECT marker FROM "<S>".roads) SELECT data.marker FROM data',
+    ),
+    (
+        "SELECT a.marker FROM data.roads AS a JOIN data.roads b ON a.id = b.id",
+        'SELECT a.marker FROM "<S>".roads AS a JOIN "<S>".roads b ON a.id = b.id',
+    ),
+    ('SELECT * FROM "DATA".roads', 'SELECT * FROM "DATA".roads'),
+]
+
+
+@pytest.mark.parametrize(("sql", "expected"), _SPAN_CASES)
+def test_rewrite_replaces_only_schema_identifier_spans(sql, expected):
     from app.platform.sandbox.executor import _rewrite_logical_data_schema
 
-    sql = (
-        "SELECT name, embedding <=> '[1,2,3]'::vector AS distance "
-        "FROM data.records ORDER BY distance LIMIT 10"
+    assert _rewrite_logical_data_schema(sql, _SCHEMA_A) == expected.replace(
+        "<S>", _SCHEMA_A
     )
-    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
-
-    assert "<=>" in rewritten
-    assert "IS NOT DISTINCT FROM" not in rewritten
-    assert f'"{_SCHEMA_A}".records' in rewritten
-    assert "data.records" not in rewritten
 
 
-def test_schema_rewrite_preserves_l2_and_cosine_together():
-    """Both advertised distance operators survive the rewrite: ``<->`` already
-    round-trips, ``<=>`` is protected by the sentinel swap."""
+@pytest.mark.parametrize(
+    "meta", [{}, {"start": 0, "end": 3}, {"start": 19, "end": 10_000}]
+)
+def test_rewrite_refuses_unusable_source_offsets(monkeypatch, meta):
+    """fix(#1892): each span is proven against the text before anything is
+    spliced, so a parser that stops reporting usable offsets fails closed."""
+    import sqlglot
+    from sqlglot import exp
+
+    import app.platform.sandbox.executor as executor
+
+    sql = "SELECT marker FROM data.roads"
+    statement = sqlglot.parse_one(sql, dialect="postgres")
+    for table in statement.find_all(exp.Table):
+        identifier = table.args["db"]
+        identifier.meta.clear()
+        identifier.meta.update(meta)
+    monkeypatch.setattr(sqlglot, "parse", lambda *args, **kwargs: [statement])
+
+    with pytest.raises(SandboxError) as exc_info:
+        executor._rewrite_logical_data_schema(sql, _SCHEMA_A)
+    assert exc_info.value.category == "query_failed"
+
+
+def test_analysis_preview_sql_binds_to_the_tenant_schema():
+    """service_analysis renders logical ``"data"."<table>"`` refs and calls
+    execute_safe directly, so the rewrite must reach the same statement the
+    physical schema would have rendered."""
+    from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
+    from app.modules.catalog.datasets.domain.service import (
+        _safe_table_ref,
+        build_preview_sql,
+    )
+    from app.platform.analysis_sql.shared import render_bbox_predicate
     from app.platform.sandbox.executor import _rewrite_logical_data_schema
 
-    sql = (
-        "SELECT id, embedding <=> '[1]'::vector AS cos "
-        "FROM data.t ORDER BY embedding <-> '[2]'::vector LIMIT 5"
+    request = AnalysisPreviewRequest(
+        operation="buffer", distance_meters=500, bbox=[0.0, 0.0, 1.0, 1.0]
     )
-    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
+    logical = build_preview_sql(_safe_table_ref("roads"), request)
+    physical = build_preview_sql(_safe_table_ref("roads", schema=_SCHEMA_A), request)
+    assert f'"{_SCHEMA_A}"."roads"' in physical
+    assert _rewrite_logical_data_schema(logical, _SCHEMA_A) == physical
 
-    assert rewritten.count("<=>") == 1
-    assert rewritten.count("<->") == 1
-    assert "IS NOT DISTINCT FROM" not in rewritten
-    assert f'"{_SCHEMA_A}".t' in rewritten
-
-
-def test_schema_rewrite_preserves_sentinel_lookalike_literals():
-    """fix(#559 review): a string literal containing the sentinel (``&&``) or the
-    cosine operator text (``<=>``) must survive the rewrite. The swap skips
-    string literals, so ``note = '&&'`` and ``note = '<=>'`` pass through verbatim
-    while the real ``<=>`` operator is still protected. A raw substring swap
-    corrupted or rejected these legitimate queries."""
-    from app.platform.sandbox.executor import _rewrite_logical_data_schema
-
-    sql = (
-        "SELECT id FROM data.t WHERE note = '&&' "
-        "ORDER BY embedding <=> '[1,2,3]'::vector LIMIT 5"
+    predicate = render_bbox_predicate([0.0, 0.0, 1.0, 1.0], src="_t")
+    count_sql = (
+        f"SELECT count(*)::bigint AS source_count "
+        f"FROM {_safe_table_ref('roads')} AS _t WHERE {predicate}"
     )
-    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
-
-    assert "'&&'" in rewritten  # literal left untouched
-    assert rewritten.count("<=>") == 1  # the operator, not the literal
-    assert "IS NOT DISTINCT FROM" not in rewritten
-    assert f'"{_SCHEMA_A}".t' in rewritten
-
-    # a literal that looks like the operator is also preserved
-    sql2 = "SELECT id FROM data.t WHERE note = '<=>' ORDER BY embedding <=> '[1]'::vector LIMIT 5"
-    rewritten2 = _rewrite_logical_data_schema(sql2, _SCHEMA_A)
-    assert "'<=>'" in rewritten2
-    assert rewritten2.count("<=>") == 2  # literal + operator both intact
-    assert "IS NOT DISTINCT FROM" not in rewritten2
-
-
-def test_schema_rewrite_preserves_non_single_quoted_literals():
-    """fix(#559 review round 2): the operator swap is tokenizer-driven, so a
-    ``<=>`` inside a dollar-quoted literal — which the validator accepts —
-    tokenizes as a string and is preserved, not swapped to the sentinel. And
-    ``IS NOT DISTINCT FROM`` (keywords, not a NULLSAFE_EQ token) is never
-    rewritten into the cosine operator."""
-    from app.platform.sandbox.executor import _rewrite_logical_data_schema
-
-    # dollar-quoted literal containing the operator text, no real operator
-    out = _rewrite_logical_data_schema(
-        "SELECT id FROM data.t WHERE note = $$<=>$$ LIMIT 5", _SCHEMA_A
+    assert _rewrite_logical_data_schema(count_sql, _SCHEMA_A) == count_sql.replace(
+        '"data"."roads"', f'"{_SCHEMA_A}"."roads"'
     )
-    assert "&&" not in out  # sentinel never leaks into output
-    assert "<=>" in out  # the literal value survives (sqlglot re-quotes it)
-    assert f'"{_SCHEMA_A}".t' in out
 
-    # a legit IS NOT DISTINCT FROM alongside a real cosine operator: both survive
-    out2 = _rewrite_logical_data_schema(
-        "SELECT id FROM data.t WHERE a IS NOT DISTINCT FROM b "
-        "ORDER BY embedding <=> '[1]'::vector LIMIT 5",
-        _SCHEMA_A,
+
+@pytest.mark.parametrize("suffix", [";", " ;  ", ";;", " ; ;", ";;;", ";; -- pasted"])
+def test_validator_strips_the_trailing_terminator_run(suffix):
+    """fix(#1892): execute_safe splices validated SQL inside a LIMIT wrapper, so
+    any surviving ``;`` is a syntax error. ``;;`` is ordinary paste damage."""
+    from app.platform.sandbox.validator import validate_sql
+
+    assert validate_sql(f"SELECT id FROM data.roads{suffix}").sql == (
+        "SELECT id FROM data.roads"
     )
-    assert "IS NOT DISTINCT FROM" in out2
-    assert out2.count("<=>") == 1
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT id FROM data.roads --;",
+        "SELECT ';' AS a FROM data.roads",
+        "SELECT ';;' AS a FROM data.roads",
+    ],
+)
+def test_validator_keeps_a_semicolon_that_is_not_a_terminator(sql):
+    from app.platform.sandbox.validator import validate_sql
+
+    assert validate_sql(sql).sql == sql
+
+
+@pytest.mark.parametrize("sql", ["SELECT 1; SELECT 2;", ";", ";;"])
+def test_validator_still_rejects_what_the_strip_leaves(sql):
+    """Stripping the run leaves a second statement in place, and reduces a bare
+    terminator to nothing; both fail the single-statement check."""
+    from app.platform.sandbox.validator import validate_sql
+
+    with pytest.raises(SandboxError) as exc_info:
+        validate_sql(sql)
+    assert exc_info.value.category == "invalid_query"
 
 
 @pytest.mark.parametrize(
@@ -227,6 +314,42 @@ async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
     assert "'data.alpha'" in query
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT id FROM data.alpha WHERE note = 'unterminated",
+        # fix(#1892): parse_one reports a second statement as one Block, so the
+        # rewrite used to pass `a; b` through and rewrite both halves.
+        "SELECT 1; DROP TABLE data.alpha",
+        "SELECT id FROM data.alpha; SELECT * FROM data.beta",
+    ],
+)
+@pytest.mark.asyncio
+async def test_multi_tenant_rejects_unusable_sql_before_connecting(monkeypatch, sql):
+    """fix(#1892): the rewrite parses before anything is executed, so SQL it
+    cannot bind raises SandboxError with no connection opened. execute_safe has
+    direct callers that skip the validator."""
+    monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+
+    executed: list[str] = []
+    import app.core.db as db_module
+    from app.platform.sandbox.executor import execute_safe
+
+    engine = _mock_engine(executed)
+    token = current_tenant_var.set(_TENANT_A)
+    try:
+        with patch.object(db_module, "engine", engine):
+            with pytest.raises(SandboxError) as exc_info:
+                await execute_safe(MagicMock(), sql)
+    finally:
+        current_tenant_var.reset(token)
+
+    assert exc_info.value.category == "invalid_query"
+    assert executed == []
+    engine.connect.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_multi_tenant_role_binding_failure_is_fatal(monkeypatch):
     monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)
@@ -305,9 +428,80 @@ async def test_logical_data_query_reads_only_active_tenant_schema(monkeypatch):
                     current_tenant_var.reset(token)
                 observed[tenant_id] = result.rows[0][0]
 
+            # fix(#1892): the shape the span rewrite has to get right, run for
+            # real: unquoted DATA, a comment inside the reference, a non-ASCII
+            # literal ahead of it and a trailing line comment.
+            token = current_tenant_var.set(_TENANT_A)
+            try:
+                awkward = await execute_safe(
+                    MagicMock(),
+                    f"SELECT 'eé\U0001f5fa' AS note, "
+                    f'DATA /* c */ ."{table}".marker '
+                    f'FROM DATA."{table}" -- tail',
+                )
+            finally:
+                current_tenant_var.reset(token)
+
         assert observed == {_TENANT_A: "tenant-a", _TENANT_B: "tenant-b"}
+        assert awkward.rows == [["eé\U0001f5fa", "tenant-a"]]
     finally:
         async with engine.begin() as conn:
             await conn.execute(sa.text(f'DROP TABLE IF EXISTS {_SCHEMA_A}."{table}"'))
+            await conn.execute(sa.text(f'DROP TABLE IF EXISTS {_SCHEMA_B}."{table}"'))
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@_requires_test_db
+async def test_tenant_reader_role_refuses_another_tenants_schema(monkeypatch):
+    """The reader role, not the rewrite, is the isolation boundary: a statement
+    naming another tenant's physical schema is refused, and the same statement
+    under that tenant returns the row."""
+    monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+
+    from app.core.config import settings
+    from app.platform.sandbox.executor import execute_safe
+
+    table = f"sandbox_denial_{uuid.uuid4().hex[:12]}"
+    engine = create_async_engine(settings.test_database_url, poolclass=NullPool)
+    import app.core.db as db_module
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                sa.text(f'CREATE TABLE {_SCHEMA_B}."{table}" (marker text NOT NULL)')
+            )
+            await conn.execute(
+                sa.text(f'INSERT INTO {_SCHEMA_B}."{table}" (marker) VALUES (:m)'),
+                {"m": "tenant-b"},
+            )
+            await conn.execute(
+                sa.text(f'GRANT SELECT ON {_SCHEMA_B}."{table}" TO {_ROLE_B}')
+            )
+
+        cross_tenant_sql = f'SELECT marker FROM {_SCHEMA_B}."{table}"'
+        with patch.object(db_module, "engine", engine):
+            token = current_tenant_var.set(_TENANT_A)
+            try:
+                with pytest.raises(SandboxError) as exc_info:
+                    await execute_safe(MagicMock(), cross_tenant_sql)
+            finally:
+                current_tenant_var.reset(token)
+
+            token = current_tenant_var.set(_TENANT_B)
+            try:
+                allowed = await execute_safe(MagicMock(), cross_tenant_sql)
+                logical = await execute_safe(
+                    MagicMock(), f'SELECT marker FROM data."{table}"'
+                )
+            finally:
+                current_tenant_var.reset(token)
+
+        assert exc_info.value.category == "query_failed"
+        assert allowed.rows == [["tenant-b"]]
+        assert logical.rows == [["tenant-b"]]
+    finally:
+        async with engine.begin() as conn:
             await conn.execute(sa.text(f'DROP TABLE IF EXISTS {_SCHEMA_B}."{table}"'))
         await engine.dispose()

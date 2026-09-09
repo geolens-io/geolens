@@ -10,7 +10,6 @@ from __future__ import annotations
 import structlog
 import sqlglot
 from sqlglot import exp
-from sqlglot.tokens import TokenType
 from sqlalchemy import text
 from sqlalchemy.exc import DataError, InternalError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,96 +29,88 @@ DEFAULT_TIMEOUT_MS = 10_000
 # the legacy best-effort fallback and the feat(#565) fail-closed binding.
 _SINGLE_TENANT_READER_ROLE = "geolens_reader"
 
-# fix(#557): sqlglot's postgres dialect mis-parses the pgvector cosine
-# operator `<=>` as NullSafeEQ, so re-serializing the AST silently rewrites
-# it to `IS NOT DISTINCT FROM` — turning nearest-neighbor ranking into a
-# boolean equality test. The multi-tenant schema rewrite MUST re-render (the
-# logical `data.` schema has no physical table), so it can't bail to the
-# original SQL like the optional guard (#556) does. Instead we swap the
-# `<=>` operator for a sentinel that round-trips (`&&`, rejected by the
-# validator as array_overlaps so it never appears in real validated SQL),
-# rewrite the schema on the parsed AST, then restore the operator. The swap
-# uses sqlglot's own tokenizer, so `<=>`/`&&` inside a string literal of ANY
-# quoting form (`'...'`, `E'...'`, `$$...$$`) tokenizes as a string and is
-# left untouched (fix(#559): a naive substring swap corrupted dollar-quoted
-# literals). `IS NOT DISTINCT FROM` tokenizes as keywords, not NULLSAFE_EQ,
-# so a legitimate null-safe comparison is never rewritten. `<->` (L2)
-# already round-trips and `<#>` fails parse upstream, so `<=>` is the only
-# operator vulnerable here.
-_COSINE_OP = "<=>"
-_COSINE_SENTINEL = "&&"
 
-
-def _swap_operator_tokens(sql: str, token_type: TokenType, replacement: str) -> str:
-    """Replace every operator token of ``token_type`` with ``replacement``.
-
-    Uses sqlglot's tokenizer so only genuine operator tokens are rewritten —
-    the same characters inside a string literal (any quoting form) tokenize
-    as a string and pass through untouched. Runs back-to-front so earlier
-    source offsets stay valid.
-    """
-    spans = [
-        (t.start, t.end)
-        for t in sqlglot.tokenize(sql, dialect="postgres")
-        if t.token_type == token_type
-    ]
-    out = sql
-    for start, end in reversed(spans):
-        out = out[:start] + replacement + out[end + 1 :]
-    return out
-
-
-def _is_logical_data_schema(identifier: exp.Expression | None) -> bool:
+def _is_logical_data_schema(identifier: exp.Identifier) -> bool:
     """True when ``identifier`` folds to the logical ``data`` schema: unquoted
     folds to lowercase, quoted keeps its case, so quoted ``"DATA"`` is not it."""
-    if not isinstance(identifier, exp.Identifier):
-        return False
     name = identifier.name if identifier.quoted else identifier.name.lower()
     return name == "data"
 
 
-def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
-    """Rewrite validated ``data.*`` references to one physical tenant schema.
+def _logical_data_span(identifier: exp.Identifier, sql: str) -> tuple[int, int]:
+    """Source offsets of one logical ``data`` schema qualifier in ``sql``.
 
-    The validator exposes a stable logical ``data`` schema to the LLM and
-    rejects every other real-table schema; multi-tenant storage uses a
-    per-tenant physical schema, so execution translates the logical name
-    after validation. Rewriting the parsed AST (not a string replace) avoids
-    corrupting literals, comments, aliases, or identifiers that merely
-    contain the word ``data``.
+    fix(#1892): the slice must spell exactly what sqlglot parsed. An absent or
+    shifted offset would move an unrelated span, so it fails closed instead.
+    """
+    start = identifier.meta.get("start")
+    end = identifier.meta.get("end")
+    spelling = f'"{identifier.name}"' if identifier.quoted else identifier.name
+    if (
+        not isinstance(start, int)
+        or not isinstance(end, int)
+        or not 0 <= start <= end < len(sql)
+        or sql[start : end + 1] != spelling
+    ):
+        logger.warning(
+            "sandbox.schema_span_unusable", start=start, end=end, length=len(sql)
+        )
+        raise SandboxError("query_failed", "Query failed")
+    return start, end
+
+
+def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
+    """Bind validated ``data.*`` references to one physical tenant schema.
+
+    The validator exposes a stable logical ``data`` schema and rejects every
+    other real-table schema; multi-tenant storage is per-tenant, so execution
+    translates the logical name after validation.
+
+    fix(#1892): only the schema identifier spans of the ORIGINAL text are
+    replaced, right to left. Serializing the parsed tree instead re-rendered
+    the whole statement, which is why the pgvector cosine operator (sqlglot
+    parses ``<=>`` as NullSafeEQ) needed a sentinel swap; every other byte now
+    reaches PostgreSQL as the caller wrote it, as it already does in
+    single-tenant.
 
     ``physical_schema`` comes from :func:`tenant_data_schema`, which accepts
     only a normalized UUID-derived identifier in multi-tenant mode.
     """
     try:
-        guarded = _swap_operator_tokens(sql, TokenType.NULLSAFE_EQ, _COSINE_SENTINEL)
-        statement = sqlglot.parse_one(guarded, dialect="postgres")
+        statements = sqlglot.parse(sql, dialect="postgres")
     except sqlglot.errors.SqlglotError as exc:
         # execute_safe receives validated SQL in normal operation.  Keep direct
         # callers fail-closed if that contract is accidentally violated (covers
         # both tokenize and parse failures).
         raise SandboxError("invalid_query", "Invalid SQL syntax") from exc
 
-    # protect only when a real `<=>` operator was swapped; a literal `<=>` (any
-    # quoting form) tokenizes as a string and leaves `guarded` unchanged.
-    protect_cosine = guarded != sql
+    # fix(#1892): `parse`, not `parse_one`, which reports a second statement as
+    # one Block and would rewrite a caller-supplied `a; b` in both halves.
+    statements = [statement for statement in statements if statement is not None]
+    if len(statements) != 1:
+        logger.warning("sandbox.rewrite_multi_statement", count=len(statements))
+        raise SandboxError("invalid_query", "Only single statements are allowed")
 
-    # fix(#1891): fold like the validator, so unquoted DATA is rewritten too.
-    for table in statement.find_all(exp.Table):
-        if _is_logical_data_schema(table.args.get("db")):
-            table.set("db", exp.to_identifier(physical_schema, quoted=True))
+    spans: set[tuple[int, int]] = set()
+    for node in statements[0].walk():
+        if not isinstance(node, (exp.Table, exp.Column)):
+            continue
+        identifier = node.args.get("db")
+        if isinstance(identifier, exp.Identifier) and _is_logical_data_schema(
+            identifier
+        ):
+            spans.add(_logical_data_span(identifier, sql))
 
-    for column in statement.find_all(exp.Column):
-        if _is_logical_data_schema(column.args.get("db")):
-            column.set("db", exp.to_identifier(physical_schema, quoted=True))
-
-    rendered = statement.sql(dialect="postgres")
-    if protect_cosine:
-        # The rendered `&&` operators can only be the ones swapped in above (the
-        # validator rejects `&&` as a real operator), so restoring every DAMP
-        # token back to `<=>` is exact.
-        rendered = _swap_operator_tokens(rendered, TokenType.DAMP, _COSINE_OP)
-    return rendered
+    replacement = '"' + physical_schema.replace('"', '""') + '"'
+    tail = len(sql)
+    for start, end in sorted(spans, reverse=True):
+        if end >= tail:
+            # Overlapping spans would splice into text already replaced.
+            logger.warning("sandbox.schema_span_overlap", start=start, end=end)
+            raise SandboxError("query_failed", "Query failed")
+        sql = sql[:start] + replacement + sql[end + 1 :]
+        tail = start
+    return sql
 
 
 async def execute_safe(
