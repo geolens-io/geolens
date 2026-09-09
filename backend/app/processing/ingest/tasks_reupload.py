@@ -44,22 +44,24 @@ from app.processing.ingest.tasks_common import (
     cleanup_step,
     _append_mercator_clip_warning,
     _apply_reupload_swap,
-    _archive_original_file,
     _bind_task_log_context,
-    _cleanup_staging_on_failure,
     load_job_for_error_write,
-    reap_downloaded_staging_source,
-    reap_presigned_staging_object,
     _current_tenant_role,
     _current_tenant_schema,
     _run_service_import_with_wfs_fallback,
-    _run_staging_pipeline,
-    _validate_upload_file_safety,
     apply_manifest_record_metadata,
     invalidate_tile_cache_for_table,
     purge_token_on_failure,
     resolve_service_type,
     task_app,
+)
+from app.processing.ingest.tasks_staging import (
+    _archive_original_file,
+    _cleanup_staging_on_failure,
+    reap_downloaded_staging_source,
+    reap_presigned_staging_object,
+    _run_staging_pipeline,
+    _validate_upload_file_safety,
 )
 
 

@@ -270,7 +270,7 @@ class TestACleanupFailureCannotSwallowTheFailureWrite:
         self, test_db_session, monkeypatch
     ) -> None:
         from app.core.db import async_session
-        from app.processing.ingest.tasks_common import _cleanup_staging_on_failure
+        from app.processing.ingest.tasks_staging import _cleanup_staging_on_failure
 
         admin_id = await _admin_id(test_db_session)
         job = IngestJob(
@@ -323,9 +323,9 @@ class TestACleanupFailureCannotSwallowTheFailureWrite:
         import ast
         import inspect
 
-        import app.processing.ingest.tasks_common as tc_mod
+        import app.processing.ingest.tasks_staging as ts_mod
 
-        tree = ast.parse(inspect.getsource(tc_mod._cleanup_staging_on_failure))
+        tree = ast.parse(inspect.getsource(ts_mod._cleanup_staging_on_failure))
         drop_lines = [
             node.lineno
             for node in ast.walk(tree)

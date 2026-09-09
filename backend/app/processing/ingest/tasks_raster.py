@@ -55,11 +55,13 @@ from app.processing.ingest.tasks_common import (
     _emit_billing_event,
     _job_phase_session,
     _parse_temporal_fields,
-    _validate_upload_file_safety,
     apply_manifest_record_metadata,
+    task_app,
+)
+from app.processing.ingest.tasks_staging import (
+    _validate_upload_file_safety,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
-    task_app,
 )
 
 

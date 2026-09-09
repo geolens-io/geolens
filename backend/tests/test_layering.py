@@ -3659,7 +3659,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # token already was; it delegates to the sweep statement #1755 moved,
     # so the fact keeps one home. RECONCILED across #1755 and #1953:
     # measured on the merged file, not summed. Cap 2415 -> 2423, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2423,
+    # refactor(#2026): -575. The staging acquisition and cleanup half moved to
+    # `tasks_staging.py` (599 lines, under the inclusion threshold), which also
+    # took five imports nothing left here uses. Cap 2423 -> 1848, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1848,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3771,7 +3774,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # swallows an expiry there. Cap 1329 -> 1317, exact.
     # fix(#1953): +1 — the import of the one redactor every failure writer
     # in this module now goes through. Cap 1245 -> 1246, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1246,
+    # refactor(#2026): +2 — the staging cluster's names now come from
+    # `tasks_staging`, so this module's one import block became two.
+    "backend/app/processing/ingest/tasks_reupload.py": 1248,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4711,7 +4716,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # direct call the #1847 gates can see, and the failure write carries a bound
     # of its own so phase 2's contention cannot move onto it. Cap 1056, exact.
     # fix(#1957): -4 and fix(#1953): +1 merged; re-measured after both landed. Cap 994, exact.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 994,
+    # refactor(#2026): +2 — the staging cluster's names now come from
+    # `tasks_staging`, so this module's one import block became two.
+    "backend/app/processing/ingest/tasks_raster_replace.py": 996,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -4849,7 +4856,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # DBAPIError handler that swallows an expiry. Cap 1380 -> 1397, exact.
     # fix(#1953): +1 — the import of the one redactor every failure writer
     # in this module now goes through. Cap 1277 -> 1278, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1278,
+    # refactor(#2026): +2 — the staging cluster's names now come from
+    # `tasks_staging`, so this module's one import block became two.
+    "backend/app/processing/ingest/tasks_vector.py": 1280,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

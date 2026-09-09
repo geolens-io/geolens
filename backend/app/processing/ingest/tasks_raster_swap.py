@@ -232,7 +232,7 @@ async def archive_lossy_original(
 
     from app.platform.storage import get_storage
     from app.platform.storage.titiler_url import resolve_current_storage_key
-    from app.processing.ingest.tasks_common import _archive_original_file
+    from app.processing.ingest.tasks_staging import _archive_original_file
 
     if not needed:
         return False, None, 0, None

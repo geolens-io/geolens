@@ -70,10 +70,12 @@ from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
     _job_phase_session,
+    task_app,
+)
+from app.processing.ingest.tasks_staging import (
     _validate_upload_file_safety,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
-    task_app,
 )
 from app.processing.ingest.tasks_raster_common import (
     _cleanup_orphaned_storage_keys,

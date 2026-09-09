@@ -49,10 +49,10 @@ from app.platform.storage import get_storage
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
-    _cleanup_staging_on_failure,
     load_job_for_error_write,
     task_app,
 )
+from app.processing.ingest.tasks_staging import _cleanup_staging_on_failure
 from app.processing.ingest.tasks_raster_common import (
     absorb_cancellation,
     publish_commit_landed,

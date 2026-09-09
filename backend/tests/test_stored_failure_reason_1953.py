@@ -336,7 +336,7 @@ class TestEverySinkGoesThroughTheOneDoor:
 
     def test_the_ingest_job_sink_passes_the_exception_not_its_text(self) -> None:
         fn = _function(
-            _APP / "processing" / "ingest" / "tasks_common.py",
+            _APP / "processing" / "ingest" / "tasks_staging.py",
             "_cleanup_staging_on_failure",
         )
         assigned = [

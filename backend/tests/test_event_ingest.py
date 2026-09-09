@@ -323,14 +323,14 @@ class TestSharedFailureEvent:
     async def test_cleanup_staging_on_failure_wires_emit_after_commit(
         self, monkeypatch
     ) -> None:
-        """tasks_common._cleanup_staging_on_failure contains emit_event_safe call."""
+        """tasks_staging._cleanup_staging_on_failure contains emit_event_safe call."""
         import inspect
 
-        import app.processing.ingest.tasks_common as tc_mod
+        import app.processing.ingest.tasks_staging as ts_mod
 
-        source = inspect.getsource(tc_mod._cleanup_staging_on_failure)
+        source = inspect.getsource(ts_mod._cleanup_staging_on_failure)
         assert "emit_event_safe" in source or "ingest_failed" in source, (
-            "tasks_common._cleanup_staging_on_failure must contain emit_event_safe / "
+            "tasks_staging._cleanup_staging_on_failure must contain emit_event_safe / "
             "'ingest_failed' call after the terminal commit"
         )
 

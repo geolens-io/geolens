@@ -8,20 +8,22 @@ workflow-specific sub-modules so that existing imports continue to work:
 
 from app.processing.ingest.tasks_common import (  # noqa: F401
     IngestContext,
-    StagingResult,
     _append_job_warning,
     _apply_reupload_swap,
     _arcgis_type_to_column_type,
-    _archive_original_file,
     _bind_task_log_context,
     _detect_and_override_geometry,
     _finalize_ingest,
-    _ingest_vector_into_staging,
     _parse_temporal_fields,
     _resolve_effective_srid,
     _run_service_import_with_wfs_fallback,
     resolve_service_type,
     task_app,
+)
+from app.processing.ingest.tasks_staging import (  # noqa: F401
+    StagingResult,
+    _archive_original_file,
+    _ingest_vector_into_staging,
 )
 
 # fix(#909): async_session is deliberately NOT re-exported here. A module-scope
