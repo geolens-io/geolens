@@ -256,13 +256,7 @@ task_app = App(
 # fix(#1746): without a credential store, service tasks are dispatched with
 # the raw token in job kwargs; the worker only deletes SUCCESSFUL rows, so a
 # terminal failure leaves it in `procrastinate_jobs.args->>'token'`
-# indefinitely. Safe to delete here because both service tasks are
-# `retry=0` — the first exception is terminal, nothing re-runs from these args.
-_PURGE_JOB_TOKEN_SQL = (
-    "UPDATE catalog.procrastinate_jobs SET args = args - 'token' WHERE id = :job_id"
-)
-
-
+# indefinitely.
 async def purge_queued_job_token(job_context: Any) -> None:
     """Best-effort: drop `token` from the running job's own queue row.
 
@@ -276,14 +270,12 @@ async def purge_queued_job_token(job_context: Any) -> None:
     row_id = getattr(getattr(job_context, "job", None), "id", None)
     if row_id is None:
         return
-    from sqlalchemy import text
-
     from app.core.db import async_session
+    from app.platform.jobs.sweep import purge_queue_row_tokens
 
     try:
         async with async_session() as session:
-            await session.execute(text(_PURGE_JOB_TOKEN_SQL), {"job_id": row_id})
-            await session.commit()
+            await purge_queue_row_tokens(session, [row_id])
     except Exception:  # broad: a purge failure must not replace the real one
         structlog.get_logger().warning(
             "queued_job_token_purge_failed", procrastinate_job_id=row_id

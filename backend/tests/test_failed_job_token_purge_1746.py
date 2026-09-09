@@ -34,7 +34,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat as _real_stop_heartbeat,
 )
 from app.platform.jobs.models import IngestJob
-from app.platform.jobs.sweep import purge_terminal_job_tokens
+from app.platform.jobs.sweep import purge_queue_row_tokens, purge_terminal_job_tokens
 from app.processing.ingest import tasks_reupload, tasks_vector
 from app.processing.ingest.tasks_common import (
     purge_queued_job_token,
@@ -167,6 +167,38 @@ class TestThePurgeStripsTerminalRows:
             await purge_terminal_job_tokens(test_db_session)
 
             assert await _read_args(test_db_session, row_id) == clean_args
+        finally:
+            await _drop_queue(test_db_session, queue)
+
+
+class TestTheStalledSweepStripsWhatItFails:
+    async def test_a_named_row_loses_its_token_while_a_live_one_keeps_everything(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1755 item 12): the stalled sweep names the rows it just failed.
+
+        Both rows are `doing`, which the status-gated backstop deliberately
+        skips, so only the by-id statement can be what stripped one of them.
+        """
+        queue = f"tok-purge-{uuid.uuid4().hex[:12]}"
+        swept_args = _args()
+        live_args = _args()
+        try:
+            swept_id = await _queue_row(
+                test_db_session, status="doing", queue_name=queue, args=swept_args
+            )
+            live_id = await _queue_row(
+                test_db_session, status="doing", queue_name=queue, args=live_args
+            )
+
+            await purge_queue_row_tokens(test_db_session, [swept_id])
+
+            after_swept = await _read_args(test_db_session, swept_id)
+            assert "token" not in after_swept
+            assert after_swept == {
+                k: v for k, v in swept_args.items() if k != "token"
+            }, "the purge must remove the token key and nothing else"
+            assert await _read_args(test_db_session, live_id) == live_args
         finally:
             await _drop_queue(test_db_session, queue)
 
