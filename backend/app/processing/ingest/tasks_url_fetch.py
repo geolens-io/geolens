@@ -30,7 +30,11 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
-from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    COMMIT_ATTEMPTED_METADATA_KEY,
+    URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
+    IngestJob,
+)
 from app.processing.ingest.service import raster_stamped_metadata
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -116,7 +120,10 @@ async def _staged_values(
             select(IngestJob.user_metadata).where(IngestJob.id == job_id)
         )
     ).scalar_one_or_none() or {}
-    carried = {k: v for k, v in existing.items() if k != COMMIT_ATTEMPTED_METADATA_KEY}
+    # fix(#1710): the download marker goes too — `file_path` now names a
+    # complete staged file, so retry is legitimate again from here on.
+    dropped = {COMMIT_ATTEMPTED_METADATA_KEY, URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY}
+    carried = {k: v for k, v in existing.items() if k not in dropped}
     return {
         "file_path": staged_path,
         "status": "pending",

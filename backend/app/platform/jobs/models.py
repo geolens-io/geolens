@@ -30,6 +30,12 @@ STATUSES_NEEDING_STAGED_INPUT = ("pending", "running", "failed")
 # it, since that would silently import only one layer of a multi-layer file.
 FAN_OUT_INTERRUPTED_METADATA_KEY = "fan_out_interrupted"
 
+# fix(#1710): stamped by the URL-import door and CLEARED by the staged
+# transition. While present, `file_path` names a download destination rather
+# than a complete file, so `_retry_capability` refuses the ordinary ingest
+# retry: a crash-truncated CSV is still valid to a streaming reader.
+URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY = "url_download_in_flight"
+
 # fix(#1744): stamped by ``defer_with_orphan_guard`` at dispatch time. ABSENCE
 # is load-bearing — a stamp-less pending row was never queued, so the stale
 # sweep settles it `cancelled` not `failed`. Read by sweep, status poll, worker startup.

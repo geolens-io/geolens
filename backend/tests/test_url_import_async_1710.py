@@ -16,6 +16,7 @@ What this file pins, beyond the two-phase coverage in
 import asyncio
 import socket
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -763,6 +764,155 @@ class TestPublishedArtifactSurvivesTeardown:
         await test_db_session.refresh(job)
         assert job.status == "pending"
         assert Path(job.file_path).read_bytes() == GEOJSON
+
+
+class TestLeaseStartsAtTheClaim:
+    async def test_a_queued_download_survives_a_backlog_past_the_lease(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """A row whose task is still `todo` is not reaped by the running sweep.
+
+        The door commits `running` so the UI can show a download, but the
+        worker lease only starts when the task adopts it. A queue backlog
+        longer than JOB_TIMEOUT_SECONDS must not settle a job nothing touched.
+
+        Counterfactual: without the unclaimed-queue exemption the same sweep
+        fails the row, and the eventual worker finds it already settled.
+        """
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/backlog.geojson"},
+            headers=admin_auth_header,
+        )
+        job_id = uuid.UUID(resp.json()["job_id"])
+
+        # The status trigger writes procrastinate_events unqualified, so the
+        # schema has to be on the search path for this insert.
+        await test_db_session.execute(text("SET LOCAL search_path = catalog, public"))
+        await test_db_session.execute(
+            text(
+                "INSERT INTO catalog.procrastinate_jobs "
+                "(queue_name, task_name, args, status) VALUES "
+                "('ingest', 'fetch_url', jsonb_build_object("
+                "'job_id', CAST(:j AS text)), 'todo')"
+            ),
+            {"j": str(job_id)},
+        )
+        expired = datetime.now(timezone.utc) - timedelta(
+            seconds=JOB_TIMEOUT_SECONDS + 60
+        )
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_id)
+            .values(started_at=expired, heartbeat_at=None)
+        )
+        await test_db_session.commit()
+
+        await fail_stale_jobs(test_db_session)
+        job = await _get_job(test_db_session, job_id)
+        await test_db_session.refresh(job)
+        assert job.status == "running"
+
+        # A worker that took the job and then died leaves `doing`, and that
+        # row IS reaped: the exemption is for never-claimed work only.
+        await test_db_session.execute(text("SET LOCAL search_path = catalog, public"))
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.procrastinate_jobs SET status = 'doing' "
+                "WHERE args->>'job_id' = :j"
+            ),
+            {"j": str(job_id)},
+        )
+        await test_db_session.commit()
+        await fail_stale_jobs(test_db_session)
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+
+
+class TestInterruptedDownloadIsNotRetryable:
+    async def test_a_crash_truncated_download_refuses_retry(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """A download the worker never finished cannot be replayed as an import.
+
+        file_path names a destination, and a truncated CSV or GeoJSON still
+        parses, so retry would import an incomplete dataset as a complete one.
+
+        Counterfactual: without the marker, `_retry_capability` sees a file
+        that exists and authorizes the replay.
+        """
+        from app.platform.jobs.models import URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY
+        from app.platform.jobs.router import get_retry_capability
+
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/truncated.csv"},
+            headers=admin_auth_header,
+        )
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert (job.user_metadata or {}).get(URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY)
+
+        # The shape a SIGKILL leaves: the destination bound at adoption, a
+        # partial file on disk, and the row failed by the stale sweep with
+        # its file_path preserved.
+        partial = Path(settings.upload_staging_dir) / f"{job.id}_truncated.csv"
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        partial.write_bytes(b"id,name\n1,trunc")
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(status="failed", file_path=str(partial))
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        can_retry, reason = await get_retry_capability(job)
+        assert can_retry is False
+        assert "did not finish" in reason
+        partial.unlink(missing_ok=True)
+
+    async def test_a_staged_row_is_retryable_again(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """Once staged, the marker is gone and an ordinary retry is allowed.
+
+        Counterfactual: leaving the marker on the row makes every later
+        failure of this import unretryable.
+        """
+        from app.platform.jobs.models import URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY
+        from app.platform.jobs.router import get_retry_capability
+
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/whole.geojson"},
+            headers=admin_auth_header,
+        )
+        _install_body(monkeypatch, GEOJSON)
+        await _run_task(captured[0])
+
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY not in (job.user_metadata or {})
+
+        await test_db_session.execute(
+            update(IngestJob).where(IngestJob.id == job.id).values(status="failed")
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        can_retry, _reason = await get_retry_capability(job)
+        assert can_retry is True
 
 
 class TestCrashRecovery:

@@ -752,6 +752,7 @@ async def upload_from_url(
         defer_with_orphan_guard,
         make_ingest_job_failed_rollback,
     )
+    from app.platform.jobs.models import URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY
     from app.platform.security import SSRFError, validate_url_for_ssrf
     from app.processing.ingest.tasks import fetch_url
 
@@ -818,6 +819,13 @@ async def upload_from_url(
         job.started_at = datetime.now(timezone.utc)
         job.current_step = "downloading"
         job.progress = 0.0
+        # fix(#1710): while this is set, `file_path` names a destination, not
+        # a finished file, so retry is refused. The staged transition clears
+        # it; see URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY.
+        job.user_metadata = {
+            **(job.user_metadata or {}),
+            URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY: True,
+        }
         await db.commit()
 
         async def _defer_fetch() -> None:

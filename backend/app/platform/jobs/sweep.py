@@ -166,6 +166,25 @@ def stale_pending_unbound_values(now: datetime, *, message: str) -> dict:
     }
 
 
+def no_unclaimed_queue_entry():
+    """Predicate: no worker is still waiting to pick this row's task up.
+
+    fix(#1710): the URL import commits its row 'running' at the door, so the
+    UI can show a download before a worker exists, but the worker LEASE only
+    starts when the task adopts it. A queue backlog longer than
+    JOB_TIMEOUT_SECONDS would otherwise fail a job nothing has touched, and
+    the eventual worker would find the row already settled.
+
+    `doing` is deliberately NOT exempt: a SIGKILLed worker leaves that state
+    behind forever, and reaping its row is exactly what the lease is for.
+    """
+    return text(
+        "NOT EXISTS (SELECT 1 FROM catalog.procrastinate_jobs pj"
+        " WHERE pj.args->>'job_id' = ingest_jobs.id::text"
+        " AND pj.status = 'todo')"
+    )
+
+
 def no_live_procrastinate_job():
     """Predicate: this ``ingest_jobs`` row has no queued or running task.
 
@@ -1188,6 +1207,7 @@ async def fail_stale_jobs(
             IngestJob.status == "running",
             func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
             < running_cutoff,
+            no_unclaimed_queue_entry(),
         )
         .with_for_update(skip_locked=True)
     )
