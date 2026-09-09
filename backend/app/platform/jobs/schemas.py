@@ -100,6 +100,9 @@ class JobStatusResponse(BaseModel):
             # ux(#698): stamped at creation so a pending job reads as queued,
             # not as having nothing to say. Analysis today; any producer may set it.
             "queued",
+            # feat(#1710): the URL import's server-side download, before the
+            # file is staged and previewable.
+            "downloading",
             "validating",
             "ogr2ogr",
             "finalize",

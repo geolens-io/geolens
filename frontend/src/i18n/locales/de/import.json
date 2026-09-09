@@ -254,7 +254,10 @@
     "retryPreview": "Analyse wiederholen",
     "cancelAndStartOver": "Abbrechen und neu beginnen",
     "cancelling": "Wird abgebrochen...",
-    "cancelFailed": "Auftrag konnte nicht abgebrochen werden"
+    "cancelFailed": "Auftrag konnte nicht abgebrochen werden",
+    "downloading": "Datei wird heruntergeladen...",
+    "downloadingHint": "Der Server ruft die Datei ab. Sie können diese Seite verlassen, der Import läuft weiter.",
+    "downloadFailed": "Der Server konnte die Datei von dieser URL nicht herunterladen"
   },
   "register": {
     "helpText": "Katalogisieren Sie vorhandene PostGIS-Tabellen aus Ihrer Datenbank als Datensätze in GeoLens. Verwenden Sie diese Option, wenn Sie bereits geografische Daten in der Datenbank haben, die nicht über GeoLens importiert wurden. Ausgewählte Tabellen werden mit automatischer Metadatenerkennung zum Katalog hinzugefügt.",
@@ -413,6 +416,7 @@
       "unknown": "Unbekannt ({{status}})"
     },
     "step": {
+      "downloading": "Wird heruntergeladen",
       "validating": "Wird validiert",
       "ogr2ogr": "Features werden geladen",
       "finalize": "Wird abgeschlossen",

@@ -8287,6 +8287,7 @@
               {
                 "enum": [
                   "queued",
+                  "downloading",
                   "validating",
                   "ogr2ogr",
                   "finalize",
@@ -18070,7 +18071,7 @@
           },
           "status": {
             "default": "pending",
-            "description": "Initial job status. Always 'pending' on creation.",
+            "description": "Initial job status. 'pending' means the file is staged and ready to preview; 'running' means the server is still fetching it, as it is for a URL import.",
             "title": "Status",
             "type": "string"
           },
@@ -42711,7 +42712,7 @@
     },
     "/ingest/upload/url": {
       "post": {
-        "description": "Import a geospatial file from an HTTP(S) URL for staging.\n\nfeat(#1705): the URL variant of ``POST /ingest/upload`` \u2014 NOT a new\nsource type. The server fetches the file itself and the staged bytes\nenter the normal pipeline unchanged (preview \u2192 commit). Rule 2 posture:\n``validate_url_for_ssrf`` gates the URL at submission, the download runs\nthrough ``make_safe_client()`` (connect-time IP pinning plus per-hop\nredirect revalidation), the size cap is enforced while streaming, the\nstaged file passes the same extension allowlist and content sniff as a\ndirect upload, and GDAL only ever sees the staged local file.",
+        "description": "Start importing a geospatial file from an HTTP(S) URL.\n\nfeat(#1705): the URL variant of ``POST /ingest/upload`` \u2014 NOT a new\nsource type. The server fetches the file itself and the staged bytes\nenter the normal pipeline unchanged (preview then commit).\n\nfeat(#1710): the download is a background job. This call validates the\nURL and returns a job id immediately; poll ``GET /jobs/{job_id}`` and\npreview once the job reaches ``pending``. While the file is downloading\nthe job reports status ``running`` with step ``downloading``.\n\nRule 2 posture: ``validate_url_for_ssrf`` gates the URL here, the worker\ndownloads through ``make_safe_client()`` (connect-time IP pinning plus\nper-hop redirect revalidation), the size cap is enforced while\nstreaming, the staged file passes the same extension allowlist and\ncontent sniff as a direct upload, and GDAL only ever sees the staged\nlocal file.",
         "operationId": "upload_from_url_ingest_upload_url_post",
         "requestBody": {
           "content": {
@@ -42783,16 +42784,6 @@
               }
             },
             "description": "Conflict \u2014 resource state prevents the operation"
-          },
-          "413": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Payload too large"
           },
           "422": {
             "content": {

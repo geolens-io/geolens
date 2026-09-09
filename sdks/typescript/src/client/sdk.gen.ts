@@ -3355,16 +3355,23 @@ export const completePresignedUploadIngestUploadPresignedJobIdCompletePost = <Th
 /**
  * Upload From Url
  *
- * Import a geospatial file from an HTTP(S) URL for staging.
+ * Start importing a geospatial file from an HTTP(S) URL.
  *
  * feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
  * source type. The server fetches the file itself and the staged bytes
- * enter the normal pipeline unchanged (preview → commit). Rule 2 posture:
- * ``validate_url_for_ssrf`` gates the URL at submission, the download runs
- * through ``make_safe_client()`` (connect-time IP pinning plus per-hop
- * redirect revalidation), the size cap is enforced while streaming, the
- * staged file passes the same extension allowlist and content sniff as a
- * direct upload, and GDAL only ever sees the staged local file.
+ * enter the normal pipeline unchanged (preview then commit).
+ *
+ * feat(#1710): the download is a background job. This call validates the
+ * URL and returns a job id immediately; poll ``GET /jobs/{job_id}`` and
+ * preview once the job reaches ``pending``. While the file is downloading
+ * the job reports status ``running`` with step ``downloading``.
+ *
+ * Rule 2 posture: ``validate_url_for_ssrf`` gates the URL here, the worker
+ * downloads through ``make_safe_client()`` (connect-time IP pinning plus
+ * per-hop redirect revalidation), the size cap is enforced while
+ * streaming, the staged file passes the same extension allowlist and
+ * content sniff as a direct upload, and GDAL only ever sees the staged
+ * local file.
  */
 export const uploadFromUrlIngestUploadUrlPost = <ThrowOnError extends boolean = false>(options: Options<UploadFromUrlIngestUploadUrlPostData, ThrowOnError>): RequestResult<UploadFromUrlIngestUploadUrlPostResponses, UploadFromUrlIngestUploadUrlPostErrors, ThrowOnError> => (options.client ?? client).post<UploadFromUrlIngestUploadUrlPostResponses, UploadFromUrlIngestUploadUrlPostErrors, ThrowOnError>({
     security: [

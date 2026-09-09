@@ -578,6 +578,23 @@ async def generate_table_name(
     return slug, collision_warning
 
 
+def raster_stamped_metadata(
+    user_metadata: dict | None, filename: str | None
+) -> dict | None:
+    """The ``user_metadata`` that should be persisted for ``filename``.
+
+    fix(#1708): the pure form of ``_stamp_raster_metadata`` in router.py, for
+    the paths that persist via a guarded CAS ``UPDATE`` rather than dirtying
+    the ORM object (which would flush a second, unguarded UPDATE and bypass
+    the CAS). fix(#1710): lives here rather than in the router so the URL
+    fetch task can reach it without importing an HTTP module.
+    """
+    if not (filename or "").lower().endswith((".tif", ".tiff", ".vrt")):
+        return user_metadata
+
+    return {**(user_metadata or {}), "file_type": "raster"}
+
+
 async def create_ingest_job(
     session: AsyncSession,
     filename: str,

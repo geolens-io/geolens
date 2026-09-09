@@ -359,6 +359,12 @@ class Settings(BaseSettings):
         gt=MIN_SIGNABLE_JOB_LIFETIME_SECONDS,
         le=MAX_PRESIGNED_URL_LIFETIME_SECONDS,
     )
+    # feat(#1710): wall clock for one URL-import download, now that the fetch
+    # runs on the worker and no proxy or client deadline bounds it. The
+    # running lease is renewed by the task's heartbeat, so this may exceed
+    # JOB_TIMEOUT_SECONDS; the ceiling only stops a typo parking a worker
+    # slot for a week. Consumer: `fetch_url_to_path` in processing/ingest/url_fetch.py.
+    url_import_fetch_max_seconds: int = Field(default=1800, ge=30, le=86400)
     procrastinate_schema: str = "catalog"
 
     public_app_url: str | None = None

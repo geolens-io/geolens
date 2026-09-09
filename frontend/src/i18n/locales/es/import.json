@@ -254,7 +254,10 @@
     "retryPreview": "Reintentar análisis",
     "cancelAndStartOver": "Cancelar y empezar de nuevo",
     "cancelling": "Cancelando...",
-    "cancelFailed": "No se pudo cancelar el trabajo"
+    "cancelFailed": "No se pudo cancelar el trabajo",
+    "downloading": "Descargando el archivo...",
+    "downloadingHint": "El servidor está obteniendo el archivo. Puedes salir de esta página; la importación continúa.",
+    "downloadFailed": "El servidor no pudo descargar el archivo desde esa URL"
   },
   "register": {
     "helpText": "Catalogue tablas PostGIS existentes de su base de datos como conjuntos de datos en GeoLens. Use esta opción cuando tenga datos geográficos ya en la base de datos que no fueron importados a través de GeoLens. Las tablas seleccionadas se añadirán al catálogo con detección automática de metadatos.",
@@ -413,6 +416,7 @@
       "unknown": "Desconocido ({{status}})"
     },
     "step": {
+      "downloading": "Descargando",
       "validating": "Validando",
       "ogr2ogr": "Cargando entidades",
       "finalize": "Finalizando",

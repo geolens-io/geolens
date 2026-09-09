@@ -3144,16 +3144,23 @@ export interface paths {
         put?: never;
         /**
          * Upload From Url
-         * @description Import a geospatial file from an HTTP(S) URL for staging.
+         * @description Start importing a geospatial file from an HTTP(S) URL.
          *
          *     feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
          *     source type. The server fetches the file itself and the staged bytes
-         *     enter the normal pipeline unchanged (preview → commit). Rule 2 posture:
-         *     ``validate_url_for_ssrf`` gates the URL at submission, the download runs
-         *     through ``make_safe_client()`` (connect-time IP pinning plus per-hop
-         *     redirect revalidation), the size cap is enforced while streaming, the
-         *     staged file passes the same extension allowlist and content sniff as a
-         *     direct upload, and GDAL only ever sees the staged local file.
+         *     enter the normal pipeline unchanged (preview then commit).
+         *
+         *     feat(#1710): the download is a background job. This call validates the
+         *     URL and returns a job id immediately; poll ``GET /jobs/{job_id}`` and
+         *     preview once the job reaches ``pending``. While the file is downloading
+         *     the job reports status ``running`` with step ``downloading``.
+         *
+         *     Rule 2 posture: ``validate_url_for_ssrf`` gates the URL here, the worker
+         *     downloads through ``make_safe_client()`` (connect-time IP pinning plus
+         *     per-hop redirect revalidation), the size cap is enforced while
+         *     streaming, the staged file passes the same extension allowlist and
+         *     content sniff as a direct upload, and GDAL only ever sees the staged
+         *     local file.
          */
         post: operations["upload_from_url_ingest_upload_url_post"];
         delete?: never;
@@ -9093,7 +9100,7 @@ export interface components {
             /** Progress */
             progress?: number | null;
             /** Current Step */
-            current_step?: ("queued" | "validating" | "ogr2ogr" | "finalize" | "complete" | "cog_convert" | "quicklook" | "analyzing" | "registering") | null;
+            current_step?: ("queued" | "downloading" | "validating" | "ogr2ogr" | "finalize" | "complete" | "cog_convert" | "quicklook" | "analyzing" | "registering") | null;
             /** Rows Processed */
             rows_processed?: number | null;
             /** Rows Failed */
@@ -13415,7 +13422,7 @@ export interface components {
             job_id: string;
             /**
              * Status
-             * @description Initial job status. Always 'pending' on creation.
+             * @description Initial job status. 'pending' means the file is staged and ready to preview; 'running' means the server is still fetching it, as it is for a URL import.
              * @default pending
              */
             status: string;
@@ -29639,15 +29646,6 @@ export interface operations {
             };
             /** @description Conflict — resource state prevents the operation */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Payload too large */
-            413: {
                 headers: {
                     [name: string]: unknown;
                 };

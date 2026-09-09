@@ -169,11 +169,15 @@ async def check_upload_quota(
     db: AsyncSession,
     user_id: uuid.UUID,
     incoming_bytes: int,
-    request: Request,
+    request: Request | None,
 ) -> None:
     """Enforce per-user byte and dataset-count caps before accepting an upload.
 
     Call this BEFORE creating an ingest job or staging the file.
+
+    fix(#1710): ``request`` is optional so a worker re-check charges the same
+    policy the door applied rather than forking a byte-cap copy. It reaches
+    only ``enforce_limit``, which forwards a dimension and a count.
 
     Raises HTTPException 413 if the byte cap is exceeded.
     Raises HTTPException 422 if the dataset-count cap is exceeded.

@@ -254,7 +254,10 @@
     "retryPreview": "Réessayer l'analyse",
     "cancelAndStartOver": "Annuler et recommencer",
     "cancelling": "Annulation...",
-    "cancelFailed": "Échec de l'annulation de la tâche"
+    "cancelFailed": "Échec de l'annulation de la tâche",
+    "downloading": "Téléchargement du fichier...",
+    "downloadingHint": "Le serveur récupère le fichier. Vous pouvez quitter cette page, l'import continue.",
+    "downloadFailed": "Le serveur n'a pas pu télécharger le fichier depuis cette URL"
   },
   "register": {
     "helpText": "Cataloguez des tables PostGIS existantes de votre base de données en tant que jeux de données dans GeoLens. Utilisez cette option lorsque vous avez des données géographiques déjà dans la base de données qui n'ont pas été importées via GeoLens. Les tables sélectionnées seront ajoutées au catalogue avec détection automatique des métadonnées.",
@@ -413,6 +416,7 @@
       "unknown": "Inconnue ({{status}})"
     },
     "step": {
+      "downloading": "Téléchargement",
       "validating": "Validation",
       "ogr2ogr": "Chargement des entités",
       "finalize": "Finalisation",

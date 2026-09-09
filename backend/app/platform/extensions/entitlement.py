@@ -75,7 +75,7 @@ def require_entitlement(*features: str) -> Any:
     return _entitlement_checker
 
 
-async def enforce_limit(request: Request, dimension: str, n: int) -> None:
+async def enforce_limit(request: Request | None, dimension: str, n: int) -> None:
     """Dependency helper that delegates a numeric limit check to the EntitlementPort.
 
     Calls ``await port.enforce_limit(dimension, n)``; the port raises if
@@ -89,6 +89,10 @@ async def enforce_limit(request: Request, dimension: str, n: int) -> None:
 
     The cloud overlay provides the real implementation that reads the
     ``tenant_entitlements`` table and enforces plan-level hard caps.
+
+    fix(#1710): ``request`` is accepted and unused — the port is resolved
+    from tenant context, not the request — so a worker-side caller passes
+    None instead of forking the check.
     """
     port = get_entitlement_port()
     await port.enforce_limit(dimension, n)

@@ -2,7 +2,6 @@
 
 import asyncio
 import math
-import time
 import uuid
 from datetime import datetime, timezone
 
@@ -87,6 +86,7 @@ from app.processing.ingest.service import (
     create_ingest_job,
     discover_unregistered_tables,
     job_service_format,
+    raster_stamped_metadata,
     restore_fan_out_parent_pending,
     get_job_or_404,
     queue_ingest_job,
@@ -97,20 +97,9 @@ from app.processing.ingest.service import (
     validate_file_extension,
 )
 from app.processing.ingest.url_fetch import (
-    stage_total_budget_seconds,
-    UrlFetchError,
-    UrlFetchTooLargeError,
+    PREFLIGHT_DNS_MAX_SECONDS,
     clamp_filename_bytes,
-    fetch_url_to_path,
     filename_from_url,
-)
-from app.processing.ingest.url_import_staging import (
-    _commit_staged_transition_guarded,
-    _effective_stream_cap,
-    _preflight_dns_budget,
-    _remaining_fetch_budget,
-    _settle_failed_url_import,
-    _stage_put_bounded,
 )
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
@@ -544,23 +533,7 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
     in hand and now derives the answer there. So the stamp costs no I/O and
     both upload endpoints can afford it.
     """
-    job.user_metadata = _raster_stamped_metadata(job.user_metadata, filename)
-
-
-def _raster_stamped_metadata(
-    user_metadata: dict | None, filename: str | None
-) -> dict | None:
-    """Pure form of ``_stamp_raster_metadata``: the metadata that should be
-    persisted for ``filename``, without touching an ORM instance.
-
-    fix(#1708): shared by the URL-import path, which persists via a guarded
-    CAS ``UPDATE`` rather than dirtying the ORM object (that would flush a
-    second, unguarded UPDATE and bypass the CAS).
-    """
-    if not (filename or "").lower().endswith((".tif", ".tiff", ".vrt")):
-        return user_metadata
-
-    return {**(user_metadata or {}), "file_type": "raster"}
+    job.user_metadata = raster_stamped_metadata(job.user_metadata, filename)
 
 
 def _url_import_filename(body: UrlUploadRequest) -> str:
@@ -683,7 +656,7 @@ async def upload_file(
                 _pending_upload_update(job_id).values(
                     file_path=str(saved_path),
                     user_metadata={
-                        **(_raster_stamped_metadata(job_metadata, file.filename) or {}),
+                        **(raster_stamped_metadata(job_metadata, file.filename) or {}),
                         "staged_at": datetime.now(timezone.utc).isoformat(),
                     },
                 )
@@ -740,7 +713,6 @@ async def upload_file(
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
-        413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
 )
@@ -750,22 +722,34 @@ async def upload_from_url(
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
-    """Import a geospatial file from an HTTP(S) URL for staging.
+    """Start importing a geospatial file from an HTTP(S) URL.
 
     feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
     source type. The server fetches the file itself and the staged bytes
-    enter the normal pipeline unchanged (preview → commit). Rule 2 posture:
-    ``validate_url_for_ssrf`` gates the URL at submission, the download runs
-    through ``make_safe_client()`` (connect-time IP pinning plus per-hop
-    redirect revalidation), the size cap is enforced while streaming, the
-    staged file passes the same extension allowlist and content sniff as a
-    direct upload, and GDAL only ever sees the staged local file.
-    """
-    from sqlalchemy import update as sa_update
+    enter the normal pipeline unchanged (preview then commit).
 
+    feat(#1710): the download is a background job. This call validates the
+    URL and returns a job id immediately; poll ``GET /jobs/{job_id}`` and
+    preview once the job reaches ``pending``. While the file is downloading
+    the job reports status ``running`` with step ``downloading``.
+
+    Rule 2 posture: ``validate_url_for_ssrf`` gates the URL here, the worker
+    downloads through ``make_safe_client()`` (connect-time IP pinning plus
+    per-hop redirect revalidation), the size cap is enforced while
+    streaming, the staged file passes the same extension allowlist and
+    content sniff as a direct upload, and GDAL only ever sees the staged
+    local file.
+    """
+    from datetime import datetime, timezone
+
+    from app.core.db.tenant_session import defer_async_with_tenant
     from app.core.url_redaction import redact_url_credentials
-    from app.platform.jobs.models import IngestJob
+    from app.platform.jobs.defer_guard import (
+        defer_with_orphan_guard,
+        make_ingest_job_failed_rollback,
+    )
     from app.platform.security import SSRFError, validate_url_for_ssrf
+    from app.processing.ingest.tasks import fetch_url
 
     # Exception-safe on malformed input by design (fix(#1119)) — safe to run
     # before the guarded block below.
@@ -779,56 +763,24 @@ async def upload_from_url(
         # connection through it could exhaust the pool under concurrent imports.
         await db.commit()
 
-        # fix(#1708): the joint stage budget starts HERE, ahead of preflight
-        # DNS, so every long operation — DNS, fetch, staging put — runs
-        # inside one clock that fits the proxy deadline.
-        #
-        # INVARIANT: each phase's bound is min(own ceiling, stage_deadline -
-        # now), so time spent earlier is deducted from every later phase. A
-        # new phase must derive its bound from this deadline, never a fresh
-        # constant.
-        #
-        # The clock covers preflight DNS, the pre-fetch config/quota
-        # transaction, the fetch, the content sniff, the staging put, and
-        # failure cleanup. It does NOT cover the request's three pool
-        # checkouts (auth/dependency work, the pre-fetch transaction, the
-        # post-stage transaction) — each can wait up to db_pool_timeout under
-        # pool exhaustion, so stage_total_budget_seconds() derives the budget
-        # from that timeout and the checkout count. See that function.
-        stage_deadline = time.monotonic() + stage_total_budget_seconds()
-
-        # fix(#1708): refuse a floored budget HERE, not at the fetch — the
-        # floor's promise is a PROMPT refusal, and waiting until immediately
-        # before the download meant paying for preflight DNS, the quota
-        # transaction, and a committed 'running' row before refusing.
-        # Deliberately the SAME call the pre-fetch check makes, so the two
-        # refusals can't disagree about "too small to start"; the value is
-        # discarded since every phase re-derives its own remaining budget.
-        _remaining_fetch_budget(stage_deadline)
-
         # Rule 2, submission gate: refuse private/link-local/reserved targets
-        # before any connection, and before handler DB work, so DNS never
-        # overlaps a checked-out connection. The safe client re-validates at
-        # connect time and per redirect hop during the fetch below.
+        # before anything is queued. The worker's safe client re-validates at
+        # connect time and per redirect hop during the download.
         #
         # fix(#1708): bounded at the call site — getaddrinfo has no deadline
         # of its own; wait_for cancels the to_thread wrapper immediately and
         # the abandoned resolver thread ends when the OS resolver gives up.
-        # Bound is min(own ceiling, remaining), not the bare ceiling — in the
-        # floored regime a 1s budget could still spend up to 30s resolving
-        # before refusing anything.
-        preflight_budget = _preflight_dns_budget(stage_deadline)
         try:
             await asyncio.wait_for(
                 validate_url_for_ssrf(body.url),
-                timeout=preflight_budget,
+                timeout=PREFLIGHT_DNS_MAX_SECONDS,
             )
         except TimeoutError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=(
                     "DNS resolution for this URL did not finish within "
-                    f"{int(preflight_budget)} seconds."
+                    f"{PREFLIGHT_DNS_MAX_SECONDS} seconds."
                 ),
             ) from exc
         except SSRFError as exc:
@@ -845,192 +797,54 @@ async def upload_from_url(
         allowed_list = await _get_allowed_extensions_safely(db)
         validate_file_extension(filename, allowed_list)
 
-        max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
-        max_size_bytes = max_size_mb * 1024 * 1024
-
-        # QUOTA-02: refuse at the dataset-count cap before staging anything.
-        # The byte half (QUOTA-01) runs again after the download with the
-        # real size — Content-Length may be absent or dishonest.
+        # QUOTA-02: refuse at the dataset-count cap before queueing anything.
+        # The byte half (QUOTA-01) runs in the worker with the size that
+        # actually landed — Content-Length may be absent or dishonest.
         await check_upload_quota(db, user.id, 0, request)
 
-        effective_cap_bytes, cap_error_detail = await _effective_stream_cap(
-            db, user.id, max_size_bytes
-        )
-
         job = await create_ingest_job(db, filename, "", user.id)
-        # Capture scalars now and never touch the ORM instance again — the
-        # failure path ROLLS BACK, which expires every session object, and a
-        # later `job.id` would lazy-refresh and die with MissingGreenlet.
         job_id = job.id
-        job_metadata = job.user_metadata
-
-        # fix(#1708): path setup runs BEFORE the running-commit — it has no
-        # dependency on the committed row, and failing here rolls the
-        # uncommitted row back entirely instead of stranding a 'running' row.
-        staging_dir = Path(settings.upload_staging_dir)
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        local_dest = staging_dir / f"{job_id}_{filename}"
-        s3_key: str | None = None
-        staged_path: str | None = None
-
-        # fix(#1708): the download runs under the RUNNING lease, not a bare
-        # 'pending' row — pending_job_timeout_seconds may legally be as low
-        # as 61s while the fetch is allowed FETCH_MAX_SECONDS (480s), so a
-        # sweep or status poll could fail an in-progress fetch. 'running' rows
-        # are judged by JOB_TIMEOUT_SECONDS (3600s) instead; if the process
-        # dies mid-fetch, the running sweep reaps the row after an hour.
+        # feat(#1710): the row is committed 'running', not 'pending'. The
+        # success state of a URL import IS 'pending' (previewable), so a
+        # pending row would tell the UI the download had finished; and the
+        # stale-PENDING sweep may legally fire at 61s while a download is
+        # allowed url_import_fetch_max_seconds. Running rows are judged by
+        # the worker lease instead, which the task's heartbeat renews.
         job.status = "running"
         job.started_at = datetime.now(timezone.utc)
-        # fix(#1708): COMMIT before awaiting the fetch — the session
-        # autobegins and holds a checked-out connection until the transaction
-        # ends, and a download that runs for minutes could starve the pool
-        # under concurrent imports. Consequences handled below: the row now
-        # survives a failed fetch, and the byte-quota check must re-run after
-        # the download with the real size.
+        job.current_step = "downloading"
+        job.progress = 0.0
         await db.commit()
-        # ASYMMETRY: this commit is NOT covered by the ambiguous-commit probe
-        # that guards the final one. Nothing is staged yet (no bytes written,
-        # unlike the final commit which could point at real staged bytes
-        # we'd otherwise delete); it blocks nothing (verified against every
-        # predicate keying on an active job — backfill, per-user analysis
-        # cap, manifest in-flight, reupload, quota — a URL import carries
-        # none of those keys); and the running-lease reaper already owns it,
-        # failing the row within JOB_TIMEOUT_SECONDS. If any predicate above
-        # ever grows to match a bare ingest job, this trade expires.
-        #
-        # INVARIANT: nothing executable may sit between the running-commit
-        # above and the `try` below — anything that can raise here escapes
-        # the settlement guard and strands the row 'running' for the lease.
-        try:
-            try:
-                actual_size = await fetch_url_to_path(
-                    body.url,
-                    local_dest,
-                    effective_cap_bytes,
-                    cap_error_detail=cap_error_detail,
-                    timeout_seconds=_remaining_fetch_budget(stage_deadline),
-                )
-            except UrlFetchTooLargeError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                    detail=str(exc),
-                ) from exc
-            except SSRFError as exc:
-                # A redirect hop or a rebinding DNS answer targeted a blocked
-                # address mid-fetch — same refusal as at submission.
-                logger.warning(
-                    "url_import_ssrf_blocked",
-                    event_type="security",
-                    url=safe_url,
-                    reason=str(exc),
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-                ) from exc
-            except UrlFetchError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=str(exc),
-                ) from exc
 
-            # Same staged-file content sniff as a direct upload.
-            try:
-                validate_file_content(str(local_dest), filename)
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=str(exc),
-                ) from exc
-
-            if settings.storage_provider == "s3":
-                s3_key = f"staging/{job_id}/{filename}"
-                # fix(#1708): bounded and connection-free. The put
-                # runs inside what remains of the stage budget (P1-B), and
-                # the byte-quota check moved BELOW it so no transaction is
-                # open across the potentially long provider upload (P1-A) —
-                # the post-stage transaction below holds a connection only
-                # for the quota reads, the CAS, and the commit.
-                await _stage_put_bounded(
-                    s3_key, local_dest, stage_deadline, str(job_id)
-                )
-                staged_path = s3_key
-            else:
-                staged_path = str(local_dest)
-
-            # QUOTA-01 with the byte count that actually landed on disk —
-            # re-verified after the fetch/stage gap, in the same short
-            # transaction as the CAS so nothing long runs behind it.
-            await check_upload_quota(db, user.id, actual_size, request)
-
-            # fix(#1708): guarded CAS, running -> pending. Only the
-            # row this request parked in 'running' may proceed to the
-            # previewable state; a Core UPDATE (not dirtied ORM attributes,
-            # which would flush a second unguarded UPDATE) so an external
-            # flip — admin cancel, or a lease reap that would take an
-            # impossible >1h stall — matches zero rows and is SURFACED
-            # instead of silently part-updating a dead row.
-            cas = await db.execute(
-                sa_update(IngestJob)
-                .where(IngestJob.id == job_id, IngestJob.status == "running")
-                .values(
-                    status="pending",
-                    file_path=staged_path,
-                    # fix(#1708): staged_at restarts the pending
-                    # review window. stale_pending_clauses measures pending
-                    # age from coalesce(staged_at, created_at), so the
-                    # download time (up to FETCH_MAX_SECONDS, which
-                    # created_at already paid for) no longer eats the review
-                    # window — at the 61s floor of pending_job_timeout the
-                    # sweep could otherwise reap this row the moment it was
-                    # staged. Always an isoformat timestamptz; the sweep
-                    # casts it, so only this flow may write the key.
-                    user_metadata={
-                        **(_raster_stamped_metadata(job_metadata, filename) or {}),
-                        "staged_at": datetime.now(timezone.utc).isoformat(),
-                    },
-                )
+        async def _defer_fetch() -> None:
+            await defer_async_with_tenant(
+                fetch_url,
+                job_id=str(job_id),
+                attempt_id=str(job.attempt_id),
+                url=body.url,
+                user_id=str(user.id),
+                filename=filename,
             )
-            if cas.rowcount == 0:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=(
-                        "The import was cancelled or timed out while the "
-                        "file was downloading. Start a new import."
-                    ),
-                )
-            await _commit_staged_transition_guarded(db)
-        except BaseException as exc:
-            await _settle_failed_url_import(
-                db,
-                exc,
-                job_id=job_id,
-                s3_key=s3_key,
-                local_dest=local_dest,
-                staged_path=staged_path,
-                stage_deadline=stage_deadline,
-            )
-            raise
-        if s3_key is not None:
-            # S3 is the staging store; the local copy has no further reader.
-            # Best-effort: the job is already committed and previewable, so a
-            # failing local delete must not rewrite that success as a 500.
-            try:
-                # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
-                local_dest.unlink(missing_ok=True)
-            except OSError:
-                logger.warning("url_import_cleanup_failed", job_id=str(job_id))
 
-        logger.info(
-            "url_import_staged",
-            url=safe_url,
-            job_id=str(job_id),
-            filename=filename,
-            size_bytes=actual_size,
+        # The URL crosses to the worker as a task argument rather than on the
+        # job row: `user_metadata` is served by GET /jobs/{id}, and a URL can
+        # carry userinfo credentials.
+        await defer_with_orphan_guard(
+            _defer_fetch,
+            rollback=make_ingest_job_failed_rollback(
+                job,
+                message_prefix="Failed to queue the download",
+                expected_status="running",
+            ),
+            db=db,
+            job=job,
         )
+
+        logger.info("url_import_queued", url=safe_url, job_id=str(job_id))
         return UploadResponse(
             job_id=job_id,
-            status="pending",
-            message="File downloaded and ready for preview",
+            status="running",
+            message="Downloading the file",
         )
     # N4 (mirrors upload_file): HTTPException before the ValueError fallback,
     # or every deliberate 4xx above is rewritten as a 400/500.
@@ -1041,9 +855,7 @@ async def upload_from_url(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
-    except (
-        Exception
-    ):  # broad: fetch pipeline involves network, file I/O, S3, DB — any can throw
+    except Exception:  # broad: submission involves DNS, config lookups, DB and the queue — any can throw
         logger.exception(
             "Unexpected error during URL import",
             url=safe_url,
