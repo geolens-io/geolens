@@ -365,8 +365,10 @@ class TestTileEndpoint:
         # fix(#1429): the dataset id sits between the table and the cluster
         # segments, so a reused table name cannot read the previous dataset's
         # cluster tiles, and `label` carries the bare table name for the metric.
+        # fix(#2007): the publication version follows the dataset id.
         mock_cache.get.assert_awaited_once_with(
-            f"{table_name}:ds{dataset.id.hex}:cluster:v3:r64:z12",
+            f"{table_name}:ds{dataset.id.hex}:p{dataset.publication_version}"
+            ":cluster:v3:r64:z12",
             0,
             0,
             0,

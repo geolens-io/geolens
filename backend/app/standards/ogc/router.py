@@ -18,6 +18,7 @@ from app.core.identity import Identity
 from app.core.persistent_config import OGC_ITEMS_MAX_PAGE_SIZE
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
+from app.core.tile_scope import tile_template_query
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
@@ -417,11 +418,14 @@ async def get_dataset_collection(
         # APP origin (/raster-tiles/...), which nginx rewrites to the internal
         # tile proxy; the /api origin has no such route, so use public_app_url.
         public_app_url = await get_public_app_url(db, request=request)
-        # fix(#1372): versioned like every rendered template so a
+        # fix(#1372, #2007): versioned like every rendered template so a
         # refetching client stops sharing the unversioned cache entry.
-        raster_tiles_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-        if dataset.tile_cache_version:
-            raster_tiles_path = f"{raster_tiles_path}?v={dataset.tile_cache_version}"
+        raster_tiles_path = (
+            f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
+            + tile_template_query(
+                dataset.tile_cache_version, dataset.publication_version
+            )
+        )
         links.append(
             OGCLink(
                 rel="tiles",

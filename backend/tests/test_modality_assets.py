@@ -30,13 +30,22 @@ class TestRasterTilesAssetVersion:
         entry after a replace."""
         ds = _make_dataset(record_type="raster_dataset", table_name=None)
         ds.tile_cache_version = 7
+        ds.publication_version = 3
         assets = build_assets(ds, API_URL)
-        assert assets["raster_tiles"]["href"].endswith(".png?v=7")
+        assert assets["raster_tiles"]["href"].endswith(".png?v=7&pv=3")
 
-    def test_raster_tiles_href_bare_without_version(self):
+    def test_raster_tiles_href_carries_pv_without_a_version(self):
         ds = _make_dataset(record_type="raster_dataset", table_name=None)
         assets = build_assets(ds, API_URL)
-        assert assets["raster_tiles"]["href"].endswith(".png")
+        assert assets["raster_tiles"]["href"].endswith(".png?pv=0")
+
+    def test_vector_tiles_href_carries_the_publication_version(self):
+        """fix(#2007): the one tile template here that is never signed, so `pv`
+        is what a shared cache keys its response on."""
+        ds = _make_dataset(record_type="vector_dataset", table_name="parcels")
+        ds.publication_version = 4
+        assets = build_assets(ds, API_URL)
+        assert assets["vector_tiles"]["href"].endswith(".pbf?pv=4")
 
 
 class TestModalityAssets:

@@ -15,6 +15,7 @@ import structlog
 from app.core.config import settings
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.tile_scope import republished_tile_url, tile_template_query
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.source_freshness import (
     compute_source_freshness,
@@ -97,7 +98,10 @@ def build_assets(
         if dataset.table_name is not None:
             assets["vector_tiles"] = {
                 "href": build_url(
-                    f"/tiles/data.{dataset.table_name}/{{z}}/{{x}}/{{y}}.pbf",
+                    f"/tiles/data.{dataset.table_name}/{{z}}/{{x}}/{{y}}.pbf"
+                    + tile_template_query(
+                        None, getattr(dataset, "publication_version", None)
+                    ),
                     base_url=public_api_url,
                 ),
                 "type": "application/vnd.mapbox-vector-tile",
@@ -115,12 +119,18 @@ def build_assets(
             }
 
     elif record_type in RASTER_FAMILY_RECORD_TYPES:
-        # Public APP origin, not /api. fix(#1372): versioned so a refetching
-        # STAC/OGC client stops sharing the unversioned cache entry.
-        raster_tiles_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-        tile_version = getattr(dataset, "tile_cache_version", None)
-        if tile_version:
-            raster_tiles_path = f"{raster_tiles_path}?v={tile_version}"
+        # Public APP origin, not /api. fix(#1372, #2007): versioned so a
+        # refetching STAC/OGC client stops sharing the unversioned entry, and
+        # a publication transition rolls what it may share.
+        raster_tiles_path = (
+            f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
+            + (
+                tile_template_query(
+                    getattr(dataset, "tile_cache_version", None),
+                    getattr(dataset, "publication_version", None),
+                )
+            )
+        )
         assets["raster_tiles"] = {
             "href": build_url(
                 raster_tiles_path,
@@ -398,8 +408,16 @@ def dataset_to_ogc_record(
                 {
                     "type": d.distribution_type,
                     "format": d.format,
+                    # fix(#2007): as in published_distributions -- a stored
+                    # vector-tile template cannot hold a counter that rolls.
                     "url": (
-                        build_url(d.url, base_url=public_api_url)
+                        build_url(
+                            republished_tile_url(
+                                d.url,
+                                getattr(dataset, "publication_version", None),
+                            ),
+                            base_url=public_api_url,
+                        )
                         if d.url.startswith("/")
                         else d.url
                     ),

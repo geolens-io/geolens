@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
+from app.core.tile_scope import republished_tile_url
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.catalog.authorization import (
@@ -58,6 +59,7 @@ from app.modules.catalog.records.service import (
     list_distributions,
     list_keywords,
     list_translations,
+    record_publication_version,
     upsert_translation,
     delete_translation,
     update_contact,
@@ -666,8 +668,16 @@ async def list_distributions_endpoint(
         await list_distributions(db, record_id, skip=skip, limit=limit),
         await count_distributions(db, record_id),
     )
+    # fix(#2007): the Connect panel copies the vector template out of this
+    # endpoint, so republish it at the dataset's counter like every feed does.
+    counter = await record_publication_version(db, record_id)
     return DistributionListResponse(
-        distributions=[DistributionResponse.model_validate(d) for d in distributions],
+        distributions=[
+            DistributionResponse.model_validate(d).model_copy(
+                update={"url": republished_tile_url(d.url, counter)}
+            )
+            for d in distributions
+        ],
         total=total,
     )
 

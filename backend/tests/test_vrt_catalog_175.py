@@ -83,6 +83,8 @@ def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMo
     ds.schema_drift_status = None
     # fix(#1372): _build_raster_metadata reads this into the tile URL's `v=`.
     ds.tile_cache_version = 1
+    # fix(#2007): and this into its `pv=`.
+    ds.publication_version = 0
 
     ds.record = MagicMock()
     ds.record.record_type = record_type
