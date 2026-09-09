@@ -18,9 +18,9 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
@@ -30,6 +30,7 @@ from app.platform.jobs.router import (
     fail_stale_jobs,
     get_job_status,
     post_expiry_sweep_after_seconds,
+    retry_job,
     stale_pending_cutoff_seconds,
 )
 from app.processing.ingest.presigned import require_signable_job_lifetime
@@ -1274,3 +1275,68 @@ class TestAbandonedDirectUploadsAreCancelled:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert (job.user_metadata or {}).get(COMMIT_ATTEMPTED_METADATA_KEY)
+
+
+class TestRetryIsNotAStalePending:
+    """fix(#1556): the retry reopens the pending window, so it has to reset it.
+
+    ``retry_job`` commits `failed` -> `pending` and only then dispatches, so the
+    orphan guard can flip the row back if the queue is down. Between those two
+    commits the row has no Procrastinate job, which leaves the age basis as the
+    only thing standing between a legitimate retry and both reap paths — and
+    the age basis was the ORIGINAL creation, which for anything worth retrying
+    is already hours past both cutoffs.
+    """
+
+    async def _retried(self, session: AsyncSession) -> tuple[IngestJob, uuid.UUID]:
+        user_id = await get_user_id(session, "admin")
+        job = await _stale_pending_job(session, created_by=user_id)
+        # `source_url` with no `file_path` is the one retryable shape that needs
+        # no staging object on disk, and it lands in the unbound half.
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(status="failed", source_url="https://example.invalid/data.geojson")
+        )
+        await session.commit()
+        await session.refresh(job)
+        with patch(
+            "app.platform.jobs.router.queue_ingest_job", new=AsyncMock()
+        ) as queued:
+            await retry_job(job.id, _request(), _user(user_id), session)
+        assert queued.await_count == 1, "the retry never reached its dispatch"
+        await session.refresh(job)
+        assert job.status == "pending"
+        return job, user_id
+
+    async def test_the_sweep_spares_a_job_the_operator_just_retried(
+        self, test_db_session: AsyncSession
+    ):
+        job, _ = await self._retried(test_db_session)
+        control = await _stale_pending_job(test_db_session)
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(control)
+        assert control.status == "failed", "the sweep did not run — vacuous"
+        await test_db_session.refresh(job)
+        assert job.status == "pending", (
+            "the sweep reaped a retry that had not yet had time to be queued"
+        )
+
+    async def test_the_status_poll_spares_a_job_the_operator_just_retried(
+        self, test_db_session: AsyncSession
+    ):
+        """The path that actually fires: the frontend polls every 2s."""
+        job, user_id = await self._retried(test_db_session)
+        control = await _stale_pending_job(test_db_session, created_by=user_id)
+
+        assert (
+            await get_job_status(job.id, _request(), _user(user_id), test_db_session)
+        ).status == "pending"
+
+        await get_job_status(control.id, _request(), _user(user_id), test_db_session)
+        await test_db_session.refresh(control)
+        assert control.status == "failed", "the poll did not reap — vacuous"
+        await test_db_session.refresh(job)
+        assert job.status == "pending"

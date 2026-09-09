@@ -13,6 +13,7 @@ from typing import Literal, cast
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -844,6 +845,7 @@ async def retry_job(
     # the queue is down (RESILIENCE-2).
     previous_attempt_id = job.attempt_id
     next_attempt_id = uuid.uuid4()
+    retried_at = datetime.now(timezone.utc)
     retry_result = await db.execute(
         update(IngestJob)
         .where(
@@ -859,7 +861,19 @@ async def retry_job(
             heartbeat_at=None,
             completed_at=None,
             dataset_id=None,
+            # fix(#1556): the pending clock restarts HERE. It ages from
+            # `coalesce(staged_at, created_at)`, so without this stamp a job
+            # that failed an hour ago is stale the instant it commits, and the
+            # only thing standing between it and the sweep — or a 2s status
+            # poll running the same clauses — is the window before
+            # `queue_ingest_job` gets its Procrastinate row in.
+            user_metadata=func.coalesce(
+                IngestJob.user_metadata, text("'{}'::jsonb")
+            ).op("||", return_type=JSONB)(
+                func.jsonb_build_object("staged_at", retried_at.isoformat())
+            ),
         )
+        .execution_options(synchronize_session=False)
     )
     if not retry_result.rowcount:
         await db.rollback()

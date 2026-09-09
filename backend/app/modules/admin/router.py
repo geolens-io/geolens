@@ -1014,6 +1014,37 @@ async def get_embedding_stats(
     return await service.get_embedding_stats()
 
 
+async def _settle_cancelled_backfill(
+    db: AsyncSession, job_uuid: uuid.UUID, audit_context: dict[str, Any]
+) -> None:
+    """Close a backfill whose request was cancelled before a worker took it.
+
+    Shielded so the cancellation that triggered it cannot cancel the cleanup,
+    and bounded so a hung database cannot stall a deploy. Never raises: the
+    caller re-raises the cancellation, and the stale-pending sweep is the
+    backstop for anything this could not reach.
+    """
+    from app.modules.admin.backfill_jobs import settle_undispatched_run
+
+    try:
+        await asyncio.shield(
+            asyncio.wait_for(
+                settle_undispatched_run(
+                    job_uuid, audit_context=audit_context, caller_session=db
+                ),
+                timeout=15,
+            )
+        )
+    except (
+        BaseException
+    ):  # broad: best-effort during shutdown; the caller's raise preserves the abort
+        logger.warning(
+            "embedding_backfill_dispatch_cancel_cleanup_failed",
+            job_id=audit_context["job_id"],
+            exc_info=True,
+        )
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
 @router.post(
     "/backfill-embeddings",
@@ -1047,7 +1078,6 @@ async def trigger_backfill(
         UNRESOLVED_OUTCOME,
         find_active_embedding_backfill,
         run_embedding_backfill,
-        settle_undispatched_run,
     )
 
     operation_id = str(uuid.uuid4())
@@ -1068,13 +1098,22 @@ async def trigger_backfill(
             detected_by="preflight_query",
         )
 
+    audit_context = {
+        "user_id": str(current_user_id),
+        "ip_address": ip_address,
+        "operation_id": operation_id,
+        "force": force,
+    }
+
     # The insert lands with null user_metadata; only the later UPDATE that sets
     # the backfill marker makes the partial unique index reject a duplicate —
     # and that UPDATE flushes on this session's first flush, well before commit.
+    pending_job_id: uuid.UUID | None = None
     try:
         job = await get_catalog_port().create_ingest_job(
             db, "embedding-backfill", "", current_user_id
         )
+        pending_job_id = job.id
         job.user_metadata = {
             EMBEDDING_BACKFILL_METADATA_KEY: {
                 "force": force,
@@ -1120,6 +1159,18 @@ async def trigger_backfill(
             force=force,
             detected_by="unique_index",
         )
+    except asyncio.CancelledError:
+        # fix(#1556): the recovery boundary starts where a durable row can
+        # first exist. A shutdown cancelling the commit above can apply it
+        # without returning the acknowledgement, leaving a `pending` row and
+        # its `requested` trail with no worker queued and no actor left to
+        # close either. Fenced on `pending` and shielded, exactly as the
+        # dispatch arm below is; a commit that never landed matches no row.
+        if pending_job_id is not None:
+            await _settle_cancelled_backfill(
+                db, pending_job_id, {**audit_context, "job_id": str(pending_job_id)}
+            )
+        raise
 
     async def _defer() -> None:
         await defer_async_with_tenant(
@@ -1194,29 +1245,8 @@ async def trigger_backfill(
         # fix(#1550): the orphan guard catches `Exception`, so cancellation here
         # bypasses it and `DeferFailed` above. Cleanup is fenced on `pending`
         # and shielded, and the cancellation is re-raised so shutdown still works.
-        try:
-            await asyncio.shield(
-                asyncio.wait_for(
-                    settle_undispatched_run(
-                        job.id,
-                        audit_context={
-                            "user_id": str(current_user_id),
-                            "ip_address": ip_address,
-                            "operation_id": operation_id,
-                            "job_id": job_id,
-                            "force": force,
-                        },
-                    ),
-                    timeout=15,
-                )
-            )
-        except (
-            BaseException
-        ):  # broad: best-effort during shutdown; the raise below preserves the abort
-            logger.warning(
-                "embedding_backfill_dispatch_cancel_cleanup_failed",
-                job_id=job_id,
-                exc_info=True,
-            )
+        await _settle_cancelled_backfill(
+            db, job.id, {**audit_context, "job_id": job_id}
+        )
         raise
     return BackfillResponse(job_id=job.id, status="pending")

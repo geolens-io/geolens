@@ -2183,3 +2183,123 @@ async def test_the_worker_startup_recovery_closes_the_trail_it_settles(
     assert await _audit_entries_naming(test_db_session, upload_id) == 0, (
         "the startup recovery wrote an audit entry for an ordinary upload"
     )
+
+
+# ---------------------------------------------------------------------------
+# Both ends of the run, inside the recovery boundary (#1556)
+# ---------------------------------------------------------------------------
+#
+# The rule #1550 arrived at is that the guarded region spans from the moment a
+# durable row can exist to the moment a terminal state is written. Two awaited
+# commits still sat outside it, one at each end: the route's creation commit and
+# the worker's opening read of the row. Both leave a `pending` row holding the
+# one backfill slot, with the stale sweep as the only actor that will ever
+# settle it.
+
+
+@pytest.mark.anyio
+async def test_a_cancelled_creation_commit_does_not_leave_the_slot_held(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The commit applies, its acknowledgement is lost, the request unwinds.
+
+    A durable `pending` row and a durable `requested` entry, with no worker
+    queued and no dispatch arm reached — the shape #1550 fixed one statement
+    later in the same handler.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    real_commit = AsyncSession.commit
+    real_audit_emit = admin_router.audit_emit
+    armed: dict = {"session": None, "fired": False}
+
+    async def _arm_on_the_request_entry(session, event, *args, **kwargs):
+        await real_audit_emit(session, event, *args, **kwargs)
+        if event.details.get("outcome") == "requested":
+            armed["session"] = session
+
+    async def _commit_losing_its_acknowledgement(self, *args, **kwargs):
+        await real_commit(self, *args, **kwargs)
+        if self is armed["session"] and not armed["fired"]:
+            armed["fired"] = True
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(admin_router, "audit_emit", _arm_on_the_request_entry)
+    monkeypatch.setattr(AsyncSession, "commit", _commit_losing_its_acknowledgement)
+
+    raised: BaseException | None = None
+    try:
+        await client.post(_FORCE_URL, headers=admin_auth_header)
+    except BaseException as exc:  # noqa: BLE001 - the transport rewraps it
+        raised = exc
+    assert raised is not None, "the cancellation did not propagate"
+    assert armed["fired"], "the creation commit never ran — nothing under test"
+
+    monkeypatch.setattr(AsyncSession, "commit", real_commit)
+    monkeypatch.setattr(admin_router, "audit_emit", real_audit_emit)
+
+    stranded = await _latest_backfill_row(test_db_session)
+    assert stranded.status == "failed", (
+        "the committed-but-unqueued run is holding the unique backfill slot"
+    )
+    assert stranded.error_message == backfill_jobs.UNDISPATCHED_RUN_MESSAGE
+
+    terminal = await _terminal_audit_entries(
+        client, admin_auth_header, str(stranded.id)
+    )
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "dispatch_cancelled"
+
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        again = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert again.status_code == 200, again.text
+
+
+@pytest.mark.anyio
+async def test_a_failed_startup_read_settles_the_row_it_could_not_read(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The worker's opening read is the run's other unguarded commit-adjacent await.
+
+    With `retry=0` the delivery is not replayed, so a read that raises used to
+    end the task with the row still `pending` and no actor left to settle it.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()) as defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    real_get = AsyncSession.get
+    reads: dict = {"failed": False}
+
+    async def _get_failing_once(self, entity, ident, *args, **kwargs):
+        if entity is IngestJob and not reads["failed"]:
+            reads["failed"] = True
+            raise OSError("connection reset by peer")
+        return await real_get(self, entity, ident, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "get", _get_failing_once)
+    with pytest.raises(OSError):
+        await run_embedding_backfill(**defer.await_args.kwargs)
+    monkeypatch.setattr(AsyncSession, "get", real_get)
+    assert reads["failed"], "the opening read never ran — nothing under test"
+
+    settled = await _load_job(test_db_session, job_id)
+    assert settled.status == "failed", (
+        "the run that could not read its row is still holding the slot"
+    )
+    assert settled.error_message == backfill_jobs.START_FAILED_MESSAGE
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "start_failed", (
+        "a run that never claimed the row was recorded as one that could not "
+        f"record its outcome: {terminal}"
+    )
