@@ -238,22 +238,19 @@ def redact_url_credentials(url: str) -> str:
         # below, which recurses here on each matched substring of free text.
         return _redact_without_parsing(url)
     is_http = parts.scheme.lower() in {"http", "https"}
-    redacted_netloc = _redacted_netloc(parts)
     if not is_http:
-        # fix(#2044 review): urlsplit hands free text a netloc too ("redis://cache/0
-        # then https://user:pass@evil" parses netloc="cache"), so redact THIS
-        # scheme's userinfo, then still scan for an embedded http(s) URL below.
-        prefix = (
-            url
-            if redacted_netloc == parts.netloc
-            else urlunsplit(
-                (parts.scheme, redacted_netloc, parts.path, parts.query, parts.fragment)
-            )
-        )
+        # fix(#2044 review x2): a `/`-less authority can absorb an embedded
+        # scheme into netloc ("cache then https:"); rebuilding via hostname
+        # there drops the `:` that makes it matchable, so replace userinfo in place.
+        prefix = url
+        if parts.username or parts.password:
+            userinfo = parts.netloc.rpartition("@")[0]
+            prefix = url.replace(f"{userinfo}@", f"{REDACTED_USERINFO}@", 1)
         return URL_LIKE_RE.sub(
             lambda match: redact_url_credentials(match.group(0)),
             prefix,
         )
+    redacted_netloc = _redacted_netloc(parts)
     if not parts.query:
         if redacted_netloc == parts.netloc:
             return url

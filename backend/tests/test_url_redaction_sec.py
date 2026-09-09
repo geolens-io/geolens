@@ -596,6 +596,21 @@ def test_redact_url_credentials_masks_both_a_non_http_and_embedded_http_credenti
     assert "redacted@example.com" in redacted
 
 
+def test_redact_url_credentials_masks_embedded_credential_with_no_path_boundary() -> (
+    None
+):
+    # fix(#2044 review x2): no `/` ends the outer authority, so urlsplit
+    # absorbs "then https:" into netloc; reconstructing via hostname/port
+    # previously dropped that `:`, leaving the embedded URL unmatchable.
+    redacted = redact_url_credentials(
+        "redis://user:pass@cache then https://user2:secret2@example.com/x"
+    )
+
+    assert "pass" not in redacted
+    assert "secret2" not in redacted
+    assert "https://redacted@example.com/x" in redacted
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}
