@@ -729,6 +729,52 @@ class TestTerminalQueueRowPurge:
         assert args["job_id"] == resp.json()["job_id"]
 
 
+class TestFailureWriteIsBudgeted:
+    async def test_an_expired_error_write_budget_leaves_the_row_for_the_sweep(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """Settlement writes the failure through the shared fenced helper.
+
+        fix(#1957): its None means the write never happened and the
+        transaction was ended, which is not a fence miss. The row stays
+        running so the stale sweep settles it, rather than being reported as
+        already settled by someone else.
+        """
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _accept_any_url()
+        )
+        captured = _capture_defer(monkeypatch)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/budget.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+        seen: list[str] = []
+
+        async def _expired(session, job_id, attempt_id, *, values, task_name, **kw):
+            seen.append(task_name)
+            return None
+
+        monkeypatch.setattr(
+            "app.processing.ingest.url_import_staging.write_job_failure_for_attempt",
+            _expired,
+        )
+
+        async def _handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, content=b"")
+
+        _install_handler(monkeypatch, _handler)
+        await _run_task(captured[0])
+
+        assert seen == ["fetch_url"]
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        await test_db_session.refresh(job)
+        assert job.status == "running"
+        assert _staged_files() == []
+
+
 class TestDownloadQueueIsolation:
     def test_the_fetch_task_has_its_own_queue(self):
         """The download does not share the ingest queue.

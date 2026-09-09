@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_io import run_in_thread_draining
 from app.core.failure_reason import redact_failure_reason
 from app.modules.quota.service import check_upload_quota, get_user_quota_usage
+from app.platform.jobs.heartbeat import write_job_failure_for_attempt
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.ingest.service import (
@@ -182,10 +183,6 @@ async def _settle_failed_url_import(
     ``file_path`` IS ``local_dest`` — deleting it there would leave a durable
     pending row pointing at nothing.
     """
-    from sqlalchemy import update as sa_update
-
-    from app.platform.jobs.models import IngestJob
-
     # fix(#1710): stamped BEFORE any await, so a settlement that is itself
     # cancelled still tells the outer handler this failure was claimed.
     try:
