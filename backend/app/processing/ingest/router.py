@@ -1451,9 +1451,19 @@ async def commit_fan_out(
     # success keeps the parent `fanned_out`.
     queued_count = sum(1 for r in results if r.status == "queued")
     if queued_count == 0:
-        await restore_fan_out_parent_pending(
+        restored = await restore_fan_out_parent_pending(
             db, job, parent_attempt_id=parent_attempt_id
         )
+        if not restored:
+            # fix(#2016): the undo matched no row, so a third writer holds the
+            # parent terminal and this 202 hides it. Never silent again.
+            logger.warning(
+                "fan_out_parent_restore_missed",
+                job_id=str(job.id),
+                attempt_id=(
+                    str(parent_attempt_id) if parent_attempt_id is not None else None
+                ),
+            )
 
     return FanOutCommitResponse(fan_out_id=job.id, results=results)
 

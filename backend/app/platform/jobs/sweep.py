@@ -1183,9 +1183,9 @@ async def fail_stale_jobs(
             error_code="never_started",
         )
 
-    # fix(#1709): a childless `fanned_out` parent past the grace, inside
-    # the retention horizon, is the signature of a dispatch interrupted
-    # pre-commit. `failed`, so /jobs/{id}/retry offers it.
+    # fix(#1709): a childless `fanned_out` parent past the grace, inside the
+    # retention horizon, is the signature of a dispatch interrupted pre-commit.
+    # fix(#2016): a dispatch still looping reclaims this row on its way out.
     childless_fanout_clauses = [
         IngestJob.status == "fanned_out",
         IngestJob.completed_at.is_not(None),
