@@ -4574,7 +4574,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # service_queue verdict, its parameter and the configure() branch. Cap 1506 -> 1488, exact.
     # fix(#1953): +1 — the import of the one redactor every failure writer
     # in this module now goes through. Cap 1427 -> 1428, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1428,
+    # fix(#2036): +8. The re-upload preview maps an unreadable file to the
+    # import preview's 422 instead of letting it escape as a 500.
+    # Cap 1428 -> 1436, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1436,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -5010,7 +5013,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # recognises the class first and composes the reason from the fields that
     # class may carry, since a driver names the source inside its own prose.
     # Cap 1307 -> 1341, exact.
-    "backend/app/processing/ingest/ogr.py": 1341,
+    # fix(#2036): +2. The unable-to-open pattern gains ogrinfo's own one-line
+    # wording, which ogr2ogr's driver enumeration never matched.
+    # Cap 1341 -> 1343, exact.
+    "backend/app/processing/ingest/ogr.py": 1343,
     # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
     # 1000-line threshold when the content check landed: the SQLite schema
     # reader, the archive member walk that identifies members by their bytes

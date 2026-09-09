@@ -633,6 +633,14 @@ async def reupload_preview(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    except Exception as exc:  # broad: GDAL subprocess can raise various errors on unsupported/malformed files
+        # fix(#2036): the 422 the import preview answers for the same failure.
+        # A malformed file's IngestionError escaped this door as a 500.
+        logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unable to preview file. The file may be malformed or unsupported.",
+        ) from exc
     finally:
         if downloaded_preview_path is not None:
             downloaded_preview_path.unlink(missing_ok=True)

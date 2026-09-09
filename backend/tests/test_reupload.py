@@ -673,6 +673,55 @@ class TestReuploadPreview:
         assert resp.status_code == 200, resp.text
         assert not downloaded.exists()
 
+    async def test_unreadable_file_answers_422_and_removes_the_download(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_reupload_catalog_port,
+        mock_ogrinfo_preview,
+        tmp_path,
+    ):
+        """A file ogrinfo cannot read answers the import preview's 422 (#2036)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        job = IngestJob(
+            dataset_id=dataset.id,
+            source_filename="replacement.geojson",
+            file_path=f"staging/{uuid.uuid4()}/replacement.geojson",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        downloaded = tmp_path / "downloaded-preview.geojson"
+        downloaded.write_text('{"type":"FeatureCollection","features":[')
+        mock_ogrinfo_preview.side_effect = router_reupload.IngestionError(
+            "Could not open 'replacement.geojson' as a spatial dataset — the "
+            "file may be corrupt, incomplete, or not a valid GeoJSON "
+            "(.geojson) file."
+        )
+        with patch.object(
+            mock_reupload_catalog_port,
+            "resolve_file_path",
+            new=AsyncMock(return_value=str(downloaded)),
+        ):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/{job.id}/preview",
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"] == (
+            "Unable to preview file. The file may be malformed or unsupported."
+        )
+        assert not downloaded.exists()
+
 
 class TestReuploadJobBinding:
     async def test_ordinary_unbound_job_is_hidden_from_all_reupload_consumers(

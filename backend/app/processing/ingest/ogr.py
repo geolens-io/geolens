@@ -49,12 +49,14 @@ from app.processing.raster.vrt import gdal_service_safe_env, gdal_vector_safe_en
 # group is optional since some GDAL builds emit bare driver names.
 _OGR_DRIVER_LIST_LINE_RE = re.compile(r"^\s*->\s*'[^']+'\s*(\([^)]*\))?\s*$")
 
-# When no driver can open the source, ogr2ogr/ogrinfo print this line
-# followed by GDAL's full driver enumeration (100+ lines) — raw text a demo
-# visitor once saw verbatim in the job UI. Anchored tightly so no other
-# failure class (bad SRS, permission denied, disk full) matches.
+# When no driver can open the source, ogr2ogr prints this line ahead of GDAL's
+# full driver enumeration (100+ lines) — raw text a demo visitor once saw in
+# the job UI. fix(#2036): ogrinfo says it in one line of its own naming the
+# staging path, which the first alternative never matched. Both are anchored
+# tightly so no other failure class (bad SRS, permission denied) matches.
 _OGR_UNABLE_TO_OPEN_RE = re.compile(
     r"Unable to open datasource `[^']*' with the following drivers\."
+    r"|ogrinfo failed - unable to open '[^']*'"
 )
 
 # A second shape: a driver DOES claim the source (e.g. GPKG is SQLite) but
@@ -73,9 +75,9 @@ _SQLITE_DISK_IMAGE_MALFORMED_RE = re.compile(r"database disk image is malformed"
 def _is_unopenable_source_stderr(stderr_text: str) -> bool:
     """True when ``stderr_text`` matches a known "can't open this source" shape.
 
-    The three patterns all mean the same thing to the uploader — GDAL
-    couldn't read it as a spatial dataset — so they map to one friendly
-    message; see ``_friendly_open_failure_message``.
+    The patterns all mean the same thing to the uploader — GDAL couldn't
+    read it as a spatial dataset — so they map to one friendly message;
+    see ``_friendly_open_failure_message``.
     """
     return bool(
         _OGR_UNABLE_TO_OPEN_RE.search(stderr_text)

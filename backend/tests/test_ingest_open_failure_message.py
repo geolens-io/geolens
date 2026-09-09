@@ -14,11 +14,12 @@ fixture files built in ``tmp_path`` and assert:
   2. The full raw stderr (driver list / SQLite diagnostics) still reaches
      structured logs at error level, so the diagnostic is not lost.
 
-Three corrupt-file shapes are covered, matching the three stderr patterns
+Three corrupt-file shapes are covered, matching the stderr patterns
 GDAL/SQLite actually produce for this failure class:
 
-  - No driver recognizes the source at all (plain garbage bytes) → GDAL's
-    "Unable to open datasource ... with the following drivers." enumeration.
+  - No driver recognizes the source at all (plain garbage bytes) → ogr2ogr's
+    "Unable to open datasource ... with the following drivers." enumeration,
+    and ogrinfo's one-line "ogrinfo failed - unable to open '<path>'".
   - The SQLite/GPKG magic header itself doesn't parse (a truncated/
     garbage-filled GPKG whose first bytes claim to be SQLite but the header
     fields are junk) → SQLite's own "file is not a database" diagnostics.
@@ -132,18 +133,23 @@ def _write_malformed_page_gpkg(tmp_path) -> str:
 
 
 class TestRunOgrinfoFriendlyOpenFailure:
-    """ogrinfo runs before ogr2ogr in the ingest_file task (CRS detection), so
-    for the realistic corrupt-upload case — content-sniffing at upload time
-    already rejects a file with no recognizable magic header at all — this is
-    the function that actually raises. Empirically (GDAL 3.13 on this host,
-    matching the orchestrator's live dev-stack reproduction), ogrinfo's
-    "no driver at all" failure is a short one-liner without a driver
-    enumeration (a distinct, out-of-scope leak noted in the PR description),
-    so only the two SQLite-diagnostic shapes (corrupt header, corrupt page)
-    are exercised against ogrinfo here; the driver-enumeration shape is
-    exercised against ogr2ogr below, which is where the original march.gpkg
-    incident's exact stderr came from.
+    """ogrinfo runs before ogr2ogr in the ingest task (CRS detection), so it
+    is the function that raises for a corrupt upload. Its own one-line
+    "unable to open" wording maps to the same friendly message the two
+    SQLite diagnostics do (#2036).
     """
+
+    async def test_no_driver_case_raises_friendly_message(self, tmp_path):
+        source = _write_no_driver_gpkg(tmp_path)
+        with pytest.raises(IngestionError) as exc_info:
+            await run_ogrinfo(source, original_filename="march.gpkg")
+        message = str(exc_info.value)
+        assert message == (
+            "Could not open 'march.gpkg' as a spatial dataset — the file "
+            "may be corrupt, incomplete, or not a valid GeoPackage (.gpkg) "
+            "file."
+        )
+        assert str(tmp_path) not in message
 
     async def test_sqlite_corrupt_content_case_raises_friendly_message(self, tmp_path):
         source = _write_sqlite_magic_corrupt_gpkg(tmp_path)
