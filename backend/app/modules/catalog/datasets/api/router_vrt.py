@@ -462,7 +462,10 @@ async def regenerate_vrt_endpoint(
     if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Another regeneration is in progress",
+            detail={
+                "code": "dataset_busy",
+                "message": "Another regeneration is in progress",
+            },
         )
 
     # Count sources

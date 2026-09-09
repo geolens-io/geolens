@@ -3387,9 +3387,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#1711): -459. The URL-import staging cluster — budget, bounded
     # put, settlement — lives in url_import_staging.py; the route handler and
     # its filename/metadata helpers stay. Cap 2639 -> 2180, exact.
-    # fix(#1955): +3 — both VRT source doors admit through the shared
-    # per-dataset lock instead of reading the status. Cap 1969 -> 1972, exact.
-    "backend/app/processing/ingest/router.py": 1972,
+    # fix(#1955): +15 — both VRT source doors admit through the shared
+    # per-dataset lock instead of reading the status, and refuse with the
+    # coded `dataset_busy` body. Cap 1969 -> 1984, exact.
+    "backend/app/processing/ingest/router.py": 1984,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

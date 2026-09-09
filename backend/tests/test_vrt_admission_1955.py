@@ -10,16 +10,21 @@ BEFORE the status read.
 from __future__ import annotations
 
 import ast
+import asyncio
 import contextlib
 import importlib
 import inspect
 import uuid
+from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
 from app.platform.catalog_locks import admit_vrt_mutation
+from app.platform.dataset_origin import classify_origin
+from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.raster.models import VrtGeneration
 from tests.test_vrt_source_authz_1172 import (
     _create_raster_dataset,
@@ -252,3 +257,189 @@ async def test_an_asset_deleted_under_the_re_read_is_refused(test_db_session) ->
             )
             await deleter.commit()
         assert await admit_vrt_mutation(reader, vrt_id, vrt_asset) is False
+
+
+async def _run_count(session, dataset_id: uuid.UUID) -> int:
+    return len(
+        (
+            await session.execute(
+                select(DatasetRefreshRun).where(
+                    DatasetRefreshRun.dataset_id == dataset_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+class TestNoRunRowMutationCanTargetAVrt:
+    """Why one advisory lock is enough, rather than a shared key with Decision 5b.
+
+    Every ``create_pending_run`` door refuses a VRT dataset before it reaches the
+    insert, so a VRT regeneration and a run-row mutation cannot interleave.
+    """
+
+    def test_a_vrt_record_type_classifies_as_no_origin(self) -> None:
+        assert classify_origin("geotiff", "vrt_dataset") is None, (
+            "a VRT now classifies as an origin the refresh doors accept, so "
+            "one of them can open a run row on a dataset the advisory lock "
+            "alone is admitting"
+        )
+
+    def test_the_reupload_door_refuses_a_vrt_before_its_run_row(self) -> None:
+        from app.modules.catalog.datasets.api.router_reupload import (
+            _assert_compatible_record_type,
+        )
+
+        dataset = SimpleNamespace(record=SimpleNamespace(record_type="vrt_dataset"))
+        with pytest.raises(HTTPException) as refusal:
+            _assert_compatible_record_type(dataset, None)
+        assert refusal.value.status_code == 400
+
+    async def test_every_run_row_door_refuses_a_vrt_dataset(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        admin_id = await _get_admin_id(test_db_session)
+        vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
+
+        refused = {
+            "refresh": await client.post(
+                f"/datasets/{vrt_id}/refresh", headers=admin_auth_header
+            ),
+            "reupload": await client.post(
+                f"/datasets/{vrt_id}/reupload",
+                files={"file": ("replacement.tif", b"not-a-tif", "image/tiff")},
+                headers=admin_auth_header,
+            ),
+        }
+        for door, resp in refused.items():
+            assert resp.status_code in (400, 409), f"{door} answered {resp.status_code}"
+        assert await _run_count(test_db_session, vrt_id) == 0, (
+            "a run-row door reached create_pending_run on a VRT dataset, so a "
+            "refresh and a regeneration can now interleave and the advisory "
+            "lock alone is no longer the whole admission"
+        )
+
+
+class TestTwoConcurrentDoorsAdmitExactlyOne:
+    """Both requests in flight at once, each on its own session and connection."""
+
+    async def _vrt_with_sources(self, session, count: int = 3):
+        admin_id = await _get_admin_id(session)
+        vrt_id = await _create_vrt_dataset(session, created_by=admin_id)
+        linked = [
+            await _create_raster_dataset(session, created_by=admin_id)
+            for _ in range(count)
+        ]
+        for position, source_id in enumerate(linked):
+            await _link_source(session, vrt_id, source_id, position)
+        return admin_id, vrt_id, linked
+
+    def _assert_exactly_one_won(self, responses, deferred, label: str) -> None:
+        codes = sorted(r.status_code for r in responses)
+        assert codes == [202, 409], (
+            f"two concurrent {label} calls answered {codes}. Both admitted "
+            "means two generations and two queued rebuilds for one dataset"
+        )
+        assert len(deferred) == 1, (
+            f"{len(deferred)} regenerations were queued for one dataset"
+        )
+        loser = next(r for r in responses if r.status_code == 409)
+        assert loser.json()["detail"]["code"] == "dataset_busy", loser.text
+
+    async def test_regenerate(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ) -> None:
+        deferred = _capture_defer(monkeypatch)
+        _, vrt_id, _ = await self._vrt_with_sources(test_db_session, count=2)
+
+        responses = await asyncio.gather(
+            *(
+                client.post(
+                    f"/datasets/{vrt_id}/vrt/regenerate/", headers=admin_auth_header
+                )
+                for _ in range(2)
+            )
+        )
+
+        self._assert_exactly_one_won(responses, deferred, "regenerate")
+        assert await _generation_count(test_db_session, vrt_id) == 1
+
+    async def test_add_source(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ) -> None:
+        deferred = _capture_defer(monkeypatch)
+        admin_id, vrt_id, _ = await self._vrt_with_sources(test_db_session, count=2)
+        incoming = await _create_raster_dataset(test_db_session, created_by=admin_id)
+
+        responses = await asyncio.gather(
+            *(
+                client.post(
+                    f"/ingest/vrt/{vrt_id}/sources/",
+                    json={"source_dataset_id": str(incoming)},
+                    headers=admin_auth_header,
+                )
+                for _ in range(2)
+            )
+        )
+
+        self._assert_exactly_one_won(responses, deferred, "add source")
+        assert await _generation_count(test_db_session, vrt_id) == 1
+
+    async def test_remove_source(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ) -> None:
+        deferred = _capture_defer(monkeypatch)
+        _, vrt_id, linked = await self._vrt_with_sources(test_db_session, count=3)
+
+        responses = await asyncio.gather(
+            *(
+                client.delete(
+                    f"/ingest/vrt/{vrt_id}/sources/{linked[1]}/",
+                    headers=admin_auth_header,
+                )
+                for _ in range(2)
+            )
+        )
+
+        self._assert_exactly_one_won(responses, deferred, "remove source")
+        assert await _generation_count(test_db_session, vrt_id) == 1
+
+
+async def test_a_stale_snapshot_does_not_admit_a_second_regeneration(
+    test_db_session,
+) -> None:
+    """The ordering, isolated: both doors read `ready` before either wrote.
+
+    Under READ COMMITTED the loser's own re-read would see the winner, so the
+    read has to happen under the lock for that to be worth anything.
+    """
+    import app.core.db as db_module
+    from app.processing.raster.models import RasterAsset
+
+    admin_id = await _get_admin_id(test_db_session)
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
+
+    async with db_module.async_session() as winner, db_module.async_session() as loser:
+        seen = []
+        for session in (winner, loser):
+            asset = (
+                await session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == vrt_id)
+                )
+            ).scalar_one()
+            seen.append(asset)
+        assert [a.status for a in seen] == ["ready", "ready"], (
+            "the fixture did not produce the two identical snapshots this test is about"
+        )
+
+        assert await admit_vrt_mutation(winner, vrt_id, seen[0]) is True
+        seen[0].status = "regenerating"
+        await winner.commit()
+
+        assert await admit_vrt_mutation(loser, vrt_id, seen[1]) is False, (
+            "the loser was admitted on the snapshot it took before the winner "
+            "wrote, which is what lets two regenerations dispatch at once"
+        )
+        await loser.rollback()

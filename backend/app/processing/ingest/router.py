@@ -1709,7 +1709,13 @@ async def add_vrt_source(
     if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="VRT is currently regenerating. Try again after the current operation completes.",
+            detail={
+                "code": "dataset_busy",
+                "message": (
+                    "VRT is currently regenerating. Try again after the "
+                    "current operation completes."
+                ),
+            },
         )
 
     dup_result = await db.execute(
@@ -1879,7 +1885,13 @@ async def remove_vrt_source(
     if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="VRT is currently regenerating. Try again after the current operation completes.",
+            detail={
+                "code": "dataset_busy",
+                "message": (
+                    "VRT is currently regenerating. Try again after the "
+                    "current operation completes."
+                ),
+            },
         )
 
     # fix(#1327): read the current member set ONCE, in order — the count
