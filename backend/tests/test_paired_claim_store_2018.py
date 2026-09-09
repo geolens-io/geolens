@@ -46,6 +46,19 @@ def test_a_same_route_repeat_is_never_exempt_and_takes_the_claim_with_it(
     assert store.consume(_PARTS, "datasets") is False
 
 
+def test_a_client_that_returns_bytes_still_refuses_a_same_route_repeat():
+    """The route comparison must not depend on ``decode_responses``.
+
+    Bytes never compare equal to a str, so a client built without it would
+    read a same-route caller's own claim as the sibling's and exempt it.
+    """
+    store = SharedClaimStore(fakeredis.FakeStrictRedis())
+
+    store.record(_PARTS, "facets")
+
+    assert store.consume(_PARTS, "facets") is False
+
+
 def test_a_second_writer_does_not_extend_a_standing_claim():
     """``NX``: whoever claimed first keeps the route and the deadline."""
     client = fakeredis.FakeStrictRedis(decode_responses=True)

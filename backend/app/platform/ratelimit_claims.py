@@ -70,7 +70,14 @@ class SharedClaimStore:
             self._degraded("consume")
             return None
         self._unavailable_logged = False
-        return claimant is not None and claimant != route
+        if claimant is None:
+            return False
+        # fix(#2018): decode here rather than trusting the client's
+        # decode_responses. Comparing bytes to str is never equal, so a client
+        # built without it would exempt a same-route repeat.
+        if isinstance(claimant, bytes):
+            claimant = claimant.decode("utf-8", "replace")
+        return claimant != route
 
     def _degraded(self, operation: str) -> None:
         if self._unavailable_logged:
