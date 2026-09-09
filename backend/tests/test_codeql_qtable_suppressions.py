@@ -80,10 +80,10 @@ SUPPRESSION_QUERY = SUPPRESSION_PACK_DIR / "AlertSuppression.ql"
 # per-site justification naming _qtable.
 MARKER_RE = re.compile(r"\bcodeql\s*\[\s*py/sql-injection\s*\]", re.IGNORECASE)
 
-# Any rule id, for the placement test below. #1708 introduced markers for
-# py/path-injection and py/full-ssrf, so a rule-specific pattern would leave
-# every future rule's markers unguarded the day they are added.
-ANY_MARKER_RE = re.compile(r"\bcodeql\s*\[\s*[^\]]+\]", re.IGNORECASE)
+# Any rule id, for the placement tests below, capturing the id itself. #1708
+# introduced markers for py/path-injection and py/full-ssrf, so a rule-specific
+# pattern would leave every future rule's markers unguarded the day they are added.
+ANY_MARKER_RE = re.compile(r"\bcodeql\s*\[\s*([^\]]+?)\s*\]", re.IGNORECASE)
 
 
 def _dynamic_text_sites(source: str) -> list[int]:
@@ -273,6 +273,223 @@ def test_no_full_ssrf_marker_sits_above_a_non_sink_line() -> None:
     assert not stray, (
         "`# codeql[py/full-ssrf]` marker(s) that do not sit directly above a "
         "`client.<verb>(` sink, so they suppress nothing:\n  " + "\n  ".join(stray)
+    )
+
+
+# fix(#1942): a pure move carries a marker and its call into a new file
+# together, so the placement test above keeps passing even when the two come
+# apart, and CodeQL's PR run cannot dismiss what it re-reports at a new location.
+PATH_SINK_METHODS = frozenset({"open", "stat", "unlink"})
+
+
+def _builds_a_path(value: ast.expr, known: set[str]) -> bool:
+    """A ``Path(...)`` call, a name already proven to hold one, or a ``/`` join
+    with one such operand. A bare division proves nothing: ``done / total`` is
+    arithmetic, and accepting it would type its target as a path module-wide.
+    """
+    if isinstance(value, ast.Call):
+        func = value.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        return name == "Path"
+    if isinstance(value, ast.Name):
+        return value.id in known
+    if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Div):
+        return _builds_a_path(value.left, known) or _builds_a_path(value.right, known)
+    return False
+
+
+def _scope_nodes(scope: ast.AST) -> list[ast.AST]:
+    """Every node lexically inside ``scope``, stopping at a nested function.
+
+    A nested body is its own scope and is visited separately, so a name bound
+    there never leaks outwards.
+    """
+    nodes: list[ast.AST] = []
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        nodes.append(node)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            continue
+        stack.extend(ast.iter_child_nodes(node))
+    return nodes
+
+
+def _path_typed_names(nodes: list[ast.AST]) -> set[str]:
+    """Names this scope annotates as, or builds as, a ``pathlib.Path``.
+
+    It exists to reject a receiver the code never treats as a path, so that an
+    unrelated ``connection.open()`` cannot stand in for the filesystem call a
+    marker was written for.
+    """
+    names: set[str] = set()
+    for node in nodes:
+        annotation = getattr(node, "annotation", None)
+        if annotation is None or not any(
+            isinstance(inner, ast.Name) and inner.id == "Path"
+            for inner in ast.walk(annotation)
+        ):
+            continue
+        if isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+
+    # Assignments reach a fixpoint rather than being read in walk order, so a
+    # path built from a name bound earlier in the same body is proven whichever
+    # order the two statements are visited in.
+    assignments = [node for node in nodes if isinstance(node, ast.Assign)]
+    settled = False
+    while not settled:
+        settled = True
+        for node in assignments:
+            if not _builds_a_path(node.value, names):
+                continue
+            targets = {
+                target.id for target in node.targets if isinstance(target, ast.Name)
+            }
+            if not targets <= names:
+                names |= targets
+                settled = False
+    return names
+
+
+def _bound_names(nodes: list[ast.AST]) -> set[str]:
+    """Names this scope binds itself, whatever they end up holding.
+
+    A scope that rebinds an inherited name shadows it, so the inherited proof
+    no longer describes the object in hand. That applies to ``open`` too: a
+    parameter or module-level def of that name is not the builtin.
+    """
+    bound: set[str] = set()
+    for node in nodes:
+        if isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound.add(node.id)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            bound.add(node.name)
+        elif isinstance(node, ast.alias):
+            bound.add((node.asname or node.name).split(".")[0])
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+    return bound
+
+
+def _path_sink_lines(source: str) -> set[int]:
+    """1-based start line of every call that acts on a filesystem path.
+
+    Accepts the builtin ``open``, and a ``PATH_SINK_METHODS`` call whose
+    receiver the enclosing scope types as a path. Both halves are needed: the
+    method names alone match any object that happens to expose one, and CodeQL
+    does not report ``py/path-injection`` at those.
+
+    The set is exactly the shapes the markers sit above today. A sink written
+    another way (``shutil.copy``, ``os.remove``) fails this test instead of
+    passing quietly, and the fix is to name it here.
+    """
+    lines: set[int] = set()
+
+    def visit(scope: ast.AST, inherited: set[str], open_shadowed: bool) -> None:
+        nodes = _scope_nodes(scope)
+        bound = _bound_names(nodes)
+        names = (inherited - bound) | _path_typed_names(nodes)
+        shadowed = open_shadowed or "open" in bound
+        for node in nodes:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                visit(node, names, shadowed)
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name):
+                    if func.id == "open" and not shadowed:
+                        lines.add(node.lineno)
+                elif (
+                    isinstance(func, ast.Attribute)
+                    and func.attr in PATH_SINK_METHODS
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id in names
+                ):
+                    lines.add(node.lineno)
+
+    visit(ast.parse(source), set(), False)
+    return lines
+
+
+def _dynamic_sql_lines(source: str) -> set[int]:
+    """1-based start line of every dynamic ``text()`` argument in a module."""
+    return set(_dynamic_text_sites(source))
+
+
+# The construct each rule reports at. `py/full-ssrf` is absent because the two
+# tests above already pin its markers in both directions, against one shared
+# definition of an SSRF sink.
+MARKER_CONSTRUCTS = {
+    "py/sql-injection": _dynamic_sql_lines,
+    "py/path-injection": _path_sink_lines,
+}
+RULES_CHECKED_ELSEWHERE = frozenset({"py/full-ssrf"})
+
+
+def test_every_marker_sits_above_a_construct_its_own_rule_reports_at() -> None:
+    """Each marker covers a construct its rule flags, not merely a statement.
+
+    The generic placement test asks only that a marker sit alone above some
+    statement. A refactor that moves code between modules satisfies that while
+    still leaving a marker one line, or one call, away from the sink CodeQL
+    reports at, and nothing goes red until the alert opens on ``main``.
+
+    A rule id with no entry in either mapping fails rather than going
+    unchecked, and every entry is asserted to have been exercised, so this
+    cannot report success from an empty walk.
+    """
+    unknown: list[str] = []
+    misplaced: list[str] = []
+    exercised: set[str] = set()
+
+    for path in sorted((REPO_ROOT / "backend/app").rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        lines = source.splitlines()
+        markers = [
+            (index + 1, match.group(1).lower())
+            for index, line in enumerate(lines)
+            if (match := ANY_MARKER_RE.search(line))
+        ]
+        if not markers:
+            continue
+        rel = path.relative_to(REPO_ROOT)
+        sites: dict[str, set[int]] = {}
+        for lineno, rule in markers:
+            exercised.add(rule)
+            if rule in RULES_CHECKED_ELSEWHERE:
+                continue
+            if rule not in MARKER_CONSTRUCTS:
+                unknown.append(f"{rel}:{lineno} — {rule}")
+                continue
+            if rule not in sites:
+                sites[rule] = MARKER_CONSTRUCTS[rule](source)
+            if lineno + 1 not in sites[rule]:
+                covered = lines[lineno].strip() if lineno < len(lines) else ""
+                misplaced.append(f"{rel}:{lineno} — {rule} covers {covered!r}")
+
+    assert not unknown, (
+        "CodeQL marker(s) naming a rule this module cannot check:\n  "
+        + "\n  ".join(unknown)
+        + "\nAdd the construct that rule reports at to MARKER_CONSTRUCTS, or "
+        "list the rule in RULES_CHECKED_ELSEWHERE with the test that pins it."
+    )
+    assert not misplaced, (
+        "CodeQL marker(s) that do not sit directly above a construct their own "
+        "rule reports at, so they suppress nothing:\n  "
+        + "\n  ".join(misplaced)
+        + "\nMove the marker onto the line directly above the flagged call. See "
+        "AGENTS.md > Standing CodeQL policy."
+    )
+
+    unexercised = (set(MARKER_CONSTRUCTS) | RULES_CHECKED_ELSEWHERE) - exercised
+    assert not unexercised, (
+        f"no marker under backend/app names {sorted(unexercised)}, so the "
+        "entr(y/ies) check nothing. Either the markers were removed and the "
+        "entries should go too, or ANY_MARKER_RE has stopped matching them."
     )
 
 
