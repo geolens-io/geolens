@@ -120,8 +120,8 @@ v5, Tailwind, and shadcn/ui primitives in `components/ui/`.
 - **Routes:** `pages/` (admin sub-pages in `pages/admin/`).
 - **Map builder:** `components/builder/` + `src/builder/` + `lib/builder/`.
 - **Public viewer:** `components/viewer/`. **Map plugins/widgets:** `components/map-plugins/`.
-- **i18n:** new user-facing strings must be added to **all 4 locales** in
-  `i18n/locales/` (`en`/`fr`/`es`/`de`) or the CI "Locale parity" check fails.
+- **i18n:** new user-facing strings must be added to **all 5 locales** in
+  `i18n/locales/` (`en`/`fr`/`es`/`de`/`zh`) or the CI "Locale parity" check fails.
 
 ---
 
@@ -140,7 +140,7 @@ v5, Tailwind, and shadcn/ui primitives in `components/ui/`.
 | Add an admin setting | `backend/app/modules/settings/` + `frontend/src/components/admin/settings/` |
 | Add optional runtime behavior | Extend a Protocol in `backend/app/platform/extensions/`; keep core behavior in default implementations |
 | Add a DB column or table | New migration in `backend/alembic/versions/` + the domain's `models.py`; apply with `alembic upgrade heads` |
-| Add UI text | The component + **all 4** `frontend/src/i18n/locales/` files |
+| Add UI text | The component + **all 5** `frontend/src/i18n/locales/` files |
 
 ---
 
@@ -149,6 +149,6 @@ v5, Tailwind, and shadcn/ui primitives in `components/ui/`.
 - **Migrations use `heads` (plural):** `alembic upgrade heads` — the chain can carry multiple heads. Baseline is squashed (`0001_baseline` + `0002_procrastinate`).
 - **Trailing slashes matter:** the app runs with `redirect_slashes=False`; some routes 404 on a trailing slash.
 - **Don't import split service internals across domains** — go through the domain facade (enforced by `test_layering.py`).
-- **Locale parity is a CI gate** — a new `t()` key needs all 4 locale files, not just a `defaultValue`.
+- **Locale parity is a CI gate** — a new `t()` key needs all 5 locale files, not just a `defaultValue`.
 - **The worker is Postgres-backed** (procrastinate) — no Redis/RabbitMQ broker to run.
 - **Tests run in the container:** `make test` for the backend (a bare `docker compose exec api pytest` fails against the container's read-only uv cache — CONTRIBUTING.md has the filtered-run recipe) / `docker compose exec frontend npm test`. E2E (Playwright): `e2e:smoke:core` gates PRs that touch the stack; the full matrix runs nightly (see CONTRIBUTING.md's End-to-end section).

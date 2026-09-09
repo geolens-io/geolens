@@ -107,7 +107,7 @@ Code style is enforced by linters and formatters. Run them before submitting a P
 
 - **Backend:** `ruff check` and `ruff format` (configured in `pyproject.toml`)
 - **Frontend:** ESLint (configured in `frontend/eslint.config.js`)
-- **All user-facing strings** must be added to all 4 locale files (en, fr, es, de) under `frontend/src/i18n/locales/`
+- **All user-facing strings** must be added to all 5 locale files (en, fr, es, de, zh) under `frontend/src/i18n/locales/`
 
 Check both before committing:
 
@@ -157,7 +157,7 @@ If a PR template exists at `.github/PULL_REQUEST_TEMPLATE.md`, your PR descripti
 - Keep PRs focused -- one feature or fix per PR.
 - Include tests for new functionality.
 - Update documentation if your change affects user-facing behavior.
-- Add locale strings to all 4 language files if you introduce new UI text.
+- Add locale strings to all 5 language files if you introduce new UI text.
 
 ## Project Structure
 
@@ -226,7 +226,7 @@ geolens/
 │       │   ├── ui/             # Reusable primitives (shadcn/ui)
 │       │   └── viewer/         # Public map viewer components
 │       ├── hooks/              # React hooks (one per feature domain)
-│       ├── i18n/               # i18next config & locale files (en/fr/es/de)
+│       ├── i18n/               # i18next config & locale files (en/fr/es/de/zh)
 │       ├── lib/                # Pure utility functions & constants
 │       ├── pages/              # Top-level route pages
 │       │   └── admin/          # Admin sub-pages

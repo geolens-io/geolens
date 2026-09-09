@@ -424,7 +424,7 @@ see [RUNBOOK.md §4](RUNBOOK.md#4-monitoring) for the setup steps.
 | [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/) | Upgrading between versions with rollback procedures |
 | [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) | All environment variables and their defaults |
 | [Admin Guide](https://docs.getgeolens.com/guides/admin/) | User management, datasets, system health |
-| [Self-host on AWS, GCP, or DigitalOcean](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | Managed database, object storage, and cache deployment guides |
+| [Self-host on managed cloud services](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | Managed database, object storage, and cache deployment guides |
 | [CLI & Manifests](https://docs.getgeolens.com/guides/cli/) | Publish files and manage catalogs with the `geolens` CLI |
 | [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; development-mode stacks also serve Swagger UI at `/api/docs` (disabled in production) |
 | [Manifest examples](examples/manifests/) | Template `geolens.yaml` manifests to adapt: public-cog (remote COG), url-source, s3-source, publication-states |
