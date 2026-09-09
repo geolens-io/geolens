@@ -28,7 +28,7 @@ from sqlalchemy import inspect as sa_inspect, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
 from sqlalchemy.orm.attributes import set_committed_value
 
-from app.core.url_redaction import redact_exception_text
+from app.core.logging_config import redact_nested
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     IngestJob,
@@ -198,14 +198,24 @@ def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> 
     fix(#1755): FastAPI answers a ``DeferFailed`` without logging it.
     ``stage`` separates the two raise sites, which ``cause_class`` alone
     cannot when both fail with the same type.
+
+    fix(#1755): ``error`` is scrubbed HERE, through ``redact_nested``.
+    ``_redact_sensitive_fields`` scrubs free text only under ``event`` and
+    ``exception``, and a defer exception can quote Procrastinate's
+    ``call_string``, which renders a live ``token='...'`` kwarg.
     """
-    logger.warning(
-        "ingest_dispatch_failed",
-        job_id=_render_or_unreadable(lambda: str(job.id)),
-        stage=stage,
-        cause_class=type(exc).__name__,
-        error=_render_or_unreadable(lambda: redact_exception_text(exc)),
-    )
+    # The inner guards degrade one field; this one covers the emit itself, so
+    # a raising processor cannot skip the settlement that follows.
+    try:
+        logger.warning(
+            "ingest_dispatch_failed",
+            job_id=_render_or_unreadable(lambda: str(job.id)),
+            stage=stage,
+            cause_class=type(exc).__name__,
+            error=_render_or_unreadable(lambda: redact_nested(str(exc))),
+        )
+    except Exception:  # broad: a diagnostic must not preempt the settlement below
+        pass
 
 
 async def defer_with_orphan_guard(

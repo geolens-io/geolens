@@ -344,6 +344,73 @@ class TestDeferWithOrphanGuard:
 
         asyncio.run(_check())
 
+    def test_a_rendered_task_kwarg_is_scrubbed_before_it_reaches_the_record(self):
+        """fix(#1755 item 10): `error` is a plain scalar field, and the log
+        processor scrubs free text only under `event` and `exception`. A defer
+        error quoting Procrastinate's `call_string` must be scrubbed here.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            async def _rollback(exc: BaseException) -> None:
+                return None
+
+            async def _defer() -> None:
+                raise RuntimeError(
+                    "could not enqueue ingest_service[9]"
+                    "(token='PLACEHOLDERSECRET1', credential_ref=None)"
+                )
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+
+            with patch.object(defer_guard, "logger") as mock_logger:
+                with pytest.raises(defer_guard.DeferFailed):
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=mock_db, job=_job()
+                    )
+
+            logged_error = mock_logger.warning.call_args.kwargs["error"]
+            assert "PLACEHOLDERSECRET1" not in logged_error
+            assert "[REDACTED]" in logged_error
+            assert logged_error.startswith("could not enqueue ingest_service[9]")
+
+        asyncio.run(_check())
+
+    def test_a_logger_that_raises_does_not_preempt_the_settlement(self):
+        """fix(#1755 item 10): a structlog processor can raise while emitting.
+        The whole diagnostic is best-effort, so the rollback still runs and the
+        caller still sees the 503.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            settled: list[BaseException] = []
+
+            async def _rollback(exc: BaseException) -> None:
+                settled.append(exc)
+
+            async def _defer() -> None:
+                raise RuntimeError("queue down")
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+
+            with patch.object(defer_guard, "logger") as mock_logger:
+                mock_logger.warning.side_effect = OSError("log sink is gone")
+                with pytest.raises(defer_guard.DeferFailed) as exc_info:
+                    await defer_guard.defer_with_orphan_guard(
+                        _defer, rollback=_rollback, db=mock_db, job=_job()
+                    )
+
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.rolled_back is True
+            assert len(settled) == 1
+
+        asyncio.run(_check())
+
     def test_rollback_failure_still_raises_503(self):
         """If rollback itself raises, helper still surfaces the 503 to the client."""
 
