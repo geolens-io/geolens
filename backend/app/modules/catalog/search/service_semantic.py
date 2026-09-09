@@ -83,32 +83,44 @@ def _embedding_cache_clear() -> None:
 # one reaches its rate-limit gate first is a network/ASGI-scheduling race,
 # not something a fixed "results always embeds first" assumption can rely
 # on. This registry lets whichever gate runs first claim the query and pay
-# the shared token; the other, arriving within the window, is exempt.
-# Deliberately much shorter than the embedding cache TTL above: it
-# coordinates one paired request, not a repeat-query amnesty, and it never
-# looks at the embedding cache -- so a config change mid-window cannot make
-# a stale-model match exempt a call that ends up billing the provider.
+# the shared token; the OTHER route, arriving within the window, is exempt
+# -- once. Exempting is a single-use, cross-route consume, not a standing
+# amnesty: a same-route repeat never matches its own claim (so a burst
+# hitting one route before the first embed lands still pays per request),
+# and the opposite route's exemption deletes the claim, so a third request
+# for the same text -- either route -- pays fresh. Deliberately much
+# shorter than the embedding cache TTL above: it coordinates one paired
+# request, and it never looks at the embedding cache, so a config change
+# mid-window cannot make a stale-model match exempt a call that ends up
+# billing the provider.
 _QUERY_CLAIM_TTL_SECONDS = 5.0
 _QUERY_CLAIM_MAX_SIZE = 256
-_query_claims: "OrderedDict[str, float]" = OrderedDict()
+_query_claims: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
 
 
-def claim_semantic_search_query(text: str) -> bool:
-    """True when *text* was already claimed by a sibling request; else claims it.
+def claim_semantic_search_query(text: str, route: str) -> bool:
+    """True when the OTHER route already claimed *text*; else claims it for *route*.
 
     Called from both search routes' rate-limit ``exempt_when`` hooks, which
     run before either handler body -- so the first of a paired request to
-    reach its gate claims the query, the second (whichever route) is exempt.
+    reach its gate claims the query for its own route, and only the sibling
+    route's request, arriving within the window, is exempt (the claim is
+    then deleted, so this is a one-time consume, not a standing exemption).
     """
     normalized = text.strip().lower()
     if not normalized:
         return False
     key = tenant_cache_key(normalized)
     now = time.monotonic()
-    expires_at = _query_claims.get(key)
-    if expires_at is not None and expires_at >= now:
-        return True
-    _query_claims[key] = now + _QUERY_CLAIM_TTL_SECONDS
+    claimed = _query_claims.get(key)
+    if claimed is not None:
+        claimant_route, expires_at = claimed
+        if expires_at >= now:
+            if claimant_route == route:
+                return False
+            del _query_claims[key]
+            return True
+    _query_claims[key] = (route, now + _QUERY_CLAIM_TTL_SECONDS)
     _query_claims.move_to_end(key)
     while len(_query_claims) > _QUERY_CLAIM_MAX_SIZE:
         _query_claims.popitem(last=False)

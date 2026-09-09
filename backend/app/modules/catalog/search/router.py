@@ -415,14 +415,19 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
 
 
 def _semantic_search_query_already_claimed(request: Request) -> bool:
-    """fix(#1903): true when a sibling request already claimed this query.
+    """fix(#1903): true when the OTHER search route already claimed this query.
 
     Applied to BOTH search routes: the SPA fires them as an unordered pair,
     so whichever one reaches this gate first pays the shared rate-limit
-    token and the other, arriving within the coordination window, is exempt.
+    token and only the sibling ROUTE's request, arriving within the
+    coordination window, is exempt -- a same-route repeat never matches its
+    own claim, so a burst against one route still pays per request.
     """
     query_text = request.query_params.get("q")
-    return bool(query_text) and claim_semantic_search_query(query_text)
+    if not query_text:
+        return False
+    route = "facets" if "facets" in request.url.path else "datasets"
+    return claim_semantic_search_query(query_text, route)
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — slash form is canonical

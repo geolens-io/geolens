@@ -1802,9 +1802,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # counted through the shared candidate set. Cap 482 -> 398, exact.
         # fix(#1903): +3 — a short-lived claim registry so whichever of the
         # SPA's paired /search/datasets/ and /search/facets/ requests reaches
-        # its rate-limit gate first pays the SEC-S11 token for both. Cap
+        # its rate-limit gate first pays the shared token for both. Cap
         # 398 -> 401, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 401,
+        # fix(#1903 review r2): +12 — the claim is now a single-use,
+        # cross-route consume (route stored alongside the expiry, deleted on
+        # the opposite route's exemption) so a same-route burst before the
+        # first embed lands cannot ride the claim past the first pair. Cap
+        # 401 -> 413, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 413,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -5677,10 +5682,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # gained the SEC-S11 limiter. Cap 1493 -> 1492, exact.
     # fix(#1903): +27 — both search routes gain an exempt_when callable that
     # claims a query for whichever one's rate-limit gate runs first, so the
-    # SPA's unordered paired request only pays the shared SEC-S11 token once,
-    # plus override_defaults=False on each so an exempted request still falls
+    # SPA's unordered paired request only pays the shared token once, plus
+    # override_defaults=False on each so an exempted request still falls
     # under the global per-IP default. Cap 1380 -> 1407, exact.
-    "backend/app/modules/catalog/search/router.py": 1407,
+    # fix(#1903 review r2): +5 — the exempt_when callable now derives a
+    # route tag from the request path and passes it through, so the claim
+    # can require the OTHER route before exempting. Cap 1407 -> 1412, exact.
+    "backend/app/modules/catalog/search/router.py": 1412,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.

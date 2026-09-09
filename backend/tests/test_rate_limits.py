@@ -239,6 +239,52 @@ async def test_paired_query_claims_the_bucket_once_whichever_route_is_first(
         service_semantic._query_claims_clear()
 
 
+async def test_same_route_repeat_does_not_ride_a_cross_route_claim(
+    client: AsyncClient,
+):
+    """fix(#1903 round 2): a same-route burst still pays per request.
+
+    A claim is a single-use, cross-route consume, not a standing amnesty for
+    the whole coordination window: a concurrent burst against ONE route for
+    the same query would otherwise ride free after the first call, even
+    though none of those requests can have a cache hit yet (the first
+    embed hasn't landed), so each would still bill the provider. Proven
+    with a 2-token bucket: two /search/facets/ calls for the SAME query
+    spend both tokens; a third is a 429, not a third exemption.
+
+    Counterfactual: matching a claim regardless of which route made it
+    (rather than requiring the OTHER route) turns the third call into a 200.
+    """
+    q = f"sec-1903-burst-{uuid.uuid4().hex}"
+    _set_cache_limit("semantic_search_rate_limit", 2)
+    limiter.enabled = True
+    _reset_limiter_storage()
+    service_semantic._query_claims_clear()
+
+    try:
+        first = await client.get(f"/search/facets/?q={q}")
+        assert first.status_code == 200, (
+            f"expected the first call to spend a token, got {first.status_code}"
+        )
+
+        second = await client.get(f"/search/facets/?q={q}")
+        assert second.status_code == 200, (
+            "a second same-route call is not the cross-route pair and must "
+            f"spend its own token, got {second.status_code}"
+        )
+
+        third = await client.get(f"/search/facets/?q={q}")
+        assert third.status_code == 429, (
+            "a third same-route call for the same query must hit the "
+            f"now-spent bucket, got {third.status_code}"
+        )
+    finally:
+        limiter.enabled = False
+        _clear_cache_limit("semantic_search_rate_limit")
+        _reset_limiter_storage()
+        service_semantic._query_claims_clear()
+
+
 # ---------------------------------------------------------------------------
 # Task 3: /datasets/{id}/related/ rate limiting (SEC-S11)
 # ---------------------------------------------------------------------------
