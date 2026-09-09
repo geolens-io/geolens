@@ -245,7 +245,7 @@
   "deleteDialog": {
     "title": "删除数据集",
     "description": "此操作将永久删除数据集“{{name}}”及其所有空间数据。此操作无法撤销。",
-    "descriptionRegistered": "此操作将永久删除“{{name}}”的目录条目。GeoLens 不会删除其注册时使用的 PostgreSQL 表，表中现有的内容将保持原样，且任何有上传权限的用户都可以再次注册它。如需移除数据，请自行删除该表。此操作无法撤销。",
+    "descriptionRegistered": "此操作将永久删除“{{name}}”的目录条目。GeoLens 不会删除其注册时使用的 PostgreSQL 表，也不会改动表中现有的内容，且任何有上传权限的用户都可以再次注册它。如需移除数据，请自行删除该表。此操作无法撤销。",
     "descriptionRegisteredMissing": "此操作将永久删除“{{name}}”的目录条目。GeoLens 上次检查时其源表已缺失，因此可能没有需要移除的内容。此操作无法撤销。",
     "confirmPrompt": "输入数据集名称以确认：",
     "deleting": "正在删除...",
