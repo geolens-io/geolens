@@ -1800,13 +1800,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # was rejected. Cap 456 -> 482, exact.
         # fix(#1855): -84. The vector arm is resolved once into SemanticArm and
         # counted through the shared candidate set. Cap 482 -> 398, exact.
-        # fix(#1903): +67 — a claim registry coordinates the SPA's unordered
+        # fix(#1903): +68 — a claim registry coordinates the SPA's unordered
         # paired search requests so only one pays the SEC-S11 token (bounded
         # by TTL + LRU, cross-worker sharing tracked at #2018), and
         # concurrent identical embeds join one in-flight, shielded provider
-        # call so an exemption can never fund two paid calls. Cap
-        # 398 -> 465, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 465,
+        # call (gated on the same fully-pinned predicate the provider's own
+        # session-read check uses) so an exemption can never fund two paid
+        # calls. Cap 398 -> 466, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 466,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).

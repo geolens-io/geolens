@@ -216,11 +216,12 @@ async def generate_embedding(
     if cached is not None:
         return cached
 
-    if dimensions is None:
-        # fix(#1903): an unpinned dimensions value makes the provider call
-        # read the session for a default (processing/embeddings/service.py),
-        # and a shared task can outlive this request's session -- only a
-        # FULLY pinned call may be shared, so this one runs standalone.
+    if not model_name or not dimensions:
+        # fix(#1903): mirrors generate_embeddings_batch's own session-read
+        # gate (processing/embeddings/service.py) exactly, since a shared
+        # task can outlive this request's session -- only a call THAT gate
+        # would also treat as fully pinned may be shared; this one runs
+        # standalone.
         vector = await _embed_with_deadline(
             text, session, (model_name, dimensions, base_url)
         )
