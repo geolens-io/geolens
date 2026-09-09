@@ -123,7 +123,7 @@ def raster_storage(tmp_path, monkeypatch):
     """A real LocalStorageProvider on a tmp dir, installed on every lookup path.
 
     Most callers resolve ``get_storage`` from ``app.platform.storage`` at call
-    time, so one patch would cover them. Two modules bind the name at import
+    time, so one patch would cover them. Three modules bind the name at import
     time instead and need their own patch or they keep reading the real
     process-wide storage singleton (``app.platform.storage.provider._storage``,
     set for the test by the ``client`` fixture to ITS OWN tmp dir, a different
@@ -133,10 +133,14 @@ def raster_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.platform.storage.get_storage", lambda: storage, raising=True
     )
-    # `tasks_common` binds get_storage at module import, so `_archive_original_file`
+    # `tasks_staging` binds get_storage at module import, so `_archive_original_file`
     # reads THAT name and never sees the patch above. Without this the archive
     # step wrote to the real configured storage during the test — silently, and
     # outside tmp_path.
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_staging.get_storage", lambda: storage, raising=True
+    )
+    # `tasks_common` keeps the same import-time binding for `_generate_quicklook`.
     monkeypatch.setattr(
         "app.processing.ingest.tasks_common.get_storage", lambda: storage, raising=True
     )
@@ -1059,7 +1063,7 @@ class TestSourceObjectLifecycle:
     async def test_successful_conversion_deletes_the_staged_source(
         self, raster_storage
     ) -> None:
-        from app.processing.ingest.tasks_common import reap_downloaded_staging_source
+        from app.processing.ingest.tasks_staging import reap_downloaded_staging_source
 
         key = "staging/job-1221-a/dem.tif"
         await raster_storage.put(key, io.BytesIO(_geotiff_bytes()))
@@ -1078,7 +1082,7 @@ class TestSourceObjectLifecycle:
     async def test_failed_conversion_retains_the_staged_source(
         self, raster_storage
     ) -> None:
-        from app.processing.ingest.tasks_common import reap_downloaded_staging_source
+        from app.processing.ingest.tasks_staging import reap_downloaded_staging_source
 
         key = "staging/job-1221-b/dem.tif"
         await raster_storage.put(key, io.BytesIO(_geotiff_bytes()))

@@ -169,7 +169,7 @@ class TestReapPresignedStagingObject:
 
     async def test_the_owned_key_is_deleted(self, tmp_path, monkeypatch):
         from app.platform.storage.local import LocalStorageProvider
-        from app.processing.ingest.tasks_common import reap_presigned_staging_object
+        from app.processing.ingest.tasks_staging import reap_presigned_staging_object
 
         storage = LocalStorageProvider(str(tmp_path))
         monkeypatch.setattr(
@@ -191,7 +191,7 @@ class TestReapPresignedStagingObject:
         returns None for the inherited parent key, and that None must stay a
         no-op all the way down.
         """
-        from app.processing.ingest.tasks_common import reap_presigned_staging_object
+        from app.processing.ingest.tasks_staging import reap_presigned_staging_object
 
         storage = AsyncMock()
         monkeypatch.setattr(
@@ -207,7 +207,7 @@ class TestReapPresignedStagingObject:
         copies in the task tails. A non-terminal exit — job or dataset missing,
         heartbeat claim lost — may be re-claimed by another attempt that still
         needs the staging bytes."""
-        from app.processing.ingest.tasks_common import reap_presigned_staging_object
+        from app.processing.ingest.tasks_staging import reap_presigned_staging_object
 
         storage = AsyncMock()
         monkeypatch.setattr(
@@ -223,7 +223,7 @@ class TestReapPresignedStagingObject:
     async def test_a_provider_failure_never_escapes(self, monkeypatch):
         """The tail runs in a `finally` after the job is committed. Raising
         here would turn a completed ingest into a task failure."""
-        from app.processing.ingest.tasks_common import reap_presigned_staging_object
+        from app.processing.ingest.tasks_staging import reap_presigned_staging_object
 
         storage = AsyncMock()
         storage.delete.side_effect = RuntimeError("provider down")
@@ -1050,7 +1050,7 @@ class TestFailedSourceRetention:
 
     @staticmethod
     async def _reap(monkeypatch, *, final_status: str, replayable: bool):
-        from app.processing.ingest.tasks_common import (
+        from app.processing.ingest.tasks_staging import (
             reap_downloaded_staging_source,
         )
 
@@ -1095,7 +1095,7 @@ class TestTerminalCleanupDrainsThroughCancellation:
     """
 
     async def test_a_cancelled_source_delete_does_not_escape(self, monkeypatch) -> None:
-        from app.processing.ingest.tasks_common import (
+        from app.processing.ingest.tasks_staging import (
             reap_downloaded_staging_source,
         )
 
@@ -1118,7 +1118,7 @@ class TestTerminalCleanupDrainsThroughCancellation:
     async def test_a_cancelled_presigned_sweep_does_not_escape(
         self, monkeypatch
     ) -> None:
-        from app.processing.ingest.tasks_common import (
+        from app.processing.ingest.tasks_staging import (
             reap_presigned_staging_object,
         )
 

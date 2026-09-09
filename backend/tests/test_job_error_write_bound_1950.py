@@ -25,10 +25,10 @@ from app.modules.auth.models import User
 from app.platform.jobs.heartbeat import JOB_ERROR_WRITE_TIMEOUT_MS
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.tasks_common import (
-    _cleanup_staging_on_failure,
     _job_phase_session,
     load_job_for_error_write,
 )
+from app.processing.ingest.tasks_staging import _cleanup_staging_on_failure
 
 pytestmark = pytest.mark.anyio
 

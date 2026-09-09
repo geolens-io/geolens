@@ -706,7 +706,7 @@ PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
         "_stale_generation_storage_keys in the job sweep (feat(#1267)) - the "
         "mechanism this finding's recorder was modelled on",
     ),
-    ("processing/ingest/tasks_common.py", "_archive_original_file"): (
+    ("processing/ingest/tasks_staging.py", "_archive_original_file"): (
         1,
         "originals/{dataset_id}/: the first-ingest tail records it as intent "
         "(archived_original_uri under a dataset id it generates), and the "

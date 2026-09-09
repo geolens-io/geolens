@@ -149,6 +149,9 @@ def raster_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.processing.ingest.tasks_common.get_storage", lambda: storage, raising=True
     )
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_staging.get_storage", lambda: storage, raising=True
+    )
     return storage
 
 

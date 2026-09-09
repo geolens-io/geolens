@@ -29,12 +29,8 @@ from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     IngestContext,
     cleanup_step,
-    reap_downloaded_staging_source,
-    reap_presigned_staging_object,
     _append_job_warning,
-    _archive_original_file,
     _bind_task_log_context,
-    _cleanup_staging_on_failure,
     _current_tenant_schema,
     _detect_and_override_geometry,
     _emit_billing_event,
@@ -42,11 +38,17 @@ from app.processing.ingest.tasks_common import (
     _job_phase_session,
     _resolve_effective_srid,
     _run_service_import_with_wfs_fallback,
-    _validate_upload_file_safety,
     purge_token_on_failure,
     rename_pkey_to_match_table,
     resolve_service_type,
     task_app,
+)
+from app.processing.ingest.tasks_staging import (
+    reap_downloaded_staging_source,
+    reap_presigned_staging_object,
+    _archive_original_file,
+    _cleanup_staging_on_failure,
+    _validate_upload_file_safety,
 )
 from app.platform.jobs.models import owned_presigned_staging_key
 
