@@ -3387,7 +3387,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#1711): -459. The URL-import staging cluster — budget, bounded
     # put, settlement — lives in url_import_staging.py; the route handler and
     # its filename/metadata helpers stay. Cap 2639 -> 2180, exact.
-    "backend/app/processing/ingest/router.py": 1969,
+    # fix(#1955): +15 — both VRT source doors admit through the shared
+    # per-dataset lock instead of reading the status, and refuse with the
+    # coded `dataset_busy` body. Cap 1969 -> 1984, exact.
+    "backend/app/processing/ingest/router.py": 1984,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -4646,7 +4649,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r4): -4 — `ingest_vrt`'s failure tail loads its job row
     # through `tasks_common.load_job_for_error_write` instead of an inline
     # unbounded SELECT. Cap 1709 -> 1705, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1626,
+    # fix(#1962): +63 — `_settle_failed_vrt_asset` commits the asset write
+    # before the job row is touched, releases the asset unless a live
+    # generation owns it, bounds its own pool checkout, and reports
+    # whether it landed so the generation stays sweepable when it did
+    # not. Cap 1626 -> 1689, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1689,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait
@@ -4656,7 +4664,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # unbounded. The reporter is a context manager so the acquisition stays a
     # direct call the #1847 gates can see, and the failure write carries a bound
     # of its own so phase 2's contention cannot move onto it. Cap 1056, exact.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 997,
+    # fix(#1957): -4 — the failure write reads the shared budget constant
+    # instead of a second definition of it. Cap 997 -> 993, exact.
+    "backend/app/processing/ingest/tasks_raster_replace.py": 993,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -5243,7 +5253,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): phase 3 takes the job row before the datasets row. Cap
     # 1134 -> 1141, exact.
     # fix(#1902): the atomic bump comment states its contract. Cap 1141 -> 1137.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 975,
+    # fix(#1957): +3 — the failure write is budgeted, and states what an
+    # expiry leaves behind. Cap 975 -> 978, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 978,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -5553,7 +5565,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # computation as the scope, the idiom `generate_table_name`'s own
     # `_with_collision_suffix` already uses. Cap 1702 -> 1725, exact.
     # chore(#1873): review-history comments trimmed. Cap 1725 -> 1392, exact.
-    "backend/app/processing/analysis/tasks.py": 1390,
+    # fix(#1957): +31 — both failure tails budget their job write and keep an
+    # expired budget distinct from a fence miss, and the cancel path names
+    # its shield and derives a clamp that fits inside it. Cap 1390 -> 1421,
+    # exact.
+    "backend/app/processing/analysis/tasks.py": 1421,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

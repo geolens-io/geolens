@@ -125,6 +125,7 @@ from app.processing.ingest.validation import (
     UnsafeUploadError,
     validate_file_content,
 )
+from app.platform.catalog_locks import admit_vrt_mutation
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_vrt_regeneration_failed_rollback,
@@ -1663,13 +1664,6 @@ async def add_vrt_source(
             detail=f"VRT dataset {dataset_id} not found",
         )
 
-    # SRC-05: mutation serialization guard.
-    if vrt_asset.status == "regenerating":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="VRT is currently regenerating. Try again after the current operation completes.",
-        )
-
     source_result = await db.execute(
         select(RasterAsset)
         .join(Dataset, RasterAsset.dataset_id == Dataset.id)
@@ -1708,6 +1702,21 @@ async def add_vrt_source(
     await check_dataset_write_access(
         db, vrt_dataset, dataset_id, user, user_roles=user_roles
     )
+
+    # SRC-05 / fix(#1955): admission, not a status read — the check and the
+    # flip below are one sequence, and only the lock inside makes it atomic.
+    # After the write check, so a caller who may not mutate cannot hold it.
+    if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "dataset_busy",
+                "message": (
+                    "VRT is currently regenerating. Try again after the "
+                    "current operation completes."
+                ),
+            },
+        )
 
     dup_result = await db.execute(
         text(
@@ -1872,11 +1881,17 @@ async def remove_vrt_source(
     vrt_dataset = await get_dataset(db, dataset_id)
     await check_dataset_write_access(db, vrt_dataset, dataset_id, user)
 
-    # SRC-05: mutation serialization guard.
-    if vrt_asset.status == "regenerating":
+    # SRC-05 / fix(#1955): admission, not a status read — see add_vrt_source.
+    if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="VRT is currently regenerating. Try again after the current operation completes.",
+            detail={
+                "code": "dataset_busy",
+                "message": (
+                    "VRT is currently regenerating. Try again after the "
+                    "current operation completes."
+                ),
+            },
         )
 
     # fix(#1327): read the current member set ONCE, in order — the count

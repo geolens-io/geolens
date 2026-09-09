@@ -40,7 +40,7 @@ from app.platform.jobs.heartbeat import (
     require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
-    update_ingest_job_for_attempt,
+    write_job_failure_for_attempt,
 )
 from app.platform.refresh.service import (
     claim_run_for_job,
@@ -660,7 +660,10 @@ async def refresh_stac(
         logger.exception("STAC refresh failed", job_id=job_id, task="refresh_stac")
         error_code = getattr(exc, "error_code", _ERROR_CODE_GENERIC)
         async with async_session() as err_session:
-            await update_ingest_job_for_attempt(
+            # fix(#1957): the job row is the one a retry of this refresh
+            # contends for. An expiry leaves it `running` for the stale sweep
+            # and does not stop the refresh-run row below from recording why.
+            await write_job_failure_for_attempt(
                 err_session,
                 job_uuid,
                 attempt_uuid,
@@ -669,8 +672,8 @@ async def refresh_stac(
                     "error_message": str(exc),
                     "completed_at": datetime.now(timezone.utc),
                 },
+                task_name="refresh_stac",
             )
-            await err_session.commit()
             health = getattr(exc, "health", None)
             await stamp_failed_origin_health(
                 err_session,

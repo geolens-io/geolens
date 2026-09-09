@@ -177,7 +177,7 @@ class TestPhaseTwoCallSite:
         )
 
     def test_the_error_write_names_its_own_budget(self) -> None:
-        assert _budget_name("error_write") == "_ERROR_WRITE_TIMEOUT_MS", (
+        assert _budget_name("error_write") == "JOB_ERROR_WRITE_TIMEOUT_MS", (
             "the failure write is unbounded. It UPDATEs the same ingest_jobs "
             "row phase 2 contends for, so bounding phase 2 alone moves the "
             "contention onto a wait nothing ends, with the heartbeat still "
@@ -363,7 +363,7 @@ class TestPhaseTwoBudgetAgainstPostgres:
         """The failure write bounds its own UPDATE against the same job row."""
         job_id, attempt_id = running_job
         monkeypatch.setattr(
-            tasks_raster_replace, "_ERROR_WRITE_TIMEOUT_MS", _TEST_BUDGET_MS
+            tasks_raster_replace, "JOB_ERROR_WRITE_TIMEOUT_MS", _TEST_BUDGET_MS
         )
         import app.core.db as db_module
 
@@ -373,7 +373,7 @@ class TestPhaseTwoBudgetAgainstPostgres:
                 phase="error_write",
                 attempt_id=attempt_id,
                 lock_and_statement_timeout_ms=(
-                    tasks_raster_replace._ERROR_WRITE_TIMEOUT_MS
+                    tasks_raster_replace.JOB_ERROR_WRITE_TIMEOUT_MS
                 ),
             ) as (err_session, _job):
                 await update_ingest_job_for_attempt(

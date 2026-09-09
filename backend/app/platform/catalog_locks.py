@@ -1,17 +1,19 @@
-"""The one lock order for the (datasets, records) row pair (#1847).
+"""The one lock order for the (datasets, records) row pair (#1847), and the
+per-dataset admission lock VRT regeneration serialises on (#1955).
 
 Lives in ``platform/`` because ``processing/`` may not import
 ``app.modules.catalog``: worker callers pass the mapped classes the port hands
-them.
+them, and both the catalog and the ingest router reach the VRT admission here.
 """
 
 from __future__ import annotations
 
+import uuid
 from contextvars import ContextVar
 from typing import Any
 
 from sqlalchemy import event, func, select, text, update
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -237,3 +239,38 @@ async def bump_tile_cache_version_on(session: AsyncSession, dataset: Any) -> int
     if version is not None:
         set_committed_value(dataset, "tile_cache_version", version)
     return version
+
+
+def vrt_admission_lock_key(dataset_id: uuid.UUID) -> int:
+    """The advisory-lock key a dataset's VRT mutations serialise on."""
+    return dataset_id.int % (2**63)
+
+
+async def admit_vrt_mutation(
+    session: AsyncSession, dataset_id: uuid.UUID, vrt_asset: Any
+) -> bool:
+    """Admit one VRT-mutating dispatch per dataset, or refuse this one.
+
+    fix(#1955): ADR-002 Decision 5b's partial unique index does not reach VRT
+    regeneration, and the three doors that dispatch one read the asset status,
+    check it and flip it as three statements. The lock comes FIRST and the
+    status is re-read under it: read before the lock, the loser's snapshot
+    still says the VRT is idle and both attempts dispatch.
+
+    The lock is released at the caller's commit, by which point the winner has
+    left ``regenerating`` on the asset, which is what refuses the next caller.
+    """
+    acquired = await session.scalar(
+        text("SELECT pg_try_advisory_xact_lock(:key)"),
+        {"key": vrt_admission_lock_key(dataset_id)},
+    )
+    if not acquired:
+        return False
+    try:
+        await session.refresh(vrt_asset)
+    except InvalidRequestError:
+        # Deleted between the caller's load and this re-read. `refresh` reports
+        # that as InvalidRequestError, not the ObjectDeletedError its subclass
+        # name suggests; refusing beats a 500 on a row that is gone.
+        return False
+    return vrt_asset.status != "regenerating"

@@ -924,72 +924,66 @@ class TestRegenerateVrtTask:
                 str(call.args[0]) for call in mock_session.execute.await_args_list
             )
             assert "UPDATE catalog.raster_assets" in statements
+            # fix(#1962 codex r3): an attempt that bound no generation releases
+            # the asset unless a live generation owns it, which is the only
+            # rule that reaches one the sweep cannot see.
+            assert "catalog.vrt_generations" in statements
 
         asyncio.run(_check())
 
     def test_task_clears_current_generation_id_on_failure(self):
-        """On failure, current_generation_id is cleared (set to None)."""
+        """On failure, current_generation_id is cleared (set to None).
+
+        fix(#1962): in its own committed transaction, ahead of the job row.
+        """
 
         async def _check():
-            from app.processing.ingest.tasks import regenerate_vrt
-
-            job_id = str(uuid.uuid4())
-            vrt_dataset_id = str(uuid.uuid4())
-
-            mock_job = MagicMock()
-            mock_job.id = uuid.UUID(job_id)
-            mock_job.status = "pending"
-
-            mock_vrt_asset = _make_mock_asset(status="regenerating")
-            mock_vrt_asset.current_generation_id = uuid.uuid4()
+            from app.processing.ingest.tasks_vrt import _settle_failed_vrt_asset
 
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock(return_value=False)
+            mock_session.execute = AsyncMock(return_value=MagicMock())
 
-            call_count = [0]
-
-            def execute_side_effect(query, params=None):
-                call_count[0] += 1
-                result_mock = MagicMock()
-                if call_count[0] == 1:
-                    result_mock.scalar_one.return_value = mock_job
-                elif call_count[0] == 2:
-                    result_mock.scalar_one_or_none.return_value = mock_vrt_asset
-                elif call_count[0] == 3:
-                    # vrt_source_links -- empty causes ValueError before build
-                    result_mock.fetchall.return_value = []
-                return result_mock
-
-            mock_session.execute = AsyncMock(side_effect=execute_side_effect)
-
-            with (
-                patch(
-                    # fix(#909): tasks_vrt late-binds; patch the origin
-                    "app.core.db.async_session"
-                ) as mock_async_session,
-                patch(
-                    "app.processing.ingest.tasks_vrt.build_vrt",
-                    side_effect=RuntimeError("fail"),
-                ),
-            ):
+            with patch("app.core.db.async_session") as mock_async_session:
                 mock_async_session.return_value = mock_session
-                try:
-                    await regenerate_vrt.func(
-                        job_id=job_id,
-                        attempt_id=str(uuid.uuid4()),
-                        vrt_dataset_id=vrt_dataset_id,
-                    )
-                except Exception:
-                    pass
+                await _settle_failed_vrt_asset(
+                    uuid.uuid4(), uuid.uuid4(), job_id=str(uuid.uuid4())
+                )
 
             statements = "\n".join(
                 str(call.args[0]) for call in mock_session.execute.await_args_list
             )
             assert "UPDATE catalog.raster_assets" in statements
             assert "current_generation_id" in statements
+            assert mock_session.commit.await_count == 1
 
         asyncio.run(_check())
+
+    def test_the_asset_settles_before_the_job_and_generation_write(self):
+        """fix(#1962): the reverse order puts both writes back in one abort."""
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_vrt
+
+        tree = ast.parse(inspect.getsource(tasks_vrt.regenerate_vrt.func))
+        lines = {
+            name: [
+                node.lineno
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and getattr(node.func, "id", None) == name
+            ]
+            for name in ("_settle_failed_vrt_asset", "update_ingest_job_for_attempt")
+        }
+        assert all(len(v) == 1 for v in lines.values()), lines
+        assert (
+            lines["_settle_failed_vrt_asset"][0]
+            < (lines["update_ingest_job_for_attempt"][0])
+        ), (
+            "the asset settles after the job write, so a contended job row "
+            "aborts the transaction the asset write is in again"
+        )
 
     def test_task_sets_status_to_ready_on_success(self):
         """On success, asset.status is set to 'ready' and last_regenerated_at is updated."""

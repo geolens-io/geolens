@@ -53,6 +53,7 @@ from app.platform.jobs.heartbeat import (
     resolve_ingest_job_attempt,
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
+    write_job_failure_for_attempt,
 )
 from app.processing.ingest.metadata import _sql_quote_ident
 from app.processing.ingest.tasks import task_app
@@ -144,6 +145,20 @@ ANALYSIS_JOBS = Counter(
 )
 
 
+# fix(#700): how long a graceful shutdown waits for the cancel bookkeeping
+# before giving up on it, and how much of that the lock release may take.
+CANCEL_CLEANUP_SECONDS = 15
+CANCEL_ROLLBACK_SECONDS = 5
+
+# fix(#1957 codex r4): DERIVED, so the two deadlines cannot drift apart. The
+# failure write spends its budget twice, on the pool checkout and again on the
+# UPDATE, and a second is left for scheduling. Sized this way the write always
+# reports why it gave up instead of being cancelled by the shield above it.
+CANCEL_WRITE_BUDGET_MS = int(
+    (CANCEL_CLEANUP_SECONDS - CANCEL_ROLLBACK_SECONDS - 1) / 2 * 1000
+)
+
+
 def _user_error_message(exc: Exception, *, registered: bool = False) -> str:
     """Map a failure onto text safe to return from ``GET /jobs/{job_id}``.
 
@@ -202,12 +217,17 @@ async def _fail_cancelled_job(
     # wedged connection cannot eat the shield window, or the fenced update below
     # waits on our own lock and the row strands in 'running'.
     try:
-        await asyncio.wait_for(working_session.rollback(), timeout=5)
+        await asyncio.wait_for(
+            working_session.rollback(), timeout=CANCEL_ROLLBACK_SECONDS
+        )
     except Exception:  # broad: cleanup must reach the fenced update regardless
         logger.warning("analysis.cancel_rollback_failed", job_id=job_id)
 
     async with async_session() as session:
-        if not await update_ingest_job_for_attempt(
+        # fix(#1957 codex r4): the clamped budget, not the shared one. This
+        # write is already under the caller's shield, and the shared 10s twice
+        # over plus the rollback above does not fit inside it.
+        fenced = await write_job_failure_for_attempt(
             session,
             uuid.UUID(job_id),
             attempt_id,
@@ -220,8 +240,14 @@ async def _fail_cancelled_job(
                 # the jobs UI renders '-' and retention ages on queue time.
                 "completed_at": datetime.now(timezone.utc),
             },
-        ):
-            await session.rollback()
+            task_name="analysis_cancelled",
+            budget_ms=CANCEL_WRITE_BUDGET_MS,
+        )
+        # fix(#1957): an expiry proves nothing about who owns the row, so the
+        # table is left for the sweep rather than probed — leak over loss.
+        if fenced is None:
+            return
+        if not fenced:
             # fix(#814): a swept row leaves an unregistered orphan. Probe for
             # an adopting dataset row; no row means the DROP is safe, and a
             # probe that errors leaks the table rather than dropping storage.
@@ -233,7 +259,6 @@ async def _fail_cancelled_job(
                 owner_job_uuid=uuid.UUID(job_id),
             )
             return
-        await session.commit()
         if out_table is not None:
             try:
                 await session.execute(
@@ -868,7 +893,9 @@ async def _mark_job_failed(
     dataset registered it.
     """
     await session.rollback()
-    if not await update_ingest_job_for_attempt(
+    # fix(#1957): budgeted, and armed after that rollback rather than before
+    # it — `SET LOCAL` dies with the transaction the rollback ends.
+    fenced = await write_job_failure_for_attempt(
         session,
         uuid.UUID(job_id),
         attempt_id,
@@ -879,8 +906,13 @@ async def _mark_job_failed(
             # fix(#813): stamp completion time like ingest does.
             "completed_at": datetime.now(timezone.utc),
         },
-    ):
-        await session.rollback()
+        task_name="analysis_materialize",
+    )
+    # fix(#1957): an expiry proves nothing about who owns the row, so the
+    # table is left for the sweep rather than probed — leak over loss.
+    if fenced is None:
+        return
+    if not fenced:
         logger.warning("analysis.failed_write_superseded", job_id=job_id)
         # fix(#813): a fence miss means another actor set a terminal state,
         # but only a completed job has adopted the table. Probe first; a probe
@@ -893,7 +925,6 @@ async def _mark_job_failed(
             owner_job_uuid=uuid.UUID(job_id),
         )
         return
-    await session.commit()
     if out_table is not None:
         try:
             await session.execute(
@@ -1325,7 +1356,7 @@ async def _materialize(
                             out_table=out_table if out_table_created else None,
                             operation=operation,
                         ),
-                        timeout=15,
+                        timeout=CANCEL_CLEANUP_SECONDS,
                     )
                 )
             except BaseException:  # broad: cleanup only; raise below keeps the abort
