@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { commitImport } from '@/api/ingest';
-import { commitFanOut } from '@/api/datasets';
+import { commitFanOut, type FanOutLayerResult } from '@/api/datasets';
 import {
   startUploadEntry,
   startLayerPreview,
@@ -558,6 +558,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     const fileBase = stripExtension(entry.previewData.source_filename ?? entry.fileName) || 'Untitled';
 
     let results: FanOutResult[];
+    let queuedLayers: (FanOutLayerResult & { new_job_id: string })[] = [];
     try {
       // Single HTTP call — backend fans out N tasks from this one request.
       const response = await commitFanOut(
@@ -568,6 +569,9 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
         })),
       );
 
+      queuedLayers = response.results.filter(
+        (r): r is FanOutLayerResult & { new_job_id: string } => r.status === 'queued' && !!r.new_job_id,
+      );
       results = response.results.map((r) => ({
         layerName: r.layer_name,
         status: r.status === 'queued' ? ('fulfilled' as const) : ('rejected' as const),
@@ -585,9 +589,26 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     const succeededCount = results.filter((r) => r.status === 'fulfilled').length;
     const failedCount = results.length - succeededCount;
 
-    // Update entry status based on outcome.
+    // fix(#2034): on full success, replace the parent with one tracked entry
+    // per queued layer (own jobId). The parent job itself settles
+    // 'fanned_out' with no dataset_id, so BulkTrackingList's completedEntries
+    // never counted it — children complete (and count) like a normal import.
     if (failedCount === 0) {
-      updateEntry(entryId, { status: 'tracking' });
+      setEntries((prev) => [
+        ...prev.filter((e) => e.id !== entryId),
+        ...queuedLayers.map((layer) => ({
+          id: crypto.randomUUID(),
+          file: null,
+          fileName: `${fileBase}: ${layer.layer_name}`,
+          status: 'tracking' as const,
+          jobId: layer.new_job_id,
+          previewData: null,
+          error: null,
+          submittedTitle: `${fileBase}: ${layer.layer_name}`,
+          submittedVisibility: 'private',
+          submittedKind: 'vector' as const,
+        })),
+      ]);
       toast.success(t('upload.multiLayerSuccess', { count: succeededCount }));
     } else if (succeededCount === 0) {
       updateEntry(entryId, {

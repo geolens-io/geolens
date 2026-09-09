@@ -116,7 +116,13 @@ vi.mock('../BulkReviewList', () => ({
 }));
 
 vi.mock('../BulkTrackingList', () => ({
-  BulkTrackingList: () => <div data-testid="bulk-tracking-list" />,
+  BulkTrackingList: ({ entries }: { entries: Array<{ id: string; jobId: string | null }> }) => (
+    <div data-testid="bulk-tracking-list">
+      {entries.map((e) => (
+        <div key={e.id} data-testid={`tracked-${e.jobId}`} />
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock('sonner', () => ({
@@ -334,6 +340,37 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
     await waitFor(() => {
       expect(screen.getByTestId('bulk-tracking-list')).toBeInTheDocument();
     });
+  });
+
+  it('(f) full success replaces the parent with one tracked entry per queued layer (#2034)', async () => {
+    mockCommitFanOut.mockResolvedValue(
+      makeFanOutResponse([
+        { layer_name: 'layer_a', status: 'queued' },
+        { layer_name: 'layer_b', status: 'queued' },
+        { layer_name: 'layer_c', status: 'queued' },
+      ]) as never,
+    );
+
+    await driveToReview(makeMultiLayerPreview(3));
+
+    const entries = screen.getAllByTestId(/^entry-/);
+    const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
+
+    await act(async () => {
+      screen.getByTestId(`ingest-all-${entryId}`).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-tracking-list')).toBeInTheDocument();
+    });
+
+    // BulkTrackingList must track each layer's OWN new_job_id, not the
+    // parent job — the parent settles 'fanned_out' with no dataset_id, which
+    // is why the batch summary previously stayed at 0 (#2034).
+    expect(screen.queryByTestId('tracked-job-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tracked-new-layer_a')).toBeInTheDocument();
+    expect(screen.getByTestId('tracked-new-layer_b')).toBeInTheDocument();
+    expect(screen.getByTestId('tracked-new-layer_c')).toBeInTheDocument();
   });
 
   it('(e) network failure in commitFanOut → all layers shown as failed in modal', async () => {
