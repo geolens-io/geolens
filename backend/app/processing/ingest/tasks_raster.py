@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import structlog
 from sqlalchemy.exc import DBAPIError
 
+from app.core.failure_reason import redact_failure_reason
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -193,7 +194,7 @@ async def ingest_raster(
                     attempt_uuid,
                     values={
                         "status": "failed",
-                        "error_message": str(exc),
+                        "error_message": redact_failure_reason(exc),
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
@@ -783,7 +784,7 @@ async def ingest_raster(
                     )
                     .values(
                         status="failed",
-                        error_message=str(exc),
+                        error_message=redact_failure_reason(exc),
                         completed_at=datetime.now(timezone.utc),
                     )
                 )

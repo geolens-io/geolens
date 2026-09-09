@@ -29,6 +29,7 @@ import structlog
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
+from app.core.failure_reason import redact_failure_reason
 from app.core.db.sqlstate import sqlstate
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -949,7 +950,7 @@ async def refresh_postgis(
                 attempt_uuid,
                 values={
                     "status": "failed",
-                    "error_message": str(exc),
+                    "error_message": redact_failure_reason(exc),
                     "completed_at": datetime.now(timezone.utc),
                 },
                 task_name="refresh_postgis",
@@ -968,7 +969,7 @@ async def refresh_postgis(
                 err_session,
                 ingest_job_id=job_uuid,
                 error_code=error_code,
-                error_message=str(exc),
+                error_message=exc,
                 contacted_origin=False,
             )
             await err_session.commit()

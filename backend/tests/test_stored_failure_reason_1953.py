@@ -79,6 +79,23 @@ class TestTheHelperRefusesWhatDecision3Forbids:
         assert reason.endswith("Cannot open datasource")
         assert "/app/staging" not in reason
 
+    def test_a_wrapper_around_gdal_stderr_loses_the_libpq_password(self) -> None:
+        """Being defined under ``app.`` does not make the text ours: ogr.py
+        builds ``IngestionError`` from stderr, and GDAL echoes the ``PG:``
+        destination it was handed on a connection failure."""
+        for rendered in ("password=hunter2", "password='hunt er2'"):
+            reason = redact_failure_reason(
+                IngestionError(
+                    "ogr2ogr failed (exit 1): ERROR 1: Unable to connect: "
+                    f"PG:host=db port=5432 dbname=geolens user=gl {rendered} "
+                    "sslmode=require"
+                )
+            )
+            assert "hunter2" not in reason
+            assert "hunt er2" not in reason
+            assert "password=<redacted>" in reason
+            assert "dbname=geolens" in reason, "only the secret is masked"
+
     def test_credentials_are_still_stripped(self) -> None:
         assert "hunter2" not in redact_failure_reason(
             IngestionError(
@@ -94,8 +111,10 @@ class TestTheHelperRefusesWhatDecision3Forbids:
 
     def test_provenance_is_the_test_not_the_shape(self) -> None:
         assert is_composed_exception(IngestionError("composed here"))
+        # The upload size refusal, which reaches the user through the dialog.
+        assert is_composed_exception(ValueError("File size (9.0 MB) exceeds"))
         assert not is_composed_exception(_driver_error())
-        assert not is_composed_exception(ValueError("composed by nobody in particular"))
+        assert not is_composed_exception(RuntimeError("osgeo raises these"))
 
     def test_a_coded_reason_names_the_class_and_not_the_message(self) -> None:
         reason = coded_failure_reason("Failed to queue refresh task", _driver_error())
@@ -114,6 +133,41 @@ def _function(module_path: Path, name: str) -> ast.FunctionDef | ast.AsyncFuncti
     ]
     assert len(found) == 1, f"{name} not found once in {module_path}"
     return found[0]
+
+
+_SANCTIONED_REDACTORS = frozenset(
+    {
+        "redact_failure_reason",
+        "redact_run_error",
+        "coded_failure_reason",
+        # analysis/tasks.py's SQLSTATE-to-sentence mapper, the same argument
+        # made for the PostGIS strategy in ADR-002 Decision 3.
+        "_user_error_message",
+    }
+)
+
+
+def _reason_values(tree: ast.AST) -> list[ast.expr]:
+    """Every expression assigned to an ``error_message``, however spelled."""
+    values: list[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            values += [kw.value for kw in node.keywords if kw.arg == "error_message"]
+        elif isinstance(node, ast.Dict):
+            values += [
+                value
+                for key, value in zip(node.keys, node.values)
+                if isinstance(key, ast.Constant) and key.value == "error_message"
+            ]
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                named = isinstance(target, ast.Name) and target.id == "error_message"
+                attr = (
+                    isinstance(target, ast.Attribute) and target.attr == "error_message"
+                )
+                if named or attr:
+                    values.append(node.value)
+    return values
 
 
 def _call_names(node: ast.AST) -> set[str]:
@@ -184,6 +238,55 @@ class TestEverySinkGoesThroughTheOneDoor:
         assert not [node for node in ast.walk(fn) if isinstance(node, ast.JoinedStr)], (
             "an f-string here is how #1947's payload reached the run row"
         )
+
+    def test_no_writer_anywhere_puts_an_exception_into_a_reason(self) -> None:
+        """The gate codex round 1 asked for: enumerate, do not list.
+
+        Every `error_message` value in `backend/app/` that mentions a name an
+        `except ... as` bound must reach a sanctioned redactor first. Bare
+        names are the sink's own argument and are redacted there.
+        """
+        offenders: list[str] = []
+        for module in sorted(_APP.rglob("*.py")):
+            tree = ast.parse(module.read_text())
+            caught = {
+                handler.name
+                for handler in ast.walk(tree)
+                if isinstance(handler, ast.ExceptHandler) and handler.name
+            }
+            if not caught:
+                continue
+            for value in _reason_values(tree):
+                if isinstance(value, ast.Name):
+                    continue
+                names = {n.id for n in ast.walk(value) if isinstance(n, ast.Name)}
+                if not names & caught:
+                    continue
+                if _call_names(value) & _SANCTIONED_REDACTORS:
+                    continue
+                offenders.append(
+                    f"{module.relative_to(_APP)}:{value.lineno} "
+                    f"{ast.unparse(value)[:60]}"
+                )
+        assert not offenders, offenders
+
+    def test_the_gate_above_can_see_a_violation(self) -> None:
+        """Its positive control: the shape it hunts, parsed the same way."""
+        tree = ast.parse(
+            "try:\n    pass\n"
+            "except Exception as exc:\n"
+            "    job.error_message = str(exc)\n"
+        )
+        caught = {
+            handler.name
+            for handler in ast.walk(tree)
+            if isinstance(handler, ast.ExceptHandler) and handler.name
+        }
+        values = _reason_values(tree)
+        assert len(values) == 1
+        names = {n.id for n in ast.walk(values[0]) if isinstance(n, ast.Name)}
+        assert names & caught
+        assert not _call_names(values[0]) & _SANCTIONED_REDACTORS
 
     def test_the_defer_guard_rollbacks_name_the_type_only(self) -> None:
         source = (_APP / "platform" / "jobs" / "defer_guard.py").read_text()

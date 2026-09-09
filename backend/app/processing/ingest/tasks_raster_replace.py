@@ -35,6 +35,7 @@ from pathlib import Path
 import structlog
 from sqlalchemy import select, text
 
+from app.core.failure_reason import redact_failure_reason
 from app.core.db.tenant_session import tenant_task
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
@@ -406,7 +407,7 @@ async def reupload_raster(
                     attempt_uuid,
                     values={
                         "status": "failed",
-                        "error_message": str(exc),
+                        "error_message": redact_failure_reason(exc),
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
@@ -417,7 +418,7 @@ async def reupload_raster(
                     session,
                     ingest_job_id=job_uuid,
                     error_code="validation_failed",
-                    error_message=str(exc),
+                    error_message=exc,
                     contacted_origin=False,
                 )
                 await session.commit()
@@ -908,7 +909,7 @@ async def reupload_raster(
                 attempt_uuid,
                 values={
                     "status": "failed",
-                    "error_message": str(exc),
+                    "error_message": redact_failure_reason(exc),
                     "completed_at": datetime.now(timezone.utc),
                 },
             )
@@ -921,7 +922,7 @@ async def reupload_raster(
                 err_session,
                 ingest_job_id=job_uuid,
                 error_code=_raster_refresh_error_code(exc),
-                error_message=str(exc),
+                error_message=exc,
                 contacted_origin=False,
             )
             await err_session.commit()

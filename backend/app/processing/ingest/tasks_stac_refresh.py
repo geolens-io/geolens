@@ -30,6 +30,7 @@ from typing import Any
 import structlog
 from sqlalchemy import func, select, update
 
+from app.core.failure_reason import redact_failure_reason
 from app.core.geo import bbox_to_extent_wkt
 
 from app.core.db.tenant_session import tenant_task
@@ -669,7 +670,7 @@ async def refresh_stac(
                 attempt_uuid,
                 values={
                     "status": "failed",
-                    "error_message": str(exc),
+                    "error_message": redact_failure_reason(exc),
                     "completed_at": datetime.now(timezone.utc),
                 },
                 task_name="refresh_stac",
@@ -700,7 +701,7 @@ async def refresh_stac(
                 err_session,
                 ingest_job_id=job_uuid,
                 error_code=error_code,
-                error_message=str(exc),
+                error_message=exc,
                 contacted_origin=dates_contact,
                 origin_binding=bound if dates_contact else None,
             )

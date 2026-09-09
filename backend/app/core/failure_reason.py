@@ -8,7 +8,11 @@ module, so the clause holds whichever caller composed the text.
 
 from __future__ import annotations
 
-from app.core.url_redaction import redact_url_credentials, scrub_registered_credentials
+from app.core.url_redaction import (
+    redact_libpq_credentials,
+    redact_url_credentials,
+    scrub_registered_credentials,
+)
 
 # Cap on stored failure text. GDAL stderr runs to kilobytes and the useful
 # part is at the front.
@@ -25,11 +29,15 @@ _OWN_EXCEPTION_ROOT = "app."
 def is_composed_exception(exc: BaseException) -> bool:
     """Whether this codebase, rather than a library, wrote the message.
 
-    fix(#1953): provenance, not shape. A class defined under ``app.``
-    carries text we chose; anything else renders library internals, which
-    for SQLAlchemy means the statement and its bound parameters.
+    fix(#1953): provenance, not shape. A class defined under ``app.``, or a
+    ``ValueError``, which is this tree's spelling for a refusal the user is
+    meant to read. The exceptions that render internals are none of those:
+    SQLAlchemy appends the statement and its parameters, GDAL and
+    subprocesses raise ``RuntimeError``, HTTP clients embed the request URL.
     """
-    return type(exc).__module__.startswith(_OWN_EXCEPTION_ROOT)
+    return isinstance(exc, ValueError) or type(exc).__module__.startswith(
+        _OWN_EXCEPTION_ROOT
+    )
 
 
 def redact_failure_reason(reason: str | BaseException) -> str:
@@ -47,7 +55,11 @@ def redact_failure_reason(reason: str | BaseException) -> str:
         reason = str(reason)
     lines = reason.splitlines()
     summary = lines[0] if lines else ""
-    redacted = scrub_registered_credentials(redact_url_credentials(summary))
+    # fix(#1953): an exception this codebase raised can still embed a
+    # subprocess's output, so all three scrubbers run on the summary line.
+    redacted = redact_libpq_credentials(
+        scrub_registered_credentials(redact_url_credentials(summary))
+    )
     return redacted[:MAX_REASON_CHARS]
 
 

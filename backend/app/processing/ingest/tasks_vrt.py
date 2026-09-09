@@ -33,6 +33,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
+from app.core.failure_reason import redact_failure_reason
 from app.core.db import tenant_task
 from app.processing.embeddings.helpers import defer_embedding
 from app.processing.raster.cog import extract_raster_metadata, sha256_file
@@ -1607,7 +1608,7 @@ async def regenerate_vrt(
                     attempt_uuid,
                     values={
                         "status": "failed",
-                        "error_message": str(exc),
+                        "error_message": redact_failure_reason(exc),
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
@@ -1629,7 +1630,7 @@ async def regenerate_vrt(
                             gen.duration_seconds = (
                                 gen.completed_at - gen.started_at
                             ).total_seconds()
-                        gen.error_message = str(exc)
+                        gen.error_message = redact_failure_reason(exc)
 
                 await err_session.commit()
         except DBAPIError as write_failure:

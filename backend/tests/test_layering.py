@@ -3392,14 +3392,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#1711): -459. The URL-import staging cluster — budget, bounded
     # put, settlement — lives in url_import_staging.py; the route handler and
     # its filename/metadata helpers stay. Cap 2639 -> 2180, exact.
-    # fix(#1955): +15 — both VRT source doors admit through the shared
-    # per-dataset lock instead of reading the status, and refuse with the
-    # coded `dataset_busy` body. Cap 1969 -> 1984, exact.
-    # fix(#2016): +10. The fan-out door reports a lost undo: it reads the
-    # restore's CAS result and logs the job and attempt when it matched no row,
-    # so a parent stranded terminal stops hiding behind a 202. Measured on the
-    # file rebased across #1955, not added up. Cap 1984 -> 1994, exact.
-    "backend/app/processing/ingest/router.py": 1994,
+    # fix(#1955): +15 and fix(#1955): +15 and fix(#1953): +1 merged; re-measured after both landed. Cap 1985, exact. merged; re-measured after both landed. Cap 1995, exact.
+    "backend/app/processing/ingest/router.py": 1995,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3752,7 +3746,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r2): -12 — each tail's pre-helper job load moved to
     # `tasks_common.load_job_for_error_write`, which arms the budget and
     # swallows an expiry there. Cap 1329 -> 1317, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1245,
+    # fix(#1953): +1 — the import of the one redactor every failure writer
+    # in this module now goes through. Cap 1245 -> 1246, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1246,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4532,7 +4528,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # bind are helpers the direct door now shares. Cap 1455 -> 1506, exact.
     # chore(#1812): -18, the reupload door and _dispatch_reupload_task lose the
     # service_queue verdict, its parameter and the configure() branch. Cap 1506 -> 1488, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1427,
+    # fix(#1953): +1 — the import of the one redactor every failure writer
+    # in this module now goes through. Cap 1427 -> 1428, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1428,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -4662,12 +4660,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r4): -4 — `ingest_vrt`'s failure tail loads its job row
     # through `tasks_common.load_job_for_error_write` instead of an inline
     # unbounded SELECT. Cap 1709 -> 1705, exact.
-    # fix(#1962): +63 — `_settle_failed_vrt_asset` commits the asset write
-    # before the job row is touched, releases the asset unless a live
-    # generation owns it, bounds its own pool checkout, and reports
-    # whether it landed so the generation stays sweepable when it did
-    # not. Cap 1626 -> 1689, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1689,
+    # fix(#1962): +63 and fix(#1953): +1 merged; re-measured after both landed. Cap 1690, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1690,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait
@@ -4677,9 +4671,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # unbounded. The reporter is a context manager so the acquisition stays a
     # direct call the #1847 gates can see, and the failure write carries a bound
     # of its own so phase 2's contention cannot move onto it. Cap 1056, exact.
-    # fix(#1957): -4 — the failure write reads the shared budget constant
-    # instead of a second definition of it. Cap 997 -> 993, exact.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 993,
+    # fix(#1957): -4 and fix(#1953): +1 merged; re-measured after both landed. Cap 994, exact.
+    "backend/app/processing/ingest/tasks_raster_replace.py": 994,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -4815,7 +4808,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950 codex r2): +17 — the budget also bounds the job load
     # `_job_phase_session` runs before the helper, so both tails grew the
     # DBAPIError handler that swallows an expiry. Cap 1380 -> 1397, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1277,
+    # fix(#1953): +1 — the import of the one redactor every failure writer
+    # in this module now goes through. Cap 1277 -> 1278, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1278,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
@@ -5271,9 +5266,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): phase 3 takes the job row before the datasets row. Cap
     # 1134 -> 1141, exact.
     # fix(#1902): the atomic bump comment states its contract. Cap 1141 -> 1137.
-    # fix(#1957): +3 — the failure write is budgeted, and states what an
-    # expiry leaves behind. Cap 975 -> 978, exact.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 978,
+    # fix(#1957): +3 and fix(#1953): +1 merged; re-measured after both landed. Cap 979, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 979,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

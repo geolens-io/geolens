@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
+from app.core.failure_reason import redact_failure_reason
 from app.modules.quota.service import get_user_quota_usage
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -355,7 +356,7 @@ async def _settle_failed_url_import(
             .values(
                 status="failed",
                 error_message=(
-                    str(exc.detail)
+                    redact_failure_reason(str(exc.detail))
                     if isinstance(exc, HTTPException)
                     else "URL import failed"
                 ),

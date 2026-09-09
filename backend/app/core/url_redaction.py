@@ -281,6 +281,23 @@ def scrub_registered_credentials(text: str) -> str:
     return text
 
 
+# fix(#1953): libpq keyword/value credentials. GDAL echoes the `PG:` destination
+# it was handed on a connection failure, and that DSN carries `password=`, which
+# is neither a URL nor a registered request credential.
+_LIBPQ_SECRET_RE = re.compile(
+    r"(?i)\b(password|sslpassword)\s*=\s*(?:'(?:[^'\\]|\\.)*'|\S*)"
+)
+
+
+def redact_libpq_credentials(text: str) -> str:
+    """Mask the secret values in a libpq keyword/value connection string.
+
+    Handles both spellings ``libpq_value`` emits: a bare token, and a
+    single-quoted value with backslash escapes.
+    """
+    return _LIBPQ_SECRET_RE.sub(rf"\1={REDACTED_QUERY_VALUE}", text)
+
+
 def redact_exception_text(exc: BaseException) -> str:
     """``str(exc)``, with any URL-shaped substring redacted.
 
