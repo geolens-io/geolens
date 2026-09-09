@@ -259,7 +259,49 @@ class TestDeferWithOrphanGuard:
             assert defer_call.kwargs["cause_class"] == "RuntimeError"
             assert marker_call.kwargs["cause_class"] == "ValueError"
             assert "SECRETVALUE1" not in defer_call.kwargs["error"]
-            assert "queue.example.com" in defer_call.kwargs["error"]
+            assert defer_call.kwargs["error"].startswith("queue down: ")
+
+        asyncio.run(_check())
+
+    def test_an_unreadable_job_id_does_not_preempt_the_settlement(self):
+        """fix(#1755 item 10): reading `job.id` off an already-expired instance
+        raises, and `reset_session_for_settlement` is what recovers it. The log
+        runs first, so it has to absorb that read rather than skip the rollback.
+        """
+
+        async def _check():
+            from app.platform.jobs import defer_guard
+
+            class _Expired:
+                """A job whose identifier read raises, as an expired ORM instance does."""
+
+                user_metadata = None
+
+                @property
+                def id(self):
+                    raise RuntimeError("greenlet_spawn has not been called")
+
+            settled: list[BaseException] = []
+
+            async def _rollback(exc: BaseException) -> None:
+                settled.append(exc)
+
+            async def _defer() -> None:  # pragma: no cover - never reached
+                raise AssertionError("defer_call must not run")
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+            mock_db.rollback = AsyncMock()
+            mock_db.refresh = AsyncMock()
+
+            with pytest.raises(defer_guard.DeferFailed) as exc_info:
+                await defer_guard.defer_with_orphan_guard(
+                    _defer, rollback=_rollback, db=mock_db, job=_Expired()
+                )
+
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.rolled_back is True
+            assert len(settled) == 1
 
         asyncio.run(_check())
 

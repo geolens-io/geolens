@@ -186,9 +186,15 @@ def _log_dispatch_failure(job: IngestJob, exc: BaseException, *, stage: str) -> 
     ``stage`` separates the two raise sites, which ``cause_class`` alone
     cannot when both fail with the same type.
     """
+    try:
+        job_id = str(job.id)
+    except Exception:  # broad: a diagnostic must not preempt the settlement below
+        # fix(#1755): an already-expired instance raises `MissingGreenlet` on
+        # the read; `reset_session_for_settlement` is what recovers it.
+        job_id = "unreadable"
     logger.warning(
         "ingest_dispatch_failed",
-        job_id=str(job.id),
+        job_id=job_id,
         stage=stage,
         cause_class=type(exc).__name__,
         error=redact_exception_text(exc),
@@ -232,8 +238,6 @@ async def defer_with_orphan_guard(
     try:
         await stamp_commit_attempted(job, db=db)
     except Exception as stamp_exc:  # broad: a failed marker write is a failed dispatch
-        # Logged before the reset below, which expires `job` and can leave its
-        # id unreadable.
         _log_dispatch_failure(job, stamp_exc, stage="commit_attempted_marker")
         # fix(#1774): reset discards nothing — every caller commits before dispatching.
         await reset_session_for_settlement(job, db=db)
