@@ -154,7 +154,7 @@ function makeMultiLayerPreview(layerCount: number = 2) {
     source_filename: 'test.gpkg',
     columns: [],
     row_count: 0,
-    geometry_type: 'Point',
+    geometry_type: 'Point' as string | null,
     crs: null,
     latlon_candidates: null,
     layer_name: 'layer_a',
@@ -346,7 +346,7 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
     });
   });
 
-  it('(f) full success replaces the parent with one tracked entry per queued layer (#2034), deriving kind only for the previewed layer (#2054 P2)', async () => {
+  it('(f) full success replaces the parent with one tracked entry per queued layer (#2034), every layer taking the previewed layer\'s kind', async () => {
     mockCommitFanOut.mockResolvedValue(
       makeFanOutResponse([
         { layer_name: 'layer_a', status: 'queued' },
@@ -355,9 +355,8 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
       ]) as never,
     );
 
-    // makeMultiLayerPreview previews layer_a with geometry_type 'Point';
-    // layer_b/layer_c (a non-spatial GPKG table or Excel sheet, say) carry
-    // no per-layer geometry signal at all.
+    // makeMultiLayerPreview previews layer_a with geometry_type 'Point' — no
+    // per-layer signal exists for layer_b/layer_c, so all three take that.
     await driveToReview(makeMultiLayerPreview(3));
 
     const entries = screen.getAllByTestId(/^entry-/);
@@ -379,10 +378,38 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
     expect(screen.getByTestId('tracked-new-layer_b')).toBeInTheDocument();
     expect(screen.getByTestId('tracked-new-layer_c')).toBeInTheDocument();
 
-    // #2054 P2: kind must not be blanket-hardcoded to 'vector'. Only the
-    // previewed layer (layer_a) has a real geometry signal; the others have
-    // none and must fall back to 'table', not silently inherit 'vector'.
+    // A spatial previewed layer (layer_a, geometry_type 'Point') is the best
+    // available proxy for the others — every layer takes its kind.
     expect(screen.getByTestId('tracked-new-layer_a')).toHaveAttribute('data-kind', 'vector');
+    expect(screen.getByTestId('tracked-new-layer_b')).toHaveAttribute('data-kind', 'vector');
+    expect(screen.getByTestId('tracked-new-layer_c')).toHaveAttribute('data-kind', 'vector');
+  });
+
+  it('(g) a non-spatial previewed layer makes every fanned-out layer table', async () => {
+    mockCommitFanOut.mockResolvedValue(
+      makeFanOutResponse([
+        { layer_name: 'layer_a', status: 'queued' },
+        { layer_name: 'layer_b', status: 'queued' },
+        { layer_name: 'layer_c', status: 'queued' },
+      ]) as never,
+    );
+
+    // layer_a (previewed) has no geometry_type — an Excel workbook sheet or
+    // a GPKG attributes table — so every layer proxies off it as 'table'.
+    await driveToReview({ ...makeMultiLayerPreview(3), geometry_type: null });
+
+    const entries = screen.getAllByTestId(/^entry-/);
+    const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
+
+    await act(async () => {
+      screen.getByTestId(`ingest-all-${entryId}`).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-tracking-list')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('tracked-new-layer_a')).toHaveAttribute('data-kind', 'table');
     expect(screen.getByTestId('tracked-new-layer_b')).toHaveAttribute('data-kind', 'table');
     expect(screen.getByTestId('tracked-new-layer_c')).toHaveAttribute('data-kind', 'table');
   });

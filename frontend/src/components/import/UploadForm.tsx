@@ -591,8 +591,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
 
     // fix(#2034): track each queued layer by its own entry/jobId — the parent job settles 'fanned_out' with no dataset_id, so it's never counted.
     if (failedCount === 0) {
-      // fix(#2054): only the previewed layer's geometry_type is known — every other layer has no per-layer signal, so it defaults to 'table'.
-      const previewedLayerName = entry.previewData.layer_name;
+      // fix(#2034): every layer takes the previewed layer's kind (best proxy available) — a mixed container needs per-layer geometry_type on LayerPreview to do better.
       const previewedLayerKind = entry.previewData.geometry_type ? ('vector' as const) : ('table' as const);
       setEntries((prev) => [
         ...prev.filter((e) => e.id !== entryId),
@@ -606,7 +605,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
           error: null,
           submittedTitle: `${fileBase}: ${layer.layer_name}`,
           submittedVisibility: 'private',
-          submittedKind: layer.layer_name === previewedLayerName ? previewedLayerKind : ('table' as const),
+          submittedKind: previewedLayerKind,
         })),
       ]);
       toast.success(t('upload.multiLayerSuccess', { count: succeededCount }));
