@@ -506,6 +506,12 @@ class Settings(BaseSettings):
     env_only_config: bool = False
 
     db_use_external_pooler: bool = False
+    # fix(#2045): the worker count the compose files export as UVICORN_WORKERS;
+    # under an external pooler sandbox_bounds divides the query budget by it.
+    uvicorn_workers: int = 1
+    # fix(#2045 codex r1): a process cannot see how many API replicas share the
+    # pooler, so this states the per-process sandbox share outright when set.
+    sandbox_query_slots: int | None = Field(default=None, ge=1)
     db_pool_size: int = Field(default=10, ge=1)
     # SQLAlchemy uses -1 for unlimited overflow / disabled recycling.
     db_max_overflow: int = Field(default=3, ge=-1)
@@ -678,6 +684,8 @@ class Settings(BaseSettings):
         # so an unset value arrives as "" — normalize to None (LOG_JSON fallback)
         # instead of failing the Literal validation at boot.
         "environment",
+        # fix(#2045 codex r1): compose passes "${SANDBOX_QUERY_SLOTS:-}"; "" is unset.
+        "sandbox_query_slots",
         mode="before",
     )
     @classmethod

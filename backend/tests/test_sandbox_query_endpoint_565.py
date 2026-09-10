@@ -1374,6 +1374,45 @@ def test_capacity_bound_is_pool_derived_and_at_least_one():
     assert _capacity_bound() >= 1
 
 
+@pytest.mark.parametrize(("workers", "expected"), [(1, 4), (2, 2), (8, 1)])
+def test_capacity_bound_divides_the_pooler_budget_by_worker_count(
+    monkeypatch, workers, expected
+):
+    """fix(#2045): one external pooler serves every worker, so 4 is split N ways."""
+    from app.core.config import settings
+    from app.processing.ai.sandbox_bounds import capacity_bound
+
+    monkeypatch.setattr(settings, "db_use_external_pooler", True)
+    monkeypatch.setattr(settings, "uvicorn_workers", workers)
+    assert capacity_bound() == expected
+
+
+def test_capacity_bound_prefers_an_explicit_slot_count_under_a_pooler(monkeypatch):
+    """fix(#2045): an explicit SANDBOX_QUERY_SLOTS beats the worker split."""
+    from app.core.config import settings
+    from app.processing.ai.sandbox_bounds import capacity_bound
+
+    monkeypatch.setattr(settings, "db_use_external_pooler", True)
+    monkeypatch.setattr(settings, "uvicorn_workers", 2)
+    monkeypatch.setattr(settings, "sandbox_query_slots", 3)
+    assert capacity_bound() == 3
+    monkeypatch.setattr(settings, "sandbox_query_slots", None)
+    assert capacity_bound() == 2
+
+
+def test_capacity_bound_keeps_per_pool_sizing_without_a_pooler(monkeypatch):
+    """Each worker owns its pool there, so the worker count must not divide it."""
+    from app.core.config import settings
+    from app.processing.ai.sandbox_bounds import capacity_bound
+
+    monkeypatch.setattr(settings, "db_use_external_pooler", False)
+    monkeypatch.setattr(settings, "db_pool_size", 10)
+    monkeypatch.setattr(settings, "db_max_overflow", 3)
+    monkeypatch.setattr(settings, "uvicorn_workers", 8)
+    monkeypatch.setattr(settings, "sandbox_query_slots", 3)
+    assert capacity_bound() == 4
+
+
 async def test_success_shape_and_truncation(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

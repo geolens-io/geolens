@@ -4316,7 +4316,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1710 codex r3): +3 — `worker_queues` gains "download" and the note
     # saying to pin a second worker to it, so a slow origin cannot hold the
     # only ingest slot. Cap 1485 -> 1488, exact.
-    "backend/app/core/config.py": 1488,
+    # fix(#2045): +3 — `uvicorn_workers`, so sandbox_bounds can divide the
+    # external-pooler query budget by the worker count. Cap 1488 -> 1491, exact.
+    # fix(#2045 codex r1): +5 — `sandbox_query_slots`, the explicit per-process
+    # share for API replicas sharing one pooler, plus its blank-to-None entry.
+    # Cap 1491 -> 1496, exact.
+    "backend/app/core/config.py": 1496,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
