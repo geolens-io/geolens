@@ -1,7 +1,7 @@
 import { API_BASE } from '@/lib/constants';
 import { cookieAuthAvailable, cookieAuthHeaders } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
-import { apiFetch, safeFetch, ApiError } from './client';
+import { apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
@@ -42,11 +42,10 @@ export async function login(
   try {
     return (await response.json()) as TokenResponse;
   } catch (err) {
-    // fix(#1446): the response was 2xx, so the browser has already applied the
-    // refresh and CSRF cookies. Failing here without revoking would report a
-    // failed sign-in over a live server-side session. The bearer token was
-    // never stored, but the freshly-set cookie authenticates the revocation.
-    void logoutSession().catch(() => {});
+    // fix(#1446): the 2xx already applied the refresh and CSRF cookies, so
+    // bailing out leaves a live session behind a failed sign-in. fix(#2038): but
+    // /auth/logout/ revokes EVERY session, so only a rejection earns that call.
+    if (isCredentialRejected(err)) void logoutSession().catch(() => {});
     throw err;
   }
 }

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { login as apiLogin, getMe, logoutSession } from '@/api/auth';
-import { abortInflightRefresh, tryRefresh } from '@/api/client';
+import { abortInflightRefresh, isCredentialRejected, tryRefresh } from '@/api/client';
 
 export function useAuth() {
   const navigate = useNavigate();
@@ -73,11 +73,10 @@ export function useAuth() {
       try {
         userResponse = await getMe();
       } catch (err) {
-        // fix(#1446): login already installed the refresh cookie. Bailing out
-        // with only a store reset would leave that credential live while the
-        // UI reports a failed sign-in, so revoke it before surfacing the error.
-        // Dispatched, not awaited — same reasoning as logout below.
-        void logoutSession().catch(() => {});
+        // fix(#1446): login already installed the refresh cookie, so a store
+        // reset alone leaves it live. fix(#2038): but /auth/logout/ revokes EVERY
+        // session, so a 500 or a dropped socket here must not end the others.
+        if (isCredentialRejected(err)) void logoutSession().catch(() => {});
         useAuthStore.getState().logout();
         throw err;
       }

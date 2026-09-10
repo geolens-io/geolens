@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { getMe, logoutSession } from '@/api/auth';
+import { isCredentialRejected } from '@/api/client';
 import { readSessionStorage, removeSessionStorage } from '@/lib/storage';
 import { Loader2 } from 'lucide-react';
 
@@ -42,13 +43,9 @@ export function OAuthCallbackPage() {
     window.history.replaceState({}, '', '/oauth/callback');
 
     if (!token || !expiresIn || (!refreshToken && !cookieMode)) {
-      // fix(#1446): a truncated or malformed fragment still arrived on a
-      // response that installed the cookies, so bailing out here without
-      // revoking leaves a live credential behind a UI reporting failure. The
-      // freshly-set CSRF cookie authenticates it; there is no bearer token to
-      // send. Unconditional — on the legacy fragment path there is no cookie,
-      // so the call simply 401s and costs nothing.
-      void logoutSession().catch(() => {});
+      // fix(#2038): the response that redirected here did install the cookies,
+      // but /auth/logout/ revokes EVERY session of the user and a fragment too
+      // short to finish sign-in is no evidence the credential was rejected.
       useAuthStore.getState().logout();
       navigate('/login', { replace: true });
       return;
@@ -69,13 +66,11 @@ export function OAuthCallbackPage() {
         const target = redirect && redirect.startsWith('/') ? redirect : '/';
         navigate(target, { replace: true });
       })
-      .catch(() => {
-        // fix(#1446): the backend already installed the refresh cookie before
-        // redirecting here, so clearing the store alone would strand a
-        // replayable credential the UI claims is gone. logoutSession captures
-        // the temporary bearer token synchronously, so dispatching it here
-        // sends a fully-formed request before the store is cleared below.
-        void logoutSession().catch(() => {});
+      .catch((err: unknown) => {
+        // fix(#1446): the redirect already installed the refresh cookie, so a
+        // store reset alone strands a replayable credential. fix(#2038): but
+        // /auth/logout/ revokes EVERY session — a 500 here must not end them.
+        if (isCredentialRejected(err)) void logoutSession().catch(() => {});
         useAuthStore.getState().logout();
         navigate('/login', { replace: true });
       });
