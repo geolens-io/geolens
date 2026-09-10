@@ -5062,7 +5062,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Cap 1341 -> 1343, exact.
     # fix(#2043): +4. The ceiling error also carries the core marker the
     # re-upload preview catches. Cap 1343 -> 1347, exact.
-    "backend/app/processing/ingest/ogr.py": 1347,
+    # fix(#2031 review): +4. The text fallback's `Geometry: None` sentinel is
+    # parsed as no geometry, not as a type. Cap 1347 -> 1351, exact.
+    "backend/app/processing/ingest/ogr.py": 1351,
     # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
     # 1000-line threshold when the content check landed: the SQLite schema
     # reader, the archive member walk that identifies members by their bytes

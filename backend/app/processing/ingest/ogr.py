@@ -710,7 +710,11 @@ def _parse_text_ogrinfo(output: str) -> dict:
         if line.startswith("Layer name:"):
             layer_name = line.split(":", 1)[1].strip()
         elif line.startswith("Geometry:"):
-            geometry_type = line.split(":", 1)[1].strip()
+            value = line.split(":", 1)[1].strip()
+            # fix(#2031 review): ogrinfo prints `Geometry: None` for a
+            # non-spatial layer, and the literal string reads as a geometry
+            # type to every caller — the refusal below and `is_non_spatial`.
+            geometry_type = None if value in ("", "None") else value
         elif line.startswith("Feature Count:"):
             try:
                 feature_count = int(line.split(":", 1)[1].strip())
