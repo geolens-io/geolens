@@ -158,7 +158,7 @@ describe('API error localization boundary', () => {
   it('maps the commit doors srid_override refusal and keeps the code', () => {
     expect(
       classifyApiError(
-        'srid_override 99999 is not a known coordinate system: PostGIS spatial_ref_sys has no such SRID. Use an assigned EPSG code, or omit srid_override to keep the source CRS.',
+        'srid_override 99999 is not a known coordinate system: neither PROJ nor PostGIS spatial_ref_sys has that EPSG code. Use an assigned code, or omit srid_override to keep the source CRS.',
         422,
       ),
     ).toEqual({ key: 'errors.unknownSridOverride', values: { srid: '99999' } });

@@ -21,7 +21,7 @@ from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
 
-#: Inside the schema's 1..998999 bound, absent from a stock spatial_ref_sys.
+#: Inside the schema's 1..998999 bound, in neither EPSG registry.
 UNASSIGNED_SRID = 99999
 
 
@@ -59,6 +59,29 @@ async def _pending_reupload_job(session):
 
 async def _noop_defer(fn, rollback=None, db=None, job=None):
     return None
+
+
+class TestRegistries:
+    async def test_a_code_only_proj_knows_is_accepted(self, test_db_session):
+        """fix(#2032 review): a raster override never reaches PostGIS.
+
+        The two EPSG databases are versioned independently, so a code PROJ has
+        and this PostGIS install does not is the worker's to apply, not this
+        door's to refuse.
+        """
+        from unittest.mock import AsyncMock
+
+        from app.core.geo import unknown_srid_refusal
+
+        session = AsyncMock()
+        session.scalar.return_value = None  # not in spatial_ref_sys
+
+        assert await unknown_srid_refusal(session, 2263) is None
+        session.scalar.assert_not_awaited()
+
+        refusal = await unknown_srid_refusal(session, UNASSIGNED_SRID)
+        assert refusal is not None and str(UNASSIGNED_SRID) in refusal
+        session.scalar.assert_awaited_once()
 
 
 class TestImportCommitDoor:
