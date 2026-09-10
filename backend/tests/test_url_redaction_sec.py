@@ -864,6 +864,39 @@ def test_redact_url_credentials_stays_linear_on_a_non_http_scheme_chain() -> Non
     )
 
 
+def test_redact_url_credentials_masks_a_query_credential_nested_in_a_value() -> None:
+    # fix(#2044 review x14): the query-value scan only found userinfo — a
+    # value that is itself a whole nested URL, with its OWN query credential
+    # and no userinfo at all, went unscanned.
+    redacted = redact_url_credentials(
+        "https://outer/x?token=outer&next=postgresql://db/x?password=inner-passphrase"
+    )
+
+    assert "outer&" not in redacted
+    assert "inner-passphrase" not in redacted
+
+
+def test_redact_url_credentials_masks_an_embedded_opaque_uri_query() -> None:
+    # fix(#2044 review x14): _ANY_SCHEME_QUERY_RE required "://", so an
+    # opaque/single-slash URI (myapp:/callback) preceded by prose — with no
+    # top-level scheme for has_real_url to admit — went unscanned.
+    redacted = redact_url_credentials("failed myapp:/callback?code=unique-passphrase")
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == "failed myapp:/callback?code=%3Credacted%3E"
+
+
+def test_redact_url_credentials_masks_a_double_nested_fragment_credential() -> None:
+    # fix(#2044 review x14): scan_fragment=False on the inner call bounded
+    # fragment nesting to exactly one level — a THIRD url nested inside the
+    # second one's fragment went unscanned.
+    redacted = redact_url_credentials(
+        "https://outer/#next=https://middle/#next=https://inner/?token=unique-passphrase"
+    )
+
+    assert "unique-passphrase" not in redacted
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}
