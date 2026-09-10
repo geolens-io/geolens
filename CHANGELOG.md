@@ -10,10 +10,11 @@ and releases use semantic versioning.
 ### Fixed
 
 - A token refresh that failed for a passing reason, such as a rate limit, a server error or a
-  dropped connection, no longer signs the user out of every session. The client revokes the
-  account's other sessions only when the server has rejected the credential; an unconfirmed
-  failure clears the local session and stops retrying for thirty seconds. An OAuth callback that
-  arrives with an incomplete fragment also signs out locally without revoking anything. (#2038)
+  dropped connection, no longer signs the user out of every session. The local session is kept
+  while refresh attempts back off for thirty seconds, and a refresh the server rejected ends only
+  the local session. A failed sign-in or OAuth completion revokes the account's sessions only when
+  the server rejected the credential; an OAuth callback that arrives with an incomplete fragment
+  signs out locally without revoking anything. (#2038)
 - Re-uploading a file with no geometry over a vector dataset, or refreshing it from a service
   layer that has none, is refused instead of silently turning the dataset into a table. The
   preview and the commit both answer with the refusal, which says to import the file as a new
