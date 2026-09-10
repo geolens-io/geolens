@@ -530,10 +530,10 @@ def test_redact_url_credentials_masks_userinfo_and_gcs_signature() -> None:
 @pytest.mark.parametrize(
     ("value", "must_not_contain"),
     [
-        ("redis://user:secret@cache.internal:6379/0", "secret"),
-        ("redis://:secret@cache.internal:6379/0", "secret"),
-        ("s3://AKIAEXAMPLE:secret@bucket/key.tif", "secret"),
-        ("postgresql://user:secret@db.internal:5432/geolens", "secret"),
+        ("redis://user:hunter2@cache.internal:6379/0", "hunter2"),
+        ("redis://:hunter2@cache.internal:6379/0", "hunter2"),
+        ("s3://AKIAEXAMPLE:hunter2@bucket/key.tif", "hunter2"),
+        ("postgresql://user:hunter2@db.internal:5432/geolens", "hunter2"),
     ],
 )
 def test_redact_url_credentials_masks_userinfo_for_non_http_scheme(
@@ -549,10 +549,10 @@ def test_redact_url_credentials_keeps_non_http_query_untouched() -> None:
     # SENSITIVE_QUERY_PARAMS is an http(s) convention; a non-http scheme's
     # query string is left alone once its userinfo is gone.
     redacted = redact_url_credentials(
-        "postgresql://user:secret@db.internal:5432/geolens?sslmode=require"
+        "postgresql://user:hunter2@db.internal:5432/geolens?sslmode=require"
     )
 
-    assert "secret" not in redacted
+    assert "hunter2" not in redacted
     assert "sslmode=require" in redacted
 
 
@@ -575,10 +575,10 @@ def test_redact_url_credentials_keeps_scanning_past_a_non_http_prefix() -> None:
     # scheme a netloc too ("cache" here), which must not stop the scan for an
     # http(s) URL carrying its own credentials later in the same string.
     redacted = redact_url_credentials(
-        "redis://cache/0 then https://user:secret@example.com/x"
+        "redis://cache/0 then https://user:hunter2@example.com/x"
     )
 
-    assert "secret" not in redacted
+    assert "hunter2" not in redacted
     assert "redacted@example.com" in redacted
     assert redacted.startswith("redis://cache/0 then ")
 
@@ -621,6 +621,14 @@ def test_redact_url_credentials_masks_a_non_http_url_preceded_by_prose() -> None
 
     assert "s3cret" not in redacted
     assert redacted == "connection failed for redis://redacted@cache/0"
+
+
+def test_redact_url_credentials_masks_non_http_password_with_unescaped_at() -> None:
+    # fix(#2044 review x4): the userinfo class must allow `@`, or the match
+    # stops at the FIRST one and leaves the tail of the password exposed.
+    redacted = redact_url_credentials("redis://user:p@ss@cache/0")
+
+    assert redacted == "redis://redacted@cache/0"
 
 
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])

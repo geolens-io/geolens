@@ -39,11 +39,11 @@ REDACTED_SECRET = "***"
 # O(n²) on GDAL stderr/VRT paths. A longer prefix still redacts correctly.
 URL_LIKE_RE = re.compile(r"(?:(?:[A-Za-z0-9_+.-]{1,64}:)?https?://)[^\s\"'<>]+")
 
-# fix(#2044 review x3): matches "<scheme>://<userinfo>@" for ANY scheme
-# anywhere in a string, so leading prose can't hide it from urlsplit like
-# `redact_url_credentials` below. Scheme bounded to 64 chars, same as URL_LIKE_RE.
+# fix(#2044 review x3/x4): matches "<scheme>://<userinfo>@" for ANY scheme
+# anywhere in a string. `@` allowed in the userinfo class so greedy
+# backtracking lands on the LAST one, as urlsplit itself resolves it.
 _ANY_SCHEME_USERINFO_RE = re.compile(
-    r"([A-Za-z][A-Za-z0-9+.-]{0,63}://)[^\s\"'<>@/?#]*@"
+    r"([A-Za-z][A-Za-z0-9+.-]{0,63}://)[^\s\"'<>/?#]*@"
 )
 
 SENSITIVE_QUERY_PARAMS = frozenset(
