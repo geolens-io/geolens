@@ -745,6 +745,25 @@ def test_redact_url_credentials_does_not_swallow_a_sibling_query_param() -> None
     assert "example.org" in redacted
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://user:unique pass@host",
+        "redis://user:unique pass@cache",
+    ],
+)
+def test_redact_url_credentials_masks_a_pathless_url_with_whitespace(
+    value: str,
+) -> None:
+    # fix(#2044 review x10): review x9's boundary gate rejected this too — a
+    # real URL, just with no path, and exactly one `@` so there is nothing
+    # else it could ambiguously have reached past.
+    redacted = redact_url_credentials(value)
+
+    assert "unique pass" not in redacted
+    assert redacted.endswith("redacted@host") or redacted.endswith("redacted@cache")
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}
