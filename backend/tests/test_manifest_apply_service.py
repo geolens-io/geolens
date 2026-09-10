@@ -1753,12 +1753,22 @@ class TestManifestMetadataPropagation:
                 RecordKeyword(
                     record_id=dataset.record.id, keyword="Transit", keyword_type="theme"
                 ),
+                # fix(#2039 review): `uq_record_keyword` COALESCEs this to '',
+                # so the row collides with the NULL the read-back would write.
+                RecordKeyword(
+                    record_id=dataset.record.id,
+                    keyword="ferry",
+                    keyword_type="theme",
+                    vocabulary_uri="",
+                ),
             ]
         )
         await test_db_session.flush()
 
         await apply_manifest_record_metadata(
-            test_db_session, dataset.record, {"manifest_tags": ["Parks", "transit"]}
+            test_db_session,
+            dataset.record,
+            {"manifest_tags": ["Parks", "transit", "ferry"]},
         )
         await test_db_session.flush()
 
@@ -1773,6 +1783,7 @@ class TestManifestMetadataPropagation:
         # second one whatever its case.
         assert sorted(rows) == [
             ("Transit", "theme"),
+            ("ferry", "theme"),
             ("parks", "place"),
             ("parks", "theme"),
         ]

@@ -443,7 +443,7 @@ async def _apply_manifest_tags(session: Any, record: Any, tags: Any) -> None:
     if not wanted:
         return
 
-    from sqlalchemy import inspect as sa_inspect, select
+    from sqlalchemy import func, inspect as sa_inspect, select
 
     from app.platform.extensions import get_processing_port
 
@@ -454,7 +454,8 @@ async def _apply_manifest_tags(session: Any, record: Any, tags: Any) -> None:
     keywords_rel = sa_inspect(port.get_record_orm_class()).relationships["keywords"]
     RecordKeyword = keywords_rel.mapper.class_
     # fix(#2039 review): the rows `uq_record_keyword` would actually collide
-    # with — same type, same (null) vocabulary — case-folded like `wanted`. A
+    # with, spelled as that index spells them — COALESCE, because a stored ''
+    # collides with the NULL written below — and case-folded like `wanted`. A
     # record-wide read skipped a manifest tag that existed under another type.
     existing = {
         k.lower()
@@ -462,7 +463,7 @@ async def _apply_manifest_tags(session: Any, record: Any, tags: Any) -> None:
             select(RecordKeyword.keyword).where(
                 RecordKeyword.record_id == record.id,
                 RecordKeyword.keyword_type == "theme",
-                RecordKeyword.vocabulary_uri.is_(None),
+                func.coalesce(RecordKeyword.vocabulary_uri, "") == "",
             )
         )
     }

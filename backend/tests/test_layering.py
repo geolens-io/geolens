@@ -3681,10 +3681,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and inserts tags as theme keywords, skipping the ones a re-apply already
     # wrote; the keyword class comes off the record class the port exposes.
     # Cap 1848 -> 1899, exact.
-    # fix(#2039 review): +12. The tag de-dup reads the rows the unique index
-    # would collide with — theme type, null vocabulary — case-folded.
-    # Cap 1899 -> 1911, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1911,
+    # fix(#2039 review): +13. The tag de-dup reads the rows the unique index
+    # would collide with, spelled as the index spells them (COALESCE on the
+    # vocabulary), case-folded. Cap 1899 -> 1912, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1912,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
