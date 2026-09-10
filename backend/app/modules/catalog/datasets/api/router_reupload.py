@@ -21,7 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
-from app.core.upload_errors import UnsafeUploadError, geometry_loss_refusal
+from app.core.upload_errors import (
+    IngestCeilingError,
+    UnsafeUploadError,
+    geometry_loss_refusal,
+)
 from app.core.identity import Identity
 from app.core.async_io import (
     run_in_thread_draining,
@@ -89,7 +93,6 @@ logger = structlog.get_logger(__name__)
 
 _catalog_port = get_catalog_port()
 IngestionError = _catalog_port.ingestion_error_class()
-IngestBudgetExceededError = _catalog_port.ingest_budget_exceeded_error_class()
 PresignedCompleteRequest = _catalog_port.presigned_complete_request_model()
 PresignedUploadRequest = _catalog_port.presigned_upload_request_model()
 PresignedUploadResponse = _catalog_port.presigned_upload_response_model()
@@ -627,7 +630,7 @@ async def reupload_preview(
         info = await get_catalog_port().run_ogrinfo_preview(
             file_path, layer_name=layer_name
         )
-    except IngestBudgetExceededError as exc:
+    except IngestCeilingError as exc:
         # fix(#2043): the ceiling message the import preview already answers.
         # The broad handler below reports "malformed or unsupported", which is
         # wrong for a file that is merely too large, and hides the way out.

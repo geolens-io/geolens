@@ -30,6 +30,16 @@ def geometry_loss_refusal(
     return None
 
 
+class IngestCeilingError(Exception):
+    """A refusal whose text names an ingest ceiling, the value, and the way out.
+
+    fix(#2043): a marker base, mixed into ``processing.ingest.ogr.
+    IngestBudgetExceededError`` so that class stays an ``IngestionError`` for
+    the worker while the re-upload preview, which may not import
+    ``app.processing.*``, can still catch it and pass its text through.
+    """
+
+
 class UnsafeUploadError(ValueError):
     """An upload refused for what its content instructs, not for its shape.
 

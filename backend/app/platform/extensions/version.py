@@ -103,19 +103,7 @@ logger = logging.getLogger(__name__)
 # against that commit boots cleanly against post-#1580 core and then hits
 # AttributeError/TypeError on the first related-items request. Silent skew
 # is exactly what this check exists to refuse.
-#
-# 9 -> 10 (fix(#2043)): CatalogPort gained a required
-# ``ingest_budget_exceeded_error_class`` method — the re-upload preview lives
-# in ``modules/catalog/`` and may not import ``app.processing.*``, so the one
-# error class whose message it must pass through verbatim crosses the port.
-# Called on every re-upload preview import of the module; an overlay missing
-# it raises AttributeError at import time, not on first use.
-#
-# Riding the same bump (fix(#2039)): ProcessingPort gained a required
-# ``get_record_keyword_orm_class`` method, the accessor the manifest metadata
-# read-back inserts `metadata.tags` through. Both land in one commit, so
-# there is no commit on main carrying only one of the two.
-EXTENSION_API_VERSION: int = 10
+EXTENSION_API_VERSION: int = 9
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

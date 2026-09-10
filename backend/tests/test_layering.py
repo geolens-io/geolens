@@ -3677,10 +3677,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#2026): -575. The staging acquisition and cleanup half moved to
     # `tasks_staging.py` (599 lines, under the inclusion threshold), which also
     # took five imports nothing left here uses. Cap 2423 -> 1848, exact.
-    # fix(#2039): +45. The manifest read-back copies license and organization
+    # fix(#2039): +52. The manifest read-back copies license and organization
     # and inserts tags as theme keywords, skipping the ones a re-apply already
-    # wrote. Cap 1848 -> 1893, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1893,
+    # wrote; the keyword class comes off the record class the port exposes.
+    # Cap 1848 -> 1899, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1899,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4601,14 +4602,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#2036): +8. The re-upload preview maps an unreadable file to the
     # import preview's 422 instead of letting it escape as a 500.
     # Cap 1428 -> 1436, exact.
-    # fix(#2043): +9. The ceiling refusal gets its own except clause and the
-    # port binding it reads. Cap 1436 -> 1445, exact.
+    # fix(#2043): +9. The ceiling refusal gets its own except clause, and the
+    # core marker it catches joins this module's import block.
+    # Cap 1436 -> 1445, exact.
     # fix(#2032): +9. The re-upload commit door refuses an srid_override that
     # names no spatial_ref_sys row. Cap 1445 -> 1454, exact.
     # fix(#2031): +13. The preview door refuses a replacement that would strip
     # the dataset's geometry, which the attribute-only schema diff cannot see.
     # Cap 1454 -> 1467, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1467,
+    # fix(#2043 review): +3. The import of the core ceiling marker wraps.
+    # Cap 1467 -> 1470, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1470,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -5047,7 +5051,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#2036): +2. The unable-to-open pattern gains ogrinfo's own one-line
     # wording, which ogr2ogr's driver enumeration never matched.
     # Cap 1341 -> 1343, exact.
-    "backend/app/processing/ingest/ogr.py": 1343,
+    # fix(#2043): +4. The ceiling error also carries the core marker the
+    # re-upload preview catches. Cap 1343 -> 1347, exact.
+    "backend/app/processing/ingest/ogr.py": 1347,
     # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
     # 1000-line threshold when the content check landed: the SQLite schema
     # reader, the archive member walk that identifies members by their bytes

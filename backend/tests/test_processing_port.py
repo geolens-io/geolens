@@ -272,9 +272,6 @@ class FakeProcessingPort:
     def get_record_distribution_orm_class(self):
         return MagicMock
 
-    def get_record_keyword_orm_class(self):
-        return MagicMock
-
     def get_attribute_metadata_orm_class(self):
         return MagicMock
 

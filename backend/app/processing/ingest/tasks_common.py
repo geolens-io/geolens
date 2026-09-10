@@ -443,10 +443,16 @@ async def _apply_manifest_tags(session: Any, record: Any, tags: Any) -> None:
     if not wanted:
         return
 
+    from sqlalchemy import inspect as sa_inspect
+
     from app.platform.extensions import get_processing_port
 
     port = get_processing_port()
-    RecordKeyword = port.get_record_keyword_orm_class()
+    # fix(#2039): the keyword class off the relationship of the record class the
+    # port already exposes — a new port accessor would be a required method, so
+    # every overlay would have to re-pin, and processing/ cannot import this ORM.
+    keywords_rel = sa_inspect(port.get_record_orm_class()).relationships["keywords"]
+    RecordKeyword = keywords_rel.mapper.class_
     existing = set(await port.get_keywords_for_records(session, [record.id]))
     for keyword in sorted(wanted - existing):
         session.add(

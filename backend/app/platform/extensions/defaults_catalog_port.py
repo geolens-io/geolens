@@ -26,11 +26,6 @@ class DefaultCatalogPort:
 
         return IngestionError
 
-    def ingest_budget_exceeded_error_class(self):  # type: ignore[no-untyped-def]
-        from app.processing.ingest.ogr import IngestBudgetExceededError
-
-        return IngestBudgetExceededError
-
     def raster_asset_orm_class(self):  # type: ignore[no-untyped-def]
         from app.processing.raster.models import RasterAsset
 

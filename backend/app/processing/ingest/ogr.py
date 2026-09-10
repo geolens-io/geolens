@@ -38,6 +38,7 @@ from app.core.service_tokens import (
     register_credential_secret,
     requires_header_token_policy,
 )
+from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials
 from app.processing.ingest.gdal_drivers import local_input_driver_args
 from app.core.async_io import run_in_thread_draining
@@ -376,7 +377,7 @@ class IngestionError(Exception):
     """Raised when an ingestion subprocess fails."""
 
 
-class IngestBudgetExceededError(IngestionError):
+class IngestBudgetExceededError(IngestionError, IngestCeilingError):
     """Raised when a source exceeds an ingest resource ceiling (fix(#948)).
 
     A subclass so the preview route can surface THIS message verbatim without
@@ -385,6 +386,9 @@ class IngestBudgetExceededError(IngestionError):
     observed value, and what to do about it — telling a user only that their
     file "may be malformed or unsupported" when it is merely too large leaves
     them with nothing to act on. Raised from the parquet path today.
+
+    fix(#2043): also an ``IngestCeilingError``, the core marker the re-upload
+    preview catches — that door may not import this module at all.
     """
 
 

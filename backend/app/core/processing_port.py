@@ -366,10 +366,6 @@ class ProcessingPort(Protocol):
 
     def get_record_distribution_orm_class(self) -> type: ...
 
-    # fix(#2039): the manifest read-back writes `metadata.tags` as keyword
-    # rows, and processing/ may not import the catalog ORM class directly.
-    def get_record_keyword_orm_class(self) -> type: ...
-
     # feat(#1223): the swap path recomputes schema drift against the staging
     # table rather than trusting the preview, which may be minutes stale for a
     # live service. The function is pure but lives in the catalog domain, and
