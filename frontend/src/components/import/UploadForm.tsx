@@ -589,10 +589,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     const succeededCount = results.filter((r) => r.status === 'fulfilled').length;
     const failedCount = results.length - succeededCount;
 
-    // fix(#2034): on full success, replace the parent with one tracked entry
-    // per queued layer (own jobId). The parent job itself settles
-    // 'fanned_out' with no dataset_id, so BulkTrackingList's completedEntries
-    // never counted it — children complete (and count) like a normal import.
+    // fix(#2034): track each queued layer by its own entry/jobId — the parent job settles 'fanned_out' with no dataset_id, so it's never counted.
     if (failedCount === 0) {
       setEntries((prev) => [
         ...prev.filter((e) => e.id !== entryId),
