@@ -123,10 +123,8 @@ def test_redact_url_credentials_masks_url_after_long_free_text_run() -> None:
 # <SourceFilename> became an unhandled 500 rather than a clean ingest failure.
 #
 # Checked against CPython 3.13 (what CI pins) and 3.14, which agree on all of
-# these. Every entry makes urlsplit raise except ":notaport", which parses; there
-# the ValueError comes from SplitResult.port, read only when userinfo is present,
-# and _redacted_netloc already guards that read. It is in the list to keep that
-# guard pinned alongside the new one, not because it reproduces #1119.
+# these. Every entry makes urlsplit raise except ":notaport", which parses —
+# kept in the list as a regression pin, not because it reproduces #1119.
 MALFORMED_AUTHORITY_URLS = [
     "https://.[::1]",  # data before the opening bracket
     "https://[::1",  # unclosed bracket
@@ -522,6 +520,381 @@ def test_redact_url_credentials_masks_userinfo_and_gcs_signature() -> None:
     assert "redacted@example.com" in redacted
     assert "X-Goog-Credential=%3Credacted%3E" in redacted
     assert "X-Goog-Signature=%3Credacted%3E" in redacted
+
+
+# fix(#2044): a non-http(s) scheme carrying userinfo previously fell through to
+# the URL_LIKE_RE fallback, which only matches an http(s) substring, so the
+# whole string came back unchanged and the credential was never redacted.
+@pytest.mark.parametrize(
+    ("value", "must_not_contain"),
+    [
+        ("redis://user:hunter2@cache.internal:6379/0", "hunter2"),
+        ("redis://:hunter2@cache.internal:6379/0", "hunter2"),
+        ("s3://AKIAEXAMPLE:hunter2@bucket/key.tif", "hunter2"),
+        ("postgresql://user:hunter2@db.internal:5432/geolens", "hunter2"),
+    ],
+)
+def test_redact_url_credentials_masks_userinfo_for_non_http_scheme(
+    value: str, must_not_contain: str
+) -> None:
+    redacted = redact_url_credentials(value)
+
+    assert must_not_contain not in redacted
+    assert "redacted@" in redacted
+
+
+def test_redact_url_credentials_keeps_non_http_query_untouched() -> None:
+    # SENSITIVE_QUERY_PARAMS is an http(s) convention; a non-http scheme's
+    # query string is left alone once its userinfo is gone.
+    redacted = redact_url_credentials(
+        "postgresql://user:hunter2@db.internal:5432/geolens?sslmode=require"
+    )
+
+    assert "hunter2" not in redacted
+    assert "sslmode=require" in redacted
+
+
+def test_redact_url_credentials_leaves_credential_free_non_http_url_unchanged() -> None:
+    value = "ftp://files.internal/export.gpkg"
+
+    assert redact_url_credentials(value) == value
+
+
+def test_redact_url_credentials_leaves_non_netloc_scheme_unchanged() -> None:
+    # No authority to hold userinfo, and nothing http(s)-shaped inside it —
+    # must not be mistaken for free text carrying a redactable URL.
+    value = "mailto:no-reply@example.com"
+
+    assert redact_url_credentials(value) == value
+
+
+def test_redact_url_credentials_keeps_scanning_past_a_non_http_prefix() -> None:
+    # fix(#2044 review): urlsplit gives free text starting with a non-http
+    # scheme a netloc too ("cache" here), which must not stop the scan for an
+    # http(s) URL carrying its own credentials later in the same string.
+    redacted = redact_url_credentials(
+        "redis://cache/0 then https://user:hunter2@example.com/x"
+    )
+
+    assert "hunter2" not in redacted
+    assert "redacted@example.com" in redacted
+    assert redacted.startswith("redis://cache/0 then ")
+
+
+def test_redact_url_credentials_masks_both_a_non_http_and_embedded_http_credential() -> (
+    None
+):
+    redacted = redact_url_credentials(
+        "redis://user:pass@cache/0 then https://user2:secret2@example.com/x"
+    )
+
+    assert "pass" not in redacted
+    assert "secret2" not in redacted
+    assert "redacted@cache" in redacted
+    assert "redacted@example.com" in redacted
+
+
+def test_redact_url_credentials_masks_embedded_credential_with_no_path_boundary() -> (
+    None
+):
+    # fix(#2044 review x2): no `/` ends the outer authority, so urlsplit
+    # absorbs "then https:" into netloc; reconstructing via hostname/port
+    # previously dropped that `:`, leaving the embedded URL unmatchable.
+    redacted = redact_url_credentials(
+        "redis://user:pass@cache then https://user2:secret2@example.com/x"
+    )
+
+    assert "pass" not in redacted
+    assert "secret2" not in redacted
+    assert "https://redacted@example.com/x" in redacted
+
+
+def test_redact_url_credentials_masks_a_non_http_url_preceded_by_prose() -> None:
+    # fix(#2044 review x3): leading prose breaks urlsplit's scheme detection
+    # entirely (no scheme, no netloc), so a non-http credential anywhere in
+    # free text needs its own scan, independent of what parses around it.
+    redacted = redact_url_credentials(
+        "connection failed for redis://alice:s3cret@cache/0"
+    )
+
+    assert "s3cret" not in redacted
+    assert redacted == "connection failed for redis://redacted@cache/0"
+
+
+def test_redact_url_credentials_masks_non_http_password_with_unescaped_at() -> None:
+    # fix(#2044 review x4): the userinfo class must allow `@`, or the match
+    # stops at the FIRST one and leaves the tail of the password exposed.
+    redacted = redact_url_credentials("redis://user:p@ss@cache/0")
+
+    assert redacted == "redis://redacted@cache/0"
+
+
+def test_redact_url_credentials_masks_a_non_http_url_after_a_leading_http_url() -> None:
+    # fix(#2044 review x5): urlsplit assigns everything past the leading
+    # clean http(s) URL to its own path, which the http branch reconstructed
+    # verbatim — a second, differently-schemed credential there went unscanned.
+    redacted = redact_url_credentials(
+        "https://public.example/x then redis://alice:hunter2@cache/0"
+    )
+
+    assert "hunter2" not in redacted
+    assert redacted == "https://public.example/x then redis://redacted@cache/0"
+
+
+def test_redact_url_credentials_masks_a_non_http_url_in_a_query_value() -> None:
+    # fix(#2044 review x6): the query branch only ran redact_query_credentials
+    # (named params by key), never the embedded-credential scan — a URL-valued
+    # param that isn't a known-sensitive name kept its userinfo unredacted.
+    redacted = redact_url_credentials(
+        "https://public.example/x?next=redis://alice:hunter2@cache/0"
+    )
+
+    # fix(#2044 review x9): reconstructed via urlencode (per-value scanning,
+    # see below), so the value is percent-encoded rather than left literal.
+    assert "hunter2" not in redacted
+    assert (
+        redacted == "https://public.example/x?next=redis%3A%2F%2Fredacted%40cache%2F0"
+    )
+
+
+def test_redact_url_credentials_masks_embedded_url_alongside_a_sensitive_param() -> (
+    None
+):
+    # A genuinely sensitive param forces redact_query_credentials to
+    # urlencode every value, which would percent-escape an embedded URL's
+    # "://" if the scan ran after that instead of before it.
+    redacted = redact_url_credentials(
+        "https://public.example/x?token=abc&next=redis://alice:hunter2@cache/0"
+    )
+
+    assert "abc" not in redacted
+    assert "hunter2" not in redacted
+
+
+def test_redact_url_credentials_masks_a_non_http_url_with_no_path_separator() -> None:
+    # fix(#2044 review x7): pathless, so urlsplit's netloc scan stops at the
+    # embedded URL's OWN "//", splitting "redis:" from "//alice:hunter2@..." —
+    # neither half alone matches "scheme://userinfo@" for either regex.
+    redacted = redact_url_credentials(
+        "https://public.example then redis://alice:hunter2@cache/0"
+    )
+
+    assert "hunter2" not in redacted
+    assert redacted == "https://public.example then redis://redacted@cache/0"
+
+
+def test_redact_url_credentials_never_recurses_on_a_long_url_chain() -> None:
+    # fix(#2044 review x7): recursing on each URL_LIKE_RE match raised
+    # RecursionError on a long whitespace-free chain (each match nests
+    # the next inside its own "path").
+    chain = "https://user:hunter2@a/" * 2000 + "x"
+
+    redacted = redact_url_credentials(chain)
+
+    assert "hunter2" not in redacted
+
+
+def test_redact_url_credentials_masks_userinfo_with_an_unescaped_space() -> None:
+    # fix(#2044 review x8): urlsplit tolerates whitespace inside userinfo (it
+    # stops only at /?#), but URL_LIKE_RE/_ANY_SCHEME_USERINFO_RE stopped at
+    # any whitespace, truncating the match short of the credential's own `@`.
+    redacted = redact_url_credentials("https://user:unique pass@host/x")
+
+    assert "unique pass" not in redacted
+    assert redacted == "https://redacted@host/x"
+
+
+def test_redact_url_credentials_masks_non_http_userinfo_with_a_space() -> None:
+    redacted = redact_url_credentials("redis://user:unique pass@cache/0")
+
+    assert "unique pass" not in redacted
+    assert redacted == "redis://redacted@cache/0"
+
+
+def test_redact_url_credentials_masks_a_query_value_with_a_space() -> None:
+    redacted = redact_url_credentials("https://host/x?token=my secret value")
+
+    assert "my secret value" not in redacted
+    assert redacted == "https://host/x?token=%3Credacted%3E"
+
+
+def test_redact_url_credentials_does_not_swallow_prose_after_a_pathless_url() -> None:
+    # fix(#2044 review x9): review x8's blanket use of urlsplit's whole-string
+    # split over-redacted here — with no /?# to stop netloc at, it ran to the
+    # end of the string and absorbed the unrelated "admin@example.org" mention.
+    redacted = redact_url_credentials(
+        "redis://user:pass@cache connection failed; email admin@example.org"
+    )
+
+    assert "pass@cache" not in redacted
+    assert redacted == (
+        "redis://redacted@cache connection failed; email admin@example.org"
+    )
+
+
+def test_redact_url_credentials_does_not_swallow_a_sibling_query_param() -> None:
+    # fix(#2044 review x9): scanning the raw query string let the match cross
+    # the `&` between "next" and "email", swallowing the whole second param
+    # into what the regex treated as the first param's userinfo.
+    redacted = redact_url_credentials(
+        "https://public.example/x?next=redis://user:pass@cache&email=admin@example.org"
+    )
+
+    assert "pass@cache" not in redacted
+    assert redacted == (
+        "https://public.example/x?next=redis%3A%2F%2Fredacted%40cache"
+        "&email=admin%40example.org"
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://user:unique pass@host",
+        "redis://user:unique pass@cache",
+    ],
+)
+def test_redact_url_credentials_masks_a_pathless_url_with_whitespace(
+    value: str,
+) -> None:
+    # fix(#2044 review x10): review x9's boundary gate rejected this too — a
+    # real URL, just with no path, and exactly one `@` so there is nothing
+    # else it could ambiguously have reached past.
+    redacted = redact_url_credentials(value)
+
+    assert "unique pass" not in redacted
+    assert redacted.endswith("redacted@host") or redacted.endswith("redacted@cache")
+
+
+def test_redact_url_credentials_masks_a_non_http_query_credential() -> None:
+    # fix(#2044 review x11): the query branch only ran for is_http — a
+    # connection-string password (?password=...) is an http-agnostic
+    # convention, and SENSITIVE_QUERY_PARAMS already names it as one.
+    redacted = redact_url_credentials(
+        "postgresql://db.internal/geolens?password=unique-passphrase"
+    )
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == "postgresql://db.internal/geolens?password=%3Credacted%3E"
+
+
+def test_redact_url_credentials_keeps_exiting_text_after_a_malformed_query() -> None:
+    # fix(#2044 review x11 fix): urlsplit splits off a "query" for a bare `?`
+    # in SCHEME-LESS free text too — must stay gated on a real scheme, not
+    # just parts.query, or trailing prose merges into the redacted value.
+    redacted = redact_url_credentials(
+        "ogrinfo failed: https://user:hunter2@.[::1]/wfs?f=json&token=hunter2 exiting"
+    )
+
+    assert "hunter2" not in redacted
+    assert redacted.startswith("ogrinfo failed: ")
+    assert redacted.endswith(" exiting")
+    assert "f=json" in redacted
+
+
+def test_redact_url_credentials_masks_a_query_on_a_no_authority_scheme() -> None:
+    # fix(#2044 review x12): has_real_url required BOTH scheme and netloc,
+    # but a scheme with no "//" authority (myapp:/path, single slash) is
+    # still a real, recognised URI — just an opaque/no-authority one.
+    redacted = redact_url_credentials("myapp:/callback?code=unique-passphrase")
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == "myapp:/callback?code=%3Credacted%3E"
+
+
+def test_redact_url_credentials_masks_a_credential_nested_in_a_fragment() -> None:
+    # fix(#2044 review x12): a second http(s) URL embedded, with no
+    # whitespace, in the first one's fragment was never scanned —
+    # _redact_netloc_and_query passed fragment straight through unchanged.
+    redacted = redact_url_credentials(
+        "https://public.example/x#next=https://other.example/y?token=unique-passphrase"
+    )
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == (
+        "https://public.example/x#next=https://other.example/y?token=%3Credacted%3E"
+    )
+
+
+def test_redact_url_credentials_masks_an_embedded_non_http_query_credential() -> None:
+    # fix(#2044 review x13): _ANY_SCHEME_USERINFO_RE only finds userinfo, so
+    # an embedded non-http URI's OWN query credential, with no userinfo at
+    # all, went unscanned when preceded by prose (scheme='' at top level).
+    redacted = redact_url_credentials(
+        "connection failed for postgresql://db/geolens?password=unique-passphrase"
+    )
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == (
+        "connection failed for postgresql://db/geolens?password=%3Credacted%3E"
+    )
+
+
+def test_redact_url_credentials_does_not_double_redact_a_malformed_query() -> None:
+    # fix(#2044 review x13 fix): _ANY_SCHEME_QUERY_RE re-matched URL_LIKE_RE's
+    # already-redacted http(s) output — its class excludes <>, so it stopped
+    # right before an existing "<redacted>" marker and redacted the (now
+    # empty) leftover a second time. Excluding http(s) from this regex fixed it.
+    redacted = redact_url_credentials(
+        "ogrinfo failed: https://user:hunter2@.[::1]/wfs?f=json&token=hunter2 exiting"
+    )
+
+    assert "hunter2" not in redacted
+    assert "<redacted><redacted>" not in redacted
+    assert redacted == (
+        "ogrinfo failed: https://redacted@.[::1]/wfs?f=json&token=<redacted> exiting"
+    )
+
+
+def test_redact_url_credentials_stays_linear_on_a_non_http_scheme_chain() -> None:
+    # fix(#2044 review x13 fix): _ANY_SCHEME_QUERY_RE's pre-`?` span can't
+    # exclude `/` (a real path has one), so an unbounded span made a long
+    # chain of `scheme://` segments with no `?` anywhere O(n) PER segment.
+    chain = "postgresql://user:hunter2@a/" * 2000 + "x"
+
+    start = time.perf_counter()
+    redacted = redact_url_credentials(chain)
+    elapsed = time.perf_counter() - start
+
+    assert "hunter2" not in redacted
+    assert elapsed < REDOS_THRESHOLD_S, (
+        f"redacting a 2000-segment non-http chain took {elapsed:.2f}s "
+        f"(threshold {REDOS_THRESHOLD_S}s) — _ANY_SCHEME_QUERY_RE is "
+        "backtracking quadratically again"
+    )
+
+
+def test_redact_url_credentials_masks_a_query_credential_nested_in_a_value() -> None:
+    # fix(#2044 review x14): the query-value scan only found userinfo — a
+    # value that is itself a whole nested URL, with its OWN query credential
+    # and no userinfo at all, went unscanned.
+    redacted = redact_url_credentials(
+        "https://outer/x?token=outer&next=postgresql://db/x?password=inner-passphrase"
+    )
+
+    assert "outer&" not in redacted
+    assert "inner-passphrase" not in redacted
+
+
+def test_redact_url_credentials_masks_an_embedded_opaque_uri_query() -> None:
+    # fix(#2044 review x14): _ANY_SCHEME_QUERY_RE required "://", so an
+    # opaque/single-slash URI (myapp:/callback) preceded by prose — with no
+    # top-level scheme for has_real_url to admit — went unscanned.
+    redacted = redact_url_credentials("failed myapp:/callback?code=unique-passphrase")
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == "failed myapp:/callback?code=%3Credacted%3E"
+
+
+def test_redact_url_credentials_masks_a_double_nested_fragment_credential() -> None:
+    # fix(#2044 review x14): scan_fragment=False on the inner call bounded
+    # fragment nesting to exactly one level — a THIRD url nested inside the
+    # second one's fragment went unscanned.
+    redacted = redact_url_credentials(
+        "https://outer/#next=https://middle/#next=https://inner/?token=unique-passphrase"
+    )
+
+    assert "unique-passphrase" not in redacted
 
 
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])

@@ -39,6 +39,21 @@ REDACTED_SECRET = "***"
 # O(n²) on GDAL stderr/VRT paths. A longer prefix still redacts correctly.
 URL_LIKE_RE = re.compile(r"(?:(?:[A-Za-z0-9_+.-]{1,64}:)?https?://)[^\s\"'<>]+")
 
+# fix(#2044 review x3/x4/x9): matches "<scheme>://<userinfo>@" anywhere, for
+# ANY scheme. `\s` excluded on purpose: free text has no /?# to stop an
+# unbounded authority scan at, so allowing it swallows later unrelated prose.
+_ANY_SCHEME_USERINFO_RE = re.compile(
+    r"([A-Za-z][A-Za-z0-9+.-]{0,63}://)[^\s\"'<>/?#]*@"
+)
+
+# fix(#2044 review x13/x14): "<scheme>:...?..." for any NON-http(s) scheme
+# with a `?` (http(s) is URL_LIKE_RE's job). `/{0,2}` admits an opaque or
+# single-slash URI too, not just `://` ones. Bounded like URL_LIKE_RE.
+_ANY_SCHEME_QUERY_RE = re.compile(
+    r"(?<![A-Za-z0-9+.-])(?!https?://)"
+    r"[A-Za-z][A-Za-z0-9+.-]{0,63}:/{0,2}[^\s\"'<>?]{0,2048}\?[^\s\"'<>]*"
+)
+
 SENSITIVE_QUERY_PARAMS = frozenset(
     {
         "access_token",
@@ -115,22 +130,6 @@ def _split_prefixed_url(value: str) -> tuple[str, str] | None:
     if rest.startswith(("http://", "https://")):
         return f"{prefix}:", rest
     return None
-
-
-def _redacted_netloc(parts) -> str:  # type: ignore[no-untyped-def]
-    if not (parts.username or parts.password):
-        return parts.netloc
-
-    host = parts.hostname or ""
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"
-    try:
-        port = parts.port
-    except ValueError:
-        port = None
-    if port is not None:
-        host = f"{host}:{port}"
-    return f"{REDACTED_USERINFO}@{host}"
 
 
 def redact_query_credentials(query: str) -> str:
@@ -233,33 +232,137 @@ def redact_url_credentials(url: str) -> str:
     try:
         parts = urlsplit(url)
     except ValueError:
-        # fix(#1119): a malformed authority must not turn a redaction call into a
-        # raise. Reached both directly and from the URL_LIKE_RE.sub callback
-        # below, which recurses here on each matched substring of free text.
+        # fix(#1119): a malformed authority must not turn a redaction call into
+        # a raise. A malformed http(s) SPAN inside free text is instead caught
+        # by _redact_http_span below, without recursing back through here.
         return _redact_without_parsing(url)
-    # Only a scheme-less string (free text, GDAL stderr) goes to the regex
-    # fallback. An http(s) URL with an EMPTY host (e.g. "https://?token=x") must
-    # still be reconstructed below — routing it to the fallback would match the
-    # whole string and recurse forever. fix(#429): guard empty-host URLs
-    # against unbounded recursion; the reconstruct path terminates and redacts.
-    if parts.scheme.lower() not in {"http", "https"}:
-        return URL_LIKE_RE.sub(
-            lambda match: redact_url_credentials(match.group(0)),
-            url,
+    redacted = url
+    is_http = parts.scheme.lower() in {"http", "https"}
+    # fix(#2044 review x9/x10): trust this split's netloc with a real /?#
+    # boundary, or at most one `@` — either way no OTHER `@` it could have
+    # reached past prose to (review x9's two-`@` case couldn't say that).
+    has_boundary = bool(parts.path or parts.query or parts.fragment)
+    unambiguous = has_boundary or parts.netloc.count("@") <= 1
+    # fix(#2044 review x11/x12): a genuinely recognised scheme is what tells
+    # a real (if opaque/no-authority, e.g. myapp:/callback) URI apart from
+    # the bare `?` urlsplit finds in scheme-less free text (scheme='') too.
+    has_real_url = bool(parts.scheme)
+    if has_real_url and (
+        is_http or parts.query or (unambiguous and (parts.username or parts.password))
+    ):
+        redacted = _redact_netloc_and_query(url, parts, depth=_MAX_NESTED_URL_DEPTH)
+    redacted = _scan_embedded_url_credentials(redacted, depth=_MAX_NESTED_URL_DEPTH)
+    return redacted if redacted != url else url
+
+
+# fix(#2044 review x14): review x12 bounded fragment nesting to exactly one
+# level, which a double-nested case got past — depth now counts down across
+# every hop (fragment or query value), capped regardless of input shape.
+_MAX_NESTED_URL_DEPTH = 10
+
+
+def _scan_embedded_url_credentials(text: str, *, depth: int) -> str:
+    """Redact a credential in an EMBEDDED URL anywhere in ``text``: an
+    http(s) URL (full treatment), any scheme with a query (full treatment,
+    fix #2044 review x13), or any scheme's bare userinfo.
+
+    fix(#2044 review x7): urlsplit's split of the OUTER string can put a
+    second scheme's authority in the wrong component (reviews x1-x6) — this
+    scans the raw text instead.
+    """
+    text = URL_LIKE_RE.sub(
+        lambda match: _redact_http_span(match.group(0), depth=depth), text
+    )
+    text = _ANY_SCHEME_QUERY_RE.sub(
+        lambda match: _redact_http_span(match.group(0), depth=depth), text
+    )
+    return _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", text)
+
+
+def _redact_netloc_and_query(  # type: ignore[no-untyped-def]
+    url: str, parts, *, depth: int
+) -> str:
+    """Redact one recognised URL's userinfo, sensitive query params, and
+    (while ``depth`` allows descending further) a nested credential hiding
+    in the fragment or in a query value.
+
+    Slices ``parts.netloc`` at its last ``@`` rather than rebuilding through
+    ``.hostname``/``.port`` — those normalise and silently drop a character
+    (fix #2044 review x2) when netloc absorbed text that isn't really a host.
+
+    fix(#2044 review x11): query redaction applies to any scheme, not just
+    http — ``?password=`` is a connection-string convention, and
+    SENSITIVE_QUERY_PARAMS already names params no http service defines.
+    """
+    _, sep, host_part = parts.netloc.rpartition("@")
+    redacted_netloc = f"{REDACTED_USERINFO}@{host_part}" if sep else parts.netloc
+    redacted_query = parts.query
+    if parts.query:
+        # fix(#2044 review x6): scan BEFORE redact_query_credentials — once
+        # any one param is sensitive it re-urlencodes every value, which
+        # would percent-escape an embedded credential's "://" out of reach.
+        redacted_query = redact_query_credentials(
+            _scan_query_value_credentials(parts.query, depth=depth)
         )
-    redacted_netloc = _redacted_netloc(parts)
-    if not parts.query:
-        if redacted_netloc == parts.netloc:
-            return url
-        return urlunsplit(
-            (parts.scheme, redacted_netloc, parts.path, parts.query, parts.fragment)
+    redacted_fragment = parts.fragment
+    if depth > 0 and parts.fragment:
+        # fix(#2044 review x12/x14): a credential can hide in the fragment
+        # with no whitespace to separate it — depth-1 here bounds how many
+        # MORE such hops get followed (see _MAX_NESTED_URL_DEPTH).
+        redacted_fragment = _scan_embedded_url_credentials(
+            parts.fragment, depth=depth - 1
         )
-    redacted_query = redact_query_credentials(parts.query)
-    if redacted_query == parts.query and redacted_netloc == parts.netloc:
+    if (
+        redacted_netloc == parts.netloc
+        and redacted_query == parts.query
+        and redacted_fragment == parts.fragment
+    ):
         return url
     return urlunsplit(
-        (parts.scheme, redacted_netloc, parts.path, redacted_query, parts.fragment)
+        (parts.scheme, redacted_netloc, parts.path, redacted_query, redacted_fragment)
     )
+
+
+def _scan_query_value_credentials(query: str, *, depth: int) -> str:
+    """Redact a credential — embedded userinfo, or (fix #2044 review x14) a
+    whole nested URL's own query — inside each query VALUE.
+
+    fix(#2044 review x9): scanning the raw query let a match cross the `&`
+    pair boundary, swallowing a sibling param as "userinfo" — scanning each
+    already-split value (parse_qsl) instead keeps the match inside it.
+    """
+    # fix(#1770): same reasoning as `query_has_credentials` above -- a
+    # redactor must never raise on its own input.
+    pairs = parse_qsl(query, keep_blank_values=True)  # parse_qs: unbounded
+    if not pairs:
+        return query
+    scanned = [
+        (
+            key,
+            _scan_embedded_url_credentials(value, depth=depth - 1)
+            if depth > 0
+            else value,
+        )
+        for key, value in pairs
+    ]
+    return query if scanned == pairs else urlencode(scanned)
+
+
+def _redact_http_span(span: str, *, depth: int) -> str:
+    """Redact userinfo and sensitive query params in one URL-shaped span
+    matched by ``_scan_embedded_url_credentials``'s two URL regexes.
+
+    Never calls back into ``redact_url_credentials``. ``depth`` just
+    threads through to ``_redact_netloc_and_query`` — see
+    ``_MAX_NESTED_URL_DEPTH`` for the bound this keeps.
+    """
+    prefixed = _split_prefixed_url(span)
+    prefix, rest = prefixed if prefixed is not None else ("", span)
+    try:
+        parts = urlsplit(rest)
+    except ValueError:
+        return prefix + _redact_without_parsing(rest)
+    return prefix + _redact_netloc_and_query(rest, parts, depth=depth)
 
 
 def scrub_registered_credentials(text: str) -> str:
