@@ -649,8 +649,12 @@ def test_redact_url_credentials_masks_a_non_http_url_in_a_query_value() -> None:
         "https://public.example/x?next=redis://alice:hunter2@cache/0"
     )
 
+    # fix(#2044 review x9): reconstructed via urlencode (per-value scanning,
+    # see below), so the value is percent-encoded rather than left literal.
     assert "hunter2" not in redacted
-    assert redacted == "https://public.example/x?next=redis://redacted@cache/0"
+    assert (
+        redacted == "https://public.example/x?next=redis%3A%2F%2Fredacted%40cache%2F0"
+    )
 
 
 def test_redact_url_credentials_masks_embedded_url_alongside_a_sensitive_param() -> (
@@ -712,6 +716,33 @@ def test_redact_url_credentials_masks_a_query_value_with_a_space() -> None:
 
     assert "my secret value" not in redacted
     assert redacted == "https://host/x?token=%3Credacted%3E"
+
+
+def test_redact_url_credentials_does_not_swallow_prose_after_a_pathless_url() -> None:
+    # fix(#2044 review x9): review x8's blanket use of urlsplit's whole-string
+    # split over-redacted here — with no /?# to stop netloc at, it ran to the
+    # end of the string and absorbed the unrelated "admin@example.org" mention.
+    redacted = redact_url_credentials(
+        "redis://user:pass@cache connection failed; email admin@example.org"
+    )
+
+    assert "pass@cache" not in redacted
+    assert redacted == (
+        "redis://redacted@cache connection failed; email admin@example.org"
+    )
+
+
+def test_redact_url_credentials_does_not_swallow_a_sibling_query_param() -> None:
+    # fix(#2044 review x9): scanning the raw query string let the match cross
+    # the `&` between "next" and "email", swallowing the whole second param
+    # into what the regex treated as the first param's userinfo.
+    redacted = redact_url_credentials(
+        "https://public.example/x?next=redis://user:pass@cache&email=admin@example.org"
+    )
+
+    assert "pass@cache" not in redacted
+    assert "admin" in redacted
+    assert "example.org" in redacted
 
 
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])

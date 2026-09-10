@@ -7702,8 +7702,10 @@ def test_every_parse_qsl_call_bounds_its_field_count() -> None:
     `parse_qsl?\\(` (the trailing `l` optional), which matches both.
 
     Not every site gets the bound, and the exceptions are real:
-    `url_redaction.py`'s two sites and `preview.py`'s one scrub or resolve
-    the CALLER's own already-bounded input, and a redactor specifically must
+    `url_redaction.py`'s three sites (fix #2044 review x9 added the third,
+    scanning one already-split query VALUE for an embedded credential) and
+    `preview.py`'s one scrub or resolve the CALLER's own already-bounded
+    input, and a redactor specifically must
     never itself raise (`max_num_fields` raises `ValueError` past the
     count, which would turn scrubbing an oversized credential out of an
     exception message into a crash INSIDE exception handling);
