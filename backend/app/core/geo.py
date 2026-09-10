@@ -7,7 +7,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, case, column, func, or_, select
+from sqlalchemy import and_, case, column, func, or_, select, text
 from sqlalchemy import table as sql_table
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -441,6 +441,52 @@ def make_bbox_filter(
     else:
         envelope = func.ST_MakeEnvelope(west, south, east, north, 4326)
         return and_(geom_col.op("&&")(envelope), spatial_fn(geom_col, envelope))
+
+
+@lru_cache(maxsize=512)
+def _proj_knows_epsg(srid: int) -> bool:
+    """True when PROJ, GDAL's registry, has this EPSG code.
+
+    Function-scope import and cache for the same reasons as ``_parse_crs``.
+    """
+    try:
+        from rasterio.crs import CRS
+
+        CRS.from_epsg(srid)
+        return True
+    except Exception:  # broad: any PROJ refusal means "not a code PROJ knows"
+        return False
+
+
+async def unknown_srid_refusal(
+    session: AsyncSession, srid: int | None, *, field: str = "srid_override"
+) -> str | None:
+    """The refusal when a caller-supplied SRID is in neither EPSG registry.
+
+    fix(#2032): both commit doors and the manifest accepted an unassigned EPSG
+    code, then ingested under the DETECTED CRS instead — the coordinates were
+    read under a system nobody asked for, with no note in the response.
+
+    fix(#2032 review): both registries count, because both consume the value:
+    a vector override reaches PostGIS ``ST_Transform``, a raster one reaches
+    ``gdal_translate -a_srs``, and the two EPSG databases are versioned
+    independently. A code in neither is refused; a code in one is the
+    consuming layer's to accept or report.
+    """
+    if srid is None:
+        return None
+    if _proj_knows_epsg(srid):
+        return None
+    known = await session.scalar(
+        text("SELECT 1 FROM spatial_ref_sys WHERE srid = :srid"), {"srid": srid}
+    )
+    if known:
+        return None
+    return (
+        f"{field} {srid} is not a known coordinate system: neither PROJ nor "
+        f"PostGIS spatial_ref_sys has that EPSG code. Use an assigned code, or "
+        f"omit {field} to keep the source CRS."
+    )
 
 
 # fix(#961): had a twin in processing/raster/vrt.py; both sites now go

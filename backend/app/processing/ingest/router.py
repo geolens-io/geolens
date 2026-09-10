@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import redact_failure_reason
+from app.core.geo import unknown_srid_refusal
 from app.core.identity import Identity
 from app.core.async_io import (
     run_in_thread_draining,
@@ -1109,6 +1110,16 @@ async def commit_import(
     # fix(#823): dash-guard + all_layers membership check for the commit's
     # layer_name, which reaches the worker's ogr2ogr argv (see layer_guard).
     validate_commit_layer_name(job, getattr(commit, "layer_name", None))
+
+    # fix(#2032): an unassigned EPSG code committed and was then ignored.
+    srid_refusal = await unknown_srid_refusal(
+        db, getattr(commit, "srid_override", None)
+    )
+    if srid_refusal:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=srid_refusal,
+        )
 
     # feat(#1691): a non-admin may not commit a public dataset when
     # restrict_public_visibility is on. Local import: processing/ must not

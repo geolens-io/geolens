@@ -297,7 +297,11 @@ async def _execute_service(task_kwargs: dict, *, expected_token: str | None) -> 
             await fake_session.execute(
                 text(
                     f'CREATE TABLE "{schema}"."{table_name}" '
-                    "(gid serial PRIMARY KEY, name text)"
+                    # fix(#2031): the staged layer carries geometry, like the
+                    # vector dataset it replaces — the swap now refuses a
+                    # geometry-less replacement of one.
+                    "(gid serial PRIMARY KEY, name text, "
+                    "geom geometry(Polygon, 4326))"
                 )
             )
             await fake_session.commit()

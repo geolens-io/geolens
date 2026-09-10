@@ -266,6 +266,18 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
+  // fix(#2032): the commit doors' srid_override refusal. The code the caller
+  // typed is the whole message; the spatial_ref_sys mechanics are diagnostic.
+  const unknownSrid = message.match(
+    /^srid_override (\d+) is not a known coordinate system/i,
+  );
+  if (unknownSrid) {
+    return {
+      key: 'errors.unknownSridOverride',
+      values: { srid: unknownSrid[1] },
+    };
+  }
+
   // Anchored on the setting name and the first clause only: the server's
   // example origins are prose that may well be reworded.
   if (/^Validation error for 'cors_allowed_origins': Wildcard/i.test(message)) {
@@ -521,6 +533,12 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     // sees it and renders its own inline credential prompt instead, but this
     // entry keeps the mapping correct for any other caller of
     // `classifyApiError` that reaches this code without that special case.
+    // fix(#2031): keyed on the code, so rewording the server's sentence cannot
+    // drop a re-upload user to raw English prose.
+    if (value.code === 'geometry_loss') {
+      return { key: 'errors.reuploadGeometryLoss' };
+    }
+
     if (value.code === 'service_token_required') {
       return { key: 'errors.refreshServiceTokenRequired' };
     }

@@ -20,7 +20,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import redact_failure_reason
-from app.core.upload_errors import UnsafeUploadError
+from app.core.geo import unknown_srid_refusal
+from app.core.upload_errors import (
+    IngestCeilingError,
+    UnsafeUploadError,
+    geometry_loss_refusal,
+)
 from app.core.identity import Identity
 from app.core.async_io import (
     run_in_thread_draining,
@@ -602,6 +607,8 @@ async def reupload_preview(
     job_source_filename = job.source_filename
     prior_columns = dataset.column_info or []
     prior_feature_count = dataset.feature_count
+    prior_record_type = dataset.record.record_type
+    prior_geometry_type = dataset.geometry_type
     await db.rollback()
 
     # Resolve S3 key to local file for ogrinfo
@@ -624,6 +631,14 @@ async def reupload_preview(
         info = await get_catalog_port().run_ogrinfo_preview(
             file_path, layer_name=layer_name
         )
+    except IngestCeilingError as exc:
+        # fix(#2043): the ceiling message the import preview already answers.
+        # The broad handler below reports "malformed or unsupported", which is
+        # wrong for a file that is merely too large, and hides the way out.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     except UnsafeUploadError as exc:
         # fix(#1846): the same mapping `preview_file` gives it.
         # This block had no `except` at all, so a content refusal -- which is a
@@ -667,6 +682,19 @@ async def reupload_preview(
                     f"(single-layer file contains '{info['layer_name']}')."
                 ),
             )
+
+    # fix(#2031): the diff below reads attribute columns only, so a geometry
+    # loss reached the client as an unremarkable schema diff.
+    geometry_loss = geometry_loss_refusal(
+        record_type=prior_record_type,
+        dataset_geometry_type=prior_geometry_type,
+        source_has_geometry=info.get("geometry_type") is not None,
+    )
+    if geometry_loss:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "geometry_loss", "message": geometry_loss},
+        )
 
     diff = compute_schema_diff(
         prior_columns,
@@ -908,6 +936,14 @@ async def reupload_commit(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job already processed",
+        )
+
+    # fix(#2032): an unassigned EPSG code committed and was then ignored.
+    srid_refusal = await unknown_srid_refusal(db, request.srid_override)
+    if srid_refusal:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=srid_refusal,
         )
 
     # fix(#1746): judge the credential by the WORKER's policy for this

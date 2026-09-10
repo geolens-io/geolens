@@ -2571,7 +2571,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its own transaction and reaps the staged copy once a committed attempt
     # left the row failed, best effort. Cap 1130 -> 1146, exact.
     # fix(#2017): +15. Bounds the admit-plus-bind step under its own deadline and fix(#1953): +1 merged; re-measured after both landed. Cap 1152, exact.
-    "backend/app/processing/ingest/manifest_service.py": 1152,
+    # fix(#2032): +11. `_classify_dataset` refuses a metadata.crs that names
+    # no spatial_ref_sys row, so a dry run reports it. Cap 1152 -> 1163, exact.
+    "backend/app/processing/ingest/manifest_service.py": 1163,
     # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
     # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
     # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/
@@ -3422,7 +3424,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # processing/ingest/tasks_url_fetch.py, taking the proxy-deadline budget
     # with them. RECONCILED: four PRs moved this cap from different baselines,
     # so the value is MEASURED on the merged file, never composed.
-    "backend/app/processing/ingest/router.py": 1819,
+    # fix(#2032): +11. The import commit door refuses an srid_override that
+    # names no spatial_ref_sys row. Cap 1819 -> 1830, exact.
+    "backend/app/processing/ingest/router.py": 1830,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3673,7 +3677,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#2026): -575. The staging acquisition and cleanup half moved to
     # `tasks_staging.py` (599 lines, under the inclusion threshold), which also
     # took five imports nothing left here uses. Cap 2423 -> 1848, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1848,
+    # fix(#2039): +52. The manifest read-back copies license and organization
+    # and inserts tags as theme keywords, skipping the ones a re-apply already
+    # wrote; the keyword class comes off the record class the port exposes.
+    # Cap 1848 -> 1899, exact.
+    # fix(#2039 review): +13. The tag de-dup reads the rows the unique index
+    # would collide with, spelled as the index spells them (COALESCE on the
+    # vocabulary), case-folded. Cap 1899 -> 1912, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1912,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3787,7 +3798,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # in this module now goes through. Cap 1245 -> 1246, exact.
     # refactor(#2026): +2 — the staging cluster's names now come from
     # `tasks_staging`, so this module's one import block became two.
-    "backend/app/processing/ingest/tasks_reupload.py": 1248,
+    # fix(#2031): +16. `_detect_reupload_crs` also refuses a replacement that
+    # would strip the dataset's geometry, and takes the record type that
+    # decides it. Cap 1248 -> 1264, exact.
+    # fix(#2031 review): +31. The refusal became `_assert_geometry_survives`,
+    # shared with the service path, which learns geometry from the staging
+    # table and reached the same swap; it also reads the dataset's recorded
+    # geometry, not just its record type. Cap 1264 -> 1295, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1295,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4591,7 +4609,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#2036): +8. The re-upload preview maps an unreadable file to the
     # import preview's 422 instead of letting it escape as a 500.
     # Cap 1428 -> 1436, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1436,
+    # fix(#2043): +9. The ceiling refusal gets its own except clause, and the
+    # core marker it catches joins this module's import block.
+    # Cap 1436 -> 1445, exact.
+    # fix(#2032): +9. The re-upload commit door refuses an srid_override that
+    # names no spatial_ref_sys row. Cap 1445 -> 1454, exact.
+    # fix(#2031): +13. The preview door refuses a replacement that would strip
+    # the dataset's geometry, which the attribute-only schema diff cannot see.
+    # Cap 1454 -> 1467, exact.
+    # fix(#2043 review): +3. The import of the core ceiling marker wraps.
+    # Cap 1467 -> 1470, exact.
+    # fix(#2031 review): +2. The preview door reads the dataset's recorded
+    # geometry alongside its record type. Cap 1470 -> 1472, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1472,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -5030,7 +5060,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#2036): +2. The unable-to-open pattern gains ogrinfo's own one-line
     # wording, which ogr2ogr's driver enumeration never matched.
     # Cap 1341 -> 1343, exact.
-    "backend/app/processing/ingest/ogr.py": 1343,
+    # fix(#2043): +4. The ceiling error also carries the core marker the
+    # re-upload preview catches. Cap 1343 -> 1347, exact.
+    # fix(#2031 review): +4. The text fallback's `Geometry: None` sentinel is
+    # parsed as no geometry, not as a type. Cap 1347 -> 1351, exact.
+    "backend/app/processing/ingest/ogr.py": 1351,
     # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
     # 1000-line threshold when the content check landed: the SQLite schema
     # reader, the archive member walk that identifies members by their bytes

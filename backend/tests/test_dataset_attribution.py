@@ -356,7 +356,8 @@ class TestManifestAttributionCommit:
         assert ledger["manifest_attribution"] == _SWISSTOPO_CREDIT
 
         record = Record(title="swissALTI3D")
-        apply_manifest_record_metadata(record, ledger)
+        # No session: these cases carry no tags, and the column copies need none.
+        await apply_manifest_record_metadata(None, record, ledger)
         assert record.attribution == _SWISSTOPO_CREDIT
 
     async def test_manifest_without_attribution_leaves_the_column_null(self):
@@ -364,47 +365,49 @@ class TestManifestAttributionCommit:
         assert "manifest_attribution" not in ledger
 
         record = Record(title="swissALTI3D")
-        apply_manifest_record_metadata(record, ledger)
+        await apply_manifest_record_metadata(None, record, ledger)
         assert record.attribution is None
 
     @pytest.mark.parametrize("user_metadata", [None, {}, {"title": "an upload"}])
-    def test_non_manifest_ingests_are_untouched(self, user_metadata):
+    async def test_non_manifest_ingests_are_untouched(self, user_metadata):
         """Upload/service/STAC jobs carry no manifest namespace — no-op."""
         record = Record(title="Uploaded")
-        apply_manifest_record_metadata(record, user_metadata)
+        await apply_manifest_record_metadata(None, record, user_metadata)
         assert record.attribution is None
 
     @pytest.mark.parametrize("blank", ["", "   ", "\n\t "])
-    def test_blank_attribution_is_not_written(self, blank):
+    async def test_blank_attribution_is_not_written(self, blank):
         """A whitespace-only credit is no credit; it must not become a string
         the viewer then renders as an empty attribution entry."""
         record = Record(title="Blank")
-        apply_manifest_record_metadata(record, {"manifest_attribution": blank})
+        await apply_manifest_record_metadata(
+            None, record, {"manifest_attribution": blank}
+        )
         assert record.attribution is None
 
-    def test_a_reapply_replaces_a_previous_credit(self):
+    async def test_a_reapply_replaces_a_previous_credit(self):
         """fix(#1472 review): the reupload case. A manifest re-apply whose
         fingerprint changed classifies as "update" and swaps new data onto the
         existing record, so the helper has to OVERWRITE the credit already
         there — leaving the old one would name a source the new bytes did not
         come from, which is worse than carrying no credit at all."""
         record = Record(title="swissALTI3D", attribution="© swisstopo — 2024 tiles")
-        apply_manifest_record_metadata(
-            record, {"manifest_attribution": _SWISSTOPO_CREDIT}
+        await apply_manifest_record_metadata(
+            None, record, {"manifest_attribution": _SWISSTOPO_CREDIT}
         )
         assert record.attribution == _SWISSTOPO_CREDIT
 
-    def test_a_reapply_that_omits_attribution_keeps_the_existing_credit(self):
+    async def test_a_reapply_that_omits_attribution_keeps_the_existing_credit(self):
         """An absent key means "unchanged", matching the dataset PATCH's
         semantics for the same field. Clearing a credit is an explicit edit,
         not something a manifest that never mentioned the field should do."""
         record = Record(title="swissALTI3D", attribution=_SWISSTOPO_CREDIT)
-        apply_manifest_record_metadata(record, {"manifest_key": "alti3d"})
+        await apply_manifest_record_metadata(None, record, {"manifest_key": "alti3d"})
         assert record.attribution == _SWISSTOPO_CREDIT
 
-    def test_surrounding_whitespace_is_stripped(self):
+    async def test_surrounding_whitespace_is_stripped(self):
         record = Record(title="Padded")
-        apply_manifest_record_metadata(
-            record, {"manifest_attribution": f"  {_SWISSTOPO_CREDIT}  "}
+        await apply_manifest_record_metadata(
+            None, record, {"manifest_attribution": f"  {_SWISSTOPO_CREDIT}  "}
         )
         assert record.attribution == _SWISSTOPO_CREDIT

@@ -179,6 +179,11 @@ class TestParseTextOgrinfo:
         assert result["feature_count"] is None
         assert result["srid"] is None
 
+    def test_non_spatial_layer_reports_no_geometry(self):
+        """fix(#2031 review): `Geometry: None` is a sentinel, not a type."""
+        output = "Layer name: attrs\nGeometry: None\nFeature Count: 3\n"
+        assert _parse_text_ogrinfo(output)["geometry_type"] is None
+
     def test_invalid_feature_count_is_tolerated(self):
         output = "Feature Count: not-a-number\nGeometry: Point\n"
         result = _parse_text_ogrinfo(output)
