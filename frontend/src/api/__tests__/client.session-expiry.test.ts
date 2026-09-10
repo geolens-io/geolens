@@ -77,7 +77,9 @@ describe('session-expiry notification (fix #628)', () => {
     mockFetch.mockResolvedValue(errorResponse(401));
     vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('rate limited', 429));
 
-    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+    // fix(#2038): flagged unconfirmed so a sign-in catch downstream cannot read
+    // it as a rejected credential and revoke every session.
+    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401, unconfirmed: true });
 
     expect(logoutSession).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
@@ -105,7 +107,9 @@ describe('session-expiry notification (fix #628)', () => {
     mockFetch.mockResolvedValue(errorResponse(401));
     vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('unauthorized', 401));
 
-    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+    const err = await apiFetch('/a/').catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 401 });
+    expect((err as ApiError).unconfirmed).toBeUndefined();
 
     expect(logoutSession).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledTimes(1);

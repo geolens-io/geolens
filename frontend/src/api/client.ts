@@ -9,7 +9,8 @@ import i18n from '@/i18n/i18n';
 /** fix(#2038): true when the server REJECTED the credential — the only evidence
  * that earns POST /auth/logout/, which revokes EVERY session of the user. */
 export function isCredentialRejected(err: unknown): boolean {
-  return err instanceof ApiError && (err.status === 401 || err.status === 403);
+  if (!(err instanceof ApiError) || err.unconfirmed) return false;
+  return err.status === 401 || err.status === 403;
 }
 
 // fix(#438): DATA-04 — a request whose socket hangs used to spin forever and
@@ -21,6 +22,9 @@ const REQUEST_TIMEOUT_MS = 30_000;
 export class ApiError extends Error {
   status: number;
   body?: unknown;
+  /** fix(#2038): a 401 the client could NOT confirm — the refresh behind it
+   * failed transiently, so nothing here says the credential was rejected. */
+  unconfirmed?: boolean;
 
   constructor(message: string, status: number, body?: unknown) {
     super(message);
@@ -307,13 +311,17 @@ export async function authenticatedRawFetch(
       if (retry.status !== 401) return retry;
     }
     // fix(#2038): a transiently-failed refresh leaves the session alive, so keep
-    // it and let the caller see the 401 instead of tearing the session down.
-    if (outcome !== 'transient') {
-      if (deadSessionKey) {
-        notifySessionExpired(deadSessionKey);
-      } else {
-        useAuthStore.getState().logout();
-      }
+    // it and hand the caller a 401 flagged as unconfirmed, which the sign-in
+    // catches must not read as a rejected credential.
+    if (outcome === 'transient') {
+      const unverified = new ApiError(i18n.t('common:errors.unauthorized'), 401);
+      unverified.unconfirmed = true;
+      throw unverified;
+    }
+    if (deadSessionKey) {
+      notifySessionExpired(deadSessionKey);
+    } else {
+      useAuthStore.getState().logout();
     }
     // fix(#438): UX-10 — was hardcoded English.
     throw new ApiError(i18n.t('common:errors.unauthorized'), 401);

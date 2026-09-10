@@ -230,9 +230,9 @@ export function useVisibleTileTokenRefresh(
         // races the refresh, and a raster descriptor does not change across
         // one, so nothing in the token→setTiles plumbing retries the tiles that
         // 401'd. Reload them explicitly, but only once the token has ACTUALLY
-        // rotated: `tryRefresh` resolves false on a transient failure (offline,
-        // 429), and reloading against the same stale Bearer would just 401
-        // again. `recover`'s own mint collapses into this same refresh (the
+        // rotated.
+        // fix(#2038): compares token VALUES; the reload needs the new token, not just a refresh's success.
+        // `recover`'s own mint collapses into this same refresh (the
         // in-flight singleton in api/client.ts), so this costs no extra request
         // — and when our attempt is the one that fails, that mint's later
         // rotation is what the store subscription below picks up.

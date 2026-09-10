@@ -117,7 +117,11 @@ async function xhrUpload<T>(
         useAuthStore.getState().logout();
       }
     }
-    throw new ApiError(translateApiErrorDetail(detail, res.status), res.status, detail);
+    const failure = new ApiError(translateApiErrorDetail(detail, res.status), res.status, detail);
+    // fix(#2038): same flag as authenticatedRawFetch — a 401 whose refresh only
+    // failed transiently is no evidence the credential was rejected.
+    if (res.status === 401 && refreshOutcome === 'transient') failure.unconfirmed = true;
+    throw failure;
   }
 
   // codex on #1660: a 2xx response whose body isn't valid JSON (empty,

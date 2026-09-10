@@ -71,6 +71,23 @@ describe('OAuthCallbackPage', () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
+  // fix(#2038): a 401 the client could not confirm — its refresh only failed
+  // transiently — is not a rejection, so it must not revoke either.
+  it('keeps the other sessions when getMe answers an unconfirmed 401', async () => {
+    const unconfirmed = new ApiError('unauthorized', 401);
+    unconfirmed.unconfirmed = true;
+    mockGetMe.mockRejectedValueOnce(unconfirmed);
+    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    render(<OAuthCallbackPage />);
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
+    );
+    expect(mockLogoutSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
   // fix(#1446): the cookie is already installed by the time this page runs, so a
   // rejected credential must be revoked — clearing the store cannot reach it.
   it('revokes the session when getMe rejects the credential', async () => {
@@ -86,10 +103,9 @@ describe('OAuthCallbackPage', () => {
     );
   });
 
-  // fix(#1446): the cookies were installed by the response that redirected
-  // here, so a fragment too incomplete to finish sign-in still leaves a live
-  // credential unless it is revoked.
-  it('revokes before sending an incomplete fragment back to /login', async () => {
+  // fix(#2038): a fragment too incomplete to finish sign-in is no evidence the
+  // credential was rejected, and revoking would end every other session.
+  it('does not revoke when an incomplete fragment goes back to /login', async () => {
     setHash('#expires_in=900&auth_mode=cookie');
 
     render(<OAuthCallbackPage />);
@@ -98,7 +114,7 @@ describe('OAuthCallbackPage', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
     );
     expect(mockGetMe).not.toHaveBeenCalled();
-    expect(mockLogoutSession).toHaveBeenCalledTimes(1);
+    expect(mockLogoutSession).not.toHaveBeenCalled();
   });
 
   /**

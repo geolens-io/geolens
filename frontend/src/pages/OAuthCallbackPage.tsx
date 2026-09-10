@@ -43,13 +43,9 @@ export function OAuthCallbackPage() {
     window.history.replaceState({}, '', '/oauth/callback');
 
     if (!token || !expiresIn || (!refreshToken && !cookieMode)) {
-      // fix(#1446): a truncated or malformed fragment still arrived on a
-      // response that installed the cookies, so bailing out here without
-      // revoking leaves a live credential behind a UI reporting failure. The
-      // freshly-set CSRF cookie authenticates it; there is no bearer token to
-      // send. Unconditional — on the legacy fragment path there is no cookie,
-      // so the call simply 401s and costs nothing.
-      void logoutSession().catch(() => {});
+      // fix(#2038): the response that redirected here did install the cookies,
+      // but /auth/logout/ revokes EVERY session of the user and a fragment too
+      // short to finish sign-in is no evidence the credential was rejected.
       useAuthStore.getState().logout();
       navigate('/login', { replace: true });
       return;
