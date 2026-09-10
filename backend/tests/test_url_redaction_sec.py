@@ -741,8 +741,10 @@ def test_redact_url_credentials_does_not_swallow_a_sibling_query_param() -> None
     )
 
     assert "pass@cache" not in redacted
-    assert "admin" in redacted
-    assert "example.org" in redacted
+    assert redacted == (
+        "https://public.example/x?next=redis%3A%2F%2Fredacted%40cache"
+        "&email=admin%40example.org"
+    )
 
 
 @pytest.mark.parametrize(
