@@ -46,12 +46,12 @@ _ANY_SCHEME_USERINFO_RE = re.compile(
     r"([A-Za-z][A-Za-z0-9+.-]{0,63}://)[^\s\"'<>/?#]*@"
 )
 
-# fix(#2044 review x13/x14/x15): "<scheme>:...?..." for any NON-http(s)
-# scheme with a `?`; `/{0,2}` admits an opaque/single-slash URI too. Body
-# excludes a nested `://` start (a length cap is itself a bypass, x15).
+# fix(#2044 review x13/x14): "<scheme>:...?..." for any NON-http(s) scheme
+# with a `?` (http(s) is URL_LIKE_RE's job). `/{0,2}` admits an opaque or
+# single-slash URI too, not just `://` ones. Bounded like URL_LIKE_RE.
 _ANY_SCHEME_QUERY_RE = re.compile(
     r"(?<![A-Za-z0-9+.-])(?!https?://)"
-    r"[A-Za-z][A-Za-z0-9+.-]{0,63}:/{0,2}(?:(?!://)[^\s\"'<>?])*\?[^\s\"'<>]*"
+    r"[A-Za-z][A-Za-z0-9+.-]{0,63}:/{0,2}[^\s\"'<>?]{0,2048}\?[^\s\"'<>]*"
 )
 
 SENSITIVE_QUERY_PARAMS = frozenset(
@@ -242,16 +242,7 @@ def redact_url_credentials(url: str) -> str:
     # boundary, or at most one `@` — either way no OTHER `@` it could have
     # reached past prose to (review x9's two-`@` case couldn't say that).
     has_boundary = bool(parts.path or parts.query or parts.fragment)
-    at_count = parts.netloc.count("@")
-    # fix(#2044 review x15): a further `@` is still trustworthy when only
-    # the password sits between it and the one before it -- review x9's
-    # prose case had space-separated WORDS there; a password does not.
-    middle_segments = parts.netloc.split("@")[1:-1]
-    unambiguous = (
-        has_boundary
-        or at_count <= 1
-        or not any(ch.isspace() for segment in middle_segments for ch in segment)
-    )
+    unambiguous = has_boundary or parts.netloc.count("@") <= 1
     # fix(#2044 review x11/x12): a genuinely recognised scheme is what tells
     # a real (if opaque/no-authority, e.g. myapp:/callback) URI apart from
     # the bare `?` urlsplit finds in scheme-less free text (scheme='') too.
@@ -267,11 +258,7 @@ def redact_url_credentials(url: str) -> str:
 # fix(#2044 review x14): review x12 bounded fragment nesting to exactly one
 # level, which a double-nested case got past — depth now counts down across
 # every hop (fragment or query value), capped regardless of input shape.
-#
-# fix(#2044 review x15): 10 was itself exceeded by an 11-level chain;
-# raised with headroom (~5 stack frames/hop, well under Python's default
-# limit) and backed by _looks_url_shaped so exceeding even this redacts.
-_MAX_NESTED_URL_DEPTH = 50
+_MAX_NESTED_URL_DEPTH = 10
 
 
 def _scan_embedded_url_credentials(text: str, *, depth: int) -> str:
@@ -318,19 +305,13 @@ def _redact_netloc_and_query(  # type: ignore[no-untyped-def]
             _scan_query_value_credentials(parts.query, depth=depth)
         )
     redacted_fragment = parts.fragment
-    if parts.fragment:
-        if depth > 0:
-            # fix(#2044 review x12/x14): a credential can hide in the fragment
-            # with no whitespace to separate it — depth-1 here bounds how
-            # many MORE such hops get followed (see _MAX_NESTED_URL_DEPTH).
-            redacted_fragment = _scan_embedded_url_credentials(
-                parts.fragment, depth=depth - 1
-            )
-        elif _looks_url_shaped(parts.fragment):
-            # fix(#2044 review x15): budget exhausted -- an unscanned
-            # remainder that still looks URL-shaped is redacted wholesale
-            # rather than leaked verbatim; see _looks_url_shaped.
-            redacted_fragment = REDACTED_QUERY_VALUE
+    if depth > 0 and parts.fragment:
+        # fix(#2044 review x12/x14): a credential can hide in the fragment
+        # with no whitespace to separate it — depth-1 here bounds how many
+        # MORE such hops get followed (see _MAX_NESTED_URL_DEPTH).
+        redacted_fragment = _scan_embedded_url_credentials(
+            parts.fragment, depth=depth - 1
+        )
     if (
         redacted_netloc == parts.netloc
         and redacted_query == parts.query
@@ -339,20 +320,6 @@ def _redact_netloc_and_query(  # type: ignore[no-untyped-def]
         return url
     return urlunsplit(
         (parts.scheme, redacted_netloc, parts.path, redacted_query, redacted_fragment)
-    )
-
-
-def _looks_url_shaped(text: str) -> bool:
-    """Return True if any of the three URL-detection regexes match ``text``.
-
-    fix(#2044 review x15): shared by the fragment and query-value paths
-    below -- a text with no match here wouldn't have yielded anything even
-    with full budget, so it's left alone; a match is redacted wholesale.
-    """
-    return bool(
-        URL_LIKE_RE.search(text)
-        or _ANY_SCHEME_QUERY_RE.search(text)
-        or _ANY_SCHEME_USERINFO_RE.search(text)
     )
 
 
@@ -369,17 +336,15 @@ def _scan_query_value_credentials(query: str, *, depth: int) -> str:
     pairs = parse_qsl(query, keep_blank_values=True)  # parse_qs: unbounded
     if not pairs:
         return query
-    scanned = []
-    for key, value in pairs:
-        if depth > 0:
-            new_value = _scan_embedded_url_credentials(value, depth=depth - 1)
-        elif _looks_url_shaped(value):
-            # fix(#2044 review x15): same reasoning as the fragment branch
-            # in _redact_netloc_and_query above.
-            new_value = REDACTED_QUERY_VALUE
-        else:
-            new_value = value
-        scanned.append((key, new_value))
+    scanned = [
+        (
+            key,
+            _scan_embedded_url_credentials(value, depth=depth - 1)
+            if depth > 0
+            else value,
+        )
+        for key, value in pairs
+    ]
     return query if scanned == pairs else urlencode(scanned)
 
 

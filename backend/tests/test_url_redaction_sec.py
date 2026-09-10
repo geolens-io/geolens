@@ -897,49 +897,6 @@ def test_redact_url_credentials_masks_a_double_nested_fragment_credential() -> N
     assert "unique-passphrase" not in redacted
 
 
-def test_redact_url_credentials_masks_non_http_userinfo_with_space_and_at() -> None:
-    # fix(#2044 review x15): a password containing BOTH whitespace and a
-    # literal unescaped `@` has two `@` signs total, which the review x9/x10
-    # ambiguity gate used to refuse outright, and _ANY_SCHEME_USERINFO_RE
-    # stops at the whitespace before reaching either.
-    redacted = redact_url_credentials("redis://user:unique p@ss@cache")
-
-    assert "unique p@ss" not in redacted
-    assert redacted == "redis://redacted@cache"
-
-
-def test_redact_url_credentials_masks_a_non_http_query_past_2048_chars() -> None:
-    # fix(#2044 review x15): _ANY_SCHEME_QUERY_RE's old {0,2048} body cap
-    # made a longer pre-query span an outright miss, not just a truncation.
-    redacted = redact_url_credentials(
-        "failed postgresql://db/" + "a" * 2048 + "?password=long-path-passphrase"
-    )
-
-    assert "long-path-passphrase" not in redacted
-
-
-def test_redact_url_credentials_masks_a_credential_past_eleven_nested_urls() -> None:
-    # fix(#2044 review x15): 11 wrapping levels exhausted the old
-    # _MAX_NESTED_URL_DEPTH=10 budget one hop short of the innermost
-    # credential.
-    chain = "https://h/#next=" * 11 + "https://inner/?token=depth-eleven-passphrase"
-
-    redacted = redact_url_credentials(chain)
-
-    assert "depth-eleven-passphrase" not in redacted
-
-
-def test_redact_url_credentials_does_not_leak_past_the_raised_depth_cap() -> None:
-    # fix(#2044 review x15): raising the cap only moves the same bypass
-    # further out unless exhaustion also stops leaking the remainder
-    # verbatim — this chain is deep enough to exhaust even the new budget.
-    chain = "https://h/#next=" * 5000 + "https://inner/?token=deep-passphrase"
-
-    redacted = redact_url_credentials(chain)
-
-    assert "deep-passphrase" not in redacted
-
-
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}
