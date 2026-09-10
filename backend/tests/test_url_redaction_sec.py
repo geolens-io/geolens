@@ -669,6 +669,30 @@ def test_redact_url_credentials_masks_embedded_url_alongside_a_sensitive_param()
     assert "hunter2" not in redacted
 
 
+def test_redact_url_credentials_masks_a_non_http_url_with_no_path_separator() -> None:
+    # fix(#2044 review x7): pathless, so urlsplit's netloc scan stops at the
+    # embedded URL's OWN "//", splitting "redis:" from "//alice:hunter2@..." —
+    # neither half alone matches "scheme://userinfo@" for either regex.
+    redacted = redact_url_credentials(
+        "https://public.example then redis://alice:hunter2@cache/0"
+    )
+
+    assert "hunter2" not in redacted
+    assert redacted == "https://public.example then redis://redacted@cache/0"
+
+
+def test_redact_url_credentials_never_recurses_on_a_long_url_chain() -> None:
+    # fix(#2044 review x7): URL_LIKE_RE.sub used to hand each match back to
+    # redact_url_credentials, and a long whitespace-free chain of URLs is one
+    # single greedy match containing the next one nested in its "path" —
+    # redacting that recursed again, and enough repeats raised RecursionError.
+    chain = "https://user:hunter2@a/" * 2000 + "x"
+
+    redacted = redact_url_credentials(chain)
+
+    assert "hunter2" not in redacted
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}

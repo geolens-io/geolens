@@ -238,55 +238,55 @@ def redact_url_credentials(url: str) -> str:
         return prefix + redact_url_credentials(nested_url)
 
     try:
-        parts = urlsplit(url)
+        urlsplit(url)
     except ValueError:
-        # fix(#1119): a malformed authority must not turn a redaction call into a
-        # raise. Reached both directly and from the URL_LIKE_RE.sub callback
-        # below, which recurses here on each matched substring of free text.
+        # fix(#1119): a malformed authority must not turn a redaction call into
+        # a raise. A malformed http(s) SPAN inside free text is instead caught
+        # by _redact_http_span below, without recursing back through here.
         return _redact_without_parsing(url)
-    is_http = parts.scheme.lower() in {"http", "https"}
-    if not is_http:
-        # fix(#2044 review x3): scan the raw text for an embedded http(s) URL
-        # AND any other scheme's userinfo, rather than trust urlsplit's parse
-        # of the whole string — it can absorb unrelated text past either.
-        return _scan_for_embedded_credentials(url)
-    # fix(#2044 review x5/x6): query/path/fragment can each still carry a
-    # second, differently-schemed credentialed URL (a redirect-style query
-    # value, GDAL stderr appending text) — scan every one like free text too.
+    # fix(#2044 review x7): scan the RAW text directly for every embedded
+    # credential — not urlsplit's split of the WHOLE string into components,
+    # which can separate a scheme from its own authority across a netloc/path
+    # boundary and hide the pattern from both regexes (reviews x1-x6 each hit
+    # a different shape of this). _redact_http_span never calls back into this
+    # function, so adversarial chained input (many URLs, no separator) cannot
+    # grow the call stack the way the review x5/x6 recursion did.
+    redacted = URL_LIKE_RE.sub(lambda match: _redact_http_span(match.group(0)), url)
+    redacted = _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", redacted)
+    return redacted if redacted != url else url
+
+
+def _redact_http_span(span: str) -> str:
+    """Redact userinfo and sensitive query params in one http(s)-shaped span
+    matched by URL_LIKE_RE.
+
+    Never calls back into redact_url_credentials. A second credential
+    elsewhere in the text — a different scheme, or another http(s) URL
+    separated by whitespace from this one — is caught by the caller's own
+    two scans instead, which is what keeps this non-recursive.
+    """
+    prefixed = _split_prefixed_url(span)
+    prefix, rest = prefixed if prefixed is not None else ("", span)
+    try:
+        parts = urlsplit(rest)
+    except ValueError:
+        return prefix + _redact_without_parsing(rest)
     redacted_netloc = _redacted_netloc(parts)
-    # Scan BEFORE the named-param pass: a query with a genuinely sensitive
-    # param re-encodes every value, which percent-escapes an embedded URL's
-    # "://" past what these regexes match once it's no longer literal text.
+    # fix(#2044 review x6): scan BEFORE redact_query_credentials — once any
+    # one param is sensitive it re-urlencodes every value, which would
+    # percent-escape an embedded credential's "://" out of regex reach.
     redacted_query = (
-        redact_query_credentials(_scan_for_embedded_credentials(parts.query))
+        redact_query_credentials(
+            _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", parts.query)
+        )
         if parts.query
         else parts.query
     )
-    redacted_path = _scan_for_embedded_credentials(parts.path)
-    redacted_fragment = _scan_for_embedded_credentials(parts.fragment)
-    if (
-        redacted_netloc == parts.netloc
-        and redacted_query == parts.query
-        and redacted_path == parts.path
-        and redacted_fragment == parts.fragment
-    ):
-        return url
-    return urlunsplit(
-        (
-            parts.scheme,
-            redacted_netloc,
-            redacted_path,
-            redacted_query,
-            redacted_fragment,
-        )
+    if redacted_netloc == parts.netloc and redacted_query == parts.query:
+        return prefix + rest
+    return prefix + urlunsplit(
+        (parts.scheme, redacted_netloc, parts.path, redacted_query, parts.fragment)
     )
-
-
-def _scan_for_embedded_credentials(text: str) -> str:
-    """Redact an embedded http(s) URL, fully and recursively, or any other
-    scheme's userinfo — wherever either sits in free text."""
-    text = URL_LIKE_RE.sub(lambda match: redact_url_credentials(match.group(0)), text)
-    return _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", text)
 
 
 def scrub_registered_credentials(text: str) -> str:
