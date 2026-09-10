@@ -250,21 +250,20 @@ def redact_url_credentials(url: str) -> str:
         # AND any other scheme's userinfo, rather than trust urlsplit's parse
         # of the whole string — it can absorb unrelated text past either.
         return _scan_for_embedded_credentials(url)
+    # fix(#2044 review x5/x6): query/path/fragment can each still carry a
+    # second, differently-schemed credentialed URL (a redirect-style query
+    # value, GDAL stderr appending text) — scan every one like free text too.
     redacted_netloc = _redacted_netloc(parts)
+    # Scan BEFORE the named-param pass: a query with a genuinely sensitive
+    # param re-encodes every value, which percent-escapes an embedded URL's
+    # "://" past what these regexes match once it's no longer literal text.
     redacted_query = (
-        redact_query_credentials(parts.query) if parts.query else parts.query
+        redact_query_credentials(_scan_for_embedded_credentials(parts.query))
+        if parts.query
+        else parts.query
     )
-    # fix(#2044 review x5): a clean http(s) URL's path/fragment can itself
-    # carry a second, differently-schemed credentialed URL (GDAL stderr
-    # appending text past the first) — scan them like free text too.
-    redacted_path = (
-        _scan_for_embedded_credentials(parts.path) if parts.path else parts.path
-    )
-    redacted_fragment = (
-        _scan_for_embedded_credentials(parts.fragment)
-        if parts.fragment
-        else parts.fragment
-    )
+    redacted_path = _scan_for_embedded_credentials(parts.path)
+    redacted_fragment = _scan_for_embedded_credentials(parts.fragment)
     if (
         redacted_netloc == parts.netloc
         and redacted_query == parts.query

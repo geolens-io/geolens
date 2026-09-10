@@ -643,6 +643,32 @@ def test_redact_url_credentials_masks_a_non_http_url_after_a_leading_http_url() 
     assert redacted == "https://public.example/x then redis://redacted@cache/0"
 
 
+def test_redact_url_credentials_masks_a_non_http_url_in_a_query_value() -> None:
+    # fix(#2044 review x6): the query branch only ran redact_query_credentials
+    # (named params by key), never the embedded-credential scan — a URL-valued
+    # param that isn't a known-sensitive name kept its userinfo unredacted.
+    redacted = redact_url_credentials(
+        "https://public.example/x?next=redis://alice:hunter2@cache/0"
+    )
+
+    assert "hunter2" not in redacted
+    assert redacted == "https://public.example/x?next=redis://redacted@cache/0"
+
+
+def test_redact_url_credentials_masks_embedded_url_alongside_a_sensitive_param() -> (
+    None
+):
+    # A genuinely sensitive param forces redact_query_credentials to
+    # urlencode every value, which would percent-escape an embedded URL's
+    # "://" if the scan ran after that instead of before it.
+    redacted = redact_url_credentials(
+        "https://public.example/x?token=abc&next=redis://alice:hunter2@cache/0"
+    )
+
+    assert "abc" not in redacted
+    assert "hunter2" not in redacted
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}
