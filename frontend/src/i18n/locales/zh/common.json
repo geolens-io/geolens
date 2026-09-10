@@ -266,6 +266,7 @@
   "unknown": "未知",
   "errors": {
     "unexpected": "发生意外错误",
+    "internalFailureReason": "该任务失败的原因服务器无法安全报告。请让运维人员检查此任务的服务器日志。",
     "requestFailed": "请求未能完成。请重试。",
     "badRequest": "请求未能完成。请检查您的输入。",
     "resourceNotFound": "未找到请求的资源。",

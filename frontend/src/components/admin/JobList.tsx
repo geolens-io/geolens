@@ -440,7 +440,7 @@ export function JobList() {
                                   <pre className="whitespace-pre-wrap overflow-x-auto text-xs">
                                     {describeFailureReason(
                                       job.error_message,
-                                      t('common:errors.unexpected'),
+                                      t('common:errors.internalFailureReason'),
                                     )}
                                   </pre>
                                 </div>

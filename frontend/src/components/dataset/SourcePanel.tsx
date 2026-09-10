@@ -376,7 +376,7 @@ function RefreshRunHistory({ dataset, canEdit }: { dataset: DatasetResponse; can
                 <p className="mt-1 text-xs text-destructive">
                   {describeFailureReason(
                     run.error_message,
-                    t('common:errors.unexpected'),
+                    t('common:errors.internalFailureReason'),
                   )}
                 </p>
               )}

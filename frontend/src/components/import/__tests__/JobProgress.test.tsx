@@ -108,6 +108,30 @@ describe('JobProgress retry capability', () => {
   });
 });
 
+// fix(#2035): a stored 'internal_error' must read the same operator-facing
+// sentence as the CLI (cli/geolens_cli/refresh.py), not the generic fallback.
+describe('JobProgress internal_error reason', () => {
+  beforeEach(() => {
+    mockUseJobStatus.mockReset();
+  });
+
+  it('renders the CLI-matching sentence instead of the generic fallback', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: failedJob({ error_message: 'internal_error' }),
+      isLoading: false,
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(
+      screen.getByText(
+        'The job failed for a reason the server could not report safely. Ask an operator to check the server log for this job.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument();
+  });
+});
+
 // fix(#1778): #1709 granted job-creator cancel server-side, but JobProgress —
 // the terminal render for every import path — offered no way to reach it.
 describe('JobProgress owner cancel', () => {

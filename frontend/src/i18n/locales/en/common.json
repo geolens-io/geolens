@@ -266,6 +266,7 @@
   "unknown": "Unknown",
   "errors": {
     "unexpected": "An unexpected error occurred",
+    "internalFailureReason": "The job failed for a reason the server could not report safely. Ask an operator to check the server log for this job.",
     "requestFailed": "The request could not be completed. Try again.",
     "badRequest": "The request could not be completed. Check your input.",
     "resourceNotFound": "The requested resource was not found.",

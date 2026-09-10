@@ -116,7 +116,17 @@ vi.mock('../BulkReviewList', () => ({
 }));
 
 vi.mock('../BulkTrackingList', () => ({
-  BulkTrackingList: () => <div data-testid="bulk-tracking-list" />,
+  BulkTrackingList: ({
+    entries,
+  }: {
+    entries: Array<{ id: string; jobId: string | null; submittedKind?: string | null }>;
+  }) => (
+    <div data-testid="bulk-tracking-list">
+      {entries.map((e) => (
+        <div key={e.id} data-testid={`tracked-${e.jobId}`} data-kind={e.submittedKind} />
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock('sonner', () => ({
@@ -144,7 +154,7 @@ function makeMultiLayerPreview(layerCount: number = 2) {
     source_filename: 'test.gpkg',
     columns: [],
     row_count: 0,
-    geometry_type: 'Point',
+    geometry_type: 'Point' as string | null,
     crs: null,
     latlon_candidates: null,
     layer_name: 'layer_a',
@@ -306,6 +316,17 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
 
     // Error message for the failed layer
     expect(screen.getByText('Dispatch failed')).toBeInTheDocument();
+
+    // #2054 P2 (round 4): the layer that DID queue (layer_a) must still get
+    // its own tracked entry — closing the modal (the parent stays visible
+    // with the partial-failure error until then) reveals it.
+    await act(async () => {
+      screen.getByRole('button', { name: 'Close' }).click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-tracking-list')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('tracked-new-layer_a')).toHaveAttribute('data-kind', 'vector');
   });
 
   it('(d) entry transitions to tracking on full success; toast fires', async () => {
@@ -334,6 +355,74 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
     await waitFor(() => {
       expect(screen.getByTestId('bulk-tracking-list')).toBeInTheDocument();
     });
+  });
+
+  it('(f) full success replaces the parent with one tracked entry per queued layer (#2034), every layer taking the previewed layer\'s kind', async () => {
+    mockCommitFanOut.mockResolvedValue(
+      makeFanOutResponse([
+        { layer_name: 'layer_a', status: 'queued' },
+        { layer_name: 'layer_b', status: 'queued' },
+        { layer_name: 'layer_c', status: 'queued' },
+      ]) as never,
+    );
+
+    // makeMultiLayerPreview previews layer_a with geometry_type 'Point' — no
+    // per-layer signal exists for layer_b/layer_c, so all three take that.
+    await driveToReview(makeMultiLayerPreview(3));
+
+    const entries = screen.getAllByTestId(/^entry-/);
+    const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
+
+    await act(async () => {
+      screen.getByTestId(`ingest-all-${entryId}`).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-tracking-list')).toBeInTheDocument();
+    });
+
+    // BulkTrackingList must track each layer's OWN new_job_id, not the
+    // parent job — the parent settles 'fanned_out' with no dataset_id, which
+    // is why the batch summary previously stayed at 0 (#2034).
+    expect(screen.queryByTestId('tracked-job-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tracked-new-layer_a')).toBeInTheDocument();
+    expect(screen.getByTestId('tracked-new-layer_b')).toBeInTheDocument();
+    expect(screen.getByTestId('tracked-new-layer_c')).toBeInTheDocument();
+
+    // A spatial previewed layer (layer_a, geometry_type 'Point') is the best
+    // available proxy for the others — every layer takes its kind.
+    expect(screen.getByTestId('tracked-new-layer_a')).toHaveAttribute('data-kind', 'vector');
+    expect(screen.getByTestId('tracked-new-layer_b')).toHaveAttribute('data-kind', 'vector');
+    expect(screen.getByTestId('tracked-new-layer_c')).toHaveAttribute('data-kind', 'vector');
+  });
+
+  it('(g) a non-spatial previewed layer makes every fanned-out layer table', async () => {
+    mockCommitFanOut.mockResolvedValue(
+      makeFanOutResponse([
+        { layer_name: 'layer_a', status: 'queued' },
+        { layer_name: 'layer_b', status: 'queued' },
+        { layer_name: 'layer_c', status: 'queued' },
+      ]) as never,
+    );
+
+    // layer_a (previewed) has no geometry_type — an Excel workbook sheet or
+    // a GPKG attributes table — so every layer proxies off it as 'table'.
+    await driveToReview({ ...makeMultiLayerPreview(3), geometry_type: null });
+
+    const entries = screen.getAllByTestId(/^entry-/);
+    const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
+
+    await act(async () => {
+      screen.getByTestId(`ingest-all-${entryId}`).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-tracking-list')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('tracked-new-layer_a')).toHaveAttribute('data-kind', 'table');
+    expect(screen.getByTestId('tracked-new-layer_b')).toHaveAttribute('data-kind', 'table');
+    expect(screen.getByTestId('tracked-new-layer_c')).toHaveAttribute('data-kind', 'table');
   });
 
   it('(e) network failure in commitFanOut → all layers shown as failed in modal', async () => {

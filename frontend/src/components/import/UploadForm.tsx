@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { commitImport } from '@/api/ingest';
-import { commitFanOut } from '@/api/datasets';
+import { commitFanOut, type FanOutLayerResult } from '@/api/datasets';
 import {
   startUploadEntry,
   startLayerPreview,
@@ -297,11 +297,13 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
           e.status === 'commit-failed',
       );
       const hasTracking = entries.some((e) => e.status === 'tracking');
-      if (allTerminal && hasTracking) {
+      // fix(#2034): a partial-failure fan-out modal (real 'rejected' results) holds the reviewing phase open — the queued layers it also tracked would otherwise hide it before it's read. A full-success modal never blocks, matching prior behavior.
+      const fanOutHasFailure = fanOutResults?.results.some((r) => r.status === 'rejected') ?? false;
+      if (allTerminal && hasTracking && !fanOutHasFailure) {
         setPhase('tracking');
       }
     }
-  }, [entries, phase, setPhase]);
+  }, [entries, phase, setPhase, fanOutResults]);
 
   const processFiles = useCallback(async (files: File[]) => {
     if (phase !== 'idle') return;
@@ -558,6 +560,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     const fileBase = stripExtension(entry.previewData.source_filename ?? entry.fileName) || 'Untitled';
 
     let results: FanOutResult[];
+    let queuedLayers: (FanOutLayerResult & { new_job_id: string })[] = [];
     try {
       // Single HTTP call — backend fans out N tasks from this one request.
       const response = await commitFanOut(
@@ -568,6 +571,9 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
         })),
       );
 
+      queuedLayers = response.results.filter(
+        (r): r is FanOutLayerResult & { new_job_id: string } => r.status === 'queued' && !!r.new_job_id,
+      );
       results = response.results.map((r) => ({
         layerName: r.layer_name,
         status: r.status === 'queued' ? ('fulfilled' as const) : ('rejected' as const),
@@ -585,9 +591,27 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     const succeededCount = results.filter((r) => r.status === 'fulfilled').length;
     const failedCount = results.length - succeededCount;
 
-    // Update entry status based on outcome.
+    // fix(#2034): track each queued layer by its own entry/jobId — the parent job settles 'fanned_out' with no dataset_id, so it's never counted.
+    // fix(#2034): every layer takes the previewed layer's kind (best proxy available) — a mixed container needs per-layer geometry_type on LayerPreview to do better.
+    const previewedLayerKind = entry.previewData.geometry_type ? ('vector' as const) : ('table' as const);
+    const queuedEntries = queuedLayers.map((layer) => ({
+      id: crypto.randomUUID(),
+      file: null,
+      fileName: `${fileBase}: ${layer.layer_name}`,
+      status: 'tracking' as const,
+      jobId: layer.new_job_id,
+      previewData: null,
+      error: null,
+      submittedTitle: `${fileBase}: ${layer.layer_name}`,
+      submittedVisibility: 'private',
+      submittedKind: previewedLayerKind,
+    }));
+
     if (failedCount === 0) {
-      updateEntry(entryId, { status: 'tracking' });
+      setEntries((prev) => [
+        ...prev.filter((e) => e.id !== entryId),
+        ...queuedEntries,
+      ]);
       toast.success(t('upload.multiLayerSuccess', { count: succeededCount }));
     } else if (succeededCount === 0) {
       updateEntry(entryId, {
@@ -599,6 +623,8 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
         status: 'commit-failed',
         error: t('upload.multiLayerPartialFailed', { succeeded: succeededCount, failed: failedCount }),
       });
+      // fix(#2034): the layers that DID queue still get tracked — only the parent shows the partial-failure error.
+      setEntries((prev) => [...prev, ...queuedEntries]);
     }
 
     setFanOutResults({ entryId, results });

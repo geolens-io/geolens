@@ -141,6 +141,7 @@
   },
   "errors": {
     "unexpected": "Une erreur inattendue s'est produite",
+    "internalFailureReason": "La tâche a échoué pour une raison que le serveur n'a pas pu signaler en toute sécurité. Demandez à un opérateur de consulter le journal du serveur pour cette tâche.",
     "requestFailed": "La requête n'a pas pu aboutir. Réessayez.",
     "badRequest": "La requête n'a pas pu aboutir. Vérifiez les données saisies.",
     "resourceNotFound": "La ressource demandée est introuvable.",
