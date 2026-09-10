@@ -83,7 +83,10 @@ def _fake_ogr2ogr(calls: list[dict], rows_per_call):
                 await session.execute(
                     text(
                         f'CREATE TABLE "{schema}"."{table_name}" '
-                        "(gid serial PRIMARY KEY, name text)"
+                        # fix(#2031): as above — the replacement has to carry
+                        # geometry, since the dataset under refresh has some.
+                        "(gid serial PRIMARY KEY, name text, "
+                        "geom geometry(Point, 4326))"
                     )
                 )
             rows = rows_per_call(index)
