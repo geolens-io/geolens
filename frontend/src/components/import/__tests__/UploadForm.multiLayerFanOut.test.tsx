@@ -116,10 +116,14 @@ vi.mock('../BulkReviewList', () => ({
 }));
 
 vi.mock('../BulkTrackingList', () => ({
-  BulkTrackingList: ({ entries }: { entries: Array<{ id: string; jobId: string | null }> }) => (
+  BulkTrackingList: ({
+    entries,
+  }: {
+    entries: Array<{ id: string; jobId: string | null; submittedKind?: string | null }>;
+  }) => (
     <div data-testid="bulk-tracking-list">
       {entries.map((e) => (
-        <div key={e.id} data-testid={`tracked-${e.jobId}`} />
+        <div key={e.id} data-testid={`tracked-${e.jobId}`} data-kind={e.submittedKind} />
       ))}
     </div>
   ),
@@ -342,7 +346,7 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
     });
   });
 
-  it('(f) full success replaces the parent with one tracked entry per queued layer (#2034)', async () => {
+  it('(f) full success replaces the parent with one tracked entry per queued layer (#2034), deriving kind only for the previewed layer (#2054 P2)', async () => {
     mockCommitFanOut.mockResolvedValue(
       makeFanOutResponse([
         { layer_name: 'layer_a', status: 'queued' },
@@ -351,6 +355,9 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
       ]) as never,
     );
 
+    // makeMultiLayerPreview previews layer_a with geometry_type 'Point';
+    // layer_b/layer_c (a non-spatial GPKG table or Excel sheet, say) carry
+    // no per-layer geometry signal at all.
     await driveToReview(makeMultiLayerPreview(3));
 
     const entries = screen.getAllByTestId(/^entry-/);
@@ -371,6 +378,13 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
     expect(screen.getByTestId('tracked-new-layer_a')).toBeInTheDocument();
     expect(screen.getByTestId('tracked-new-layer_b')).toBeInTheDocument();
     expect(screen.getByTestId('tracked-new-layer_c')).toBeInTheDocument();
+
+    // #2054 P2: kind must not be blanket-hardcoded to 'vector'. Only the
+    // previewed layer (layer_a) has a real geometry signal; the others have
+    // none and must fall back to 'table', not silently inherit 'vector'.
+    expect(screen.getByTestId('tracked-new-layer_a')).toHaveAttribute('data-kind', 'vector');
+    expect(screen.getByTestId('tracked-new-layer_b')).toHaveAttribute('data-kind', 'table');
+    expect(screen.getByTestId('tracked-new-layer_c')).toHaveAttribute('data-kind', 'table');
   });
 
   it('(e) network failure in commitFanOut → all layers shown as failed in modal', async () => {
