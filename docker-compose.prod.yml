@@ -326,6 +326,8 @@ services:
       GEOLENS_API_RUN_MIGRATIONS: "${GEOLENS_API_RUN_MIGRATIONS:-true}"
       # Prod default 2 workers (dev uses 1 to keep --reload working).
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
+      # fix(#2045): per-process sandbox slots when API replicas share a pooler.
+      SANDBOX_QUERY_SLOTS: "${SANDBOX_QUERY_SLOTS:-}"
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
       # fix(#643): recycle each worker after this many requests (empty disables).

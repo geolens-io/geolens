@@ -53,6 +53,10 @@ def capacity_bound() -> int:
     small calc is repeated.
     """
     if settings.db_use_external_pooler:
+        # fix(#2045 codex r1): a process cannot see how many API replicas share
+        # the pooler, so an explicit per-process share wins whenever it is set.
+        if settings.sandbox_query_slots is not None:
+            return settings.sandbox_query_slots
         # fix(#2045): NullPool, so the budget belongs to PgBouncer/RDS Proxy and
         # every uvicorn worker draws on that ONE pooler. Divide the default-pool
         # throttle by the worker count, never below one, instead of per worker.
