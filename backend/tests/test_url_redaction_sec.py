@@ -631,6 +631,18 @@ def test_redact_url_credentials_masks_non_http_password_with_unescaped_at() -> N
     assert redacted == "redis://redacted@cache/0"
 
 
+def test_redact_url_credentials_masks_a_non_http_url_after_a_leading_http_url() -> None:
+    # fix(#2044 review x5): urlsplit assigns everything past the leading
+    # clean http(s) URL to its own path, which the http branch reconstructed
+    # verbatim — a second, differently-schemed credential there went unscanned.
+    redacted = redact_url_credentials(
+        "https://public.example/x then redis://alice:hunter2@cache/0"
+    )
+
+    assert "hunter2" not in redacted
+    assert redacted == "https://public.example/x then redis://redacted@cache/0"
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}

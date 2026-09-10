@@ -249,24 +249,45 @@ def redact_url_credentials(url: str) -> str:
         # fix(#2044 review x3): scan the raw text for an embedded http(s) URL
         # AND any other scheme's userinfo, rather than trust urlsplit's parse
         # of the whole string — it can absorb unrelated text past either.
-        prefix = URL_LIKE_RE.sub(
-            lambda match: redact_url_credentials(match.group(0)),
-            url,
-        )
-        return _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", prefix)
+        return _scan_for_embedded_credentials(url)
     redacted_netloc = _redacted_netloc(parts)
-    if not parts.query:
-        if redacted_netloc == parts.netloc:
-            return url
-        return urlunsplit(
-            (parts.scheme, redacted_netloc, parts.path, parts.query, parts.fragment)
-        )
-    redacted_query = redact_query_credentials(parts.query)
-    if redacted_query == parts.query and redacted_netloc == parts.netloc:
+    redacted_query = (
+        redact_query_credentials(parts.query) if parts.query else parts.query
+    )
+    # fix(#2044 review x5): a clean http(s) URL's path/fragment can itself
+    # carry a second, differently-schemed credentialed URL (GDAL stderr
+    # appending text past the first) — scan them like free text too.
+    redacted_path = (
+        _scan_for_embedded_credentials(parts.path) if parts.path else parts.path
+    )
+    redacted_fragment = (
+        _scan_for_embedded_credentials(parts.fragment)
+        if parts.fragment
+        else parts.fragment
+    )
+    if (
+        redacted_netloc == parts.netloc
+        and redacted_query == parts.query
+        and redacted_path == parts.path
+        and redacted_fragment == parts.fragment
+    ):
         return url
     return urlunsplit(
-        (parts.scheme, redacted_netloc, parts.path, redacted_query, parts.fragment)
+        (
+            parts.scheme,
+            redacted_netloc,
+            redacted_path,
+            redacted_query,
+            redacted_fragment,
+        )
     )
+
+
+def _scan_for_embedded_credentials(text: str) -> str:
+    """Redact an embedded http(s) URL, fully and recursively, or any other
+    scheme's userinfo — wherever either sits in free text."""
+    text = URL_LIKE_RE.sub(lambda match: redact_url_credentials(match.group(0)), text)
+    return _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", text)
 
 
 def scrub_registered_credentials(text: str) -> str:
