@@ -231,12 +231,19 @@ def redact_url_credentials(url: str) -> str:
     redacted = url
     is_http = parts.scheme.lower() in {"http", "https"}
     # fix(#2044 review x9/x10): trust this split's netloc only with a real
-    # /?# boundary, or at most one `@` — either way it has no OTHER `@` it
-    # could have reached past prose to, unlike review x9's two-`@` case.
+    # /?# boundary, or at most one `@` — either way there is no OTHER `@`
+    # it could have reached past prose to, unlike review x9's two-`@` case.
     has_boundary = bool(parts.path or parts.query or parts.fragment)
     unambiguous = has_boundary or parts.netloc.count("@") <= 1
-    if unambiguous and (is_http or parts.username or parts.password):
-        redacted = _redact_netloc_and_query(url, parts, is_http=is_http)
+    # fix(#2044 review x11): urlsplit splits off a "query" for a bare `?` in
+    # scheme-less free text too — trust a non-http query only alongside a
+    # real scheme+netloc; is_http alone is enough (fix #429's empty-host URL
+    # has no netloc but is still real, since "http(s)://" is unambiguous).
+    has_real_url = is_http or bool(parts.scheme and parts.netloc)
+    if has_real_url and (
+        is_http or parts.query or (unambiguous and (parts.username or parts.password))
+    ):
+        redacted = _redact_netloc_and_query(url, parts)
     # fix(#2044 review x7): also scan the RAW text — urlsplit's split can put
     # a second scheme's authority in the wrong component (reviews x1-x6).
     # Non-recursive, so chained input can't grow the call stack (review x5/x6).
@@ -247,18 +254,22 @@ def redact_url_credentials(url: str) -> str:
     return redacted if redacted != url else url
 
 
-def _redact_netloc_and_query(url: str, parts, *, is_http: bool) -> str:  # type: ignore[no-untyped-def]
-    """Redact one recognised URL's userinfo, and sensitive query params if
-    ``is_http``, from urlsplit's own split of ``url``.
+def _redact_netloc_and_query(url: str, parts) -> str:  # type: ignore[no-untyped-def]
+    """Redact one recognised URL's userinfo and sensitive query params,
+    from urlsplit's own split of ``url``.
 
     Slices ``parts.netloc`` at its last ``@`` rather than rebuilding through
     ``.hostname``/``.port`` — those normalise and silently drop a character
     (fix #2044 review x2) when netloc absorbed text that isn't really a host.
+
+    fix(#2044 review x11): query redaction applies to any scheme, not just
+    http — ``?password=`` is a connection-string convention, and
+    SENSITIVE_QUERY_PARAMS already names params no http service defines.
     """
     _, sep, host_part = parts.netloc.rpartition("@")
     redacted_netloc = f"{REDACTED_USERINFO}@{host_part}" if sep else parts.netloc
     redacted_query = parts.query
-    if is_http and parts.query:
+    if parts.query:
         # fix(#2044 review x6): scan BEFORE redact_query_credentials — once
         # any one param is sensitive it re-urlencodes every value, which
         # would percent-escape an embedded credential's "://" out of reach.
@@ -305,7 +316,7 @@ def _redact_http_span(span: str) -> str:
         parts = urlsplit(rest)
     except ValueError:
         return prefix + _redact_without_parsing(rest)
-    return prefix + _redact_netloc_and_query(rest, parts, is_http=True)
+    return prefix + _redact_netloc_and_query(rest, parts)
 
 
 def scrub_registered_credentials(text: str) -> str:

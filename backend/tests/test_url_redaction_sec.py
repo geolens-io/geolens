@@ -766,6 +766,33 @@ def test_redact_url_credentials_masks_a_pathless_url_with_whitespace(
     assert redacted.endswith("redacted@host") or redacted.endswith("redacted@cache")
 
 
+def test_redact_url_credentials_masks_a_non_http_query_credential() -> None:
+    # fix(#2044 review x11): the query branch only ran for is_http — a
+    # connection-string password (?password=...) is an http-agnostic
+    # convention, and SENSITIVE_QUERY_PARAMS already names it as one.
+    redacted = redact_url_credentials(
+        "postgresql://db.internal/geolens?password=unique-passphrase"
+    )
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == "postgresql://db.internal/geolens?password=%3Credacted%3E"
+
+
+def test_redact_url_credentials_keeps_exiting_text_after_a_malformed_query() -> None:
+    # fix(#2044 review x11 fix): urlsplit splits off a "query" for a bare `?`
+    # in SCHEME-LESS free text too. Processing it as if it were a real
+    # query's value merged trailing prose into the redacted value and lost
+    # it — this must stay gated on a real scheme, not just parts.query.
+    redacted = redact_url_credentials(
+        "ogrinfo failed: https://user:hunter2@.[::1]/wfs?f=json&token=hunter2 exiting"
+    )
+
+    assert "hunter2" not in redacted
+    assert redacted.startswith("ogrinfo failed: ")
+    assert redacted.endswith(" exiting")
+    assert "f=json" in redacted
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}
