@@ -316,6 +316,17 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
 
     // Error message for the failed layer
     expect(screen.getByText('Dispatch failed')).toBeInTheDocument();
+
+    // #2054 P2 (round 4): the layer that DID queue (layer_a) must still get
+    // its own tracked entry — closing the modal (the parent stays visible
+    // with the partial-failure error until then) reveals it.
+    await act(async () => {
+      screen.getByRole('button', { name: 'Close' }).click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-tracking-list')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('tracked-new-layer_a')).toHaveAttribute('data-kind', 'vector');
   });
 
   it('(d) entry transitions to tracking on full success; toast fires', async () => {
