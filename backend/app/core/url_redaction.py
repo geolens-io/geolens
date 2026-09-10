@@ -39,12 +39,10 @@ REDACTED_SECRET = "***"
 # O(n²) on GDAL stderr/VRT paths. A longer prefix still redacts correctly.
 URL_LIKE_RE = re.compile(r"(?:(?:[A-Za-z0-9_+.-]{1,64}:)?https?://)[^\s\"'<>]+")
 
-# fix(#2044 review x3/x4): matches "<scheme>://<userinfo>@" for ANY scheme
-# anywhere in a string. `@` allowed in the userinfo class so greedy
-# backtracking lands on the LAST one, as urlsplit itself resolves it.
-_ANY_SCHEME_USERINFO_RE = re.compile(
-    r"([A-Za-z][A-Za-z0-9+.-]{0,63}://)[^\s\"'<>/?#]*@"
-)
+# fix(#2044 review x3/x4/x8): matches "<scheme>://<userinfo>@" anywhere, for
+# ANY scheme, bounded like urlsplit's own authority (/?#) — NOT whitespace,
+# which can legally sit inside userinfo and truncated the match without it.
+_ANY_SCHEME_USERINFO_RE = re.compile(r"([A-Za-z][A-Za-z0-9+.-]{0,63}://)[^\"'<>/?#]*@")
 
 SENSITIVE_QUERY_PARAMS = frozenset(
     {
@@ -122,22 +120,6 @@ def _split_prefixed_url(value: str) -> tuple[str, str] | None:
     if rest.startswith(("http://", "https://")):
         return f"{prefix}:", rest
     return None
-
-
-def _redacted_netloc(parts) -> str:  # type: ignore[no-untyped-def]
-    if not (parts.username or parts.password):
-        return parts.netloc
-
-    host = parts.hostname or ""
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"
-    try:
-        port = parts.port
-    except ValueError:
-        port = None
-    if port is not None:
-        host = f"{host}:{port}"
-    return f"{REDACTED_USERINFO}@{host}"
 
 
 def redact_query_credentials(query: str) -> str:
@@ -238,40 +220,38 @@ def redact_url_credentials(url: str) -> str:
         return prefix + redact_url_credentials(nested_url)
 
     try:
-        urlsplit(url)
+        parts = urlsplit(url)
     except ValueError:
         # fix(#1119): a malformed authority must not turn a redaction call into
         # a raise. A malformed http(s) SPAN inside free text is instead caught
         # by _redact_http_span below, without recursing back through here.
         return _redact_without_parsing(url)
-    # fix(#2044 review x7): scan the RAW text directly for every embedded
-    # credential — not urlsplit's split of the WHOLE string into components,
-    # which can separate a scheme from its own authority across a netloc/path
-    # boundary and hide the pattern from both regexes (reviews x1-x6 each hit
-    # a different shape of this). _redact_http_span never calls back into this
-    # function, so adversarial chained input (many URLs, no separator) cannot
-    # grow the call stack the way the review x5/x6 recursion did.
-    redacted = URL_LIKE_RE.sub(lambda match: _redact_http_span(match.group(0)), url)
+    redacted = url
+    if parts.scheme.lower() in {"http", "https"}:
+        # fix(#2044 review x8): urlsplit tolerates whitespace in userinfo/query
+        # (stops only at /?#); URL_LIKE_RE below does not — redact via
+        # urlsplit's OWN split of the whole string first, before that truncates.
+        redacted = _redact_netloc_and_query(url, parts)
+    # fix(#2044 review x7): also scan the RAW text — urlsplit's split can put
+    # a second scheme's authority in the wrong component (reviews x1-x6).
+    # Non-recursive, so chained input can't grow the call stack (review x5/x6).
+    redacted = URL_LIKE_RE.sub(
+        lambda match: _redact_http_span(match.group(0)), redacted
+    )
     redacted = _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", redacted)
     return redacted if redacted != url else url
 
 
-def _redact_http_span(span: str) -> str:
-    """Redact userinfo and sensitive query params in one http(s)-shaped span
-    matched by URL_LIKE_RE.
+def _redact_netloc_and_query(url: str, parts) -> str:  # type: ignore[no-untyped-def]
+    """Redact one recognised http(s) URL's userinfo and sensitive query
+    params, from urlsplit's own split of ``url``.
 
-    Never calls back into redact_url_credentials. A second credential
-    elsewhere in the text — a different scheme, or another http(s) URL
-    separated by whitespace from this one — is caught by the caller's own
-    two scans instead, which is what keeps this non-recursive.
+    Slices ``parts.netloc`` at its last ``@`` rather than rebuilding through
+    ``.hostname``/``.port`` — those normalise and silently drop a character
+    (fix #2044 review x2) when netloc absorbed text that isn't really a host.
     """
-    prefixed = _split_prefixed_url(span)
-    prefix, rest = prefixed if prefixed is not None else ("", span)
-    try:
-        parts = urlsplit(rest)
-    except ValueError:
-        return prefix + _redact_without_parsing(rest)
-    redacted_netloc = _redacted_netloc(parts)
+    _, sep, host_part = parts.netloc.rpartition("@")
+    redacted_netloc = f"{REDACTED_USERINFO}@{host_part}" if sep else parts.netloc
     # fix(#2044 review x6): scan BEFORE redact_query_credentials — once any
     # one param is sensitive it re-urlencodes every value, which would
     # percent-escape an embedded credential's "://" out of regex reach.
@@ -283,10 +263,27 @@ def _redact_http_span(span: str) -> str:
         else parts.query
     )
     if redacted_netloc == parts.netloc and redacted_query == parts.query:
-        return prefix + rest
-    return prefix + urlunsplit(
+        return url
+    return urlunsplit(
         (parts.scheme, redacted_netloc, parts.path, redacted_query, parts.fragment)
     )
+
+
+def _redact_http_span(span: str) -> str:
+    """Redact userinfo and sensitive query params in one http(s)-shaped span
+    matched by URL_LIKE_RE.
+
+    Never calls back into redact_url_credentials. A second credential
+    elsewhere in the text is caught by the caller's own two scans instead,
+    which is what keeps this non-recursive.
+    """
+    prefixed = _split_prefixed_url(span)
+    prefix, rest = prefixed if prefixed is not None else ("", span)
+    try:
+        parts = urlsplit(rest)
+    except ValueError:
+        return prefix + _redact_without_parsing(rest)
+    return prefix + _redact_netloc_and_query(rest, parts)
 
 
 def scrub_registered_credentials(text: str) -> str:

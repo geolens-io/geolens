@@ -123,10 +123,8 @@ def test_redact_url_credentials_masks_url_after_long_free_text_run() -> None:
 # <SourceFilename> became an unhandled 500 rather than a clean ingest failure.
 #
 # Checked against CPython 3.13 (what CI pins) and 3.14, which agree on all of
-# these. Every entry makes urlsplit raise except ":notaport", which parses; there
-# the ValueError comes from SplitResult.port, read only when userinfo is present,
-# and _redacted_netloc already guards that read. It is in the list to keep that
-# guard pinned alongside the new one, not because it reproduces #1119.
+# these. Every entry makes urlsplit raise except ":notaport", which parses —
+# kept in the list as a regression pin, not because it reproduces #1119.
 MALFORMED_AUTHORITY_URLS = [
     "https://.[::1]",  # data before the opening bracket
     "https://[::1",  # unclosed bracket
@@ -682,15 +680,38 @@ def test_redact_url_credentials_masks_a_non_http_url_with_no_path_separator() ->
 
 
 def test_redact_url_credentials_never_recurses_on_a_long_url_chain() -> None:
-    # fix(#2044 review x7): URL_LIKE_RE.sub used to hand each match back to
-    # redact_url_credentials, and a long whitespace-free chain of URLs is one
-    # single greedy match containing the next one nested in its "path" —
-    # redacting that recursed again, and enough repeats raised RecursionError.
+    # fix(#2044 review x7): recursing on each URL_LIKE_RE match raised
+    # RecursionError on a long whitespace-free chain (each match nests
+    # the next inside its own "path").
     chain = "https://user:hunter2@a/" * 2000 + "x"
 
     redacted = redact_url_credentials(chain)
 
     assert "hunter2" not in redacted
+
+
+def test_redact_url_credentials_masks_userinfo_with_an_unescaped_space() -> None:
+    # fix(#2044 review x8): urlsplit tolerates whitespace inside userinfo (it
+    # stops only at /?#), but URL_LIKE_RE/_ANY_SCHEME_USERINFO_RE stopped at
+    # any whitespace, truncating the match short of the credential's own `@`.
+    redacted = redact_url_credentials("https://user:unique pass@host/x")
+
+    assert "unique pass" not in redacted
+    assert redacted == "https://redacted@host/x"
+
+
+def test_redact_url_credentials_masks_non_http_userinfo_with_a_space() -> None:
+    redacted = redact_url_credentials("redis://user:unique pass@cache/0")
+
+    assert "unique pass" not in redacted
+    assert redacted == "redis://redacted@cache/0"
+
+
+def test_redact_url_credentials_masks_a_query_value_with_a_space() -> None:
+    redacted = redact_url_credentials("https://host/x?token=my secret value")
+
+    assert "my secret value" not in redacted
+    assert redacted == "https://host/x?token=%3Credacted%3E"
 
 
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
