@@ -340,6 +340,8 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       PRIVACY_URL: ${PRIVACY_URL:-}
       DCAT_CONTACT_EMAIL: ${DCAT_CONTACT_EMAIL:-}
+      # fix(#2041): empty = rate limits are counted per worker (two above); a
+      # shared Valkey/Redis here, e.g. the cloud-dev valkey service, shares them.
       REDIS_URL: "${REDIS_URL:-}"
       CDN_BASE_URL: "${CDN_BASE_URL:-}"
       PRESIGNED_MULTIPART_THRESHOLD_MB: "${PRESIGNED_MULTIPART_THRESHOLD_MB:-100}"

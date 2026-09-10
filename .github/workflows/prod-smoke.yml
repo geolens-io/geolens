@@ -191,6 +191,19 @@ jobs:
           done
           echo "frontend -> /api/health never returned 200"; exit 1
 
+      - name: Assert the template boot counts rate limits per worker
+        # fix(#2041): the template .env leaves REDIS_URL empty while the prod
+        # compose runs two API workers, so each worker logs this notice once at
+        # startup. A silent boot means that default or the notice changed.
+        run: |
+          docker compose -f docker-compose.prod.yml logs --no-color api > /tmp/api-boot.log 2>&1
+          COUNT="$(grep -c 'rate_limit_storage_not_configured' /tmp/api-boot.log || true)"
+          echo "rate_limit_storage_not_configured notices in the api log: ${COUNT:-0}"
+          if [ "${COUNT:-0}" -lt 1 ]; then
+            echo "::error::api never logged rate_limit_storage_not_configured; the template default (REDIS_URL empty, UVICORN_WORKERS 2) or its startup notice changed"
+            exit 1
+          fi
+
       # E2E through the PROD reverse proxy: now that the published stack is
       # healthy, drive the existing Playwright audit suite against the prod nginx
       # (127.0.0.1:8080) via E2E_BASE_URL. release.yml is gated on this workflow's

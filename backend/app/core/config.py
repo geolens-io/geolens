@@ -506,6 +506,9 @@ class Settings(BaseSettings):
     env_only_config: bool = False
 
     db_use_external_pooler: bool = False
+    # fix(#2045): the worker count the compose files export as UVICORN_WORKERS;
+    # under an external pooler sandbox_bounds divides the query budget by it.
+    uvicorn_workers: int = 1
     db_pool_size: int = Field(default=10, ge=1)
     # SQLAlchemy uses -1 for unlimited overflow / disabled recycling.
     db_max_overflow: int = Field(default=3, ge=-1)

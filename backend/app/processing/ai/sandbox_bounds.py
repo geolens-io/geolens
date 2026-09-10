@@ -53,10 +53,10 @@ def capacity_bound() -> int:
     small calc is repeated.
     """
     if settings.db_use_external_pooler:
-        # NullPool: the real budget belongs to PgBouncer/RDS Proxy, invisible
-        # here. Keep a throttle at the default-pool value rather than sizing
-        # from settings that no longer apply.
-        return 4
+        # fix(#2045): NullPool, so the budget belongs to PgBouncer/RDS Proxy and
+        # every uvicorn worker draws on that ONE pooler. Divide the default-pool
+        # throttle by the worker count, never below one, instead of per worker.
+        return max(1, 4 // max(1, settings.uvicorn_workers))
     overflow = max(0, settings.db_max_overflow)
     return max(1, (settings.db_pool_size + overflow) // 3)
 
