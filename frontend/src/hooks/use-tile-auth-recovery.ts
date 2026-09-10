@@ -144,11 +144,8 @@ const RENEWAL_WATCH_MS = 30_000;
  * our own refresh produced the new one, otherwise on the first store change a
  * concurrent mint's refresh writes, and never if neither happens.
  *
- * The token comparison is the ONLY evidence used. `tryRefresh` resolves
- * `!!useAuthStore.getState().token` (api/client.ts), so it answers "is there
- * still a token", not "did it rotate" — it comes back true for a transient
- * failure that left the stale one in place, and reloading on that would just
- * 401 against the same Bearer. */
+ * fix(#2038): compares token VALUES; the reload needs the new token, not just a
+ * refresh's success. */
 function reloadOnTokenRotation(reload: () => void): void {
   const tokenBefore = useAuthStore.getState().token;
   renewalInFlight = true;
