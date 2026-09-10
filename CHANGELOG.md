@@ -9,8 +9,8 @@ and releases use semantic versioning.
 
 ### Fixed
 
-- A token refresh that failed for a passing reason, such as a rate limit, a server error or a
-  dropped connection, no longer signs the user out of every session. The local session is kept
+- A token refresh that failed temporarily, because of a rate limit, a server error or a dropped
+  connection, no longer signs the user out of every session. The local session is kept
   while refresh attempts back off for thirty seconds, and a refresh the server rejected ends only
   the local session. A failed sign-in or OAuth completion revokes the account's sessions only when
   the server rejected the credential; an OAuth callback that arrives with an incomplete fragment
