@@ -793,6 +793,31 @@ def test_redact_url_credentials_keeps_exiting_text_after_a_malformed_query() -> 
     assert "f=json" in redacted
 
 
+def test_redact_url_credentials_masks_a_query_on_a_no_authority_scheme() -> None:
+    # fix(#2044 review x12): has_real_url required BOTH scheme and netloc,
+    # but a scheme with no "//" authority (myapp:/path, single slash) is
+    # still a real, recognised URI — just an opaque/no-authority one.
+    redacted = redact_url_credentials("myapp:/callback?code=unique-passphrase")
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == "myapp:/callback?code=%3Credacted%3E"
+
+
+def test_redact_url_credentials_masks_a_credential_nested_in_a_fragment() -> None:
+    # fix(#2044 review x12): a second http(s) URL embedded in the first
+    # one's fragment with no whitespace to separate it was never scanned —
+    # _redact_netloc_and_query touched netloc and query but passed
+    # parts.fragment straight through to urlunsplit unchanged.
+    redacted = redact_url_credentials(
+        "https://public.example/x#next=https://other.example/y?token=unique-passphrase"
+    )
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == (
+        "https://public.example/x#next=https://other.example/y?token=%3Credacted%3E"
+    )
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}
