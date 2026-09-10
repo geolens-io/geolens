@@ -46,6 +46,14 @@ _ANY_SCHEME_USERINFO_RE = re.compile(
     r"([A-Za-z][A-Za-z0-9+.-]{0,63}://)[^\s\"'<>/?#]*@"
 )
 
+# fix(#2044 review x13): "<scheme>://...?..." for any NON-http(s) scheme
+# with a `?` (http(s) is URL_LIKE_RE's job; re-matching its output here once
+# misread a truncated leftover as unredacted). Bounded like URL_LIKE_RE — can't exclude `/`, was quadratic without it.
+_ANY_SCHEME_QUERY_RE = re.compile(
+    r"(?<![A-Za-z0-9+.-])(?!https?://)"
+    r"[A-Za-z][A-Za-z0-9+.-]{0,63}://[^\s\"'<>?]{0,2048}\?[^\s\"'<>]*"
+)
+
 SENSITIVE_QUERY_PARAMS = frozenset(
     {
         "access_token",
@@ -230,28 +238,45 @@ def redact_url_credentials(url: str) -> str:
         return _redact_without_parsing(url)
     redacted = url
     is_http = parts.scheme.lower() in {"http", "https"}
-    # fix(#2044 review x9/x10): trust this split's netloc only with a real
-    # /?# boundary, or at most one `@` — either way there is no OTHER `@`
-    # it could have reached past prose to, unlike review x9's two-`@` case.
+    # fix(#2044 review x9/x10): trust this split's netloc with a real /?#
+    # boundary, or at most one `@` — either way no OTHER `@` it could have
+    # reached past prose to (review x9's two-`@` case couldn't say that).
     has_boundary = bool(parts.path or parts.query or parts.fragment)
     unambiguous = has_boundary or parts.netloc.count("@") <= 1
-    # fix(#2044 review x11/x12): urlsplit splits off a "query" for a bare `?`
-    # in scheme-less free text too (scheme='') — a genuinely recognised
-    # scheme is what distinguishes that from an opaque/no-authority URI
-    # (``myapp:/callback?code=``, scheme='myapp', no netloc, still real).
+    # fix(#2044 review x11/x12): a genuinely recognised scheme is what tells
+    # a real (if opaque/no-authority, e.g. myapp:/callback) URI apart from
+    # the bare `?` urlsplit finds in scheme-less free text (scheme='') too.
     has_real_url = bool(parts.scheme)
     if has_real_url and (
         is_http or parts.query or (unambiguous and (parts.username or parts.password))
     ):
         redacted = _redact_netloc_and_query(url, parts, scan_fragment=True)
-    # fix(#2044 review x7): also scan the RAW text — urlsplit's split can put
-    # a second scheme's authority in the wrong component (reviews x1-x6).
-    # Non-recursive, so chained input can't grow the call stack (review x5/x6).
-    redacted = URL_LIKE_RE.sub(
-        lambda match: _redact_http_span(match.group(0)), redacted
-    )
-    redacted = _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", redacted)
+    redacted = _scan_embedded_url_credentials(redacted)
     return redacted if redacted != url else url
+
+
+def _scan_embedded_url_credentials(text: str, *, scan_fragment: bool = True) -> str:
+    """Redact a credential in an EMBEDDED URL anywhere in ``text``: an
+    http(s) URL (full treatment), any scheme with a query (full treatment,
+    fix #2044 review x13), or any scheme's bare userinfo.
+
+    fix(#2044 review x7): urlsplit's split of the OUTER string can put a
+    second scheme's authority in the wrong component (reviews x1-x6) — this
+    scans the raw text instead.
+
+    ``scan_fragment`` threads the same bound as ``_redact_netloc_and_query``
+    (review x12) into each match's own redaction, so chained or nested
+    input can't grow the call stack either way (review x5/x6).
+    """
+    text = URL_LIKE_RE.sub(
+        lambda match: _redact_http_span(match.group(0), scan_fragment=scan_fragment),
+        text,
+    )
+    text = _ANY_SCHEME_QUERY_RE.sub(
+        lambda match: _redact_http_span(match.group(0), scan_fragment=scan_fragment),
+        text,
+    )
+    return _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", text)
 
 
 def _redact_netloc_and_query(  # type: ignore[no-untyped-def]
@@ -280,16 +305,11 @@ def _redact_netloc_and_query(  # type: ignore[no-untyped-def]
         )
     redacted_fragment = parts.fragment
     if scan_fragment and parts.fragment:
-        # fix(#2044 review x12): a second http(s) URL, or another scheme's
-        # userinfo, can hide in the fragment with no whitespace to separate
-        # it — scan_fragment=False on the inner call bounds this to one
-        # extra level, so depth can't grow the way review x5/x6's did.
-        redacted_fragment = URL_LIKE_RE.sub(
-            lambda match: _redact_http_span(match.group(0), scan_fragment=False),
-            parts.fragment,
-        )
-        redacted_fragment = _ANY_SCHEME_USERINFO_RE.sub(
-            rf"\1{REDACTED_USERINFO}@", redacted_fragment
+        # fix(#2044 review x12): a credential can hide in the fragment with
+        # no whitespace to separate it from this URL — scan_fragment=False
+        # here bounds it to one extra level (see _scan_embedded_url_credentials).
+        redacted_fragment = _scan_embedded_url_credentials(
+            parts.fragment, scan_fragment=False
         )
     if (
         redacted_netloc == parts.netloc
@@ -322,14 +342,12 @@ def _scan_query_value_credentials(query: str) -> str:
 
 
 def _redact_http_span(span: str, *, scan_fragment: bool = True) -> str:
-    """Redact userinfo and sensitive query params in one http(s)-shaped span
-    matched by URL_LIKE_RE.
+    """Redact userinfo and sensitive query params in one URL-shaped span
+    matched by ``_scan_embedded_url_credentials``'s two URL regexes.
 
-    Never calls back into redact_url_credentials or, with ``scan_fragment``
-    False, into a fragment scan of its own — see
-    ``_redact_netloc_and_query``'s ``scan_fragment`` for why that bounds the
-    depth. A second credential elsewhere in the text is caught by the
-    caller's own two scans instead.
+    Never calls back into ``redact_url_credentials``. ``scan_fragment``
+    just threads through to ``_redact_netloc_and_query`` — see its own
+    docstring for the depth bound this keeps.
     """
     prefixed = _split_prefixed_url(span)
     prefix, rest = prefixed if prefixed is not None else ("", span)

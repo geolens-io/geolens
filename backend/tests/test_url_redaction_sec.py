@@ -780,9 +780,8 @@ def test_redact_url_credentials_masks_a_non_http_query_credential() -> None:
 
 def test_redact_url_credentials_keeps_exiting_text_after_a_malformed_query() -> None:
     # fix(#2044 review x11 fix): urlsplit splits off a "query" for a bare `?`
-    # in SCHEME-LESS free text too. Processing it as if it were a real
-    # query's value merged trailing prose into the redacted value and lost
-    # it — this must stay gated on a real scheme, not just parts.query.
+    # in SCHEME-LESS free text too — must stay gated on a real scheme, not
+    # just parts.query, or trailing prose merges into the redacted value.
     redacted = redact_url_credentials(
         "ogrinfo failed: https://user:hunter2@.[::1]/wfs?f=json&token=hunter2 exiting"
     )
@@ -804,10 +803,9 @@ def test_redact_url_credentials_masks_a_query_on_a_no_authority_scheme() -> None
 
 
 def test_redact_url_credentials_masks_a_credential_nested_in_a_fragment() -> None:
-    # fix(#2044 review x12): a second http(s) URL embedded in the first
-    # one's fragment with no whitespace to separate it was never scanned —
-    # _redact_netloc_and_query touched netloc and query but passed
-    # parts.fragment straight through to urlunsplit unchanged.
+    # fix(#2044 review x12): a second http(s) URL embedded, with no
+    # whitespace, in the first one's fragment was never scanned —
+    # _redact_netloc_and_query passed fragment straight through unchanged.
     redacted = redact_url_credentials(
         "https://public.example/x#next=https://other.example/y?token=unique-passphrase"
     )
@@ -815,6 +813,54 @@ def test_redact_url_credentials_masks_a_credential_nested_in_a_fragment() -> Non
     assert "unique-passphrase" not in redacted
     assert redacted == (
         "https://public.example/x#next=https://other.example/y?token=%3Credacted%3E"
+    )
+
+
+def test_redact_url_credentials_masks_an_embedded_non_http_query_credential() -> None:
+    # fix(#2044 review x13): _ANY_SCHEME_USERINFO_RE only finds userinfo, so
+    # an embedded non-http URI's OWN query credential, with no userinfo at
+    # all, went unscanned when preceded by prose (scheme='' at top level).
+    redacted = redact_url_credentials(
+        "connection failed for postgresql://db/geolens?password=unique-passphrase"
+    )
+
+    assert "unique-passphrase" not in redacted
+    assert redacted == (
+        "connection failed for postgresql://db/geolens?password=%3Credacted%3E"
+    )
+
+
+def test_redact_url_credentials_does_not_double_redact_a_malformed_query() -> None:
+    # fix(#2044 review x13 fix): _ANY_SCHEME_QUERY_RE re-matched URL_LIKE_RE's
+    # already-redacted http(s) output — its class excludes <>, so it stopped
+    # right before an existing "<redacted>" marker and redacted the (now
+    # empty) leftover a second time. Excluding http(s) from this regex fixed it.
+    redacted = redact_url_credentials(
+        "ogrinfo failed: https://user:hunter2@.[::1]/wfs?f=json&token=hunter2 exiting"
+    )
+
+    assert "hunter2" not in redacted
+    assert "<redacted><redacted>" not in redacted
+    assert redacted == (
+        "ogrinfo failed: https://redacted@.[::1]/wfs?f=json&token=<redacted> exiting"
+    )
+
+
+def test_redact_url_credentials_stays_linear_on_a_non_http_scheme_chain() -> None:
+    # fix(#2044 review x13 fix): _ANY_SCHEME_QUERY_RE's pre-`?` span can't
+    # exclude `/` (a real path has one), so an unbounded span made a long
+    # chain of `scheme://` segments with no `?` anywhere O(n) PER segment.
+    chain = "postgresql://user:hunter2@a/" * 2000 + "x"
+
+    start = time.perf_counter()
+    redacted = redact_url_credentials(chain)
+    elapsed = time.perf_counter() - start
+
+    assert "hunter2" not in redacted
+    assert elapsed < REDOS_THRESHOLD_S, (
+        f"redacting a 2000-segment non-http chain took {elapsed:.2f}s "
+        f"(threshold {REDOS_THRESHOLD_S}s) — _ANY_SCHEME_QUERY_RE is "
+        "backtracking quadratically again"
     )
 
 
