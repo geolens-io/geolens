@@ -443,7 +443,7 @@ async def _apply_manifest_tags(session: Any, record: Any, tags: Any) -> None:
     if not wanted:
         return
 
-    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import inspect as sa_inspect, select
 
     from app.platform.extensions import get_processing_port
 
@@ -453,7 +453,19 @@ async def _apply_manifest_tags(session: Any, record: Any, tags: Any) -> None:
     # every overlay would have to re-pin, and processing/ cannot import this ORM.
     keywords_rel = sa_inspect(port.get_record_orm_class()).relationships["keywords"]
     RecordKeyword = keywords_rel.mapper.class_
-    existing = set(await port.get_keywords_for_records(session, [record.id]))
+    # fix(#2039 review): the rows `uq_record_keyword` would actually collide
+    # with — same type, same (null) vocabulary — case-folded like `wanted`. A
+    # record-wide read skipped a manifest tag that existed under another type.
+    existing = {
+        k.lower()
+        for k in await session.scalars(
+            select(RecordKeyword.keyword).where(
+                RecordKeyword.record_id == record.id,
+                RecordKeyword.keyword_type == "theme",
+                RecordKeyword.vocabulary_uri.is_(None),
+            )
+        )
+    }
     for keyword in sorted(wanted - existing):
         session.add(
             RecordKeyword(record_id=record.id, keyword=keyword, keyword_type="theme")

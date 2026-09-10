@@ -3681,7 +3681,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and inserts tags as theme keywords, skipping the ones a re-apply already
     # wrote; the keyword class comes off the record class the port exposes.
     # Cap 1848 -> 1899, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1899,
+    # fix(#2039 review): +12. The tag de-dup reads the rows the unique index
+    # would collide with — theme type, null vocabulary — case-folded.
+    # Cap 1899 -> 1911, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1911,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3798,7 +3801,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#2031): +16. `_detect_reupload_crs` also refuses a replacement that
     # would strip the dataset's geometry, and takes the record type that
     # decides it. Cap 1248 -> 1264, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1264,
+    # fix(#2031 review): +31. The refusal became `_assert_geometry_survives`,
+    # shared with the service path, which learns geometry from the staging
+    # table and reached the same swap; it also reads the dataset's recorded
+    # geometry, not just its record type. Cap 1264 -> 1295, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1295,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4612,7 +4619,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Cap 1454 -> 1467, exact.
     # fix(#2043 review): +3. The import of the core ceiling marker wraps.
     # Cap 1467 -> 1470, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1470,
+    # fix(#2031 review): +2. The preview door reads the dataset's recorded
+    # geometry alongside its record type. Cap 1470 -> 1472, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1472,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

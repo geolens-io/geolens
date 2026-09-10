@@ -92,6 +92,25 @@ async def _drop_attempt_staging_table(staging_table: str) -> None:
         )
 
 
+def _assert_geometry_survives(
+    *, record_type: str | None, geometry_type: str | None, has_geometry: bool
+) -> None:
+    """Raise the preview door's refusal when a replacement would strip geometry.
+
+    fix(#2031): both worker paths reach the same ``record_type`` re-derivation —
+    the file path knows from ogrinfo, the service path from the staging table.
+    """
+    geometry_loss = geometry_loss_refusal(
+        record_type=record_type,
+        dataset_geometry_type=geometry_type,
+        source_has_geometry=has_geometry,
+    )
+    if geometry_loss:
+        from app.processing.ingest.ogr import IngestionError
+
+        raise IngestionError(geometry_loss)
+
+
 async def _detect_reupload_crs(
     file_path: str,
     layer_name: str | None,
@@ -99,6 +118,7 @@ async def _detect_reupload_crs(
     *,
     original_filename: str | None = None,
     record_type: str | None,
+    dataset_geometry_type: str | None,
 ) -> tuple[dict, int]:
     """Detect CRS/geometry for a reupload file and resolve the effective SRID.
 
@@ -133,11 +153,11 @@ async def _detect_reupload_crs(
     if missing_crs:
         raise IngestionError(missing_crs)
 
-    geometry_loss = geometry_loss_refusal(
-        record_type=record_type, source_has_geometry=geometry_type is not None
+    _assert_geometry_survives(
+        record_type=record_type,
+        geometry_type=dataset_geometry_type,
+        has_geometry=geometry_type is not None,
     )
-    if geometry_loss:
-        raise IngestionError(geometry_loss)
 
     effective_srid = (
         srid_override
@@ -299,6 +319,7 @@ async def reupload_file(
             source_filename = job.source_filename
             user_metadata = job.user_metadata or {}
             prior_record_type = dataset.record.record_type
+            prior_geometry_type = dataset.geometry_type
             # GPKG-01 Phase 1058: snapshot the user-chosen layer so ogr2ogr
             # ingests the correct layer from multi-layer GPKG files.
             layer_name = job.source_layer  # None for single-layer files
@@ -325,6 +346,7 @@ async def reupload_file(
             user_metadata,
             original_filename=source_filename,
             record_type=prior_record_type,
+            dataset_geometry_type=prior_geometry_type,
         )
         srid = info.get("srid")
         geometry_type = info.get("geometry_type")
@@ -1076,6 +1098,15 @@ async def reupload_service(
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
             has_geom = await ensure_geom_column(session, staging_tn, schema=_schema)
+            # fix(#2031 review): the file door's refusal, before the swap DDL —
+            # this path learns geometry from the staging table, never from
+            # `_detect_reupload_crs`, so a table layer over a vector dataset
+            # reached the same record_type re-derivation.
+            _assert_geometry_survives(
+                record_type=dataset.record.record_type,
+                geometry_type=dataset.geometry_type,
+                has_geometry=has_geom,
+            )
             if has_geom:
                 # fix(#888): same clamp accounting as the file-reupload path.
                 _append_mercator_clip_warning(

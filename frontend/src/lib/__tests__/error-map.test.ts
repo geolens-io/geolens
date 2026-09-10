@@ -140,15 +140,13 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.refreshOriginChanged' });
   });
 
-  // fix(#2031): the door sends {code, message}; the object branch falls through
-  // to the message, so the literal is what has to be mapped.
-  it('maps the re-upload geometry-loss refusal', () => {
+  // fix(#2031): keyed on the code, so a reworded server sentence still maps.
+  it('maps the re-upload geometry-loss refusal by its code', () => {
     expect(
       classifyApiError(
         {
           code: 'geometry_loss',
-          message:
-            'The replacement has no geometry, and this dataset stores geometry. Replacing it would leave the dataset a plain table, so nothing was changed. Import the file as a new dataset instead.',
+          message: 'Some future wording of the same refusal.',
         },
         422,
       ),

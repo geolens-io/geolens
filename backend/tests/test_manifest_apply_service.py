@@ -1736,6 +1736,47 @@ class TestManifestMetadataPropagation:
         )
         assert sorted(keywords) == ["recreation", "trails"]
 
+    async def test_manifest_tags_dedupe_only_against_theme_keywords(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#2039 review): `uq_record_keyword` is per keyword_type, case-sensitive."""
+        from app.modules.catalog.datasets.domain.models import RecordKeyword
+        from app.processing.ingest.tasks_common import apply_manifest_record_metadata
+
+        user = await _admin_user(test_db_session)
+        dataset = await create_dataset(test_db_session, created_by=user.id)
+        test_db_session.add_all(
+            [
+                RecordKeyword(
+                    record_id=dataset.record.id, keyword="parks", keyword_type="place"
+                ),
+                RecordKeyword(
+                    record_id=dataset.record.id, keyword="Transit", keyword_type="theme"
+                ),
+            ]
+        )
+        await test_db_session.flush()
+
+        await apply_manifest_record_metadata(
+            test_db_session, dataset.record, {"manifest_tags": ["Parks", "transit"]}
+        )
+        await test_db_session.flush()
+
+        rows = (
+            await test_db_session.execute(
+                select(RecordKeyword.keyword, RecordKeyword.keyword_type).where(
+                    RecordKeyword.record_id == dataset.record.id
+                )
+            )
+        ).all()
+        # The place row does not block the theme insert; the theme row blocks a
+        # second one whatever its case.
+        assert sorted(rows) == [
+            ("Transit", "theme"),
+            ("parks", "place"),
+            ("parks", "theme"),
+        ]
+
     async def test_raster_dataset_creation_uses_manifest_record_status(
         self, test_db_session, clean_tables
     ):

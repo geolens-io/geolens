@@ -608,6 +608,7 @@ async def reupload_preview(
     prior_columns = dataset.column_info or []
     prior_feature_count = dataset.feature_count
     prior_record_type = dataset.record.record_type
+    prior_geometry_type = dataset.geometry_type
     await db.rollback()
 
     # Resolve S3 key to local file for ogrinfo
@@ -686,6 +687,7 @@ async def reupload_preview(
     # loss reached the client as an unremarkable schema diff.
     geometry_loss = geometry_loss_refusal(
         record_type=prior_record_type,
+        dataset_geometry_type=prior_geometry_type,
         source_has_geometry=info.get("geometry_type") is not None,
     )
     if geometry_loss:

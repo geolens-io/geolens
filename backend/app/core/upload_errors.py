@@ -17,17 +17,26 @@ _GEOMETRY_LOSS_MESSAGE = (
 
 
 def geometry_loss_refusal(
-    *, record_type: str | None, source_has_geometry: bool
+    *,
+    record_type: str | None,
+    dataset_geometry_type: str | None,
+    source_has_geometry: bool,
 ) -> str | None:
     """The refusal when a replacement would strip a vector dataset's geometry.
 
     fix(#2031): a geometry-less CSV over a vector dataset committed with no
     warning and reclassified it ``table`` — the cross-record-type swap the
     re-upload doors already refuse when they can read it off an extension.
+
+    Both dataset facts are read: ``record_type`` is derived from the measured
+    geometry on every write, but the two can disagree on a never-measured
+    dataset, and one with no geometry recorded has none to lose.
     """
-    if record_type == "vector_dataset" and not source_has_geometry:
-        return _GEOMETRY_LOSS_MESSAGE
-    return None
+    if record_type != "vector_dataset" or dataset_geometry_type is None:
+        return None
+    if source_has_geometry:
+        return None
+    return _GEOMETRY_LOSS_MESSAGE
 
 
 class IngestCeilingError(Exception):
