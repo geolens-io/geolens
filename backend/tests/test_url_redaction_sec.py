@@ -611,6 +611,18 @@ def test_redact_url_credentials_masks_embedded_credential_with_no_path_boundary(
     assert "https://redacted@example.com/x" in redacted
 
 
+def test_redact_url_credentials_masks_a_non_http_url_preceded_by_prose() -> None:
+    # fix(#2044 review x3): leading prose breaks urlsplit's scheme detection
+    # entirely (no scheme, no netloc), so a non-http credential anywhere in
+    # free text needs its own scan, independent of what parses around it.
+    redacted = redact_url_credentials(
+        "connection failed for redis://alice:s3cret@cache/0"
+    )
+
+    assert "s3cret" not in redacted
+    assert redacted == "connection failed for redis://redacted@cache/0"
+
+
 @pytest.mark.parametrize("model", [ProbeRequest, ServicePreviewRequest])
 def test_service_requests_reject_credential_query_params(model) -> None:
     kwargs = {"url": "https://example.com/service?token=secret"}

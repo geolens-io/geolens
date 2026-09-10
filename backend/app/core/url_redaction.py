@@ -39,6 +39,13 @@ REDACTED_SECRET = "***"
 # O(n²) on GDAL stderr/VRT paths. A longer prefix still redacts correctly.
 URL_LIKE_RE = re.compile(r"(?:(?:[A-Za-z0-9_+.-]{1,64}:)?https?://)[^\s\"'<>]+")
 
+# fix(#2044 review x3): matches "<scheme>://<userinfo>@" for ANY scheme
+# anywhere in a string, so leading prose can't hide it from urlsplit like
+# `redact_url_credentials` below. Scheme bounded to 64 chars, same as URL_LIKE_RE.
+_ANY_SCHEME_USERINFO_RE = re.compile(
+    r"([A-Za-z][A-Za-z0-9+.-]{0,63}://)[^\s\"'<>@/?#]*@"
+)
+
 SENSITIVE_QUERY_PARAMS = frozenset(
     {
         "access_token",
@@ -239,17 +246,14 @@ def redact_url_credentials(url: str) -> str:
         return _redact_without_parsing(url)
     is_http = parts.scheme.lower() in {"http", "https"}
     if not is_http:
-        # fix(#2044 review x2): a `/`-less authority can absorb an embedded
-        # scheme into netloc ("cache then https:"); rebuilding via hostname
-        # there drops the `:` that makes it matchable, so replace userinfo in place.
-        prefix = url
-        if parts.username or parts.password:
-            userinfo = parts.netloc.rpartition("@")[0]
-            prefix = url.replace(f"{userinfo}@", f"{REDACTED_USERINFO}@", 1)
-        return URL_LIKE_RE.sub(
+        # fix(#2044 review x3): scan the raw text for an embedded http(s) URL
+        # AND any other scheme's userinfo, rather than trust urlsplit's parse
+        # of the whole string — it can absorb unrelated text past either.
+        prefix = URL_LIKE_RE.sub(
             lambda match: redact_url_credentials(match.group(0)),
-            prefix,
+            url,
         )
+        return _ANY_SCHEME_USERINFO_RE.sub(rf"\1{REDACTED_USERINFO}@", prefix)
     redacted_netloc = _redacted_netloc(parts)
     if not parts.query:
         if redacted_netloc == parts.netloc:
