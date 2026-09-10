@@ -17,8 +17,9 @@ and releases use semantic versioning.
   signs out locally without revoking anything. (#2038)
 - Re-uploading a file with no geometry over a vector dataset, or refreshing it from a service
   layer that has none, is refused instead of silently turning the dataset into a table. The
-  preview and the commit both answer with the refusal, which says to import the file as a new
-  dataset instead. (#2031)
+  re-upload preview answers with the refusal, a commit that skipped the preview fails its job
+  with the same message, and the dataset is left unchanged. The message says to import the file
+  as a new dataset instead. (#2031)
 - `srid_override` is refused when neither PROJ nor PostGIS knows the EPSG code, instead of being
   accepted and ignored in favor of the detected CRS. A manifest `metadata.crs` with such a code is
   reported for that entry, on a dry run too. (#2032)
