@@ -358,10 +358,6 @@ export async function fetchDatasetMaps(datasetId: string): Promise<MapListRespon
   return apiFetch<MapListResponse>(`/datasets/${datasetId}/maps/`);
 }
 
-// chore(#835): the non-streaming `generateMap` wrapper was deleted with its
-// only (callerless) consumer `useGenerateMap` — the app generates maps via
-// `streamGenerateMap` below.
-
 export interface StreamEvent {
   event: string;
   data: Record<string, unknown>;

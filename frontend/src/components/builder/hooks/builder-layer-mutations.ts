@@ -130,10 +130,6 @@ const DEFAULT_DUPLICATE_RENDERING_LABELS: DuplicateRenderingLabels = {
 
 export function buildDuplicateRenderingInput(
   layer: MapLayerResponse,
-  // fix(#392): no longer used for the sort_order hint (kept
-  // for call-site/type stability); the duplicate now anchors on the source
-  // layer's own sort_order instead of scanning the full stack for its max. (audit B-004b/LM-02)
-  _currentLayers: MapLayerResponse[],
   labels: DuplicateRenderingLabels = DEFAULT_DUPLICATE_RENDERING_LABELS,
 ): MapLayerInput {
   // Place the duplicate adjacent to its source (source.sort_order + 1) instead

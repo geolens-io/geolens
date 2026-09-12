@@ -7,15 +7,8 @@ import {
   QUALITATIVE_RAMPS,
 } from '../color-ramps';
 
-// fix(#448): getRampColors no longer imports chroma-js — the static import
-// chain layer-icons/LegendEntries → color-ramps → chroma-js pulled the
-// color-vendor chunk into the ENTRY graph (the login page downloaded 19.5KB
-// gz for two decorative heatmap previews). This suite pins the local
-// reimplementation to chroma.scale(name).colors(count) BIT-FOR-BIT so
-// legend swatches keep matching the colors stored in existing saved maps
-// (which were generated with chroma in the builder). chroma-js remains a
-// builder-only dependency (color-relief-sync.ts), so importing it in tests
-// is free — tests are never bundled.
+// fix(#448): chroma-js is test-only reference data. Keep the production
+// implementation bit-identical so saved-map colors and legend swatches agree.
 
 const ALL_RAMPS = [...SEQUENTIAL_RAMPS, ...DIVERGING_RAMPS, ...QUALITATIVE_RAMPS].map(
   (r) => r.name as string,

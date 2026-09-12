@@ -382,7 +382,7 @@ describe('useBuilderLayers', () => {
       show_in_legend: false,
     });
 
-    expect(buildDuplicateRenderingInput(layer, [makeMockLayer({ id: 'lower', sort_order: 0 }), layer]))
+    expect(buildDuplicateRenderingInput(layer))
       .toEqual(expect.objectContaining({
         dataset_id: 'ds-1',
         sort_order: 2,

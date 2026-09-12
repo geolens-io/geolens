@@ -87,18 +87,6 @@ export function useAuditLogs(params: {
   });
 }
 
-// Pending count (for badge)
-export function usePendingCount() {
-  return useQuery({
-    queryKey: queryKeys.admin.pendingCount,
-    queryFn: async () => {
-      const result = await listUsers({ skip: 0, limit: 1, status: 'pending' });
-      return result.total;
-    },
-    staleTime: 60_000,
-  });
-}
-
 // Admin jobs
 export function useAdminJobs(params: {
   status?: string;

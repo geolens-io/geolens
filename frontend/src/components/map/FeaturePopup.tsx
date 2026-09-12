@@ -60,7 +60,6 @@ export function FeaturePopup({
   const [activeIndex, setActiveIndex] = useState(0);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  // #305: close button ref for soft focus move-in on open.
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
@@ -121,8 +120,6 @@ export function FeaturePopup({
   const columnInfo = feature?.columnInfo;
   const visibleFields = feature?.visibleFields;
 
-  // Filter entries: exclude internal keys and geometry fields.
-  // Memoized so paging / copy-toast state doesn't re-derive for 100-attribute features.
   const baseEntries = useMemo(() => {
     if (!properties) return [] as [string, unknown][];
     return Object.entries(properties).filter(([key]) => {
@@ -329,9 +326,7 @@ function ValueDisplay({
   const [expanded, setExpanded] = useState(false);
   const { t } = useTranslation('builder');
 
-  // Standalone URL: classify and render image / video / YouTube / plain anchor.
-  // This branch handles the case where the entire property value is a URL.
-  // NOTE on iframe sandbox: YouTube embed REQUIRES allow-same-origin so the
+  // YouTube embeds require allow-same-origin so the
   // player can load its own JS. This is intentionally laxer than the share-embed
   // sandbox (allow-scripts only). See threat model T-1138-04.
   if (isUrl(value)) {
@@ -397,7 +392,6 @@ function ValueDisplay({
       );
     }
 
-    // kind === 'other': plain anchor (backward-compatible with isUrl branch).
     return (
       <a
         href={value}
@@ -411,8 +405,6 @@ function ValueDisplay({
     );
   }
 
-  // String with embedded URLs: split into text + anchor segments.
-  // Media is NOT rendered inline here (POL: avoid blowing up a paragraph with embeds).
   if (typeof value === 'string') {
     const segments = splitTextWithUrls(value);
     const hasUrls = segments.some((s) => s.kind === 'url');

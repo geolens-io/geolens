@@ -36,8 +36,7 @@ export function LoginForm() {
     try {
       await login(username, password);
       const from = (location.state as { from?: string } | null)?.from;
-      // CLEAN-N3: the search workspace lives at "/" after the landing page
-      // removal; no more redirect through the legacy "/search" shim.
+      // The root route is the canonical search workspace.
       const target = from && from.startsWith('/') ? from : '/';
       // fix(#1527): this sits between a SUCCESSFUL login and the navigation
       // that follows, inside the try. A bare removeItem that throws is caught

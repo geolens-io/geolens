@@ -245,27 +245,18 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
 
 });
 
-// ---------------------------------------------------------------------------
-// fix(#392): buildDuplicateRenderingInput — adjacent positioning (audit B-004b/LM-02)
-// ---------------------------------------------------------------------------
-
-describe('buildDuplicateRenderingInput — adjacent sort_order (B-004b / LM-02)', () => {
-  it('Test 1: places the duplicate adjacent to the source, not at the stack bottom', () => {
+describe('buildDuplicateRenderingInput', () => {
+  it('places the duplicate adjacent to the source', () => {
     const source = makeBuilderLayer({ id: 'src', sort_order: 1 });
-    // A much-higher sort_order layer elsewhere in the stack — the OLD
-    // max(sort_order)+1 behavior would place the duplicate at sort_order 11.
-    const other = makeBuilderLayer({ id: 'other', sort_order: 10 });
 
-    const input = buildDuplicateRenderingInput(source, [source, other]);
+    const input = buildDuplicateRenderingInput(source);
 
-    // Adjacent to the source (N+1 region), NOT max(sort_order)+1 (11).
     expect(input.sort_order).toBe(source.sort_order + 1);
-    expect(input.sort_order).not.toBe(11);
   });
 
-  it('Test 1b: does not add parent_group_id to the MapLayerInput (the type cannot carry it)', () => {
+  it('does not add parent_group_id to the MapLayerInput', () => {
     const source = { ...makeBuilderLayer({ id: 'src', sort_order: 0 }), parent_group_id: 'group-1' };
-    const input = buildDuplicateRenderingInput(source, [source]);
+    const input = buildDuplicateRenderingInput(source);
 
     expect(input).not.toHaveProperty('parent_group_id');
   });

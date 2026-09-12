@@ -15,18 +15,8 @@ function withThumbnailVersion(
 }
 
 /**
- * useMapThumbnail — fetch an authenticated map thumbnail and return it as a
- * blob URL.
- *
- * Routes the request through apiFetchBlob (which attaches the Bearer token
- * from useAuthStore automatically) so authed thumbnails work as <img src>.
- *
- * Blob URL lifecycle: the blob URL is cached in React Query under the
- * thumbnail key and shared across all consumers. Revocation is tied to the
- * QUERY CACHE (eviction / refetch-replacement) via registerBlobUrlRevocation,
- * NOT to component unmount — revoking on unmount left the dead URL in cache and
- * caused ERR_FILE_NOT_FOUND for the next consumer (list↔grid toggle, back-nav,
- * StrictMode remount). See SF-05 history and lib/blob-url-cache.ts.
+ * Fetch an authenticated map thumbnail and return its cached blob URL.
+ * The query cache owns URL revocation because consumers share the cached URL.
  */
 export function useMapThumbnail(
   thumbnailUrl: string | null | undefined,

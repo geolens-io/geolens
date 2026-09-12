@@ -156,16 +156,8 @@ export function cvdSafeRamps<T extends { cvdSafe: boolean }>(ramps: T[] | readon
   return (ramps as T[]).filter((r) => r.cvdSafe);
 }
 
-// fix(#448): static ColorBrewer stop arrays (dumped verbatim from
-// chroma.brewer) + a local interpolator replace the chroma-js dependency in
-// this module. chroma-js (19.5KB gz, chunked as color-vendor) was leaking
-// into the ENTRY graph via layer-icons/LegendEntries → this file, making the
-// login page download it for two decorative heatmap previews. Output is
-// bit-exact with chroma.scale(name).colors(count) — including replicating
-// chroma's 1/(n-1) domain-breakpoint float arithmetic — and is pinned by a
-// parity test that compares against chroma directly
-// (__tests__/color-ramps-chroma-parity.test.ts). chroma-js remains a
-// builder-only dependency (color-relief-sync.ts).
+// fix(#448): keep production independent of chroma-js while preserving its
+// ColorBrewer output bit-for-bit; the parity test retains chroma as test data.
 const BREWER_STOPS: Record<string, readonly string[]> = {
   YlOrRd: ['#ffffcc', '#ffeda0', '#fed976', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c', '#bd0026', '#800026'],
   YlGnBu: ['#ffffd9', '#edf8b1', '#c7e9b4', '#7fcdbb', '#41b6c4', '#1d91c0', '#225ea8', '#253494', '#081d58'],

@@ -923,8 +923,7 @@ export function useBuilderLayers(
     // only means "overlay off" — terrain itself is a single map-level
     // terrain_config pointer, so duplicates can no longer accumulate terrain.
 
-    const currentLayers = layersRef.current;
-    const data = buildDuplicateRenderingInput(layer, currentLayers, {
+    const data = buildDuplicateRenderingInput(layer, {
       layerFallback: t('layerMutations.layerFallback', { defaultValue: 'Layer' }),
       duplicateName: (baseName) => t('layerMutations.duplicateName', { name: baseName, defaultValue: '{{name}} rendering' }),
     });

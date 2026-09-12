@@ -32,6 +32,13 @@ function invalidateFeatureDerived(qc: QueryClient, datasetId: string): void {
   qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(datasetId) });
 }
 
+function invalidateFeatureCaches(qc: QueryClient, datasetId: string): void {
+  qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
+  qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(datasetId) });
+  invalidateColumnCaches(qc, datasetId);
+  invalidateFeatureDerived(qc, datasetId);
+}
+
 export function useCreateFeature() {
   const qc = useQueryClient();
   return useMutation({
@@ -45,10 +52,7 @@ export function useCreateFeature() {
       properties?: Record<string, unknown>;
     }) => createFeature(datasetId, geometry, properties),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
-      invalidateColumnCaches(qc, variables.datasetId);
-      invalidateFeatureDerived(qc, variables.datasetId);
+      invalidateFeatureCaches(qc, variables.datasetId);
     },
     onError: (err) => {
       logger.error('[useCreateFeature]', err);
@@ -71,10 +75,7 @@ export function useUpdateFeature() {
       properties?: Record<string, unknown>;
     }) => updateFeature(datasetId, gid, geometry, properties),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
-      invalidateColumnCaches(qc, variables.datasetId);
-      invalidateFeatureDerived(qc, variables.datasetId);
+      invalidateFeatureCaches(qc, variables.datasetId);
     },
     onError: (err) => {
       logger.error('[useUpdateFeature]', err);
@@ -93,10 +94,7 @@ export function useDeleteFeature() {
       gid: number;
     }) => deleteFeature(datasetId, gid),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
-      invalidateColumnCaches(qc, variables.datasetId);
-      invalidateFeatureDerived(qc, variables.datasetId);
+      invalidateFeatureCaches(qc, variables.datasetId);
     },
     onError: (err) => {
       logger.error('[useDeleteFeature]', err);

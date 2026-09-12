@@ -141,7 +141,6 @@ export const queryKeys = {
       order?: string,
     ) => ['admin', 'users', skip, limit, status, search, sort, order] as const,
     userNames: ['admin', 'users', 'names'] as const,
-    pendingCount: ['admin', 'users', 'pending-count'] as const,
     allUsers: ['admin', 'users'] as const,
     auditLogs: (params: Record<string, unknown>) => ['admin', 'audit-logs', params] as const,
     jobs: (params: Record<string, unknown>) => ['admin', 'jobs', params] as const,
