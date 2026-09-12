@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.19.1] - 2026-09-12
+
 ### Fixed
 
 - A token refresh that failed temporarily, because of a rate limit, a server error or a dropped
@@ -3892,7 +3894,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.19.1...HEAD
+[1.19.1]: https://github.com/geolens-io/geolens/compare/v1.19.0...v1.19.1
 [1.19.0]: https://github.com/geolens-io/geolens/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/geolens-io/geolens/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/geolens-io/geolens/compare/v1.17.0...v1.18.0
