@@ -86,6 +86,7 @@ needs the `upload` and `export` capabilities on the seeding account.
 | `install.sh` | First-run installer (see below) |
 | `preflight-env.sh` | Refuse a `.env` line Compose cannot load, then validate the boot-required settings (JWT secret, admin creds, encryption key shape) as Compose will resolve them, shell environment first and then `.env`, via `make preflight` / `make dev` |
 | `check-env.sh` | Probe the running stack's env, DB connectivity, and GDAL via `make doctor` (requires the stack up) |
+| `check-demo-config.sh` | Read-only check that the public demo's rendered Compose config and API container have `LANDING_FIRST=false`, no `landing_first` DB override exists, and the effective public value is `false` |
 | `init-db.sh` | Initialize the PostGIS database schema (mounted into the db container's init) |
 | `init-test-db.sh` | Initialize a host-accessible `geolens_test` database (extensions, schemas, roles) for local `psql` debugging. Not used by CI. CI and pytest each bootstrap their own test databases. |
 | `backup-entrypoint.sh` | Scheduled `pg_dump` backups with retention + optional S3 upload (the default Docker Compose backup service) |
@@ -94,6 +95,23 @@ needs the `upload` and `export` capabilities on the seeding account.
 | `run-baseline.sh` | Run performance baselines |
 | `analyze-query-plans.sh` | Analyze slow query plans |
 | `cleanup-test-pollution.sql` | Remove leftover test data (manual `psql`) |
+
+Run the demo-specific guard from the checkout on the demo host after recreating
+the API container. It inspects the rendered Compose value, running container,
+and bundled database, then checks the value exposed by the public auth
+configuration endpoint:
+
+```bash
+sh scripts/check-demo-config.sh
+```
+
+The command is read-only and intentionally fails when any DB override remains,
+even a stored `false`: the demo's catalog-first behavior is owned by its
+environment configuration, and an old override can silently take precedence
+later. If it fails, reset **Login as Landing Page** in Admin → Settings → Auth,
+set `LANDING_FIRST=false` in the demo deployment environment, recreate
+the API service, and run the check again. Do not turn on `ENV_ONLY_CONFIG` as a
+shortcut; that changes the configuration contract for every setting.
 
 ## Build & release glue
 

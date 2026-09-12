@@ -5,6 +5,7 @@ assertWorktreeMatchesStack();
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: /demo-smoke\.spec\.ts/,
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
@@ -40,7 +41,7 @@ export default defineConfig({
     },
     {
       name: 'chromium',
-      testIgnore: /export-runtime\.spec\.ts/,
+      testIgnore: /(?:demo-smoke|export-runtime)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         storageState: 'playwright/.auth/user.json',

@@ -14,6 +14,7 @@
     "e2e:smoke:reupload": "npx playwright test e2e/reupload-multi-layer-gpkg.spec.ts --project=chromium",
     "e2e:smoke:audit": "npx playwright test e2e/accessibility.spec.ts e2e/post-impl-validation.spec.ts e2e/record-detail-ux-audit.spec.ts e2e/showcase-smoke.spec.ts e2e/showcase-smoke-anonymous.spec.ts --project=chromium",
     "e2e:smoke:perf": "npx playwright test e2e/perf/builder-large-map.spec.ts --project=chromium",
+    "e2e:smoke:demo": "npx playwright test -c playwright.demo.config.ts",
     "e2e:export": "npx playwright test e2e/export-runtime.spec.ts --project=api --workers=1 --retries=0",
     "e2e:ui": "npx playwright test --ui",
     "check:readme-locales": "node scripts/check-readme-locales.mjs",
