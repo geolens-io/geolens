@@ -1,0 +1,51 @@
+name: Demo Browser Smoke
+
+# The live demo is deployed separately from image publication. Run this after
+# deployment; tag-triggered compose smoke checks an isolated stack instead.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Expected deployed version (for example 1.19.1)
+        required: true
+        type: string
+      legacy_readiness:
+        description: Allow older releases without the composite map readiness marker
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-browser-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Verify anonymous demo and showcase maps
+        env:
+          E2E_DEMO_BASE_URL: https://demo.getgeolens.com
+          E2E_EXPECT_VERSION: ${{ inputs.version }}
+          E2E_DEMO_LEGACY_READINESS: ${{ inputs.legacy_readiness && '1' || '0' }}
+        run: npm run e2e:smoke:demo
+      - name: Upload browser evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: demo-browser-smoke
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14

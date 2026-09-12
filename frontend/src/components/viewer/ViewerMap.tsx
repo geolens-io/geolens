@@ -36,7 +36,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { resolveAdapterType, prefixed, getDataDrivenColumnsForLayer, registerBasemapStyleGeneration } from '@/components/builder/map-sync';
+import { resolveAdapterType, prefixed, getDataDrivenColumnsForLayer, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
@@ -277,11 +277,25 @@ export const ViewerMap = memo(function ViewerMap({
     )),
     [layerEntries],
   );
+  const boundedGeoJsonRequest = useMemo(() => ({
+    layers: boundedGeoJsonLayers,
+    apiKey,
+    embedToken,
+  }), [boundedGeoJsonLayers, apiKey, embedToken]);
+  const completedBoundedGeoJsonRequestRef = useRef<object | null>(null);
+  const [geojsonVersion, setGeojsonVersion] = useState(0);
 
-  // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
-  // container. The Playwright showcase-smoke spec polls for this attribute to
-  // avoid an arbitrary `waitForTimeout` delay after networkidle.
+  // MapLibre activity feeds the composite readiness attributes on the outer
+  // container. A raw idle alone is insufficient because viewer-owned sources
+  // can arrive later with async config, tokens, or bounded GeoJSON.
   const [tilesIdle, setTilesIdle] = useState(false);
+  const tilesLoadingHandlerRef = useRef<(() => void) | null>(null);
+  const tilesIdleHandlerRef = useRef<(() => void) | null>(null);
+  // A MapLibre `idle` can precede async token/config/GeoJSON work. Track which
+  // exact composition request was applied and then observed at a later idle so
+  // an already-idle basemap cannot certify a newly arrived data overlay.
+  const appliedCompositionRef = useRef<object | null>(null);
+  const settledCompositionRef = useRef<object | null>(null);
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
     latitude: number;
@@ -331,10 +345,46 @@ export const ViewerMap = memo(function ViewerMap({
     fallbackToRawUrlOnError: true,
   });
 
+  const boundedGeoJsonReady = boundedGeoJsonLayers.length === 0
+    || completedBoundedGeoJsonRequestRef.current === boundedGeoJsonRequest;
+  const layerTokensReady = layers.length === 0 || Boolean(embedToken) || layers.every(
+    (layer) => tokenMap.has(layer.dataset_id),
+  );
+  // Identity is deliberate: every dependency that can alter sources/layers
+  // creates a new request. Until that request is applied and reaches idle, the
+  // previous request's readiness cannot leak into the DOM contract.
+  const compositionRequest = useMemo(() => ({
+    layers,
+    tokenMap,
+    tileConfigReady,
+    cdnBaseUrl: tileConfig?.cdn_base_url,
+    sourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
+    showBasemapLabels,
+    embedToken: embedToken ?? null,
+    geojsonVersion,
+    mapStyle,
+  }), [
+    layers,
+    tokenMap,
+    tileConfigReady,
+    tileConfig?.cdn_base_url,
+    tileConfig?.mvt_source_layer_prefix,
+    showBasemapLabels,
+    embedToken,
+    geojsonVersion,
+    mapStyle,
+  ]);
+  const compositionRequestRef = useRef(compositionRequest);
+  compositionRequestRef.current = compositionRequest;
+
+  const markMapLoading = useCallback(() => {
+    settledCompositionRef.current = null;
+    setTilesIdle(false);
+  }, []);
+
   // Fetch bounded GeoJSON data for small 3D datasets (auto-switch from MVT per D-07)
   // and for eligible point cluster layers.
   // Fetch is independent of map readiness — data lands in a ref, repaint is separate.
-  const [geojsonVersion, setGeojsonVersion] = useState(0);
   useEffect(() => {
     if (boundedGeoJsonLayers.length === 0) {
       if (geojsonDataRef.current.size > 0) {
@@ -365,6 +415,7 @@ export const ViewerMap = memo(function ViewerMap({
       );
       if (!cancelled) {
         geojsonDataRef.current = newMap;
+        completedBoundedGeoJsonRequestRef.current = boundedGeoJsonRequest;
         setGeojsonVersion((v) => v + 1);
       }
     }
@@ -372,7 +423,7 @@ export const ViewerMap = memo(function ViewerMap({
       // Individual layer errors are already toasted above; this only fires on unexpected scaffolding failure
     });
     return () => { cancelled = true; };
-  }, [boundedGeoJsonLayers, apiKey, embedToken, t]);
+  }, [boundedGeoJsonLayers, boundedGeoJsonRequest, apiKey, embedToken, t]);
 
   // Trigger repaint when GeoJSON-Z data arrives and map is ready
   useEffect(() => {
@@ -473,22 +524,26 @@ export const ViewerMap = memo(function ViewerMap({
       // image (knownImagesOnly: false) to keep the public console clean.
       map.setMissingStyleImageResolver(makeStyleImageMissingResolver(map, { knownImagesOnly: false }));
 
-      // `idle` fires when no tiles are loading, no transitions are in
-      // progress, and no animations are running. We flip the container's
-      // data-tiles-loaded attribute to true on idle so Playwright (and V-13's
-      // loading-affordance consumers) can rely on a deterministic signal
-      // instead of an arbitrary wait.
-      // fix(#430 V-13): re-arm on every camera move instead of firing once — the
-      // attribute previously never toggled back to "false" after the initial
-      // idle, so it couldn't distinguish "settled" from "tiles loading after
-      // a pan/zoom" (a false "map fully rendered" signal mid-move).
-      map.on('movestart', () => setTilesIdle(false));
-      map.on('idle', () => setTilesIdle(true));
+      // `dataloading` covers app-driven source/style work that does not move
+      // the camera (async token arrival, terrain seeding, GeoJSON replacement,
+      // and style swaps). The old movestart-only re-arm allowed the initial
+      // basemap idle to stay true while those overlays were still loading.
+      tilesLoadingHandlerRef.current = markMapLoading;
+      tilesIdleHandlerRef.current = () => {
+        const styleReady = map.isStyleLoaded() === true;
+        settledCompositionRef.current = styleReady
+          ? appliedCompositionRef.current
+          : null;
+        setTilesIdle(styleReady);
+      };
+      map.on('movestart', tilesLoadingHandlerRef.current);
+      map.on('dataloading', tilesLoadingHandlerRef.current);
+      map.on('idle', tilesIdleHandlerRef.current);
 
       setMapReady(true);
       onMapReady?.(map);
     },
-    [onMapReady, embedToken, t, recoverTileAuth],
+    [onMapReady, embedToken, t, recoverTileAuth, markMapLoading],
   );
 
   // Stable list of interactive (non-heatmap, visible) layer IDs for query operations
@@ -823,6 +878,7 @@ export const ViewerMap = memo(function ViewerMap({
       basemapConfig: bc,
     } = syncInputsRef.current;
     if (!tcReady) return;
+    markMapLoading();
     const tileBaseUrl = resolveTileBaseUrl(tc);
     const syncInputs: SyncLayerInput[] = createViewerLayerEntries(ls).map(({ layer, key }) => (
       toViewerSyncInput(layer, key, vl)
@@ -845,7 +901,22 @@ export const ViewerMap = memo(function ViewerMap({
       showBasemapLabels: sbl,
       reorderDataLayerIds: syncInputs,
     });
-  }, []);
+    const renderableEntries = createViewerLayerEntries(ls).filter(({ layer }) => (
+      !isDemTerrainVisualSuppressed(layer)
+    ));
+    const hasViewerSources = managedSourcesRef.current.size > 0
+      && [...managedSourcesRef.current].every((sourceId) => Boolean(map.getSource(sourceId)));
+    const hasViewerLayers = renderableEntries.length > 0
+      && renderableEntries.every(({ layer, key }) => (
+        viewerManagedLayerIds(layer, key).every((layerId) => Boolean(map.getLayer(layerId)))
+      ));
+    // A terrain-render-mode DEM deliberately has no ordinary style layer or
+    // managed composition source; useViewerTerrain owns its terrain-dem source.
+    const hasOnlySuppressedTerrain = ls.length > 0 && renderableEntries.length === 0;
+    appliedCompositionRef.current = hasOnlySuppressedTerrain || (hasViewerSources && hasViewerLayers)
+      ? compositionRequestRef.current
+      : null;
+  }, [markMapLoading]);
 
   // Sync layers to map (on data/visibility changes)
   useEffect(() => {
@@ -900,6 +971,7 @@ export const ViewerMap = memo(function ViewerMap({
     if (!map || !mapReady || (!embedToken && tokenMap.size === 0)) return;
     const tileBaseUrl = resolveTileBaseUrl({ cdn_base_url: cdnBaseUrl });
 
+    let rearmed = false;
     for (const { layer, key } of layerEntries) {
       const token = tokenMap.get(layer.dataset_id) ?? null;
       // Skip rasters — their tile_url is stable, no refresh needed.
@@ -908,6 +980,10 @@ export const ViewerMap = memo(function ViewerMap({
       const source = map.getSource(sourceId);
       // Only vector sources need query-param URL refreshes.
       if (source && source.type === 'vector') {
+        if (!rearmed) {
+          markMapLoading();
+          rearmed = true;
+        }
         const strategy = getClusterSourceStrategy(layer);
         const builder = layer.style_config?.builder;
         // Per-layer source in viewer context (no dedupe by table_name), so
@@ -936,7 +1012,7 @@ export const ViewerMap = memo(function ViewerMap({
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }
-  }, [tokenMap, layerEntries, mapReady, cdnBaseUrl, embedToken]);
+  }, [tokenMap, layerEntries, mapReady, cdnBaseUrl, embedToken, markMapLoading]);
 
   // Toggle visibility when visibleLayers set changes.
   // Note: runSync also calls syncVisibility via syncLayersToMap, but this
@@ -995,6 +1071,8 @@ export const ViewerMap = memo(function ViewerMap({
     if (!map) return;
 
     const onStyleLoad = () => {
+      markMapLoading();
+      appliedCompositionRef.current = null;
       managedSourcesRef.current = new Set();
       prevOrderKeyRef.current = '';
       // Guard: if layers haven't loaded yet, skip — the sync effect will
@@ -1016,7 +1094,7 @@ export const ViewerMap = memo(function ViewerMap({
     return () => {
       map.off('style.load', onStyleLoad);
     };
-  }, [mapReady, embedToken, runSync, reseedTerrainOnStyleLoad, applyViewerBasemapConfig]);
+  }, [mapReady, embedToken, runSync, reseedTerrainOnStyleLoad, applyViewerBasemapConfig, markMapLoading]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1027,6 +1105,16 @@ export const ViewerMap = memo(function ViewerMap({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      const map = mapRef.current;
+      if (map && tilesLoadingHandlerRef.current) {
+        map.off('movestart', tilesLoadingHandlerRef.current);
+        map.off('dataloading', tilesLoadingHandlerRef.current);
+      }
+      if (map && tilesIdleHandlerRef.current) {
+        map.off('idle', tilesIdleHandlerRef.current);
+      }
+      appliedCompositionRef.current = null;
+      settledCompositionRef.current = null;
       mapRef.current = null;
     };
   }, []);
@@ -1042,6 +1130,19 @@ export const ViewerMap = memo(function ViewerMap({
     const invalidateTileTokens = useInvalidateTileTokens();
   const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady, invalidateTileTokens);
 
+  const compositionPrerequisitesReady = layers.length === 0 || (
+    tileConfigReady && layerTokensReady && boundedGeoJsonReady
+  );
+  const compositionSettled = layers.length === 0 || (
+    appliedCompositionRef.current === compositionRequest
+    && settledCompositionRef.current === compositionRequest
+  );
+  const viewerReady = mapReady
+    && tilesIdle
+    && compositionPrerequisitesReady
+    && compositionSettled
+    && (!terrainExpected || terrainReady);
+
   return (
     <div
       className={`relative h-full w-full ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
@@ -1051,7 +1152,8 @@ export const ViewerMap = memo(function ViewerMap({
       // pattern as DatasetMap's shell).
       role="region"
       aria-label={t('viewer.map.ariaLabel', { defaultValue: 'Map viewer' })}
-      data-tiles-loaded={tilesIdle ? 'true' : 'false'}
+      data-tiles-loaded={viewerReady ? 'true' : 'false'}
+      data-map-ready={viewerReady ? 'true' : 'false'}
       data-terrain-ready={terrainReady ? 'true' : 'false'}
     >
       <MapGL
