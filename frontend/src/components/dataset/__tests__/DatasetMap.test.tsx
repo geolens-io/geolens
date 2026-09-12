@@ -105,6 +105,7 @@ vi.mock('@/stores/drawing-store', () => {
   // useDrawingStore.getState() directly (not via the selector hook), the
   // same static-access pattern the real zustand store supports.
   useDrawingStore.getState = () => drawingState;
+  useDrawingStore.subscribe = vi.fn(() => vi.fn());
   return { useDrawingStore };
 });
 
