@@ -1268,56 +1268,118 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 
 # Caps equal current LOC. Lower them when modules shrink; split or explain growth.
 # Full paths cover oversized modules beyond the router glob.
-# Preserve tile acquisition and cache ordering when decomposing tile modules.
-# The Enterprise overlay pins _check_cold_rehydrate to tiles/router.py in its
-# static checks, so moving that function requires a coordinated overlay change.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # Manifest reservation, staging and fenced settlement share one apply workflow.
     "backend/app/processing/ingest/manifest_service.py": 1163,
+    # Endpoint parsing, SSRF checks and credential forwarding share one security
+    # boundary.
     "backend/app/platform/service_endpoints.py": 1360,
+    # Pagination and materialization keep credentials and remote page traversal out of
+    # GDAL.
     "backend/app/platform/service_items.py": 777,
+    # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
+    # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1151,
+    # ArcGIS probing and metadata adapter debt; split protocol helpers before raising.
     "backend/app/modules/catalog/sources/adapters/arcgis.py": 887,
+    # Source API router debt; split discovery, preview and dispatch endpoints before
+    # raising.
     "backend/app/modules/catalog/sources/router.py": 1736,
+    # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2093,
+    # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
     "backend/app/core/db/tenant_adoption.py": 1258,
+    # Application composition debt; preserve lifespan and middleware ordering when
+    # splitting.
     "backend/app/api/main.py": 1721,
+    # Published map schema debt; separate validation helpers before raising.
     "backend/app/modules/catalog/maps/schemas.py": 1396,
+    # Metadata facade preserves the import and patch surface used by extensions and
+    # callers.
     "backend/app/processing/ingest/metadata.py": 153,
+    # Ingest API router debt; split upload, import and registration endpoints before
+    # raising.
     "backend/app/processing/ingest/router.py": 1830,
+    # Shared task finalization keeps lifecycle and cleanup consistent across ingest
+    # formats.
     "backend/app/processing/ingest/tasks_common.py": 1912,
+    # Reupload coordinates staging, credentials and fenced settlement across
+    # file/service paths.
     "backend/app/processing/ingest/tasks_reupload.py": 1295,
+    # Refresh strategies share access, admission and dispatch rules at this API
+    # boundary.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1291,
+    # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1161,
+    # Reconciliation and reapers serve startup, workers and admin cleanup consistently.
     "backend/app/platform/jobs/sweep.py": 1537,
+    # Refresh transitions serve request and worker paths without crossing domain
+    # boundaries.
     "backend/app/platform/refresh/service.py": 929,
+    # Central settings and boot-validation debt; split by configuration domain before
+    # raising.
     "backend/app/core/config.py": 1496,
+    # Config resolution coordinates validation, overrides, caching, audit and side
+    # effects.
     "backend/app/core/persistent_config.py": 943,
+    # Backfill batches share vector/model validation and progress/cancellation
+    # semantics.
     "backend/app/processing/embeddings/backfill.py": 933,
+    # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1472,
+    # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1690,
+    # Raster conversion, verification and fenced publication share one failure
+    # lifecycle.
     "backend/app/processing/ingest/tasks_raster_replace.py": 996,
+    # File/service tasks share publication fencing, heartbeat phases and failure
+    # cleanup.
     "backend/app/processing/ingest/tasks_vector.py": 1190,
+    # GDAL environments, timeouts, reaping and error sanitization share one process
+    # boundary.
     "backend/app/processing/ingest/ogr.py": 1351,
-    # Archive and GDAL validation remain centralized at the security boundary.
+    # Archive and GDAL content validation remain centralized at the upload security
+    # boundary.
     "backend/app/processing/ingest/validation.py": 1104,
+    # OAuth destination validation, account linking and role reconciliation share one
+    # boundary.
     "backend/app/modules/auth/oauth/service.py": 1111,
+    # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1019,
+    # Ingest admission, staging and job settlement share one orchestration boundary.
     "backend/app/processing/ingest/service.py": 1437,
+    # PostGIS refresh coordinates geometry repair, measurement and fenced catalog
+    # updates.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 979,
+    # Dataset schema debt; split request/response families before raising.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1510,
+    # Analysis validation, bounded execution and fenced registration share one task
+    # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1421,
+    # Maps API router debt; split endpoint families before raising.
     "backend/app/modules/catalog/maps/router.py": 1507,
+    # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1433,
+    # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1850,
-    # Authorization, acquisition order, and cache rehydration share this route boundary;
-    # the Enterprise overlay statically pins _check_cold_rehydrate here.
+    # Authorization, acquisition order and cache rehydration share this route boundary;
+    # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2480,
+    # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1691,
+    # AI orchestration coordinates tool execution, usage accounting and SSE failures.
     "backend/app/processing/ai/service.py": 998,
+    # Record children share ownership, ordering and publication-version invariants.
     "backend/app/modules/catalog/records/service.py": 887,
+    # Export formats share visibility, lineage and private-artifact authorization.
     "backend/app/modules/catalog/datasets/api/router_export.py": 1484,
+    # Artifact selection, atomic publication, range reads and eviction share one cache
+    # protocol.
     "backend/app/processing/export/artifact_cache.py": 559,
+    # Embed tokens share origin/scope checks, revocation and cached-denial behavior.
     "backend/app/modules/embed_tokens/service.py": 1030,
+    # Feature reads/writes share schema typing, safe SQL and geometry/metadata
+    # invariants.
     "backend/app/modules/catalog/features/service.py": 1386,
 }
 
