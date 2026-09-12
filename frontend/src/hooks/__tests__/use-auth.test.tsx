@@ -102,7 +102,11 @@ describe('useAuth', () => {
 
   // fix(#2038): /auth/me/ answering 500 after a good sign-in used to revoke
   // every session of the user, signing them out on every other device.
-  it('keeps the other sessions when getMe fails transiently after a login', async () => {
+  it.each([
+    new ApiError('server error', 500),
+    new SyntaxError('malformed profile response'),
+    new TypeError('network unavailable'),
+  ])('revokes only the discarded family when the profile fails: %s', async (profileError) => {
     mockLogin.mockResolvedValueOnce({
       access_token: 'abc',
       refresh_token: null,
@@ -111,7 +115,7 @@ describe('useAuth', () => {
     });
     // Not `...Once`: the hook's own meQuery also calls getMe once the token is
     // set, and would otherwise eat the single rejection.
-    mockGetMe.mockRejectedValue(new ApiError('server error', 500));
+    mockGetMe.mockRejectedValue(profileError);
 
     const { result } = renderHook(() => useAuth());
 
@@ -119,9 +123,10 @@ describe('useAuth', () => {
       act(async () => {
         await result.current.login('user', 'pass');
       }),
-    ).rejects.toThrow('server error');
+    ).rejects.toThrow(profileError);
 
     expect(mockLogoutSession).not.toHaveBeenCalled();
+    expect(mockRevokeCurrentSession).toHaveBeenCalledExactlyOnceWith('abc');
     expect(useAuthStore.getState().token).toBeNull();
   });
 

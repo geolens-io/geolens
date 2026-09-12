@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { login as apiLogin, getMe, logoutSession, revokeCurrentSession } from '@/api/auth';
-import { abortInflightRefresh, isCredentialRejected, tryRefresh } from '@/api/client';
+import { abortInflightRefresh, tryRefresh } from '@/api/client';
 
 export function useAuth() {
   const navigate = useNavigate();
@@ -75,9 +75,7 @@ export function useAuth() {
       } catch (err) {
         // A failed sign-in may discard a freshly issued family; preserve every
         // other device and target the captured credential, even if state moved.
-        if (isCredentialRejected(err)) {
-          void revokeCurrentSession(tokenResponse.access_token).catch(() => {});
-        }
+        void revokeCurrentSession(tokenResponse.access_token).catch(() => {});
         useAuthStore.getState().logout();
         throw err;
       }
