@@ -218,6 +218,19 @@ def test_production_frontend_has_only_explicit_writable_mounts():
     assert "frontend_cache" in compose["volumes"]
 
 
+def test_frontend_request_bodies_spool_outside_the_bounded_tmpfs():
+    compose = _load_compose(PROD_COMPOSE)
+    frontend = compose["services"]["frontend"]
+    nginx = FRONTEND_NGINX.read_text()
+
+    tmpfs_mount = next(
+        mount for mount in frontend["tmpfs"] if mount.startswith("/tmp:")
+    )
+    assert "size=64m" in tmpfs_mount
+    assert "frontend_cache:/var/cache/nginx" in frontend["volumes"]
+    assert "client_body_temp_path /var/cache/nginx/client_temp;" in nginx
+
+
 def test_frontend_runtime_config_is_materialized_in_tmpfs():
     dockerfile = DOCKERFILE.read_text()
     entrypoint = FRONTEND_ENTRYPOINT.read_text()
