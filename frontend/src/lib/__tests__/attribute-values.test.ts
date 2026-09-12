@@ -1,5 +1,21 @@
-import { describe, it, expect } from 'vitest';
-import { coerceAttributeValue, getAttributeInputType } from '../attribute-values';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import {
+  coerceAttributeValue,
+  formatAttributeInputValue,
+  getAttributeInputType,
+  serializeAttributeInputValue,
+} from '../attribute-values';
+
+const originalTimezone = process.env.TZ;
+
+beforeAll(() => {
+  process.env.TZ = 'America/New_York';
+});
+
+afterAll(() => {
+  if (originalTimezone === undefined) delete process.env.TZ;
+  else process.env.TZ = originalTimezone;
+});
 
 describe('getAttributeInputType', () => {
   it('maps postgres types to input kinds', () => {
@@ -55,5 +71,81 @@ describe('coerceAttributeValue', () => {
   it('trims date strings but keeps text verbatim', () => {
     expect(coerceAttributeValue(' 2026-07-11 ', 'date')).toEqual({ ok: true, value: '2026-07-11' });
     expect(coerceAttributeValue(' padded ', 'text')).toEqual({ ok: true, value: ' padded ' });
+  });
+
+  it('adds the browser offset to local timezone-aware timestamp edits', () => {
+    expect(coerceAttributeValue('2026-07-11T10:30', 'timestamp with time zone')).toEqual({
+      ok: true,
+      value: '2026-07-11T10:30-04:00',
+    });
+    expect(coerceAttributeValue('2026-07-11T14:30:00+02:00', 'timestamptz')).toEqual({
+      ok: true,
+      value: '2026-07-11T14:30:00+02:00',
+    });
+    expect(coerceAttributeValue('2026-07-11T10:30', 'timestamp without time zone')).toEqual({
+      ok: true,
+      value: '2026-07-11T10:30',
+    });
+  });
+
+  it('rejects local timestamps that JavaScript normalizes across a DST gap', () => {
+    expect(coerceAttributeValue('2026-03-08T02:30', 'timestamp with time zone'))
+      .toEqual({ ok: false });
+  });
+});
+
+describe('timestamp form values', () => {
+  it('displays aware instants in browser-local time and submits changed values as instants', () => {
+    expect(formatAttributeInputValue('2026-07-11T14:30:00Z', 'timestamp with time zone'))
+      .toBe('2026-07-11T10:30');
+    expect(serializeAttributeInputValue('2026-07-11T11:30', 'timestamp with time zone'))
+      .toBe('2026-07-11T11:30-04:00');
+  });
+
+  it('retains an unchanged aware instant through an ambiguous local time', () => {
+    const original = '2026-11-01T06:30:00Z';
+    const local = formatAttributeInputValue(original, 'timestamp with time zone');
+
+    expect(local).toBe('2026-11-01T01:30');
+    expect(new Date(local).toISOString()).toBe('2026-11-01T05:30:00.000Z');
+    expect(serializeAttributeInputValue(local, 'timestamp with time zone', original)).toBe(original);
+  });
+
+  it('keeps timezone-free timestamps as wall-clock values', () => {
+    const original = '2026-07-11T14:30:00';
+    expect(formatAttributeInputValue(original, 'timestamp without time zone'))
+      .toBe('2026-07-11T14:30');
+    expect(serializeAttributeInputValue(
+      '2026-07-11T14:30',
+      'timestamp without time zone',
+      original,
+    )).toBe(original);
+  });
+
+  it('limits display precision while preserving unchanged API precision', () => {
+    const aware = '2026-07-11T14:30:00.123456Z';
+    const naive = '2026-07-11T10:30:00.123456';
+    expect(formatAttributeInputValue(aware, 'timestamp with time zone'))
+      .toBe('2026-07-11T10:30:00.123');
+    expect(formatAttributeInputValue(naive, 'timestamp without time zone'))
+      .toBe('2026-07-11T10:30:00.123');
+    expect(serializeAttributeInputValue('2026-07-11T10:30:00.123', 'timestamp with time zone', aware))
+      .toBe(aware);
+    expect(serializeAttributeInputValue('2026-07-11T10:30:00.123', 'timestamp without time zone', naive))
+      .toBe(naive);
+
+    const subMillisecond = '2026-07-11T14:30:00.000456Z';
+    expect(formatAttributeInputValue(subMillisecond, 'timestamp with time zone'))
+      .toBe('2026-07-11T10:30');
+    expect(serializeAttributeInputValue('2026-07-11T10:30', 'timestamp with time zone', subMillisecond))
+      .toBe(subMillisecond);
+    const naiveSubMillisecond = '2026-07-11T10:30:00.000456';
+    expect(formatAttributeInputValue(naiveSubMillisecond, 'timestamp without time zone'))
+      .toBe('2026-07-11T10:30');
+    expect(serializeAttributeInputValue(
+      '2026-07-11T10:30',
+      'timestamp without time zone',
+      naiveSubMillisecond,
+    )).toBe(naiveSubMillisecond);
   });
 });

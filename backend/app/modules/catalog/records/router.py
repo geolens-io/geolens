@@ -83,6 +83,7 @@ _LANGUAGE_PATH = Path(
 
 async def _touch_record(db: AsyncSession, record: Record, user: Identity) -> None:
     """Stamp the parent before child writes, in their transaction."""
+    # Force an UPDATE for the same actor; the trigger supplies monotonic wall time.
     record.updated_at = func.now()
     record.updated_by = user.id
     # Acquire the parent write lock before a child lock to match cascading delete.

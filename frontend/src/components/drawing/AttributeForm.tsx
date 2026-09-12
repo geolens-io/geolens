@@ -12,7 +12,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { getAttributeInputType as getInputType } from '@/lib/attribute-values';
+import {
+  formatAttributeInputValue,
+  getAttributeInputType as getInputType,
+  serializeAttributeInputValue,
+} from '@/lib/attribute-values';
 
 /** System columns that should never appear in the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -43,7 +47,7 @@ function buildFormValues(
       if (inputType === 'checkbox') {
         init[col.name] = Boolean(initial);
       } else {
-        init[col.name] = String(initial);
+        init[col.name] = formatAttributeInputValue(initial, col.type);
       }
     } else {
       init[col.name] = inputType === 'checkbox' ? false : '';
@@ -104,7 +108,9 @@ export function AttributeForm({
         properties[col.name] = str === '' ? null : Number(str);
       } else {
         const str = raw as string;
-        properties[col.name] = str === '' ? null : str;
+        properties[col.name] = str === ''
+          ? null
+          : serializeAttributeInputValue(str, col.type, initialValues?.[col.name]);
       }
     }
     void submit(properties);
@@ -163,7 +169,13 @@ export function AttributeForm({
                 <Input
                   id={`attr-${col.name}`}
                   type={htmlType}
-                  step={inputType === 'number-int' ? '1' : inputType === 'number-float' ? 'any' : undefined}
+                  step={
+                    inputType === 'number-int'
+                      ? '1'
+                      : inputType === 'number-float' || inputType === 'datetime-local'
+                        ? 'any'
+                        : undefined
+                  }
                   value={values[col.name] as string}
                   disabled={isSubmitting}
                   onChange={(e) =>

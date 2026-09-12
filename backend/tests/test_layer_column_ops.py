@@ -421,3 +421,39 @@ async def test_column_ddl_recomputes_quality_detail(
     assert after.status_code == 200
     computed_after = after.json()["quality_detail"]["computed_at"]
     assert computed_after > computed_before
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
+async def test_timestamp_writes_preserve_offsets_and_reject_ambiguous_local_time(
+    client: AsyncClient, admin_auth_header: dict, method: str
+):
+    dataset_id = await _create_layer(
+        client, admin_auth_header, title=f"Offset {method}"
+    )
+    changed = await client.patch(
+        f"/layers/{dataset_id}/columns/value/type",
+        json={"new_type": "timestamp"},
+        headers=admin_auth_header,
+    )
+    assert changed.status_code == 200, changed.text
+    collection_url = f"/datasets/{dataset_id}/features/"
+    body = {
+        "geometry": {"type": "Point", "coordinates": [1, 2]},
+        "properties": {"value": "2026-09-12T10:30:00-04:00"},
+    }
+    created = await client.post(collection_url, json=body, headers=admin_auth_header)
+    assert created.status_code == 201, created.text
+    feature_url = f"{collection_url}{created.json()['id']}"
+    url = collection_url if method == "POST" else feature_url
+    accepted = await client.request(method, url, json=body, headers=admin_auth_header)
+    assert accepted.status_code == (201 if method == "POST" else 200), accepted.text
+    assert accepted.json()["properties"]["value"] == "2026-09-12T14:30:00+00:00"
+
+    body["properties"] = {"name": "must not persist", "value": "2026-09-12T10:30"}
+    denied = await client.request(method, url, json=body, headers=admin_auth_header)
+    assert denied.status_code == 400, denied.text
+    assert "timezone offset" in denied.json()["detail"]
+    persisted = await client.get(feature_url, headers=admin_auth_header)
+    assert persisted.json()["properties"]["value"] == "2026-09-12T14:30:00+00:00"
+    assert persisted.json()["properties"]["name"] is None

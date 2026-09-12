@@ -20,6 +20,136 @@ export function getAttributeInputType(colType: string): AttributeInputType {
   return 'text';
 }
 
+function isTimezoneAwareTimestamp(colType: string): boolean {
+  const type = colType.toLowerCase();
+  if (type.includes('without time zone')) return false;
+  // The layer schema API's short `timestamp` type creates TIMESTAMPTZ columns.
+  return type === 'timestamp' || type.startsWith('timestamptz') || type.includes('with time zone');
+}
+
+function hasTimezoneOffset(value: string): boolean {
+  return /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
+}
+
+function localTimestampWithOffset(raw: string): string | null {
+  const match = raw.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/,
+  );
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second = '0', fraction = ''] = match;
+  const milliseconds = Number(fraction.padEnd(3, '0').slice(0, 3));
+  const instant = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    milliseconds,
+  );
+  if (Number(year) < 100) instant.setFullYear(Number(year));
+  if (
+    instant.getFullYear() !== Number(year)
+    || instant.getMonth() !== Number(month) - 1
+    || instant.getDate() !== Number(day)
+    || instant.getHours() !== Number(hour)
+    || instant.getMinutes() !== Number(minute)
+    || instant.getSeconds() !== Number(second)
+    || instant.getMilliseconds() !== milliseconds
+  ) return null;
+  const offsetMinutes = instant.getTimezoneOffset();
+  const sign = offsetMinutes <= 0 ? '+' : '-';
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(absoluteOffset / 60)).padStart(2, '0');
+  const minutes = String(absoluteOffset % 60).padStart(2, '0');
+  return `${raw}${sign}${hours}:${minutes}`;
+}
+
+function dateTimeLocalValue(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  millisecond: number,
+): string {
+  const pad = (part: number) => String(part).padStart(2, '0');
+  const minuteValue = [
+    year,
+    '-',
+    pad(month),
+    '-',
+    pad(day),
+    'T',
+    pad(hour),
+    ':',
+    pad(minute),
+  ].join('');
+  return second === 0 && millisecond === 0
+    ? minuteValue
+    : `${minuteValue}:${pad(second)}${
+      millisecond === 0 ? '' : `.${String(millisecond).padStart(3, '0')}`
+    }`;
+}
+
+function naiveDateTimeLocalValue(text: string): string | null {
+  const match = text.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?/,
+  );
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second = '0', fraction = ''] = match;
+  return dateTimeLocalValue(
+    Number(year),
+    Number(month),
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    Number(fraction.padEnd(3, '0').slice(0, 3)),
+  );
+}
+
+/** Convert an API attribute value to the representation required by its HTML input. */
+export function formatAttributeInputValue(value: unknown, colType: string): string {
+  const text = String(value);
+  if (getAttributeInputType(colType) !== 'datetime-local') return text;
+
+  if (!isTimezoneAwareTimestamp(colType)) {
+    return naiveDateTimeLocalValue(text) ?? text;
+  }
+
+  const instant = new Date(text);
+  if (Number.isNaN(instant.getTime())) return text;
+  return dateTimeLocalValue(
+    instant.getFullYear(),
+    instant.getMonth() + 1,
+    instant.getDate(),
+    instant.getHours(),
+    instant.getMinutes(),
+    instant.getSeconds(),
+    instant.getMilliseconds(),
+  );
+}
+
+/** Convert an HTML datetime-local value to the timestamp column's wire representation. */
+export function serializeAttributeInputValue(
+  raw: string,
+  colType: string,
+  initialValue?: unknown,
+): string {
+  if (
+    initialValue !== undefined
+    && initialValue !== null
+    && raw === formatAttributeInputValue(initialValue, colType)
+  ) {
+    return String(initialValue);
+  }
+
+  if (!isTimezoneAwareTimestamp(colType)) return raw;
+  return localTimestampWithOffset(raw) ?? raw;
+}
+
 const TRUE_WORDS = new Set(['true', 't', '1', 'yes', 'y']);
 const FALSE_WORDS = new Set(['false', 'f', '0', 'no', 'n']);
 
@@ -58,9 +188,17 @@ export function coerceAttributeValue(
       return { ok: false };
     }
     case 'date':
-    case 'datetime-local':
-      // ISO strings, same wire shape AttributeForm sends.
       return { ok: true, value: trimmed };
+    case 'datetime-local': {
+      if (!isTimezoneAwareTimestamp(colType)) return { ok: true, value: trimmed };
+      if (hasTimezoneOffset(trimmed)) {
+        return Number.isNaN(new Date(trimmed).getTime())
+          ? { ok: false }
+          : { ok: true, value: trimmed };
+      }
+      const timestamp = localTimestampWithOffset(trimmed);
+      return timestamp === null ? { ok: false } : { ok: true, value: timestamp };
+    }
     default:
       // text keeps the raw, untrimmed value.
       return { ok: true, value: raw };

@@ -830,6 +830,13 @@ def _coerce_temporal_properties(properties: dict, column_info: list[dict]) -> di
             "timestamp with time zone",
         ):
             parsed = _property_filter_bind(f"prop_{name}", name, pg_type, value)
+            if (
+                pg_type == "timestamp with time zone"
+                and parsed.value.utcoffset() is None
+            ):
+                raise ValueError(
+                    f"Property {name!r} requires a timestamp with a timezone offset."
+                )
             values[name] = parsed.value
     return values
 
