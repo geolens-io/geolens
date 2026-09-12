@@ -9,6 +9,8 @@ interface InlineEditProps {
   onSave: (newValue: string) => void | Promise<void>;
   as?: 'h1' | 'h2' | 'p' | 'span';
   multiline?: boolean;
+  /** Stage multiline drafts when focus leaves the editor. */
+  saveOnBlur?: boolean;
   className?: string;
   placeholder?: string;
   canEdit?: boolean;
@@ -25,6 +27,7 @@ export function InlineEdit({
   onSave,
   as: Tag = 'span',
   multiline = false,
+  saveOnBlur = false,
   className,
   placeholder = '',
   canEdit = true,
@@ -159,21 +162,18 @@ export function InlineEdit({
 
     if (multiline) {
       return (
-        <div ref={multilineContainerRef}>
+        <div
+          ref={multilineContainerRef}
+          onBlur={(e) => {
+            if (multilineContainerRef.current?.contains(e.relatedTarget as Node)) return;
+            if (saveOnBlur) void save();
+            else cancel();
+          }}
+        >
           <textarea
             ref={inputRef as React.RefObject<HTMLTextAreaElement>}
             value={draft}
             onChange={(e) => handleDraftChange(e.target.value)}
-            // fix(#528 review): don't cancel when focus moves to the editor's
-            // own Save/Cancel buttons — Tab from the textarea used to fire
-            // blur→cancel and unmount the buttons before a keyboard user
-            // could reach them (mousedown-preventDefault only covers pointers).
-            onBlur={(e) => {
-              if (multilineContainerRef.current?.contains(e.relatedTarget as Node)) {
-                return;
-              }
-              cancel();
-            }}
             onKeyDown={handleKeyDown}
             // fix(#438): DS-03 — deliberately shares inputClasses with its
             // sibling <input> so the inline editor looks identical in both modes;

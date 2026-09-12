@@ -37,6 +37,7 @@ import { formatNumber } from '@/lib/format';
 import { formatMutationError } from '@/lib/error-map';
 import { coerceAttributeValue } from '@/lib/attribute-values';
 import { Loader2, ArrowUpDown, Settings2, Pencil } from 'lucide-react';
+import { useAuthStore } from '@/stores/auth-store';
 
 // react-table v9 requires row models and sort functions to be registered
 // explicitly (v8 wired getSortedRowModel() as a table option and auto-detected
@@ -180,6 +181,16 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
   const updateFeature = useUpdateFeature();
+  const authIdentity = useAuthStore((state) => `${state.sessionEpoch}:${state.user?.id ?? ''}`);
+  const requestScopeRef = useRef({ datasetId, authIdentity });
+  if (
+    requestScopeRef.current.datasetId !== datasetId
+    || requestScopeRef.current.authIdentity !== authIdentity
+  ) {
+    requestScopeRef.current = { datasetId, authIdentity };
+  }
+  const editingCellRef = useRef(editingCell);
+  editingCellRef.current = editingCell;
 
   // Debounce filters to avoid hammering the API on every keystroke
   const debouncedFilters = useDebouncedValue(columnFilters, 300);
@@ -205,7 +216,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   useEffect(() => {
     setEditingCell(null);
     setEditError(null);
-  }, [cursor, activeFilters, pageSize]);
+  }, [datasetId, cursor, activeFilters, pageSize]);
 
   const { data, isLoading, isFetching, isError } = useDatasetRows(
     datasetId,
@@ -219,6 +230,9 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   }, []);
 
   const handleCellSave = useCallback(async (rowGid: number, column: string, colType: string, newValue: string) => {
+    const submittedDatasetId = datasetId;
+    const submittedScope = requestScopeRef.current;
+    const submittedCell = editingCellRef.current;
     // fix(#458 E-03): the inline editor is a plain text input; coerce to the
     // column's wire type instead of sending a string into a typed column.
     const coerced = coerceAttributeValue(newValue, colType);
@@ -236,17 +250,27 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     // before awaiting made that branch unreachable and showed the stale value.
     try {
       await updateFeature.mutateAsync({
-        datasetId,
+        datasetId: submittedDatasetId,
         gid: rowGid,
         properties: { [column]: coerced.value },
       });
+      if (
+        requestScopeRef.current !== submittedScope
+        || editingCellRef.current !== submittedCell
+      ) return;
       setEditingCell(null);
       toast.success(t('attributes.editSaved'));
     } catch (err) {
+      if (
+        requestScopeRef.current !== submittedScope
+        || editingCellRef.current !== submittedCell
+      ) return;
       // fix(#458 E-21): surface the backend's specific reason (geometry-type
       // mismatch, unknown column, …) instead of a generic toast, and keep the
       // editor open so the value can be corrected rather than silently reverting.
-      toast.error(formatMutationError('dataset:attributes.editFailed', err));
+      const msg = formatMutationError('dataset:attributes.editFailed', err);
+      setEditError(msg);
+      toast.error(msg);
     }
   }, [datasetId, updateFeature, t]);
 

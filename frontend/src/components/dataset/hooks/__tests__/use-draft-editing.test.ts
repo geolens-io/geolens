@@ -1,6 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
 import type { DatasetResponse } from '@/types/api';
+import { useAuthStore } from '@/stores/auth-store';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -258,7 +259,8 @@ describe('useDraftEditing', () => {
   // for dataset A survived into dataset B's render.
   it('resets staged drafts when datasetId changes', () => {
     const { result, rerender } = renderHook(
-      ({ datasetId, dataset }) => useDraftEditing({ datasetId, dataset, isGeometryEditDirty: false }),
+      ({ datasetId, dataset }) =>
+        useDraftEditing({ datasetId, dataset, isGeometryEditDirty: false }),
       {
         initialProps: {
           datasetId: 'ds-1',
@@ -283,7 +285,8 @@ describe('useDraftEditing', () => {
 
   it('a save after navigating to a different dataset does not send the previous draft', async () => {
     const { result, rerender } = renderHook(
-      ({ datasetId, dataset }) => useDraftEditing({ datasetId, dataset, isGeometryEditDirty: false }),
+      ({ datasetId, dataset }) =>
+        useDraftEditing({ datasetId, dataset, isGeometryEditDirty: false }),
       {
         initialProps: {
           datasetId: 'ds-1',
@@ -326,5 +329,230 @@ describe('useDraftEditing', () => {
       result.current.handleDraftDirtyChange('lineage_summary', false);
     });
     expect(result.current.pendingCount).toBe(0);
+  });
+});
+
+function deferredSave() {
+  let resolve!: (value: unknown) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<unknown>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function renderDraft() {
+  return renderHook(
+    ({ id }) =>
+      useDraftEditing({
+        datasetId: id,
+        dataset: makeDataset({ id, summary: `${id} original` }),
+        isGeometryEditDirty: false,
+      }),
+    { initialProps: { id: 'A' } },
+  );
+}
+
+describe('draft save races', () => {
+  beforeEach(() => {
+    mockMutateAsync.mockReset().mockResolvedValue({});
+  });
+
+  it.each(['success', 'failure'])(
+    'preserves another dataset draft after old save %s',
+    async (outcome) => {
+      const request = deferredSave();
+      mockMutateAsync.mockReturnValueOnce(request.promise);
+      const { result, rerender } = renderDraft();
+      act(() => result.current.stagePendingDraft('summary', 'A submitted'));
+      let saving!: Promise<boolean>;
+      act(() => {
+        saving = result.current.savePendingDrafts();
+      });
+      await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
+      rerender({ id: 'B' });
+      act(() => result.current.stagePendingDraft('summary', 'B draft'));
+      await act(async () => {
+        if (outcome === 'success') request.resolve({});
+        else request.reject(new Error('failed'));
+        expect(await saving).toBe(false);
+      });
+      expect(result.current.resolveDraftValue('summary')).toBe('B draft');
+      expect(result.current.pendingCount).toBe(1);
+      expect(result.current.isSaving).toBe(false);
+    },
+  );
+
+  it.each(['new edit', 'A original'])(
+    'preserves input staged during a save: %s',
+    async (laterValue) => {
+      const request = deferredSave();
+      mockMutateAsync.mockReturnValueOnce(request.promise);
+      const { result } = renderDraft();
+      act(() => result.current.stagePendingDraft('summary', 'submitted'));
+      let saving!: Promise<boolean>;
+      act(() => {
+        saving = result.current.savePendingDrafts();
+      });
+      await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
+      act(() => result.current.stagePendingDraft('summary', laterValue));
+      await act(async () => {
+        request.resolve({});
+        await saving;
+      });
+      expect(result.current.pendingCount).toBe(1);
+      expect(result.current.resolveDraftValue('summary')).toBe(laterValue);
+      await act(async () => {
+        await result.current.savePendingDrafts();
+      });
+      expect(mockMutateAsync).toHaveBeenLastCalledWith({
+        datasetId: 'A',
+        data: { summary: laterValue },
+      });
+    },
+  );
+
+  it('keeps the submitted value retryable when a reverted in-flight edit fails', async () => {
+    const request = deferredSave();
+    mockMutateAsync.mockReturnValueOnce(request.promise);
+    const { result } = renderDraft();
+    act(() => result.current.stagePendingDraft('summary', 'submitted'));
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = result.current.savePendingDrafts();
+    });
+    await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
+    act(() => result.current.stagePendingDraft('summary', 'second edit'));
+    act(() => result.current.stagePendingDraft('summary', 'submitted'));
+    expect(result.current.resolveDraftValue('summary')).toBe('submitted');
+    await act(async () => {
+      request.reject(new Error('failed'));
+      expect(await saving).toBe(false);
+    });
+    expect(result.current.pendingCount).toBe(1);
+    expect(result.current.resolveDraftValue('summary')).toBe('submitted');
+    await act(async () => {
+      await result.current.savePendingDrafts();
+    });
+    expect(mockMutateAsync).toHaveBeenLastCalledWith({
+      datasetId: 'A',
+      data: { summary: 'submitted' },
+    });
+  });
+
+  it('keeps a newer dataset save active when the old request finishes', async () => {
+    const first = deferredSave();
+    const second = deferredSave();
+    mockMutateAsync.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { result, rerender } = renderDraft();
+    act(() => result.current.stagePendingDraft('summary', 'A draft'));
+    let firstSave!: Promise<boolean>;
+    act(() => {
+      firstSave = result.current.savePendingDrafts();
+    });
+    await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
+    rerender({ id: 'B' });
+    act(() => result.current.stagePendingDraft('summary', 'B draft'));
+    let secondSave!: Promise<boolean>;
+    act(() => {
+      secondSave = result.current.savePendingDrafts();
+    });
+    await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      first.resolve({});
+      await firstSave;
+    });
+    expect(result.current.isSaving).toBe(true);
+    expect(result.current.pendingCount).toBe(1);
+    await act(async () => {
+      second.resolve({});
+      await secondSave;
+    });
+    expect(result.current.pendingCount).toBe(0);
+  });
+
+  it('preserves unblurred changes after a save', async () => {
+    const request = deferredSave();
+    mockMutateAsync.mockReturnValueOnce(request.promise);
+    const { result } = renderDraft();
+    act(() => result.current.stagePendingDraft('summary', 'submitted'));
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = result.current.savePendingDrafts();
+    });
+    await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
+    act(() => result.current.handleDraftDirtyChange('summary', true));
+    await act(async () => {
+      request.resolve({});
+      await saving;
+    });
+    expect(result.current.pendingCount).toBe(1);
+    act(() => {
+      result.current.stagePendingDraft('summary', 'latest input');
+      result.current.handleDraftDirtyChange('summary', false);
+    });
+    await act(async () => {
+      await result.current.savePendingDrafts();
+    });
+    expect(mockMutateAsync).toHaveBeenLastCalledWith({
+      datasetId: 'A',
+      data: { summary: 'latest input' },
+    });
+  });
+
+  it('does not clear drafts after the authentication identity changes', async () => {
+    const request = deferredSave();
+    mockMutateAsync.mockReturnValueOnce(request.promise);
+    const { result } = renderDraft();
+    act(() => result.current.stagePendingDraft('summary', 'old session'));
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = result.current.savePendingDrafts();
+    });
+    await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
+    act(() =>
+      useAuthStore.setState({
+        sessionEpoch: useAuthStore.getState().sessionEpoch + 1,
+      }),
+    );
+    act(() => result.current.stagePendingDraft('summary', 'new session'));
+    await act(async () => {
+      request.resolve({});
+      expect(await saving).toBe(false);
+    });
+    expect(result.current.resolveDraftValue('summary')).toBe('new session');
+    expect(result.current.pendingCount).toBe(1);
+  });
+
+  it('rejects a save callback captured before navigation', async () => {
+    const { result, rerender } = renderDraft();
+    const staleSave = result.current.savePendingDrafts;
+    rerender({ id: 'B' });
+    act(() => result.current.stagePendingDraft('summary', 'B draft'));
+    await act(async () => {
+      expect(await staleSave()).toBe(false);
+    });
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(result.current.pendingCount).toBe(1);
+  });
+
+  it('prevents duplicate saves before blur settles', async () => {
+    const request = deferredSave();
+    mockMutateAsync.mockReturnValueOnce(request.promise);
+    const { result } = renderDraft();
+    act(() => result.current.stagePendingDraft('summary', 'submitted'));
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = result.current.savePendingDrafts();
+    });
+    await act(async () => {
+      expect(await result.current.savePendingDrafts()).toBe(false);
+    });
+    await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      request.resolve({});
+      await saving;
+    });
   });
 });

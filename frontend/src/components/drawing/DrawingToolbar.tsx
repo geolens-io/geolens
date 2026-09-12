@@ -43,6 +43,7 @@ interface DrawingToolbarProps {
   onDeleteFeature?: () => void;
   onUndo?: () => void;
   canUndo?: boolean;
+  isMutating?: boolean;
 }
 
 export function DrawingToolbar({
@@ -55,6 +56,7 @@ export function DrawingToolbar({
   onDeleteFeature,
   onUndo,
   canUndo,
+  isMutating = false,
 }: DrawingToolbarProps) {
   const { t } = useTranslation('builder');
   const activeMode = useDrawingStore((s) => s.activeMode);
@@ -133,6 +135,7 @@ export function DrawingToolbar({
             title={t('drawing.saveChanges')}
             aria-label={t('drawing.saveChanges')}
             onClick={onSaveEdit}
+            disabled={isMutating}
           >
             <Check className="h-4 w-4" />
             <span className="hidden sm:inline">{t('common:save')}</span>
@@ -144,6 +147,7 @@ export function DrawingToolbar({
             title={t('drawing.cancelEditing')}
             aria-label={t('drawing.cancelEditing')}
             onClick={onCancelEdit}
+            disabled={isMutating}
           >
             <X className="h-4 w-4" />
             <span className="hidden sm:inline">{t('common:cancel')}</span>
@@ -155,6 +159,7 @@ export function DrawingToolbar({
             title={t('drawing.editAttributes')}
             aria-label={t('drawing.editAttributes')}
             onClick={onEditAttributes}
+            disabled={isMutating}
           >
             <FileEdit className="h-4 w-4" />
             <span className="hidden sm:inline">{t('drawing.editAttributes')}</span>
@@ -166,6 +171,7 @@ export function DrawingToolbar({
             title={t('drawing.deleteFeature')}
             aria-label={t('drawing.deleteFeature')}
             onClick={onDeleteFeature}
+            disabled={isMutating}
           >
             <Trash2 className="h-4 w-4" />
             <span className="hidden sm:inline">{t('common:delete')}</span>

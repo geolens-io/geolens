@@ -25,9 +25,17 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { act } from '@testing-library/react';
 import { render, screen } from '@/test/test-utils';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
+import { useAuthStore } from '@/stores/auth-store';
+
+const updateFeature = vi.hoisted(() => vi.fn());
+vi.mock('@/api/features', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/features')>()),
+  updateFeature,
+}));
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDatasetRows: vi.fn(),
@@ -59,6 +67,9 @@ const ROWS_RESPONSE = {
 
 describe('fix(#1628): inline cell editor survives an unrelated re-render', () => {
   beforeEach(() => {
+    updateFeature.mockReset();
+    updateFeature.mockResolvedValue({});
+    useAuthStore.setState({ sessionEpoch: 0, user: null });
     vi.mocked(useDatasetRows).mockReturnValue({
       data: ROWS_RESPONSE,
       isLoading: false,
@@ -115,5 +126,108 @@ describe('fix(#1628): inline cell editor survives an unrelated re-render', () =>
     expect(afterReject).toBe(editor);
     expect(afterReject).toHaveValue('not-a-number');
     expect(afterReject).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('associates a backend rejection with the cell editor', async () => {
+    updateFeature.mockRejectedValueOnce(new Error('Backend rejected value'));
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1628" canEdit />);
+
+    await user.click(screen.getByRole('button', { name: '100' }));
+    const editor = screen.getByRole('textbox', { name: 'Edit population for feature 1' });
+    await user.clear(editor);
+    await user.type(editor, '250');
+    await user.keyboard('{Enter}');
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Backend rejected value');
+    expect(screen.getByRole('textbox', { name: 'Edit population for feature 1' }))
+      .toHaveAttribute('aria-describedby', alert.id);
+  });
+
+  it('does not let a dataset A completion close an editor after A is reopened', async () => {
+    let resolveUpdate!: (value: unknown) => void;
+    updateFeature.mockReturnValueOnce(new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    const user = userEvent.setup();
+    const { rerender } = render(<AttributeTable datasetId="dataset-a" canEdit />);
+
+    await user.click(screen.getByRole('button', { name: '100' }));
+    const firstEditor = screen.getByRole('textbox', { name: 'Edit population for feature 1' });
+    await user.clear(firstEditor);
+    await user.type(firstEditor, '250');
+    await user.keyboard('{Enter}');
+
+    rerender(<AttributeTable datasetId="dataset-b" canEdit />);
+    rerender(<AttributeTable datasetId="dataset-a" canEdit />);
+    await user.click(await screen.findByRole('button', { name: '100' }));
+    await act(async () => {
+      resolveUpdate({});
+    });
+
+    expect(await screen.findByRole('textbox', {
+      name: 'Edit population for feature 1',
+    })).toBeInTheDocument();
+  });
+
+  it('does not let an older cell save close a newer editor in the same dataset', async () => {
+    let resolveUpdate!: (value: unknown) => void;
+    updateFeature.mockReturnValueOnce(new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    vi.mocked(useDatasetRows).mockReturnValue({
+      data: {
+        ...ROWS_RESPONSE,
+        rows: [
+          { gid: 1, population: 100 },
+          { gid: 2, population: 200 },
+        ],
+        approximate_total: 2,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRows>);
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1628" canEdit />);
+
+    await user.click(screen.getByRole('button', { name: '100' }));
+    const firstEditor = screen.getByRole('textbox', { name: 'Edit population for feature 1' });
+    await user.clear(firstEditor);
+    await user.type(firstEditor, '250');
+    await user.keyboard('{Enter}');
+    await user.click(screen.getByRole('button', { name: '200' }));
+
+    await act(async () => {
+      resolveUpdate({});
+    });
+
+    expect(await screen.findByRole('textbox', {
+      name: 'Edit population for feature 2',
+    })).toBeInTheDocument();
+  });
+
+  it('does not let a prior auth session close the current cell editor', async () => {
+    let resolveUpdate!: (value: unknown) => void;
+    updateFeature.mockReturnValueOnce(new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1628" canEdit />);
+
+    await user.click(screen.getByRole('button', { name: '100' }));
+    const editor = screen.getByRole('textbox', { name: 'Edit population for feature 1' });
+    await user.clear(editor);
+    await user.type(editor, '250');
+    await user.keyboard('{Enter}');
+    useAuthStore.setState({ sessionEpoch: 1 });
+    await act(async () => {
+      resolveUpdate({});
+    });
+
+    expect(await screen.findByRole('textbox', {
+      name: 'Edit population for feature 1',
+    })).toBeInTheDocument();
   });
 });

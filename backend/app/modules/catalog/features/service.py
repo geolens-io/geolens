@@ -817,6 +817,23 @@ def _validate_geometry_type(geojson_type: str, dataset_geometry_type: str) -> No
         )
 
 
+def _coerce_temporal_properties(properties: dict, column_info: list[dict]) -> dict:
+    """Convert JSON temporal strings to the native values required by asyncpg."""
+    values = dict(properties)
+    for column in column_info:
+        name = column["name"]
+        pg_type = column.get("type")
+        value = values.get(name)
+        if isinstance(value, str) and pg_type in (
+            "date",
+            "timestamp without time zone",
+            "timestamp with time zone",
+        ):
+            parsed = _property_filter_bind(f"prop_{name}", name, pg_type, value)
+            values[name] = parsed.value
+    return values
+
+
 async def insert_feature(
     db: AsyncSession,
     table_name: str,
@@ -835,6 +852,7 @@ async def insert_feature(
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
     normalized_geom = _validate_geometry_structure(geometry)
     _reject_unknown_properties(properties, column_info)
+    properties = _coerce_temporal_properties(properties or {}, column_info)
 
     geojson_str = to_geojson(normalized_geom)
 
@@ -885,6 +903,7 @@ async def replace_feature(
     # Replace nulls every known column, so an unwritable one makes
     # the documented semantics unachievable even when the request omits it.
     _reject_unknown_properties(properties, column_info, replaces_all=True)
+    properties = _coerce_temporal_properties(properties, column_info)
 
     geojson_str = to_geojson(normalized_geom)
     geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
@@ -948,6 +967,7 @@ async def update_feature(
 
     if properties is not None:
         _reject_unknown_properties(properties, column_info)
+        properties = _coerce_temporal_properties(properties, column_info)
         allowed = {c["name"] for c in column_info}
         for key, value in properties.items():
             if key in allowed and _COLUMN_NAME_RE.match(key):

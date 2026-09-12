@@ -1379,8 +1379,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Embed tokens share origin/scope checks, revocation and cached-denial behavior.
     "backend/app/modules/embed_tokens/service.py": 1030,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
-    # invariants.
-    "backend/app/modules/catalog/features/service.py": 1373,
+    # invariants; temporal writes reuse the validated filter parsers.
+    "backend/app/modules/catalog/features/service.py": 1393,
 }
 
 

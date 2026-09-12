@@ -215,6 +215,7 @@ export function SourceQualityTab({
                   allowClear
                   as="p"
                   multiline
+                  saveOnBlur
                   canEdit={capabilities.lineage_summary.editable}
                   placeholder={t('iso.lineagePlaceholder')}
                   className="text-sm"
@@ -346,6 +347,7 @@ export function SourceQualityTab({
                   allowClear
                   as="p"
                   multiline
+                  saveOnBlur
                   canEdit={capabilities.quality_statement.editable}
                   placeholder={t('iso.qualityStatementPlaceholder')}
                   className="text-sm"
@@ -446,6 +448,7 @@ export function SourceQualityTab({
                   allowClear
                   as="p"
                   multiline
+                  saveOnBlur
                   canEdit={capabilities.attribution.editable}
                   placeholder={t('metadata.attributionPlaceholder')}
                   className="text-sm"
@@ -470,6 +473,7 @@ export function SourceQualityTab({
                   allowClear
                   as="p"
                   multiline
+                  saveOnBlur
                   canEdit={capabilities.usage_constraints.editable}
                   placeholder={t('iso.usageConstraintsPlaceholder')}
                   className="text-sm"
@@ -491,6 +495,7 @@ export function SourceQualityTab({
                   allowClear
                   as="p"
                   multiline
+                  saveOnBlur
                   canEdit={capabilities.access_constraints.editable}
                   placeholder={t('iso.accessConstraintsPlaceholder')}
                   className="text-sm"

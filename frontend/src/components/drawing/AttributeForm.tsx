@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -26,7 +26,7 @@ interface AttributeFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   columns: Column[];
-  onSubmit: (properties: Record<string, unknown>) => void;
+  onSubmit: (properties: Record<string, unknown>) => void | Promise<void>;
   onCancel: () => void;
   initialValues?: Record<string, unknown>;
 }
@@ -66,6 +66,8 @@ export function AttributeForm({
     [columns],
   );
   const isEditing = initialValues !== undefined;
+  const submittingRef = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [values, setValues] = useState<Record<string, string | boolean>>(() =>
     buildFormValues(editableColumns, initialValues),
@@ -76,6 +78,18 @@ export function AttributeForm({
     setValues(buildFormValues(editableColumns, initialValues));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reseed the form only when initialValues change; the setters are stable
   }, [initialValues]);
+
+  async function submit(properties: Record<string, unknown>) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(properties);
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -93,15 +107,21 @@ export function AttributeForm({
         properties[col.name] = str === '' ? null : str;
       }
     }
-    onSubmit(properties);
+    void submit(properties);
   }
 
   function handleSkip() {
-    onSubmit({});
+    void submit({});
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && submittingRef.current) return;
+        onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{isEditing ? t('attributeForm.titleEdit') : t('attributeForm.titleNew')}</DialogTitle>
@@ -122,6 +142,7 @@ export function AttributeForm({
                   <Checkbox
                     id={`attr-${col.name}`}
                     checked={values[col.name] === true}
+                    disabled={isSubmitting}
                     onCheckedChange={(checked) =>
                       setValues((v) => ({ ...v, [col.name]: checked === true }))
                     }
@@ -144,6 +165,7 @@ export function AttributeForm({
                   type={htmlType}
                   step={inputType === 'number-int' ? '1' : inputType === 'number-float' ? 'any' : undefined}
                   value={values[col.name] as string}
+                  disabled={isSubmitting}
                   onChange={(e) =>
                     setValues((v) => ({ ...v, [col.name]: e.target.value }))
                   }
@@ -154,14 +176,14 @@ export function AttributeForm({
 
           <DialogFooter>
             {!isEditing && (
-              <Button type="button" variant="outline" onClick={handleSkip}>
+              <Button type="button" variant="outline" onClick={handleSkip} disabled={isSubmitting}>
                 {t('attributeForm.skip')}
               </Button>
             )}
-            <Button type="button" variant="ghost" onClick={onCancel}>
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
               {t('common:cancel')}
             </Button>
-            <Button type="submit">{t('common:save')}</Button>
+            <Button type="submit" disabled={isSubmitting}>{t('common:save')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

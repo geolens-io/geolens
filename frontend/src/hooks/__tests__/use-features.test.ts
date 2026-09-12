@@ -1,6 +1,9 @@
 import { renderHook } from '@/test/test-utils';
 import { vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 
 vi.mock('@/api/features', () => ({
   createFeature: vi.fn(),
@@ -185,5 +188,24 @@ describe('useDeleteFeature', () => {
     const { result } = renderHook(() => useDeleteFeature());
 
     await expect(result.current.mutateAsync({ datasetId: 'ds-1', gid: 99 })).rejects.toThrow('Not found');
+  });
+});
+
+
+describe('schema error feedback belongs to the current editor', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns add failures without emitting an unscoped toast', async () => {
+    mockAddColumn.mockRejectedValueOnce(new Error('Add failed'));
+    const { result } = renderHook(() => useAddColumn());
+    await expect(result.current.mutateAsync({ datasetId: 'old-dataset', column: { name: 'new_column', type: 'text' } })).rejects.toThrow('Add failed');
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('returns drop failures without emitting an unscoped toast', async () => {
+    mockDropColumn.mockRejectedValueOnce(new Error('Drop failed'));
+    const { result } = renderHook(() => useDropColumn());
+    await expect(result.current.mutateAsync({ datasetId: 'old-dataset', columnName: 'old_column' })).rejects.toThrow('Drop failed');
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });
