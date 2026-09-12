@@ -752,7 +752,7 @@ _is_production = settings.is_production
 # Fallback below covers running from a source checkout with no `uv pip
 # install -e .` (no metadata to read); keep it in lockstep with
 # pyproject.toml — `make bump` rewrites it.
-_FALLBACK_APP_VERSION = "1.19.0"
+_FALLBACK_APP_VERSION = "1.19.1"
 
 
 def _resolve_app_version() -> str:
