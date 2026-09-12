@@ -15891,7 +15891,7 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
         /**
          * Filter
          *
-         * CQL2 filter expression evaluated server-side against this collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox and property filters by AND.
+         * CQL2 filter expression evaluated server-side against this collection's OGC Features Part 3 queryables document. Combines with bbox and property filters by AND.
          */
         filter?: string | null;
         /**

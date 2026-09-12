@@ -1,6 +1,6 @@
 """STAC API router: landing page, conformance, collections, items, search.
 
-Visibility is enforced on all item-returning endpoints (Phase 1061 SEC-S01).
+Visibility is enforced on all item-returning endpoints.
 Anonymous users see only public+published raster records; authenticated users
 see public + their owned private + any restricted records granted to their roles.
 """
@@ -87,8 +87,8 @@ class GeoJSONResponse(JSONResponse):
 # Record types eligible for STAC
 _STAC_RECORD_TYPES = RASTER_FAMILY_RECORD_TYPES
 
-# Page-size ceiling shared by every item-returning STAC handler (H-24 lowered it
-# from 1000 to bound deep-paging cost). An over-maximum limit is CLAMPED, never
+# Page-size ceiling shared by every item-returning STAC handler to bound
+# deep-paging cost. An over-maximum limit is clamped, never
 # rejected: the STAC Item Search spec requires it and stac-api-validator
 # enforces it. One constant so a future ceiling change cannot miss a handler.
 _STAC_MAX_LIMIT = 200
@@ -120,7 +120,7 @@ def _stac_content_language_headers(
 
 
 def _published_raster_filters():
-    # Phase 1061 SEC-S01: aggregate queries scoped by CollectionDataset; item
+    # Aggregate queries scoped by CollectionDataset; item
     # bodies remain visibility-gated below via _base_published_raster_query.
     return (
         Record.record_type.in_(_STAC_RECORD_TYPES),
@@ -187,7 +187,7 @@ def _parse_extent_row(
 ) -> tuple[list[float] | None, list[str | None] | None, str | None]:
     """Parse a spatial/temporal extent + license DB row into STAC-ready values.
 
-    fix(#886): the leading six columns come from ``rollup_bbox_columns``, and
+    The leading six columns come from ``rollup_bbox_columns``, and
     the STAC Collection ``extent.spatial.bbox`` takes the spec form -- STAC
     inherits RFC 7946 §5.2, so a rollup that crosses the antimeridian must be
     served as ``west > east`` rather than the global bbox a naive fold produced.
@@ -238,14 +238,14 @@ async def _fetch_raster_meta(
 ) -> dict[str, dict]:
     """Bulk-fetch raster metadata for a set of dataset IDs.
 
-    Reads the shared raster query through CatalogPort (KISS-6). STAC items
+    Reads the shared raster query through CatalogPort. STAC items
     don't need vrt_type/resolution_strategy at this layer, which is what the
     port's ``_without_vrt`` reader means.
     """
     return await get_catalog_port().fetch_raster_meta_bulk_without_vrt(db, dataset_ids)
 
 
-# fix(#1108): sentinel distinguishing "the page loop did not precompute
+# Sentinel distinguishing "the page loop did not precompute
 # lineage" from a precomputed None (a record with no lineage at all).
 _LINEAGE_UNRESOLVED: Any = object()
 
@@ -268,11 +268,11 @@ async def _dataset_to_stac_item(
 ) -> dict:
     """Convert a Dataset ORM object to a STAC Item dict with presigned URLs.
 
-    ``spatial_extent_geojson`` (PERF-5) lets bulk callers (e.g. STAC items
+    ``spatial_extent_geojson`` lets bulk callers such as a STAC items
     page) skip per-dataset Python-side WKB deserialization in
     ``dataset_to_ogc_record`` by precomputing ST_AsGeoJSON in one query.
 
-    ``public_app_url`` (fix(#315) follow-up): the raster/VRT ``raster_tiles``
+    ``public_app_url`` (follow-up): the raster/VRT ``raster_tiles``
     asset is served at the public APP origin (/raster-tiles/...), not the /api
     origin, so it is threaded to both ``dataset_to_ogc_record`` and the
     presigned-URL ``build_assets`` re-build below.
@@ -287,11 +287,11 @@ async def _dataset_to_stac_item(
         spatial_extent_geojson=spatial_extent_geojson,
         public_app_url=public_app_url,
         preferred_languages=preferred_languages,
-        # fix(#1103): the prose names the same datasets the derived_from link
+        # The prose names the same datasets the derived_from link
         # below points at, and is gated the same way — per requester, on each
         # referenced dataset rather than on the output they can already see.
-        # fix(#1108): page loops precompute the whole page through
-        # visible_lineage_summaries (one query per page, mirroring PERF-5's
+        # Page loops precompute the whole page through
+        # visible_lineage_summaries, with one query per page like
         # spatial_extent_geojson); only single-item callers resolve here.
         lineage_summary=(
             await visible_lineage_summary(db, record, user, user_roles or set())
@@ -350,7 +350,7 @@ async def _visible_derived_from_id(
 ) -> str | None:
     """Source item id for a ``rel="derived_from"`` link, when it is fetchable.
 
-    feat(#765): gated on the same query the item endpoints serve from, so the
+    Gated on the same query the item endpoints serve from, so the
     link never points at an item this requester would get a 404 for, and a
     private source is omitted entirely rather than disclosed as a dangling id.
     """
@@ -435,7 +435,7 @@ def _base_published_raster_query(
 ):
     """Base select for published raster/VRT datasets with visibility enforced.
 
-    Phase 1061 SEC-S01: matches the OGC Features peer router. Anonymous users
+    Matches the OGC Features peer router. Anonymous users
     see only public+published records; authenticated users see public + their
     owned private + any restricted records granted to their roles.
     """
@@ -645,29 +645,29 @@ async def conformance() -> StacConformance:
 async def get_collections(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    # fix(#430): no-schema variant keeps this public endpoint anonymous in
+    # No-schema variant keeps this public endpoint anonymous in
     # the OpenAPI surface — the plain optional dep stamped bearer security here,
     # narrowing the generated SDK clients to AuthenticatedClient.
     user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCollectionListResponse:
     """List all STAC Collections."""
     stac_api_url, _ = await _resolve_urls(db, request)
-    # fix(#430): aggregate extent/keyword/EPSG summaries must exclude
+    # Aggregate extent/keyword/EPSG summaries must exclude
     # private-but-published rasters, matching the item-body visibility gate.
     user_roles = await _resolve_roles(db, user)
 
     coll_result = await db.execute(select(Collection))
     collections = coll_result.scalars().all()
 
-    # fix(#1778): these four aggregates used to asyncio.gather, each branch
-    # opening its own async_session() — a nested pool checkout on top of
+    # Run these four aggregates sequentially on the caller's session. Giving
+    # each branch its own async_session() creates a nested pool checkout on top of
     # the connection this request already holds via `db` (get_db never
     # commits on the read path, so it stays checked out for the whole
     # request). 5 checkouts per anonymous, uncached request exhausts the
     # default 13-connection pool at 3 concurrent requests. Run them
     # sequentially on the caller's own session instead, the same trade
-    # made in service_query.py's dataset-detail fetch (#1436): these are
-    # grouped-aggregate queries over the same joined set, so sequencing's
+    # used by the dataset-detail fetch. These are grouped aggregates over the
+    # same joined set, so sequencing's
     # wall-clock cost is negligible next to that risk, and unlike
     # dataset-detail this endpoint is anonymous.
 
@@ -829,12 +829,12 @@ async def get_collection(
     collection_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    # fix(#430): no-schema variant — see get_collections above.
+    # No-schema variant — see get_collections above.
     user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCollection:
     """Get a single STAC Collection."""
     stac_api_url, _ = await _resolve_urls(db, request)
-    # fix(#430): scope aggregate summaries to visible rasters.
+    # Scope aggregate summaries to visible rasters.
     user_roles = await _resolve_roles(db, user)
 
     is_unassigned = collection_id == STAC_UNASSIGNED_COLLECTION_ID
@@ -1004,7 +1004,7 @@ async def get_collection_items(
     # limit actually served.
     limit = min(limit, _STAC_MAX_LIMIT)
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315): raster_tiles assets are served at the public APP origin.
+    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1037,7 +1037,7 @@ async def get_collection_items(
     total = (await db.execute(count_stmt)).scalar() or 0
 
     # Paginate
-    # fix(#1778): no ORDER BY meant OFFSET/LIMIT paging had no defined row
+    # No ORDER BY meant OFFSET/LIMIT paging had no defined row
     # order -- a plan change between page fetches could duplicate or drop
     # items across the rel=next chain. Record.created_at is a non-unique
     # server-default, so add Dataset.id as a tiebreaker, matching the
@@ -1049,7 +1049,7 @@ async def get_collection_items(
 
     # Bulk-fetch assets, raster metadata, and spatial-extent GeoJSON concurrently.
     # Bulk ST_AsGeoJSON in PostGIS is faster than per-dataset Python-side
-    # to_shape() WKB deserialization in dataset_to_ogc_record (PERF-5).
+    # to_shape() WKB deserialization in dataset_to_ogc_record.
     ds_ids = [d.id for d in datasets]
 
     async def _assets():
@@ -1078,7 +1078,7 @@ async def get_collection_items(
         _assets(), _raster(), _extents()
     )
 
-    # fix(#1108): lineage visibility for the whole page in one query
+    # Lineage visibility for the whole page in one query
     # instead of one visible_lineage_summary round trip per item.
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
@@ -1216,7 +1216,7 @@ async def get_collection_item(
 ) -> JSONResponse:
     """Get a single STAC Item within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315): raster_tiles assets are served at the public APP origin.
+    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1262,7 +1262,7 @@ async def get_item(
 ) -> JSONResponse:
     """Get a single STAC Item by dataset ID."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315): raster_tiles assets are served at the public APP origin.
+    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1296,7 +1296,7 @@ def _build_search_filters(
     """Build SQLAlchemy filter clauses for STAC search.
 
     Returns:
-        A tuple of (filter_clauses, ids_empty). ids_empty is True when an ids
+        A tuple of ``(filter_clauses, ids_empty)``. ``ids_empty`` is true when an ids
         parameter was provided but all values were invalid UUIDs, signaling
         that the caller should return an empty result immediately.
     """
@@ -1510,7 +1510,7 @@ async def _execute_search(
     )
     total = (await db.execute(count_stmt)).scalar() or 0
 
-    # fix(#1778): same missing-ORDER-BY hazard as get_collection_items -- add
+    # Same missing-ORDER-BY hazard as get_collection_items -- add
     # a deterministic tiebreaker before paging.
     stmt = stmt.order_by(Record.created_at.desc(), Dataset.id.desc())
     stmt = stmt.offset(offset).limit(limit)
@@ -1570,7 +1570,7 @@ async def _execute_search(
         _assets(), _raster(), _coll_membership()
     )
 
-    # fix(#1108): lineage visibility for the whole page in one query
+    # Lineage visibility for the whole page in one query
     # instead of one visible_lineage_summary round trip per item.
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
@@ -1663,7 +1663,7 @@ async def search_get(
 ) -> JSONResponse:
     """STAC Item Search (GET)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315): raster_tiles assets are served at the public APP origin.
+    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
     return await _execute_search(
@@ -1709,8 +1709,7 @@ class StacSearchBody(BaseModel):
     limit: int = Field(
         default=10,
         ge=1,
-        # WR-01 (Phase 1071) aligned GET/POST ceilings at le=200; the
-        # STAC hardening pass replaces the hard bound with clamping on all three
+        # GET and POST share the same ceiling. Clamp on all three
         # item-returning handlers — the Item Search spec (and stac-api-validator)
         # requires over-limit values to be clamped to the server maximum, not
         # rejected.
@@ -1728,7 +1727,7 @@ class StacSearchBody(BaseModel):
     @field_validator("intersects")
     @classmethod
     def _cap_intersects_size(cls, v: dict | None) -> dict | None:
-        # SEC-023 (sibling of SEC-FU-05): the GET `intersects` query param is
+        # The GET `intersects` query param is
         # capped at max_length=10000, but the POST body `intersects` dict
         # bypassed any bound and reached the same anonymous ST_GeomFromGeoJSON
         # predicate — a multi-megabyte GeoJSON could pin CPU/memory + a DB
@@ -1756,7 +1755,7 @@ async def search_post(
 ) -> JSONResponse:
     """STAC Item Search (POST with JSON body)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
-    # fix(#315): raster_tiles assets are served at the public APP origin.
+    # Raster tile assets use the public app origin.
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
@@ -1771,7 +1770,7 @@ async def search_post(
         collections=body.collections,
         ids=body.ids,
         intersects=body.intersects,
-        # Over-limit values clamp to the operational ceiling (H-24), required by
+        # Over-limit values clamp to the operational ceiling, required by
         # the Item Search spec instead of a le=200 rejection.
         limit=max(1, min(body.limit, _STAC_MAX_LIMIT)),
         offset=max(0, body.offset),
@@ -1798,7 +1797,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     datetime_str = _validate_stac_datetime(datetime_str.strip())
     start, end = parse_ogc_datetime(datetime_str)
 
-    # fix(#430): admit null-temporal records — dataset_to_ogc_record
+    # Admit null-temporal records — dataset_to_ogc_record
     # advertises datetime=created_at for them, so filter by that same
     # fallback instant, comparing created_at against the requested bounds
     # rather than unconditionally including every null-temporal record
@@ -1811,7 +1810,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
         if start is not None:
             stmt = stmt.where(
                 (Record.temporal_end >= start)
-                # fix(#1778): a record with temporal_start set and
+                # A record with temporal_start set and
                 # temporal_end NULL (open-ended/ongoing) fell through every
                 # arm here — temporal_end >= start reads NULL,
                 # temporal_start >= start is false for a past start, and

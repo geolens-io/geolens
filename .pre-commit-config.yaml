@@ -87,12 +87,12 @@ repos:
         files: '^backend/app/(modules/catalog|standards)/.*\.py$'
 
       - id: no-unscoped-finding-markers
-        name: "AGENTS.md — a finding marker in a backend/app comment or docstring needs a #issue anchor"
+        name: "AGENTS.md — remove unscoped finding tags from backend documentation"
         description: >
-          AGENTS.md ("Inline review-comment convention") requires a comment or
-          docstring that references a review finding to carry a lookup-able
-          anchor — a PR or issue number — not a bare tag that resolves only in
-          someone's private context.
+          AGENTS.md ("Contracts and Comments") prefers plain explanations over
+          finding tags and review history. Remove unnecessary tags; do not add
+          anchors merely to pass this legacy guard. A retained reference must
+          provide essential context and identify a public issue or PR.
 
           This hook runs backend/tests/finding_markers.py over the whole of
           backend/app. That detector parses each module, reads comments and
@@ -111,16 +111,16 @@ repos:
           it gets zero tolerance rather than a debt ledger.
           backend/tests/test_openapi_finding_markers.py pins that half.
 
-          Write `fix(#1234): <one line>`, or just drop the tag and let the
-          sentence stand — a note about a deliberate limitation does not need a
-          prefix to be understood.
+          Drop unnecessary tags and preserve the useful explanation. Anchored
+          references remain accepted for exceptional cases; they are not the
+          default comment format.
         language: system
         entry: python3 backend/tests/finding_markers.py
         pass_filenames: false
         files: '^backend/(app/.*\.py|openapi\.json|tests/(finding_markers|test_openapi_finding_markers)\.py)$'
 
       - id: no-agent-tag-markers
-        name: "AGENTS.md — a `ponytail:` tag needs a same-line fix(#N) anchor outside backend/app"
+        name: "AGENTS.md — remove unscoped agent tags"
         description: >
           The denylist half of the same rule, for the file types the AST
           detector above does not parse (frontend/, e2e/, cli/, mcp/, plus
@@ -137,8 +137,8 @@ repos:
           for f in "$@"; do
             if grep -nFi "ponytail:" "$f" | grep -viE "fix\(#[0-9]+\)"; then
               echo "FAIL: $f has an unscoped finding marker (see above).";
-              echo "  Use fix(#<issue>) ponytail: <context> on the same line, or remove the tag.";
-              echo "  See AGENTS.md > Inline review-comment convention.";
+              echo "  Remove the agent tag and keep the useful explanation.";
+              echo "  See AGENTS.md > Contracts and Comments.";
               rc=1;
             fi;
           done;

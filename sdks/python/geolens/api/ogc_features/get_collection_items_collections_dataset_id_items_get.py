@@ -222,8 +222,8 @@ def sync_detailed(
         include_geometry (bool | Unset): Include geometry in response. Set to false for attribute-
             only queries. Default: True.
         filter_ (None | str | Unset): CQL2 filter expression evaluated server-side against this
-            collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox
-            and property filters by AND.
+            collection's OGC Features Part 3 queryables document. Combines with bbox and property
+            filters by AND.
         filter_lang (str | Unset): Filter language: cql2-text (default) or cql2-json. Default:
             'cql2-text'.
         filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
@@ -307,8 +307,8 @@ def sync(
         include_geometry (bool | Unset): Include geometry in response. Set to false for attribute-
             only queries. Default: True.
         filter_ (None | str | Unset): CQL2 filter expression evaluated server-side against this
-            collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox
-            and property filters by AND.
+            collection's OGC Features Part 3 queryables document. Combines with bbox and property
+            filters by AND.
         filter_lang (str | Unset): Filter language: cql2-text (default) or cql2-json. Default:
             'cql2-text'.
         filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
@@ -386,8 +386,8 @@ async def asyncio_detailed(
         include_geometry (bool | Unset): Include geometry in response. Set to false for attribute-
             only queries. Default: True.
         filter_ (None | str | Unset): CQL2 filter expression evaluated server-side against this
-            collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox
-            and property filters by AND.
+            collection's OGC Features Part 3 queryables document. Combines with bbox and property
+            filters by AND.
         filter_lang (str | Unset): Filter language: cql2-text (default) or cql2-json. Default:
             'cql2-text'.
         filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
@@ -469,8 +469,8 @@ async def asyncio(
         include_geometry (bool | Unset): Include geometry in response. Set to false for attribute-
             only queries. Default: True.
         filter_ (None | str | Unset): CQL2 filter expression evaluated server-side against this
-            collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox
-            and property filters by AND.
+            collection's OGC Features Part 3 queryables document. Combines with bbox and property
+            filters by AND.
         filter_lang (str | Unset): Filter language: cql2-text (default) or cql2-json. Default:
             'cql2-text'.
         filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84

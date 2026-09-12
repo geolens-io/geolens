@@ -1504,8 +1504,8 @@ export interface paths {
          * Get Collection Queryables
          * @description Queryable properties for one feature collection (OGC Features Part 3).
          *
-         *     feat(#1614): derived from the live table schema (never the stored
-         *     column_info snapshot) so the advertised set always matches what `filter=`
+         *     Derived from the live table schema rather than the stored column_info
+         *     snapshot, so the advertised set always matches what `filter=`
          *     on /items validates against. `additionalProperties: false` is what makes
          *     rejecting filters on unlisted properties spec-conformant.
          */
@@ -21108,7 +21108,7 @@ export interface operations {
                 f?: string | null;
                 /** @description Include geometry in response. Set to false for attribute-only queries. */
                 include_geometry?: boolean;
-                /** @description CQL2 filter expression evaluated server-side against this collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox and property filters by AND. */
+                /** @description CQL2 filter expression evaluated server-side against this collection's OGC Features Part 3 queryables document. Combines with bbox and property filters by AND. */
                 filter?: string | null;
                 /** @description Filter language: cql2-text (default) or cql2-json. */
                 "filter-lang"?: string;

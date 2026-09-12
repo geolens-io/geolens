@@ -54,7 +54,7 @@ async def _load_source_datasets(
 ) -> dict[uuid.UUID, object]:
     """Load VRT source datasets by id in one query, records eager-loaded.
 
-    fix(#435): both VRT source endpoints called `get_dataset()` once per
+    Both VRT source endpoints called `get_dataset()` once per
     member row, so a 200-source VRT cost 200 round trips. The per-row
     `can_access_dataset()` call stays -- it's the permission seam's
     decision, and batching it too would risk skipping an overlay's policy.
@@ -100,7 +100,7 @@ async def list_vrt_sources(
         """),
         {"vrt_id": str(dataset_id)},
     )
-    # SEC-E: SEC-C authorizes sources only at link time with no migration
+    # Sources are authorized only at link time, with no migration
     # re-authorizing pre-existing links, so a VRT may hold member rows the
     # caller can't access. Drop those here so title/CRS/resolution/extent
     # never leak; non-raising (can_access_dataset) since a 404 would abort
@@ -187,7 +187,7 @@ async def get_vrt_status(
     last_generation_at = last_gen.completed_at if last_gen else None
 
     # Raw total link count, intentionally including ALL links, while
-    # source_health below reflects only accessible members (SEC-E).
+    # source_health below reflects only accessible members.
     # Recomputing from the filtered set would leak the unauthorized delta.
     count_result = await db.execute(
         text(
@@ -241,7 +241,7 @@ async def get_vrt_status(
     )
     source_health_list = []
     storage = get_storage()
-    # SEC-E: drop members the caller cannot access (legacy links / authz
+    # Drop members the caller cannot access (legacy links / authz
     # drift) before probing storage, so their existence/health never leaks.
     ext = get_permission_extension()
 
@@ -266,7 +266,7 @@ async def get_vrt_status(
         if src_dataset is None or not await ext.can_access_dataset(
             db, src_dataset, row.source_dataset_id, user, user_roles=user_roles
         ):
-            # SEC-E: omit unauthorized members before any storage.exists probe.
+            # Omit unauthorized members before any storage.exists probe.
             continue
         sources_to_check.append(row)
 
@@ -284,14 +284,14 @@ async def get_vrt_status(
                 for row in sources_to_check
             )
         )
-        # feat(#1221): a replaced member probes healthy on its own, but the
+        # A replaced member probes healthy on its own, but the
         # parent's stored VRT still names the old COG -- surface that as
         # the member's own "stale" state instead of "fine".
-        # fix(#1290): compares STATE (what the member IS vs what the VRT
+        # Compares STATE (what the member IS vs what the VRT
         # was built FROM), not timestamps -- a replacement's `ingested_at`
         # commits after a concurrent rebuild's read, so a timestamp
         # comparison can read a healthy member as stale. `built_from` NULL
-        # means pre-#1290 VRTs, which fall back to the timestamp comparison.
+        # means older VRTs, which fall back to the timestamp comparison.
         built_from = vrt_asset.built_from or None
         built_at = vrt_asset.last_regenerated_at or vrt_asset.ingested_at
         for row, file_exists in zip(sources_to_check, exists_results):
@@ -328,11 +328,9 @@ async def get_vrt_status(
 def _vrt_generation_item(generation: Any, *, include_detail: bool) -> VrtGenerationItem:
     """One row of a VRT dataset's regeneration history.
 
-    fix(#1860): visibility alone used to gate this list, leaking every
-    row's ``error_message`` (GDAL/VRT failure text naming server paths)
-    and ``triggered_by`` (a raw user id) to any signed-in reader of a
-    public/internal dataset. ``include_detail`` is the
-    ``can_view_dataset_provenance`` answer; both fields null otherwise,
+    ``error_message`` can name server paths and ``triggered_by`` contains a
+    raw user id. ``include_detail`` is the
+    ``can_view_dataset_provenance`` answer; both fields are null otherwise,
     matching what ``DatasetRefreshRunResponse`` redacts for the same reader.
 
     No per-row "you triggered this one" arm: every ``VrtGeneration``
@@ -389,7 +387,7 @@ async def list_vrt_generations(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
     user_roles = await check_dataset_access(db, dataset, dataset_id, user)
-    # fix(#1860): visibility and disclosure are two questions. The check
+    # Visibility and disclosure are two questions. The check
     # above settles the first; this settles the second.
     can_view_detail = can_view_dataset_provenance(dataset.record, user, user_roles)
 
@@ -453,9 +451,7 @@ async def regenerate_vrt_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="VRT asset not found"
         )
 
-    # fix(#1955): the lock, then the status re-read under it. The two used to
-    # be a status check followed by a lock, which leaves the window the second
-    # of two concurrent triggers lands in.
+    # Lock before re-reading status so concurrent triggers cannot both proceed.
     if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -498,7 +494,7 @@ async def regenerate_vrt_endpoint(
     # Dispatch with orphan guard: closes the SYNCHRONOUS failure
     # (Procrastinate unreachable at enqueue time) by reverting the mutation
     # before it's ever visible. A worker dying AFTER a successful dispatch
-    # is fix(#1267)'s ``sweep_stale_vrt_assets`` job to reconcile instead.
+    # is reconciled by the ``sweep_stale_vrt_assets`` job instead.
     async def _defer() -> None:
         await defer_async_with_tenant(
             get_catalog_port().regenerate_vrt_task(),

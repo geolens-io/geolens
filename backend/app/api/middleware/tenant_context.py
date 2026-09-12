@@ -1,8 +1,8 @@
 """Tenant-context middleware.
 
-TSEAM-04: resolves a tenant signal (subdomain or JWT claim) into
+Resolves a tenant signal (subdomain or JWT claim) into
 ``request.state.tenant_id``. Single-tenant (default): strict no-op, one
-boolean check, no DB lookup (T-1207-08 byte-identical guarantee).
+boolean check and no database lookup.
 
 Multi-tenant: reads the first ``Host`` subdomain label or a ``tid``
 claim from a verified GeoLens Bearer JWT, resolves it to the tenant
@@ -12,8 +12,8 @@ mismatches before the request reaches application code. A non-GeoLens
 bearer token may proceed only after the Host resolves a tenant; requests
 with neither signal stay unscoped so RLS fails closed.
 
-Slug→UUID resolution happens here, not in the GUC layer: the Phase 1208
-RLS GUC casts to ``::uuid``, so ``current_tenant_var`` must carry a UUID,
+Slug→UUID resolution happens here because the RLS GUC casts to ``::uuid``,
+so ``current_tenant_var`` must carry a UUID,
 never a slug.
 """
 
@@ -40,7 +40,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 # Regex for a safe subdomain label (alphanumeric + hyphens, 1-63 chars, no
 # leading/trailing hyphens). This is the attacker-controlled input from the
-# Host header — validate strictly (T-1207-05).
+# Host header, so validate it strictly.
 _SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?$")
 
 # Reserved labels below the configured base domain are service endpoints, not
@@ -164,8 +164,8 @@ def _extract_jwt_tenant_claim(authorization: str) -> str | None:
 async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
     """Resolve an untrusted Host signal against the tenant registry.
 
-    The Phase 1208 RLS GUC casts to ``::uuid``, so ``current_tenant_var``
-    must hold a UUID string, never a slug (Gap A, PR #256).
+    The RLS GUC casts to ``::uuid``, so ``current_tenant_var`` must hold a
+    UUID string, never a slug.
 
     UUID-shaped host labels are not trusted tenant identities. Both UUIDs
     and slugs are resolved against ``catalog.tenants`` (no RLS, needs no
@@ -190,7 +190,7 @@ async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
         from app.core.db import async_session
 
         async with async_session() as session:
-            # Bound params (T-1208-01); catalog.tenants has no RLS (registry).
+            # Use bound params; catalog.tenants has no RLS because it is the registry.
             if tenant_uuid is not None:
                 resolved = await session.scalar(
                     text("SELECT id FROM catalog.tenants WHERE id = :tenant_id"),
@@ -222,12 +222,12 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # TSEAM-04 fast path: single_tenant is the default and the vast
+        # Single-tenant mode is the common fast path and the vast
         # majority of deployments. One boolean check, zero state mutation.
         if not is_multi_tenant():
             return await call_next(request)
 
-        # fix(#1778): the liveness probe resolves no tenant. Sent to a
+        # The liveness probe resolves no tenant. Sent to a
         # tenant hostname, it would reach `_resolve_tenant_uuid` below,
         # which reads the DB — with the DB unreachable that returns None
         # and this middleware answers 403, restart-looping an API that
@@ -321,10 +321,10 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         if tenant_id is not None:
             logger.debug("Tenant context resolved", tenant_id=tenant_id)
 
-        # ISO-01 (Phase 1208-01): bridge request.state.tenant_id → current_tenant_var
+        # Bridge request.state.tenant_id → current_tenant_var
         # so the after_begin hook on the engine can read the tenant id when the
         # request handler opens a DB session (get_db or raw async_session).
-        # Use a token for reset so the var never bleeds across requests (T-1208-03).
+        # Use a token for reset so the var never bleeds across requests.
         token = current_tenant_var.set(tenant_id)
         try:
             return await call_next(request)

@@ -35,7 +35,7 @@ jobs_failed_total = Counter(
     ["queue"],
 )
 
-# fix(#1249): staging objects deleted because no ingest_jobs row tracks
+# Staging objects deleted because no ingest_jobs row tracks
 # them. A true counter, not a polled gauge: the reconciliation pass runs
 # under pg_try_advisory_xact_lock, so at most one process per interval
 # deletes (and counts) any given object, incremented only after the
@@ -86,7 +86,7 @@ async def _refresh_job_metrics() -> None:
             elif status == "doing":
                 jobs_active.labels(queue=q).set(count)
                 seen_doing.add(q)
-            # fix(#1778): deliberately no `succeeded`/`failed` branch here.
+            # Deliberately no `succeeded`/`failed` branch here.
             # The worker runs with delete_jobs="successful", so
             # procrastinate_finish_job_v1 DELETEs the row while still
             # `doing` — status='succeeded' is never written, so this 15s

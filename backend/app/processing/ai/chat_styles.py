@@ -189,7 +189,7 @@ async def _build_graduated_style(
         # quantile: use the dynamically-computed quantiles from stats
         breaks = stats.get("quantiles", [])
 
-    # fix(#1778): MapLibre rejects a step expression whose stops are not
+    # MapLibre rejects a step expression whose stops are not
     # strictly ascending, and percentile_cont does not deduplicate, so any
     # clustered column (70% of rows sharing one value, say) yields adjacent
     # equal quantiles. Both frontend siblings guard this for the styles they

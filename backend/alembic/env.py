@@ -28,11 +28,11 @@ import app.core.db.models  # noqa: F401
 import app.processing.embeddings.models  # noqa: F401
 import app.processing.ai.token_usage  # noqa: F401
 import app.modules.catalog.sources.models  # noqa: F401
-import app.modules.tenancy.models  # noqa: F401 -- register tenancy models (Phase 1207)
+import app.modules.tenancy.models  # noqa: F401 -- register tenancy models
 
 config = context.config
 if config.config_file_name is not None:
-    # fix(#1755 item 8): the stdlib default disable_existing_loggers=True sets
+    # The stdlib default disable_existing_loggers=True sets
     # .disabled on every logger registered before this call and not named in
     # alembic.ini, and nothing in the app or the test suite restores that flag.
     fileConfig(config.config_file_name, disable_existing_loggers=False)
@@ -46,7 +46,7 @@ _log = logging.getLogger("alembic.env")
 def _discover_migration_paths() -> list[str]:
     """Return migration directories from installed plugins.
 
-    fix(#1665): an empty entry-point group means no overlay is installed.
+    An empty entry-point group means no overlay is installed.
     Any installed provider failure must abort migration to prevent a
     successful exit over an incomplete schema.
     """
@@ -80,7 +80,7 @@ def _propagate_extra_paths_to_live_script(live_script, extra_paths) -> None:
     The CLI creates this object before env.py runs, so changing Config alone
     leaves the live revision graph unchanged. Preserve the core versions path.
 
-    fix(#1778): propagation failure must abort migration; otherwise the CLI
+    Propagation failure must abort migration; otherwise the CLI
     can report success while skipping installed overlay revisions.
     """
     try:
@@ -99,7 +99,7 @@ def _propagate_extra_paths_to_live_script(live_script, extra_paths) -> None:
         )
     except Exception as exc:  # broad: abort on any overlay failure.
         raise RuntimeError(
-            "MIG-04: failed to propagate enterprise version dirs onto the "
+            "Failed to propagate enterprise version directories onto the "
             "live ScriptDirectory — 'alembic upgrade heads' would silently "
             "skip the enterprise e-chain. This is a configuration error, not "
             "OSS; refusing to migrate with an incomplete version_locations "
@@ -110,7 +110,7 @@ def _propagate_extra_paths_to_live_script(live_script, extra_paths) -> None:
 # Append enterprise migration paths to version_locations
 _extra_paths = _discover_migration_paths()
 
-# GAP-013: if this is explicitly an enterprise deployment but no enterprise
+# If this is explicitly an enterprise deployment but no enterprise
 # migration paths were discovered, fail loudly rather than silently migrating a
 # fresh DB without the e-chain (which dies later on SAML UndefinedColumn).
 if (
@@ -125,18 +125,18 @@ if (
         "fresh DB would migrate without e001/e002 and break SAML login."
     )
 
-# GUARD-01 (Phase 1207): mode-aware tenancy migration presence assertion.
+# Mode-aware tenancy migration presence assertion.
 # When GEOLENS_TENANCY_MODE=multi_tenant the dormant-tenancy migration
 # (0005_dormant_tenancy) MUST be present in the resolved version chain.
 # A multi_tenant deploy without 0005 would boot without the tenant_id
-# columns and the partial-unique indexes, silently violating TSEAM-01/02.
+# columns and the partial-unique indexes, silently violating tenant isolation.
 #
 # We check for the file directly in the versions directory — the core
 # migration is always present in the core package, so this guard only fires
 # when someone has set GEOLENS_TENANCY_MODE=multi_tenant against a code tree
 # where 0005 was somehow removed (e.g. a bad manual patch or a partial
 # backport).  We deliberately do NOT import app code here (no settings load)
-# to mirror the GAP-013 guard above and avoid import-time side effects.
+# to mirror the enterprise guard above and avoid import-time side effects.
 _tenancy_mode = os.environ.get("GEOLENS_TENANCY_MODE", "").lower().strip()
 if _tenancy_mode == "multi_tenant":
     import pathlib as _pathlib
@@ -149,8 +149,8 @@ if _tenancy_mode == "multi_tenant":
             "'0005_dormant_tenancy' was not found at "
             f"{_tenancy_file}. "
             "Refusing to run migrations — a multi_tenant deploy without "
-            "0005 would lack the tenant_id columns and partial-unique indexes "
-            "(TSEAM-01/02). Ensure the core package is at Phase 1207+ or "
+            "0005 would lack the tenant_id columns and partial-unique indexes. "
+            "Install a core package containing 0005_dormant_tenancy or "
             "unset GEOLENS_TENANCY_MODE to use single_tenant mode."
         )
 
@@ -159,7 +159,7 @@ if _extra_paths:
     _all_paths = _base_versions + " " + " ".join(_extra_paths)
     config.set_main_option("version_locations", _all_paths)
 
-    # MIG-04: see _propagate_extra_paths_to_live_script's docstring above.
+    # See _propagate_extra_paths_to_live_script's docstring above.
     # Tolerant of offline / no-active-context (revision command,
     # autogenerate) — those construct their ScriptDirectory from the
     # (now-augmented) Config directly, so there is nothing live to patch.
@@ -187,7 +187,7 @@ def include_object(obj, name, type_, reflected, compare_to):
     HNSW index is built at runtime. Neither appears in model metadata, so
     comparing them would emit incorrect removal operations.
 
-    fix(#435): SAML columns belong to core migration 0008 and must remain
+    SAML columns belong to core migration 0008 and must remain
     visible to drift detection, including on Community deployments.
     """
     if name and name.startswith("procrastinate_"):

@@ -95,12 +95,12 @@ class TestListDatasets:
 
 
 # ---------------------------------------------------------------------------
-# Internal visibility tests (#930)
+# Internal visibility tests
 # ---------------------------------------------------------------------------
 
 
 class TestInternalVisibility:
-    """fix(#930): `internal` = any signed-in user, on a published record.
+    """`internal` = any signed-in user, on a published record.
 
     The two write paths produce different states — ``PATCH /datasets/{id}``
     leaves ``record_status`` at ``published``, while the CLI manifest intent
@@ -154,7 +154,7 @@ class TestInternalVisibility:
     ):
         """A non-admin owner keeps their own internal dataset in their list.
 
-        Before #930 the ``filter_visible`` conditions matched no internal
+        The visibility filter must include internal
         branch at all, so an internal dataset vanished from every non-admin
         list including its owner's.
         """
@@ -235,8 +235,8 @@ class TestInternalVisibility:
         ``status_filter`` is ``published OR created_by == <caller>``, so it
         already hides another user's draft from the team. Gating the internal
         branch on ``published`` as well would additionally hide the owner's own
-        draft from the owner — the list/detail split #930 exists to close, and
-        a repeat of the #929 creator-exemption bug. Private and public drafts
+        draft from the owner. This guards the list/detail split and the
+        creator exemption. Private and public drafts
         stay visible to their owner, and internal must match.
         """
         viewer_id = await self._own_user_id(client, viewer_auth_header)
@@ -322,7 +322,7 @@ class TestGetDataset:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#647): is_3d/n_dims/z_min/z_max surface from the Dataset row."""
+        """Is_3d/n_dims/z_min/z_max surface from the Dataset row."""
         admin_id = await _get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="3D Meta DS"
@@ -534,7 +534,7 @@ class TestUpdateMetadata:
         viewer_auth_header: dict,
         test_db_session,
     ):
-        """fix(#931 codex r1/r3): `restricted` is a partial audience when, and
+        """`restricted` is a partial audience when, and
         only when, a grant reaches someone who would LOSE access.
 
         The `viewer_auth_header` fixture mints a real viewer and assigns the
@@ -551,7 +551,7 @@ class TestUpdateMetadata:
             map_visibility="internal",
             map_name=map_name,
         )
-        # fix(#931): borrows the seeded `viewer` role deliberately. This asserts
+        # Borrows the seeded `viewer` role deliberately. This asserts
         # BLOCKED, so it needs the role to have a member — `viewer_auth_header`
         # guarantees one, and the accounts other files leave on the shared
         # worker DB only reinforce it. The direction is what makes the ambient
@@ -574,7 +574,7 @@ class TestUpdateMetadata:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#931 codex r3): a grant row is not an audience.
+        """A grant row is not an audience.
 
         The granted role is created here and never populated, so the grant
         reaches nobody. Blocking would be a refusal that lies — the same defect
@@ -611,7 +611,7 @@ class TestUpdateMetadata:
         viewer_auth_header: dict,
         test_db_session,
     ):
-        """fix(#931 codex r4): a grant holder who cannot authenticate is not an
+        """A grant holder who cannot authenticate is not an
         audience.
 
         `get_optional_user` rejects a non-active account before it can render a
@@ -715,7 +715,7 @@ class TestUpdateMetadata:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#931 codex r5): a rank drop is not the same as someone losing access.
+        """A rank drop is not the same as someone losing access.
 
         No `viewer_auth_header` here, so the only accounts are the admin owner
         and other admins — all of whom keep access either way. The internal
@@ -748,7 +748,7 @@ class TestUpdateMetadata:
         viewer_auth_header: dict,
         test_db_session,
     ):
-        """fix(#1073): `internal -> restricted` when every active user holds a grant.
+        """`internal -> restricted` when every active user holds a grant.
 
         The slice this move cuts is the users no grant reaches. Once the
         context manager suspends the strays, the fixture viewer is the only
@@ -799,11 +799,11 @@ class TestUpdateMetadata:
         test_db_session,
         monkeypatch,
     ):
-        """feat(#1068): overriding reads while inheriting the community audience.
+        """Overriding reads while inheriting the community audience.
 
         Such an authority reports one policy and serves another, and core cannot
         see the disagreement — so it counts as unable to answer and takes the
-        refusal. This is #1111's protection, re-keyed from "is this object
+        refusal. The protection asks "is this object
         literally the default class" to "does this object still resolve reads
         the way the audience it is borrowing assumes". Same setup as the
         everyone-granted permit above, which returns 200 without the overlay.
@@ -869,7 +869,7 @@ class TestUpdateMetadata:
         combination is unreachable in a STORED matrix, since
         `validate_permission_matrix` rejects `manage_settings` on a non-admin
         role, but the seam is the authority and the matrix is only what the
-        database will store (#1021). So it is a supported configuration, and
+        database will store. It is therefore a supported configuration, and
         counting it as "cannot answer audience questions" would blanket-refuse
         visibility changes on a deployment whose read policy is the community
         one. Same setup as the everyone-granted permit, which returns 200.
@@ -922,14 +922,14 @@ class TestUpdateMetadata:
         test_db_session,
         monkeypatch,
     ):
-        """feat(#1068): an authority predating the seam cannot vouch for anything.
+        """An authority predating the seam cannot vouch for anything.
 
         Only an overlay declaring no EXTENSION_API_VERSION gets here — a
         declared-but-stale version fails the boot check outright. `restricted ->
         public` strands nobody under the community ladder and 200s without an
         overlay, but community math is exactly what an unknown authority is
         free to contradict, so the refusal covers every shared map using the
-        dataset. This is stricter than #1111's stopgap, which pre-filtered on a
+        dataset. This is stricter than pre-filtering on a
         rank comparison and so let widening moves through on the same community
         math it had just declared untrustworthy.
         """
@@ -984,14 +984,14 @@ class TestUpdateMetadata:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1126 codex P2): a PATCH that changes nothing strands nobody.
+        """A PATCH that changes nothing strands nobody.
 
         `_apply_visibility_change` runs for every non-null `visibility` in the
         body without comparing it to the stored one, and any client that round
         trips the whole record resubmits the current value. Under an authority
         that cannot answer, the conservative fallback named every shared map
         using the dataset, so that no-op 422'd with "this would strand
-        viewers". Before #1068 the rank comparison absorbed it: `X < X` is
+        viewers". A rank comparison alone cannot distinguish it: `X < X` is
         false for both audiences, so an unchanged visibility returned [] on
         its way past. Deleting the rank deleted that accident too.
 
@@ -1055,7 +1055,7 @@ class TestUpdateMetadata:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1126 codex P2): the early return belongs ABOVE the authority split.
+        """The early return belongs ABOVE the authority split.
 
         This pins the placement rather than the symptom. An overlay predicate
         that reads a nullable column yields NULL for a row, and
@@ -1115,11 +1115,11 @@ class TestUpdateMetadata:
         test_db_session,
         monkeypatch,
     ):
-        """feat(#1068): the payoff — an overlay deployment stops being refused blind.
+        """The payoff — an overlay deployment stops being refused blind.
 
         The overlay widens the `restricted` rung to reach the fixture viewer,
         who holds no grant. That is exactly the viewer the community query
-        cannot see and that #1111 had to assume the worst about.
+        cannot see.
 
         Both requests run against the same dataset in the same world and differ
         only in who the permission authority is: the community answer refuses,
@@ -1242,7 +1242,7 @@ class TestUpdateMetadata:
         viewer_auth_header: dict,
         test_db_session,
     ):
-        """feat(#1068): the owner exclusion is a consequence now, not a clause.
+        """The owner exclusion is a consequence now, not a clause.
 
         The old query excluded the owner and every admin by hand. Both fall out
         of the audience difference instead — an account in BOTH audiences was
@@ -1309,7 +1309,7 @@ class TestUpdateMetadata:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#931 codex r6): each audience is judged on its own.
+        """Each audience is judged on its own.
 
         A public dataset on BOTH a public and an internal map, moving to
         private. The public map strands its anonymous visitors and must be
@@ -1356,7 +1356,7 @@ class TestUpdateMetadata:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#931 codex r3): an unpublished record is already invisible to
+        """An unpublished record is already invisible to
         every shared-map audience.
 
         `filter_visible`'s status gate is `published OR created_by == <caller>`,
@@ -1386,19 +1386,19 @@ class TestUpdateMetadata:
     @pytest.mark.parametrize(
         ("dataset_visibility", "map_visibility", "new_visibility", "blocked"),
         [
-            # fix(#931): the case the old query missed entirely. An internal map
+            # The case the old query missed entirely. An internal map
             # reaches every signed-in user, so a dataset dropping to private
             # strands it — silently, before this.
             ("public", "internal", "private", True),
             ("internal", "internal", "private", True),
             ("internal", "internal", "restricted", True),
-            # ...and the move that only looks like it strands one. #930 made
+            # ...and the move that only appears to strand one. Internal visibility makes
             # internal a real dataset rung, so an internal map keeps working.
             # A rule written against the target value alone would block this.
             ("public", "internal", "internal", False),
             # A private map has no audience beyond its owner and grantees.
             ("public", "private", "private", False),
-            # fix(#931 codex r2): a restricted dataset with NO grants reaches
+            # A restricted dataset with NO grants reaches
             # nobody beyond its owner and admins, who keep access either way —
             # blocking that move would be a refusal that lies. The granted case
             # is covered separately below, since it needs a grant row.
@@ -1423,15 +1423,15 @@ class TestUpdateMetadata:
         new_visibility: str,
         blocked: bool,
     ):
-        """fix(#931): the block is a before/after comparison, not a list of
+        """The block is a before/after comparison, not a list of
         forbidden target values.
 
         ``find_public_maps_using_dataset`` matched ``Map.visibility == "public"``
         only, and its caller gated on ``old == public``, so an internal map was
-        invisible to both halves. Once #930 made ``internal`` a real dataset
+        invisible to both halves. Once ``internal`` became a real dataset
         rung the rule became a matrix, and each row here is one cell of it.
 
-        fix(#1073): the guard stopped refusing on a rank drop alone, so a
+        The guard stopped refusing on a rank drop alone, so a
         blocked row needs a real viewer standing in the slice being cut.
         Without this fixture the rows borrowed whatever active accounts earlier
         tests left on the worker DB — true in file order, false when a row runs
@@ -1572,7 +1572,7 @@ class TestAnonymousAccess:
         logged-in users only" for months. The public control rules out a 404
         from some unrelated cause: the same viewer sees a public dataset
         built the same way. The admin leg pins the other half of the help
-        text (fix(#690) review) — `can_access_dataset` returns True on the
+        text — `can_access_dataset` returns True on the
         admin role before it ever looks for a grant.
         """
         admin_id = await _get_user_id(test_db_session, "admin")
@@ -1610,7 +1610,7 @@ class TestAnonymousAccess:
     ):
         """The creator of a restricted dataset is exempt from the grant check.
 
-        fix(#929): restricted means "owner, admins, and grant holders". Before
+        Restricted means "owner, admins, and grant holders". Before
         the creator exemption, a non-admin owner who set their own dataset to
         restricted lost read access to it — grants have no write path, so the
         lockout was unrecoverable without manual SQL. Pins both the detail
@@ -1662,7 +1662,7 @@ class TestAnonymousAccess:
         other_search_ids = [f["id"] for f in other_search.json()["features"]]
         assert str(restricted.id) not in other_search_ids
 
-        # Mirrored gate (codex review on the #929 PR): the maps bulk access
+        # Mirrored gate: the maps bulk access
         # check replicates can_access_dataset's policy and must apply the
         # same creator exemption, or the owner cannot add their restricted
         # dataset to a map.
@@ -1688,7 +1688,7 @@ class TestAnonymousAccess:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#929 review): bulk_check_dataset_access routes through the
+        """Bulk_check_dataset_access routes through the
         permission extension instead of an inline policy mirror, so an
         overlay that deliberately denies the creator is enforced on the
         map-attach paths — the case a hard-coded owner short-circuit got
@@ -1951,7 +1951,7 @@ class TestBulkDeleteDatasets:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1297): an unexpected exception's message must never reach the client.
+        """An unexpected exception's message must never reach the client.
 
         `DependentVrtError`/`ValueError` messages stay public (asserted by the
         two tests above); anything else — an asyncpg error, a storage SDK
@@ -2015,7 +2015,7 @@ class TestSingleDeleteDataset:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1317): unexpected delete errors do not reach the client."""
+        """Unexpected delete errors do not reach the client."""
         import structlog
 
         from app.modules.catalog.datasets.api import router as datasets_router

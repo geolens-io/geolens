@@ -30133,7 +30133,7 @@
             }
           },
           {
-            "description": "CQL2 filter expression evaluated server-side against this collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox and property filters by AND.",
+            "description": "CQL2 filter expression evaluated server-side against this collection's OGC Features Part 3 queryables document. Combines with bbox and property filters by AND.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -30146,7 +30146,7 @@
                   "type": "null"
                 }
               ],
-              "description": "CQL2 filter expression evaluated server-side against this collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox and property filters by AND.",
+              "description": "CQL2 filter expression evaluated server-side against this collection's OGC Features Part 3 queryables document. Combines with bbox and property filters by AND.",
               "title": "Filter"
             }
           },
@@ -30662,7 +30662,7 @@
     },
     "/collections/{dataset_id}/queryables": {
       "get": {
-        "description": "Queryable properties for one feature collection (OGC Features Part 3).\n\nfeat(#1614): derived from the live table schema (never the stored\ncolumn_info snapshot) so the advertised set always matches what `filter=`\non /items validates against. `additionalProperties: false` is what makes\nrejecting filters on unlisted properties spec-conformant.",
+        "description": "Queryable properties for one feature collection (OGC Features Part 3).\n\nDerived from the live table schema rather than the stored column_info\nsnapshot, so the advertised set always matches what `filter=`\non /items validates against. `additionalProperties: false` is what makes\nrejecting filters on unlisted properties spec-conformant.",
         "operationId": "get_collection_queryables_collections__dataset_id__queryables_get",
         "parameters": [
           {

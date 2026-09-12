@@ -61,7 +61,7 @@ async def create_empty_dataset(
                 f"Invalid column name: {col.name!r}. "
                 "Must start with a letter or underscore and contain only alphanumeric characters and underscores."
             )
-        # fix(#1778): SAFE_COLUMN_NAME_RE allows a leading underscore and no
+        # SAFE_COLUMN_NAME_RE allows a leading underscore and no
         # length bound, but the feature write path can address neither: a
         # column like `_notes` was created but silently dropped every write,
         # and a name over 63 chars gets truncated by Postgres DDL while
@@ -133,7 +133,7 @@ async def create_empty_dataset(
         column_info=column_info,
         source_format="created",
         srid=4326,
-        # fix(#430): the table column is generic geometry(Geometry, 4326); storing
+        # The table column is generic geometry(Geometry, 4326); storing
         # POINT here rejected Polygon/LineString inserts the column accepts.
         geometry_type="GEOMETRY",
         feature_count=0,
@@ -198,7 +198,7 @@ async def create_dataset(
         ing = ingestion
 
     spatial_extent_value = None
-    # fix(#934): an antimeridian-crossing source produces a two-ring
+    # An antimeridian-crossing source produces a two-ring
     # MULTIPOLYGON extent; accepting only POLYGON here silently nulled
     # Record.spatial_extent on first ingest. Both satisfy
     # chk_records_spatial_extent_type.
@@ -207,7 +207,7 @@ async def create_dataset(
 
     record_type = "table" if ing.geometry_type is None else "vector_dataset"
 
-    # fix(#302): authoritative count-cap check at the point the Record row is
+    # Authoritative count-cap check at the point the Record row is
     # created — the upload-time check_upload_quota cannot be atomic because
     # this row only comes to exist here, after the pre-check passed.
     from app.modules.quota.service import reserve_dataset_slot
@@ -229,7 +229,7 @@ async def create_dataset(
     dataset = Dataset(
         record_id=record.id,
         table_name=table_name,
-        # fix(#1218): first ingest IS the first successful materialization,
+        # First ingest IS the first successful materialization,
         # so stamp it here rather than leaving every dataset reporting null.
         #
         # A Python datetime, NOT func.now(): a SQL expression leaves the
@@ -277,7 +277,7 @@ async def create_dataset(
     if ing.column_info:
         await auto_detect_relationships(session, dataset.id, record.id, ing.column_info)
 
-    # fix(#1230): dataset.create was invisible in the audit trail -- emitted
+    # Dataset.create was invisible in the audit trail -- emitted
     # here, not per-router, so every creation path funnels through one
     # emit site instead of risking a missed call at each call site.
     # No ip_address: a domain-layer function with no Request, matching the

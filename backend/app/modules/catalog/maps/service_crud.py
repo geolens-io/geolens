@@ -37,7 +37,7 @@ _UNSET = object()
 def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
     """A storage key for one map image that no later upload can reuse.
 
-    fix(#1778): reused keys (``{prefix}/{map_id}.{ext}``) let a
+    Reused keys (``{prefix}/{map_id}.{ext}``) let a
     race outlive the row lock — request A re-reads a committed key as
     dead, request B writes and commits that same name, then A's delete
     lands on the object B just published (404). A fresh random component
@@ -62,7 +62,7 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     Callers take it AFTER validating the payload, so no decode or image
     verification runs under the lock.
 
-    fix(#1778): overlapping uploads can race their cleanup and
+    Overlapping uploads can race their cleanup and
     strand the row on an object the other just deleted (404 on read).
     Held through the caller's commit; ``discard_map_asset_objects``
     re-reads the committed row as the other half, since a lock can't
@@ -70,7 +70,7 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     three callers agree, and selects columns (not ``Map``) so a stale
     identity-mapped instance can't shadow a fresh commit.
 
-    fix(#1778): ``SET LOCAL lock_timeout = '2s'`` bounds the
+    ``SET LOCAL lock_timeout = '2s'`` bounds the
     wait, since a degraded storage backend could otherwise queue every
     writer behind this lock (a losing wait, 55P03, maps to 409).
     """
@@ -124,12 +124,12 @@ async def discard_map_asset_objects(
 ) -> None:
     """Best-effort removal of a map's stored thumbnail / OG-image objects.
 
-    fix(#1778): nothing ever called ``storage.delete`` for a ``maps/``
+    Nothing ever called ``storage.delete`` for a ``maps/``
     key, so deleted/re-uploaded images were orphaned undiscoverably.
     Shared by delete/upload handlers, all holding
     ``lock_map_for_asset_write`` from write to commit.
 
-    fix(#1778): re-reads the row rather than trusting the
+    Re-reads the row rather than trusting the
     caller's previous-key read (consistent with whatever committed
     last), and relies on ``new_map_asset_key`` never reusing keys since
     the re-read isn't atomic with the delete below.
@@ -147,7 +147,7 @@ async def discard_map_asset_objects(
     try:
         live = await _live_map_asset_keys(session, map_id)
     except Exception:  # broad: any failure of the post-commit read
-        # fix(#1778): the liveness read runs after commit, so a
+        # The liveness read runs after commit, so a
         # transient failure here shouldn't 500 an already-succeeded
         # request — skip the deletes; an orphan costs less than a live delete.
         logger.warning(
@@ -169,12 +169,8 @@ async def discard_map_asset_objects(
 class MapAssetPublication:
     """The objects written for a row that has not committed yet.
 
-    fix(#1778): the rollback used to be keyed on "did the block
-    raise", not "did the row commit" — anything after a successful commit
-    but still in scope (e.g. the icon route's ``session.refresh``) could
-    fail and delete an object the committed row references. Settling ends
-    the tracking, so the boundary is the commit itself, not the last
-    statement left in the block.
+    Settling ends tracking at commit. Later failures must not delete an object
+    already referenced by the committed row.
     """
 
     def __init__(self) -> None:
@@ -188,7 +184,7 @@ class MapAssetPublication:
         prefix vs deliberately-global sprite icons), and rollback deletes
         what it's given rather than resolving anything.
 
-        fix(#1778): call BEFORE awaiting the write — a PUT can
+        Call BEFORE awaiting the write — a PUT can
         land and still fail the client, so recording after left orphaned
         objects per retry. Recording first is free: rollback either
         deletes what this request wrote or no-ops on an unwritten key.
@@ -199,7 +195,7 @@ class MapAssetPublication:
     def committing(self) -> None:
         """A commit is about to be awaited, so its outcome stops being knowable.
 
-        fix(#1778): a lost connection between Postgres committing
+        A lost connection between Postgres committing
         and the ack arriving raises out of the await for a transaction
         that DID commit — from this mark until ``settled``, an exception
         says nothing about whether the row landed, so nothing is deleted.
@@ -238,7 +234,7 @@ class MapAssetPublication:
 async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
     """Undo object writes when the row that would name them never commits.
 
-    fix(#1778): the upload handlers write the image, then record
+    The upload handlers write the image, then record
     its key on the map row. A failure between those two left the object
     behind with nothing pointing at it, and since keys are never reused,
     every retry added another — undiscoverable, since nothing enumerates
@@ -257,7 +253,7 @@ async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
         yield publication
     except BaseException:
         if publication.outcome_unknown:
-            # fix(#1778): the exception arrived while a commit was in
+            # The exception arrived while a commit was in
             # flight, so it does not say whether the row landed. Deleting here
             # is the one irreversible option available.
             logger.warning(
@@ -358,16 +354,10 @@ async def _layer_counts_for_maps(
 ) -> dict[uuid.UUID, int]:
     """Layer counts for exactly the maps on one page of the gallery listing.
 
-    fix(#1778): the listing used to read counts from an uncorrelated
-    ``GROUP BY map_id`` subquery LEFT JOINed onto the page — Postgres has no
-    limit-pushdown through a left join, so every request aggregated all of
-    ``catalog.map_layers``, cost growing with total layer count, not page size.
-
-    A correlated scalar subquery fixes the common case but not the general
-    one: measured on 5000 maps x 8 layers, the subplan ran 50 times at
-    OFFSET 0 (2.5ms vs 12.3ms for the join) but 4050 times at OFFSET 4000,
-    losing to what it replaced. The only form bounded by the page at every
-    offset is a second query keyed on the ids the page returned — a bitmap
+    A second query keyed on the ids returned by the page keeps work bounded at
+    every offset. A correlated subquery degrades at high offsets, while an
+    uncorrelated grouped join aggregates the entire layer table. The keyed
+    query uses a bitmap
     index scan on ``map_layers.map_id``, measured 0.5-1.0ms at both offsets.
     """
     if not map_ids:
@@ -413,10 +403,10 @@ async def list_maps(
 
     def _apply_extra_filters(stmt: Select) -> Select:
         if search:
-            # SEC-FU-07 (sec-audit-20260519.md + WR-01): escape \, %, _ via
+            # Escape \, %, _ via
             # escape_ilike() before composing the pattern (backslash
             # escaped FIRST or later replacements double-escape).
-            # T-2: lower() both column and pattern to match the functional
+            # Lowercase both column and pattern to match the functional
             # trigram indexes (ix_maps_name_trgm, ix_maps_description_trgm)
             # — a bare ILIKE on the raw column falls back to a Seq Scan.
             pattern = f"%{escape_ilike(search)}%".lower()
@@ -454,7 +444,7 @@ async def list_maps(
             User.username.label("created_by_username"),
         )
         .outerjoin(User, Map.created_by == User.id)
-        # fix(#430): batch-seeded rows share a server-default timestamp; add a
+        # Batch-seeded rows share a server-default timestamp; add a
         # unique tiebreaker so pagination is stable.
         .order_by(order_clause, Map.id)
         .offset(skip)
@@ -684,9 +674,7 @@ async def duplicate_map(
     layers_result = await session.execute(
         select(MapLayer)
         .where(MapLayer.map_id == map_id)
-        .order_by(
-            MapLayer.sort_order, MapLayer.id
-        )  # fix(#430): deterministic tie-break
+        .order_by(MapLayer.sort_order, MapLayer.id)  # Deterministic tie-break
     )
     layers = layers_result.scalars().all()
 

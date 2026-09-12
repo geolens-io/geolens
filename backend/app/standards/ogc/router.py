@@ -59,7 +59,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _CRS84_URI = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
-# fix(#1614): every route that runs _check_cold_rehydrate can answer 202
+# Every route that runs _check_cold_rehydrate can answer 202
 # {status: 'warming', job_id} in multi-tenant mode; declaring it keeps
 # generated SDK clients from discarding the body or raising UnexpectedStatus.
 COLD_WARMING_RESPONSE: dict = {
@@ -83,13 +83,12 @@ COLD_WARMING_RESPONSE: dict = {
 }
 
 
-# feat(#1614): SQLSTATEs that mean "the CQL2 filter doesn't type against this
+# SQLSTATEs that mean "the CQL2 filter doesn't type against this
 # table": undefined operator/function, datatype mismatch, cannot coerce,
 # indeterminate datatype. Deliberately NOT the whole 42 class — 42P01 is the
 # missing-table 503 and e.g. 42501 (privilege) is an operator problem.
 async def _emit_ogc_usage_event(table_name: str) -> None:
-    """Emit an OGC-serve usage event through the billing-import-free seam
-    (METER-03), after a successful OGC serve in multi_tenant mode.
+    """Emit an OGC usage event through the billing-import-free seam.
 
     Uses get_billing_extensions() + hasattr(ext, "on_usage_event"): with
     the cloud overlay active, CloudMeteringExtension updates
@@ -131,14 +130,14 @@ async def _check_cold_rehydrate(
     Mirrors the tile-router seam: returns None when record_status !=
     'cold', when not is_multi_tenant(), or when the Community extension
     returns None. A broad Exception logs and returns None — cold-check
-    failure MUST NEVER fail an OGC response (T-1214-17). When cold and
+    failure must never fail an OGC response. When cold and
     the overlay is present: 'hydrated' returns None; 'warming' returns a
     202 JSONResponse.
 
     Args:
         table_name: the dataset table_name.
         record_status: from the already-resolved dataset object — no
-            extra DB round-trip on the hot path (T-1214-18).
+            extra database round trip on the hot path.
         tenant_id: the server-resolved tenant UUID string.
     """
     # Fast path: table is hot.
@@ -155,9 +154,7 @@ async def _check_cold_rehydrate(
             table_name=table_name,
             tenant_id=tenant_id,
         )
-    except (
-        Exception
-    ):  # broad: cold-check failure must NEVER fail an OGC response (T-1214-17)
+    except Exception:  # broad: cold-check failure must never fail an OGC response
         logger.warning(
             "ogc_cold_rehydrate_check_failed",
             table_name=table_name,
@@ -300,11 +297,8 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
             # OGC API Features Part 1: Core
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
-            # OGC API Features Part 3: Filtering. fix(#430) dropped these
-            # classes while per-dataset feature collections rejected `filter`
-            # with 400; feat(#1614) restored them in the same commit that made
-            # `filter=` + per-collection /queryables work, so they are never
-            # advertised ahead of the implementation.
+            # Part 3 conformance is advertised because `filter=` and
+            # per-collection queryables are implemented together.
             "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/queryables",
             "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
             "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
@@ -368,7 +362,7 @@ async def get_dataset_collection(
             ]
         }
 
-    # fix(#315): raster/VRT datasets have no backing feature table, so they expose no
+    # Raster/VRT datasets have no backing feature table, so they expose no
     # feature items. Advertise itemType=coverage and omit the rel=items link so
     # clients are not led into the dead /items endpoint (which 404s, see
     # get_collection_items).
@@ -397,7 +391,7 @@ async def get_dataset_collection(
                 title="Features",
             )
         )
-        # feat(#1614): OGC Features Part 3 queryables link — required by the
+        # OGC Features Part 3 queryables link — required by the
         # conf/queryables class, vector collections only (raster has no items).
         links.append(
             OGCLink(
@@ -411,14 +405,14 @@ async def get_dataset_collection(
             )
         )
     else:
-        # fix(#315): a coverage collection has no rel=items, so without a
+        # A coverage collection has no rel=items, so without a
         # replacement link the body would only carry self+root and be a
         # dead-end. Advertise the raster tile endpoint so coverage clients have
         # something to dereference. NOTE: raster tiles are served at the public
         # APP origin (/raster-tiles/...), which nginx rewrites to the internal
         # tile proxy; the /api origin has no such route, so use public_app_url.
         public_app_url = await get_public_app_url(db, request=request)
-        # fix(#1372, #2007): versioned like every rendered template so a
+        # Versioned like every rendered template so a
         # refetching client stops sharing the unversioned cache entry.
         raster_tiles_path = (
             f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
@@ -455,15 +449,13 @@ async def get_dataset_collection(
         links=links,
     )
 
-    # METER-03 (Phase 1213-06): emit OGC collection-serve usage event through the
+    # Emit OGC collection-serve usage event through the
     # billing-import-free seam so the cloud overlay can update last_accessed_at.
     # Best-effort fire-and-forget — errors logged, response unaffected.
     if dataset.table_name:
         await _emit_ogc_usage_event(dataset.table_name)
 
-    # TYPE-N2: return the pydantic model directly so FastAPI's response_model
-    # validation actually runs. Previously this was wrapped in JSONResponse,
-    # which silently disabled response validation.
+    # Return the Pydantic model directly so FastAPI validates the response.
     return metadata
 
 
@@ -481,8 +473,8 @@ async def get_collection_queryables(
 ) -> JSONResponse:
     """Queryable properties for one feature collection (OGC Features Part 3).
 
-    feat(#1614): derived from the live table schema (never the stored
-    column_info snapshot) so the advertised set always matches what `filter=`
+    Derived from the live table schema rather than the stored column_info
+    snapshot, so the advertised set always matches what `filter=`
     on /items validates against. `additionalProperties: false` is what makes
     rejecting filters on unlisted properties spec-conformant.
     """
@@ -500,7 +492,7 @@ async def get_collection_queryables(
             ),
         )
 
-    # fix(#1614): a cold (evicted) table has no information_schema
+    # A cold (evicted) table has no information_schema
     # rows, so deriving queryables from it would publish an attribute-less
     # document as authoritative. Run the same cold-rehydrate seam as /items
     # BEFORE reading the live schema (202-warming instead of a wrong 200).
@@ -514,11 +506,11 @@ async def get_collection_queryables(
         if _q_cold_result is not None:
             return _q_cold_result
 
-    # fix(#1614): get_column_info returns [] for a MISSING table as
+    # `get_column_info` returns [] for a MISSING table as
     # well as for an attribute-less one. A missing table (partial ingest /
     # eviction race) must stay the same retryable 503 the /items path
     # reports, not publish an empty queryables document as authoritative.
-    # fix(#1614): schema-introspection database errors are
+    # Schema-introspection database errors are
     # operational — same 503 classification as the items path.
     try:
         if not await feature_table_exists(db, dataset.table_name):
@@ -548,7 +540,7 @@ async def get_collection_queryables(
     )
 
 
-# fix(#1845): CQL2 compile is synchronous, event-loop-blocking work, and
+# CQL2 compile is synchronous, event-loop-blocking work, and
 # the filter is the one input letting an anonymous caller choose how
 # much of it to buy. The single-pass rename in filtering.py cut the
 # pathological case from 2.4s to 40ms, but shapes under the bind cap
@@ -574,7 +566,7 @@ def _items_request_carries_no_filter(request: Request) -> bool:
     return "filter" not in request.query_params
 
 
-# fix(#1857): two of the four refusals are resource bounds on a VALID
+# Two of the four refusals are resource bounds on a VALID
 # filter, which the generic "invalid query parameters" 400 the route inherits
 # does not describe.
 FILTER_BAD_REQUEST_RESPONSE = {
@@ -611,7 +603,7 @@ FILTER_BAD_REQUEST_RESPONSE = {
         **ERROR_RESPONSES_PUBLIC,
         400: FILTER_BAD_REQUEST_RESPONSE,
     },
-    include_in_schema=False,  # trailing-slash alias, hidden from OpenAPI (ROUTE-01 pattern)
+    include_in_schema=False,  # Trailing-slash alias hidden from OpenAPI.
 )
 @ogc_features_router.get(
     "/collections/{dataset_id}/items",
@@ -683,8 +675,8 @@ async def get_collection_items(
         alias="filter",
         description=(
             "CQL2 filter expression evaluated server-side against this "
-            "collection's queryables document (feat(#1614), OGC Features "
-            "Part 3). Combines with bbox and property filters by AND."
+            "collection's OGC Features Part 3 queryables document. Combines "
+            "with bbox and property filters by AND."
         ),
     ),
     filter_lang: str = Query(
@@ -714,18 +706,18 @@ async def get_collection_items(
     _validate_f_param(f)
     public_api_url = await get_public_api_url(db, request=request)
 
-    # #665 review / #666: the items page-size ceiling is an admin-configurable
-    # PersistentConfig knob (Network tab), not a static Query(le=...). Per OGC
+    # The page-size ceiling is an admin-configurable PersistentConfig value,
+    # not a static Query(le=...). Per OGC
     # API Features Core /req/core/fc-limit-response-1(C) a limit above the
     # maximum SHALL NOT error — clamp to the ceiling instead (mirrors the STAC
-    # side, #664). max(1, ...) guards a ceiling mis-set to 0; the clamped value
+    # sibling STAC endpoint. max(1, ...) guards a ceiling mis-set to 0; the clamped value
     # flows into the feature query and the echoed self/next links.
     max_page_size = await OGC_ITEMS_MAX_PAGE_SIZE.get(db)
     limit = min(limit, max(1, max_page_size))
 
     dataset = await _get_visible_dataset(db, user, dataset_id)
 
-    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
+    # Raster/VRT datasets have no backing PostGIS feature table, so a feature
     # query would raise UndefinedTableError -> 500 (and hold a DB connection).
     # Return a fast 404 before any feature query is attempted.
     if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
@@ -737,7 +729,7 @@ async def get_collection_items(
             ),
         )
 
-    # feat(#1614): `filter=` is now evaluated server-side (compiled below,
+    # `filter=` is now evaluated server-side (compiled below,
     # after the cold-rehydrate seam). Filter geometries are WGS84-only —
     # reject any other filter-crs instead of misinterpreting coordinates.
     if filter_crs is not None and filter_crs != _CRS84_URI:
@@ -768,7 +760,7 @@ async def get_collection_items(
         "crs",
         "api_key",
         "include_geometry",
-        # feat(#1614): the CQL2 filter params bind explicitly above; keep them
+        # The CQL2 filter params bind explicitly above; keep them
         # out of property_filters so they never double as column filters.
         "filter",
         "filter-lang",
@@ -782,11 +774,11 @@ async def get_collection_items(
     if dataset.column_info:
         allowed_columns = {col["name"] for col in dataset.column_info if "name" in col}
 
-    # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE feature query.
-    # Uses the already-resolved dataset.record.record_status (no extra DB round-trip,
-    # T-1214-18). A cold-check failure is swallowed so it NEVER fails the OGC response
-    # (T-1214-17). Published/anon-shared datasets are hot so public viewers never
-    # receive 202-warming (T-1214-17).
+    # Cold-rehydrate seam — BEFORE feature query.
+    # Uses the already-resolved dataset.record.record_status with no extra DB
+    # round trip. A cold-check failure is swallowed so it never fails the OGC
+    # response. Published or anonymously shared datasets stay hot, so public
+    # viewers never receive a warming response.
     if dataset.table_name and dataset.record:
         _ogc_cold_tid = current_tenant_var.get(None)
         _ogc_cold_result = await _check_cold_rehydrate(
@@ -800,14 +792,13 @@ async def get_collection_items(
     # Reuse existing feature service. Pass the cached feature_count so the
     # pagination COUNT(*) collapses into a constant-time lookup, and honor
     # include_geometry so clients that don't need geometry avoid the
-    # ST_AsGeoJSON cost (PERF-N1).
-    # H-24: when after_gid is provided, the service uses keyset pagination and
+    # ST_AsGeoJSON cost. When after_gid is provided, the service uses keyset pagination and
     # ignores offset.
-    # fix(#315): the raster/VRT guard above only covers datasets that never
+    # The raster/VRT guard above only covers datasets that never
     # had a backing table. A genuinely-missing VECTOR table (cold-evicted /
     # partial ingest) still raises here; mirror list_features and return
     # 503, not an unhandled 500 that holds a DB connection.
-    # feat(#1614): compile the CQL2 filter against the live table schema —
+    # Compile the CQL2 filter against the live table schema —
     # the same schema authority the queryables document publishes. This runs
     # after the cold-rehydrate seam so a cold table warms (202) instead of
     # misreporting its columns as unknown queryables.
@@ -815,13 +806,13 @@ async def get_collection_items(
     cql2_binds: list = []
     if filter_expr is not None:
         # Ordering is deliberate: a parse failure is the caller's bug (400,
-        # no database access); then fix(#1614) — a missing table
+        # no database access); a missing table
         # yields an empty live schema, and compiling against it would 400
         # every attribute filter as an unknown property, so table
         # availability stays the retryable 503; schema-dependent validation
         # runs last.
         filter_ast = parse_feature_cql2(filter_expr, filter_lang)
-        # fix(#1614): the schema-introspection queries carry no
+        # The schema-introspection queries carry no
         # caller input, so any database error here is operational — classify
         # it exactly like the feature query's 503, not a 500.
         try:
@@ -843,9 +834,9 @@ async def get_collection_items(
         cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
 
     try:
-        # fix(#430): a full page must be distinguishable from a full
+        # A full page must be distinguishable from a full
         # *final* page, or a feature count that is an exact multiple of `limit`
-        # emits a phantom keyset `next` to an empty page. fix(#1778):
+        # emits a phantom keyset `next` to an empty page.
         # the over-fetch that answers it moved into get_features, which reports
         # it as `has_more`, so every caller gets the same answer.
         page = await get_features(
@@ -864,14 +855,14 @@ async def get_collection_items(
             cql2_binds=cql2_binds,
         )
     except ValueError as exc:
-        # fix(#1778): an unparseable property-filter value is rejected before
+        # An unparseable property-filter value is rejected before
         # the query runs, naming the property.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
     except DBAPIError as exc:
-        # feat(#1614)/fix(#1778): with a filter or property-filter active,
+        # /with a filter or property-filter active,
         # a type-shaped DB error is the filter itself (e.g. incomparable
         # types pre-validation let through) — report as the caller's 400,
         # never an unhandled 500 (QA finding B3). Only type/data SQLSTATEs
@@ -914,7 +905,7 @@ async def get_collection_items(
         active_params["bbox"] = bbox
     if datetime_param:
         active_params["datetime"] = datetime_param
-    # fix(#1778): include_geometry is excluded from property_filters (it is
+    # `include_geometry` is excluded from property_filters (it is
     # listed in ogc_reserved) and was never added here either, so a client
     # that opted out of geometry on page 1 got it back on page 2 via the
     # rel=next link this block builds, and the self link stopped describing
@@ -964,7 +955,7 @@ async def get_collection_items(
             type="application/json",
         ),
     ]
-    # H-24: emit a keyset `next` link when more rows exist — primary path.
+    # Emit a keyset `next` link when more rows exist — primary path.
     # Fall back to offset-based `next`/`prev` for legacy clients only when
     # the request itself used offset.
     if page.rows and page.has_more:
@@ -977,9 +968,8 @@ async def get_collection_items(
             )
         )
     elif after_gid is None and page.has_more:
-        # fix(#1778): was `offset + limit < total`. numberMatched may
-        # be the planner's estimate, and an estimate at or below the rows
-        # already served would have dropped the link mid-result-set.
+        # page.has_more drives the link because numberMatched may be a planner
+        # estimate at or below the number of rows already served.
         links.append(
             OGCLink(
                 rel="next",
@@ -1003,7 +993,7 @@ async def get_collection_items(
         links=links,
     )
 
-    # METER-03 (Phase 1213-06): emit OGC items-serve usage event through the
+    # Emit OGC items-serve usage event through the
     # billing-import-free seam so the cloud overlay can update last_accessed_at.
     # Best-effort fire-and-forget — errors logged, response unaffected.
     if dataset.table_name:
@@ -1050,7 +1040,7 @@ async def get_collection_item_feature(
     public_api_url = await get_public_api_url(db, request=request)
     dataset = await _get_visible_dataset(db, user, dataset_id)
 
-    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a
+    # Raster/VRT datasets have no backing PostGIS feature table, so a
     # feature-by-id query would raise UndefinedTableError -> 500. Return 404
     # before any query is attempted.
     if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
@@ -1064,7 +1054,7 @@ async def get_collection_item_feature(
 
     has_geometry = dataset.geometry_type is not None
 
-    # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE feature-by-id query.
+    # Cold-rehydrate seam — BEFORE feature-by-id query.
     if dataset.table_name and dataset.record:
         _item_cold_tid = current_tenant_var.get(None)
         _item_cold_result = await _check_cold_rehydrate(
@@ -1075,7 +1065,7 @@ async def get_collection_item_feature(
         if _item_cold_result is not None:
             return _item_cold_result
 
-    # fix(#315): as with get_collection_items, a genuinely-missing VECTOR table
+    # As with get_collection_items, a genuinely-missing VECTOR table
     # (cold-evicted / partial ingest) raises ProgrammingError/OperationalError;
     # return 503 rather than an unhandled 500. The raster/VRT 404 guard above
     # handles datasets that never had a backing table.
