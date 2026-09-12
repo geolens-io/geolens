@@ -3,7 +3,7 @@
 from alembic import op
 
 revision = "0062_record_modified_clock"
-down_revision = "0060_dataset_publication_version"
+down_revision = "0061_refresh_token_families"
 branch_labels = None
 depends_on = None
 
