@@ -24,14 +24,39 @@ PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 class TestInf06MultiStage:
     def test_dockerfile_has_builder_stage(self):
         text = DOCKERFILE.read_text()
-        assert re.search(r"^FROM\s+\S+\s+AS\s+backend-builder\s*$", text, re.M), (
-            "Dockerfile must declare a `FROM ... AS backend-builder` stage"
+        assert re.search(
+            r"^FROM\s+backend-system\s+AS\s+backend-builder\s*$", text, re.M
+        ), (
+            "Dockerfile must derive backend-builder from the patched backend-system stage"
         )
 
     def test_dockerfile_has_runtime_stage(self):
         text = DOCKERFILE.read_text()
-        assert re.search(r"^FROM\s+\S+\s+AS\s+backend-base\s*$", text, re.M), (
-            "Dockerfile must declare a `FROM ... AS backend-base` runtime stage"
+        assert re.search(
+            r"^FROM\s+backend-system\s+AS\s+backend-base\s*$", text, re.M
+        ), "Dockerfile must derive backend-base from the patched backend-system stage"
+
+    def test_backend_system_enforces_perl_security_floor(self):
+        text = DOCKERFILE.read_text()
+        system_stage = text.split("FROM backend-system AS backend-builder", 1)[0]
+        assert "apt-get upgrade -y --no-install-recommends" in system_stage
+        assert re.search(
+            r"dpkg\s+--compare-versions\s+.*perl-base.*"
+            r"ge\s+['\"]5\.40\.1-6\+deb13u1['\"]",
+            system_stage,
+            re.S,
+        ), "backend-system must fail if perl-base is below the fixed Debian version"
+
+    def test_backend_system_owns_shared_runtime_packages(self):
+        text = DOCKERFILE.read_text()
+        system_stage, following_stages = text.split(
+            "FROM backend-system AS backend-builder", 1
+        )
+        backend_stages = following_stages.split("FROM postgres:", 1)[0]
+        for package in ("gdal-bin", "libexpat1", "xmlsec1", "libxmlsec1-openssl"):
+            assert package in system_stage
+        assert "apt-get install" not in backend_stages, (
+            "backend packages must be installed once in backend-system"
         )
 
     def test_runtime_copies_venv_from_builder(self):
@@ -127,30 +152,18 @@ class TestInf14NginxMime:
 
 class TestInf15PythonPinReconciliation:
     def test_dockerfile_pins_python_consistently(self):
-        """INF-15: backend-builder and backend-base pin the same concrete
-        python:x.y.z-slim base.
+        """INF-15: the shared backend system stage pins python:x.y.z-slim.
 
-        Asserts the invariant (a concrete patch pin, identical across both named
-        backend stages) rather than a hard-coded literal. Dependabot bumps the
-        patch; the stale `python:3.14.3-slim` literal this test used to assert is
-        exactly the drift fix(#423) removed from the Dockerfile prose.
+        Dependabot bumps the concrete patch; builder and runtime both derive
+        from this stage so their Python and patched Debian packages stay aligned.
         """
         text = DOCKERFILE.read_text()
-        # Base image keyed by backend stage alias, e.g. "python:3.14.6-slim".
-        bases = dict(
-            (alias, base)
-            for base, alias in re.findall(
-                r"^FROM\s+(\S+)\s+AS\s+(backend-builder|backend-base)\s*$", text, re.M
-            )
+        match = re.search(
+            r"^FROM\s+(python:\d+\.\d+\.\d+-slim)\s+AS\s+backend-system\s*$",
+            text,
+            re.M,
         )
-        for alias in ("backend-builder", "backend-base"):
-            assert re.fullmatch(r"python:\d+\.\d+\.\d+-slim", bases.get(alias, "")), (
-                f"{alias} stage must pin a concrete python:x.y.z-slim base, "
-                f"got {bases.get(alias)!r}"
-            )
-        assert bases["backend-builder"] == bases["backend-base"], (
-            f"backend-builder and backend-base must pin the same python base; got {bases}"
-        )
+        assert match, "backend-system stage must pin a concrete python:x.y.z-slim base"
 
     def test_pyproject_requires_python_at_least_3_13(self):
         text = PYPROJECT.read_text()
