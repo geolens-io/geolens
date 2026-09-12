@@ -144,7 +144,7 @@ describe('LoginForm', () => {
   });
 
   /**
-   * fix(#1527): the redirect key is cleared between a SUCCESSFUL login and the
+   * The redirect key is cleared between a successful login and the
    * navigation that follows it, inside the submit handler's try block. In a
    * storage-denied context the removeItem threw, so the catch turned a
    * completed sign-in into an inline "SecurityError: ..." on the form and the

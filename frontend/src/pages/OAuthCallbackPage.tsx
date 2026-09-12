@@ -10,7 +10,7 @@ import { Loader2 } from 'lucide-react';
 
 export function OAuthCallbackPage() {
   const { t } = useTranslation('auth');
-  useDocumentTitle(t('common:pageTitle.signingIn')); // fix(#438): UX-09
+  useDocumentTitle(t('common:pageTitle.signingIn'));
   const navigate = useNavigate();
   const processedRef = useRef(false);
 
@@ -22,7 +22,6 @@ export function OAuthCallbackPage() {
     const hash = window.location.hash.replace(/^#/, '');
     const params = new URLSearchParams(hash || window.location.search);
 
-    // Check for error param first (OAuth callback failure)
     const error = params.get('error');
     if (error) {
       window.history.replaceState({}, '', '/oauth/callback');
@@ -33,19 +32,16 @@ export function OAuthCallbackPage() {
     const token = params.get('token');
     const refreshToken = params.get('refresh_token');
     const expiresIn = params.get('expires_in');
-    // fix(#1302): with auth_mode=cookie the backend delivered the refresh token
-    // as an httpOnly cookie on the redirect, so the fragment carries no
-    // refresh_token to require. The fragment is readable by any script on this
-    // page, which made it the same exfiltration surface as localStorage.
+    // Cookie mode keeps the refresh token in an httpOnly cookie, outside
+    // the script-readable fragment; no refresh_token parameter is required.
     const cookieMode = params.get('auth_mode') === 'cookie';
 
     // Clean URL immediately (remove fragment with tokens)
     window.history.replaceState({}, '', '/oauth/callback');
 
     if (!token || !expiresIn || (!refreshToken && !cookieMode)) {
-      // fix(#2038): the response that redirected here did install the cookies,
-      // but /auth/logout/ revokes EVERY session of the user and a fragment too
-      // short to finish sign-in is no evidence the credential was rejected.
+      // An incomplete fragment is not evidence that credentials were rejected.
+      // Avoid /auth/logout/ here because it revokes every session for the user.
       useAuthStore.getState().logout();
       navigate('/login', { replace: true });
       return;
@@ -57,19 +53,16 @@ export function OAuthCallbackPage() {
     getMe()
       .then((user) => {
         useAuthStore.getState().setAuth(token, refreshToken ?? null, parseInt(expiresIn, 10), user);
-        // fix(#1527): a bare access here threw into the sibling .catch()
-        // below, which revokes the session and bounces to /login — so a
-        // storage-denied context ended a perfectly good SSO round-trip signed
-        // out. No stored redirect just means landing on "/".
+        // Denied storage must not turn a valid SSO round-trip into a failed
+        // session. Without a stored redirect, land on the root route.
         const redirect = readSessionStorage('geolens-login-redirect');
         removeSessionStorage('geolens-login-redirect');
         const target = redirect && redirect.startsWith('/') ? redirect : '/';
         navigate(target, { replace: true });
       })
       .catch((err: unknown) => {
-        // fix(#1446): the redirect already installed the refresh cookie, so a
-        // store reset alone strands a replayable credential. fix(#2038): but
-        // /auth/logout/ revokes EVERY session — a 500 here must not end them.
+        // A rejected credential must revoke the installed refresh cookie, but
+        // transient failures must not revoke every session owned by the user.
         if (isCredentialRejected(err)) void logoutSession().catch(() => {});
         useAuthStore.getState().logout();
         navigate('/login', { replace: true });

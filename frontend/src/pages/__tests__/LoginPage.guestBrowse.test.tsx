@@ -1,5 +1,5 @@
 /**
- * fix(#1527): the guest-browse escape hatch, end to end, under denied storage.
+ * Guest-browse escape hatch under denied storage.
  *
  * The claim under test is "an anonymous visitor can reach the catalog", NOT
  * "a navigation happened". Those come apart: the button writes
@@ -10,7 +10,7 @@
  *
  * So this file routes "/" through the production guard. An earlier revision
  * substituted a dummy catalog route, which asserted the navigation and
- * masked the bounce (#1535 codex P1). `SearchPage` is still stubbed, which is
+ * could mask the bounce. `SearchPage` is still stubbed, which is
  * a sound substitution: it is the destination's content, not the component
  * whose behaviour is the claim.
  */
@@ -90,7 +90,7 @@ async function clickBrowseCatalog() {
   await userEvent.click(browse);
 }
 
-describe('LoginPage guest-browse reaches the catalog (#1527)', () => {
+describe('LoginPage guest-browse reaches the catalog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getAuthConfig).mockResolvedValue(LANDING_FIRST_CONFIG);
@@ -109,11 +109,7 @@ describe('LoginPage guest-browse reaches the catalog (#1527)', () => {
     expect(sessionStorage.getItem('gl-guest-browse')).toBe('true');
   });
 
-  /**
-   * The bug #1535 shipped with: the click no longer threw, but the marker was
-   * dropped, so the guard bounced the visitor straight back to /login. The
-   * button was still dead in the one environment the fix exists for.
-   */
+  // Navigation must preserve the marker or LandingFirstGuard returns the visitor to /login.
   it('reaches the catalog when sessionStorage access throws', async () => {
     renderApp();
 

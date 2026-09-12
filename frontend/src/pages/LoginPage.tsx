@@ -26,13 +26,11 @@ function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<stri
   if (error.includes('access_denied')) {
     return t('oauthErrors.accessDenied');
   }
-  // DOMAIN-03 (Phase 1236): SSO callback redirects here with error=domain_not_allowed
-  // when the user's email domain is not in the allowed_email_domains list.
+  // SSO reports a rejected email domain through this callback error.
   if (error.includes('domain_not_allowed')) {
     return t('oauthErrors.domainNotAllowed');
   }
-  // fix(#1778): the identity signed in fine but has no account here, and
-  // self-serve registration is off, so nothing may be created for it.
+  // The identity is valid but cannot create an account while registration is disabled.
   if (error.includes('registration_disabled')) {
     return t('oauthErrors.registrationDisabled');
   }
@@ -90,18 +88,10 @@ function nearArcPath(samples: [number, number][], cosT: number, sinT: number) {
   return d;
 }
 
-/** Decorative dot-globe behind the brand panel scrim — a slowly rotating Earth.
- *  Purely cartographic flavor: no MapLibre instance, no interactivity. Dots,
- *  graticule and limb all use the theme `foreground`/`--map-*` tokens so the
- *  backdrop tracks light/dark mode and the overlaid brand text stays legible.
- *
- *  Everything spins about a 23.4°-tilted polar axis (orthographic projection,
- *  near hemisphere only): meridians + surface dots rotate per frame while
- *  parallels are spin-invariant, so the graticule + dots visibly stream across
- *  the face like a turning globe. Honors prefers-reduced-motion — those users
- *  get a fixed earth-like pose.
- *  A tiny rAF + analytic projection beats pulling in a 3D lib for a
- *  decorative backdrop; one-line motion gate, no dependency. */
+/**
+ * Decorative orthographic globe built with SVG and requestAnimationFrame.
+ * Reduced-motion users receive a fixed pose.
+ */
 function BrandMapBackdrop() {
   const { W, H, cx, cy, R } = GLOBE;
   const cosT = Math.cos(GLOBE_TILT);
@@ -223,18 +213,8 @@ export function LoginPage() {
   useDocumentTitle(t('common:pageTitle.login'));
   const { data: branding } = useBranding();
   const privacyUrl = branding?.privacy_url;
-  // fix(#1852): /login sits outside AppLayout (it renders before the user has
-  // a session to gate a route on), so it never got AppLayout's automatic
-  // footer. Mirror AppLayout's own showFooterBranding rule so self-hosters
-  // who hide the badge on every other page don't see it reappear here.
-  // fix(#1863 P2): useEdition() reports isEnterprise === false (its default)
-  // until the edition query resolves — an enterprise instance with
-  // show_badge false would briefly render the badge, then remove it. Gate on
-  // `isResolved` (useEdition's own "the endpoint has actually answered" flag
-  // — see its docstring; use-settings-admin.ts gates the same way). AppLayout
-  // reads isEnterprise the same unguarded way LoginPage used to and likely
-  // shares this race on every other route — out of scope here (this PR only
-  // touches LoginPage), left as noted debt rather than a drive-by fix.
+  // Login renders outside AppLayout, so it owns the footer visibility rule.
+  // Wait for edition resolution to avoid briefly showing disabled enterprise branding.
   const { isEnterprise, isResolved: editionResolved } = useEdition();
   const showFooterBranding = editionResolved && (!isEnterprise || branding?.show_badge !== false);
   const token = useAuthStore((s) => s.token);
@@ -260,21 +240,16 @@ export function LoginPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // FRONT-02 (Phase 1223): guest-browse escape hatch.
-  // Sets the sessionStorage marker so LandingFirstGuard does not bounce the
-  // visitor back to /login for the rest of the browser session.
+  // Suppress LandingFirstGuard for this browser session before opening the catalog.
   const handleBrowseCatalog = useCallback(() => {
-    // fix(#1527): a bare write threw in the click handler and killed the one
-    // button on this page that needs no account. Losing the marker only means
-    // landing-first bounces the visitor here again; losing the navigation is
-    // a dead button.
+    // Denied storage must not disable the anonymous navigation action.
     writeSessionStorage(GUEST_BROWSE_KEY, 'true');
     navigate('/');
   }, [navigate]);
 
   if (token) {
     const from = (location.state as { from?: string } | null)?.from;
-    // CLEAN-N4: search workspace is "/" after landing page removal.
+    // The root route is the canonical search workspace.
     const target = from && from.startsWith('/') ? from : '/';
     return <Navigate to={target} replace />;
   }
@@ -282,13 +257,13 @@ export function LoginPage() {
   if (configLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        {/* fix(#438): UX-16 — LoadingState carries role="status" + aria-live. */}
+        {/* LoadingState announces progress through role="status" and aria-live. */}
         <LoadingState />
       </div>
     );
   }
 
-  // SSO-only login mode (#268): treat absent password_login_enabled (older
+  // In SSO-only mode, treat absent password_login_enabled (older
   // servers) and a config fetch error (fail-open) as "password login allowed".
   const passwordLoginEnabled = config?.password_login_enabled !== false;
   const showPasswordForm = passwordLoginEnabled || showBreakGlass;
@@ -304,10 +279,6 @@ export function LoginPage() {
   ];
 
   return (
-    // fix(#1852): /login sits outside AppLayout (see the showFooterBranding
-    // comment above), so it's the only route that never got the site footer
-    // (GitHub / Docs / Community / API / license / version). Wrap in a flex
-    // column so AppFooter can render below the two-column grid.
     <div className="flex min-h-screen flex-col">
     <main className="grid flex-1 grid-cols-1 min-[880px]:grid-cols-[1.05fr_0.95fr]">
       {/* ───────── LEFT — brand / map panel (hidden ≤880px) ───────── */}
@@ -319,10 +290,7 @@ export function LoginPage() {
         <div className="relative z-10 flex h-full flex-col">
           {/* Top — logo lockup + eyebrow */}
           <div>
-            {/* fix(#1852): this used to Link to="/", which with landing_first
-                on redirects straight back to /login — a dead click for a
-                signed-out visitor. Route through the same guest-browse escape
-                hatch as the "Browse the catalog" buttons below instead. */}
+            {/* Use the guest-browse escape so the logo works when landing-first is enabled. */}
             <button
               type="button"
               onClick={handleBrowseCatalog}
@@ -380,14 +348,8 @@ export function LoginPage() {
         </Button>
 
         <div className="w-full max-w-[360px]">
-          {/* fix(#1852): below 880px the desktop brand panel is hidden
-              entirely (section className="hidden ... min-[880px]:flex"
-              above), so a phone visitor saw a bare, unbranded password form.
-              Show a compact wordmark + one-line headline instead of hiding
-              branding outright. Also doubles as the page's level-1 heading
-              below 880px — the desktop panel's own <h1> is display:none
-              here, and screen-reader heading nav needs exactly one h1 per
-              width; hidden on desktop to keep it that way. */}
+          {/* Mobile needs its own branding and level-one heading because the
+              desktop brand panel and its heading are hidden below 880px. */}
           <div className="mb-6 flex flex-col items-center gap-2 text-center min-[880px]:hidden">
             <GeoLensLogo size="md" />
             <h1 className="text-pretty text-lg font-semibold leading-snug tracking-[-0.01em] text-foreground">
@@ -406,7 +368,7 @@ export function LoginPage() {
             <p className="mb-4 text-sm text-destructive">{t('authConfig.loadFailed')}</p>
           )}
 
-          {/* SSO-only login mode (#268): hide the password form (no flash) when
+          {/* In SSO-only mode, hide the password form without a flash when
               password_login_enabled is explicitly false. Config is already
               resolved here (configLoading shows the LoadingState above). Treat an
               absent field (older servers) and a config error as true. */}
@@ -461,7 +423,7 @@ export function LoginPage() {
             </p>
           )}
 
-          {/* Signup gate (#266): show when allow_signup is true;
+          {/* Show signup when allow_signup is true;
               fall back to registration_enabled for older servers. */}
           {showSignup && (
             <p className="mt-3 text-center text-sm text-muted-foreground">
@@ -477,7 +439,7 @@ export function LoginPage() {
             <p className="mb-2.5 text-xs text-muted-foreground">
               {t('browseCatalogHelper')}
             </p>
-            {/* FRONT-02: sets gl-guest-browse to suppress the landing-first
+            {/* Sets gl-guest-browse to suppress the landing-first
                 redirect for the rest of the session before navigating to /. */}
             <Button
               variant="outline"

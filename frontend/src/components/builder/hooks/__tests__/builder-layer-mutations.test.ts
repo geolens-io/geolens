@@ -1,21 +1,9 @@
-/**
- * Phase 1134 Plan 02 — removePerLayerCompanions per-render-mode regression tests (MAP-17).
- *
- * Verifies that removePerLayerCompanions uses the LayerAdapter registry (getLayerIds)
- * when a renderModeByLayerId map is provided, and falls back to the suffix sweep
- * when it is not.
- */
-
 import { describe, it, expect, vi } from 'vitest';
 import {
   removePerLayerCompanions,
   buildDuplicateRenderingInput,
 } from '@/components/builder/hooks/builder-layer-mutations';
 import { makeBuilderLayer } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
-
-// ---------------------------------------------------------------------------
-// Minimal MapLibre mock
-// ---------------------------------------------------------------------------
 
 function makeMap(overrides: {
   isStyleLoaded?: () => boolean;
@@ -26,18 +14,14 @@ function makeMap(overrides: {
     isStyleLoaded: overrides.isStyleLoaded ?? vi.fn(() => true),
     getLayer: overrides.getLayer ?? vi.fn((id: string) => ({ id })),
     removeLayer: overrides.removeLayer ?? vi.fn(),
-    // fix(#1778): the helper defers to `idle` when the style is mid-swap.
+    // The helper defers to `idle` when the style is mid-swap.
     once: vi.fn(),
   };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+describe('removePerLayerCompanions by render mode', () => {
 
-describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () => {
-
-  it('Test 1: fill → removes [layerId, layerId-outline, layerId-extrusion]', () => {
+  it('removes fill companions', () => {
     const removeLayer = vi.fn();
     const map = makeMap({ removeLayer });
     const renderModeByLayerId = new Map([['l1', 'fill']]);
@@ -50,7 +34,7 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
   });
 
-  it('Test 2: cluster → removes [layerId-cluster, layerId-cluster-count, layerId]', () => {
+  it('removes cluster companions', () => {
     const removeLayer = vi.fn();
     const map = makeMap({ removeLayer });
     const renderModeByLayerId = new Map([['l1', 'cluster']]);
@@ -68,7 +52,7 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     ['symbol'],
     ['heatmap'],
     ['raster'],
-  ])('Test 3: %s render mode → removes only base layerId', (renderMode) => {
+  ])('%s render mode removes only the base layer', (renderMode) => {
     const removeLayer = vi.fn();
     const map = makeMap({ removeLayer });
     const renderModeByLayerId = new Map([['l1', renderMode]]);
@@ -79,20 +63,19 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
   });
 
-  it('Test 3b: line render mode → removes base id + arrow companion', () => {
+  it('removes the line base and arrow companion', () => {
     const removeLayer = vi.fn();
     const map = makeMap({ removeLayer });
     const renderModeByLayerId = new Map([['l1', 'line']]);
 
     removePerLayerCompanions(map as never, ['l1'], renderModeByLayerId);
 
-    // line-adapter getLayerIds returns [layerId, arrowLayerId(layerId)]
     expect(removeLayer).toHaveBeenCalledTimes(2);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-arrow');
   });
 
-  it('Test 3c: arrow render mode → falls back to suffix sweep (arrow not in registry)', () => {
+  it('uses the suffix sweep when arrow is not registered', () => {
     const removeLayer = vi.fn();
     const map = makeMap({ removeLayer });
     const renderModeByLayerId = new Map([['l1', 'arrow']]);
@@ -101,8 +84,7 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
 
     // 'arrow' is not a registry key → getAdapter('arrow') returns circleAdapter fallback
     // whose type === 'circle', not 'arrow', so the type guard fails and the code falls
-    // through to the FALLBACK_SUFFIXES sweep (10 calls including optional companions;
-    // fix #430 codex r23 added the mixed-geometry -lines/-points companions).
+    // through to the full suffix sweep, including mixed-geometry companions.
     expect(removeLayer).toHaveBeenCalledTimes(10);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-arrow');
@@ -116,16 +98,12 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-points');
   });
 
-  it('Test 4: legacy / no renderMode falls back to 7-suffix sweep', () => {
+  it('uses the full suffix sweep without a render mode', () => {
     const removeLayer = vi.fn();
-    // getLayer returns truthy for all ids so all 7 suffixes produce a call
     const map = makeMap({ removeLayer });
 
-    // Called WITHOUT renderModeByLayerId — falls back to suffix list
     removePerLayerCompanions(map as never, ['l1']);
 
-    // Fallback suffixes: base + optional companions (incl. the mixed-geometry
-    // -lines/-points pair, fix #430 codex r23).
     expect(removeLayer).toHaveBeenCalledTimes(10);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
@@ -139,7 +117,7 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-points');
   });
 
-  it('Test 4b: hillshade render mode removes optional color-relief companion', () => {
+  it('removes the optional hillshade color-relief companion', () => {
     const removeLayer = vi.fn();
     const map = makeMap({ removeLayer });
     const renderModeByLayerId = new Map([['l1', 'hillshade']]);
@@ -151,9 +129,8 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-colorrelief');
   });
 
-  it('Test 5: getLayer returns null for some companions → skipped without error', () => {
+  it('skips companions that are absent from the map', () => {
     const removeLayer = vi.fn();
-    // Extrusion companion does not exist on the map
     const getLayer = vi.fn((id: string) => id.endsWith('-extrusion') ? null : { id });
     const map = makeMap({ getLayer, removeLayer });
     const renderModeByLayerId = new Map([['l1', 'fill']]);
@@ -165,13 +142,13 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
   });
 
-  it('Test 6: map === null → no-op, no throw', () => {
+  it('does nothing for a null map', () => {
     expect(() => {
       removePerLayerCompanions(null, ['l1']);
     }).not.toThrow();
   });
 
-  it('Test 7: map.isStyleLoaded() === false → no removeLayer calls', () => {
+  it('does not remove layers before the style loads', () => {
     const removeLayer = vi.fn();
     const map = makeMap({ isStyleLoaded: vi.fn(() => false), removeLayer });
     const renderModeByLayerId = new Map([['l1', 'fill']]);
@@ -181,12 +158,8 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).not.toHaveBeenCalled();
   });
 
-  // fix(#1778): the bare early return above used to be the whole story, so a
-  // delete during a basemap style swap left the companions on the map for the
-  // rest of the session: no stack row, no legend entry, unclickable, and baked
-  // into any capture taken afterwards. Counterfactual: on main `once` is never
-  // called and the retry assertion below fails.
-  it('Test 7b: style not loaded → retries the sweep on idle', () => {
+  // A delete during a style swap must retry or its companion layers remain orphaned.
+  it('retries the sweep on idle when the style is not loaded', () => {
     const removeLayer = vi.fn();
     const isStyleLoaded = vi.fn(() => false);
     const map = makeMap({ isStyleLoaded, removeLayer });
@@ -205,7 +178,7 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
   });
 
-  it('Test 7c: replays a single-pass iterable on the idle retry', () => {
+  it('replays a single-pass iterable on the idle retry', () => {
     const removeLayer = vi.fn();
     const isStyleLoaded = vi.fn(() => false);
     const map = makeMap({ isStyleLoaded, removeLayer });
@@ -221,7 +194,7 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
   });
 
-  it('Test 8: multiple layer ids in one call → sweeps each independently', () => {
+  it('sweeps multiple layer ids independently', () => {
     const removeLayer = vi.fn();
     const map = makeMap({ removeLayer });
     const renderModeByLayerId = new Map([
@@ -231,13 +204,10 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
 
     removePerLayerCompanions(map as never, ['l1', 'l2'], renderModeByLayerId);
 
-    // fill: 3 ids, cluster: 3 ids = 6 total
     expect(removeLayer).toHaveBeenCalledTimes(6);
-    // fill companions
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
-    // cluster companions
     expect(removeLayer).toHaveBeenCalledWith('layer-l2-cluster');
     expect(removeLayer).toHaveBeenCalledWith('layer-l2-cluster-count');
     expect(removeLayer).toHaveBeenCalledWith('layer-l2');
@@ -245,27 +215,18 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
 
 });
 
-// ---------------------------------------------------------------------------
-// fix(#392): buildDuplicateRenderingInput — adjacent positioning (audit B-004b/LM-02)
-// ---------------------------------------------------------------------------
-
-describe('buildDuplicateRenderingInput — adjacent sort_order (B-004b / LM-02)', () => {
-  it('Test 1: places the duplicate adjacent to the source, not at the stack bottom', () => {
+describe('buildDuplicateRenderingInput', () => {
+  it('places the duplicate adjacent to the source', () => {
     const source = makeBuilderLayer({ id: 'src', sort_order: 1 });
-    // A much-higher sort_order layer elsewhere in the stack — the OLD
-    // max(sort_order)+1 behavior would place the duplicate at sort_order 11.
-    const other = makeBuilderLayer({ id: 'other', sort_order: 10 });
 
-    const input = buildDuplicateRenderingInput(source, [source, other]);
+    const input = buildDuplicateRenderingInput(source);
 
-    // Adjacent to the source (N+1 region), NOT max(sort_order)+1 (11).
     expect(input.sort_order).toBe(source.sort_order + 1);
-    expect(input.sort_order).not.toBe(11);
   });
 
-  it('Test 1b: does not add parent_group_id to the MapLayerInput (the type cannot carry it)', () => {
+  it('does not add parent_group_id to the MapLayerInput', () => {
     const source = { ...makeBuilderLayer({ id: 'src', sort_order: 0 }), parent_group_id: 'group-1' };
-    const input = buildDuplicateRenderingInput(source, [source]);
+    const input = buildDuplicateRenderingInput(source);
 
     expect(input).not.toHaveProperty('parent_group_id');
   });

@@ -4,30 +4,18 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
-// API_PROXY_TARGET is consumed only by the dev-server proxy below (Node side).
-// It is *not* exposed to the browser bundle, so the `VITE_` prefix that Vite
-// requires for browser-side env vars is intentionally absent. The deprecation
-// window for the legacy `VITE_API_PROXY_TARGET` alias has closed (CONF-14,
-// Phase 277 — see CHANGELOG.md for the original rename announcement).
+// Dev proxy settings stay server-side; no VITE_ prefix.
 const apiProxyTarget =
   process.env.API_PROXY_TARGET ||
   'http://localhost:8000'
 
-// FRONTEND_ALLOWED_HOSTS: comma-separated Host header values the dev server
-// accepts in addition to localhost/LAN, for serving the dev app behind a tunnel
-// or reverse proxy that presents a public hostname (e.g. a Cloudflare tunnel).
-// Vite blocks unknown Host headers as DNS-rebinding protection, so a tunnelled
-// host must be listed here. Consumed Node-side only (no VITE_ prefix — this is
-// dev-server config, not a browser var). Unset → Vite's default allowlist.
+// Explicit tunnel/proxy hosts extend Vite's DNS-rebinding allowlist.
 const allowedHosts = (process.env.FRONTEND_ALLOWED_HOSTS ?? '')
   .split(',')
   .map((h) => h.trim())
   .filter(Boolean)
 
-// Stamp the frontend package version into the bundle at build time so the
-// in-app "Report a problem" flow can auto-fill the GitHub issue version field
-// without a runtime fetch. Exposed as the `__APP_VERSION__` global (see
-// src/@types/build-globals.d.ts).
+// The issue-report flow uses the build-time version without a runtime fetch.
 const appVersion = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 ).version as string
@@ -75,7 +63,7 @@ function manualChunks(id: string) {
   if (id.includes('maplibre-gl') || id.includes('@vis.gl/react-maplibre')) return 'map-vendor'
   if (id.includes('terra-draw')) return 'draw-vendor'
   if (id.includes('@dnd-kit')) return 'dnd-vendor'
-  if (id.includes('chroma-js') || id.includes('react-colorful')) return 'color-vendor'
+  if (id.includes('react-colorful')) return 'color-vendor'
 
   return undefined
 }
@@ -88,13 +76,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      // maplibre-contour uses non-standard export conditions (module/browser,
-      // not import). Vitest's node environment cannot resolve `module` or
-      // `browser` conditions, so we alias to the CJS build explicitly.
-      'maplibre-contour': path.resolve(
-        __dirname,
-        'node_modules/maplibre-contour/dist/index.cjs',
-      ),
     },
   },
   server: {
@@ -103,22 +84,8 @@ export default defineConfig({
     // Only narrow the host allowlist when values are provided (tunnel/proxy
     // deployments); otherwise leave Vite's default behavior intact.
     ...(allowedHosts.length > 0 ? { allowedHosts } : {}),
-    // The API owns CORS policy for /api (CORS_ALLOWED_ORIGINS -> the FastAPI
-    // CORSMiddleware). Vite's own CORS middleware runs BEFORE the `/api` proxy
-    // below and short-circuits every preflight, so leaving it enabled means an
-    // OPTIONS never reaches the API: Vite answers 204 with no
-    // Access-Control-Allow-Origin and the browser blocks the real request.
-    //
-    // Since Vite 6 the `server.cors` default only allows localhost origins, so
-    // a dev server published behind a tunnel (see FRONTEND_ALLOWED_HOSTS above)
-    // breaks exactly the cross-origin callers it is meant to serve. The failure
-    // is invisible for simple GETs — those skip the preflight, get proxied, and
-    // come back with the API's correct headers — and only bites requests that
-    // carry an Authorization/X-Api-Key header and are therefore preflighted.
-    //
-    // `false` disables Vite's middleware entirely so OPTIONS is proxied to the
-    // API like any other method. This only ever removes CORS headers, never
-    // adds them, so it cannot loosen the dev server's exposure.
+    // Let the API handle CORS preflights; Vite would otherwise answer before
+    // the proxy and prevent the API's allowed-origin policy from taking effect.
     cors: false,
     fs: {
       allow: fsAllow,
@@ -136,30 +103,8 @@ export default defineConfig({
           proxy.on('proxyReq', (proxyReq, req) => {
             if (req.headers.host) proxyReq.setHeader('X-Forwarded-Host', req.headers.host);
           });
-          // ROUTE-01 defense-in-depth (Phase 1092): rewrite any upstream
-          // Location: http://api:8000/... to the external origin. Once
-          // redirect_slashes=False lands in FastAPI, no 307 should reach
-          // this hook, but the rewrite catches future code paths that
-          // re-introduce one (e.g. an explicit 307 from a route handler).
-          //
-          // WR-05 (Phase 1092 review): scheme preservation. If the Vite
-          // dev server is fronted by an HTTPS terminator (uncommon for
-          // bundled dev but possible in mirror setups, behind tunnels
-          // like ngrok, or in CI environments wrapping localhost), an
-          // ``x-forwarded-proto: https`` header arrives on the request.
-          // Hard-coding ``http://`` in the rewrite would emit a downgraded
-          // Location to an HTTPS client, triggering mixed-content
-          // warnings or downgrade redirects. Detect the inbound scheme
-          // and preserve it on the rewrite.
-          // WR-06 (Phase 1092 review): the detection regex must match the
-          // SAME shape as the replacement regex. Previously the detection
-          // required ``\/`` after the optional port (matching
-          // ``http://api:8000/path``) while the replacement matched both
-          // with-path and pathless forms — meaning a pathless
-          // ``Location: http://api:8000`` would skip detection and pass
-          // through unrewritten. FastAPI redirects always carry a path
-          // in practice, but the inconsistency was sloppy and brittle.
-          // Use ``(\/|$)`` to accept both shapes.
+          // Rewrite internal API redirects to the external host and preserve HTTPS.
+          // Match both pathless and path-bearing URLs to avoid leaking api:8000.
           proxy.on('proxyRes', (proxyRes, req) => {
             const location = proxyRes.headers.location
             if (typeof location === 'string' && /^https?:\/\/api(:\d+)?(\/|$)/.test(location)) {
@@ -175,17 +120,9 @@ export default defineConfig({
               )
             }
           });
-          // Dev-proxy resilience for large request bodies. In production nginx
-          // buffers the full request body (`proxy_request_buffering on`) before
-          // forwarding, so when the API rejects a large upload early — 413 (body
-          // too large) or 401 (auth) — the browser still receives that real
-          // status. Vite's dev proxy STREAMS the body instead, so an early
-          // upstream response + socket close races the still-uploading body and
-          // http-proxy raises ECONNRESET. With no 'error' listener that surfaces
-          // as an opaque 502 (and an unhandled error in the dev console). Convert
-          // it into a clean, explained response. The true upstream status is not
-          // recoverable once the socket resets mid-upload — this only affects
-          // requests the API was already going to reject, and only in dev.
+          // An early API rejection can reset a streamed upload. The original status
+          // is then unavailable; return an explained 502 instead of losing the
+          // response. Production nginx buffers uploads and preserves that status.
           proxy.on('error', (err, _req, res) => {
             const code = (err as NodeJS.ErrnoException)?.code
             // For proxied WebSocket upgrades `res` is a raw Socket (no writeHead).
@@ -257,7 +194,7 @@ export default defineConfig({
         'src/vite-env.d.ts',
         'src/components/ui/**',
       ],
-      // Coverage thresholds ratchet upward as the suite grows (TEST-02, Phase 278).
+      // Coverage thresholds ratchet upward as the suite grows.
       // Never lower one without a documented rationale in CHANGELOG.
       //
       // These are floor(actual) as measured on 2026-05-07, and the suite has
@@ -266,14 +203,8 @@ export default defineConfig({
       // headroom on every dimension, so an uncovered line does not trip a
       // threshold today.
       //
-      // fix(#1018): the comment here used to record the 2026-05-07 actuals
-      // (41.51 / 39.42 / 37.99 / 42.69) and warn that even a +1 buffer would
-      // fail because they sat under a point above their integer floors. Both
-      // halves were stale, and someone planning coverage work read it and
-      // believed the gate was tight. Re-ratcheting is a separate call and is
-      // deliberately NOT made here, so the invariant to read this block by is
-      // "thresholds are a floor from a recorded measurement", not "thresholds
-      // always equal floor(latest)". To ratchet: re-run `npm run
+      // Thresholds are a floor from a recorded measurement rather than the
+      // floor of the latest run. To ratchet: re-run `npm run
       // test:coverage`, set each to floor(actual), and update the measurement
       // above in the same commit.
       thresholds: {

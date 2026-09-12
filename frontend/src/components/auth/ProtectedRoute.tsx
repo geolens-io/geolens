@@ -10,10 +10,8 @@ export function ProtectedRoute() {
 
   if (!token) {
     const from = location.pathname + location.search;
-    // fix(#1527): this write happens during render, and every protected route
-    // in the app is behind it. In a storage-denied context the bare setItem
-    // threw and the redirect became a blank page; the `from` also rides
-    // router state, so losing the key costs nothing.
+    // Storage can be denied during render. The destination also travels in
+    // router state, so a failed convenience write must not block the redirect.
     writeSessionStorage(SESSION_KEY, from);
     return <Navigate to="/login" replace state={{ from }} />;
   }

@@ -36,13 +36,10 @@ export function LoginForm() {
     try {
       await login(username, password);
       const from = (location.state as { from?: string } | null)?.from;
-      // CLEAN-N3: the search workspace lives at "/" after the landing page
-      // removal; no more redirect through the legacy "/search" shim.
+      // The root route is the canonical search workspace.
       const target = from && from.startsWith('/') ? from : '/';
-      // fix(#1527): this sits between a SUCCESSFUL login and the navigation
-      // that follows, inside the try. A bare removeItem that throws is caught
-      // below and rendered as a login error — so the user is signed in, told
-      // sign-in failed, and left on /login.
+      // Keep storage cleanup exception-safe after authentication so it cannot
+      // turn a successful login into an inline error before navigation.
       removeSessionStorage('geolens-login-redirect');
       navigate(target, { replace: true });
     } catch (err) {
@@ -58,7 +55,7 @@ export function LoginForm() {
         <Label htmlFor="username" className="text-xs">
           {t('username')}
         </Label>
-        {/* #305: on a server error both credentials are suspect; mark fields invalid + describe by the error */}
+        {/* On a server error, mark both credentials invalid and associate the error. */}
         <Input
           id="username"
           type="text"

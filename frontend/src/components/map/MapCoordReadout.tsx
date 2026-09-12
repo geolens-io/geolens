@@ -9,32 +9,10 @@ interface MapCoordReadoutProps {
 }
 
 /**
- * Live coordinate readout anchored to the top-right of the map canvas.
- * Shows lat, lon, and zoom level — updates on:
- *   - `move`        → tracks programmatic flyTo / fitBounds / inertial pan
- *                     (Phase 1045 SP-02 / M-01 fix: before this, lat/lng
- *                     never updated after auto-fit because only `mousemove`
- *                     fired setCoords; programmatic camera moves were invisible
- *                     to the readout).
- *   - `mousemove`   → tracks the cursor's geographic position while inside
- *                     the canvas (existing behavior — preserved).
- *   - canvas leave  → fall back to the current map center so the readout
- *                     reflects the viewport instead of stale cursor coords.
- *
- * Uses font-mono for an instrument/cartographic feel.
- *
- * Positioning contract (RESP-02 — Phase 1051 Plan 09):
- *   The pill anchors at `top-2 right-14` (8px from top, 56px from right edge).
- *   The 56px right offset exists to clear the MapLibre `NavigationControl`
- *   when it is anchored `top-right` — which is the case in `ViewerMap.tsx`.
- *   In `BuilderMap.tsx`, Phase 1051 Plan 08 (RESP-01, commit 391459bb) moved
- *   the NavigationControl to `top-left`, so the original RESP-02 collision
- *   surface no longer exists in the builder context — but `right-14` is
- *   load-bearing for the viewer and must NOT be reduced without first
- *   confirming the NavigationControl position at every call site.
- *   Top-right PluginHost slot (`PluginHost.tsx:17`) sits at `top-12 right-3`
- *   — 40px below this pill — so there is no vertical collision with any
- *   floating plugin at the same horizontal band.
+ * Live coordinate readout that follows the cursor, camera movement, and canvas
+ * exit. The `right-14` offset clears ViewerMap's
+ * top-right navigation control. BuilderMap currently places that control on the
+ * left; verify both call sites before changing the shared offset.
  */
 export const MapCoordReadout = memo(function MapCoordReadout({
   map,
@@ -48,7 +26,6 @@ export const MapCoordReadout = memo(function MapCoordReadout({
 
     let disposed = false;
 
-    // Initialize with map center
     const center = map.getCenter();
     setCoords({ lat: center.lat, lng: center.lng, zoom: map.getZoom() });
 
@@ -78,10 +55,7 @@ export const MapCoordReadout = memo(function MapCoordReadout({
       });
     };
 
-    // SP-02: `move` fires on every camera change — programmatic flyTo /
-    // fitBounds, drag-pan, inertial pan, etc. — and is the canonical signal
-    // for "viewport changed". Without it the readout starts at the map
-    // center and never updates if the user never hovers the canvas.
+    // `move` also covers programmatic camera changes before the first hover.
     const onMove = () => {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(updateFromCenter);
@@ -111,11 +85,7 @@ export const MapCoordReadout = memo(function MapCoordReadout({
   const latDir = coords.lat >= 0 ? 'N' : 'S';
   const lngDir = coords.lng >= 0 ? 'E' : 'W';
 
-  // SP-12: derive RF value at render time from existing coords state.
-  // Uses same coords.lat as the lat segment (mouse position during hover,
-  // viewport center otherwise). No new subscription needed.
-  // formatRepresentativeFraction returns e.g. "1:288k"; we strip the "1:" prefix
-  // so we can render the prefix as a muted span (mirroring the "z" prefix at line 100).
+  // Render the "1:" prefix separately so it can use muted styling.
   const rfValue = showScale
     ? formatRepresentativeFraction(coords.lat, coords.zoom).slice(2)
     : null;

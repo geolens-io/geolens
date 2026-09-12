@@ -47,23 +47,20 @@ export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
   const { data, isLoading, error, isFetching, refetch } = useSearchResults();
-  // fix(#430 V-08): maps aren't indexed in catalog search — issue a parallel,
-  // visibility-scoped lookup against the maps list endpoint so a search for a
-  // map's name (e.g. "matterhorn") surfaces it from the home/catalog search.
+  // Map search uses the visibility-scoped maps endpoint because catalog search indexes datasets only.
   const { data: mapResults } = useMapSearchResults();
   const offset = useSearchStore((s) => s.offset);
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
   const resetFilters = useSearchStore((s) => s.resetFilters);
-  // #305: distinguish an empty catalog from a no-match query. toParams()
+  // Distinguish an empty catalog from a no-match query. toParams()
   // only emits non-default values, so any key beyond pagination means the user
   // has an active query / filter / sort.
   const hasActiveSearch = useSearchStore((s) =>
     Object.keys(s.toParams()).some((k) => k !== 'offset' && k !== 'limit'),
   );
   const resultsRef = useRef<HTMLDivElement>(null);
-  // #305: return to the top of the results (and move focus there for screen
-  // readers) on page change — previously the user stayed at the footer.
+  // Return focus to the results container when pagination changes the result set.
   const handlePageChange = (newOffset: number) => {
     useSearchStore.getState().setPage(newOffset);
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -71,7 +68,7 @@ export function SearchPage() {
     resultsRef.current?.focus({ preventScroll: true });
   };
   const { can } = usePermissions();
-  // fix(GLUX-006): gate the Import CTA on capability, not token presence alone (a
+  // Gate the Import CTA on capability, not token presence alone (a
   // viewer with a token must not see a dead-end /import). Keep the `!!token` guard
   // too: on logout the cached ['auth','permissions'] query can briefly still return
   // data, so `can('upload')` may lag true for the now-anonymous session — `token`
@@ -131,8 +128,7 @@ export function SearchPage() {
               <ErrorState message={t('error.message', { message: error.message })} onRetry={() => refetch()} />
             )}
 
-            {/* fix(#430 V-08): rendered independent of the dataset result state above —
-                a query can match a map with zero matching datasets. */}
+            {/* A query can match a map without matching any datasets. */}
             {mapResults && mapResults.maps.length > 0 && (
               <section className="space-y-3" aria-label={t('mapsSectionTitle', { defaultValue: 'Maps' })}>
                 <h2 className="text-sm font-medium text-foreground px-0.5">
@@ -146,14 +142,9 @@ export function SearchPage() {
               </section>
             )}
 
-            {/* fix(#430 codex r4): a map-only match (maps section above, zero
-                datasets) must not ALSO render the contradictory "No results
-                found" empty state — totalMatched only counts datasets. */}
+            {/* Map-only matches must not render the dataset empty state. */}
             {data && data.features.length === 0 && !(mapResults && mapResults.maps.length > 0) && (
-              // #305: only the true empty-catalog case (no matches at all, no
-              // query) gets onboarding. A positive totalMatched with an empty
-              // page means an out-of-range offset (e.g. stale /?offset=1000) —
-              // show the no-results state (Clear resets offset to page 1).
+              // A positive total with an empty page means the current offset is out of range.
               hasActiveSearch || totalMatched > 0 ? (
                 <EmptyState
                   icon={SearchX}
@@ -189,8 +180,7 @@ export function SearchPage() {
 
             {data && data.features.length > 0 && (
               <div ref={resultsRef} tabIndex={-1} className="scroll-mt-20 space-y-3 outline-none">
-                {/* #305: in-context results header — visible at all widths,
-                    unlike the count that previously lived only in the desktop rail. */}
+                {/* Keep the result count visible at every viewport width. */}
                 <div className="flex items-center justify-between gap-3 px-0.5">
                   <h2 className="text-sm font-medium text-foreground">
                     {t('resultCount', { count: totalMatched })}

@@ -10,7 +10,7 @@ import { logger } from '@/lib/logger';
 import type { QueryClient } from '@tanstack/react-query';
 
 /**
- * BUG-038: feature/schema mutations change the underlying column distribution,
+ * Feature/schema mutations change the underlying column distribution,
  * so the cached distinct-values and min/max stats (used by data-driven style
  * editors + filter pickers, staleTime 5min) must be invalidated by prefix.
  * dropColumn is the sharpest case — the column-keyed cache would otherwise
@@ -22,7 +22,7 @@ function invalidateColumnCaches(qc: QueryClient, datasetId: string): void {
 }
 
 /**
- * fix(#438): DATA-03 — adding/removing/editing features changes the feature
+ * Adding/removing/editing features changes the feature
  * count the catalog cards display and can move the quality badge, but the
  * feature mutations only invalidated the dataset detail + rows. Refresh the
  * search results and the dataset's validation so both reflect the edit.
@@ -30,6 +30,13 @@ function invalidateColumnCaches(qc: QueryClient, datasetId: string): void {
 function invalidateFeatureDerived(qc: QueryClient, datasetId: string): void {
   qc.invalidateQueries({ queryKey: queryKeys.search.all });
   qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(datasetId) });
+}
+
+function invalidateFeatureCaches(qc: QueryClient, datasetId: string): void {
+  qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
+  qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(datasetId) });
+  invalidateColumnCaches(qc, datasetId);
+  invalidateFeatureDerived(qc, datasetId);
 }
 
 export function useCreateFeature() {
@@ -45,10 +52,7 @@ export function useCreateFeature() {
       properties?: Record<string, unknown>;
     }) => createFeature(datasetId, geometry, properties),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
-      invalidateColumnCaches(qc, variables.datasetId);
-      invalidateFeatureDerived(qc, variables.datasetId);
+      invalidateFeatureCaches(qc, variables.datasetId);
     },
     onError: (err) => {
       logger.error('[useCreateFeature]', err);
@@ -71,10 +75,7 @@ export function useUpdateFeature() {
       properties?: Record<string, unknown>;
     }) => updateFeature(datasetId, gid, geometry, properties),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
-      invalidateColumnCaches(qc, variables.datasetId);
-      invalidateFeatureDerived(qc, variables.datasetId);
+      invalidateFeatureCaches(qc, variables.datasetId);
     },
     onError: (err) => {
       logger.error('[useUpdateFeature]', err);
@@ -93,10 +94,7 @@ export function useDeleteFeature() {
       gid: number;
     }) => deleteFeature(datasetId, gid),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
-      invalidateColumnCaches(qc, variables.datasetId);
-      invalidateFeatureDerived(qc, variables.datasetId);
+      invalidateFeatureCaches(qc, variables.datasetId);
     },
     onError: (err) => {
       logger.error('[useDeleteFeature]', err);
@@ -140,13 +138,13 @@ export function useDropColumn() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
       invalidateColumnCaches(qc, variables.datasetId);
     },
-    // fix(#438): UX-07 — SchemaEditor also toasted; the hook now owns it.
+    // The hook owns the error toast so SchemaEditor does not duplicate it.
     onError: (err) => { toast.error(formatMutationError('dataset:schema.removeFailed', err)); },
   });
 }
 
 /**
- * fix(#458 E-06): count saved maps whose styles/filters/labels reference a
+ * Count saved maps whose styles, filters, or labels reference a
  * column, so SchemaEditor can warn before a destructive drop. Enabled only
  * while a drop confirmation is open.
  */

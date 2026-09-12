@@ -16,16 +16,7 @@ export function useSearchResults() {
   });
 }
 
-/**
- * fix(#430 V-08): catalog search (`searchDatasets` above) only queries
- * Dataset/DatasetGrant/Record — maps are never indexed into it, so a home
- * search for a map's name (e.g. "matterhorn") surfaced zero results even
- * though a public map by that name exists. Cheaper than teaching catalog
- * search about maps: issue a PARALLEL request to the existing `/api/maps/`
- * list endpoint with the same `q`, which already scopes results to what the
- * caller can see (anonymous -> public maps only). Only fires with a non-empty
- * query — this is a search-results affordance, not a "browse maps" one.
- */
+/** Search visible maps separately because catalog dataset search does not index them. */
 export function useMapSearchResults() {
   const q = useSearchStore((s) => s.q).trim();
 
@@ -34,10 +25,7 @@ export function useMapSearchResults() {
     queryFn: () => listMaps({ search: q, limit: 6 }),
     enabled: q.length > 0,
     staleTime: 30_000,
-    // fix(#430 codex r3): only carry previous results between NON-empty
-    // queries (typing). On a blank query the hook is disabled, and
-    // keepPreviousData would otherwise keep serving the last results —
-    // stale map cards lingering after the user clears the search box.
+    // Do not retain map cards after the user clears the search query.
     placeholderData: q.length > 0 ? keepPreviousData : undefined,
   });
 }

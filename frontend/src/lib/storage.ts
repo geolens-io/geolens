@@ -1,8 +1,6 @@
 /**
- * fix(#438): ARC-06 — a thin, exception-safe, typed home for the `geolens-*`
- * localStorage keys that were previously written as bare string literals
- * scattered across pages. Persisted store state (zustand) keeps its own
- * `persist` config; this is for the ad-hoc view/notes/preference keys.
+ * Exception-safe, typed access for ad hoc `geolens-*` view, note, and
+ * preference keys. Persisted Zustand state owns its own storage configuration.
  *
  * Every access is wrapped: private-mode Safari and storage-disabled browsers
  * throw on access, and a UI preference is never worth crashing a page over.
@@ -40,32 +38,13 @@ export function removeStorage(key: string): void {
 }
 
 /**
- * fix(#1515): sessionStorage counterpart, for the same reason the file exists.
- *
- * A `typeof sessionStorage !== 'undefined'` check does NOT make a read safe:
- * the property exists, and it is reading it that raises. In a frame with an
- * opaque origin (sandboxed without `allow-same-origin`) the getter throws
- * `SecurityError`, so a caller reading during render takes the whole page
- * down rather than losing one preference.
- */
-/**
- * fix(#1535 codex P1): in-memory mirror for the session keys.
- *
- * Not throwing is not the same as working. `gl-guest-browse` is written by the
- * "Browse the catalog" button and read back by `LandingFirstGuard` one
- * navigation later; a write that silently no-ops leaves the guard bouncing the
- * visitor straight to /login, which is indistinguishable from a dead button in
- * the one environment these helpers exist for.
- *
- * Scope of the mirror is this page's lifetime, not the tab session: a full
- * reload loses it, because in a storage-denied context there is nowhere to
- * persist. That is the cost, and it is accepted. It also means the OAuth
- * round-trip (a full document load) still cannot carry `geolens-login-redirect`
- * through denied storage, so that path degrades to "/" as before.
+ * Exception-safe sessionStorage mirror for opaque origins and quota failures.
+ * The mirror preserves navigation intent within the current document; a full
+ * OAuth reload cannot preserve it and therefore falls back to the root route.
  */
 const memoryFallback = new Map<string, string>();
 
-/** Test-only: drop the mirror between cases (cf. `_resetQuicklookCache`). */
+/** Test-only: drop the mirror between cases. */
 export function _resetSessionStorageFallback(): void {
   memoryFallback.clear();
 }
@@ -83,14 +62,7 @@ export function readSessionStorage(key: string): string | null {
   return memoryFallback.get(key) ?? null;
 }
 
-/**
- * fix(#1527): writing is denied in exactly the same contexts reading is, and
- * for the same reason — the property access raises before `setItem` is ever
- * reached. Guarding only `readSessionStorage` covers half the surface: on the
- * auth path most of these accesses are writes (the login-redirect key, the
- * guest-browse marker), several of them during render or inside a click
- * handler where the throw is a blank page rather than a lost preference.
- */
+/** Guard property access as well as setItem because either may throw. */
 export function writeSessionStorage(key: string, value: string): void {
   try {
     sessionStorage.setItem(key, value);
@@ -104,17 +76,8 @@ export function writeSessionStorage(key: string, value: string): void {
     memoryFallback.set(key, value);
   }
 
-  // fix(#1535 codex P2): the write failed, so whatever was persisted under
-  // this key BEFORE is now stale — and it would win, because the read prefers
-  // a non-null store value and only then consults the mirror. Worse, it
-  // outlives the mirror: the OAuth round trip is a full document load, so
-  // `OAuthCallbackPage` would read a route the user has already navigated
-  // away from and send them there.
-  //
-  // Drop it, so a post-reload read finds nothing and the caller degrades to
-  // "/" instead of to something false. Only the full-store case has anything
-  // to clear; a denied store never persisted a value, so this throws and the
-  // catch is the whole handling.
+  // Remove any stale persisted value that would outrank the mirror and survive
+  // an OAuth reload. A denied store has nothing to remove and throws safely.
   try {
     sessionStorage.removeItem(key);
   } catch {

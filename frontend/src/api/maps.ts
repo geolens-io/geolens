@@ -182,8 +182,7 @@ export async function removeLayerFromMapApi(
 /**
  * Batch-delete multiple layers from a map in a single HTTP call.
  *
- * Phase 1047-04 (PERF-03): Replaces the old Promise.allSettled(removeLayerFromMapApi × N)
- * pattern which fired N sequential DELETEs. This call fires exactly ONE POST request
+ * This call fires one POST request
  * regardless of how many layers are selected. The backend returns partial-failure details
  * inline so the caller can surface them without treating the whole operation as failed.
  */
@@ -201,7 +200,7 @@ export async function bulkDeleteLayersApi(
  * Fetch a shared map by its share token.
  *
  * Returns `null` when the token does not exist (404) — this is treated as an
- * expected/quiet outcome (ROUTE-04). The caller (`useSharedMap` → `PublicViewerPage`)
+ * expected, quiet outcome. The caller (`useSharedMap` → `PublicViewerPage`)
  * handles `data === null` via the existing `isError || !data` branch, rendering
  * the "Map not found" view without any application-layer error surface.
  *
@@ -213,7 +212,7 @@ export async function getSharedMap(token: string, apiKey?: string, embedToken?: 
   if (apiKey) {
     extraHeaders['X-Api-Key'] = apiKey;
   }
-  // fix(#394) SH-01/B-023: embed viewers present their embed token so the
+  // Embed viewers present their token so the
   // metadata payload includes the token's scoped (possibly non-public)
   // dataset layers — the tile path already honored the same capability.
   if (embedToken) {
@@ -236,7 +235,7 @@ export async function getSharedMap(token: string, apiKey?: string, embedToken?: 
     }
   }
   // Apply map-level normalization: SharedMapResponse.show_basemap_labels is optional
-  // (older shared payloads omit it); normalizeSavedMap defaults it to true (BSR-22).
+  // Older shared payloads omit it; normalizeSavedMap defaults it to true.
   // Does NOT reassign resp.layers — per-layer mutations already applied above.
   const mapNorm = normalizeSavedMap(resp);
   resp.basemap_style = mapNorm.basemap_style;
@@ -284,13 +283,12 @@ export async function publishMap(id: string, visibility: 'public' | 'private' | 
 }
 
 /**
- * fix(#1831 review): distinguishes the one 400 `publishMap` can return that
+ * Distinguishes the one 400 `publishMap` can return that
  * has its own dedicated UI (SharePanel's inline "can't go public" message)
  * from every other failure, which still gets the generic toast. Reads the
  * raw `err.body` the backend sent (`{ message, datasets }` from
  * `validate_public_visibility` in `maps/router.py`), not `err.message` —
- * that's already a translated fallback string, not JSON, and was the actual
- * bug in #1831 (dataset names were read off it and silently dropped).
+ * that is already a translated fallback string rather than JSON.
  *
  * Shared by `usePublishMap` (to skip its own toast for this one case) and
  * `SharePanel` (to render the inline message), so the two can't drift.
@@ -358,10 +356,6 @@ export async function fetchDatasetMaps(datasetId: string): Promise<MapListRespon
   return apiFetch<MapListResponse>(`/datasets/${datasetId}/maps/`);
 }
 
-// chore(#835): the non-streaming `generateMap` wrapper was deleted with its
-// only (callerless) consumer `useGenerateMap` — the app generates maps via
-// `streamGenerateMap` below.
-
 export interface StreamEvent {
   event: string;
   data: Record<string, unknown>;
@@ -373,7 +367,7 @@ export interface StreamEvent {
  * SSE spec allows \r\n, \n, or \r as line terminators. sse-starlette uses
  * \r\n, so after splitting on \n every line carries a trailing \r that must
  * be stripped before the empty-line frame boundary check. Blank line = SSE
- * frame boundary (AI-08); accumulated data lines are joined and JSON-parsed
+ * frame boundary; accumulated data lines are joined and JSON-parsed
  * (malformed frames are skipped).
  */
 async function* parseSSEBody(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamEvent> {
@@ -426,7 +420,7 @@ export async function* streamGenerateMap(
   data: MapGenerateRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
-  // BUG-035: route through the refresh-aware raw fetch so a stream issued as
+  // Route through the refresh-aware raw fetch so a stream issued as
   // the first request after a long idle transparently refreshes the JWT
   // instead of hard-failing with a 401. Authorization header is set inside.
   const response = await authenticatedRawFetch(
@@ -496,7 +490,7 @@ function toChatLayers(layers: MapLayerResponse[]): ChatMapLayer[] {
 }
 
 /**
- * Public-safe AI readiness signal (builder-audit #338 P1-11).
+ * Public-safe AI readiness signal.
  *
  * Permission-gated on `use_ai_chat` server-side, so a non-admin editor (who
  * cannot read `/admin/ai-status/`) can learn whether builder chat is usable
@@ -534,7 +528,7 @@ export async function sendChatMessage(
  * POST an AI chat SSE request and yield its parsed events.
  *
  * Shared by the map-scoped and dataset-scoped chat streams: refresh-aware raw
- * fetch (BUG-035), ApiError classification on non-OK pre-flight responses,
+ * fetch, ApiError classification on non-OK pre-flight responses,
  * then SSE frame parsing via parseSSEBody.
  */
 async function* streamChatSSE(

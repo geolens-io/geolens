@@ -59,7 +59,7 @@ export const QUALITATIVE_RAMPS = [
 ] as const;
 
 // ---------------------------------------------------------------------------
-// ENH-08: Deterministic ramp rotation + data-character suggestion
+// Deterministic ramp rotation and data-character suggestion
 // ---------------------------------------------------------------------------
 //
 // Rotation lists are CVD-safe-first so the default visual experience works
@@ -156,16 +156,8 @@ export function cvdSafeRamps<T extends { cvdSafe: boolean }>(ramps: T[] | readon
   return (ramps as T[]).filter((r) => r.cvdSafe);
 }
 
-// fix(#448): static ColorBrewer stop arrays (dumped verbatim from
-// chroma.brewer) + a local interpolator replace the chroma-js dependency in
-// this module. chroma-js (19.5KB gz, chunked as color-vendor) was leaking
-// into the ENTRY graph via layer-icons/LegendEntries → this file, making the
-// login page download it for two decorative heatmap previews. Output is
-// bit-exact with chroma.scale(name).colors(count) — including replicating
-// chroma's 1/(n-1) domain-breakpoint float arithmetic — and is pinned by a
-// parity test that compares against chroma directly
-// (__tests__/color-ramps-chroma-parity.test.ts). chroma-js remains a
-// builder-only dependency (color-relief-sync.ts).
+// Keep production independent of chroma-js while preserving its
+// ColorBrewer output bit-for-bit; the parity test retains chroma as test data.
 const BREWER_STOPS: Record<string, readonly string[]> = {
   YlOrRd: ['#ffffcc', '#ffeda0', '#fed976', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c', '#bd0026', '#800026'],
   YlGnBu: ['#ffffd9', '#edf8b1', '#c7e9b4', '#7fcdbb', '#41b6c4', '#1d91c0', '#225ea8', '#253494', '#081d58'],
@@ -232,14 +224,14 @@ function sampleStops(stops: readonly string[], t: number): string {
   );
 }
 
-// fix(#449, codex P2): chroma.scale() resolved brewer names case-insensitively
+// chroma.scale() resolves brewer names case-insensitively
 // (chroma.brewer carries lowercase aliases), and legacy/imported style configs
 // can hold lowercase ramp names like 'viridis' — keep matching them.
 const BREWER_STOPS_BY_LOWER: Record<string, readonly string[]> = Object.fromEntries(
   Object.entries(BREWER_STOPS).map(([name, stops]) => [name.toLowerCase(), stops]),
 );
 
-// fix(#1856): names (lowercased) of the qualitative palettes, so getRampColors
+// Lowercase qualitative palette names so getRampColors
 // can tell a discrete category palette from a continuous gradient.
 const QUALITATIVE_NAMES = new Set(QUALITATIVE_RAMPS.map((r) => r.name.toLowerCase()));
 
@@ -249,16 +241,14 @@ const QUALITATIVE_NAMES = new Set(QUALITATIVE_RAMPS.map((r) => r.name.toLowerCas
  * Pass reversed=true to get the reverse of the normal color order (e.g. dark-low vs dark-high).
  *
  * Unknown ramp names fall back to YlOrRd — this includes 'Inferno' and
- * 'Plasma' from SEQUENTIAL_RAMPS, faithfully preserving the pre-#448
- * behavior (chroma-js has no brewer entry for either, so the old
- * try/catch already served YlOrRd for them).
+ * 'Plasma' from SEQUENTIAL_RAMPS because chroma-js has no brewer entry for either.
  */
 export function getRampColors(rampName: string, count: number, reversed = false): string[] {
   const lower = rampName.toLowerCase();
   const stops = BREWER_STOPS_BY_LOWER[lower] ?? BREWER_STOPS.YlOrRd;
   let colors: string[];
   if (QUALITATIVE_NAMES.has(lower)) {
-    // fix(#1856): a qualitative palette is a set of unrelated category
+    // A qualitative palette is a set of unrelated category
     // colors, not a gradient — sampling it continuously (as below) blends
     // adjacent unrelated hues and washes small counts out toward grey.
     // Assign palette entries directly, cycling past the palette length.
@@ -286,10 +276,10 @@ export function buildCategoricalExpression(
     pairs.push(value, color);
   }
   if (pairs.length === 0) {
-    // fix(#527 B-054/S-03): an empty/all-null column yields a zero-pair
+    // An empty or all-null column yields a zero-pair
     // ['match', input, fallback] — below the spec's minimum arity, so
     // addLayer throws (swallowed) and the layer silently never renders.
-    // Mirror of the symbol-adapter guard (B-024): emit the bare fallback.
+    // Mirror the symbol-adapter guard by emitting the bare fallback.
     return fallback;
   }
   const matchExpr = ['match', ['get', column], ...pairs, fallback];
@@ -323,7 +313,7 @@ export function buildGraduatedExpression(
  * Return the MapLibre paint property name for coloring based on geometry type.
  */
 export function getColorProperty(geometryType: string | null): string {
-  // builder-audit #338 ADAPT-02/DRY-05: derive from the single classifyGeometry scanner.
+  // Derive from the shared geometry classifier.
   switch (classifyGeometry(geometryType)) {
     case 'point':
       return 'circle-color';
@@ -381,29 +371,10 @@ export function getSizeProperty(
 const COLOR_CLASSIFICATION_KEYS = ['mode', 'column', 'ramp', 'categories', 'colors', 'breaks'] as const;
 
 /**
- * fix(#910/#918, codex P2): does `config` claim an attribute-driven colour that
- * `paint` does not actually carry?
- *
- * `style_config` and `paint` are two records of one fact, and every surface reads
- * a different one: the map draws the paint expression, while the legend, the layer
- * swatch and DataDrivenStyleEditor all read the config. Once they disagree the
- * product lies about the user's styling in whichever direction they happen to look.
- * They can only diverge one way — paint replaced wholesale while the config stays,
- * from Advanced JSON, an AI `replace_paint`, or a map saved before this rule existed.
- *
- * Deliberately keyed off the RESOLVED paint rather than which caller wrote it or
- * why. A rule keyed on the reason needs a new branch per writer, and the writers
- * are an open set.
- *
- * Two states that look orphaned and are not:
- *  - a config with no classes (`categories: []` from an all-null column) claims
- *    nothing, and `buildCategoricalExpression` correctly emits a bare colour for
- *    it — treating that as orphaned makes the editor regenerate forever (#461);
- *  - `render_mode` heatmap/symbol park a classification while the renderer paints
- *    something else entirely, the same exemption `hasUnsupportedBuilderState` makes.
- *    That exemption is also what leaves `use-render-mode-layers.ts` — the third writer
- *    of layer paint — with nothing to reconcile: it produces exactly those two states,
- *    and a cluster switch keeps the colour paint it was already drawing.
+ * Detect a classification config that no longer matches the rendered paint.
+ * Paint drives the map while config drives the editor, legend, and swatch, so
+ * the two records must describe the same attribute expression. Empty class sets
+ * and heatmap or symbol modes intentionally require no color expression.
  */
 export function colorClassificationIsOrphaned(
   config: StyleConfig | null | undefined,
@@ -422,40 +393,21 @@ export function colorClassificationIsOrphaned(
       ? (config.categories?.length ?? 0) > 0
       : (config.colors?.length ?? 0) > 0;
   if (!claimsClasses) return false;
-  // Same key the editor writes, from the same function, so the check cannot disagree
-  // with the writer about which colour property this geometry uses.
+  // Resolve the color property through the same helper used by the editor.
   const painted = paint[getColorProperty(geometryType)];
   if (!Array.isArray(painted)) return true;
-  // fix(#910, codex P2): an array alone is not proof the classification still holds.
-  // Advanced JSON or the AI can swap a categorical `era` expression for one reading
-  // `status`; the legend and editor then report `era` over a map drawn by `status`.
-  //
-  // The test is deliberately one-directional: a classification NAMES a column, so an
-  // expression that never reads it cannot be the one this config describes. It does not
-  // try to work out WHICH `get` in a hand-authored expression is the classification —
-  // guessing wrong there would delete hand-authored category colours (#461), and every
-  // builder-generated expression reads the config's column by construction, so the
-  // conservative direction has no false positives to trade away.
+  // Require the expression to read the configured column. Do not infer which
+  // `get` in a hand-authored expression owns classification; that could discard
+  // valid custom colors.
   return typeof config.column === 'string' && config.column !== ''
     && !expressionReadsColumn(painted, config.column);
 }
 
 /**
- * fix(#910/#918, codex P2): strip a classification claim that `paint` no longer backs.
- *
- * Drops the fields `colorClassificationIsOrphaned` reads to detect the claim, so
- * detection and removal stay in lockstep, PLUS `column`/`ramp`. Everything else survives
- * — `StyleConfig` is an open bag, and `render_mode`, `symbol` and the builder block
- * describe things a colour classification has no say over.
- *
- * fix(#910, codex P2): `column` and `ramp` looked like the user's selections worth
- * keeping, and keeping them re-applied the classification on the next open. A fresh
- * `DataDrivenStyleEditor` seeds local `column` from the config and defaults local `mode`
- * to 'categorical', so a config carrying a column and no mode reads to it as a live
- * categorical classification: its effect regenerated the expression and overwrote the
- * paint the replacement had just written. The transition guard in that component covers
- * the editor being ALREADY OPEN and cannot cover this — on a fresh mount there is no
- * transition to observe, because the claim was already gone before it rendered.
+ * Strip a classification claim that `paint` no longer backs.
+ * Remove every classification key, including column and ramp, so a fresh editor
+ * cannot regenerate the stale expression. Preserve unrelated open-bag fields such
+ * as render mode, symbol settings, and builder metadata.
  */
 export function reconcileColorClassification(
   config: StyleConfig | null,

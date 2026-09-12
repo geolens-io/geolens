@@ -7,23 +7,15 @@ import {
   QUALITATIVE_RAMPS,
 } from '../color-ramps';
 
-// fix(#448): getRampColors no longer imports chroma-js — the static import
-// chain layer-icons/LegendEntries → color-ramps → chroma-js pulled the
-// color-vendor chunk into the ENTRY graph (the login page downloaded 19.5KB
-// gz for two decorative heatmap previews). This suite pins the local
-// reimplementation to chroma.scale(name).colors(count) BIT-FOR-BIT so
-// legend swatches keep matching the colors stored in existing saved maps
-// (which were generated with chroma in the builder). chroma-js remains a
-// builder-only dependency (color-relief-sync.ts), so importing it in tests
-// is free — tests are never bundled.
+// chroma-js is test-only reference data. Keep the production
+// implementation bit-identical so saved-map colors and legend swatches agree.
 
 const ALL_RAMPS = [...SEQUENTIAL_RAMPS, ...DIVERGING_RAMPS, ...QUALITATIVE_RAMPS].map(
   (r) => r.name as string,
 );
 const QUALITATIVE_NAMES = new Set(QUALITATIVE_RAMPS.map((r) => r.name as string));
-// chroma-js has no brewer entry for Inferno/Plasma — the pre-#448 try/catch
-// already served the YlOrRd fallback for them, which getRampColors preserves.
-// fix(#1856): qualitative ramps (Set2 etc.) are no longer sampled
+// chroma-js has no brewer entry for Inferno/Plasma, so getRampColors preserves
+// their YlOrRd fallback. Qualitative ramps such as Set2 are not sampled
 // continuously — getRampColors now cycles discrete palette entries for
 // them, so they intentionally diverge from chroma.scale()'s gradient output
 // and are excluded from the bit-parity checks below.
@@ -40,13 +32,13 @@ describe('getRampColors ↔ chroma-js parity', () => {
     }
   });
 
-  it('serves the YlOrRd fallback for Inferno/Plasma/unknown names (pre-#448 behavior)', () => {
+  it('serves the YlOrRd fallback for Inferno, Plasma, and unknown names', () => {
     expect(getRampColors('Inferno', 5)).toEqual(chroma.scale('YlOrRd').colors(5));
     expect(getRampColors('Plasma', 5)).toEqual(chroma.scale('YlOrRd').colors(5));
     expect(getRampColors('not-a-ramp', 5)).toEqual(chroma.scale('YlOrRd').colors(5));
   });
 
-  // fix(#449, codex P2): chroma.scale() lowercases brewer names, so legacy
+  // chroma.scale() lowercases brewer names, so legacy
   // style configs with 'viridis'/'blues' resolved correctly — the local
   // lookup must stay case-insensitive rather than fall back to YlOrRd.
   it.each(CHROMA_KNOWN)('%s resolves case-insensitively like chroma', (name) => {

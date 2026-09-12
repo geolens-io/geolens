@@ -25,11 +25,6 @@ export interface MapCardProps {
 export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
   const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
-  // fix(#1005): version on the thumbnail's own timestamp. `updated_at` used to
-  // serve both meanings, so the lazy backfill that fires when an owner first
-  // opens a thumbnail-less map bumped the map's edit time and reordered the
-  // "Last updated" gallery. Fall back to `updated_at` for maps captured before
-  // the column existed, so they keep a stable version rather than losing one.
   const thumbnailSrc = useMapThumbnail(
     map.thumbnail_url,
     map.thumbnail_updated_at ?? map.updated_at,
@@ -71,7 +66,7 @@ export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
             >
               {map.name}
             </Link>
-            {/* PR #330: always-visible badge so state is perceivable without color or hover (GLUX-005) */}
+            {/* Keep state perceivable without relying on color or hover. */}
             <Badge
               variant="outline"
               className={`shrink-0 gap-1 ${visibilityColors[map.visibility] ?? 'border-border bg-muted text-muted-foreground'}`}

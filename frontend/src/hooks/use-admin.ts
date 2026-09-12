@@ -87,18 +87,6 @@ export function useAuditLogs(params: {
   });
 }
 
-// Pending count (for badge)
-export function usePendingCount() {
-  return useQuery({
-    queryKey: queryKeys.admin.pendingCount,
-    queryFn: async () => {
-      const result = await listUsers({ skip: 0, limit: 1, status: 'pending' });
-      return result.total;
-    },
-    staleTime: 60_000,
-  });
-}
-
 // Admin jobs
 export function useAdminJobs(params: {
   status?: string;
@@ -113,7 +101,7 @@ export function useAdminJobs(params: {
     queryKey: queryKeys.admin.jobs(params),
     queryFn: () => listAdminJobs(params),
     placeholderData: keepPreviousData,
-    // fix(#2033): a retried job can settle within a second — poll while the
+    // A retried job can settle within a second, so poll while the
     // current page still has a pending/running row instead of relying on the
     // retry mutation's one-shot invalidate.
     refetchInterval: (q) => {
@@ -137,7 +125,7 @@ export function useFailedJobCount(enabled = true) {
   });
 }
 
-// #347 (ADM-02): total counts for the Operations sidebar badges (Users, Published
+// Total counts for the Operations sidebar badges (Users, Published
 // Maps, Audit Log). Each reads `.total` off a 1-row list query.
 export function useUserCount(enabled = true) {
   return useQuery({
@@ -180,7 +168,7 @@ export function useRetryAdminJob() {
   });
 }
 
-// feat(#1677): mirror of useRetryAdminJob for the shared /jobs/{id}/cancel
+// Mirror useRetryAdminJob for the shared /jobs/{id}/cancel
 // route — admin cancel reuses it the same way admin retry reuses /retry.
 export function useCancelAdminJob() {
   const qc = useQueryClient();
@@ -197,7 +185,7 @@ export function useCancelAdminJob() {
 }
 
 // User mutations
-// fix(#438): UX-08 — these six succeeded silently; the house pattern is a success toast.
+// User mutations follow the application pattern of confirming success with a toast.
 export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({
@@ -232,7 +220,7 @@ export function useDeactivateUser() {
       qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });
       toast.success(i18n.t('admin:users.toasts.deactivated'));
     },
-    // #347 (ADM-04): surface the backend reason (e.g. "Cannot deactivate the last
+    // Surface the backend reason (e.g. "Cannot deactivate the last
     // admin user" / "Cannot deactivate your own account") instead of a generic
     // "Failed to deactivate user". ApiError.message is the translated detail.
     onError: (err) => {
@@ -292,7 +280,7 @@ export function useRejectUser() {
   });
 }
 
-// AI Status — cached across all consumers (SP-08). No idle polling: the result is
+// AI status is cached across consumers. No idle polling: the result is
 // re-fetched on staleTime expiry or via explicit invalidation (e.g. after mutating
 // AI config). 60s staleTime keeps multi-consumer mounts from refetching; 5min gcTime
 // keeps the cache warm across page transitions.
@@ -364,12 +352,8 @@ export function useBulkRevokeEmbedTokens() {
 }
 
 // API Key hooks
-// fix(#1805 review round 3 P2): pageCount pages are fetched independently
-// (one query per page, each its own cache entry via queryKeys.admin.apiKeys
-// pageIndex) and flattened here, rather than accumulating into local
-// component state -- a create/revoke mutation invalidates every loaded
-// page's query in place, so the flattened list always reflects the latest
-// data with no manual re-append/dedupe bookkeeping.
+// Fetch each page under its own cache key so create and revoke invalidations
+// refresh the flattened result without local append or dedupe state.
 export const API_KEYS_PAGE_SIZE = 50;
 
 export function useApiKeys(userId: string, pageCount: number = 1) {
@@ -385,13 +369,8 @@ export function useApiKeys(userId: string, pageCount: number = 1) {
   const items = queries.flatMap((q) => q.data?.items ?? []);
   const total = queries[0]?.data?.total;
   const isLoading = queries.some((q) => q.isLoading);
-  // fix(#1805 review round 4 P2): a failed page inside useQueries used to be
-  // dropped silently -- isError was never surfaced and hasMore stayed true,
-  // so a broken page just looked like it hadn't loaded yet, with the "Load
-  // more" control offering to fetch PAST it instead of surfacing the
-  // failure. Surface the first failed page (in page order) and a retry
-  // scoped to that one query -- useQueries gives each result its own
-  // refetch, so retrying page 2 does not refetch page 1.
+  // Surface the first failed page and retry only its query; otherwise a gap
+  // would leave the "Load more" control available indefinitely.
   const failedPageIndex = queries.findIndex((q) => q.isError);
   const isError = failedPageIndex !== -1;
   const error = isError ? queries[failedPageIndex].error : null;
@@ -447,7 +426,7 @@ export function useEmbeddingStats(options?: { enabled?: boolean }) {
     queryFn: getEmbeddingStats,
     staleTime: 30_000,
     enabled: options?.enabled,
-    // fix(#2025): the response decides the rate. A run in flight is watched
+    // The response decides the rate. A run in flight is watched
     // closely; an idle panel still looks occasionally, because a run somebody
     // else starts is what disables these buttons and nothing else would tell a
     // tab that is already open. Never polls while the tab is in the background.
@@ -461,17 +440,13 @@ export function useBackfillEmbeddings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (force?: boolean) => triggerBackfill(force),
-    // fix(#2025): the enqueue refetch is back, for a different reason than the
-    // one #1542 removed it for. The coverage numbers are still unchanged at
-    // this point, but the response now also carries the run in flight, which
-    // is what starts the progress polling. Without this the operator who
-    // queued the run is the last to see it move.
+    // Refetch so the response exposes the run in flight and starts progress polling.
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
     },
     onError: (err) => {
       logger.error('[useBackfillEmbeddings]', err);
-      // fix(#1542): a run already in flight is refused, not failed. Saying
+      // A run already in flight is refused rather than failed. Saying
       // "backfill failed" there would read as "your catalog is broken" for the
       // one case where the safe thing just happened.
       if (err instanceof ApiError && err.status === 409) {
@@ -483,14 +458,8 @@ export function useBackfillEmbeddings() {
   });
 }
 
-// fix(#1550 review P2): track the queued run rather than promising coverage
-// updates on faith. The run happens on the job queue now (#1542), so the
-// mutation resolves before any work has been done — the panel used to toast
-// "coverage updates as it runs" and then never look again, so an operator who
-// stayed on the page saw a stale coverage figure for as long as they stood
-// there. This polls the one job it queued, refreshes coverage once it lands,
-// and says how it went. Deliberately not a progress bar or a job list: one
-// job, its terminal state, and the number the operator came here to read.
+// Track the queued run because the mutation resolves before the work completes.
+// Refresh coverage and report the terminal result once for that job.
 export function useBackfillJobStatus(jobId: string | null) {
   const qc = useQueryClient();
   const settledFor = useRef<string | null>(null);
@@ -500,10 +469,8 @@ export function useBackfillJobStatus(jobId: string | null) {
     queryFn: () => getJobStatus(jobId as string),
     enabled: Boolean(jobId),
     refetchInterval: (q) => {
-      // fix(#1550 review): no data is the absence of an answer, not the answer
-      // that the run is over. Treating undefined as terminal meant one
-      // exhausted first read — a blip while the API restarts — stopped the
-      // polling permanently, and the coverage figure never updated again.
+      // No data is the absence of an answer rather than evidence that the run
+      // ended, so keep polling through a failed initial read.
       if (!q.state.data) return 4_000;
       const status = q.state.data.status;
       return status === 'pending' || status === 'running' ? 4_000 : false;
@@ -521,9 +488,7 @@ export function useBackfillJobStatus(jobId: string | null) {
     settledFor.current = jobId;
     qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
     if (status === 'cancelled') {
-      // fix(#1677): somebody cancelled this run; reporting it as a failure
-      // put a red error toast in front of a user who had just asked for it
-      // to stop.
+      // A requested cancellation is informational rather than a failure.
       toast.info(i18n.t('admin:ai.backfillRunCancelled'));
       return;
     }
@@ -531,7 +496,7 @@ export function useBackfillJobStatus(jobId: string | null) {
       toast.error(i18n.t('admin:ai.backfillRunFailed'));
       return;
     }
-    // fix(#1550 review): a run that finished with rejected records is not a
+    // A run that finished with rejected records is not a
     // clean success. The synchronous endpoint returned counts the panel could
     // warn from; the queued one has to carry the same fact on the job status,
     // or a force regenerate that left coverage gaps reports as done.

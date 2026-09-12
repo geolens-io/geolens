@@ -106,7 +106,6 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
   const [result, setResult] = useState<number | null>(null);
   const [unit, setUnit] = useState<Unit>('metric');
 
-  // Keep refs in sync for use inside the event handler closure
   const modeRef = useRef(mode);
   const pointsRef = useRef(points);
   modeRef.current = mode;
@@ -127,11 +126,9 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
     }
   }, [map]);
 
-  // Setup / teardown map sources, layers, cursor and click handler
   useEffect(() => {
     if (!map) return;
 
-    // Add measurement source and layers
     if (!map.getSource(MEASURE_SOURCE)) {
       map.addSource(MEASURE_SOURCE, {
         type: 'geojson',
@@ -171,7 +168,6 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
     const restoreDoubleClickZoom = map.doubleClickZoom.isEnabled();
     map.doubleClickZoom.disable();
 
-    // Set crosshair cursor
     map.getCanvas().style.cursor = 'crosshair';
 
     const handleClick = (e: { lngLat: { lng: number; lat: number } }) => {
@@ -225,7 +221,6 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
     };
   }, [clearMeasurement, map]);
 
-  // Update overlay when mode changes (recompute result from existing points)
   useEffect(() => {
     const pts = pointsRef.current;
     if (pts.length === 0) return;
@@ -253,7 +248,6 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
 
   return (
     <div className="space-y-2.5 min-w-44">
-      {/* Mode toggle */}
       <div className="flex gap-1">
         <button
           onClick={() => handleModeChange('distance')}
