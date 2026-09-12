@@ -7,6 +7,51 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- A token refresh that failed temporarily, because of a rate limit, a server error or a dropped
+  connection, no longer signs the user out of every session. The local session is kept
+  while refresh attempts back off for thirty seconds, and a refresh the server rejected ends only
+  the local session. A failed sign-in or OAuth completion revokes the account's sessions only when
+  the server rejected the credential; an OAuth callback that arrives with an incomplete fragment
+  signs out locally without revoking anything. (#2038)
+- Re-uploading a file with no geometry over a vector dataset, or refreshing it from a service
+  layer that has none, is refused instead of silently turning the dataset into a table. The
+  re-upload preview answers with the refusal, a commit that skipped the preview fails its job
+  with the same message, and the dataset is left unchanged. The message says to import the file
+  as a new dataset instead. (#2031)
+- `srid_override` is refused when neither PROJ nor PostGIS knows the EPSG code, instead of being
+  accepted and ignored in favor of the detected CRS. A manifest `metadata.crs` with such a code is
+  reported for that entry, on a dry run too. (#2032)
+- A re-upload preview of a Parquet file over the ingest ceiling reports the ceiling instead of a
+  generic 422. (#2043)
+- Manifest `metadata.license`, `metadata.organization` and `metadata.tags` are applied to the
+  dataset record. Tags merge into the record's theme keywords, compared without regard to case,
+  and a later apply never removes one. (#2039)
+- The import batch summary counts every layer of a multi-layer fan-out, and each queued layer is
+  tracked as its own entry. (#2034)
+- The admin jobs list refetches every three seconds while a row is pending or running, so a
+  retried job's status updates without a reload. (#2033)
+- A job that failed with `internal_error` shows the same sentence in the UI as in the CLI. (#2035)
+- Credentials in a URL of any scheme, such as `s3://`, `postgresql://` or `ftp://`, are redacted
+  from logs and stored job messages, including a URL embedded in free text or carried inside the
+  path, query or fragment of another URL. Before this only `http` and `https` URLs were redacted.
+  (#2044)
+- The embedding backfill estimate rates the last completed run against every record it walked,
+  including the ones skipped for having no embeddable text, which is the population the estimate
+  projects. (#2047)
+- Under an external connection pooler, the SQL sandbox divides its four concurrent query slots by
+  the number of API workers instead of admitting four per worker, and the new optional
+  `SANDBOX_QUERY_SLOTS` states the per-process share outright when several API replicas share one
+  pooler. (#2045)
+
+### Changed
+
+- The bundled production compose keeps its default of two API workers with no shared rate-limit
+  store. The env template and the compose file now say that this counts rate limits per worker
+  until `REDIS_URL` points at a shared Valkey or Redis, and the release smoke asserts the startup
+  notice that reports it. (#2041)
+
 ## [1.19.0] - 2026-09-09
 
 ### Added
