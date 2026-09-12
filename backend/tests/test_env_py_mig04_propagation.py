@@ -103,7 +103,9 @@ def test_propagation_failure_raises_instead_of_logging_and_continuing():
     propagate = _load_real_propagate_fn()
     script = _ScriptThatRaisesOnAssignment()
 
-    with pytest.raises(RuntimeError, match="MIG-04") as excinfo:
+    with pytest.raises(
+        RuntimeError, match="Failed to propagate enterprise version directories"
+    ) as excinfo:
         propagate(script, ["/repo/enterprise/alembic_e/versions"])
 
     # The real failure is chained, not swallowed.
