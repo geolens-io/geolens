@@ -36,7 +36,7 @@ function hasTimezoneOffset(value: string): boolean {
   return /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
 }
 
-function localTimestampWithOffset(raw: string): string | null {
+function localTimestampAsInstant(raw: string): string | null {
   const match = raw.match(
     /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/,
   );
@@ -62,12 +62,10 @@ function localTimestampWithOffset(raw: string): string | null {
     || instant.getSeconds() !== Number(second)
     || instant.getMilliseconds() !== milliseconds
   ) return null;
-  const offsetMinutes = instant.getTimezoneOffset();
-  const sign = offsetMinutes <= 0 ? '+' : '-';
-  const absoluteOffset = Math.abs(offsetMinutes);
-  const hours = String(Math.floor(absoluteOffset / 60)).padStart(2, '0');
-  const minutes = String(absoluteOffset % 60).padStart(2, '0');
-  return `${raw}${sign}${hours}:${minutes}`;
+  if (instant.getUTCFullYear() < 1 || instant.getUTCFullYear() > 9999) return null;
+  // Native conversion retains historical offset seconds; keep sub-millisecond input precision.
+  const utcSeconds = instant.toISOString().split('.')[0];
+  return `${utcSeconds}${fraction ? `.${fraction}` : ''}Z`;
 }
 
 function dateTimeLocalValue(
@@ -152,7 +150,7 @@ export function serializeAttributeInputValue(
   }
 
   if (!isTimezoneAwareTimestamp(colType)) return raw;
-  return localTimestampWithOffset(raw) ?? raw;
+  return localTimestampAsInstant(raw) ?? raw;
 }
 
 const TRUE_WORDS = new Set(['true', 't', '1', 'yes', 'y']);
@@ -184,7 +182,7 @@ export function coerceAttributeValue(
     }
     case 'number-float': {
       const n = Number(trimmed);
-      return Number.isNaN(n) ? { ok: false } : { ok: true, value: n };
+      return Number.isFinite(n) ? { ok: true, value: n } : { ok: false };
     }
     case 'checkbox': {
       const w = trimmed.toLowerCase();
@@ -201,7 +199,7 @@ export function coerceAttributeValue(
           ? { ok: false }
           : { ok: true, value: trimmed };
       }
-      const timestamp = localTimestampWithOffset(trimmed);
+      const timestamp = localTimestampAsInstant(trimmed);
       return timestamp === null ? { ok: false } : { ok: true, value: timestamp };
     }
     default:

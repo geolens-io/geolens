@@ -61,6 +61,34 @@ describe('coerceAttributeValue', () => {
     expect(coerceAttributeValue('12abc', 'real')).toEqual({ ok: false });
   });
 
+  it.each(['Infinity', '-Infinity', '1e309', '-1e309'])('rejects non-finite numeric input %s', (raw) => {
+    for (const type of ['double precision', 'real', 'numeric']) {
+      expect(coerceAttributeValue(raw, type)).toEqual({ ok: false });
+    }
+  });
+
+  it('preserves historical timezone seconds and extra fractional precision', () => {
+    expect(coerceAttributeValue('0999-05-06T07:37:58', 'timestamptz')).toEqual({
+      ok: true,
+      value: '0999-05-06T12:34:00Z',
+    });
+    expect(serializeAttributeInputValue('0999-05-06T07:37:58.123456', 'timestamptz'))
+      .toBe('0999-05-06T12:34:00.123456Z');
+  });
+
+  it.each([
+    ['Asia/Tokyo', '0001-01-01T00:00'],
+    ['America/New_York', '9999-12-31T23:59'],
+  ])('rejects local edits outside the supported UTC year range in %s', (timezone, raw) => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = timezone;
+    try {
+      expect(coerceAttributeValue(raw, 'timestamptz')).toEqual({ ok: false });
+    } finally {
+      process.env.TZ = previousTimezone;
+    }
+  });
+
   it('coerces boolean words and rejects others', () => {
     expect(coerceAttributeValue('true', 'boolean')).toEqual({ ok: true, value: true });
     expect(coerceAttributeValue('Yes', 'boolean')).toEqual({ ok: true, value: true });
@@ -73,10 +101,10 @@ describe('coerceAttributeValue', () => {
     expect(coerceAttributeValue(' padded ', 'text')).toEqual({ ok: true, value: ' padded ' });
   });
 
-  it('adds the browser offset to local timezone-aware timestamp edits', () => {
+  it('converts browser-local timezone-aware timestamp edits to UTC', () => {
     expect(coerceAttributeValue('2026-07-11T10:30', 'timestamp with time zone')).toEqual({
       ok: true,
-      value: '2026-07-11T10:30-04:00',
+      value: '2026-07-11T14:30:00Z',
     });
     expect(coerceAttributeValue('2026-07-11T14:30:00+02:00', 'timestamptz')).toEqual({
       ok: true,
@@ -145,7 +173,7 @@ describe('timestamp form values', () => {
     expect(formatAttributeInputValue('2026-07-11T14:30:00Z', 'timestamp with time zone'))
       .toBe('2026-07-11T10:30');
     expect(serializeAttributeInputValue('2026-07-11T11:30', 'timestamp with time zone'))
-      .toBe('2026-07-11T11:30-04:00');
+      .toBe('2026-07-11T15:30:00Z');
   });
 
   it('retains an unchanged aware instant through an ambiguous local time', () => {

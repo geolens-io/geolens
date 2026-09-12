@@ -121,7 +121,7 @@ describe('AttributeForm submission', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common:save' }));
 
     expect(onSubmit).toHaveBeenCalledWith({
-      aware_at: '2026-07-11T10:30-04:00',
+      aware_at: '2026-07-11T14:30:00Z',
       local_at: '2026-07-11T10:30',
     });
   });

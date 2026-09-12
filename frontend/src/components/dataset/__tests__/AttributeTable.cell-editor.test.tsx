@@ -145,6 +145,28 @@ describe('fix(#1628): inline cell editor survives an unrelated re-render', () =>
       .toHaveAttribute('aria-describedby', alert.id);
   });
 
+  it.each(['Infinity', '-Infinity', '1e309'])(
+    'keeps invalid numeric input %s editable without sending a mutation',
+    async (raw) => {
+      vi.mocked(useDatasetRows).mockReturnValue({
+        data: { ...ROWS_RESPONSE, columns: [{ name: 'population', type: 'double precision' }] },
+        isLoading: false,
+        isFetching: false,
+        isError: false,
+      } as unknown as ReturnType<typeof useDatasetRows>);
+      const user = userEvent.setup();
+      render(<AttributeTable datasetId="ds-1628" canEdit />);
+      await user.click(screen.getByRole('button', { name: '100' }));
+      const editor = screen.getByRole('textbox', { name: 'Edit population for feature 1' });
+      await user.clear(editor);
+      await user.type(editor, raw);
+      await user.keyboard('{Enter}');
+      expect(await screen.findByRole('alert')).toBeInTheDocument();
+      expect(editor).toHaveValue(raw);
+      expect(updateFeature).not.toHaveBeenCalled();
+    },
+  );
+
   it('does not let a dataset A completion close an editor after A is reopened', async () => {
     let resolveUpdate!: (value: unknown) => void;
     updateFeature.mockReturnValueOnce(new Promise((resolve) => {
