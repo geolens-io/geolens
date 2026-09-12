@@ -14284,6 +14284,74 @@ export type LogoutAuthLogoutPostResponses = {
 
 export type LogoutAuthLogoutPostResponse = LogoutAuthLogoutPostResponses[keyof LogoutAuthLogoutPostResponses];
 
+export type LogoutCurrentSessionAuthLogoutSessionPostData = {
+    /**
+     * Body
+     */
+    body?: RefreshRequest | null;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Csrf-Token
+         *
+         * Double-submit CSRF token, enforced only when the refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie issued alongside the refresh cookie. Callers presenting a refresh token in the request body do not send it.
+         */
+        'X-CSRF-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/auth/logout/session/';
+};
+
+export type LogoutCurrentSessionAuthLogoutSessionPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type LogoutCurrentSessionAuthLogoutSessionPostError = LogoutCurrentSessionAuthLogoutSessionPostErrors[keyof LogoutCurrentSessionAuthLogoutSessionPostErrors];
+
+export type LogoutCurrentSessionAuthLogoutSessionPostResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type LogoutCurrentSessionAuthLogoutSessionPostResponse = LogoutCurrentSessionAuthLogoutSessionPostResponses[keyof LogoutCurrentSessionAuthLogoutSessionPostResponses];
+
 export type MeAuthMeGetData = {
     body?: never;
     path?: never;

@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from sqlalchemy import func, literal_column, or_, select, update
+from sqlalchemy import delete, func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -26,6 +26,8 @@ class AuthService:
         self,
         identity: AuthenticatedIdentity,
         expire_minutes: int | None = None,
+        *,
+        family_id: uuid.UUID | None = None,
     ) -> str:
         """Create a signed JWT for the given identity.
 
@@ -70,6 +72,8 @@ class AuthService:
             "exp": now + timedelta(minutes=minutes),
             "iat": now,
         }
+        if family_id is not None:
+            payload["sid"] = str(family_id)
         if multi_tenant:
             if tenant_id is None:
                 raise ValueError(
@@ -122,7 +126,11 @@ class AuthService:
         )
 
     def create_refresh_token(
-        self, user_id: uuid.UUID, expire_days: int | None = None
+        self,
+        user_id: uuid.UUID,
+        expire_days: int | None = None,
+        *,
+        family_id: uuid.UUID | None = None,
     ) -> str:
         """expire_days falls back to settings.refresh_token_expire_days if None."""
         raw_token = secrets.token_urlsafe(32)
@@ -132,6 +140,7 @@ class AuthService:
         refresh = RefreshToken(
             user_id=user_id,
             token_hash=token_hash,
+            family_id=family_id or uuid.uuid4(),
             expires_at=expires_at,
         )
         self.db.add(refresh)
@@ -156,6 +165,12 @@ class AuthService:
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked == False,  # noqa: E712
                 RefreshToken.expires_at > datetime.now(UTC),
+                or_(
+                    RefreshToken.rotated_at.is_(None),
+                    RefreshToken.rotated_at
+                    > datetime.now(UTC)
+                    - timedelta(seconds=settings.refresh_rotation_grace_seconds),
+                ),
                 # fix(#1455): revocation horizon, checked at use time so it
                 # covers rows revoke_all_tokens couldn't see when it ran (DB
                 # clock on both sides, so skew-free).
@@ -181,107 +196,86 @@ class AuthService:
     ) -> tuple[str, str]:
         """Validate refresh token, retire it, issue new access + refresh pair.
 
-        fix(#621): "retire" rather than "revoke" — the used token keeps a
-        short grace window (refresh_rotation_grace_seconds) during which a
-        concurrent caller can still rotate it and mint its own valid pair.
+        Concurrent callers inside the rotation grace window receive their own
+        valid successors in the same family. Reuse after grace revokes that
+        family, until the presented token reaches its original expiry.
 
         Returns (new_access_token, new_refresh_token).
         Raises ValueError on invalid/expired/revoked token or inactive user.
         """
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         result = await self.db.execute(
-            select(RefreshToken)
+            select(RefreshToken.user_id)
             .join(User, RefreshToken.user_id == User.id)
             .where(
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked == False,  # noqa: E712
                 RefreshToken.expires_at > datetime.now(UTC),
-                # fix(#1455): revocation horizon, checked at use time — covers
-                # a replacement row committed just after revoke_all_tokens'
-                # snapshot, which would otherwise rotate into a session that
-                # outlives its own logout.
                 or_(
                     User.sessions_revoked_at.is_(None),
                     RefreshToken.created_at > User.sessions_revoked_at,
                 ),
             )
         )
-        stored = result.scalar_one_or_none()
-        if stored is None:
+        user_id = result.scalar_one_or_none()
+        if user_id is None:
             raise ValueError("Invalid or expired refresh token")
 
-        # fix(#1446): serialize against revoke_all_tokens on the OWNER row —
-        # both paths take this lock first, which makes both interleavings
-        # safe: if rotate wins, it commits its replacement before revoke's
-        # UPDATE takes its snapshot, so revoke still catches the new row; if
-        # revoke wins, rotate's re-check below sees revoked=True and raises
-        # instead of minting a successor. Without it, a rotation could commit
-        # a still-active replacement after a concurrent logout — reviving a
-        # session the user ended (compounded by fix(#1302) reinstalling the
-        # cookies logout just deleted).
-        user_result = await self.db.execute(
-            select(User).where(User.id == stored.user_id).with_for_update()
-        )
-        user = user_result.scalar_one_or_none()
+        # Every family mutation shares revoke-all's owner lock.
+        # Re-read rows after waiting so a queued rotation cannot revive a family.
+        user = (
+            await self.db.execute(
+                select(User)
+                .where(User.id == user_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
         if user is None or not user.is_active or user.status != "active":
             raise ValueError("User account is not active")
-
-        # Re-read the presented row now that the lock is held — a new
-        # statement takes a new snapshot, so anything committed while we
-        # waited is visible. Must run BEFORE the retire/revoke write below,
-        # since that write autoflushes and would make this re-check see our
-        # own pending mutation instead.
-        #
-        # fix(#1446): re-check liveness, not just revoked — the wait is
-        # unbounded, so the token can lapse (its own expiry, or a queued
-        # rotation shortening it to the grace cutoff) while we wait. A token
-        # still inside the grace window has a future expires_at and stays
-        # accepted (fix(#621)).
-        recheck = await self.db.execute(
-            select(RefreshToken.revoked, RefreshToken.expires_at).where(
-                RefreshToken.id == stored.id
+        stored = (
+            await self.db.execute(
+                select(RefreshToken)
+                .where(RefreshToken.token_hash == token_hash)
+                .execution_options(populate_existing=True)
             )
-        )
-        current = recheck.one_or_none()
+        ).scalar_one_or_none()
         if (
-            current is None
-            or current.revoked
-            or current.expires_at <= datetime.now(UTC)
+            stored is None
+            or stored.revoked
+            or (
+                user.sessions_revoked_at is not None
+                and stored.created_at <= user.sessions_revoked_at
+            )
         ):
             raise ValueError("Invalid or expired refresh token")
 
-        # fix(#621): rotation grace window. Instant revocation stranded the
-        # losers of a multi-tab refresh race — one tab wins, the rest got a
-        # dead credential (observed as a recurring 200+401+401 pattern, once
-        # a 7-hour silent tile-403 spiral). Instead of revoking, shorten the
-        # used token's remaining lifetime to a small grace window: a
-        # concurrent caller inside it still mints its own pair, then the
-        # token expires naturally. Never EXTEND a token already closer to
-        # expiry. Explicit revocation (logout / revoke_all_tokens) still sets
-        # revoked=True on in-grace rows, so a hard logout stays instant.
-        # grace=0 restores single-use revocation.
-        #
-        # fix(#1446): compares against the POST-LOCK expiry (`current`), not
-        # the pre-lock `stored` object — queued refreshes reading the same
-        # token would otherwise each see the original expiry and push
-        # retirement further out, the opposite of "never EXTEND".
-        grace = settings.refresh_rotation_grace_seconds
-        if grace > 0:
-            grace_cutoff = datetime.now(UTC) + timedelta(seconds=grace)
-            if current.expires_at > grace_cutoff:
-                stored.expires_at = grace_cutoff
-        else:
-            stored.revoked = True
+        now = datetime.now(UTC)
+        grace = timedelta(seconds=settings.refresh_rotation_grace_seconds)
+        if stored.expires_at <= now:
+            raise ValueError("Invalid or expired refresh token")
+        if stored.rotated_at is not None and now >= stored.rotated_at + grace:
+            await self._revoke_family(user.id, stored.family_id)
+            # The router returns 401; the revocation must survive its rollback.
+            await self.db.commit()
+            raise ValueError("Invalid or expired refresh token")
+        if stored.rotated_at is None:
+            stored.rotated_at = now
 
         identity = AuthenticatedIdentity(user_id=user.id, username=user.username)
         new_access = await self.create_access_token(
-            identity, expire_minutes=expire_minutes
+            identity, expire_minutes=expire_minutes, family_id=stored.family_id
         )
-        new_refresh = self.create_refresh_token(user.id, expire_days=expire_days)
+        new_refresh = self.create_refresh_token(
+            user.id, expire_days=expire_days, family_id=stored.family_id
+        )
+        await self.cleanup_refresh_tokens()
 
-        # Opportunistic cleanup: delete expired tokens older than 1 day
-        from sqlalchemy import delete
+        await self.db.commit()
+        return new_access, new_refresh
 
+    async def cleanup_refresh_tokens(self) -> None:
+        """Keep hashes through original expiry plus one day, even after rotation."""
         await self.db.execute(
             delete(RefreshToken).where(
                 RefreshToken.expires_at < datetime.now(UTC) - timedelta(days=1),
@@ -289,8 +283,65 @@ class AuthService:
             )
         )
 
+    async def _revoke_family(self, user_id: uuid.UUID, family_id: uuid.UUID) -> None:
+        """Caller holds the owner lock; never bump the user's global version."""
+        await self.db.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.family_id == family_id,
+                RefreshToken.user_id.in_(select(User.id)),
+            )
+            .values(revoked=True)
+        )
+
+    async def revoke_session(
+        self, *, access_token: str | None = None, refresh_token: str | None = None
+    ) -> None:
+        """Revoke one refresh family by possession; access JWTs retain their TTL.
+
+        Valid signed access JWTs may end only their own family. Legacy JWTs
+        without sid require a refresh credential. No credential grants broader
+        authority here, and tenant-scoped user visibility is still required.
+        """
+        if access_token is not None:
+            try:
+                payload = jwt.decode(
+                    access_token,
+                    settings.jwt_secret_key.get_secret_value(),
+                    algorithms=[settings.jwt_algorithm],
+                    options={"require": ["sub", "sid", "exp"]},
+                )
+                user_id = uuid.UUID(payload["sub"])
+                family_id = uuid.UUID(payload["sid"])
+            except (jwt.PyJWTError, ValueError, TypeError, AttributeError) as exc:
+                raise ValueError("Invalid session credential") from exc
+            predicate = (
+                RefreshToken.user_id == user_id,
+                RefreshToken.family_id == family_id,
+            )
+        elif refresh_token:
+            predicate = (
+                RefreshToken.token_hash
+                == hashlib.sha256(refresh_token.encode()).hexdigest(),
+            )
+        else:
+            raise ValueError("Invalid session credential")
+        row = (
+            await self.db.execute(
+                select(RefreshToken.user_id, RefreshToken.family_id)
+                .join(User, RefreshToken.user_id == User.id)
+                .where(*predicate)
+                .limit(1)
+            )
+        ).one_or_none()
+        if row is None:
+            raise ValueError("Invalid session credential")
+        await self.db.execute(
+            select(User.id).where(User.id == row.user_id).with_for_update()
+        )
+        await self._revoke_family(row.user_id, row.family_id)
         await self.db.commit()
-        return new_access, new_refresh
 
     async def revoke_all_tokens(
         self, user_id: uuid.UUID, *, commit: bool = True, bump_key_epoch: bool = False

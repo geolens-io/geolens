@@ -1,6 +1,6 @@
 import { abortInflightRefresh, apiFetch, ApiError, onSessionExpired } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
-import { refreshAccessToken, logoutSession } from '@/api/auth';
+import { refreshAccessToken, logoutSession, revokeCurrentSession } from '@/api/auth';
 import type { TokenResponse } from '@/types/api';
 
 // fix(#628): the fetch core must treat "401 + the follow-up refresh is also
@@ -11,6 +11,7 @@ import type { TokenResponse } from '@/types/api';
 
 vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
+  revokeCurrentSession: vi.fn(() => Promise.resolve()),
   logoutSession: vi.fn(() => Promise.resolve()),
 }));
 
@@ -128,6 +129,46 @@ describe('session-expiry notification (fix #628)', () => {
     expect(logoutSession).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it('revokes the freshly rotated family when the retry still rejects it', async () => {
+    signIn();
+    mockFetch.mockResolvedValue(errorResponse(401));
+    vi.mocked(refreshAccessToken).mockResolvedValue({ access_token: 'fresh-family-jwt', refresh_token: null, expires_in: 900, token_type: 'bearer' });
+    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+    expect(revokeCurrentSession).toHaveBeenCalledWith('fresh-family-jwt');
+    expect(logoutSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it('revokes the rejected retry family while preserving a login that arrived during the retry', async () => {
+    signIn();
+    mockFetch.mockResolvedValueOnce(errorResponse(401)).mockImplementationOnce(async () => {
+      useAuthStore.getState().logout();
+      useAuthStore.setState({ token: 'newer-login', expiresAt: Date.now() + 120_000 });
+      return errorResponse(401);
+    });
+    vi.mocked(refreshAccessToken).mockResolvedValue({ access_token: 'retried-family-jwt', refresh_token: null, expires_in: 900, token_type: 'bearer' });
+    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+    expect(revokeCurrentSession).toHaveBeenCalledWith('retried-family-jwt');
+    expect(logoutSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe('newer-login');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('revokes a discarded rotation after an epoch change while preserving the new login', async () => {
+    signIn();
+    mockFetch.mockResolvedValue(errorResponse(401));
+    vi.mocked(refreshAccessToken).mockImplementation(async () => {
+      useAuthStore.getState().logout();
+      useAuthStore.setState({ token: 'new-login', expiresAt: Date.now() + 120_000 });
+      return { access_token: 'discarded-family-jwt', refresh_token: null, expires_in: 900, token_type: 'bearer' };
+    });
+    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+    expect(revokeCurrentSession).toHaveBeenCalledWith('discarded-family-jwt');
+    expect(logoutSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe('new-login');
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('401 + dead refresh: clears the store and invokes the handler exactly once across N concurrent requests', async () => {

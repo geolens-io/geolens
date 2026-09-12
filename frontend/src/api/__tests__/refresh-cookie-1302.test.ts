@@ -1,4 +1,4 @@
-import { awaitPendingLogout, login, logoutSession, refreshAccessToken } from '@/api/auth';
+import { awaitPendingLogout, login, logoutSession, refreshAccessToken, revokeCurrentSession } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth-store';
 
 // fix(#1302): AC — after login the persisted `geolens-auth` value holds no
@@ -26,6 +26,16 @@ describe('browser refresh transport', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.cookie = 'geolens_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+  });
+
+  it('revokes a captured family without attaching the current browser cookies', async () => {
+    useAuthStore.setState({ token: 'new-login' });
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 204 } as Response);
+    await revokeCurrentSession('old-family');
+    expect(mockFetch).toHaveBeenCalledWith('/api/auth/logout/session/', expect.objectContaining({
+      headers: { Authorization: 'Bearer old-family' }, credentials: 'omit', keepalive: true,
+    }));
+    expect(useAuthStore.getState().token).toBe('new-login');
   });
 
   it('sends no body when the credential is the cookie', async () => {

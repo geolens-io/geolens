@@ -21,6 +21,7 @@ vi.mock('react-router', async () => {
 const mockLogin = vi.fn<(u: string, p: string) => Promise<TokenResponse>>();
 const mockGetMe = vi.fn<() => Promise<UserResponse>>();
 const mockRefresh = vi.fn();
+const mockRevokeCurrentSession = vi.fn<(token: string) => Promise<void>>(() => Promise.resolve());
 const mockLogoutSession = vi.fn<() => Promise<void>>();
 
 vi.mock('@/api/auth', () => ({
@@ -28,6 +29,7 @@ vi.mock('@/api/auth', () => ({
   getMe: () => mockGetMe(),
   refreshAccessToken: (...args: unknown[]) => mockRefresh(...args),
   logoutSession: () => mockLogoutSession(),
+  revokeCurrentSession: (token: string) => mockRevokeCurrentSession(token),
 }));
 
 function mockUser(overrides?: Partial<UserResponse>): UserResponse {
@@ -100,7 +102,11 @@ describe('useAuth', () => {
 
   // fix(#2038): /auth/me/ answering 500 after a good sign-in used to revoke
   // every session of the user, signing them out on every other device.
-  it('keeps the other sessions when getMe fails transiently after a login', async () => {
+  it.each([
+    new ApiError('server error', 500),
+    new SyntaxError('malformed profile response'),
+    new TypeError('network unavailable'),
+  ])('revokes only the discarded family when the profile fails: %s', async (profileError) => {
     mockLogin.mockResolvedValueOnce({
       access_token: 'abc',
       refresh_token: null,
@@ -109,7 +115,7 @@ describe('useAuth', () => {
     });
     // Not `...Once`: the hook's own meQuery also calls getMe once the token is
     // set, and would otherwise eat the single rejection.
-    mockGetMe.mockRejectedValue(new ApiError('server error', 500));
+    mockGetMe.mockRejectedValue(profileError);
 
     const { result } = renderHook(() => useAuth());
 
@@ -117,9 +123,10 @@ describe('useAuth', () => {
       act(async () => {
         await result.current.login('user', 'pass');
       }),
-    ).rejects.toThrow('server error');
+    ).rejects.toThrow(profileError);
 
     expect(mockLogoutSession).not.toHaveBeenCalled();
+    expect(mockRevokeCurrentSession).toHaveBeenCalledExactlyOnceWith('abc');
     expect(useAuthStore.getState().token).toBeNull();
   });
 
@@ -142,7 +149,7 @@ describe('useAuth', () => {
       }),
     ).rejects.toThrow('unauthorized');
 
-    expect(mockLogoutSession).toHaveBeenCalledTimes(1);
+    expect(mockRevokeCurrentSession).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().token).toBeNull();
   });
 

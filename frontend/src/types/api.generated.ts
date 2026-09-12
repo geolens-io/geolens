@@ -955,6 +955,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/logout/session/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout Current Session
+         * @description Revoke only the presented session's refresh-token family.
+         *
+         *     Other devices and API keys survive. Access JWTs remain usable until their
+         *     normal expiry; /logout/ still immediately revokes every access and refresh
+         *     session. A valid signed access JWT with sid, a refresh body token, or a
+         *     refresh cookie authorizes this operation. Legacy JWTs without sid must use
+         *     the refresh credential. Cookie authorization requires double-submit CSRF.
+         *
+         *     Bearer/body revocation does not change cookies, allowing a captured old
+         *     session to be discarded safely after a newer login. Cookie authorization
+         *     clears the browser's refresh and CSRF cookies.
+         */
+        post: operations["logout_current_session_auth_logout_session__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/me/": {
         parameters: {
             query?: never;
@@ -18544,6 +18574,106 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Double-submit CSRF token, enforced only when the refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie issued alongside the refresh cookie. Callers presenting a refresh token in the request body do not send it. */
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RefreshRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    logout_current_session_auth_logout_session__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
                 /** @description Double-submit CSRF token, enforced only when the refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie issued alongside the refresh cookie. Callers presenting a refresh token in the request body do not send it. */
                 "X-CSRF-Token"?: string | null;
             };

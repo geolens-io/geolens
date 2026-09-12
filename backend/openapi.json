@@ -26309,6 +26309,163 @@
         ]
       }
     },
+    "/auth/logout/session/": {
+      "post": {
+        "description": "Revoke only the presented session's refresh-token family.\n\nOther devices and API keys survive. Access JWTs remain usable until their\nnormal expiry; /logout/ still immediately revokes every access and refresh\nsession. A valid signed access JWT with sid, a refresh body token, or a\nrefresh cookie authorizes this operation. Legacy JWTs without sid must use\nthe refresh credential. Cookie authorization requires double-submit CSRF.\n\nBearer/body revocation does not change cookies, allowing a captured old\nsession to be discarded safely after a newer login. Cookie authorization\nclears the browser's refresh and CSRF cookies.",
+        "operationId": "logout_current_session_auth_logout_session__post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "description": "Double-submit CSRF token, enforced only when the refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie issued alongside the refresh cookie. Callers presenting a refresh token in the request body do not send it.",
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Double-submit CSRF token, enforced only when the refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie issued alongside the refresh cookie. Callers presenting a refresh token in the request body do not send it.",
+              "title": "X-Csrf-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "summary": "Logout Current Session",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/auth/me/": {
       "get": {
         "description": "Return the currently authenticated user's profile and roles.",

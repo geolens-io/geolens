@@ -419,10 +419,13 @@ async def oauth_callback(
             user_id=user.id, username=user.username, email=user.email
         )
         service = AuthService(db)
+        family_id = uuid.uuid4()
         access_token = await service.create_access_token(
-            identity, expire_minutes=expire_minutes
+            identity, expire_minutes=expire_minutes, family_id=family_id
         )
-        refresh_token = service.create_refresh_token(user.id, expire_days=expire_days)
+        refresh_token = service.create_refresh_token(
+            user.id, expire_days=expire_days, family_id=family_id
+        )
 
         # HARDEN-04: emit success audit entry before the commit so it persists
         # in the same transaction. Details carry no secrets, tokens, or email.

@@ -3,8 +3,8 @@ import { queryKeys } from '@/lib/query-keys';
 import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
-import { login as apiLogin, getMe, logoutSession } from '@/api/auth';
-import { abortInflightRefresh, isCredentialRejected, tryRefresh } from '@/api/client';
+import { login as apiLogin, getMe, logoutSession, revokeCurrentSession } from '@/api/auth';
+import { abortInflightRefresh, tryRefresh } from '@/api/client';
 
 export function useAuth() {
   const navigate = useNavigate();
@@ -73,10 +73,9 @@ export function useAuth() {
       try {
         userResponse = await getMe();
       } catch (err) {
-        // fix(#1446): login already installed the refresh cookie, so a store
-        // reset alone leaves it live. fix(#2038): but /auth/logout/ revokes EVERY
-        // session, so a 500 or a dropped socket here must not end the others.
-        if (isCredentialRejected(err)) void logoutSession().catch(() => {});
+        // A failed sign-in may discard a freshly issued family; preserve every
+        // other device and target the captured credential, even if state moved.
+        void revokeCurrentSession(tokenResponse.access_token).catch(() => {});
         useAuthStore.getState().logout();
         throw err;
       }
