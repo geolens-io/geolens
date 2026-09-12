@@ -10,13 +10,18 @@ export type AttributeInputType =
   | 'datetime-local'
   | 'text';
 
-export function getAttributeInputType(colType: string): AttributeInputType {
+export function getAttributeInputType(colType: string, value?: unknown): AttributeInputType {
   const t = colType.toLowerCase();
   if (t === 'integer' || t === 'bigint') return 'number-int';
   if (['double precision', 'real', 'numeric'].includes(t)) return 'number-float';
   if (t === 'boolean') return 'checkbox';
   if (t === 'date') return 'date';
-  if (t === 'timestamp' || t === 'timestamptz' || t.startsWith('timestamp')) return 'datetime-local';
+  if (t === 'timestamp' || t === 'timestamptz' || t.startsWith('timestamp')) {
+    const localYear = isTimezoneAwareTimestamp(t) ? new Date(String(value)).getFullYear() : NaN;
+    // Preserve the original offset when local conversion exceeds Python's year range.
+    if (localYear < 1 || localYear > 9999) return 'text';
+    return 'datetime-local';
+  }
   return 'text';
 }
 
@@ -113,7 +118,7 @@ function naiveDateTimeLocalValue(text: string): string | null {
 /** Convert an API attribute value to the representation required by its HTML input. */
 export function formatAttributeInputValue(value: unknown, colType: string): string {
   const text = String(value);
-  if (getAttributeInputType(colType) !== 'datetime-local') return text;
+  if (getAttributeInputType(colType, value) !== 'datetime-local') return text;
 
   if (!isTimezoneAwareTimestamp(colType)) {
     return naiveDateTimeLocalValue(text) ?? text;

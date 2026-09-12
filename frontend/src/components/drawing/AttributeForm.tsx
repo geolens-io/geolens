@@ -140,7 +140,7 @@ export function AttributeForm({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {editableColumns.map((col) => {
-            const inputType = getInputType(col.type);
+            const inputType = getInputType(col.type, initialValues?.[col.name]);
 
             if (inputType === 'checkbox') {
               return (

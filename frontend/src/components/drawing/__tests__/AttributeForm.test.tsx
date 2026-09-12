@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 
 vi.mock('react-i18next', () => ({
@@ -18,6 +18,10 @@ afterAll(() => {
   else process.env.TZ = originalTimezone;
 });
 
+afterEach(() => {
+  process.env.TZ = 'America/New_York';
+});
+
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => {
@@ -27,6 +31,30 @@ function deferred() {
 }
 
 describe('AttributeForm submission', () => {
+  it.each([
+    ['America/New_York', '0001-01-01T00:00:00Z'],
+    ['Asia/Tokyo', '9999-12-31T23:59:59Z'],
+  ])('preserves an instant outside the supported local year range in %s', (timezone, original) => {
+    process.env.TZ = timezone;
+    const onSubmit = vi.fn();
+    render(
+      <AttributeForm
+        open
+        onOpenChange={vi.fn()}
+        columns={[{ name: 'observed_at', type: 'timestamp with time zone' }]}
+        initialValues={{ observed_at: original }}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByLabelText('observed_at');
+    expect(input).toHaveAttribute('type', 'text');
+    expect(input).toHaveValue(original);
+    fireEvent.click(screen.getByRole('button', { name: 'common:save' }));
+    expect(onSubmit).toHaveBeenCalledWith({ observed_at: original });
+  });
+
   it('hydrates and preserves an unchanged timezone-aware instant', () => {
     const onSubmit = vi.fn();
     render(

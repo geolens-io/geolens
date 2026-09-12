@@ -95,6 +95,35 @@ describe('coerceAttributeValue', () => {
 });
 
 describe('timestamp form values', () => {
+  it.each([
+    ['America/New_York', '0001-01-01T00:00:00Z', 'text'],
+    ['America/New_York', '0001-01-01T00:00:00+14:00', 'text'],
+    ['America/New_York', '0001-01-01T00:00:00-12:00', 'datetime-local'],
+    ['Asia/Tokyo', '0001-01-01T00:00:00Z', 'datetime-local'],
+    ['Asia/Tokyo', '9999-12-31T23:59:59Z', 'text'],
+    ['Asia/Tokyo', '9999-12-31T23:59:59-12:00', 'text'],
+    ['Asia/Tokyo', '9999-12-31T23:59:59+14:00', 'datetime-local'],
+    ['America/New_York', '9999-12-31T23:59:59Z', 'datetime-local'],
+  ])('preserves year boundaries in %s for %s', (timezone, original, inputType) => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = timezone;
+    try {
+      const colType = 'timestamp with time zone';
+      expect(getAttributeInputType(colType, original)).toBe(inputType);
+      const value = formatAttributeInputValue(original, colType);
+      const input = document.createElement('input');
+      input.type = inputType;
+      input.value = value;
+      expect(input.value).not.toBe('');
+      if (inputType === 'text') expect(value).toBe(original);
+      expect(serializeAttributeInputValue(value, colType, original)).toBe(original);
+      expect(getAttributeInputType('timestamp without time zone', original.slice(0, 19)))
+        .toBe('datetime-local');
+    } finally {
+      process.env.TZ = previousTimezone;
+    }
+  });
+
   it.each(['0001', '0099', '0999'])(
     'keeps historical year %s visible in native datetime inputs and unchanged on save',
     (year) => {
