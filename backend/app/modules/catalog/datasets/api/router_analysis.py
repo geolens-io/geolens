@@ -201,12 +201,8 @@ def _validate_join_fields(source, join_dataset, join_fields: list[str]) -> None:
                 detail=f"Unknown join column: {name!r}",
             )
     generated = spatial_join_output_columns(join_fields)
-    # Generated names must be unique among THEMSELVES first --
-    # a join column named `count` prefixes to `join_count`, already
-    # generated for the match count, so a source-only check misses the
-    # collision. A duplicate check, not "reject `count`": the collision is
-    # a property of the generated names, so it still holds if the prefix
-    # changes; a repeated field is already rejected by the request schema.
+    # Check generated names against each other as well as source columns:
+    # a transferred `count` becomes `join_count`, colliding with the match count.
     duplicates = sorted({name for name in generated if generated.count(name) > 1})
     if duplicates:
         raise HTTPException(
@@ -366,7 +362,7 @@ async def _validate_materialize_params(
     Each check has a second, run-time half in the worker, since the queue
     wait sits between the two and the world can move underneath it.
     """
-    # Select_by_location takes the same mask pair clip does, so
+    # `select_by_location` takes the same mask pair clip does, so
     # it takes the same two checks. Rule 1 applies to BOTH datasets either way.
     if body.operation in MASK_OPERATIONS and body.mask_dataset_id is not None:
         # Access + polygon checks happen here at enqueue time; the worker
@@ -478,33 +474,13 @@ async def analysis_materialize_endpoint(
     # reservation happens at registration time in the worker.
     await check_upload_quota(db, user.id, 0, request)
 
-    # One materialize at a time per user: each queued job is an
-    # unbounded-ish CTAS. Soft cap: a TOCTOU race can briefly admit two;
-    # add a DB-side partial unique index for a hard guarantee.
+    # Serialize count-and-create per tenant until commit so concurrent requests
+    # cannot bypass tenant or per-user caps. Single-tenant mode uses a shared key.
+    # Wait for this brief admission lock instead of rejecting a busy lock.
     #
-    # The slot is held on a heartbeat LEASE, not job status --
-    # the worker renews heartbeat_at every 30s, so a stale lease on a
-    # "running" job means a hard-killed worker, and the slot releases
-    # rather than waiting for the 60-min JOB_TIMEOUT_SECONDS backstop.
-    # Elapsed time cannot define staleness because a legitimate
-    # materialization can outlive any fixed window.
-    #
-    # The pending branch MUST stay status-only: a pending job is never
-    # claimed, so heartbeat_at/started_at are both NULL, and a cutoff
-    # comparison would drop it from the count, defeating the cap.
-    # coalesce(heartbeat_at, started_at) covers pre-heartbeat rows. The
-    # client applies no staleness rule of its own (AnalysisJobWatcher.tsx)
-    # -- a released lease just lets the next create succeed server-side.
-    #
-    # Serialize admission per tenant before counting, or the
-    # caps are check-then-insert -- N users could all read a count below
-    # the ceiling and all create a job, ending up over it. A
-    # transaction-scoped advisory lock held until commit makes
-    # count-then-create atomic. Blocking, not pg_try_advisory_xact_lock:
-    # admissions should queue for the microseconds this takes, not fail.
-    # In single-tenant mode the key is constant, correctly serializing
-    # every admission on the deployment (and incidentally hardening the
-    # soft per-user cap above).
+    # Running jobs hold a renewable heartbeat lease, allowing recovery from a
+    # killed worker without expiring legitimate long jobs. Pending jobs count by
+    # status alone because they have no heartbeat; started_at covers legacy rows.
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:admission_key, 0))"),
         {

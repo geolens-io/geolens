@@ -238,9 +238,7 @@ async def get_dataset_detail(
     dataset_asset_rows = await get_catalog_port().get_dataset_assets(db, dataset.id)
     stac_assets_dict = {}
     for da in dataset_asset_rows:
-        # This path built its assets straight off the ORM rows
-        # and never consulted the allowlist, so an internal key leaked its
-        # href, filename and size to every viewer of a public dataset.
+        # Apply the asset allowlist before exposing href, filename, or size.
         if not is_public_asset_key(da.key):
             continue
         stac_assets_dict[da.key] = StacAsset(
@@ -405,10 +403,8 @@ async def get_dataset_rows(
 
         next_cursor = rows[-1]["gid"] if rows and len(rows) == limit else None
     except DBAPIError as exc:
-        # Was `except Exception`, so connection loss, timeouts, and
-        # permission failures all rendered as a valid dataset with zero rows.
-        # Only an absent table still degrades to an empty page (normal for
-        # raster/VRT's synthetic table_name); the rest reach the 503 path.
+        # Only an absent backing table degrades to an empty page, as for raster/VRT
+        # synthetic table names. Operational failures must reach the 503 handler.
         if sqlstate(exc) not in TABLE_ABSENT:
             raise
         await db.rollback()  # transaction aborted; read-only, so safe

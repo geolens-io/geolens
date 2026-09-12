@@ -110,7 +110,7 @@ async def list_contacts(
     """List contacts for a record, ordered by sort_order, with pagination."""
     result = await session.execute(
         select(RecordContact)
-        # Sort_order server-defaults to 0, so contacts added
+        # `sort_order` server-defaults to 0, so contacts added
         # without an explicit order tie on it -- OFFSET/LIMIT paging over
         # the tie had no defined row order. RecordContact.id is unique.
         .where(RecordContact.record_id == record_id)
@@ -444,7 +444,7 @@ async def update_distribution(
     """Update a distribution. Explicitly-set fields are applied, nulls included.
 
     Auto-generated distributions cannot be updated (raises ValueError).
-    ``is_primary=True`` follows create_distribution's last-write-wins rule
+    ``is_primary=True`` follows create_distribution's last-write-wins rule.
     Clearing it (``is_primary=False``) promotes nothing — a
     no-primary record is representable, and the next
     ``reconcile_distributions`` fills it.
@@ -618,12 +618,10 @@ _DISTRIBUTION_TEMPLATES = [
 # generated set, so reconcile has to see it.
 _VECTOR_TILES_PAIR = ("vector_tiles", "pbf")
 
-# This read ``OGC:WMTS``, which the tile URL does not speak — it is
-# a plain XYZ template, no capabilities document and no TileMatrixSet. Bare, to
-# match ``HTTP`` above: this vocabulary prefixes ``OGC:`` only for real OGC
-# services, and there is no OGC XYZ standard to claim. Payload semantics stay
-# in ``format`` and ``media_type``. Migration 0048's WHERE matches both values
-# below, so the three move together.
+# XYZ templates provide no capabilities document or TileMatrixSet, so their
+# protocol is unprefixed XYZ rather than an OGC service. Payload semantics
+# belong in format and media_type. Keep both values below aligned with
+# migration 0048, whose WHERE clause matches them.
 _VECTOR_TILES_PROTOCOL = "XYZ"
 _STALE_VECTOR_TILES_PROTOCOL = "OGC:WMTS"
 
@@ -843,12 +841,8 @@ async def reconcile_distributions(
         session, dataset_id, record_id, table_name, geometry_type=geometry_type
     )
 
-    # Chosen from the rows that ACTUALLY exist, not from the
-    # modality alone — naming a pair with no generated row behind it would
-    # clear the CSV flag and promote nothing, leaving no primary at all.
-    # Narrowed when that happens (a user's own GeoPackage entry
-    # no longer suppresses the generated one) but did not remove it: a user
-    # row at the exact template url makes the insert a no-op.
+    # Select only generated rows that exist; a user row at the exact template
+    # URL can make insertion a no-op.
     generated = [
         row
         for row in survivors + created
@@ -863,12 +857,8 @@ async def reconcile_distributions(
         ),
         None,
     )
-    # A user's own row holding the flag outranks this
-    # normalization, and skipping is what keeps the preservation policy above
-    # literally true — the demote below is scoped to generated rows, so it
-    # could not clear a user's flag anyway, and promoting beside one would
-    # advertise two primaries (now a `uq_record_distribution_primary`
-    # violation rather than a silent ambiguity).
+    # A user-authored primary takes precedence. Generated-row normalization cannot
+    # clear it, and promoting another row would violate the unique primary index.
     user_primary = await _record_has_primary(
         session, record_id, user_authored_only=True
     )

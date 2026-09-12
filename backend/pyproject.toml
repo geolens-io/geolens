@@ -32,7 +32,7 @@ dependencies = [
     "python-slugify>=8.0.4",
     "slowapi>=0.1.10",
     "boto3>=1.43.71",
-    # fix(#836): string credentials need no azure-identity dependency.
+    # String credentials need no azure-identity dependency.
     "azure-storage-blob>=12.24.0",
     # In-memory tile cache when REDIS_URL is unset.
     "cachetools>=7.1.7",
@@ -52,12 +52,12 @@ dependencies = [
     "itsdangerous>=2.2.0",
     # Security: pin transitive deps to versions without known CVEs
     # cryptography 46.0.7 patches a buffer-overflow bug affecting
-    # non-contiguous buffers passed to certain APIs (Dependabot #29).
+    # non-contiguous buffers passed to certain APIs.
     "cryptography>=46.0.7",
     # urllib3 2.7.0 patches decompression-bomb bypasses in streaming reads
-    # and drain_conn handling (Dependabot #36 / CVE-2026-44432).
+    # and drain_conn handling (CVE-2026-44432).
     "urllib3>=2.7.0",
-    # idna 3.15 patches a DoS in idna.encode() with crafted inputs (Dependabot #40 / CVE-2026-45409 / GHSA-65pc-fj4g-8rjx).
+    # idna 3.15 patches a DoS in idna.encode() with crafted inputs (CVE-2026-45409 / GHSA-65pc-fj4g-8rjx).
     "idna>=3.18",
     # >=1.0.1 fixes Host-header validation (CVE-2026-48710 / PYSEC-2026-161).
     "starlette>=1.6.0",
@@ -86,22 +86,14 @@ dev = [
 ]
 
 [tool.ruff.lint]
-# Ruff's defaults (E4/E7/E9/F) plus a cyclomatic-complexity gate. fix(#435): the
-# audit found 33 functions above McCabe 15 with no configured gate — a line cap on a
-# module does not stop one function accumulating branches, transaction boundaries,
-# I/O, authorization, and serialization concerns.
+# Enforce function complexity as well as module size.
 select = ["E4", "E7", "E9", "F", "C901"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
-# Burn-down baseline: every file that exceeded McCabe 15 when the gate went in.
-# New code everywhere else is gated. This list may SHRINK, never grow — a new entry
-# means a new over-complex function. Start with `raster_tile_proxy` (30),
-# `_build_dataset_context` (35), and `_stream_openai_chat` (32): they combine the
-# most failure domains. The standards serializers (dcat, dcat_us, geodcat_ap, stac,
-# ogc) are compatibility mappings — churn-only rewrites there are not worth it.
+# Existing complexity debt: remove entries as functions shrink; never add entries.
 "app/modules/auth/oauth/service.py" = ["C901"]
 "app/modules/catalog/maps/filter_grammar.py" = ["C901"]
 "app/modules/catalog/maps/service_diff.py" = ["C901"]
@@ -111,18 +103,12 @@ max-complexity = 15
 "app/modules/catalog/search/service_records.py" = ["C901"]
 "app/modules/catalog/sources/router.py" = ["C901"]
 "app/modules/embed_tokens/service.py" = ["C901"]
-# fix(#836): the defaults.py baseline entry follows `complete` (McCabe 20) into
-# the AI-provider sub-module created by the facade split — retargeted, not new.
 "app/platform/extensions/defaults_ai_openai.py" = ["C901"]
 "app/processing/ai/chat_actions.py" = ["C901"]
 "app/processing/ai/metadata_service.py" = ["C901"]
 "app/processing/ai/service.py" = ["C901"]
 "app/processing/ai/streaming.py" = ["C901"]
 "app/processing/export/router.py" = ["C901"]
-# fix(#1042): the ingest/metadata.py baseline entry follows
-# `refresh_attribute_metadata` (McCabe 16, the file's only over-complex
-# function) into the sub-module created by the facade split — retargeted, not
-# new, same as the defaults_ai_openai.py entry above.
 "app/processing/ingest/metadata_attributes.py" = ["C901"]
 "app/processing/ingest/tasks_raster.py" = ["C901"]
 "app/processing/ingest/tasks_vector.py" = ["C901"]
@@ -145,17 +131,17 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 # --dist loadgroup makes the @pytest.mark.xdist_group marker effective under
 # pytest-xdist (default `load` scheduler ignores it). It co-locates the
-# global-state-mutating tenancy tests on one worker (v1042 isolation fix). It is
+# global-state-mutating tenancy tests on one worker. It is
 # a no-op for serial runs (no -n) and behaves like `load` for ungrouped tests.
 addopts = "-m 'not perf' --dist loadgroup"
 markers = [
     "perf: performance regression tests (deselected by default)",
-    "requires_ogr2ogr: tests that invoke ogr2ogr and need build_pg_conn_str redirected to the test database (K2-PRE; fixture lives in tests/conftest.py)",
-    "architecture: layering and boundary tests; opt-out locally with `-m 'not architecture'` (Phase 212 LAYER-01 guard)",
-    "lifecycle: edition deactivation/reactivation tests requiring enterprise overlay (Phase 220 LIFECYCLE-04)",
-    "rls: tests that enable FORCE RLS on the shared test DB (Phase 1208-03); scoped enable→disable via multi_tenant_rls fixture",
+    "requires_ogr2ogr: tests that invoke ogr2ogr and need build_pg_conn_str redirected to the test database (fixture: tests/conftest.py)",
+    "architecture: layering and boundary tests; opt-out locally with `-m 'not architecture'`",
+    "lifecycle: edition deactivation/reactivation tests requiring enterprise overlay",
+    "rls: tests that enable FORCE RLS on the shared test DB; scoped enable→disable via multi_tenant_rls fixture",
     "live_stack: tests requiring the full cloud-dev Docker stack (titiler + azurite running together, reachable from inside the Docker network; skipped in default CI)",
-    "xdist_group: pytest-xdist loadgroup marker; co-locates global-state-mutating tenancy tests on one worker (v1042 isolation fix)",
+    "xdist_group: pytest-xdist loadgroup marker; co-locates global-state-mutating tenancy tests on one worker",
 ]
 
 [tool.coverage.run]
@@ -164,12 +150,7 @@ omit = []
 
 [tool.coverage.report]
 show_missing = true
-# Coverage threshold ratchets upward as the suite grows (TEST-01, Phase 278).
-# Current: 80.0 (raised from 60 — the #561 -n4 run measured 85.49% actual; the
-# old 58.5/60 floors were toothless against a 25 pt regression. 80 keeps a
-# conservative ~5.5 pt buffer). To ratchet further: run `make test-cov`, take
-# the lowest stable run's pct, subtract a 1-2 pt buffer, and bump this number.
-# Never lower it without a documented rationale in CHANGELOG.
+# Raise the coverage floor as coverage improves; never lower it to pass.
 fail_under = 80
 exclude_lines = [
     "pragma: no cover",

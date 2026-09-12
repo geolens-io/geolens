@@ -405,9 +405,7 @@ async def _retry_parse_map_spec(
     # no-tools single-round retry case naturally.
     provider_ext = get_ai_provider(provider)
 
-    # A single-round call still spends a round. Same
-    # accounting shape as the tool loops, so the structural gate does not
-    # have to carve out an exception it would then have to justify.
+    # Single-round calls count toward the round budget.
     async with usage_accounting(
         session, user_id=user_id, subsystem="map_generation", model=model
     ):
@@ -469,9 +467,7 @@ async def _repair_map_spec(
     )
     provider_ext = get_ai_provider(provider)
 
-    # A single-round call still spends a round. Same
-    # accounting shape as the tool loops, so the structural gate does not
-    # have to carve out an exception it would then have to justify.
+    # Single-round calls count toward the round budget.
     async with usage_accounting(
         session, user_id=user_id, subsystem="map_generation", model=model
     ):

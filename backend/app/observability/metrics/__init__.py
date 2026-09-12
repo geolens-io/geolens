@@ -45,14 +45,10 @@ def _sweep_lock_path(multiproc_dir: str) -> str:
     return os.path.join(multiproc_dir, "sweep.lock")
 
 
-# Upper bounds for http_request_duration_seconds (the only
-# `handler`-labelled latency histogram). The library default — (0.1, 0.5,
-# 1) + implicit +Inf — clamps p95 at 1.0, since histogram_quantile
-# returns the highest FINITE bound when the quantile lands in +Inf;
-# GeoLensApiInteractiveLatencyP95 fired on that ceiling, not real
-# latency. Kept short despite the cost (each bound adds one series per
-# `method` label value)
-# because the unlabelled sibling can't answer "p95 excluding tiles".
+# The handler-labelled histogram needs finite bounds above the latency alert
+# threshold: histogram_quantile returns the highest finite bound for +Inf.
+# Keep bucket count small because every bound adds a series per method;
+# the unlabelled histogram cannot exclude tile requests.
 LATENCY_LOWR_BUCKETS = (0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 
 
@@ -258,7 +254,7 @@ def _sweep_dead_worker_metrics_once() -> None:
 async def sweep_dead_worker_metrics() -> None:
     """Background loop: reap and consolidate files left by dead workers.
 
-    Shutdown_worker_metrics() only runs on graceful
+    `shutdown_worker_metrics()` only runs on graceful
     shutdown, so an OOM-killed or SIGKILLed worker leaves its
     RSS/pool gauges and cumulative metric files behind (see
     _consolidate_dead_cumulative_metric_files()), inflating /metrics

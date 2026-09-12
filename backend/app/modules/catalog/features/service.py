@@ -83,9 +83,8 @@ def _parse_naive_timestamp(raw: str) -> datetime:
     return value
 
 
-# Binding raw left SQLAlchemy typing every bind VARCHAR, causing
-# 42883 on non-text filters. Each entry pairs a parser with the bind's DB
-# type — matches exactly what the queryables document (Part 3) advertises.
+# Pair each parser with its database bind type so non-text comparisons match
+# the types advertised by queryables.
 _PROPERTY_FILTER_BINDS: dict[str, tuple[Callable[[str], Any], Any]] = {
     "text": (str, sa_types.Text()),
     "character varying": (str, sa_types.Text()),
@@ -153,12 +152,9 @@ _MULTI_TYPES = {"MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON"}
 
 
 class UnwritablePropertyError(ValueError):
-    """A column that exists but that the feature write path cannot address.
+    """A real column that the stricter feature-write name rules cannot address.
 
-    ``_COLUMN_NAME_RE`` is stricter than the read path's regexes,
-    so a real ``_notes``/``:id`` column (e.g. Socrata) that GET returns could
-    silently fail to write — POST/PUT answered 201/200 with nothing stored.
-    Refusing the name up front turns that silent data loss into a 422.
+    Reject such names, including _notes and :id, to prevent silent data loss.
     """
 
 
@@ -271,7 +267,7 @@ def parse_bbox(bbox: str | Sequence[float]) -> list[float]:
 async def live_property_columns(db: AsyncSession, table_name: str) -> str:
     """Quoted select-list of the table's live columns minus gid/geom/geom_4326.
 
-    To_jsonb serializes EVERY column first, and the
+    `to_jsonb` serializes EVERY column first, and the
     geometry→jsonb cast raises on curved input in `geom` — projecting here
     keeps the cast from ever seeing it. Queries live schema, not
     `Dataset.column_info`, which can drift on re-upload. Colons
@@ -590,9 +586,7 @@ async def get_features(
     # rows rather than a comparison against a count that may be estimated.
     bind_values["limit"] = limit + 1
 
-    # cql2_binds plus the property-filter binds typed from the live schema
-    # Both name parameters in the data query and the count query
-    # query, so one list serves both.
+    # CQL2 and typed property binds are shared by the data and count queries.
     extra_binds = [*(cql2_binds or ()), *typed_binds]
 
     def _with_extra_binds(stmt):
@@ -761,14 +755,10 @@ async def effective_geometry_type(session: AsyncSession, dataset) -> str:
 
 
 def _validate_geometry_structure(geometry: dict) -> BaseGeometry:
-    """Reject degenerate or topologically invalid geometry before PostGIS.
+    """Reject malformed geometry with ValueError before it reaches PostGIS.
 
-    Degenerate-but-valid input (2-point rings, empty arrays)
-    crashed ST_GeomFromGeoJSON into a 500; raises ValueError instead (400).
-
-    Returns the shapely geometry itself, not None — Shapely
-    auto-closes an unclosed ring but ST_GeomFromGeoJSON does not, so callers
-    must write the returned, normalized geometry, not the client's dict.
+    Return the normalized Shapely geometry. Shapely closes unclosed rings but
+    ST_GeomFromGeoJSON does not, so callers must write the returned geometry.
     """
     try:
         geom = shapely_shape(geometry)
@@ -1017,8 +1007,7 @@ async def _refresh_count_and_extent(
     Returns (feature_count, extent_wkt) in a single query instead of the
     5 queries that extract_metadata() runs.
     """
-    # Records.spatial_extent admits only POLYGON or
-    # MULTIPOLYGON (chk_records_spatial_extent_type, ), but
+    # records.spatial_extent admits only POLYGON/MULTIPOLYGON, but
     # ST_Extent of a single point / axis-collinear points casts to POINT /
     # LINESTRING and would be rejected. ST_Expand always returns the
     # bounding-box POLYGON, so only the degenerate cases get padded;
@@ -1280,10 +1269,8 @@ async def _apply_incremental_metadata(
 ) -> bool:
     """Update feature_count alone when the write provably left the extent alone.
 
-    Returns False when the fast path does not apply, falling back to a full
-    recompute. `_refresh_count_and_extent` runs a full-table
-    COUNT + ST_Extent on every write, so a client digitizing 200 points
-    paid that cost 200 times with no bulk feature endpoint.
+    Returns False when a full COUNT + ST_Extent recompute is needed.
+    Interior edits can update the count without scanning the full table.
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
 

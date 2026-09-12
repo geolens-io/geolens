@@ -181,18 +181,10 @@ def build_sql_user_message(
 Respond with ONLY the SQL query (or an -- ERROR comment if the query cannot be generated). No explanation, no markdown, no code fences."""
 
 
-# The prompt must never hand-write a metric buffer. The bare
-# ``ST_Buffer(geom::geography, N)::geometry`` form silently degrades past
-# 6 degrees of longitude (world Mercator fallback, error 1/cos(latitude))
-# and corrupts geometry crossing the antimeridian; ``render_geodesic_buffer``
-# This covers both schema and prompt changes.
-#
-# The prompt teaches only a marker, ``geolens_buffer(<geom>,
-# <metres>)``; ``buffer_marker.expand_buffer_markers`` renders the real
-# expression before anything else sees the SQL, so it never drifts from
-# prose. The only import kept from ``analysis_sql`` is
-# ``MAX_BUFFER_METERS``, so the ceiling the prompt quotes is the one the
-# expander enforces.
+# Teach the geolens_buffer marker rather than raw geography buffers, whose
+# projection fallback can distort wide or antimeridian-spanning geometries.
+# expand_buffer_markers uses the canonical renderer; MAX_BUFFER_METERS keeps
+# the prompt's advertised limit aligned with the expander's enforced limit.
 _MAX_BUFFER_METERS_TEXT = f"{MAX_BUFFER_METERS:.0f}"
 
 SQL_SYSTEM_PROMPT = f"""\
@@ -437,9 +429,8 @@ async def generate_sql(
     """
     provider = await LLM_PROVIDER.get(db)
     model = await LLM_MODEL_LIGHT.get(db)
-    # Static reference → system prompt (stable prefix, provider
-    # prompt-cacheable); schema + question → user message (sent once, not
-    # twice as before).
+    # Keep static reference in the cacheable system prompt; send the schema
+    # and question once in the per-call user message.
     user_message = build_sql_user_message(
         question, schema_context, layer_descriptions=layer_descriptions
     )
@@ -458,9 +449,7 @@ async def generate_sql(
     runtime_config = await provider_ext.resolve_runtime_config(db)
     base_url = runtime_config.get("base_url")
 
-    # A single-round call still spends a round. Same
-    # accounting shape as the tool loops, so the structural gate does not
-    # have to carve out an exception it would then have to justify.
+    # Single-round calls count toward the round budget.
     async with usage_accounting(db, user_id=user_id, subsystem="sql_gen", model=model):
         result = await provider_ext.complete(
             model=model,

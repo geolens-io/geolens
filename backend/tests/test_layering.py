@@ -1334,7 +1334,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 996,
     # File/service tasks share publication fencing, heartbeat phases and failure
     # cleanup.
-    "backend/app/processing/ingest/tasks_vector.py": 1190,
+    "backend/app/processing/ingest/tasks_vector.py": 1179,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1351,
@@ -1361,16 +1361,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1433,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1850,
+    "backend/app/standards/stac/router.py": 1828,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2480,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1691,
     # AI orchestration coordinates tool execution, usage accounting and SSE failures.
-    "backend/app/processing/ai/service.py": 998,
+    "backend/app/processing/ai/service.py": 994,
     # Record children share ownership, ordering and publication-version invariants.
-    "backend/app/modules/catalog/records/service.py": 887,
+    "backend/app/modules/catalog/records/service.py": 877,
     # Export formats share visibility, lineage and private-artifact authorization.
     "backend/app/modules/catalog/datasets/api/router_export.py": 1484,
     # Artifact selection, atomic publication, range reads and eviction share one cache
@@ -1380,7 +1380,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/embed_tokens/service.py": 1030,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants.
-    "backend/app/modules/catalog/features/service.py": 1386,
+    "backend/app/modules/catalog/features/service.py": 1373,
 }
 
 

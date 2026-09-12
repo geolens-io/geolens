@@ -86,17 +86,9 @@ async def _refresh_job_metrics() -> None:
             elif status == "doing":
                 jobs_active.labels(queue=q).set(count)
                 seen_doing.add(q)
-            # Deliberately no `succeeded`/`failed` branch here.
-            # The worker runs with delete_jobs="successful", so
-            # procrastinate_finish_job_v1 DELETEs the row while still
-            # `doing` — status='succeeded' is never written, so this 15s
-            # poll could never observe it (geolens_jobs_completed_total
-            # read a flat zero from day one). A `failed` branch would need
-            # a delta against a row-count snapshot, which breaks once
-            # purge_expired_terminal_jobs ages rows out mid-window. Both
-            # counters are instead incremented at the terminal transition
-            # by the worker middleware and stalled-job sweep in
-            # platform/jobs/worker.py, where nothing goes stale.
+            # Count terminal transitions in platform/jobs/worker.py, not this poll.
+            # Successful queue rows are deleted before polling can observe them, and
+            # terminal-row retention makes snapshot deltas unreliable for failures.
 
         # Zero gauges for previously seen queues with no matching rows this cycle.
         for q in _known_queues - seen_todo:

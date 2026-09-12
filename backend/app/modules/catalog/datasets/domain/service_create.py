@@ -61,11 +61,8 @@ async def create_empty_dataset(
                 f"Invalid column name: {col.name!r}. "
                 "Must start with a letter or underscore and contain only alphanumeric characters and underscores."
             )
-        # SAFE_COLUMN_NAME_RE allows a leading underscore and no
-        # length bound, but the feature write path can address neither: a
-        # column like `_notes` was created but silently dropped every write,
-        # and a name over 63 chars gets truncated by Postgres DDL while
-        # column_info keeps the full string. Refuse at creation instead.
+        # Apply the feature-write name rules at creation: leading underscores are
+        # unwritable, and PostgreSQL truncates names over 63 characters.
         if not is_writable_feature_column(lower_name):
             raise ValueError(
                 f"Invalid column name: {col.name!r}. "
@@ -133,8 +130,7 @@ async def create_empty_dataset(
         column_info=column_info,
         source_format="created",
         srid=4326,
-        # The table column is generic geometry(Geometry, 4326); storing
-        # POINT here rejected Polygon/LineString inserts the column accepts.
+        # Match the generic geometry column so created datasets accept every subtype.
         geometry_type="GEOMETRY",
         feature_count=0,
         visibility="private",
@@ -198,10 +194,8 @@ async def create_dataset(
         ing = ingestion
 
     spatial_extent_value = None
-    # An antimeridian-crossing source produces a two-ring
-    # MULTIPOLYGON extent; accepting only POLYGON here silently nulled
-    # Record.spatial_extent on first ingest. Both satisfy
-    # chk_records_spatial_extent_type.
+    # Antimeridian extents are two-ring MULTIPOLYGONs; both polygon types
+    # satisfy chk_records_spatial_extent_type.
     if ing.extent_wkt and ing.extent_wkt.startswith(("POLYGON", "MULTIPOLYGON")):
         spatial_extent_value = func.ST_GeomFromText(ing.extent_wkt, 4326)
 
@@ -277,11 +271,8 @@ async def create_dataset(
     if ing.column_info:
         await auto_detect_relationships(session, dataset.id, record.id, ing.column_info)
 
-    # Dataset.create was invisible in the audit trail -- emitted
-    # here, not per-router, so every creation path funnels through one
-    # emit site instead of risking a missed call at each call site.
-    # No ip_address: a domain-layer function with no Request, matching the
-    # reupload.commit precedent (tasks_common.py).
+    # Emit once in the domain so every creation path is audited.
+    # No ip_address is available here because the domain receives no Request.
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,

@@ -61,10 +61,7 @@ class DatasetDeletion(NamedTuple):
 async def reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> None:
     """Delete every object under GeoLens-managed prefixes for one dataset.
 
-    Extracted from ``delete_dataset``'s two branches, which reaped
-    identically from different prefix lists, when pushed the
-    function past ruff's complexity ceiling. The import stays function-local
-    so tests keep patching the provider attribute.
+    Import the storage provider locally so callers and tests can replace it.
     """
     from app.platform.storage.provider import get_storage
 
@@ -129,10 +126,7 @@ async def delete_dataset(
     and embedding rows go, but the operator's table survives with its rows.
     See :func:`app.platform.dataset_origin.geolens_owns_table`.
     """
-    # Function-local import via the service.py façade is intentional -- it
-    # lets tests mock `service.get_dataset` to inject fixture datasets
-    # without a DB. Hoisting to module-top broke 7 tests that patch the
-    # façade attribute.
+    # Resolve through the façade at call time so tests can replace service.get_dataset.
     from app.modules.catalog.datasets.domain.service import get_dataset
     from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
@@ -158,12 +152,9 @@ async def delete_dataset(
         dataset.source_format, record_type, dataset.origin_ref
     )
 
-    # Whether this delete FREES the name is separate from
-    # ownership -- a detach frees nothing while the relation stands, but a
-    # registered dataset whose table was already dropped frees the name
-    # like an ingested delete, and skipping its tombstone reopens GH-1443.
-    # True by default: a missing tombstone is the disclosure risk; an
-    # extra one only costs a rename before re-registering.
+    # Retire a registered table name only if its relation is already absent.
+    # Default to retirement: a missing tombstone risks stale tile disclosure,
+    # while an extra tombstone only requires a new name for registration.
     name_is_freed = True
 
     # Identity of the relation this delete frees, read while
@@ -283,24 +274,14 @@ async def delete_dataset(
 
         storage_prefixes = (f"originals/{dataset_id}/", f"vectors/{dataset_id}/")
 
-    # Retire the name before releasing it, so the tile
-    # router's table_name -> metadata map can't hold a stale entry.
-    # session.add lands in the same transaction as the DROP and record
-    # delete: a crash rolls back the whole delete, never a freed name
-    # with no tombstone.
+    # Commit name retirement with the DROP and record deletion so rollback cannot
+    # leave a freed name without a tombstone. This also applies to a registered
+    # dataset whose relation is already absent.
     #
-    # Except when detached with the relation left standing --
-    # nothing was released, so retiring would make the table permanently
-    # unregisterable. Reads `name_is_freed`, not `owns_table`, since a
-    # registered dataset whose table was ALREADY gone also needs the
-    # tombstone (GH-1443). The surviving-relation case is bounded:
-    # generate_table_name blocks ingest on it, so stale tile metadata
-    # serves at most the 60s meta-cache TTL of the SAME dataset's rows.
-    #
-    # ONE residual: an operator dropping that relation AFTER this reads
-    # it frees the name untombstoned. The relation probe records its identity
-    # here for a future closure (nothing reads it yet) -- why the ELSE
-    # branch below exists, on this no-tombstone path.
+    # A surviving detached relation must remain registerable. It blocks name reuse,
+    # so stale tile metadata serves only the same dataset until its cache expires.
+    # An operator can later drop that relation without creating a tombstone; its
+    # identity is recorded below, but no consumer currently closes that gap.
     if name_is_freed:
         session.add(
             RetiredTableName(

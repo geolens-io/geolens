@@ -52,12 +52,9 @@ VrtMutationResponse = get_catalog_port().vrt_mutation_response_model()
 async def _load_source_datasets(
     db: AsyncSession, dataset_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, object]:
-    """Load VRT source datasets by id in one query, records eager-loaded.
+    """Load VRT source datasets in one query with records eager-loaded.
 
-    Both VRT source endpoints called `get_dataset()` once per
-    member row, so a 200-source VRT cost 200 round trips. The per-row
-    `can_access_dataset()` call stays -- it's the permission seam's
-    decision, and batching it too would risk skipping an overlay's policy.
+    Keep per-member can_access_dataset checks so overlays can apply their policy.
     """
     if not dataset_ids:
         return {}

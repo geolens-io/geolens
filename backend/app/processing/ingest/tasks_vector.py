@@ -396,13 +396,8 @@ async def ingest_file(
     8. Update job status to complete
     9. Clean up staging file
 
-    The AsyncSession is split into two short-lived
-    blocks so it is NOT held open across the long-running ``run_ogr2ogr``
-    asyncio subprocess. Holding a session open across that subprocess in
-    Python 3.14 + SQLAlchemy 2.0 + greenlet 3.3 corrupts the greenlet bridge
-    state and the next ``session.execute()`` (e.g. ``clip_to_mercator_bounds``
-    when it actually modifies rows) raises ``MissingGreenlet``. See
-    the next database operation raises ``MissingGreenlet``.
+    Keep sessions closed during ``run_ogr2ogr``: holding one across the
+    subprocess can leave the next database operation raising ``MissingGreenlet``.
     """
     _bind_task_log_context(task_name="ingest_file", job_id=job_id)
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
@@ -464,14 +459,8 @@ async def ingest_file(
                     },
                 )
                 await session.commit()
-                # NO unlink here ('s raster-tail
-                # correction hadn't reached this copy). Unconditional delete
-                # destroyed a local-storage install's only copy of a file
-                # that then failed validation, leaving nothing to retry.
-                # `_should_unlink_staging` in the terminal `finally` already
-                # knows the right distinction and runs on this return, so
-                # let ONE exit decide rather than teach a second one the
-                # same rule.
+                # Let final cleanup distinguish staging from the only managed
+                # copy, which must survive validation failure for a retry.
                 final_status = "failed"
                 return
 

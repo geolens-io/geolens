@@ -540,13 +540,8 @@ async def get_collection_queryables(
     )
 
 
-# CQL2 compile is synchronous, event-loop-blocking work, and
-# the filter is the one input letting an anonymous caller choose how
-# much of it to buy. The single-pass rename in filtering.py cut the
-# pathological case from 2.4s to 40ms, but shapes under the bind cap
-# still reach hundreds of binds — the rename bounds cost per request,
-# this bounds rate. 10/second sits far above any interactive client
-# (QGIS/pygeoapi paging) and far below what keeps the loop busy.
+# CQL2 compilation blocks the event loop. Bind caps bound each request;
+# rate limiting bounds repeated work from anonymous callers.
 _FILTERED_ITEMS_RATE_LIMIT = "10/second"
 
 
@@ -706,12 +701,8 @@ async def get_collection_items(
     _validate_f_param(f)
     public_api_url = await get_public_api_url(db, request=request)
 
-    # The page-size ceiling is an admin-configurable PersistentConfig value,
-    # not a static Query(le=...). Per OGC
-    # API Features Core /req/core/fc-limit-response-1(C) a limit above the
-    # maximum SHALL NOT error — clamp to the ceiling instead (mirrors the STAC
-    # sibling STAC endpoint. max(1, ...) guards a ceiling mis-set to 0; the clamped value
-    # flows into the feature query and the echoed self/next links.
+    # OGC Features Core requires over-limit requests to clamp, not fail.
+    # Floor the configured ceiling at one; query and pagination links use this limit.
     max_page_size = await OGC_ITEMS_MAX_PAGE_SIZE.get(db)
     limit = min(limit, max(1, max_page_size))
 
@@ -834,11 +825,8 @@ async def get_collection_items(
         cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
 
     try:
-        # A full page must be distinguishable from a full
-        # *final* page, or a feature count that is an exact multiple of `limit`
-        # emits a phantom keyset `next` to an empty page.
-        # the over-fetch that answers it moved into get_features, which reports
-        # it as `has_more`, so every caller gets the same answer.
+        # Use get_features.has_more, determined by over-fetching, so a full final
+        # page does not advertise a next link to an empty page.
         page = await get_features(
             db,
             dataset.table_name,
@@ -862,16 +850,8 @@ async def get_collection_items(
             detail=str(exc),
         )
     except DBAPIError as exc:
-        # /with a filter or property-filter active,
-        # a type-shaped DB error is the filter itself (e.g. incomparable
-        # types pre-validation let through) — report as the caller's 400,
-        # never an unhandled 500 (QA finding B3). Only type/data SQLSTATEs
-        # count: class 22, 42xxx operator/cast, client-side bind
-        # DataErrors; everything else keeps the retryable 503.
-        # Classification lives in `is_caller_type_fault` (shared with the
-        # native features list); catch widened to DBAPIError since
-        # asyncpg reports an unencodable value as bare DBAPIError with
-        # SQLSTATE 22000, matching no narrower subclass.
+        # Filter type faults are caller errors; operational failures remain
+        # retryable. DBAPIError also covers asyncpg bind errors with no narrower subclass.
         caller_predicate = cql2_where is not None or bool(property_filters)
         if caller_predicate and is_caller_type_fault(exc):
             source = "CQL2 filter" if cql2_where is not None else "Property filter"
@@ -905,11 +885,8 @@ async def get_collection_items(
         active_params["bbox"] = bbox
     if datetime_param:
         active_params["datetime"] = datetime_param
-    # `include_geometry` is excluded from property_filters (it is
-    # listed in ogc_reserved) and was never added here either, so a client
-    # that opted out of geometry on page 1 got it back on page 2 via the
-    # rel=next link this block builds, and the self link stopped describing
-    # the request that produced the response.
+    # Preserve include_geometry in self and pagination links; it is excluded
+    # from property_filters because it controls the response shape.
     if not include_geometry:
         active_params["include_geometry"] = "false"
     if filter_expr is not None:

@@ -125,18 +125,8 @@ if (
         "fresh DB would migrate without e001/e002 and break SAML login."
     )
 
-# Mode-aware tenancy migration presence assertion.
-# When GEOLENS_TENANCY_MODE=multi_tenant the dormant-tenancy migration
-# (0005_dormant_tenancy) MUST be present in the resolved version chain.
-# A multi_tenant deploy without 0005 would boot without the tenant_id
-# columns and the partial-unique indexes, silently violating tenant isolation.
-#
-# We check for the file directly in the versions directory — the core
-# migration is always present in the core package, so this guard only fires
-# when someone has set GEOLENS_TENANCY_MODE=multi_tenant against a code tree
-# where 0005 was somehow removed (e.g. a bad manual patch or a partial
-# backport).  We deliberately do NOT import app code here (no settings load)
-# to mirror the enterprise guard above and avoid import-time side effects.
+# Multi-tenant mode requires migration 0005 for tenant columns and unique indexes.
+# Check the packaged file directly to avoid importing application settings here.
 _tenancy_mode = os.environ.get("GEOLENS_TENANCY_MODE", "").lower().strip()
 if _tenancy_mode == "multi_tenant":
     import pathlib as _pathlib

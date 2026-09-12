@@ -227,16 +227,8 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         if not is_multi_tenant():
             return await call_next(request)
 
-        # The liveness probe resolves no tenant. Sent to a
-        # tenant hostname, it would reach `_resolve_tenant_uuid` below,
-        # which reads the DB — with the DB unreachable that returns None
-        # and this middleware answers 403, restart-looping an API that
-        # would have served catalog reads (the loop `/health/live` exists
-        # to prevent).
-        #
-        # Deliberately BEFORE the Host checks too: `_classify_tenant_host`
-        # rejects an untrusted Host with a 400, and a kubelet probing by
-        # pod IP sends exactly that.
+        # Liveness bypasses tenant lookup so a database outage cannot trigger restarts.
+        # It also bypasses Host validation because kubelet probes may use a pod IP.
         if is_liveness_request(request.scope):
             return await call_next(request)
 

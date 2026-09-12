@@ -268,11 +268,10 @@ async def _dataset_to_stac_item(
 ) -> dict:
     """Convert a Dataset ORM object to a STAC Item dict with presigned URLs.
 
-    ``spatial_extent_geojson`` lets bulk callers such as a STAC items
-    page) skip per-dataset Python-side WKB deserialization in
-    ``dataset_to_ogc_record`` by precomputing ST_AsGeoJSON in one query.
+    ``spatial_extent_geojson`` lets bulk callers precompute ST_AsGeoJSON in one
+    query, avoiding per-dataset WKB deserialization in ``dataset_to_ogc_record``.
 
-    ``public_app_url`` (follow-up): the raster/VRT ``raster_tiles``
+    ``public_app_url``: the raster/VRT ``raster_tiles``
     asset is served at the public APP origin (/raster-tiles/...), not the /api
     origin, so it is threaded to both ``dataset_to_ogc_record`` and the
     presigned-URL ``build_assets`` re-build below.
@@ -291,8 +290,7 @@ async def _dataset_to_stac_item(
         # below points at, and is gated the same way — per requester, on each
         # referenced dataset rather than on the output they can already see.
         # Page loops precompute the whole page through
-        # visible_lineage_summaries, with one query per page like
-        # spatial_extent_geojson); only single-item callers resolve here.
+        # visible_lineage_summaries; only single-item callers resolve here.
         lineage_summary=(
             await visible_lineage_summary(db, record, user, user_roles or set())
             if lineage_summary is _LINEAGE_UNRESOLVED
@@ -645,9 +643,8 @@ async def conformance() -> StacConformance:
 async def get_collections(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    # No-schema variant keeps this public endpoint anonymous in
-    # the OpenAPI surface — the plain optional dep stamped bearer security here,
-    # narrowing the generated SDK clients to AuthenticatedClient.
+    # Keep this endpoint anonymous in OpenAPI so generated clients do not
+    # require AuthenticatedClient for optional authentication.
     user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCollectionListResponse:
     """List all STAC Collections."""
@@ -1037,11 +1034,7 @@ async def get_collection_items(
     total = (await db.execute(count_stmt)).scalar() or 0
 
     # Paginate
-    # No ORDER BY meant OFFSET/LIMIT paging had no defined row
-    # order -- a plan change between page fetches could duplicate or drop
-    # items across the rel=next chain. Record.created_at is a non-unique
-    # server-default, so add Dataset.id as a tiebreaker, matching the
-    # convention _resolve_sort_order already uses for dataset listings.
+    # Record.created_at can tie, so add Dataset.id to keep pagination stable.
     stmt = stmt.order_by(Record.created_at.desc(), Dataset.id.desc())
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
@@ -1727,11 +1720,8 @@ class StacSearchBody(BaseModel):
     @field_validator("intersects")
     @classmethod
     def _cap_intersects_size(cls, v: dict | None) -> dict | None:
-        # The GET `intersects` query param is
-        # capped at max_length=10000, but the POST body `intersects` dict
-        # bypassed any bound and reached the same anonymous ST_GeomFromGeoJSON
-        # predicate — a multi-megabyte GeoJSON could pin CPU/memory + a DB
-        # connection. Cap the serialized size to match the GET handler.
+        # Match the GET handler’s 10,000-character bound on serialized intersects
+        # to limit anonymous geometry parsing and database work.
         max_serialized = 10000
         if v is not None and len(json.dumps(v)) > max_serialized:
             raise ValueError(
@@ -1797,28 +1787,16 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     datetime_str = _validate_stac_datetime(datetime_str.strip())
     start, end = parse_ogc_datetime(datetime_str)
 
-    # Admit null-temporal records — dataset_to_ogc_record
-    # advertises datetime=created_at for them, so filter by that same
-    # fallback instant, comparing created_at against the requested bounds
-    # rather than unconditionally including every null-temporal record
-    # (which matched any datetime filter regardless of date).
-    # parse_ogc_datetime truncates to whole DAYS, so created_at comparisons
-    # are day-granular: a bound day includes any created_at within it
-    # (`created_at == start` alone only matched exact midnight).
+    # For records without temporal bounds, filter by created_at, matching the
+    # datetime advertised by dataset_to_ogc_record. parse_ogc_datetime truncates
+    # to days, so each bound includes any created_at within that day.
     null_temporal = Record.temporal_start.is_(None) & Record.temporal_end.is_(None)
     if "/" in datetime_str:
         if start is not None:
             stmt = stmt.where(
                 (Record.temporal_end >= start)
-                # A record with temporal_start set and
-                # temporal_end NULL (open-ended/ongoing) fell through every
-                # arm here — temporal_end >= start reads NULL,
-                # temporal_start >= start is false for a past start, and
-                # null_temporal is false since temporal_start IS set. The
-                # single-instant branch already treats NULL temporal_end as
-                # open, so an interval query matched fewer records than the
-                # instant alone. Mirror the end-bound clause's open-start
-                # arm below, symmetrically.
+                # A missing temporal_end is open-ended. Include it symmetrically with
+                # missing temporal_start so interval and instant queries agree.
                 | (Record.temporal_end.is_(None) & Record.temporal_start.isnot(None))
                 | (Record.temporal_start >= start)
                 | (null_temporal & (Record.created_at >= start))

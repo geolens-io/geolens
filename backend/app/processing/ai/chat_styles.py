@@ -189,17 +189,10 @@ async def _build_graduated_style(
         # quantile: use the dynamically-computed quantiles from stats
         breaks = stats.get("quantiles", [])
 
-    # MapLibre rejects a step expression whose stops are not
-    # strictly ascending, and percentile_cont does not deduplicate, so any
-    # clustered column (70% of rows sharing one value, say) yields adjacent
-    # equal quantiles. Both frontend siblings guard this for the styles they
-    # build - classification.ts and DataDrivenStyleEditor.tsx each do
-    # `[...new Set(breaks)]` - but neither can see inside an expression the
-    # server assembled, and ChatPanel's validateChatPaint only filters paint
-    # KEYS by geometry type. A non-finite break is dropped for the same reason:
-    # it cannot be a valid stop, and it would make the actions frame
-    # unparseable in the browser. The colour slice is re-taken so the surviving
-    # breaks still span the whole ramp.
+    # MapLibre requires strictly increasing finite stops. Deduplicate quantiles
+    # server-side because frontend validation cannot repair generated expressions.
+    # Drop non-finite values to keep JSON valid, then resample colours so the
+    # remaining stops span the full ramp.
     breaks = sorted(
         {
             float(b)

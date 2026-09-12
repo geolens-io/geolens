@@ -122,21 +122,12 @@ async def discard_map_asset_objects(
     map_id: uuid.UUID,
     storage_keys: Iterable[str | None],
 ) -> None:
-    """Best-effort removal of a map's stored thumbnail / OG-image objects.
+    """Remove obsolete thumbnail and OG-image objects after commit, best effort.
 
-    Nothing ever called ``storage.delete`` for a ``maps/``
-    key, so deleted/re-uploaded images were orphaned undiscoverably.
-    Shared by delete/upload handlers, all holding
-    ``lock_map_for_asset_write`` from write to commit.
-
-    Re-reads the row rather than trusting the
-    caller's previous-key read (consistent with whatever committed
-    last), and relies on ``new_map_asset_key`` never reusing keys since
-    the re-read isn't atomic with the delete below.
-
-    Always best effort — a refusing backend must not block a delete,
-    and an already-committed delete can't be undone by raising. Import
-    stays function-local, matching ``_reap_managed_storage``.
+    Callers hold lock_map_for_asset_write through commit. Re-read the committed
+    row before deleting, and rely on unique upload keys because the read and
+    delete are not atomic. A failed liveness read skips cleanup to protect live
+    objects; storage failures must not fail an already-committed request.
     """
     from app.platform.storage.provider import get_storage
     from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -232,19 +223,11 @@ class MapAssetPublication:
 
 @asynccontextmanager
 async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
-    """Undo object writes when the row that would name them never commits.
+    """Track object writes and clean up those whose catalog rows never commit.
 
-    The upload handlers write the image, then record
-    its key on the map row. A failure between those two left the object
-    behind with nothing pointing at it, and since keys are never reused,
-    every retry added another — undiscoverable, since nothing enumerates
-    the ``maps/`` prefix.
-
-    Cleanup runs on any exception (including one the handler raises
-    itself) and never replaces it — a tidy-up failure is logged and
-    dropped so the caller still sees the real error. Runs only on what's
-    still pending (a settled publication rolls nothing back), and not at
-    all while a commit's outcome is indeterminate (see ``committing``).
+    Cleanup preserves the original exception and logs its own failures. Settled
+    publications need no rollback; an indeterminate commit outcome also skips
+    cleanup because the object may already be referenced by a committed row.
     """
     from app.platform.storage.provider import get_storage
 
@@ -352,13 +335,10 @@ async def get_map_with_layers(
 async def _layer_counts_for_maps(
     session: AsyncSession, map_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, int]:
-    """Layer counts for exactly the maps on one page of the gallery listing.
+    """Return layer counts for exactly the maps on one gallery page.
 
-    A second query keyed on the ids returned by the page keeps work bounded at
-    every offset. A correlated subquery degrades at high offsets, while an
-    uncorrelated grouped join aggregates the entire layer table. The keyed
-    query uses a bitmap
-    index scan on ``map_layers.map_id``, measured 0.5-1.0ms at both offsets.
+    A query keyed by page IDs bounds work at every offset and uses the
+    map_layers.map_id index without aggregating unrelated maps.
     """
     if not map_ids:
         return {}

@@ -99,22 +99,12 @@ async def resolve_source_feature_count(
 async def _resolve_bbox_source_count(
     db: AsyncSession, table_ref: str, bbox: list[float], user_id: uuid.UUID
 ) -> int | None:
-    """Exact 1:1-operation denominator scoped to a preview's viewport bbox, or
-    ``None`` if it could not be computed within the query budget.
+    """Return an exact viewport-scoped source count, or None on query failure.
 
-    Bypasses the cached ``dataset.feature_count`` deliberately: that's a
-    WHOLE-table total, and pairing "500 of 22,324" with a viewport-scoped
-    result would assert something the result doesn't support.
-
-    Runs through ``execute_safe`` inside
-    ``run_analysis_preview``'s ``_preview_slots`` block, not a bare
-    ``db.execute`` on the caller's session (which reintroduced the
-    pool-exhaustion class the semaphore prevents). Returns a real
-    count or ``None`` on timeout/failure, never a capped number dressed
-    up as exact.
-
-    Takes ``table_ref`` (LOGICAL ``data`` schema), not ``dataset``:
-    ``execute_safe`` does the tenant-schema rewrite itself.
+    The cached feature_count covers the whole table and cannot describe a viewport.
+    Run through execute_safe inside _preview_slots so this query shares the
+    preview connection budget. Pass a logical data-schema table_ref; execute_safe
+    rewrites the tenant schema.
     """
     predicate = render_bbox_predicate(bbox, src="_t")
     count_sql = f"SELECT count(*)::bigint AS source_count FROM {table_ref} AS _t WHERE {predicate}"
@@ -425,17 +415,10 @@ _ROW_FILTERING_OPERATIONS = ("clip", "select_by_location", "intersect")
 async def _resolve_match_count(
     db: AsyncSession, count_sql: str, user_id: uuid.UUID
 ) -> int | None:
-    """Exact total for an operation whose result the preview cap would mislead
-    about, or None when it could not be computed.
+    """Return the full match count, or ``None`` if the count query fails.
 
-    Its own statement, since the row cap would otherwise lie: summing
-    per-row counts across 500 of 12,000 polygons answers a question
-    nobody asked (; reuses it for selected-record totals).
-
-    Degrades to None rather than failing the preview: it runs second, so
-    it can lose the per-user lock to another request or outrun the
-    statement timeout scanning both layers -- neither a reason to discard
-    a preview that already succeeded.
+    Count separately because capped preview rows cannot establish a total.
+    Lock contention or timeout must not discard an otherwise successful preview.
     """
     try:
         result = await execute_safe(

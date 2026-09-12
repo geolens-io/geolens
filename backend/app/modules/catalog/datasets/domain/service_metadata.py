@@ -292,7 +292,7 @@ async def update_user_metadata(
     """Update user-editable fields including extended metadata.
 
     Accepts a DatasetMeta Pydantic model. Only updates fields that are
-    explicitly set (not None). Raises ValueError if dataset not found.
+    explicitly set. Raises ValueError if dataset not found.
     Does not commit; caller controls transaction scope.
 
     ``warnings_out`` collects non-blocking warnings from the metadata extension.
@@ -436,10 +436,9 @@ async def sample_example_values(
 ) -> list | None:
     """Up to ten distinct non-null values of one column, or None.
 
-    Reads the data table, so call it BEFORE the catalog pair is locked
-    None for a geometry column, an unsafe name, or any query
-    failure; the read runs in a savepoint so a failure leaves the
-    transaction usable.
+    Sample before locking the catalog pair because this reads the data table.
+    Returns None for geometry columns, unsafe names or query failures; a savepoint
+    keeps the transaction usable.
     """
     if not data_type or "geometry" in data_type.lower():
         return None
