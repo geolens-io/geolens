@@ -572,8 +572,8 @@ services:
     cap_drop:
       - ALL
     read_only: true
-    # The entrypoint materializes the immutable SPA in /tmp. Nginx keeps its
-    # raster cache and large request-body spool on the disk-backed cache volume.
+    # The entrypoint materializes the immutable SPA in /tmp; nginx keeps its
+    # bounded raster cache on a dedicated writable volume.
     tmpfs:
       - /tmp:size=64m,mode=1777
     ports:
