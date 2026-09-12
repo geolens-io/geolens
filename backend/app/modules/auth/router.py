@@ -237,8 +237,13 @@ async def login(
     expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)
 
     service = AuthService(db)
-    token = await service.create_access_token(identity, expire_minutes=expire_minutes)
-    refresh_token = service.create_refresh_token(user.id, expire_days=expire_days)
+    family_id = uuid.uuid4()
+    token = await service.create_access_token(
+        identity, expire_minutes=expire_minutes, family_id=family_id
+    )
+    refresh_token = service.create_refresh_token(
+        user.id, expire_days=expire_days, family_id=family_id
+    )
 
     # fix(#1230): password-login success audit row, mirroring oauth.login.success.
     await audit_emit(
@@ -708,6 +713,58 @@ async def resend_verification(
             )
 
     return _GENERIC_RESPONSE
+
+
+@router.post(
+    "/logout/session", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False
+)
+@router.post("/logout/session/", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_current_session(
+    request: Request,
+    body: RefreshRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    csrf_token: str | None = Header(
+        default=None,
+        alias=CSRF_HEADER_NAME,
+        description=_CSRF_PARAM_DESCRIPTION,
+    ),
+) -> Response:
+    """Revoke only the presented session's refresh-token family.
+
+    Other devices and API keys survive. Access JWTs remain usable until their
+    normal expiry; /logout/ still immediately revokes every access and refresh
+    session. A valid signed access JWT with sid, a refresh body token, or a
+    refresh cookie authorizes this operation. Legacy JWTs without sid must use
+    the refresh credential. Cookie authorization requires double-submit CSRF.
+
+    Bearer/body revocation does not change cookies, allowing a captured old
+    session to be discarded safely after a newer login. Cookie authorization
+    clears the browser's refresh and CSRF cookies.
+    """
+    cookie_authorized = False
+    access_token = None
+    refresh_token = body.refresh_token if body is not None else None
+    if authorization is not None:
+        scheme, _, access_token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not access_token:
+            raise HTTPException(status_code=401, detail="Invalid session credential")
+    elif refresh_token is None:
+        refresh_token = read_refresh_cookie(request)
+        if refresh_token is not None:
+            enforce_csrf(request)
+            cookie_authorized = True
+    try:
+        await AuthService(db).revoke_session(
+            access_token=access_token,
+            refresh_token=refresh_token,
+        )
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid session credential")
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    if cookie_authorized:
+        clear_browser_session(response, request)
+    return response
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.

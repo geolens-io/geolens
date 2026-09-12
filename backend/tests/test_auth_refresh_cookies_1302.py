@@ -751,11 +751,7 @@ class TestRotationRevocationRace:
 
 
 class TestGraceWindowCannotRatchetOpen:
-    """fix(#1446): queued rotations must not each push the retirement cutoff
-    further out. Each holds an ORM row read BEFORE the lock, still carrying the
-    original multi-day expiry, so comparing against that instead of the
-    post-lock value extends the window on every pass — the opposite of the
-    'never EXTEND' invariant the grace window (fix(#621)) is built on."""
+    """Queued rotations must preserve the first rotation's grace-window start."""
 
     async def test_concurrent_rotations_do_not_extend_the_retirement_cutoff(
         self, client: AsyncClient, test_db_session, monkeypatch
@@ -809,33 +805,19 @@ class TestGraceWindowCannotRatchetOpen:
 
         row = (
             await test_db_session.execute(
-                select(RefreshToken.expires_at).where(
+                select(RefreshToken.rotated_at).where(
                     RefreshToken.token_hash == token_hash
                 )
             )
         ).scalar_one()
-        # Retired to about one grace window measured from the START, NOT to the
-        # original multi-day lifetime and not to a cutoff the queued caller
-        # pushed out by its own stall.
-        #
-        # The two outcomes this assertion separates:
-        #   no ratchet — overshoot is the winner's pre-lock latency: request
-        #     routing and scheduling jitter, milliseconds on an idle machine
-        #     but over a second on a loaded CI runner;
-        #   ratchet    — the queued caller waited out the winner's stall
-        #     before writing, so its cutoff overshoots by AT LEAST
-        #     stall_seconds (2.5s) plus its own latency.
-        # The discriminating signal is therefore stall_seconds, and the
-        # tolerance must be derived from it, sitting far enough below it to
-        # keep a ratchet unambiguous and far enough above observed scheduling
-        # jitter not to fire on load. A literal 1s failed exactly that way: a
-        # merge-group run under full xdist load measured 1.01s of legitimate
-        # winner latency and ejected an unrelated PR from the merge queue.
-        overshoot = (row - started_at).total_seconds() - grace
+        # rotated_at must stay near the first request's start. A queued caller
+        # rewriting it would extend grace by at least the winner's 2.5s stall.
+        # Allow scheduling noise while staying below that ratchet floor.
+        overshoot = (row - started_at).total_seconds()
         tolerance = stall_seconds * 0.6  # 1.5s: >= 1s below the ratchet floor
         assert overshoot <= tolerance, (
-            f"retirement cutoff was extended {overshoot:.2f}s beyond the "
-            f"{grace}s grace window measured from the start of the race "
+            f"rotation timestamp moved {overshoot:.2f}s beyond the start "
+            f"of the race, extending the {grace}s grace window "
             f"(tolerance {tolerance:.2f}s, ratchet floor {stall_seconds:.2f}s)"
         )
 

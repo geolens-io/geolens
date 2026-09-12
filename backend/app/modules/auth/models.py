@@ -248,6 +248,7 @@ class RefreshToken(Base):
         Index("ix_catalog_refresh_tokens_expires_at", "expires_at"),
         # DBM-10 covering index added in migration 0001_baseline.
         Index("ix_refresh_tokens_user_id", "user_id"),
+        Index("ix_refresh_tokens_family_id", "family_id"),
         {"schema": "catalog"},
     )
 
@@ -257,6 +258,10 @@ class RefreshToken(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False
     )
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        server_default=func.gen_random_uuid(), nullable=False
+    )
+    rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False

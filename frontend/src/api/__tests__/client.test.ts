@@ -4,6 +4,7 @@ import type { TokenResponse } from '@/types/api';
 
 vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
+  revokeCurrentSession: vi.fn(() => Promise.resolve()),
   logoutSession: vi.fn(() => Promise.resolve()),
 }));
 

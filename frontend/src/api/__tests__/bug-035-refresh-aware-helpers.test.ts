@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/auth-store';
 
 vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
+  revokeCurrentSession: vi.fn(() => Promise.resolve()),
 }));
 
 const mockFetch = vi.fn();

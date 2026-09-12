@@ -140,6 +140,17 @@ export async function logoutSession(): Promise<void> {
   await request;
 }
 
+/** Revoke a captured family without sending or modifying a newer login's cookies. */
+export async function revokeCurrentSession(accessToken: string): Promise<void> {
+  await safeFetch(`${API_BASE}/auth/logout/session/`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    credentials: 'omit',
+    signal: AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
+    keepalive: true,
+  });
+}
+
 export async function registerUser(data: {
   username: string;
   password: string;

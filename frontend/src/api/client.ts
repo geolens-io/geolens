@@ -3,7 +3,7 @@ import { cookieAuthAvailable } from '@/lib/auth-transport';
 import { isEmbedViewer } from '@/lib/embed-context';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
-import { refreshAccessToken } from './auth';
+import { refreshAccessToken, revokeCurrentSession } from './auth';
 import i18n from '@/i18n/i18n';
 
 /** fix(#2038): true when the server REJECTED the credential — the only evidence
@@ -169,7 +169,10 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
       const tokens = await refreshAccessToken(refreshToken, controller.signal);
       // fix(#2038): the rotation landed, we just refuse to store it — the
       // credential is alive, so this is not session death.
-      if (useAuthStore.getState().sessionEpoch !== epochAtStart) return 'transient';
+      if (useAuthStore.getState().sessionEpoch !== epochAtStart) {
+        void revokeCurrentSession(tokens.access_token).catch(() => {});
+        return 'transient';
+      }
       // fix(#1302): null in cookie mode, which also clears the legacy
       // localStorage token once the migrating refresh has spent it.
       useAuthStore.getState().setTokens(
@@ -262,6 +265,7 @@ export async function authenticatedRawFetch(
   // frame is same-origin an embed on a third-party page would otherwise run as
   // whoever is signed in, and could sign them out.
   const embedded = isEmbedViewer();
+  const epochAtStart = useAuthStore.getState().sessionEpoch;
 
   // Proactively refresh if token expires within 30 seconds
   const { token: currentToken, expiresAt } = useAuthStore.getState();
@@ -290,7 +294,7 @@ export async function authenticatedRawFetch(
     // keeps the viewer's own error handling and, more importantly, keeps a
     // frame on someone else's page from refreshing or destroying the session
     // of whoever is signed in.
-    if (embedded) return response;
+    if (embedded || useAuthStore.getState().sessionEpoch !== epochAtStart) return response;
 
     // fix(#628): only a session that existed can expire; an anonymous 401 must
     // not raise the signed-out prompt. Captured BEFORE tryRefresh so every
@@ -299,7 +303,9 @@ export async function authenticatedRawFetch(
     // cookie. Every real session has one, and it is cleared on logout.
     const deadSessionKey = useAuthStore.getState().token;
     const outcome = await attemptRefresh();
+    if (useAuthStore.getState().sessionEpoch !== epochAtStart) return response;
     if (outcome === 'refreshed') {
+      const refreshedToken = useAuthStore.getState().token;
       const retry = await safeFetch(target, {
         ...options,
         headers: buildHeaders(),
@@ -309,6 +315,9 @@ export async function authenticatedRawFetch(
       // caller so they can be handled normally — not silently converted into
       // a spurious logout.
       if (retry.status !== 401) return retry;
+      if (refreshedToken) void revokeCurrentSession(refreshedToken).catch(() => {});
+      // A newer login must survive an older request's delayed failure.
+      if (useAuthStore.getState().sessionEpoch !== epochAtStart) return retry;
     }
     // fix(#2038): a transiently-failed refresh leaves the session alive, so keep
     // it and hand the caller a 401 flagged as unconfirmed, which the sign-in

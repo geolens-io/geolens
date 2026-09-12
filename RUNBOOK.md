@@ -2922,6 +2922,35 @@ import resubmits it.
 
 ---
 
+### Refresh-session migration 0061
+
+Apply `0061_refresh_token_families` with all API processes stopped, then restart
+all of them on the new version. Mixed versions cannot preserve a family through
+rotations handled by an older process. Existing refresh rows receive independent
+family IDs: historical parent/child relationships were not stored and cannot be
+reconstructed. Their existing expiries are preserved. New password and OAuth
+logins create separate families; every rotation inherits its family's ID.
+
+A rotated token remains usable during the configured concurrency grace window
+(default 30 seconds). Reuse after grace revokes that family's refresh tokens,
+including concurrent rotation branches, only while the presented token is still
+within its original lifetime (default seven days). Naturally expired tokens
+return 401 without further revocation. Cleanup retains each hash through its
+original expiry plus one day; a continually active session does not retain its
+entire history indefinitely.
+
+`POST /api/auth/logout/session/` revokes one refresh family. Its existing access
+JWTs remain usable until their normal expiry; other devices and API keys survive.
+`POST /api/auth/logout/` retains the existing immediate account-wide access and
+refresh revocation. Password changes and administrator security resets also
+retain their existing account-wide revocation behavior. Browser recovery uses
+the family endpoint with a captured access JWT and no cookies, so discarding an
+older session cannot clear a newer login's cookie.
+
+Downgrading 0061 revokes spent refresh rows before discarding their rotation
+metadata. This prevents an older server from accepting them again until their
+original expiry; current unrotated successors remain usable.
+
 ## 11. Secret rotation
 
 GeoLens has two independent secrets an operator ever rotates: `JWT_SECRET_KEY`,

@@ -21,6 +21,7 @@ vi.mock('react-router', async () => {
 const mockLogin = vi.fn<(u: string, p: string) => Promise<TokenResponse>>();
 const mockGetMe = vi.fn<() => Promise<UserResponse>>();
 const mockRefresh = vi.fn();
+const mockRevokeCurrentSession = vi.fn<(token: string) => Promise<void>>(() => Promise.resolve());
 const mockLogoutSession = vi.fn<() => Promise<void>>();
 
 vi.mock('@/api/auth', () => ({
@@ -28,6 +29,7 @@ vi.mock('@/api/auth', () => ({
   getMe: () => mockGetMe(),
   refreshAccessToken: (...args: unknown[]) => mockRefresh(...args),
   logoutSession: () => mockLogoutSession(),
+  revokeCurrentSession: (token: string) => mockRevokeCurrentSession(token),
 }));
 
 function mockUser(overrides?: Partial<UserResponse>): UserResponse {
@@ -142,7 +144,7 @@ describe('useAuth', () => {
       }),
     ).rejects.toThrow('unauthorized');
 
-    expect(mockLogoutSession).toHaveBeenCalledTimes(1);
+    expect(mockRevokeCurrentSession).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().token).toBeNull();
   });
 
