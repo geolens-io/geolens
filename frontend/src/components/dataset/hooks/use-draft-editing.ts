@@ -44,12 +44,15 @@ export function useDraftEditing({ datasetId, dataset, isGeometryEditDirty }: Use
   const pendingDraftsRef = useRef<PendingDrafts>({});
   const dirtyFieldsRef = useRef(new Set<PendingDraftField>());
   const sessionEpoch = useAuthStore((state) => state.sessionEpoch);
-  const scope = useMemo(() => ({ datasetId, sessionEpoch }), [datasetId, sessionEpoch]);
+  const userId = useAuthStore((state) => state.user?.id);
+  const scope = useMemo(() => ({ datasetId, sessionEpoch, userId }), [datasetId, sessionEpoch, userId]);
   const scopeRef = useRef<typeof scope | null>(scope);
   scopeRef.current = scope;
   const saveRef = useRef<{ payload?: PendingDrafts } | null>(null);
   const isCurrent = useCallback(
-    () => scopeRef.current === scope && useAuthStore.getState().sessionEpoch === scope.sessionEpoch,
+    () => scopeRef.current === scope
+      && useAuthStore.getState().sessionEpoch === scope.sessionEpoch
+      && useAuthStore.getState().user?.id === scope.userId,
     [scope],
   );
 

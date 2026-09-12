@@ -1,6 +1,6 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
-import type { DatasetResponse } from '@/types/api';
+import type { DatasetResponse, UserResponse } from '@/types/api';
 import { useAuthStore } from '@/stores/auth-store';
 
 vi.mock('react-i18next', () => ({
@@ -354,10 +354,76 @@ function renderDraft() {
   );
 }
 
+function draftUser(id: string): UserResponse {
+  return {
+    id,
+    username: id,
+    email: `${id}@example.com`,
+    is_active: true,
+    status: 'approved',
+    last_login_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    roles: ['editor'],
+  };
+}
+
 describe('draft save races', () => {
   beforeEach(() => {
     mockMutateAsync.mockReset().mockResolvedValue({});
+    useAuthStore.setState({ user: draftUser('user-A'), sessionEpoch: 0 });
   });
+
+  it('clears staged and dirty metadata after a user switch without an epoch change', async () => {
+    const { result } = renderDraft();
+    act(() => {
+      result.current.stagePendingDraft('summary', 'user A draft');
+      result.current.handleDraftDirtyChange('lineage_summary', true);
+    });
+    const staleSave = result.current.savePendingDrafts;
+    let saving!: Promise<boolean>;
+    act(() => {
+      useAuthStore.setState({ user: draftUser('user-B') });
+      saving = staleSave();
+    });
+    await act(async () => expect(await saving).toBe(false));
+    expect(useAuthStore.getState().sessionEpoch).toBe(0);
+    expect(result.current.pendingCount).toBe(0);
+    expect(result.current.resolveDraftValue('summary')).toBe('A original');
+    await act(async () => {
+      await result.current.savePendingDrafts();
+    });
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it.each(['success', 'failure'])(
+    'preserves the new user draft after the old user save %s without an epoch change',
+    async (outcome) => {
+      const request = deferredSave();
+      mockMutateAsync.mockReturnValueOnce(request.promise);
+      const { result } = renderDraft();
+      act(() => result.current.stagePendingDraft('summary', 'user A submitted'));
+      let saving!: Promise<boolean>;
+      act(() => {
+        saving = result.current.savePendingDrafts();
+      });
+      await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
+      act(() => useAuthStore.setState({ user: draftUser('user-B') }));
+      expect(result.current.isSaving).toBe(false);
+      act(() => result.current.stagePendingDraft('summary', 'user B draft'));
+      await act(async () => {
+        if (outcome === 'success') request.resolve({});
+        else request.reject(new Error('failed'));
+        expect(await saving).toBe(false);
+      });
+      expect(result.current.resolveDraftValue('summary')).toBe('user B draft');
+      expect(result.current.pendingCount).toBe(1);
+      await act(async () => expect(await result.current.savePendingDrafts()).toBe(true));
+      expect(mockMutateAsync).toHaveBeenLastCalledWith({
+        datasetId: 'A',
+        data: { summary: 'user B draft' },
+      });
+    },
+  );
 
   it.each(['success', 'failure'])(
     'preserves another dataset draft after old save %s',
