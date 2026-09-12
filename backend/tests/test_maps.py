@@ -22,7 +22,11 @@ from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.modules.catalog.maps.schemas import MapLayerDiffRequest, MapLayerInput
+from app.modules.catalog.maps.schemas import (
+    BasemapConfig,
+    MapLayerDiffRequest,
+    MapLayerInput,
+)
 from app.processing.raster.models import RasterAsset
 
 from tests.factories import create_dataset, create_raster_dataset, get_user_id
@@ -37,7 +41,7 @@ BASEMAP_CONFIG_PAYLOAD = {
     "relief_contrast": "strong",
     "opacity": 0.55,
     "background_color": None,
-    # Phase 1059 BSE-01: sublayer_overrides field added to BasemapConfig
+    # Sublayer_overrides field added to BasemapConfig
     # (jsonb-additive, defaults to None). Existing tests must include the
     # field in their expected payload so equality assertions match the
     # serialized response.
@@ -51,26 +55,17 @@ BASEMAP_CONFIG_PAYLOAD = {
 
 
 def test_basemap_config_opacity_defaults_to_one():
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     cfg = BasemapConfig()
     assert cfg.opacity == 1.0
 
 
 def test_basemap_config_opacity_accepts_valid_range():
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     assert BasemapConfig(opacity=0.0).opacity == 0.0
     assert BasemapConfig(opacity=0.55).opacity == 0.55
     assert BasemapConfig(opacity=1.0).opacity == 1.0
 
 
 def test_basemap_config_opacity_rejects_out_of_range():
-    import pytest
-    from pydantic import ValidationError
-
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     with pytest.raises(ValidationError):
         BasemapConfig(opacity=-0.1)
     with pytest.raises(ValidationError):
@@ -78,29 +73,17 @@ def test_basemap_config_opacity_rejects_out_of_range():
 
 
 def test_basemap_config_still_rejects_unknown_fields_with_opacity_set():
-    import pytest
-    from pydantic import ValidationError
-
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     with pytest.raises(ValidationError):
         BasemapConfig(opacity=0.5, unknown_field=1)
 
 
 def test_basemap_config_background_color_accepts_hex_or_null():
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     assert BasemapConfig(background_color=None).background_color is None
     assert BasemapConfig(background_color="#f8fafc").background_color == "#f8fafc"
     assert BasemapConfig(background_color="#F8FAFC").background_color == "#F8FAFC"
 
 
 def test_basemap_config_background_color_rejects_invalid_colors():
-    import pytest
-    from pydantic import ValidationError
-
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     for value in ("red", "#abc", "#1234567", "javascript:alert(1)"):
         with pytest.raises(ValidationError):
             BasemapConfig(background_color=value)
@@ -245,7 +228,7 @@ def test_layer_diff_schema_rejects_invalid_style_payload() -> None:
         )
 
 
-# fix(#1069): `paint` and `layout` were bounded by serialized size alone, so a
+# `paint` and `layout` were bounded by serialized size alone, so a
 # value that is structurally nonsense for the property it sits on persisted and
 # waited to raise inside whatever serializer next descended into it — a 500 on
 # the shared `GET /maps/{id}/style.json` produced by stored data rather than by
@@ -287,7 +270,7 @@ def test_layer_schema_keeps_a_well_formed_legacy_function() -> None:
 
 
 def test_expression_operands_are_not_shape_checked() -> None:
-    """fix(#1109 review): `stops` inside an expression operand is plain data.
+    """`stops` inside an expression operand is plain data.
 
     MapLibre accepts ``["get", "stops", ["literal", {"stops": 5}]]`` — the
     literal object is a lookup subject, not a legacy function, and the
@@ -341,7 +324,7 @@ async def _create_map(
 def _valid_png_data_uri() -> str:
     """Return a small but VALID PNG data URI for thumbnail tests.
 
-    Phase 273 SEC-12: PUT /maps/{id}/thumbnail/ now runs PIL.Image.verify()
+    PUT /maps/{id}/thumbnail/ now runs PIL.Image.verify()
     on the decoded base64 payload. The previous shorthand
     ``iVBORw0KGgo=`` was only the 8-byte PNG magic header — not a complete
     PNG — and is correctly rejected by the verify gate. Tests that just
@@ -462,8 +445,6 @@ class TestListMaps:
     async def test_list_maps_as_admin(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """GET /maps/ as admin returns maps with total."""
-        # Create a map to ensure at least one exists
         await _create_map(client, admin_auth_header)
 
         resp = await client.get("/maps/", headers=admin_auth_header)
@@ -476,8 +457,6 @@ class TestListMaps:
     async def test_list_maps_as_editor_sees_own(
         self, client: AsyncClient, editor_auth_header: dict
     ):
-        """GET /maps/ as editor returns only their own maps."""
-        # Create a map as editor
         created = await _create_map(client, editor_auth_header, "Editor Own Map")
 
         resp = await client.get("/maps/", headers=editor_auth_header)
@@ -487,14 +466,12 @@ class TestListMaps:
         assert created["id"] in map_ids
 
     async def test_list_maps_unauthenticated(self, client: AsyncClient):
-        """GET /maps/ without auth returns 200 (public maps only)."""
         resp = await client.get("/maps/")
         assert resp.status_code == 200
 
     async def test_list_maps_pagination(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """GET /maps/?limit=1 returns at most 1 map."""
         await _create_map(client, admin_auth_header)
         await _create_map(client, admin_auth_header)
 
@@ -512,7 +489,6 @@ class TestListMaps:
 
 class TestGetMap:
     async def test_get_map_success(self, client: AsyncClient, admin_auth_header: dict):
-        """GET /maps/{id} returns the map with layers."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -526,23 +502,21 @@ class TestGetMap:
     async def test_get_map_not_found(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """GET /maps/{random_uuid} returns 404."""
         resp = await client.get(f"/maps/{uuid.uuid4()}", headers=admin_auth_header)
         assert resp.status_code == 404
 
     async def test_get_map_unauthenticated(self, client: AsyncClient):
-        """GET /maps/{id} without auth returns 404 (anonymous access allowed, map not found)."""
         resp = await client.get(f"/maps/{uuid.uuid4()}")
         assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# SEC-A: map READ endpoints must re-authorize each layer's dataset
+# Map READ endpoints must re-authorize each layer's dataset
 # ---------------------------------------------------------------------------
 
 
 class TestMapLayerDatasetVisibilityLeak:
-    """SEC-A (Phase 1170): a public map referencing a PRIVATE dataset must not
+    """A public map referencing a PRIVATE dataset must not
     leak that dataset's metadata or a replayable signed tile URL to anonymous
     callers. The map READ endpoints must filter layers by per-caller dataset
     visibility, mirroring get_shared_map.
@@ -688,7 +662,7 @@ class TestUpdateMap:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """ENH-06 round-trip: a custom legend_title (map-level) and a per-entry
+        """A map title and per-entry legend label both persist across save/reload.
         style_config.legendLabel (layer-level) both persist across save+reload.
 
         Proves the verified storage path end-to-end: the title rides the new
@@ -735,7 +709,7 @@ class TestUpdateMap:
     async def test_update_map_legend_title_empty_clears_override(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """ENH-06: an empty/whitespace legend_title clears the override (null)."""
+        """An empty/whitespace legend_title clears the override (null)."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -1233,7 +1207,7 @@ class TestMapHistory:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#941): POST /layers and the PATCH save-diff both write
+        """POST /layers and the PATCH save-diff both write
         ``layer.add``, and their summaries must not be collapsed into one.
 
         POST creates the row immediately, so its entry outlives a discarded
@@ -1772,7 +1746,7 @@ class TestDuplicateMap:
         created = await _create_map(client, admin_auth_header, "Thumb Source")
         map_id = created["id"]
 
-        # Set a thumbnail on source (SEC-12: must be a real PNG that
+        # Set a thumbnail on source (it must be a real PNG that
         # PIL.Image.verify() accepts — see _valid_png_data_uri docstring)
         await client.put(
             f"/maps/{map_id}/thumbnail/",
@@ -1898,8 +1872,8 @@ class TestShareToken:
     ):
         """Public maps can create expiring share links.
 
-        builder-audit #338 P1-14: custom share expiration is now an Enterprise-only
-        advanced-sharing control; the mechanism is exercised under Enterprise.
+        Custom share expiration is an Enterprise-only control, so this test
+        exercises it under Enterprise.
         """
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
@@ -2255,7 +2229,7 @@ class TestMapLayers:
         test_db_session,
         paint,
     ):
-        """fix(#1069): POST /maps/{id}/layers answers 422, not 201-then-500."""
+        """POST /maps/{id}/layers answers 422, not 201-then-500."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
         created = await _create_map(client, admin_auth_header)
@@ -2275,13 +2249,12 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#1069): rows written before the write-time check are still stored.
+        """Rows written before the write-time check are still stored.
 
         Shape-validating new writes does nothing about the rows already in the
         database, so the read side has to bound them too. The layer's paint is
         seeded straight into the table — the API would refuse it now — and the
-        serializer is made to descend into it the way #1054's intermediate
-        revision did. The shared style endpoint must answer 200 without that
+        serializer must descend into it. The shared style endpoint must answer 200 without that
         layer rather than 500 for every consumer of the map.
 
         (Asserted on behaviour, not on captured logs: `caplog` sees no structlog
@@ -2370,7 +2343,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """RHYD-01: POST /maps/{id}/layers returns real band_count + dem_vertical_units.
+        """POST /maps/{id}/layers returns real band_count + dem_vertical_units.
 
         The add-layer response must surface the RasterAsset metadata immediately
         (no save+reload). Before the get_dataset_meta fix both fields came back
@@ -2737,8 +2710,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """builder-audit #338 B-011: DEM hypsometric (color-relief) builder-private
-        keys _hypso-enabled/_hypso-ramp are accepted and moved into
+        """DEM hypsometric builder keys are accepted and moved into
         style_config.builder. Before the fix, saving a DEM layer with the
         Elevation tint enabled hit split_legacy_builder_paint's unknown-key
         guard and 422'd."""
@@ -2774,7 +2746,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(HT-14): a partial layer PATCH that omits style_config must NOT
+        """A partial layer PATCH that omits style_config must NOT
         erase the DEM's stored hypsometric builder metadata. The old after-mode
         validator assigned style_config=None into model_fields_set, defeating
         exclude_unset=True, so the builder's own eye-toggle Save ({id, visible})
@@ -2909,7 +2881,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(V-14 / #430 codex): a full PUT carrying layer ids updates rows in
+        """A full PUT carrying layer ids updates rows in
         place — the layer UUID survives instead of being regenerated. A layer
         sent WITHOUT an id still creates a fresh row."""
         admin_id = await get_user_id(test_db_session, "admin")
@@ -2957,7 +2929,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#430 codex r12): a full-replace payload repeating the same layer
+        """A full-replace payload repeating the same layer
         id must 422 (PATCH already rejects duplicate ids) — previously the
         by-id reconcile silently collapsed the entries, with the second
         overwriting the first. Two id-less entries stay legal: each creates
@@ -3162,7 +3134,7 @@ class TestMapLayers:
 
 
 class TestMapLayersTrailingSlash:
-    """Phase 280: POST /maps/{id}/layers must accept the trailing-slash form
+    """POST /maps/{id}/layers must accept the trailing-slash form
     directly (no 307 redirect) so host-side fetch callers — Node test
     runners, third-party SDKs, curl clients — never resolve the relative
     Location header against the in-container ``api:8000`` Host.
@@ -3171,7 +3143,7 @@ class TestMapLayersTrailingSlash:
     documented in the GeoLens API guide; the trailing-slash form is a hidden
     alias declared on the same handler. The trailing-slash regression guard
     below is the load-bearing one — it would have caught the 260508-d6i
-    smoke failure (#5, #6). The parity guard ensures both decorators
+    smoke failure. The parity guard ensures both decorators
     stay wired to the same handler with the same response contract.
     """
 
@@ -3280,8 +3252,8 @@ class TestMapLayersTrailingSlash:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """v13.14 fixup: PATCH /maps/{id}/layers/ must also accept the
-        trailing-slash form directly. Phase 280 only fixed POST; this guard
+        """PATCH /maps/{id}/layers/ must accept the trailing-slash form directly.
+        This guard
         covers the sibling PATCH endpoint so future programmatic callers
         don't hit the same 307 / in-container hostname leak.
 
@@ -3341,7 +3313,7 @@ class TestMapThumbnail:
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
-        # SEC-12: payload must pass PIL.Image.verify() — see
+        # Payload must pass PIL.Image.verify() — see
         # _valid_png_data_uri helper for the rationale.
         resp = await client.put(
             f"/maps/{map_id}/thumbnail/",
@@ -3374,7 +3346,7 @@ class TestMapThumbnail:
     ):
         """Thumbnail refreshes must invalidate map-card thumbnail caches.
 
-        fix(#1005): the cache version moved to its own column. ``updated_at``
+        The cache version moved to its own column. ``updated_at``
         carried both meanings, so the lazy backfill that fires when an owner
         first opens a thumbnail-less map in the builder — a read, editing
         nothing — bumped the map's edit timestamp and reordered the "Last
@@ -3733,7 +3705,7 @@ class TestUpdateShareToken:
     ):
         """PATCH /maps/{id}/share with expires_at returns 200 with updated expiration.
 
-        builder-audit #338 P1-14: expiration is Enterprise-only; mechanism tested here.
+        Expiration is Enterprise-only, so the test uses that edition.
         """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
@@ -3754,8 +3726,8 @@ class TestUpdateShareToken:
     ):
         """PATCH /maps/{id}/share with expires_at=null removes expiration.
 
-        builder-audit #338 P1-14: the setup step sets a custom expiration, which is
-        Enterprise-only; clearing it (None) is allowed in any edition.
+        The setup step uses Enterprise to set the expiration; clearing it is
+        allowed in any edition.
         """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
@@ -3783,7 +3755,7 @@ class TestUpdateShareToken:
     ):
         """PATCH with expires_at on a never-expires token adds expiration.
 
-        builder-audit #338 P1-14: expiration is Enterprise-only; mechanism tested here.
+        Expiration is Enterprise-only, so the test uses that edition.
         """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
@@ -3804,7 +3776,7 @@ class TestUpdateShareToken:
     ):
         """PATCH /maps/{id}/share on a map with no share token returns 404.
 
-        builder-audit #338 P1-14: runs under Enterprise so the expiration edition gate
+        Run under Enterprise so the expiration edition gate
         does not pre-empt the missing-token 404.
         """
         created = await _create_map(client, admin_auth_header)
@@ -3837,7 +3809,7 @@ class TestUpdateShareToken:
     ):
         """Token hint does not change after PATCH (same underlying token).
 
-        builder-audit #338 P1-14: expiration is Enterprise-only; mechanism tested here.
+        Expiration is Enterprise-only, so the test uses that edition.
         """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
@@ -3875,7 +3847,7 @@ class TestAdminShareTokenListing:
     async def test_admin_published_map_without_share_token_appears(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """#347 (ADM-01): a public map with no share link still appears in the admin
+        """A public map with no share link still appears in the admin
         Published Maps listing, with null token fields."""
         unique_name = f"NoLinkPublished_{uuid.uuid4().hex[:6]}"
         created = await _create_map(client, admin_auth_header, name=unique_name)
@@ -4468,17 +4440,15 @@ class TestShowInLegendRoundTrip:
 
 
 # ---------------------------------------------------------------------------
-# Style JSON import round-trip — terrain persistence (NEW-INT-01 regression)
+# Style JSON import round-trip — terrain persistence
 # ---------------------------------------------------------------------------
 
 
 class TestImportStyleJsonTerrain:
     """POST /maps/import must persist terrain_config from imported style JSON.
 
-    Closes NEW-INT-01: prior to this test, the parser correctly populated
-    ImportedStyleMap.terrain_config but the import endpoint never assigned
-    it onto the persisted Map, so STYLEX-02 / FLOW-03 silently broke at the
-    HTTP boundary while parser-level unit tests passed.
+    The parser and HTTP import path must both carry
+    ImportedStyleMap.terrain_config onto the persisted Map.
     """
 
     async def test_import_style_with_top_level_terrain_persists_terrain_config(

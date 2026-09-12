@@ -128,8 +128,8 @@ def sync_detailed(
 
      Queryable properties for one feature collection (OGC Features Part 3).
 
-    feat(#1614): derived from the live table schema (never the stored
-    column_info snapshot) so the advertised set always matches what `filter=`
+    Derived from the live table schema rather than the stored column_info
+    snapshot, so the advertised set always matches what `filter=`
     on /items validates against. `additionalProperties: false` is what makes
     rejecting filters on unlisted properties spec-conformant.
 
@@ -172,8 +172,8 @@ def sync(
 
      Queryable properties for one feature collection (OGC Features Part 3).
 
-    feat(#1614): derived from the live table schema (never the stored
-    column_info snapshot) so the advertised set always matches what `filter=`
+    Derived from the live table schema rather than the stored column_info
+    snapshot, so the advertised set always matches what `filter=`
     on /items validates against. `additionalProperties: false` is what makes
     rejecting filters on unlisted properties spec-conformant.
 
@@ -210,8 +210,8 @@ async def asyncio_detailed(
 
      Queryable properties for one feature collection (OGC Features Part 3).
 
-    feat(#1614): derived from the live table schema (never the stored
-    column_info snapshot) so the advertised set always matches what `filter=`
+    Derived from the live table schema rather than the stored column_info
+    snapshot, so the advertised set always matches what `filter=`
     on /items validates against. `additionalProperties: false` is what makes
     rejecting filters on unlisted properties spec-conformant.
 
@@ -252,8 +252,8 @@ async def asyncio(
 
      Queryable properties for one feature collection (OGC Features Part 3).
 
-    feat(#1614): derived from the live table schema (never the stored
-    column_info snapshot) so the advertised set always matches what `filter=`
+    Derived from the live table schema rather than the stored column_info
+    snapshot, so the advertised set always matches what `filter=`
     on /items validates against. `additionalProperties: false` is what makes
     rejecting filters on unlisted properties spec-conformant.
 

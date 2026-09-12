@@ -61,7 +61,7 @@ router = APIRouter(
 
 
 def _semantic_search_rate_limit(_request: Request | None = None) -> str:
-    """SEC-S11: per-IP rate limit for embedding-cost endpoints."""
+    """Per-IP rate limit for embedding-cost endpoints."""
     return f"{get_cached_semantic_search_rate_limit()}/minute"
 
 
@@ -78,7 +78,7 @@ async def list_related_datasets(
     db: AsyncSession = Depends(get_db),
 ) -> RelatedDatasetsResponse:
     """Return top-5 datasets similar to this one by embedding cosine similarity."""
-    # SEC-S05: visibility-gate the SEED before reading its embedding -- an
+    # Visibility-gate the SEED before reading its embedding -- an
     # anonymous attacker could otherwise probe any UUID via a
     # cosine-distance oracle leaking content about the private seed. The
     # neighbor query already applies apply_visibility_filter separately.
@@ -111,7 +111,6 @@ async def get_dataset_rows_endpoint(
     Uses cursor-based pagination: pass ``after`` (gid) to fetch the next page.
     Supports column filtering via query params: ``filter[column_name]=value``.
     """
-    # Fetch dataset
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -119,10 +118,8 @@ async def get_dataset_rows_endpoint(
             detail="Dataset not found",
         )
 
-    # Visibility check
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    # Extract filter[col]=value params
     filters: dict[str, str] = {}
     for key, value in request.query_params.items():
         if key.startswith("filter[") and key.endswith("]") and value:
@@ -139,7 +136,7 @@ async def get_dataset_rows_endpoint(
             filters=filters if filters else None,
         )
     except DBAPIError as exc:
-        # fix(#435): only a caller-caused error is a 400; connection loss,
+        # Only a caller-caused error is a 400; connection loss,
         # statement timeout, and permission failures fall through to the
         # central 503 handler rather than being reported as the caller's fault.
         if sqlstate(exc) in BAD_QUERY_INPUT:
@@ -239,9 +236,9 @@ async def dataset_maps(
     """Return maps that contain this dataset, filtered by caller's RBAC visibility."""
     from app.modules.catalog.maps.service import get_maps_for_dataset
 
-    # WR-02: gate on dataset visibility before listing maps -- without this,
+    # Gate on dataset visibility before listing maps -- without this,
     # anonymous callers could probe any dataset_id UUID to confirm it
-    # exists (an existence oracle, analogous to SEC-S05).
+    # exists, which would otherwise provide an existence oracle.
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -275,7 +272,7 @@ async def _roll_publication_version(db: AsyncSession, dataset: DatasetModel) -> 
 
     A signed tile template binds the dataset's ``publication_version``, so
     rolling it in the transition's own transaction is what makes an unpublish
-    reach the stateless tile path (#1963). Takes both catalog rows in house
+    reach the stateless tile path. Takes both catalog rows in house
     order first, since the roll makes the caller a two-row writer; call it
     immediately before the writes, with every workflow query already done.
     """
@@ -335,13 +332,13 @@ async def update_publication_status(
             ),
         )
 
-    # fix(#1963): the transition rolls the signed-scope counter, so this
+    # The transition rolls the signed-scope counter, so this
     # handler dirties the datasets row too and must take both in house order.
-    # Placed after the workflow query, immediately before the writes (#1864).
+    # Keep this immediately before the writes and after the workflow query.
     await _roll_publication_version(db, dataset)
     dataset.record.record_status = target
     await workflow.on_transition(context)
-    # fix(#1178): writes record_status without going through
+    # Writes record_status without going through
     # update_user_metadata, so it must run the same inherited-keyword
     # check or the ordinary publish flow warns nobody.
     warning = await inherited_keyword_disclosure_warning(
@@ -401,7 +398,7 @@ async def set_target_status(
             detail=f"Unknown status value: '{current}' or '{target}'",
         )
 
-    # fix(#1864): every workflow query runs BEFORE the pair lock, so the rows
+    # Every workflow query runs BEFORE the pair lock, so the rows
     # are not held across extension I/O. `allowed_transitions` reads
     # `context.from_status`, never the record, so validating the whole chain
     # up front sees exactly what the per-step loop saw.
@@ -432,14 +429,14 @@ async def set_target_status(
         chain.append((next_status, context))
         idx = next_idx
 
-    # fix(#1963): once for the whole chain, immediately before its writes.
+    # Once for the whole chain, immediately before its writes.
     await _roll_publication_version(db, dataset)
 
     for next_status, context in chain:
         dataset.record.record_status = next_status
         await workflow.on_transition(context)
 
-    # fix(#1178): the ordinary publish flow (DatasetPage's publish toggle)
+    # The ordinary publish flow (DatasetPage's publish toggle)
     # lands here, not in update_user_metadata -- the inherited-keyword
     # check has to run after the chain completes.
     warning = await inherited_keyword_disclosure_warning(

@@ -35,7 +35,7 @@ jobs_failed_total = Counter(
     ["queue"],
 )
 
-# fix(#1249): staging objects deleted because no ingest_jobs row tracks
+# Staging objects deleted because no ingest_jobs row tracks
 # them. A true counter, not a polled gauge: the reconciliation pass runs
 # under pg_try_advisory_xact_lock, so at most one process per interval
 # deletes (and counts) any given object, incremented only after the
@@ -47,22 +47,17 @@ staging_orphans_deleted_total = Counter(
     "Staging objects deleted for having no ingest-job row tracking them",
 )
 
-# fix(#1778): the delta snapshot this module used to keep is gone with
-# the last counter branch that read it. NOTE(#655): the first cycle
-# after boot seeded the counters with historical row counts; nothing
-# seeds them now, since neither counter derives from a row count.
-
-# Queues whose gauge children have been set at least once — zeroed (not
-# removed) when their todo/doing rows disappear from a cycle. fix(#655)
+# Queues whose gauge children have been set at least once. Their gauges are
+# zeroed, rather than removed, when no todo/doing rows remain.
 _known_queues: set[str] = set()
 
 
 async def _refresh_job_metrics() -> None:
     """Run one metrics collection cycle (no loop, no sleep).
 
-    Queries procrastinate_jobs for status counts grouped by queue and
-    updates the two gauges. fix(#1778): gauges only — both counters are
-    incremented at the terminal transition, in platform/jobs/worker.py.
+    Queries procrastinate_jobs for status counts grouped by queue and updates
+    the two gauges. Terminal counters are incremented at the transition in
+    platform/jobs/worker.py.
     """
     from app.core.db import engine
 
@@ -91,20 +86,11 @@ async def _refresh_job_metrics() -> None:
             elif status == "doing":
                 jobs_active.labels(queue=q).set(count)
                 seen_doing.add(q)
-            # fix(#1778): deliberately no `succeeded`/`failed` branch here.
-            # The worker runs with delete_jobs="successful", so
-            # procrastinate_finish_job_v1 DELETEs the row while still
-            # `doing` — status='succeeded' is never written, so this 15s
-            # poll could never observe it (geolens_jobs_completed_total
-            # read a flat zero from day one). A `failed` branch would need
-            # a delta against a row-count snapshot, which breaks once
-            # purge_expired_terminal_jobs ages rows out mid-window. Both
-            # counters are instead incremented at the terminal transition
-            # by the worker middleware and stalled-job sweep in
-            # platform/jobs/worker.py, where nothing goes stale.
+            # Count terminal transitions in platform/jobs/worker.py, not this poll.
+            # Successful queue rows are deleted before polling can observe them, and
+            # terminal-row retention makes snapshot deltas unreliable for failures.
 
-        # fix(#655): zero gauges for previously seen queues with no todo/doing
-        # rows this cycle — they used to freeze at their last non-zero value
+        # Zero gauges for previously seen queues with no matching rows this cycle.
         for q in _known_queues - seen_todo:
             jobs_queue_depth.labels(queue=q).set(0)
         for q in _known_queues - seen_doing:

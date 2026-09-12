@@ -90,16 +90,15 @@ def _draw_geometry(
             _draw_geometry(draw, sub, bounds, size, point_radius)
 
 
-def _compute_point_radius(num_points: int, size: int) -> float:
+def _compute_point_radius(num_points: int) -> float:
     """Scale point radius based on density. More points = smaller dots."""
     if num_points <= 50:
         return 6.0
-    elif num_points <= 200:
+    if num_points <= 200:
         return 4.5
-    elif num_points <= 1000:
+    if num_points <= 1000:
         return 3.0
-    else:
-        return 2.0
+    return 2.0
 
 
 def _blank_canvas(size: int) -> bytes:
@@ -229,7 +228,6 @@ def _render_quicklook_png(
     it via ``asyncio.to_thread``. Output bytes are identical to the
     prior inline implementation.
     """
-    # Parse geometries
     geometries = []
     num_points = 0
     for raw in geojson_strings:
@@ -253,7 +251,7 @@ def _render_quicklook_png(
     canvas = Image.new("RGB", (size, size), _BG_COLOR)
     draw = ImageDraw.Draw(canvas)
 
-    point_radius = _compute_point_radius(num_points, size)
+    point_radius = _compute_point_radius(num_points)
     for geom in geometries:
         _draw_geometry(draw, geom, view_bounds, size, point_radius)
 

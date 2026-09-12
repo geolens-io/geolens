@@ -128,20 +128,11 @@ def _validate_expression(expr: list) -> bool:
         return True
     if op == "match" and len(expr) >= 4:
         return True  # ["match", getter, val1, out1, ..., fallback]
+    # Stop values occupy every other slot starting at index 3.
     if op == "step" and len(expr) >= 4:
-        # Validate stop values are numeric: ["step", getter, default, stop1, out1, ...]
-        # Positions 3, 5, 7... are stop values (must be numeric)
-        for i in range(3, len(expr), 2):
-            if not isinstance(expr[i], (int, float)):
-                return False
-        return True
+        return all(isinstance(expr[i], (int, float)) for i in range(3, len(expr), 2))
     if op == "interpolate" and len(expr) >= 5:
-        # Validate stop values are numeric: ["interpolate", method, getter, stop1, out1, ...]
-        # Positions 3, 5, 7... are stop values (must be numeric)
-        for i in range(3, len(expr), 2):
-            if not isinstance(expr[i], (int, float)):
-                return False
-        return True
+        return all(isinstance(expr[i], (int, float)) for i in range(3, len(expr), 2))
     if op == "case" and len(expr) >= 3:
         return True
     if op in ("literal", "to-string", "to-number", "to-boolean"):
@@ -162,9 +153,7 @@ def _validate_expression(expr: list) -> bool:
         "!has",
     ):
         return True
-    if op in ("concat", "downcase", "upcase", "coalesce"):
-        return True
-    return False
+    return op in ("concat", "downcase", "upcase", "coalesce")
 
 
 def _paint_layer_type_for_geometry(geometry_type: str | None) -> str | None:
@@ -184,9 +173,9 @@ def _valid_paint_props_for_geometry(
     geometry_type: str | None,
     render_mode: str | None = None,
 ) -> tuple[str | None, set[str]]:
-    # fix(#392): render-mode aware, mirroring frontend validateChatPaint —
-    # a heatmap-rendered layer's dataset_geometry_type is virtually always Point, so
-    # without this the geometry-type filter would strip every heatmap-* property. (audit WR-01)
+    # Render-mode aware, mirroring frontend validateChatPaint —
+    # a heatmap-rendered layer's dataset_geometry_type is virtually always Point.
+    # Without this branch, the geometry-type filter strips every heatmap property.
     if render_mode == "heatmap":
         return "heatmap", _VALID_PAINT_PROPS["heatmap"]
     layer_type = _paint_layer_type_for_geometry(geometry_type)
@@ -222,7 +211,7 @@ def validate_paint_with_feedback(
     Used by the chat service to feed validation feedback back to the LLM.
 
     render_mode: when 'heatmap', geometry-type filtering is skipped so
-    heatmap-* properties are kept instead of dropped (fix(#392)) — mirrors
+    heatmap-* properties are kept instead of dropped — mirrors
     the frontend's validateChatPaint render-mode awareness.
     """
     if not paint or (not geometry_type and render_mode != "heatmap"):
@@ -260,7 +249,7 @@ def validate_paint_property_names_with_feedback(
 ) -> tuple[list[str], list[str]]:
     """Validate paint property names for explicit style-clear actions.
 
-    render_mode: see validate_paint_with_feedback (fix(#392), audit WR-01).
+    render_mode: see validate_paint_with_feedback.
     """
     if not properties or (not geometry_type and render_mode != "heatmap"):
         return [], []
@@ -318,7 +307,7 @@ class LLMMapSpec(BaseModel):
     explanation: str = ""
 
 
-# fix(#1778): bounds on client-supplied chat context. Without them the
+# Bounds on client-supplied chat context. Without them the
 # only limit was DEFAULT_BODY_LIMIT_BYTES (10 MB, ~2.5M tokens), billed
 # to the provider and re-sent on each of up to 8 tool rounds.
 # enforce_ai_token_budget checks usage already recorded before the
@@ -386,7 +375,7 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def _bound_total_payload(self) -> "ChatRequest":
-        # fix(#1778): layer context is free-form (column_info, sample_values),
+        # Layer context is free-form (column_info, sample_values),
         # so the per-field caps above do not bound it. Size the whole prompt
         # payload once instead of guessing a cap per nested field.
         total = _chat_payload_chars(self.message, self.history) + len(
@@ -414,7 +403,7 @@ class DatasetChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def _bound_total_payload(self) -> "DatasetChatRequest":
-        # fix(#1778): same bound as ChatRequest; this route carries no layers.
+        # Same bound as ChatRequest; this route carries no layers.
         if _chat_payload_chars(self.message, self.history) > _MAX_CHAT_PAYLOAD_CHARS:
             raise ValueError(
                 "This chat request is too large. Start a new conversation."
@@ -472,7 +461,7 @@ class ChatAction(BaseModel):
     columns: list[str] | None = None  # for show_query_result (inline data table)
     row_count: int | None = None  # for show_query_result (total matched rows)
     truncated: bool | None = None  # for show_query_result (rows capped for payload)
-    # feat(#675): run_analysis handoff — lets the builder prefill the Analysis
+    # ``run_analysis`` handoff lets the builder prefill the Analysis
     # panel ("Save as dataset") from a chat preview. layer_id above is reused.
     operation: str | None = None  # for show_query_result (analysis operation)
     distance_meters: float | None = None  # for show_query_result (buffer distance)
@@ -544,7 +533,7 @@ class ChatResponse(BaseModel):
     actions: list[ChatAction]
 
 
-# Live provider probe (fix(#627))
+# Live provider probe
 
 
 class AIProbeCheck(BaseModel):

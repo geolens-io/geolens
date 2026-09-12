@@ -1,4 +1,4 @@
-"""Dataset analysis endpoints: parameterized PostGIS operations (M4)."""
+"""Dataset analysis endpoints for parameterized PostGIS operations."""
 
 import re
 import uuid
@@ -45,7 +45,7 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 
-# fix(#691): the lease window lives beside the heartbeat machinery so the
+# The lease window lives beside the heartbeat machinery so the
 # per-job status read applies the identical rule.
 from app.platform.jobs.heartbeat import (
     ANALYSIS_MATERIALIZE_LEASE_SECONDS as MATERIALIZE_LEASE_SECONDS,
@@ -60,26 +60,21 @@ router = APIRouter(
 
 _SAFE_COLUMN_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
-# fix(#1015): ceiling on active materializes for one tenant, above the
-# one-per-user cap rather than replacing it -- a tenant with N users
-# could otherwise hold N active CTASes, and #1012's raised per-statement
-# work_mem times an unbounded count is the same outage in a new place.
-# Three: WORKER_CONCURRENCY=1 default means one running plus two queued,
-# the count #1012's work_mem division is sized against. Module constant,
-# not a Settings field: nobody has asked to tune it yet (#1013).
+# Limit active materializations per tenant as well as per user. The default
+# single worker can run one and queue two, keeping concurrent CTAS memory
+# within the worker budget.
 MAX_ACTIVE_MATERIALIZES_PER_TENANT = 3
 
-# fix(#766): PostgreSQL has no equality operator for these types, so a
+# PostgreSQL has no equality operator for these types, so a
 # dissolve GROUP BY on such a column fails the CTAS with an opaque 42883
 # after the queue wait. GDAL maps nested GeoJSON objects to `json`, so
 # real uploads hit this. Rejected at enqueue with the column named.
 
-# fix(#695): Procrastinate ranks by per-job priority (DESC, default 0),
+# Procrastinate ranks by per-job priority (DESC, default 0),
 # not queue name, so a 300s analysis CTAS enqueued first would
 # head-of-line block every upload on the shared single worker.
-# Below-default priority lets interactive ingest win the fetch. Known
-# tradeoff: a steady upload stream can starve queued analysis
-# indefinitely -- acceptable for background work (#696 for a budget knob).
+# Below-default priority lets interactive ingest win the fetch. A steady
+# upload stream can therefore delay background analysis indefinitely.
 ANALYSIS_JOB_PRIORITY = -10
 
 
@@ -91,7 +86,7 @@ ANALYSIS_JOB_PRIORITY = -10
 # failures, server faults rather than bad requests.
 _SANDBOX_STATUS = {
     "query_busy": status.HTTP_429_TOO_MANY_REQUESTS,
-    # fix(#1014): server-at-capacity is also a 429, but a distinct
+    # Server-at-capacity is also a 429, but a distinct
     # category so the message isn't relabelled as the per-user one.
     "query_at_capacity": status.HTTP_429_TOO_MANY_REQUESTS,
     "query_timeout": status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -121,7 +116,7 @@ _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
 # Size-gate ceilings live in app.platform.analysis_sql (shared with the
 # worker's pre-CTAS recheck). Counted via resolve_source_feature_count: the
 # cached snapshot when present, a LIMIT-bounded live count when it's NULL
-# (fix(#701): NULL-as-zero would admit exactly the unknown-size datasets
+# (NULL-as-zero would admit exactly the unknown-size datasets
 # these gates exist for).
 
 
@@ -132,7 +127,7 @@ async def _load_mask_dataset(
     datasets of a two-layer operation) and require it to be polygonal --
     unioning points/lines produces a mask that clips nothing meaningful.
 
-    fix(#955): shared with select_by_location, which takes its selection
+    Shared with select_by_location, which takes its selection
     geometry from the same mask pair; both ceilings apply unchanged. The
     over-limit message still says "to clip with" -- reads slightly off for
     a selection, but is wired through error-map.ts and four locales.
@@ -161,7 +156,7 @@ async def _load_mask_dataset(
 async def _load_join_dataset(
     db: AsyncSession, join_dataset_id: uuid.UUID, user: Identity
 ):
-    """Fetch + visibility-check a spatial-join layer (fix(#953)).
+    """Fetch and visibility-check a spatial-join layer.
 
     Rule 1 applies to BOTH datasets, same treatment ``_load_mask_dataset``
     gives the clip mask. No geometry-type requirement, unlike the mask: a
@@ -180,7 +175,7 @@ def _reject_generated_column_collision(source, generated: Iterable[str]) -> None
     generated ones, so a same-named source column reaches the CTAS twice
     and fails with an opaque "column specified more than once" after the
     whole queue wait. Named at enqueue instead. Shared form of the guard
-    dissolve applies to ``source_count`` (fix(#954): measure and
+    dissolve applies to ``source_count`` (measure and
     spatial_join both need it too).
     """
     source_columns = {col.get("name") for col in (source.column_info or []) if col}
@@ -206,12 +201,8 @@ def _validate_join_fields(source, join_dataset, join_fields: list[str]) -> None:
                 detail=f"Unknown join column: {name!r}",
             )
     generated = spatial_join_output_columns(join_fields)
-    # fix(#1097): generated names must be unique among THEMSELVES first --
-    # a join column named `count` prefixes to `join_count`, already
-    # generated for the match count, so a source-only check misses the
-    # collision. A duplicate check, not "reject `count`": the collision is
-    # a property of the generated names, so it still holds if the prefix
-    # changes; a repeated field is already rejected by the request schema.
+    # Check generated names against each other as well as source columns:
+    # a transferred `count` becomes `join_count`, colliding with the match count.
     duplicates = sorted({name for name in generated if generated.count(name) > 1})
     if duplicates:
         raise HTTPException(
@@ -231,7 +222,7 @@ def _column_names(dataset) -> set[str]:
 
 
 def _validate_intersect_columns(source, overlay) -> None:
-    """422 on any column an overlay would emit twice (fix(#956)).
+    """Raise 422 for any column an overlay would emit twice.
 
     An overlay is the first operation to carry columns from BOTH inputs
     onto every output row, so a same-named column in the two layers is
@@ -261,7 +252,7 @@ def _validate_intersect_columns(source, overlay) -> None:
                 "choose a different layer."
             ),
         )
-    # fix(#1097): a carried column may not sit in the alias namespace. Both
+    # A carried column may not sit in the alias namespace. Both
     # layers, since an overlay carries columns from both and shares the
     # statement with _gl_src_type and _gl_mask_gid. Checked against the
     # PREFIX, not the alias names, so a later alias is covered for free.
@@ -279,12 +270,8 @@ def _validate_intersect_columns(source, overlay) -> None:
                 "columns. Rename it, or choose a different layer."
             ),
         )
-    # fix(#1099): no ungroupable-type branch here any more. The overlay's
-    # attributes used to ride through `_mask_pieces`, named in the
-    # aggregate's GROUP BY, which meant json/xml columns took an overlay
-    # layer out of service entirely. render_intersect_pairs now groups by
-    # the two gids alone and joins the overlay back where no grouping
-    # applies, so the column type stops mattering. Dissolve's by_field
+    # Overlay attributes are joined after ``render_intersect_pairs`` groups by
+    # the two gids, so their column types do not affect grouping. Dissolve's by_field
     # guard above stays: that one really does group by a user-chosen column.
 
 
@@ -309,11 +296,8 @@ async def analysis_preview_endpoint(
     join_dataset = None
     if body.join_dataset_id is not None:
         join_dataset = await _load_join_dataset(db, body.join_dataset_id, user)
-        # fix(#1097): unconditionally, matching materialize -- the guard
-        # used to be `if body.join_fields`, but _validate_join_fields also
-        # checks the ALWAYS-generated join_count against source columns, so
-        # a source with a join_count column previewed fine and then failed
-        # Create on the identical form.
+        # Always validate because the generated join_count can collide even
+        # when the caller supplies no join fields.
         _validate_join_fields(dataset, join_dataset, body.join_fields or [])
     try:
         return await run_analysis_preview(
@@ -323,7 +307,7 @@ async def analysis_preview_endpoint(
             user.id,
             mask_dataset=mask_dataset,
             join_dataset=join_dataset,
-            # fix(#716): safe here — `user.id` is evaluated above, and neither
+            # Safe here — `user.id` is evaluated above, and neither
             # this handler nor any middleware reads ORM state afterwards.
             release_session=True,
         )
@@ -378,7 +362,7 @@ async def _validate_materialize_params(
     Each check has a second, run-time half in the worker, since the queue
     wait sits between the two and the world can move underneath it.
     """
-    # fix(#955): select_by_location takes the same mask pair clip does, so
+    # `select_by_location` takes the same mask pair clip does, so
     # it takes the same two checks. Rule 1 applies to BOTH datasets either way.
     if body.operation in MASK_OPERATIONS and body.mask_dataset_id is not None:
         # Access + polygon checks happen here at enqueue time; the worker
@@ -417,10 +401,7 @@ def _build_analysis_job_metadata(
     geometry is deliberately NOT stored: it can be kilobytes, and a marker
     suffices.
 
-    Extracted from the handler (#1097): this per-operation dispatch block
-    grows with every new operation and tripped ruff's C901 threshold at
-    the fourth one. Nothing here touches the request, session, or job row,
-    so it lifts out whole.
+    This helper is pure: it does not touch the request, session, or job row.
     """
     meta: dict[str, Any] = {
         "operation": body.operation,
@@ -431,7 +412,7 @@ def _build_analysis_job_metadata(
         meta["distance_meters"] = body.distance_meters
     if body.by_field is not None:
         meta["by_field"] = body.by_field
-    # fix(#1097): the second layer is recorded for EVERY operation that
+    # The second layer is recorded for EVERY operation that
     # consumes one, not just clip, so a failed run stays diagnosable.
     # mask_source stays scoped to operations that can take a DRAWN mask;
     # intersect rejects one, so "layer" there would be a constant.
@@ -454,7 +435,7 @@ async def analysis_materialize_endpoint(
     dataset_id: uuid.UUID,
     body: AnalysisMaterializeRequest,
     request: Request,
-    # fix(#692): materialize creates a dataset, so it carries the same
+    # Materialize creates a dataset, so it carries the same
     # permission as every ingest endpoint. It also hands the caller a
     # durable, caller-owned copy of the source attributes (a centroid
     # preserves every column), the outcome download endpoints gate on
@@ -493,33 +474,13 @@ async def analysis_materialize_endpoint(
     # reservation happens at registration time in the worker.
     await check_upload_quota(db, user.id, 0, request)
 
-    # One materialize at a time per user: each queued job is an
-    # unbounded-ish CTAS. Soft cap: a TOCTOU race can briefly admit two;
-    # add a DB-side partial unique index for a hard guarantee.
+    # Serialize count-and-create per tenant until commit so concurrent requests
+    # cannot bypass tenant or per-user caps. Single-tenant mode uses a shared key.
+    # Wait for this brief admission lock instead of rejecting a busy lock.
     #
-    # fix(#691): the slot is held on a heartbeat LEASE, not job status --
-    # the worker renews heartbeat_at every 30s, so a stale lease on a
-    # "running" job means a hard-killed worker, and the slot releases
-    # rather than waiting for the 60-min JOB_TIMEOUT_SECONDS backstop.
-    # Elapsed time alone was tried and reverted (#682): a legitimate
-    # materialize can outlive any window.
-    #
-    # The pending branch MUST stay status-only: a pending job is never
-    # claimed, so heartbeat_at/started_at are both NULL, and a cutoff
-    # comparison would drop it from the count, defeating the cap.
-    # coalesce(heartbeat_at, started_at) covers pre-heartbeat rows. The
-    # client applies no staleness rule of its own (AnalysisJobWatcher.tsx)
-    # -- a released lease just lets the next create succeed server-side.
-    #
-    # fix(#1015): serialize admission per tenant before counting, or the
-    # caps are check-then-insert -- N users could all read a count below
-    # the ceiling and all create a job, ending up over it. A
-    # transaction-scoped advisory lock held until commit makes
-    # count-then-create atomic. Blocking, not pg_try_advisory_xact_lock:
-    # admissions should queue for the microseconds this takes, not fail.
-    # In single-tenant mode the key is constant, correctly serializing
-    # every admission on the deployment (and incidentally hardening the
-    # soft per-user cap above).
+    # Running jobs hold a renewable heartbeat lease, allowing recovery from a
+    # killed worker without expiring legitimate long jobs. Pending jobs count by
+    # status alone because they have no heartbeat; started_at covers legacy rows.
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:admission_key, 0))"),
         {
@@ -534,10 +495,10 @@ async def analysis_materialize_endpoint(
     lease_cutoff = datetime.now(timezone.utc) - timedelta(
         seconds=MATERIALIZE_LEASE_SECONDS
     )
-    # fix(#1015): the liveness rule is shared by both caps, applying
+    # The liveness rule is shared by both caps, applying
     # identically at tenant scope.
     active_predicate = (
-        # fix(#682): the analysis marker in user_metadata, NOT
+        # The analysis marker in user_metadata, NOT
         # source_filename -- an upload named "analysis-data.geojson" would
         # otherwise lock the uploader out of analysis. Written in the same
         # transaction as the job row, so this never misses one.
@@ -562,7 +523,7 @@ async def analysis_materialize_endpoint(
             detail="An analysis job is already running; wait for it to finish",
         )
 
-    # fix(#1015): tenant ceiling above the per-user cap. In single-tenant
+    # Tenant ceiling above the per-user cap. In single-tenant
     # mode there's one tenant by definition, so the unfiltered count IS the
     # tenant's. IngestJob.tenant_id is already indexed
     # (ix_catalog_ingest_jobs_tenant_id), so the multi-tenant filter needs
@@ -585,9 +546,9 @@ async def analysis_materialize_endpoint(
         db, f"analysis-{body.operation}", "", user.id
     )
     job.user_metadata = {"analysis": _build_analysis_job_metadata(body, dataset)}
-    # ux(#698): stamp a step so a pending job reads as "queued" rather than
+    # Stamp a step so a pending job reads as "queued" rather than
     # indistinguishable from a broken one -- matters more since analysis
-    # deliberately defers below default priority (#703) and can wait
+    # deliberately defers below default priority and can wait
     # behind uploads for minutes. Free-form String(32).
     job.current_step = "queued"
     await db.commit()
@@ -604,7 +565,7 @@ async def analysis_materialize_endpoint(
         extra_kwargs: dict[str, object] = {}
         if body.mask_dataset_id is not None:
             extra_kwargs["mask_dataset_id"] = str(body.mask_dataset_id)
-        # Same rolling-deploy rule for the join params (fix(#953)).
+        # Apply the same rolling-deploy rule to the join parameters.
         if body.join_dataset_id is not None:
             extra_kwargs["join_dataset_id"] = str(body.join_dataset_id)
             if body.join_fields:

@@ -1,7 +1,7 @@
 """Detector for unscoped finding markers in ``backend/app`` comments and docstrings.
 
 Stdlib only and importable without ``app.core.config``, so the pre-commit
-hook runs ``main()`` directly. AGENTS.md > Inline review-comment convention.
+hook runs ``main()`` directly. AGENTS.md > Contracts and Comments.
 """
 
 from __future__ import annotations
@@ -100,9 +100,8 @@ class Hit:
         )
 
 
-# How far from a marker an anchor may sit and still scope it. AGENTS.md caps
-# an inline review comment at three lines, so an anchor leading (or trailing)
-# its own block reaches its markers and a long docstring's does not.
+# Legacy references are scoped within three lines. Plain explanations without
+# finding tags are preferred; an anchor does not make a tag necessary.
 ANCHOR_WINDOW = 2
 
 
@@ -217,7 +216,6 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "api/middleware/body_limit.py": 7,
     "api/middleware/logging.py": 2,
     "api/middleware/security.py": 7,
-    "api/middleware/tenant_context.py": 7,
     "core/catalog_port.py": 1,
     "core/config.py": 27,
     "core/crs_uri.py": 4,
@@ -265,7 +263,6 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "modules/catalog/collections/models.py": 3,
     "modules/catalog/collections/router.py": 2,
     "modules/catalog/datasets/api/router.py": 3,
-    "modules/catalog/datasets/api/router_data.py": 4,
     "modules/catalog/datasets/api/router_export.py": 12,
     "modules/catalog/datasets/api/router_health.py": 2,
     "modules/catalog/datasets/api/router_metadata.py": 1,
@@ -276,14 +273,11 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "modules/catalog/datasets/domain/schemas.py": 5,
     "modules/catalog/datasets/domain/service.py": 1,
     "modules/catalog/datasets/domain/service_create.py": 1,
-    "modules/catalog/datasets/domain/service_relationships.py": 4,
     "modules/catalog/datasets/domain/source_freshness.py": 3,
-    "modules/catalog/features/service.py": 2,
     "modules/catalog/maps/_router_helpers.py": 2,
     "modules/catalog/maps/filter_grammar.py": 1,
     "modules/catalog/maps/models.py": 5,
     "modules/catalog/maps/schemas.py": 6,
-    "modules/catalog/maps/service_crud.py": 3,
     "modules/catalog/maps/service_diff.py": 1,
     "modules/catalog/maps/service_public.py": 9,
     "modules/catalog/maps/style_json.py": 3,
@@ -364,7 +358,6 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "processing/ingest/tasks_reupload.py": 7,
     "processing/ingest/tasks_stac_refresh.py": 4,
     "processing/ingest/tasks_staging.py": 6,
-    "processing/ingest/tasks_vector.py": 32,
     "processing/ingest/tasks_vrt.py": 7,
     "processing/ingest/url_fetch.py": 1,
     "processing/ingest/validation.py": 3,
@@ -379,8 +372,6 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "processing/tiles/service.py": 16,
     "processing/tiles/signing.py": 5,
     "standards/ogc/errors.py": 2,
-    "standards/ogc/router.py": 15,
-    "standards/stac/router.py": 11,
 }
 
 
@@ -415,8 +406,8 @@ def check(app_root: Path = APP_ROOT) -> list[str]:
             continue
         problems.append(
             f"{module}: {_debt(module_hits)} unanchored finding markers, "
-            f"{allowed} recorded. Anchor the new one as `fix(#N): <invariant>`, "
-            "drop the tag and let the sentence stand, or — if it names a "
+            f"{allowed} recorded. Remove unnecessary tags and keep the explanation. "
+            "Anchor only an essential reference, or — if it names a "
             "published standard — add it to TECHNICAL_VOCABULARY:"
         )
         problems.extend(f"    {hit.describe()}" for hit in module_hits)
@@ -551,7 +542,7 @@ def main() -> int:
     )
     for line in problems:
         print(f"  {line}")
-    print("  See AGENTS.md > Inline review-comment convention.")
+    print("  See AGENTS.md > Contracts and Comments.")
     return 1
 
 

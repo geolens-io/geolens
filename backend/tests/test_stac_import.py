@@ -125,14 +125,12 @@ STAC_SEARCH_RESULTS = {
 
 @pytest.fixture
 def mock_stac_ssrf():
-    """Patch SSRF validation on STAC router to allow all URLs."""
     with patch("app.modules.catalog.sources.stac_router.validate_url_for_ssrf") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_stac_connect():
-    """Patch connect_stac_api to return canned landing page."""
     with patch(
         "app.modules.catalog.sources.stac_router.connect_stac_api",
         new_callable=AsyncMock,
@@ -149,7 +147,6 @@ def mock_stac_connect():
 
 @pytest.fixture
 def mock_stac_collections():
-    """Patch list_stac_collections to return canned collections."""
     with patch(
         "app.modules.catalog.sources.stac_router.list_stac_collections",
         new_callable=AsyncMock,
@@ -172,7 +169,6 @@ def mock_stac_collections():
 
 @pytest.fixture
 def mock_stac_search():
-    """Patch search_stac_items to return canned items."""
     with patch(
         "app.modules.catalog.sources.stac_router.search_stac_items",
         new_callable=AsyncMock,
@@ -388,7 +384,7 @@ async def _create_stac_dataset(
 
     ``origin_uri``/``origin_ref`` default to unset — the shape of a row
     migration 0036 could not backfill — so callers that want a fully-bound
-    (post-#1218) dataset, or one with a deliberately mismatched pair to
+    fully bound dataset, or one with a deliberately mismatched pair to
     reproduce a respelling writer, pass both explicitly.
     """
     import uuid as _uuid
@@ -462,7 +458,7 @@ class TestStacImport:
         assert data["results"][0]["status"] == "created"
         assert data["results"][0]["dataset_id"] is not None
 
-        # fix(#1271 review): no Titiler answered in this environment, so
+        # No Titiler answered in this environment, so
         # fetch_cog_info returned None and nobody can show the origin was
         # contacted — the field stays NULL until a probe settles it. The
         # contacted case is pinned separately below.
@@ -480,7 +476,7 @@ class TestStacImport:
         admin_auth_header: dict,
         mock_stac_ssrf,
     ):
-        """fix(#1764): the item pointer is what a later credentialed refresh
+        """The item pointer is what a later credentialed refresh
         anchors on, so it may not name a host other than the submitted
         catalog. Search already drops such a link; this refuses it for a
         client that did not come from there."""
@@ -515,7 +511,7 @@ class TestStacImport:
         mock_stac_ssrf,
         test_db_session,
     ):
-        """feat(#1764): `url` is the anchor a credentialed refresh reads, and
+        """`url` is the anchor a credentialed refresh reads, and
         `auth_required` is a boolean the wizard sets when the search that
         produced these items carried a credential."""
         from sqlalchemy import select
@@ -594,7 +590,7 @@ class TestStacImport:
         test_db_session,
         mock_stac_ssrf,
     ):
-        """feat(#1692): the served STAC item carries a readable COG href.
+        """The served STAC item carries a readable COG href.
 
         Before this, a by-reference import stored no ``dataset_assets`` row,
         so the item GeoLens re-published exposed exactly one asset — the
@@ -650,7 +646,7 @@ class TestStacImport:
 
         # The served item, read the way a generic client reads it. The
         # remote href passes through resolve_asset_url untouched — it is
-        # not managed storage, so neither presigning nor the GAP-031 proxy
+        # not managed storage, so neither presigning nor the proxy
         # refusal applies — and it sits BESIDE the tiles template, each
         # roled as what it is.
         item = await client.get(f"/stac/items/{dataset_id}", headers=admin_auth_header)
@@ -674,7 +670,7 @@ class TestStacImport:
         test_db_session,
         mock_stac_ssrf,
     ):
-        """feat(#1692): the type echo is optional, like the other echoes.
+        """The type echo is optional, like the other echoes.
 
         An older client — or an item whose asset declares no ``type`` —
         still imports, and still gets the pass-through asset; the row simply
@@ -724,7 +720,7 @@ class TestStacImport:
         admin_auth_header: dict,
         mock_stac_ssrf,
     ):
-        """fix(#1271 review): cog info in hand means Titiler reached the COG
+        """Cog info in hand means Titiler reached the COG
         on GeoLens's behalf — that IS a contact, same contract as
         _finalize_ingest and the reupload swap."""
         with patch(
@@ -777,13 +773,13 @@ class TestStacImport:
         mock_stac_ssrf,
         test_db_session,
     ):
-        """fix(#1334): fetch_cog_info retrieves crs_wkt for a remote asset
+        """Fetch_cog_info retrieves crs_wkt for a remote asset
         the same way it retrieves band_count/dtype, but nothing wrote it onto
         the raster_assets row. The Titiler probe already runs at import
         time; this only asks that its answer be kept, the same way its
         other fields already are.
 
-        fix(#1375): this probe result carries no transform, which is the
+        This probe result carries no transform, which is the
         case where res_x/res_y stay NULL. The sibling test below covers the
         one that does carry it.
         """
@@ -866,9 +862,9 @@ class TestStacImport:
         mock_stac_ssrf,
         test_db_session,
     ):
-        """fix(#1375): remote raster rows showed "Resolution: — x —" and
-        exported no ``gsd``, because #1334 had no source for a resolution it
-        could trust. ``fetch_cog_info`` now reads the affine off
+        """Remote raster rows expose their probed resolution and rotation.
+
+        ``fetch_cog_info`` reads the affine from
         ``/cog/stac``; this asks that the numbers reach the row and the API,
         including the rotation flag, which a remote row could previously
         only report as the column's default ``false``.
@@ -877,7 +873,7 @@ class TestStacImport:
         envelope-division shortcut would have got wrong. 10.0 is the pixel
         size of the same 30°-rotated fixture ``test_cog_info.py`` probes —
         its affine's element 0 is 8.66, and the difference between those two
-        numbers is the #1375 review finding.
+        numbers proves that the pixel vector length is used.
         """
         with patch(
             "app.modules.catalog.sources.stac_router.fetch_cog_info",
@@ -940,7 +936,7 @@ class TestStacImport:
         mock_stac_ssrf,
         test_db_session,
     ):
-        """fix(#1334 review): the item declares one EPSG (4326, stale or
+        """The item declares one EPSG (4326, stale or
         simply wrong) while the probe's own CRS says another (32621) — the
         raster row and the dataset's srid mirror the probe, not the item, so
         RasterAsset.to_stac_properties() cannot publish a proj:code and a
@@ -1013,7 +1009,7 @@ class TestStacImport:
         mock_stac_ssrf,
         test_db_session,
     ):
-        """fix(#884): RFC 7946 §5.2 mandates west > east for a crossing bbox, and
+        """RFC 7946 §5.2 mandates west > east for a crossing bbox, and
         the old code fed [170, -20, -170, -15] straight into
         POLYGON((w s, e s, e n, w n, w s)). That ring is valid but spans longitude
         -170..170: 1700 deg² on the wrong side of the world instead of the
@@ -1105,11 +1101,9 @@ class TestStacImport:
         assert row.hits_south_atlantic is False
         assert row.hits_france is False
 
-        # fix(#1004): the dataset payload's own extent_bbox is the RFC 7946 §5.2
-        # spec form too. It was monotonic under #892, when DatasetMap drew an
-        # unguarded planar ring; #903 added the seam guards, and the span form
-        # then flattened this extent to the globe-spanning pair that made those
-        # guards unreachable.
+        # The dataset payload's own extent_bbox is the RFC 7946 §5.2
+        # spec form too. A monotonic span would flatten this extent into a
+        # globe-spanning pair and make the seam guards unreachable.
         detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
         assert detail.status_code == 200
         assert detail.json()["extent_bbox"] == [170.0, -20.0, -170.0, -15.0]
@@ -1120,7 +1114,7 @@ class TestStacImport:
         admin_auth_header: dict,
         mock_stac_ssrf,
     ):
-        """fix(#1286): also the never-refreshed-dataset regression test.
+        """Also the never-refreshed-dataset regression test.
 
         The first import writes ``origin_uri`` and ``origin_ref.asset_href``
         together and nothing touches the binding afterward, so the second
@@ -1162,10 +1156,10 @@ class TestStacImport:
         test_db_session,
         mock_stac_ssrf,
     ):
-        """fix(#1286): a row migration 0036 could not backfill is still caught.
+        """A row migration 0036 could not backfill is still caught.
 
         Neither ``origin_uri`` nor ``origin_ref`` is set — the shape of a row
-        that predates #1218 — so the guard can only catch it through the
+        that predates origin binding, so the guard can only catch it through the
         ``source_url`` fallback branch.
         """
         from tests.factories import get_user_id
@@ -1205,7 +1199,7 @@ class TestStacImport:
         test_db_session,
         mock_stac_ssrf,
     ):
-        """fix(#1286): a respelled origin_uri can no longer open the hole.
+        """A respelled origin_uri can no longer open the hole.
 
         ``origin_ref.asset_href`` names the canonical asset; ``origin_uri``
         is deliberately a different spelling of the same asset (as a
@@ -1360,7 +1354,7 @@ class TestStacAdapter:
 
         from app.modules.catalog.sources.adapters.stac import connect_stac_api
 
-        # fix(#1770 round 41 P1): a real client over a MockTransport, not a
+        # A real client over a MockTransport, not a
         # fully-mocked one -- `connect_stac_api` now reads via `client.stream`,
         # which an `AsyncMock` cannot fake the async-context-manager protocol
         # of. A content-yielding async generator is what a real transport's
@@ -1496,7 +1490,7 @@ class TestStacImportContactSemantics:
         admin_auth_header: dict,
         mock_stac_ssrf,
     ):
-        """fix(#1271 review): a Titiler non-200 is NOT proof the origin was
+        """A Titiler non-200 is NOT proof the origin was
         attempted — the extension allowlist rejects some assets before any
         upstream fetch, and the shapes cannot be told apart without parsing
         Titiler's error bodies. Only proven contact (info in hand) stamps;

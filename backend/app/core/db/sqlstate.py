@@ -1,8 +1,4 @@
-"""PostgreSQL SQLSTATE helpers for classifying database errors (fix(#435)).
-
-Handlers used to catch `Exception` (or bare `DBAPIError`) and guess. A dropped
-table, a statement timeout, and a lost connection are very different events, and
-only the first of them is a domain condition the API should paper over.
+"""PostgreSQL SQLSTATE helpers for classifying database errors.
 
 SQLSTATE reference: https://www.postgresql.org/docs/current/errcodes-appendix.html
 """
@@ -14,7 +10,7 @@ from sqlalchemy.exc import DBAPIError
 # The relation the query names does not exist. Not always damage: raster and
 # VRT datasets carry a synthetic `table_name` with no PostGIS table behind it.
 #
-# fix(#435): `3F000` (invalid_schema_name) is deliberately NOT in this set —
+# `3F000` (invalid_schema_name) is deliberately NOT in this set —
 # a `SELECT` against a missing schema reports `42P01`, not `3F000`; Postgres
 # raises `3F000` from DDL paths, where it means the schema itself is gone.
 # Treating it as "empty dataset" would have hidden real provisioning drift.
@@ -56,10 +52,8 @@ _OPERATIONAL_CLASSES = frozenset(
 # States that mean "the caller's value does not fit the column it was
 # compared against", as opposed to an outage or a bug in our own SQL.
 #
-# fix(#1778): one definition, read by the OGC items handler and the native
-# features list, since they had drifted — the OGC router carried this set
-# inline while the native one tested a narrower `BAD_QUERY_INPUT`, so the
-# same failure was a 400 through one endpoint and a 503 through the other.
+# Shared by the OGC items handler and native features list so both classify
+# input failures consistently.
 #
 # Class 22 is data_exception as a whole. asyncpg reports a client-side encode
 # failure (an int outside int8, say) as plain 22000 on a bare
@@ -123,7 +117,7 @@ def is_operational(exc: DBAPIError) -> bool:
     return code[:2] in _OPERATIONAL_CLASSES
 
 
-# fix(#1847): another transaction owns rows this one needs. Both states mean
+# Another transaction owns rows this one needs. Both states mean
 # the same to a caller: nothing was written, and a retry lands after the owner
 # commits. 40001 is excluded as unreachable at READ COMMITTED.
 LOCK_CONFLICT = frozenset(

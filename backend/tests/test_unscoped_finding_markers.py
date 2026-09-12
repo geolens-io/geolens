@@ -1,7 +1,6 @@
-"""Structural gate for AGENTS.md's inline review-comment convention.
+"""Legacy finding-tag guard for AGENTS.md's Contracts and Comments policy.
 
-A comment or docstring under ``backend/app`` that names a coded finding id
-must carry a ``#issue`` anchor within two lines. Detector: finding_markers.py.
+Plain explanations need no anchor. Retained coded references must be scoped.
 """
 
 from pathlib import Path

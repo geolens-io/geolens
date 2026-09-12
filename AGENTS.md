@@ -61,7 +61,7 @@ make env-test
 python3 backend/tests/finding_markers.py
 ```
 
-Keep tracked `_MODULE_LOC_CAPS` entries in `test_layering.py` at exact line counts with a brief rationale; follow its inclusion test for newly oversized modules. `UNANCHORED_MARKER_DEBT` in `finding_markers.py` counts markers, not lines: lower/delete entries when debt is removed; never increase them to pass a gate.
+Keep tracked `_MODULE_LOC_CAPS` entries in `test_layering.py` at exact line counts with a brief current rationale, not a history of cap changes; follow its inclusion test for newly oversized modules. `UNANCHORED_MARKER_DEBT` in `finding_markers.py` counts markers, not lines: lower/delete entries when debt is removed; never increase them to pass a gate.
 
 `make ai-evals` costs live provider tokens and needs the dev DB/provider key (normally `ANTHROPIC_API_KEY`). Ensure `.env.test`, if present, does not override working dev credentials.
 
@@ -76,7 +76,9 @@ Frontend change: from the worktree run `cd frontend && API_PROXY_TARGET=http://l
 - API schema changes, including published route docstrings/Pydantic field descriptions, require `make sdks` (refreshes OpenAPI and both SDKs), then `cd frontend && npm run types:generate`. Frontend drift gate: `npm run types:check`. Commit generated changes only when source changes require them.
 - Never hand-edit generated SDK code or `frontend/src/types/api.generated.ts`. SDK auth/entry wrappers (`auth.py`, `__init__.py`, `auth.ts`, `index.ts`) are hand-maintained; CLI and MCP wrap the SDK.
 - New UI strings use `t()` with keys in all five locales (en/es/fr/de/zh); run `cd frontend && npm run test:i18n`. `defaultValue` is insufficient. Keep plural suffixes consistent; `_many` does not fall back to `_other`. French count 0 uses `_one`, so interpolate `{{count}}` instead of hardcoding 1.
-- Comments explain non-obvious reasons/traps; docstrings state contracts. Avoid narration/history. Review references need an issue/PR anchor plus the invariant, at most three lines: `// fix(#1234): suppress basemap row click during multi-selection`. Bare private tracker IDs fail finding-marker checks. Outside `backend/app/`, `no-agent-tag-markers` needs the `fix(#issue)` anchor on the same line as the tag; a bare tag fails there too.
+- Comments explain non-obvious reasons or constraints; docstrings state contracts. Remove comments that repeat names or nearby code. Prefer a short explanation such as `// Storage may be unavailable; guest browsing must still work.`
+- Keep provenance in Git history, issues and PRs. Do not prefix source comments/docstrings with `fix(#1234)`, phase IDs, review rounds, agent names or private finding codes. Retain a reference only when it supplies essential context the local explanation cannot express; state the current constraint first and keep the reference brief.
+- Preserve functional annotations such as `noqa`, `type: ignore`, `eslint-disable`, `@ts-expect-error`, `# broad:` and CodeQL directives. Legacy finding-marker checks permit anchored references but do not require them: remove unnecessary tags rather than adding anchors to satisfy a check. Never remove the safety rationale merely to remove its tag.
 - Put `# broad: <reason>` on the same line as every `except Exception`. Follow CodeQL marker placement below.
 
 ## Security

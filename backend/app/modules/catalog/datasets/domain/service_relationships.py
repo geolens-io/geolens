@@ -1,4 +1,4 @@
-"""Dataset relationship operations (extracted from service.py — Phase 224)."""
+"""Dataset relationship operations."""
 
 from __future__ import annotations
 
@@ -49,11 +49,11 @@ async def _load_self_record_and_embedding(
 ) -> tuple[uuid.UUID, tuple[list[float], str, str | None]] | None:
     """Return (record_id, anchor) for the dataset, or None if either is absent.
 
-    fix(#1580): ``anchor`` is ``(embedding, model_name, config_fingerprint)``
+    ``anchor`` is ``(embedding, model_name, config_fingerprint)``
     -- the vector alone doesn't say which model produced it, so every later
     read on this path compares inside that same space.
 
-    SEC-S05: callers MUST gate visibility on the seed dataset BEFORE calling
+    Callers MUST gate visibility on the seed dataset BEFORE calling
     this -- the embedding read has no permission filter and would otherwise
     be a cosine-similarity oracle on private record content. The API router
     (datasets/api/router_data.py:list_related_datasets) already does this;
@@ -79,7 +79,7 @@ async def _compute_neighbor_distances(
 ) -> dict[uuid.UUID, float]:
     """Cosine-distance every neighbor against the seed embedding.
 
-    fix(#1580): scored inside the anchor's own vector space -- a neighbour
+    Scored inside the anchor's own vector space -- a neighbour
     holding a row under another model would otherwise be scored off
     whichever row came back last, so the selection could be right while
     the printed similarity is wrong.
@@ -114,7 +114,7 @@ async def get_related_datasets(
             return []
         record_id, anchor = seed
 
-        # fix(#1580): selection and scoring stay in one vector space AND on
+        # Selection and scoring stay in one vector space AND on
         # one ROW -- the anchor read above is handed in rather than taken
         # again, since two reads under READ COMMITTED can straddle a worker
         # committing a newer row, ranking against one vector and scoring
@@ -230,7 +230,7 @@ async def _visible_relationships(
         visible_items.append(
             {
                 "id": rel.id,
-                # fix(#315): emit dereferenceable Dataset.id, not the stored record_id.
+                # Emit dereferenceable Dataset.id, not the stored record_id.
                 "source_dataset_id": source_dataset_id,
                 "target_dataset_id": target_ds.id,
                 "source_column": rel.source_column,
@@ -255,7 +255,7 @@ async def list_relationships(
     """List FK relationships where this dataset is the source.
 
     Per-row visibility filtering means a public source never leaks a private
-    target's id/title; ``skip``/``limit`` apply to the visible subset (PERF-N16).
+    target's id/title; ``skip``/``limit`` apply to the visible subset.
     Thin wrapper over :func:`list_relationships_with_total` (drops the count).
     """
     page, _ = await list_relationships_with_total(
@@ -273,7 +273,7 @@ async def list_relationships_with_total(
     skip: int = 0,
     limit: int | None = None,
 ) -> tuple[list, int]:
-    """Paginated relationships plus the total VISIBLE count (GAP-033).
+    """Return paginated relationships plus the total visible count.
 
     Returns ``(page_items, total)`` where ``total`` is the number of visible
     relationships before ``skip``/``limit`` so callers can detect more pages.
@@ -354,7 +354,7 @@ async def _detect_fk_candidates(
     Returns a dict mapping each source column name to the list of target record_ids
     that have a matching identifier attribute. Empty dict if no candidates.
 
-    PERF-N4: bulk IN (...) match instead of per-candidate query.
+    Uses one bulk ``IN`` match instead of a query per candidate.
     """
     candidates = [
         col["name"]
@@ -512,7 +512,7 @@ async def _fetch_target_rows(
     after: int,
 ) -> list[dict]:
     """Window-fetch matching target rows as gid+properties dicts."""
-    # fix(#1104): project the row before to_jsonb -- serializing t.* first
+    # Project the row before to_jsonb -- serializing t.* first
     # passes a curved source `geom` through the geometry->jsonb cast, which
     # raises even though the subtraction then discards it.
     from app.modules.catalog.features.service import live_property_columns
@@ -520,7 +520,7 @@ async def _fetch_target_rows(
     prop_cols = await live_property_columns(session, target_table)
     prop_sel = f", {prop_cols}" if prop_cols else ""
     table_ref = get_catalog_port().quote_table(target_table)
-    # fix(#1113): the match runs against the BASE table, inside the
+    # The match runs against the BASE table, inside the
     # projection -- a relationship may legitimately target a column the
     # projection drops (e.g. `geom`/`geom_4326`), and predicating on the
     # projected alias made such a fetch an undefined-column error.
@@ -590,7 +590,7 @@ async def get_related_records(
     ) or not SAFE_COLUMN_NAME_RE.match(rel.target_column):
         raise ValueError("Invalid column name in relationship")
 
-    # fix(#315): a raster/VRT endpoint dataset (or a cold-evicted/partial
+    # A raster/VRT endpoint dataset (or a cold-evicted/partial
     # vector table) resolves to a missing data.<table>, raising
     # UndefinedTableError. Map that to 503 instead of an uncaught 500 that
     # holds the DB connection.

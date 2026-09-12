@@ -1,16 +1,6 @@
-"""Wiring test for the ``no-agent-tag-markers`` pre-commit hook.
+"""Run the legacy agent-tag hook against its supported file types.
 
-gh#1960: the denylist half of AGENTS.md's inline review-comment convention
-covers the file types finding_markers.py's AST detector does not parse
-(frontend/, e2e/, cli/, mcp/, plus markdown/sql/yaml/json). It must accept
-the same fix(#<issue>) anchor the AST half accepts for that tag in
-backend/app, so the convention is not anchorable in one half of the repo and
-forbidden outright in the other.
-
-This runs the hook's actual `entry` command against fixture files, the same
-way pre-commit invokes it (shlex-split entry, filenames appended as further
-argv), rather than reimplementing its grep in Python — a rewrite of the
-escape hatch or the pattern breaks this test the same way it breaks the hook.
+Execute the configured command so changes to its shell matching are tested.
 """
 
 from __future__ import annotations

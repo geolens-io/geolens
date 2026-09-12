@@ -1,4 +1,4 @@
-"""Dataset metadata + attribute operations (extracted from service.py — Phase 224)."""
+"""Dataset metadata and attribute operations."""
 
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ def compute_schema_diff(
         ],
         "row_count_old": old_feature_count,
         "row_count_new": new_feature_count,
-        # fix(#1746): `None` on either side is UNKNOWN, not zero -- coercing
+        # `None` on either side is UNKNOWN, not zero -- coercing
         # it invented a delta the size of whichever count was known. An
         # unknown difference is reported as unknown.
         "row_count_delta": (
@@ -134,9 +134,10 @@ _NON_CLEARABLE_FIELDS = {"title"}
 def _apply_simple_field_assignments(
     record: Any, dataset: Dataset, meta: "DatasetMeta"
 ) -> bool:
-    """Apply scalar fields present in the request body, including explicit
-    nulls — fix(#458): clears were silently dropped before. Absent fields
-    keep PATCH semantics; _NON_CLEARABLE_FIELDS (title, NOT NULL) drop nulls."""
+    """Apply request fields, including explicit nulls.
+
+    Absent fields retain PATCH semantics; ``_NON_CLEARABLE_FIELDS`` drop nulls.
+    """
     mutated = False
     targets = ((record, _RECORD_FIELD_MAP), (dataset, _DATASET_FIELD_MAP))
     for target, field_map in targets:
@@ -170,10 +171,8 @@ async def _apply_visibility_change(
 ) -> bool:
     """Set record.visibility, blocking a change that would strand a shared map.
 
-    fix(#931): the gate used to be ``new != public and old == public``, blind
-    to an internal map using the dataset -- that flip silently lost the
-    layer for every signed-in viewer. The helper now compares the before
-    and after audiences itself, so no gate is needed here.
+    The helper compares the before and after audiences so internal-map
+    viewers are protected as well as public-map viewers.
     """
     from app.modules.catalog.maps.service import (
         find_maps_broken_by_dataset_visibility,
@@ -196,7 +195,7 @@ async def _apply_visibility_change(
     if new_visibility == record.visibility:
         return True
     record.visibility = new_visibility
-    # fix(#1963): a visibility change moves who may read the dataset, so it
+    # A visibility change moves who may read the dataset, so it
     # retires outstanding tile signatures exactly as a status change does.
     # `update_user_metadata` already holds both catalog rows.
     await bump_publication_version_on(session, dataset)
@@ -245,7 +244,7 @@ async def _apply_record_status_change(
                 raise ValueError(f"Cannot publish: {'; '.join(error_msgs)}")
         record.published_at = func.now()
     record.record_status = new_status
-    # fix(#1963): a tile signature binds this counter, so rolling it retires
+    # A tile signature binds this counter, so rolling it retires
     # the ones minted under the status being left. `update_user_metadata`
     # already holds both catalog rows.
     await bump_publication_version_on(session, dataset)
@@ -293,12 +292,10 @@ async def update_user_metadata(
     """Update user-editable fields including extended metadata.
 
     Accepts a DatasetMeta Pydantic model. Only updates fields that are
-    explicitly set (not None). Raises ValueError if dataset not found.
+    explicitly set. Raises ValueError if dataset not found.
     Does not commit; caller controls transaction scope.
 
-    ``warnings_out``, when provided, collects advisory (non-blocking)
-    warnings -- currently the inherited-keyword disclosure check below
-    (feat #1070).
+    ``warnings_out`` collects non-blocking warnings from the metadata extension.
     """
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
@@ -308,7 +305,7 @@ async def update_user_metadata(
 
     record = dataset.record
 
-    # fix(#1881): lock the pair before the first write, whatever the body
+    # Lock the pair before the first write, whatever the body
     # names -- a workflow hook may write the datasets row on a
     # record_status body. `is_dem` writes raster_assets, so it extends the
     # lock order to that child.
@@ -350,10 +347,10 @@ async def update_user_metadata(
     if meta.is_dem is not None:
         mutated_flags.append(await _apply_is_dem(session, dataset_id, meta.is_dem))
 
-    # feat(#1070): after the visibility/record_status helpers resolve, ask
+    # After the visibility/record_status helpers resolve, ask
     # of the RESOLVED state whether keywords inherited from the analysis
     # source now reach anyone who cannot open that source. Advisory, never
-    # blocking. fix(#1178): shared helper, since the publication-status
+    # blocking. Use the shared helper because the publication-status
     # endpoints write record_status without coming through here.
     if meta.visibility is not None or meta.record_status is not None:
         from app.modules.catalog.records.inherited import (
@@ -439,10 +436,9 @@ async def sample_example_values(
 ) -> list | None:
     """Up to ten distinct non-null values of one column, or None.
 
-    Reads the data table, so call it BEFORE the catalog pair is locked
-    (#1847). None for a geometry column, an unsafe name, or any query
-    failure; the read runs in a savepoint so a failure leaves the
-    transaction usable.
+    Sample before locking the catalog pair because this reads the data table.
+    Returns None for geometry columns, unsafe names or query failures; a savepoint
+    keeps the transaction usable.
     """
     if not data_type or "geometry" in data_type.lower():
         return None
@@ -485,7 +481,7 @@ async def reset_attribute(
     field_name/data_type and clears user_modified_fields and description.
     `example_values` is the result of `sample_example_values`; a caller
     holding the catalog pair must sample before taking it, since sampling
-    reads the data table (#1847). Left unset, this samples first. Raises
+    reads the data table. Left unset, this samples first. Raises
     ValueError if attribute not found.
     """
     attr = await get_attribute(session, attribute_id)

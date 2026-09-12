@@ -50,21 +50,15 @@ async def _build_data_driven_style(
     ramp = tool_input.get("ramp", default_ramp)
     method = tool_input.get("method", "quantile")
     class_count = tool_input.get("class_count", 5)
-    class_count = max(2, min(class_count, 9))  # Clamp to 2-9 classes
+    class_count = max(2, min(class_count, 9))
 
-    # Find the layer to get table_name and geometry_type
-    target_layer = None
-    for layer in layers:
-        if layer.id == layer_id:
-            target_layer = layer
-            break
+    target_layer = next((layer for layer in layers if layer.id == layer_id), None)
 
     if not target_layer:
         return {"error": f"Layer {layer_id} not found"}
 
     table_name = target_layer.dataset_table_name
 
-    # Validate column exists in layer
     if target_layer.column_info:
         col_names = {c.get("name") for c in target_layer.column_info if c.get("name")}
         if column not in col_names:
@@ -90,19 +84,18 @@ async def _build_data_driven_style(
             allowed_tables=allowed_tables,
             port=port,
         )
-    else:
-        return await _build_graduated_style(
-            session,
-            table_name,
-            column,
-            ramp,
-            method,
-            class_count,
-            color_prop,
-            layer_id,
-            allowed_tables=allowed_tables,
-            port=port,
-        )
+    return await _build_graduated_style(
+        session,
+        table_name,
+        column,
+        ramp,
+        method,
+        class_count,
+        color_prop,
+        layer_id,
+        allowed_tables=allowed_tables,
+        port=port,
+    )
 
 
 async def _build_categorical_style(
@@ -196,17 +189,10 @@ async def _build_graduated_style(
         # quantile: use the dynamically-computed quantiles from stats
         breaks = stats.get("quantiles", [])
 
-    # fix(#1778): MapLibre rejects a step expression whose stops are not
-    # strictly ascending, and percentile_cont does not deduplicate, so any
-    # clustered column (70% of rows sharing one value, say) yields adjacent
-    # equal quantiles. Both frontend siblings guard this for the styles they
-    # build - classification.ts and DataDrivenStyleEditor.tsx each do
-    # `[...new Set(breaks)]` - but neither can see inside an expression the
-    # server assembled, and ChatPanel's validateChatPaint only filters paint
-    # KEYS by geometry type. A non-finite break is dropped for the same reason:
-    # it cannot be a valid stop, and it would make the actions frame
-    # unparseable in the browser. The colour slice is re-taken so the surviving
-    # breaks still span the whole ramp.
+    # MapLibre requires strictly increasing finite stops. Deduplicate quantiles
+    # server-side because frontend validation cannot repair generated expressions.
+    # Drop non-finite values to keep JSON valid, then resample colours so the
+    # remaining stops span the full ramp.
     breaks = sorted(
         {
             float(b)

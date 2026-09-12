@@ -222,7 +222,7 @@ def _build_map_system_prompt(
     prompt = SYSTEM_PROMPT.format(basemap_instruction=basemap_instruction)
 
     # This path has no layer block, so a catalog tool result is the only
-    # untrusted text it ever sees. fix(#1778).
+    # untrusted text it ever sees.
     prompt += "\n" + TOOL_RESULT_PROTOCOL
 
     lang = lang_name(language)
@@ -288,7 +288,7 @@ async def _execute_search_tool(
                 sample[k] = v[:5] if isinstance(v, list) else v
             sample = sample or None
 
-        # fix(#1778): search includes other users' PUBLIC datasets, so an
+        # Search includes other users' PUBLIC datasets, so an
         # attacker's text here lands in a victim's model context, where the
         # model holds query_data and every editing tool. Scrub like content.
         results.append(
@@ -361,7 +361,7 @@ async def _execute_get_dataset_details(
             sample[k] = v[:5] if isinstance(v, list) else v
         sample = sample or None
 
-    # fix(#1778): same trust boundary as _execute_search_tool above — this tool
+    # Same trust boundary as _execute_search_tool above — this tool
     # reads any dataset the caller can see, including other users' public ones.
     return {
         "id": str(ds.id),
@@ -405,9 +405,7 @@ async def _retry_parse_map_spec(
     # no-tools single-round retry case naturally.
     provider_ext = get_ai_provider(provider)
 
-    # fix(#1778): a single-round call still spends a round. Same
-    # accounting shape as the tool loops, so the structural gate does not
-    # have to carve out an exception it would then have to justify.
+    # Single-round calls count toward the round budget.
     async with usage_accounting(
         session, user_id=user_id, subsystem="map_generation", model=model
     ):
@@ -422,7 +420,7 @@ async def _retry_parse_map_spec(
             max_tokens=1024,
             base_url=runtime_config.get("base_url"),
         )
-    # fix(#646, #648): retry/repair rounds spend real tokens -- record them
+    # Retry/repair rounds spend real tokens -- record them
     # or they bypass the daily AI budget.
     await record_token_usage(
         session,
@@ -447,7 +445,7 @@ async def _repair_map_spec(
     session: AsyncSession,
     user_id: uuid.UUID | None,
 ) -> LLMMapSpec:
-    """One repair round for schema-invalid specs (fix(#642)).
+    """Run one repair round for schema-invalid specs.
 
     Parse failures already get _retry_parse_map_spec; this is the sibling
     for valid-JSON-wrong-shape output. Feed the pydantic errors back to the
@@ -469,9 +467,7 @@ async def _repair_map_spec(
     )
     provider_ext = get_ai_provider(provider)
 
-    # fix(#1778): a single-round call still spends a round. Same
-    # accounting shape as the tool loops, so the structural gate does not
-    # have to carve out an exception it would then have to justify.
+    # Single-round calls count toward the round budget.
     async with usage_accounting(
         session, user_id=user_id, subsystem="map_generation", model=model
     ):
@@ -486,7 +482,7 @@ async def _repair_map_spec(
             max_tokens=1024,
             base_url=runtime_config.get("base_url"),
         )
-    # fix(#648): repair-round tokens must count toward the daily cap.
+    # Repair-round tokens must count toward the daily cap.
     await record_token_usage(
         session,
         user_id=user_id,
@@ -506,7 +502,7 @@ async def _repair_map_spec(
 def _snap_viewport_to_extent(spec: LLMMapSpec, extents: list[object]) -> None:
     """Pull an LLM viewport back to the layer data when it points elsewhere.
 
-    fix(#886): ``merge_bboxes`` folds per-dataset bboxes on the circle, so
+    ``merge_bboxes`` folds per-dataset bboxes on the circle, so
     datasets split across the antimeridian (e.g. Fiji at lon 179/-179) don't
     union to -180..180 and snap the centre to lon 0, a quarter of the planet
     from the data. The margin/centroid arithmetic needs a monotonic width, so
@@ -715,7 +711,6 @@ def _build_tool_executor(
     port: "ProcessingPort",
 ) -> "Callable[[str, dict], Awaitable[dict]]":
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
-        """Dispatch an AI tool call to the appropriate handler and return the result."""
         if tool_name == "search_datasets":
             return {
                 "results": await _execute_search_tool(
@@ -727,7 +722,7 @@ def _build_tool_executor(
                     port=port,
                 )
             }
-        elif tool_name == "get_dataset_details":
+        if tool_name == "get_dataset_details":
             return await _execute_get_dataset_details(
                 session,
                 user,
@@ -818,7 +813,7 @@ async def generate_map_from_prompt(
     if "error" in spec_dict:
         raise UserFacingAIError(spec_dict["error"])
 
-    # Validate with pydantic, with one LLM repair round (fix(#642))
+    # Validate with Pydantic, with one LLM repair round.
     try:
         spec = LLMMapSpec(**spec_dict)
     except ValidationError as ve:
@@ -888,7 +883,7 @@ async def stream_generate_map(
             )
             return result
 
-        # fix(#1778): without this, an exhaustion, a timeout or a client
+        # Without this, an exhaustion, a timeout or a client
         # disconnect (which cancels the task) bills the provider round but
         # never reaches catalog.ai_token_usage. Covers all three: timeout
         # counts arrive on __cause__; disconnect arrives as CancelledError,
@@ -917,7 +912,7 @@ async def stream_generate_map(
             output_tokens=result.output_tokens,
         )
 
-        # fix(#402): record BEFORE any post-LLM yield, so a client disconnect
+        # Record BEFORE any post-LLM yield, so a client disconnect
         # during the tool-event replay below can't skip accounting -- the
         # tokens are already spent once provider_ext.complete returns.
         await record_token_usage(
@@ -953,7 +948,7 @@ async def stream_generate_map(
             yield {"type": "error", "message": spec_dict["error"]}
             return
 
-        # fix(#642): one LLM repair round before surfacing a failure
+        # One LLM repair round before surfacing a failure
         try:
             spec = LLMMapSpec(**spec_dict)
         except ValidationError as ve:
@@ -988,7 +983,7 @@ async def stream_generate_map(
             "message": "Map generation timed out. Try a simpler prompt.",
         }
     except Exception as e:  # broad: SSE generator must yield error event for any unhandled SDK/runtime exception
-        # fix(#1778): a SQLAlchemy ProgrammingError carries the statement and
+        # A SQLAlchemy ProgrammingError carries the statement and
         # bound params, an APIStatusError carries the provider response body
         # and URL, and OpenAICredentialDestinationError names the configured
         # endpoint -- str(e) must never reach the browser. The passthrough is

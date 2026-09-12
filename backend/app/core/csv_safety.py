@@ -1,21 +1,10 @@
-"""One spreadsheet-formula escaping rule for every CSV this product writes.
+"""Spreadsheet-formula escaping shared by every CSV export.
 
-fix(#1778): previously duplicated across two private copies and missing
-entirely from the dataset export, whose column-name validation never checked
-cell values — letting an editor on any public dataset store a property
-starting with ``=``, ``+``, ``-`` or ``@`` that executes when a visitor opens
-the downloaded CSV. The escape is a leading TAB, which spreadsheets read as
-"this cell is text".
-
-Strict by default: every cell starting with a trigger character is escaped,
-even a string that only looks numeric (e.g. account id ``-001``) — the right
-trade for the audit-log and admin-user exports.
-
-fix(#1778): ``allow_numeric`` exists only for the
-dataset export and must be decided by COLUMN TYPE, never by the value's
-shape — ``-12`` is a measurement in a numeric column but an indistinguishable
-formula fragment in a text column. ``numeric_column_names`` is the intended
-source of that decision.
+Formula-triggering cells receive a leading tab so spreadsheets read them as
+text. Escaping is strict by default, including strings that look numeric such
+as account ID ``-001``. Dataset exports may set ``allow_numeric`` according to
+the declared column type; a value's shape alone cannot distinguish a numeric
+measurement from a formula fragment in a text column.
 """
 
 from __future__ import annotations
@@ -51,9 +40,8 @@ NUMERIC_SQL_TYPES: frozenset[str] = frozenset(
 def escape_csv_formula(value: str, *, allow_numeric: bool = False) -> str:
     """Prefix a formula-triggering cell with a tab so it is read as text.
 
-    ``allow_numeric`` leaves a cell alone when it is a well-formed decimal
-    number. Pass it only for a column whose declared type is numeric; see the
-    module docstring for why the value's shape is not enough on its own.
+    ``allow_numeric`` leaves well-formed decimal numbers alone. Pass it only
+    for a column whose declared type is numeric.
     """
     if not value or value[0] not in FORMULA_PREFIXES:
         return value

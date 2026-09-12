@@ -84,7 +84,6 @@ def build_sql_schema_context(
     Returns:
         DDL string with all table definitions separated by blank lines.
     """
-    # Check cache
     cache_key = _schema_cache_key(layers, map_id)
     now = time.monotonic()
     cached = _schema_cache.get(cache_key)
@@ -103,7 +102,6 @@ def build_sql_schema_context(
         if len(cols) > _MAX_COLUMNS:
             col_defs.append(f"  -- ... and {len(cols) - _MAX_COLUMNS} more columns")
 
-        # Add geom_4326 column if the layer has geometry
         if layer.geometry_type:
             geom_type_spec = layer.geometry_type
             col_defs.append(f"  geom_4326 geometry({geom_type_spec}, 4326)")
@@ -131,7 +129,7 @@ def build_sql_schema_context(
             sample_lines = []
             for col_name, values in list(layer.sample_values.items())[:5]:
                 vals = values[:5] if isinstance(values, list) else [values]
-                # fix(#1778): raw row content reaching the SQL-generation
+                # Raw row content reaching the SQL-generation
                 # prompt. A newline in a sample value would also end this `--`
                 # comment and let the rest of the value read as DDL, which the
                 # control-character strip closes along with the injection seeds.
@@ -145,7 +143,6 @@ def build_sql_schema_context(
 
     result = "\n\n".join(parts)
 
-    # Store in cache (evict oldest if full)
     if len(_schema_cache) >= _SCHEMA_CACHE_MAX:
         oldest_key = min(_schema_cache, key=lambda k: _schema_cache[k][0])
         del _schema_cache[oldest_key]
@@ -159,7 +156,7 @@ def build_sql_user_message(
 ) -> str:
     """Build the per-call (dynamic) user message for the SQL generation call.
 
-    fix(#448): static reference lives in SQL_SYSTEM_PROMPT (cacheable);
+    Static reference lives in SQL_SYSTEM_PROMPT (cacheable);
     everything per-call goes here, so the Anthropic cache_control breakpoint
     sees a stable prefix and query_data avoids a full cache miss (and a
     double-billed question) on every call.
@@ -184,18 +181,10 @@ def build_sql_user_message(
 Respond with ONLY the SQL query (or an -- ERROR comment if the query cannot be generated). No explanation, no markdown, no code fences."""
 
 
-# fix(#935): the prompt must never hand-write a metric buffer. The bare
-# ``ST_Buffer(geom::geography, N)::geometry`` form silently degrades past
-# 6 degrees of longitude (world Mercator fallback, error 1/cos(latitude))
-# and corrupts geometry crossing the antimeridian; ``render_geodesic_buffer``
-# fixes both (#883, #900, #902).
-#
-# fix(#1589): the prompt teaches only a marker, ``geolens_buffer(<geom>,
-# <metres>)``; ``buffer_marker.expand_buffer_markers`` renders the real
-# expression before anything else sees the SQL, so it never drifts from
-# prose. The only import kept from ``analysis_sql`` is
-# ``MAX_BUFFER_METERS``, so the ceiling the prompt quotes is the one the
-# expander enforces.
+# Teach the geolens_buffer marker rather than raw geography buffers, whose
+# projection fallback can distort wide or antimeridian-spanning geometries.
+# expand_buffer_markers uses the canonical renderer; MAX_BUFFER_METERS keeps
+# the prompt's advertised limit aligned with the expander's enforced limit.
 _MAX_BUFFER_METERS_TEXT = f"{MAX_BUFFER_METERS:.0f}"
 
 SQL_SYSTEM_PROMPT = f"""\
@@ -440,9 +429,8 @@ async def generate_sql(
     """
     provider = await LLM_PROVIDER.get(db)
     model = await LLM_MODEL_LIGHT.get(db)
-    # fix(#448): static reference → system prompt (stable prefix, provider
-    # prompt-cacheable); schema + question → user message (sent once, not
-    # twice as before).
+    # Keep static reference in the cacheable system prompt; send the schema
+    # and question once in the per-call user message.
     user_message = build_sql_user_message(
         question, schema_context, layer_descriptions=layer_descriptions
     )
@@ -461,9 +449,7 @@ async def generate_sql(
     runtime_config = await provider_ext.resolve_runtime_config(db)
     base_url = runtime_config.get("base_url")
 
-    # fix(#1778): a single-round call still spends a round. Same
-    # accounting shape as the tool loops, so the structural gate does not
-    # have to carve out an exception it would then have to justify.
+    # Single-round calls count toward the round budget.
     async with usage_accounting(db, user_id=user_id, subsystem="sql_gen", model=model):
         result = await provider_ext.complete(
             model=model,
@@ -501,7 +487,7 @@ async def generate_sql(
     # Strip leaked special tokens from local LLMs (e.g., <|im_start|>, <|im_end|>)
     sql = re.sub(r"<\|[^|]+\|>", "", sql).strip()
 
-    # fix(#1589): the prompt asks for geolens_buffer(<geom>, <metres>); the
+    # The prompt asks for geolens_buffer(<geom>, <metres>); the
     # canonical expression is rendered here, once, for every NL consumer. This
     # is the last point at which the text is still the model's, which is what
     # makes the marker a private protocol between the prompt and the server

@@ -1,12 +1,12 @@
 """Prometheus metrics module for GeoLens: HTTP request instrumentation,
 job queue gauges, and connection pool gauges.
 
-fix(#1240, #651): without multiprocess mode, each worker answers /metrics
+Without multiprocess mode, each worker answers /metrics
 from its own registry, so scrapes sawtooth between per-process values and
 Prometheus reads every downward step as a fabricated counter reset.
 `expose()` already serves a merged registry whenever
 PROMETHEUS_MULTIPROC_DIR is set, which both compose files do by default
-(dev included), so #651 reproduces locally with no env wiring.
+(including development), so the behavior requires no extra environment wiring.
 """
 
 import asyncio
@@ -25,7 +25,7 @@ logger = structlog.stdlib.get_logger(__name__)
 # by a sibling that died without running its own shutdown hook.
 _SWEEP_INTERVAL_SECONDS = 60
 
-# fix(#1240, #651): must match the endpoint create_instrumentator() +
+# Must match the endpoint create_instrumentator() +
 # instrumentator.expose() below actually serve (its default, unoverridden).
 _METRICS_ENDPOINT_PATH = "/metrics"
 
@@ -40,26 +40,22 @@ def _sweep_lock_path(multiproc_dir: str) -> str:
     against concurrent scrape-vs-sweep file mutation. See
     _consolidate_dead_cumulative_metric_files() (writer/exclusive side)
     and the metrics-scrape middleware in init_metrics() (reader/shared
-    side); fix(#1240, #651).
+    side).
     """
     return os.path.join(multiproc_dir, "sweep.lock")
 
 
-# fix(#1517): upper bounds for http_request_duration_seconds (the only
-# `handler`-labelled latency histogram). The library default — (0.1, 0.5,
-# 1) + implicit +Inf — clamps p95 at 1.0, since histogram_quantile
-# returns the highest FINITE bound when the quantile lands in +Inf;
-# GeoLensApiInteractiveLatencyP95 fired on that ceiling, not real
-# latency. Kept short despite the cost (each bound adds one series per
-# `method` label value)
-# because the unlabelled sibling can't answer "p95 excluding tiles".
+# The handler-labelled histogram needs finite bounds above the latency alert
+# threshold: histogram_quantile returns the highest finite bound for +Inf.
+# Keep bucket count small because every bound adds a series per method;
+# the unlabelled histogram cannot exclude tile requests.
 LATENCY_LOWR_BUCKETS = (0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 
 
 def init_metrics(app: FastAPI):
     """Instrument the FastAPI app and expose /metrics endpoint."""
     instrumentator = create_instrumentator()
-    # fix(#1517): buckets are passed HERE, not in create_instrumentator() —
+    # Buckets are passed HERE, not in create_instrumentator() —
     # Instrumentator.__init__ takes no bucket args; instrument() is the
     # only place they can be set (prometheus_fastapi_instrumentator 8.1.0).
     instrumentator.instrument(app, latency_lowr_buckets=LATENCY_LOWR_BUCKETS)
@@ -72,7 +68,7 @@ def init_metrics(app: FastAPI):
         exclusive lock can never rename a .db file out from under a
         scrape that already globbed it.
 
-        fix(#1240, #651): MultiProcessCollector.collect() tolerates a
+        MultiProcessCollector.collect() tolerates a
         path disappearing mid-scan only for gauge_live*.db; cumulative
         types re-raise FileNotFoundError, which would surface as an
         intermittent 500 when the 60s sweep's os.rename() lands
@@ -104,7 +100,7 @@ def init_metrics(app: FastAPI):
 def shutdown_worker_metrics() -> None:
     """Mark this worker process's multiprocess metric files dead.
 
-    fix(#1240, #651): under UVICORN_MAX_REQUESTS recycling (#643) a
+    Under UVICORN_MAX_REQUESTS recycling, a
     worker respawns mid-lifetime, not just at container shutdown;
     without this its mmap files linger and keep summing into every
     future scrape as a stale series. No-op when multiprocess mode isn't
@@ -174,7 +170,7 @@ def _iter_dead_pid_files(prefix: str, multiproc_dir: str) -> Iterator[tuple[int,
         yield pid, path
 
 
-# fix(#1240, #651): non-numeric suffix so _iter_dead_pid_files never
+# Non-numeric suffix so _iter_dead_pid_files never
 # mistakes this file itself for a dead worker's file.
 _ARCHIVE_SUFFIX = "archived"
 
@@ -182,8 +178,8 @@ _ARCHIVE_SUFFIX = "archived"
 def _consolidate_dead_cumulative_metric_files() -> None:
     """Fold dead workers' counter/histogram/summary files into one
     running total per type ("<type>_archived.db") instead of letting
-    them accumulate forever. mark_process_dead() never touches these
-    (fix(#1240), #651): their values are cumulative, summed across every
+    them accumulate forever. ``mark_process_dead()`` never touches these
+    because their values are cumulative and summed across every
     pid's file, so deleting one would silently subtract its contribution.
 
     Runs under one exclusive hold of the same lock the /metrics scrape
@@ -245,7 +241,7 @@ def _consolidate_dead_cumulative_metric_files() -> None:
 
 
 def _sweep_dead_worker_metrics_once() -> None:
-    """Run one reap pass (no loop, no sleep) -- split out for tests."""
+    """Run one metrics-file reap pass."""
     if "PROMETHEUS_MULTIPROC_DIR" not in os.environ:
         return
     from prometheus_client import multiprocess
@@ -258,8 +254,8 @@ def _sweep_dead_worker_metrics_once() -> None:
 async def sweep_dead_worker_metrics() -> None:
     """Background loop: reap and consolidate files left by dead workers.
 
-    fix(#1240, #651): shutdown_worker_metrics() only runs on graceful
-    shutdown, so an OOM-killed/SIGKILLed worker (#643) leaves its
+    `shutdown_worker_metrics()` only runs on graceful
+    shutdown, so an OOM-killed or SIGKILLed worker leaves its
     RSS/pool gauges and cumulative metric files behind (see
     _consolidate_dead_cumulative_metric_files()), inflating /metrics
     until the container restarts. No-op when multiprocess mode isn't

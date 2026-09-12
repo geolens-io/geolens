@@ -1,6 +1,6 @@
-"""Compatibility shim — real code moved to app.platform.jobs.worker."""
+"""Container worker entry point delegating to the jobs runtime."""
 
-from app.platform.jobs.worker import main  # noqa: F401
+from app.platform.jobs.worker import main
 
 if __name__ == "__main__":
     import asyncio

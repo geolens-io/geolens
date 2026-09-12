@@ -1,4 +1,4 @@
-"""Dataset read-side queries: lookup, list, detail, rows (extracted from service.py — Phase 224)."""
+"""Dataset read queries for lookup, listing, details, and rows."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ async def list_datasets(
     total = await session.execute(count_stmt)
     total_count = total.scalar_one()
 
-    # fix(#430): Record.created_at is a non-unique server-default; add a
+    # Record.created_at is a non-unique server-default; add a
     # unique tiebreaker so pagination over batch-seeded rows is stable.
     paginated_stmt = (
         filtered_stmt.offset(skip)
@@ -149,7 +149,7 @@ async def get_datasets_list(
         for row in sc_result.all():
             source_counts[row.vrt_dataset_id] = row.cnt
 
-    # fix(#1103): one visibility query for the page, not one per row.
+    # One visibility query for the page, not one per row.
     from app.modules.catalog.authorization import visible_lineage_summaries
 
     lineage = await visible_lineage_summaries(
@@ -165,7 +165,7 @@ async def get_datasets_list(
             source_count=source_counts.get(str(d.id)),
             base_url=base_url,
             lineage_summary=lineage[d.record_id],
-            # feat(#1316): per-row — the page can mix the caller's own
+            # Per-row — the page can mix the caller's own
             # datasets with peers' public ones, so one page-level flag would
             # either over- or under-redact.
             can_view_provenance=can_view_dataset_provenance(d.record, user, user_roles),
@@ -212,10 +212,9 @@ async def get_dataset_detail(
     # sequentially on the caller's own session through CatalogPort so catalog
     # does not import processing-owned raster ORM classes directly.
     #
-    # fix(#1436): NOT asyncio.gather'd -- AsyncSession isn't safe for
-    # concurrent use (asyncpg serializes per-connection anyway), and giving
-    # each branch its own async_session() (the fix used elsewhere) would
-    # nest a pool checkout on top of the caller's held connection, exhausting
+    # AsyncSession is not safe for concurrent use, and giving each branch its
+    # own session would nest a pool checkout on top of the caller's held
+    # connection, exhausting
     # the default 10+3 pool at ~13 concurrent detail requests. These are
     # three fast point lookups, so sequential cost is negligible by comparison.
     record_type = getattr(dataset.record, "record_type", None)
@@ -239,9 +238,7 @@ async def get_dataset_detail(
     dataset_asset_rows = await get_catalog_port().get_dataset_assets(db, dataset.id)
     stac_assets_dict = {}
     for da in dataset_asset_rows:
-        # fix(#1290): this path built its assets straight off the ORM rows
-        # and never consulted the allowlist, so an internal key leaked its
-        # href, filename and size to every viewer of a public dataset.
+        # Apply the asset allowlist before exposing href, filename, or size.
         if not is_public_asset_key(da.key):
             continue
         stac_assets_dict[da.key] = StacAsset(
@@ -273,22 +270,22 @@ async def get_dataset_detail(
         source_count=source_count,
         base_url=base_url,
         stac_assets=stac_assets_dict or None,
-        # feat(#765): detail only, and only when the requester can reach the
+        # Detail only, and only when the requester can reach the
         # source dataset.
         derived_from=await visible_derived_from(
             db, dataset.record.derived_from, user, user_roles
         ),
-        # fix(#1103): the prose names the same datasets the reference points at.
+        # The prose names the same datasets the reference points at.
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, user_roles
         ),
-        # feat(#1316): owner-or-admin only; every other accessible-dataset
+        # Owner-or-admin only; every other accessible-dataset
         # reader (named or anonymous) gets origin_uri/origin_ref nulled.
         can_view_provenance=can_view_dataset_provenance(
             dataset.record, user, user_roles
         ),
     )
-    # fix(#430): genericity probe (helpers.py) keeps all draw modes.
+    # Genericity probe (helpers.py) keeps all draw modes.
     if response is not None and dataset.source_format == "created":
         response.has_generic_geometry = await dataset_geom_is_generic(
             db, dataset.table_name
@@ -303,7 +300,7 @@ _GEOM_COLUMN_NAMES = frozenset({"geom", "geom_4326", "wkb_geometry"})
 def _build_select_cols(column_info: list[dict]) -> list[str]:
     """Return the non-geometry columns to project, with `gid` always present.
 
-    fix(#1778): names are emitted quoted. Membership is still decided on the
+    Names are emitted quoted. Membership is still decided on the
     bare name, so quote at emission rather than in the list.
     """
     select_cols: list[str] = []
@@ -338,7 +335,7 @@ def _build_where_filters(
         if col_name not in valid_columns:
             continue
         param_key = f"f_{col_name}"
-        # fix(#1778): quoted, for the same reason as _build_select_cols.
+        # Quoted, for the same reason as _build_select_cols.
         where_clauses.append(
             f"CAST({_safe_column_ref(col_name)} AS text) ILIKE :{param_key}"
         )
@@ -406,14 +403,12 @@ async def get_dataset_rows(
 
         next_cursor = rows[-1]["gid"] if rows and len(rows) == limit else None
     except DBAPIError as exc:
-        # fix(#435): was `except Exception`, so connection loss, timeouts, and
-        # permission failures all rendered as a valid dataset with zero rows.
-        # Only an absent table still degrades to an empty page (normal for
-        # raster/VRT's synthetic table_name); the rest reach the 503 path.
+        # Only an absent backing table degrades to an empty page, as for raster/VRT
+        # synthetic table names. Operational failures must reach the 503 handler.
         if sqlstate(exc) not in TABLE_ABSENT:
             raise
         await db.rollback()  # transaction aborted; read-only, so safe
-        # fix(#435): a missing schema reports 42P01 too, so the code alone
+        # A missing schema reports 42P01 too, so the code alone
         # can't tell a synthetic raster table from a never-provisioned
         # tenant schema. Only the second is drift and must not read as empty.
         if not await schema_exists(db, _schema):

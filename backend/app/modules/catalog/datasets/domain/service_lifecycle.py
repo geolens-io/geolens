@@ -1,4 +1,4 @@
-"""Dataset lifecycle operations: delete + version history (extracted from service.py — Phase 224)."""
+"""Dataset lifecycle operations: deletion and version history."""
 
 from __future__ import annotations
 
@@ -61,10 +61,7 @@ class DatasetDeletion(NamedTuple):
 async def reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> None:
     """Delete every object under GeoLens-managed prefixes for one dataset.
 
-    Extracted from ``delete_dataset``'s two branches, which reaped
-    identically from different prefix lists, when fix(#1452) pushed the
-    function past ruff's complexity ceiling. The import stays function-local
-    so tests keep patching the provider attribute.
+    Import the storage provider locally so callers and tests can replace it.
     """
     from app.platform.storage.provider import get_storage
 
@@ -86,7 +83,7 @@ async def _relation_oid(
     so a role that doesn't own the relation could be blind to it; pg_class
     is visible to every role and every relation kind.
 
-    fix(#1456): returns the oid rather than a bare bool so ONE probe answers
+    Returns the oid rather than a bare bool so ONE probe answers
     both questions the delete asks -- whether anything occupies the name,
     and which relation it is. None is the only "absent" answer.
     """
@@ -124,15 +121,12 @@ async def delete_dataset(
     order. Raises ValueError if dataset not found, name mismatch, or invalid
     table name.
 
-    fix(#1452): a dataset registered from an existing PostGIS table is
+    A dataset registered from an existing PostGIS table is
     DETACHED rather than dropped -- the catalog row, grants, tiles, search
     and embedding rows go, but the operator's table survives with its rows.
     See :func:`app.platform.dataset_origin.geolens_owns_table`.
     """
-    # Function-local import via the service.py façade is intentional -- it
-    # lets tests mock `service.get_dataset` to inject fixture datasets
-    # without a DB. Hoisting to module-top broke 7 tests that patch the
-    # façade attribute.
+    # Resolve through the façade at call time so tests can replace service.get_dataset.
     from app.modules.catalog.datasets.domain.service import get_dataset
     from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
@@ -149,7 +143,7 @@ async def delete_dataset(
 
     record_type = dataset.record.record_type
 
-    # fix(#1452): registration copies no data -- it points the catalog at a
+    # Registration copies no data -- it points the catalog at a
     # table the operator built and keeps writing to. Deleting the dataset
     # therefore has to detach, not drop, or it destroys the original rather
     # than a GeoLens-managed copy. Decides the DROP alone; name retirement
@@ -158,22 +152,19 @@ async def delete_dataset(
         dataset.source_format, record_type, dataset.origin_ref
     )
 
-    # fix(#1452): whether this delete FREES the name is separate from
-    # ownership -- a detach frees nothing while the relation stands, but a
-    # registered dataset whose table was already dropped frees the name
-    # like an ingested delete, and skipping its tombstone reopens GH-1443.
-    # True by default: a missing tombstone is the disclosure risk; an
-    # extra one only costs a rename before re-registering.
+    # Retire a registered table name only if its relation is already absent.
+    # Default to retirement: a missing tombstone risks stale tile disclosure,
+    # while an extra tombstone only requires a new name for registration.
     name_is_freed = True
 
-    # fix(#1456): identity of the relation this delete frees, read while
+    # Identity of the relation this delete frees, read while
     # it's still there. Stays None where no relation held the name -- the
     # raster/VRT branch (synthetic `raster_<hex>` table_name) and a detach
     # whose table was already dropped. NULL means "nothing to identify",
     # never "no owner".
     relation_oid: int | None = None
 
-    # fix(#1847): lock job rows before the table and the pair; a worker
+    # Lock job rows before the table and the pair; a worker
     # holds its job row before either, and the record delete cascades into them.
     from app.platform.catalog_locks import lock_ingest_jobs
     from app.platform.jobs.models import IngestJob
@@ -184,14 +175,14 @@ async def delete_dataset(
         if record_type == "raster_dataset":
             # Guard: prevent deletion if any VRT still references this COG.
             #
-            # fix(#1327): a reference is committed OR in flight -- an add
+            # A reference is committed OR in flight -- an add
             # staged by add_vrt_source has no vrt_source_links row until
             # its regeneration publishes, so the second branch closes that
             # gap by asking the not-yet-applied set too.
             #
             # Membership uses `@>`, not jsonb_array_elements_text: jsonb
             # containment is TOTAL, so a column holding JSON `null`
-            # (#1322) answers false instead of raising. Only
+            # answers false instead of raising. Only
             # 'pending'/'running' generations count.
             refs_result = await session.execute(
                 text(
@@ -233,22 +224,21 @@ async def delete_dataset(
             raise RuntimeError(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
-        # fix(#1847): includes the raster child, which the record delete
+        # Includes the raster child, which the record delete
         # cascades to and the replace worker holds across its upload.
         await lock_catalog_rows_for_write(session, dataset, with_raster_asset=True)
 
         storage_prefixes = tuple(prefixes)
     else:
-        # fix(#430): vector ingest persists originals/{id}/ (archived source)
-        # and vectors/{id}/quicklook_256.png; the old branch only dropped
-        # the table, orphaning both objects forever (no reaper).
+        # Vector ingest persists originals/{id}/ and
+        # vectors/{id}/quicklook_256.png, so deletion removes both objects.
         tenant_id = current_tenant_var.get()
         if is_multi_tenant() and tenant_id is None:
             raise RuntimeError(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
         data_schema = tenant_data_schema(tenant_id)
-        # fix(#1456): probe ahead of the branch, not inside the detach arm.
+        # Probe ahead of the branch, not inside the detach arm.
         # After the DROP below the pg_class row is gone within this
         # transaction, so this is the last moment the relation can be
         # identified -- and the detach arm needs the same read anyway.
@@ -279,36 +269,26 @@ async def delete_dataset(
         # is worse than leaving it (linearization isn't reversible; a
         # column drop rewrites the table for nothing). Re-registering
         # reapplies all three idempotently.
-        # fix(#1847): ahead of the reap, behind the DROP. See the raster branch.
+        # Ahead of the reap, behind the DROP. See the raster branch.
         await lock_catalog_rows_for_write(session, dataset)
 
         storage_prefixes = (f"originals/{dataset_id}/", f"vectors/{dataset_id}/")
 
-    # fix(#1443): retire the name before releasing it, so the tile
-    # router's table_name -> metadata map can't hold a stale entry.
-    # session.add lands in the same transaction as the DROP and record
-    # delete: a crash rolls back the whole delete, never a freed name
-    # with no tombstone.
+    # Commit name retirement with the DROP and record deletion so rollback cannot
+    # leave a freed name without a tombstone. This also applies to a registered
+    # dataset whose relation is already absent.
     #
-    # fix(#1452): except when detached with the relation left standing --
-    # nothing was released, so retiring would make the table permanently
-    # unregisterable. Reads `name_is_freed`, not `owns_table`, since a
-    # registered dataset whose table was ALREADY gone also needs the
-    # tombstone (GH-1443). The surviving-relation case is bounded:
-    # generate_table_name blocks ingest on it, so stale tile metadata
-    # serves at most the 60s meta-cache TTL of the SAME dataset's rows.
-    #
-    # ONE residual: an operator dropping that relation AFTER this reads
-    # it frees the name untombstoned. fix(#1456) records its identity
-    # here for a future closure (nothing reads it yet) -- why the ELSE
-    # branch below exists, on this no-tombstone path.
+    # A surviving detached relation must remain registerable. It blocks name reuse,
+    # so stale tile metadata serves only the same dataset until its cache expires.
+    # An operator can later drop that relation without creating a tombstone; its
+    # identity is recorded below, but no consumer currently closes that gap.
     if name_is_freed:
         session.add(
             RetiredTableName(
                 table_name=table_name,
                 tenant_id=dataset.tenant_id,
                 dataset_id=dataset_id,
-                # fix(#1456): captured while their sources are alive (oid
+                # Captured while their sources are alive (oid
                 # before the DROP above, created_by before the record delete
                 # below). The oid identifies the relation for ONE cluster
                 # lifetime only -- pg_dump/restore doesn't preserve oids, so
@@ -319,7 +299,7 @@ async def delete_dataset(
             )
         )
     elif relation_oid is not None:
-        # fix(#1456): no name was released, so nothing goes in the
+        # No name was released, so nothing goes in the
         # retirement set -- recorded HERE or never, since created_by dies
         # with the record row and the oid dies when the operator drops
         # the relation. Separate table so no retirement-set reader has to
@@ -341,22 +321,18 @@ async def delete_dataset(
     await session.delete(dataset.record)
 
     if record_type not in RASTER_FAMILY_RECORD_TYPES:
-        # fix(#1427): purge the dropped table's MVT tiles -- the old cache
-        # key had no dataset id, so a name freed above was immediately
-        # reusable and its successor could be served this dataset's bytes.
+        # Purge MVT tiles so a reused table name cannot serve stale bytes and
+        # orphaned entries do not linger until TTL. Raster/VRT tiles come from
+        # Titiler and are excluded.
         #
-        # fix(#1429)/fix(#1444): non-load-bearing now (tile keys carry the
-        # dataset id) but stays, since orphaned entries are dead weight
-        # until TTL. Raster/VRT excluded -- their tiles come from Titiler.
-        #
-        # fix(#1847): runs with the catalog pair held, before the commit.
+        # Runs with the catalog pair held, before the commit.
         from app.platform.cache.provider import get_tile_cache
 
         tile_cache = get_tile_cache()
         if tile_cache is not None:
             await tile_cache.invalidate_table(table_name)
 
-    # fix(#1429): the matching eviction of the tile router's table_name ->
+    # The matching eviction of the tile router's table_name ->
     # metadata map is NOT here, it is at the two delete endpoints after
     # their commit -- the DROP above doesn't lock catalog.datasets, so a
     # concurrent tile request inside this still-open transaction would
@@ -371,7 +347,7 @@ async def delete_dataset(
         table_name=table_name,
         record_type=record_type,
         title=confirm_title,
-        # fix(#1452): both flags recorded because they disagree in the one
+        # Both flags recorded because they disagree in the one
         # case worth reading about later -- a detach whose table was
         # already gone still retires the name.
         table_detached=not owns_table,
