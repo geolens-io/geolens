@@ -16,14 +16,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-// fix(#628): routes whose anonymous view is a complete experience — when the
-// session dies here we downgrade silently (the auth-store logout triggers the
-// wireAuthCacheReset cache clear, so active queries refetch anonymously)
-// instead of prompting. Detail pages (/datasets/:id, /maps/:id) are excluded:
-// whether they work anonymously depends on the resource's visibility, so they
-// keep the prompt; a public resource still recovers after dismissal via the
-// same anonymous refetch. The root route is handled separately — see the
-// landing-first check in the handler.
+// Auth cache reset refetches these routes anonymously. Detail pages retain
+// the prompt because resource visibility determines whether they allow guests.
+// The root route also checks landing-first separately.
 const ANON_EXACT = new Set(['/collections', '/maps', '/login', '/register', '/verify-email']);
 const ANON_PREFIXES = ['/m/', '/oauth/'];
 
@@ -32,7 +27,7 @@ function isAnonymousCapable(pathname: string): boolean {
 }
 
 /**
- * fix(#628): global last-resort session-expiry surface. The fetch core calls
+ * Global last-resort session-expiry surface. The fetch core calls
  * the onSessionExpired handler exactly once when a request 401s and the
  * follow-up refresh is also dead; this host shows a single dismissable
  * "signed out" dialog whose sign-in action returns to the current route
@@ -51,7 +46,7 @@ export function SessionExpiredDialog() {
   const locationRef = useRef(location);
   locationRef.current = location;
 
-  // fix(#633 codex P2): whether "/" is anonymous-capable depends on the
+  // Whether "/" is anonymous-capable depends on the
   // landing-first flag — LandingFirstGuard bounces anonymous visitors without
   // the guest-browse marker to /login. Held in a ref because at event time
   // the logout has already fired wireAuthCacheReset's queryClient.clear(),
@@ -72,10 +67,8 @@ export function SessionExpiredDialog() {
           // Anonymous catalog browsing exists on "/" unless landing-first
           // would bounce this (now signed-out) visitor to /login — there the
           // prompt is exactly the context the teleport otherwise lacks.
-          // fix(#1527): notifySessionExpired calls this handler synchronously
-          // from the fetch core's 401 path, so a bare read that throws escapes
-          // into the API client. Denied storage means no marker, which is the
-          // same answer as an absent one: prompt.
+          // This handler runs synchronously in the fetch client's 401 path, so
+          // denied storage must behave like an absent marker instead of escaping.
           const guestBrowse = readSessionStorage('gl-guest-browse') === 'true';
           if (!landingFirstRef.current || guestBrowse) return;
         } else if (isAnonymousCapable(pathname)) {
@@ -87,9 +80,8 @@ export function SessionExpiredDialog() {
   );
 
   const signIn = () => {
-    // fix(#1527): the write half of the same defect — guarding only the read
-    // above would leave the button that recovers the session throwing. The
-    // key is an SSO-round-trip convenience; `from` also rides router state.
+    // The redirect key is a convenience because `from` also travels in router
+    // state; denied storage must not break the session-recovery button.
     if (from) writeSessionStorage('geolens-login-redirect', from);
     navigate('/login', { state: { from } });
     setFrom(null);

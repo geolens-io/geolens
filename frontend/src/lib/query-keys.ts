@@ -65,7 +65,7 @@ export const queryKeys = {
     history: (mapId: string | undefined, skip: number, limit: number) =>
       ['map-history', mapId, skip, limit] as const,
     historyPrefix: (mapId: string | undefined) => ['map-history', mapId] as const,
-    // builder-audit #338 P1-11: public-safe AI readiness signal for non-admin editors.
+    // Public-safe AI readiness signal for non-admin editors.
     aiAvailability: ['ai-availability'] as const,
     shareToken: (mapId: string | undefined) => ['map-share-token', mapId] as const,
     embedTokens: (mapId: string | undefined) => ['map-embed-tokens', mapId] as const,
@@ -80,10 +80,8 @@ export const queryKeys = {
   },
 
   /**
-   * fix(#438): DATA-06 — the icon list used a bare inline `['maps', 'icons']`,
-   * which sits under the `maps.all` prefix. Every map mutation invalidates
-   * `maps.all`, so the sprite catalog refetched on every save, rename, and
-   * visibility toggle. It is not map-scoped data; it gets its own root.
+   * Keep the icon list outside `maps.all` so map mutations do not refetch the
+   * instance-wide sprite catalog.
    */
   mapIcons: {
     all: ['map-icons'] as const,
@@ -109,7 +107,7 @@ export const queryKeys = {
     results: (params: Record<string, string>) => ['search', params] as const,
     facets: (params: Record<string, string>) => ['facets', params] as const,
     summary: ['catalog-summary'] as const,
-    // fix(#430 V-08): parallel maps lookup driven by the same `q` as the dataset
+    // Parallel maps lookup driven by the same `q` as the dataset
     // catalog search — see useMapSearchResults in components/search/hooks/use-search.ts.
     maps: (q: string) => ['search', 'maps', q] as const,
   },
@@ -165,7 +163,7 @@ export const queryKeys = {
     allShareTokens: ['admin', 'share-tokens'] as const,
     embedTokens: (params: Record<string, unknown>) => ['admin', 'embed-tokens', params] as const,
     allEmbedTokens: ['admin', 'embed-tokens'] as const,
-    // fix(#1805 review round 3 P2): pageIndex makes each page its own
+    // pageIndex makes each page its own
     // cache entry so a create/revoke mutation's invalidateQueries on the
     // bare [admin, api-keys, userId] prefix still hits every loaded page.
     apiKeys: (userId: string, pageIndex?: number) =>
@@ -190,9 +188,9 @@ export const queryKeys = {
     configMode: ['settings', 'config-mode'] as const,
     apiKeyStatus: ['settings', 'api-key-status'] as const,
     branding: ['settings', 'branding'] as const,
-    // Phase 279 ADMIN-03 (M-03): server-driven enterprise-only Settings-tab list.
+    // Server-driven enterprise-only Settings tab list.
     enterpriseTabs: ['settings', 'enterprise-tabs'] as const,
-    // Phase 1229 Plan 03 (NOTIF-06): notification channel status (booleans only).
+    // Notification channel status contains booleans only.
     notificationStatus: ['settings', 'notification-status'] as const,
   },
 
@@ -227,7 +225,7 @@ export const queryKeys = {
   tileTokens: {
     token: (datasetId: string | undefined) => ['tile-token', datasetId] as const,
     batch: (sortedIds: string) => ['tile-tokens-batch', sortedIds] as const,
-    // fix(#890): the viewer's batch. Separate from `batch` because the viewer
+    // Keep the viewer batch separate because it
     // mints with an API key / embed token instead of the session JWT, and those
     // grants scope differently — sharing one cache entry would serve a viewer
     // tokens minted for someone else's scope. `auth` is that discriminator, and
@@ -274,13 +272,7 @@ export const queryKeys = {
   // SAML providers
   // -------------------------------------------------------------------------
   /**
-   * fix(#1164): the admin SAML section read and invalidated its list through four
-   * independent `['saml', 'providers']` literals that agreed only by convention.
-   * A typo in any one of them produced an invalidation that silently did nothing.
-   * The key string is unchanged so existing cache entries still match (see the
-   * deployment rule at the top of this file).
-   *
-   * This gets its own root rather than sitting under `settingsOAuth` even though
+   * This key has its own root rather than sitting under `settingsOAuth` even though
    * `listSamlProviders` (api/saml.ts) fetches the same `/settings/oauth-providers/`
    * endpoint: it filters the response down to the SAML rows, so the two caches hold
    * different payloads and must not prefix-match each other. Fanning a provider
@@ -298,7 +290,7 @@ export const queryKeys = {
     list: (datasetId: string) => ['dataset-relationships', datasetId] as const,
     records: (datasetId: string, featureGid: number, relationshipId: string) =>
       ['related-records', datasetId, featureGid, relationshipId] as const,
-    // fix(#1285 codex round 5): records() is parameterized by featureGid and
+    // records() is parameterized by featureGid and
     // relationshipId, neither of which a dataset-level cache sweep has — this
     // is the prefix that invalidates every cached related-record entry for
     // the dataset regardless of which feature/relationship it was fetched for.

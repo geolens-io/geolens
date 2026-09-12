@@ -10,7 +10,7 @@ interface MapCoordReadoutProps {
 
 /**
  * Live coordinate readout that follows the cursor, camera movement, and canvas
- * exit. RESP-02 — Phase 1051 Plan 09: the `right-14` offset clears ViewerMap's
+ * exit. The `right-14` offset clears ViewerMap's
  * top-right navigation control. BuilderMap currently places that control on the
  * left; verify both call sites before changing the shared offset.
  */

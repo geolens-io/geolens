@@ -51,12 +51,12 @@ interface SearchState {
   toParams: () => Record<string, string>;
   restoreParams: (params: Record<string, string>) => void;
   /**
-   * fix(#1713, #1761): clear every query-shaping field when identity changes.
+   * Clear every query-shaping field when identity changes.
    * Only the presentation preferences listed below survive.
    */
   clearIdentityScopedFilters: () => void;
   /**
-   * fix(#1761): changes on identity resets so consumers cancel pending local
+   * Changes on identity resets so consumers cancel pending local
    * input even when the committed query value was already empty.
    */
   resetEpoch: number;
@@ -86,7 +86,7 @@ const initialState = {
 };
 
 /**
- * fix(#1761): sort order and page size are the only state that survives an
+ * Sort order and page size are the only state that survives an
  * identity change. The exported list lets the store test classify new fields;
  * spatialPanelOpen resets so uncommitted spatial drafts unmount with it.
  */

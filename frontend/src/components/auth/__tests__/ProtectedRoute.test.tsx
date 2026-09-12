@@ -80,7 +80,7 @@ describe('ProtectedRoute', () => {
   });
 
   /**
-   * fix(#1527): the redirect target is WRITTEN during render, so a storage-denied
+   * The redirect target is written during render, so a storage-denied
    * context turns "bounce an anonymous visitor to /login" into a thrown render.
    * Every protected route in the app is behind this component, so the blast
    * radius is the whole authenticated surface, not one lost preference.

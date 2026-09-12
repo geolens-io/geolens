@@ -20,7 +20,7 @@ const STOP_COUNT = 7;
  * Build a MapLibre `interpolate` expression that maps elevation (metres) to
  * colors from the named ramp.
  */
-// fix(#455): the shader reads masked pixels as the encoding floor. Keep that
+// The shader reads masked pixels as the encoding floor. Keep that
 // range transparent while retaining the first-color clamp for real low terrain.
 const NODATA_ELEVATION_FLOOR = -10000;
 const LOWEST_LAND_GUARD = -500;

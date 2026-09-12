@@ -23,7 +23,7 @@ function renderBuilderLayers(
   const removeLayerMutate = vi.fn();
   const addLayerMutation = { mutate: addLayerMutate } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: removeLayerMutate } as unknown as Parameters<typeof useBuilderLayers>[4];
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  // Sixth positional parameter bridges into useBuilderSave's save-diff baseline.
   const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
 
   const hook = renderHook(() =>
@@ -50,7 +50,7 @@ describe('useBuilderLayers', () => {
     expect(result.current.localLayers).toHaveLength(1);
     expect(result.current.localLayers[0].id).toBe('layer-1');
     expect(result.current.savedLayerBaseline).toEqual([layer]);
-    // fix(#793 review): consumers that initialize from layers at mount gate
+    // Consumers that initialize from layers at mount gate
     // on this — it must identify which map hydrated the current rows.
     expect(result.current.layersMapId).toBe(mapData.id);
   });
@@ -79,7 +79,7 @@ describe('useBuilderLayers', () => {
     const mapRef = { current: null } as React.RefObject<MaplibreMap | null>;
     const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
     const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
-    // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+    // Sixth positional parameter bridges into useBuilderSave's save-diff baseline.
     const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
     const { result, rerender } = renderHook(() =>
       useBuilderLayers(mapData, mapRef, 'map-1', addLayerMutation, removeLayerMutation, saveBaselineSyncRef),
@@ -92,7 +92,7 @@ describe('useBuilderLayers', () => {
     expect(result.current.savedLayerBaseline[0].id).toBe('layer-2');
   });
 
-  it('re-hydrates wholesale when the map identity changes (#793 review)', () => {
+  it('re-hydrates wholesale when the map identity changes', () => {
     let mapData = makeMapData([makeMockLayer({ id: 'layer-a' })]);
     const mapRef = { current: null } as React.RefObject<MaplibreMap | null>;
     const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
@@ -179,7 +179,7 @@ describe('useBuilderLayers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  it('handleMove stops a grouped child at its folder edge (codex #794)', () => {
+  it('handleMove stops a grouped child at its folder edge', () => {
     const groupLayer = {
       ...makeMockLayer({ id: 'group-1', sort_order: 0 }),
       layer_type: 'group:folder',
@@ -207,7 +207,7 @@ describe('useBuilderLayers', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
-  it('handleMove swaps same-container siblings across an interleaved child (codex #794)', () => {
+  it('handleMove swaps same-container siblings across an interleaved child', () => {
     const looseA = makeMockLayer({ id: 'loose-a', sort_order: 0 });
     const child = {
       ...makeMockLayer({ id: 'child-1', sort_order: 1 }),
@@ -231,13 +231,13 @@ describe('useBuilderLayers', () => {
     ]);
   });
 
-  // fix(#768, closed by #794): the stack renders children under their header by
+  // The stack renders children under their header by
   // parent_group_id while reorderDataLayers feeds the flat array to MapLibre
   // moveLayer — if a keyboard move ever interleaves a foreign row between two
   // group children, stack order and draw order silently desync (and the
   // divergence survives save + reload). Property: after ANY sequence of
   // keyboard moves, each folder group's children occupy a contiguous run.
-  it('keyboard moves keep every folder group\'s children a contiguous run (#768)', () => {
+  it('keyboard moves keep every folder group\'s children a contiguous run', () => {
     const asGroup = (id: string, sort: number) => ({
       ...makeMockLayer({ id, sort_order: sort }),
       layer_type: 'group:folder',
@@ -583,11 +583,9 @@ describe('useBuilderLayers', () => {
     });
   });
 
-  // Regression: KISS-2 / PERF-N2 — handlers must keep a stable identity across
-  // unrelated state mutations so React.memo() on LayerItem actually skips
-  // re-renders. A regression here (reverting useCallback) would silently tank
-  // perf on maps with many layers.
-  describe('handler identity stability (KISS-2 / PERF-N2)', () => {
+  // Stable handler identities let React.memo() skip child-row renders during
+  // unrelated state mutations on maps with many layers.
+  describe('handler identity stability', () => {
     it('keeps layer handlers stable across layer mutations', () => {
       const layer = makeMockLayer({ id: 'layer-1' });
       const { result } = renderBuilderLayers(makeMapData([layer]));
@@ -636,12 +634,10 @@ describe('useBuilderLayers', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#451) — duplicate-rendering under the composable terrain model
+// Duplicate rendering under the composable terrain model
 //
-// The old D-04 guard refused to duplicate a render_mode:'terrain' DEM because
-// duplicates used to accumulate terrain layers. Terrain is now a single
-// map-level terrain_config pointer, so 'terrain' just means "overlay off" and
-// duplication is an ordinary, allowed operation for every DEM render mode.
+// Terrain is a single map-level terrain_config pointer, so 'terrain' means
+// "overlay off" and duplication is allowed for every DEM render mode.
 // ---------------------------------------------------------------------------
 describe('useBuilderLayers — DEM duplicate-rendering (composable model)', () => {
   function makeTerrainDemLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
@@ -693,6 +689,6 @@ describe('useBuilderLayers — DEM duplicate-rendering (composable model)', () =
   });
 });
 
-// BSR-18 handleAddDataset tests live in the dedicated file:
+// handleAddDataset tests live in the dedicated file:
 // use-builder-layers.add-dataset.test.ts
 // (isolated to avoid OOM when running alongside the heavy hook render)

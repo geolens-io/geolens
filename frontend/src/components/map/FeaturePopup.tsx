@@ -25,7 +25,7 @@ export interface FeatureInfo {
   zoomAtClick?: number;
 }
 
-/** MVT attribute budget (backend Phase 269 H-23): below this zoom the tile
+/** MVT attribute budget: below this zoom the tile
  *  server strips attribute columns unless opted in via `cols=`. */
 const ATTRIBUTE_BUDGET_MINZOOM = 10;
 
@@ -64,7 +64,7 @@ export function FeaturePopup({
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  // #305: on open, soft-move focus to the close button so
+  // On open, soft-move focus to the close button so
   // keyboard users land inside the popup; on close/unmount, restore focus to
   // the map canvas (or container) so the map stays keyboard-operable. This is a
   // soft move + restore, NOT a focus trap — map interaction is preserved.
@@ -83,7 +83,7 @@ export function FeaturePopup({
     };
   }, []);
 
-  // #305: Escape closes the popup (focus is restored by the
+  // Escape closes the popup (focus is restored by the
   // unmount effect above). Document-level listener so it fires regardless of
   // which element inside the popup holds focus, without putting a keyboard
   // handler on the non-interactive dialog container.
@@ -136,7 +136,7 @@ export function FeaturePopup({
   const visibleEntries = useMemo<[string, unknown][]>(() => {
     if (visibleFields !== undefined && visibleFields !== null) {
       const propMap = new Map(baseEntries);
-      // fix(#584): render configured fields even when absent from the tile
+      // Render configured fields even when absent from the tile
       // properties — ST_AsMVT omits null-valued properties, so intersecting
       // with the present keys silently hid configured fields that are null on
       // the clicked feature (formatValue's '--' placeholder was unreachable).
@@ -185,7 +185,7 @@ export function FeaturePopup({
       closeOnClick={false}
       maxWidth="360px"
     >
-      {/* #305: labelled dialog container with focus management.
+      {/* Labelled dialog container with focus management.
           aria-label uses the feature title when present, else the layer name. */}
       <div
         role="dialog"
@@ -257,14 +257,14 @@ export function FeaturePopup({
         <div className="max-h-48 overflow-y-auto">
           {visibleEntries.length === 0 ? (
             <p className="text-xs text-muted-foreground py-1">
-              {/* fix(#584): at z<10 the tile server strips attribute columns
+              {/* Below the attribute budget, the tile server strips attribute columns
                   unless opted in via cols=; in all-fields mode nothing is
                   opted in, so a dataset WITH columns arriving property-less
                   at low zoom means "zoom in", not "no attributes". Gated to
                   the all-fields case (visibleFields == null — an explicit []
                   is the intentional title-only mode) AND to a click below
                   the attribute budget — at higher zooms an empty property
-                  set means the values really are all null (fix(#586)). */}
+                  set means the values really are all null. */}
               {visibleFields == null
                 && (columnInfo?.length ?? 0) > 0
                 && feature.zoomAtClick !== undefined
@@ -328,21 +328,16 @@ function ValueDisplay({
 
   // YouTube embeds require allow-same-origin so the
   // player can load its own JS. This is intentionally laxer than the share-embed
-  // sandbox (allow-scripts only). See threat model T-1138-04.
+  // sandbox with allow-scripts only.
   if (isUrl(value)) {
     const { kind, srcUrl } = classifyUrl(value);
 
     if (kind === 'image') {
       return (
         <span className="block space-y-1">
-          {/* fix(#438): BLD-01 — dropped `crossOrigin="anonymous"`. It forced a
-              CORS request for every popup image, so images from hosts without
-              CORS headers rendered broken where a plain <img> loads fine.
-              Nothing here reads the pixels back through a canvas, which is the
-              only thing the attribute buys. */}
-          {/* fix(#438): A11Y-07 — `alt={srcUrl}` made a screen reader read out a
-              raw URL. The image is a popup thumbnail with no caption we can
-              derive, so an empty alt (decorative) is the correct treatment. */}
+          {/* A plain image avoids requiring CORS from hosts whose pixels are never
+              read through a canvas. The thumbnail has no derivable caption, so
+              an empty alt keeps screen readers from announcing its raw URL. */}
           <img
             src={srcUrl}
             alt=""
@@ -448,7 +443,7 @@ function ValueDisplay({
           }}
           // Keep Enter/Space on this button from bubbling to the surrounding
           // property row, whose keydown handler copies the value + preventDefaults
-          // (which would otherwise hijack the button's own activation). #313 a11y.
+          // which would otherwise hijack the button's own activation.
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
           }}

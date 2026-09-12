@@ -53,7 +53,7 @@ export function SearchPage() {
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
   const resetFilters = useSearchStore((s) => s.resetFilters);
-  // #305: distinguish an empty catalog from a no-match query. toParams()
+  // Distinguish an empty catalog from a no-match query. toParams()
   // only emits non-default values, so any key beyond pagination means the user
   // has an active query / filter / sort.
   const hasActiveSearch = useSearchStore((s) =>
@@ -68,7 +68,7 @@ export function SearchPage() {
     resultsRef.current?.focus({ preventScroll: true });
   };
   const { can } = usePermissions();
-  // fix(GLUX-006): gate the Import CTA on capability, not token presence alone (a
+  // Gate the Import CTA on capability, not token presence alone (a
   // viewer with a token must not see a dead-end /import). Keep the `!!token` guard
   // too: on logout the cached ['auth','permissions'] query can briefly still return
   // data, so `can('upload')` may lag true for the now-anonymous session — `token`

@@ -66,7 +66,7 @@ export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
             >
               {map.name}
             </Link>
-            {/* PR #330: always-visible badge so state is perceivable without color or hover (GLUX-005) */}
+            {/* Keep state perceivable without relying on color or hover. */}
             <Badge
               variant="outline"
               className={`shrink-0 gap-1 ${visibilityColors[map.visibility] ?? 'border-border bg-muted text-muted-foreground'}`}

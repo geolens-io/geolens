@@ -10,14 +10,14 @@ import { queryKeys } from '@/lib/query-keys';
 import { denySessionStorage } from '@/test/deny-storage';
 import type { AuthConfigResponse } from '@/types/api';
 
-// fix(#628): the global signed-out host — one dismissable prompt when the
+// The global signed-out host shows one dismissible prompt when the
 // fetch core declares the session dead, sign-in returns to the current route,
 // and anonymous-capable routes downgrade silently instead of prompting.
 
 vi.mock('@/api/auth', () => ({
   getAuthConfig: vi.fn().mockRejectedValue(new Error('not stubbed')),
   refreshAccessToken: vi.fn(),
-  // fix(#1446): notifySessionExpired dispatches a best-effort server
+  // notifySessionExpired dispatches a best-effort server
   // revocation — a transiently-failed refresh leaves a live httpOnly cookie
   // that clearing the store cannot reach.
   logoutSession: vi.fn(() => Promise.resolve()),
@@ -97,7 +97,7 @@ describe('SessionExpiredDialog', () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  // fix(#633 codex P2): on landing-first deployments "/" is NOT anonymous-
+  // On landing-first deployments, "/" is not anonymous-
   // capable — LandingFirstGuard bounces the now-signed-out visitor to /login,
   // so the prompt must show to explain the teleport.
   it('prompts on "/" when landing-first would bounce the anonymous visitor', () => {
@@ -116,11 +116,9 @@ describe('SessionExpiredDialog', () => {
   });
 
   /**
-   * fix(#1527): both halves of this component touch sessionStorage, and both
-   * used to do it bare. The guest-browse READ runs inside the expiry handler,
-   * which `notifySessionExpired` invokes synchronously from the fetch core's
-   * 401 path — a throw there escapes into the API client, so a dead session in
-   * a storage-denied context fails as an unhandled error instead of a prompt.
+   * The guest-browse read runs synchronously inside the fetch client's expiry
+   * handler, so denied storage must produce a prompt rather than escape into
+   * the API client.
    */
   it('prompts on "/" under landing-first when sessionStorage access throws', () => {
     const restore = denySessionStorage();
@@ -135,7 +133,7 @@ describe('SessionExpiredDialog', () => {
   });
 
   /**
-   * fix(#1527): the sign-in action WRITES the redirect key. Guarding only the
+   * The sign-in action writes the redirect key. Guarding only the
    * read would leave the button that recovers the session throwing.
    */
   it('signs in from the prompt when sessionStorage access throws', async () => {

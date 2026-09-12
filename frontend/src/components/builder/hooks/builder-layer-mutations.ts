@@ -5,15 +5,14 @@ import { isTerrainCapableDemLayer } from '@/components/builder/map-stack';
 import { getCompanionLayerIds } from '@/components/builder/companion-ids';
 
 /**
- * Phase 999.17 Fix 2 (D-05 / Advisory A2): decide whether deleting a layer must
- * tear down active 3D terrain.
+ * Decide whether deleting a layer must tear down active 3D terrain.
  *
  * Terrain is backed by a DEM dataset (terrain_config.source_dataset_id), not by
  * a single layer id. The teardown keys on DATASET IDENTITY: terrain is cleared
  * ONLY when, after the delete, NO remaining layer is a DEM layer for the terrain
  * source dataset. This correctly:
  *   - clears when the (last) DEM backing the terrain dataset is removed,
- *   - PRESERVES terrain when an unrelated DEM/vector layer is deleted (A2),
+ *   - preserves terrain when an unrelated DEM/vector layer is deleted,
  *   - PRESERVES terrain when another DEM layer on the same dataset still exists.
  *
  * @param remainingLayers - layers that survive the delete (already filtered)
@@ -25,7 +24,7 @@ export function shouldClearTerrainOnDelete(
 ): boolean {
   if (!terrainConfig?.enabled || !terrainConfig.source_dataset_id) return false;
   const sourceDatasetId = terrainConfig.source_dataset_id;
-  // 999.17 MD-02: "still backed" must mean "still RESOLVABLE as a terrain source"
+  // "Still backed" means resolvable as a terrain source
   // — use the canonical isTerrainCapableDemLayer predicate (is_dem AND a DEM
   // record type) exactly as the mesh resolver (BuilderMap/use-viewer-terrain) and
   // the stack compute it. A bare is_dem check could keep terrain_config alive for
@@ -39,7 +38,7 @@ export function shouldClearTerrainOnDelete(
 /**
  * Derive the full set of MapLibre layer ids that the adapter owns for a given
  * raw layer id. Falls back to the canonical companion-id set
- * (`getCompanionLayerIds`, SYNC-04) when the render mode is unknown so that
+ * (`getCompanionLayerIds`) when the render mode is unknown so that
  * legacy call sites and future unregistered render modes continue to work.
  *
  * Known render_mode values NOT in the adapter registry:
@@ -48,7 +47,7 @@ export function shouldClearTerrainOnDelete(
  *     guard fails, causing the code to fall through to the companion-id fallback — which
  *     does include the '-arrow' companion. This is the correct behavior. If 'arrow' is
  *     ever added to the registry, ensure getLayerIds returns both the base id and the
- *     '-arrow' companion. See MAP-17 Test 3c for the regression pin.
+ *     '-arrow' companion.
  *
  * @param rawLayerId - the logical layer id (NOT prefixed with `layer-`)
  * @param renderMode - value from style_config.render_mode (or inferred adapter type)
@@ -61,8 +60,7 @@ function deriveCompanionIds(rawLayerId: string, renderMode: string | null | unde
       // the adapter only when its registered type matches exactly.
       const adapter = getAdapter(renderMode);
       if (adapter.type === renderMode) {
-        // fix(#452): the hillshade adapter's getLayerIds now declares the
-        // color-relief companion itself, so the old append special-case is gone.
+        // The hillshade adapter declares its color-relief companion.
         return adapter.getLayerIds(prefixedLayerId);
       }
     } catch {
@@ -70,7 +68,7 @@ function deriveCompanionIds(rawLayerId: string, renderMode: string | null | unde
       // canonical companion-id set.
     }
   }
-  // SYNC-04: the full companion set (base + outline + label + extrusion + arrow
+  // Full companion set (base + outline + label + extrusion + arrow
   // + colorrelief + cluster + cluster-count) from the single source of truth.
   // The label companion is included because no current adapter declares it in
   // getLayerIds — labels are managed by map-sync.ts syncLayersToMap, not by
@@ -96,11 +94,8 @@ export function removePerLayerCompanions(
   renderModeByLayerId?: Map<string, string>,
 ): void {
   if (!map) return;
-  // fix(#1778): a bare early return here left the companions on the map for the
-  // rest of the session. A delete during a basemap style swap is exactly when
-  // isStyleLoaded() is false, and nothing calls this again. Retry on idle,
-  // matching BuilderMap's sync effect and use-render-mode-layers. The ids are
-  // materialized first because the caller's Iterable may be single-pass.
+  // A delete can arrive during a basemap style swap. Retry on idle because no
+  // later caller is guaranteed; materialize ids in case the iterable is single-pass.
   if (!map.isStyleLoaded()) {
     const pending = [...layerIds];
     map.once?.('idle', () => removePerLayerCompanions(map, pending, renderModeByLayerId));
@@ -143,7 +138,7 @@ export function buildDuplicateRenderingInput(
   return {
     dataset_id: layer.dataset_id,
     sort_order: nextSortOrder,
-    // B-031: inherit the source layer's visibility so duplicating a hidden
+    // Inherit source visibility so duplicating a hidden
     // layer yields a hidden copy rather than forcing it visible.
     visible: layer.visible ?? true,
     opacity: layer.opacity,

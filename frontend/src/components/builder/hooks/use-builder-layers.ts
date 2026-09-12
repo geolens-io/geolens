@@ -36,10 +36,10 @@ import {
   pruneEmptyFolderGroups,
   type GroupedLayer,
 } from '@/components/builder/folder-groups';
-// fix(#833): folder-group collapse dirties the save (its state is persisted
+// Folder-group collapse dirties the save because its state is persisted
 // on children); the basemap group's does not — the toggle needs to tell them apart.
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
-// STATE-02: cohesive handler clusters extracted into focused hooks. This hook
+// Cohesive handler clusters live in focused hooks. This hook
 // composes them and keeps its return surface identical so MapBuilderPage is
 // unchanged. PURE RELOCATION — see each hook for the verbatim handler bodies.
 import { useFolderGroupLayers } from '@/components/builder/hooks/use-folder-group-layers';
@@ -50,7 +50,7 @@ import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-sty
 import { useTileConfig } from '@/hooks/use-settings';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
 
-// fix(#1854): a camera reading is only meaningful together with the map it was
+// A camera reading is only meaningful together with the map it was
 // read for, so the two always travel as one value.
 interface CameraSample {
   mapId: string | null;
@@ -66,7 +66,7 @@ function sameSavedText(local: string | null | undefined, saved: string | null | 
   return l.trim() === '' && r.trim() === '';
 }
 
-// fix(#913 review): the hydrated shape of mapData's folder-expansion state,
+// Hydrated shape of mapData's folder-expansion state,
 // mirroring the load path below (hydrated markers overlaid with group_meta).
 function savedGroupMeta(mapData: MapResponse): Record<string, { expanded: boolean }> {
   return {
@@ -75,7 +75,7 @@ function savedGroupMeta(mapData: MapResponse): Record<string, { expanded: boolea
   };
 }
 
-// fix(#913): the hydrated shape of mapData.terrain_config, shared by the load
+// Hydrated shape of mapData.terrain_config, shared by the load
 // path and the clean-state recheck so the two cannot drift.
 function savedTerrainConfig(mapData: { terrain_config?: MapTerrainConfig | null }): MapTerrainConfig | null {
   if (!mapData.terrain_config) return null;
@@ -91,21 +91,21 @@ export function useBuilderLayers(
   mapId: string | undefined,
   addLayerMutation: ReturnType<typeof useAddLayer>,
   removeLayerMutation: ReturnType<typeof useRemoveLayer>,
-  // fix(#392): populated by useBuilderSave (MapBuilderPage renders
+  // Populated by useBuilderSave (MapBuilderPage renders
   // useBuilderLayers before useBuilderSave, so a callback ref bridges the two).
   // Invoked by handleAddDataset/handleDuplicateRendering so the Save-diff
   // baseline learns about server-created layers immediately, instead of only
   // on a clean-state resync — see use-builder-save.ts for the full rationale.
   saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>,
-  // fix(#1863 P2): the REACTIVE counterpart of mapInstanceRef (MapBuilderPage
+  // Reactive counterpart of mapInstanceRef (MapBuilderPage
   // already tracks both — mapInstanceRef for imperative reads, this state for
   // effects that must re-run when the map becomes ready). mapInstanceRef.current
   // flipping non-null does NOT by itself re-run an effect (refs aren't
-  // reactive), so the #1854 auto-zoom watcher below needs this to know when
+  // reactive), so the auto-zoom watcher below needs this to know when
   // to retry a pending zoom that arrived before the (lazy-loaded, possibly
   // still-suspended) map instance existed. Optional/trailing so every
-  // existing call site compiles unchanged; omitting it only means a
-  // cold-entry auto-zoom race is not retried, same as before this fix.
+  // existing call site compiles unchanged; omitting it leaves no reactive
+  // signal for retrying a cold-entry auto-zoom.
   mapInstance?: MaplibreMap | null,
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -115,16 +115,16 @@ export function useBuilderLayers(
 
   const initializedRef = useRef(false);
   const addDatasetProcessedRef = useRef(false);
-  // fix(#1854): id of a just-added layer that still needs its one-time
+  // Id of a just-added layer that still needs its one-time
   // auto-zoom (fresh map only — see the add_dataset effect below).
   const pendingAutoZoomLayerIdRef = useRef<string | null>(null);
-  // fix(#1877): true when the pending id above needs a combined-bounds fit
+  // True when the pending id above needs a combined-bounds fit
   // (cold-entry, non-fresh map) rather than a single-layer zoom — see the
   // add_dataset effect below.
   const pendingCombinedFitRef = useRef(false);
 
   const [localLayers, setLocalLayers] = useState<MapLayerResponse[]>([]);
-  // fix(#793 review): which map the CURRENT localLayers belong to. On direct
+  // Tracks which map the current localLayers belong to. On direct
   // /maps/:id navigation this page stays mounted and the route id flips a
   // commit (or more) before the new map's layers hydrate — consumers that
   // initialize from layers at mount (AnalysisPanel) must wait until this
@@ -134,7 +134,7 @@ export function useBuilderLayers(
   const layersMapIdRef = useRef<string | null>(null);
   const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  // fix(#1854): the live camera, sampled on moveend, tagged with the map it was
+  // Live camera sampled on moveend, tagged with the map it was
   // taken on. Null until the map has settled once, because a map that never
   // moved cannot have changed the view a save would store. The tag matters
   // because a direct /maps/:id navigation keeps this hook AND the MapGL
@@ -146,7 +146,7 @@ export function useBuilderLayers(
   // navigation it is still the PREVIOUS map's position, because nothing
   // repositions the shared instance. Either way it is not an edit made here.
   const cameraEntryRef = useRef<CameraSample | null>(null);
-  // fix(#913): dirt this hook cannot re-derive from server state — plugin
+  // Dirt this hook cannot re-derive from server state: plugin
   // toggles and other page-owned edits that go through markDirty. recheckClean
   // refuses to clear the flag while it is set; every reset back to "saved"
   // clears it.
@@ -162,7 +162,7 @@ export function useBuilderLayers(
   const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | 'popup' | null>(null);
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
   const [basemapConfig, _setBasemapConfigRaw] = useState<MapBasemapConfig | null>(null);
-  // WR-02 (quick-260516-9g9 followup): wrap setBasemapConfig so external callers
+  // Wrap setBasemapConfig so external callers
   // get dirty-tracking for free — Option B's single-source-of-truth principle
   // means basemapConfig writes always imply user intent to persist. The raw
   // setter is reserved for the load path (line ~120) where the initial
@@ -178,7 +178,7 @@ export function useBuilderLayers(
   const [groupMeta, setGroupMeta] = useState<Record<string, { expanded: boolean }>>({});
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
-  // ENH-06 (Phase 1201-06): map-level custom legend title. Null = no override.
+  // Map-level custom legend title. Null means no override.
   const [localLegendTitle, setLocalLegendTitle] = useState<string | null>(null);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -186,7 +186,7 @@ export function useBuilderLayers(
 
   // Mirror current layers in a ref so stable callbacks can read fresh state
   // without invalidating on every layer mutation. Without this, each layer
-  // edit would tear down React.memo() on StackRow (KISS-2 / PERF-N2).
+  // edit would tear down React.memo() on StackRow.
   const layersRef = useRef(localLayers);
   useLayoutEffect(() => {
     layersRef.current = localLayers;
@@ -218,7 +218,7 @@ export function useBuilderLayers(
     mvtSourceLayerPrefix,
   );
 
-  // STATE-02: per-row style clipboard (copy / paste). Owns the session clipboard
+  // Per-row style clipboard. Owns the session clipboard
   // ref + geometry-class mirror; the bulk apply-style handler reads the same ref.
   const {
     copiedStyleRef,
@@ -227,7 +227,7 @@ export function useBuilderLayers(
     handlePasteStyle,
   } = useLayerStyleClipboard({ layersRef, handleStyleConfigChange });
 
-  // STATE-02: bulk-operation handlers (apply-style / visibility / opacity /
+  // Bulk-operation handlers (apply-style / visibility / opacity /
   // group / ungroup / delete) + in-flight isDeleting state.
   const {
     handleBulkApplyStyle,
@@ -255,7 +255,7 @@ export function useBuilderLayers(
     mvtSourceLayerPrefix,
   });
 
-  // STATE-02: folder-group handlers (create / rename / ungroup / toggle-vis /
+  // Folder-group handlers (create / rename / ungroup / toggle-vis /
   // delete / add-to-group / move-out).
   const {
     handleCreateGroupWithLayer,
@@ -273,7 +273,7 @@ export function useBuilderLayers(
     mapInstanceRef,
   });
 
-  // STATE-02: DEM terrain bind / unbind / exaggeration handlers.
+  // DEM terrain bind, unbind, and exaggeration handlers.
   const {
     handleDEMTerrainBind,
     handleDEMTerrainUnbind,
@@ -285,7 +285,7 @@ export function useBuilderLayers(
     setHasUnsavedChanges,
   });
 
-  // STATE-02: render-mode / layer-swap handlers.
+  // Render-mode and layer-swap handlers.
   const {
     handleRenderAsChange,
     handleRenderModeChange,
@@ -299,14 +299,14 @@ export function useBuilderLayers(
 
   // Initialize local state from API data (once).
   //
-  // Phase 1051 UX-03: mapData.basemap_config may include the new
+  // mapData.basemap_config may include
   // `basemap_position: 'top' | 'bottom'` field (jsonb additive, no migration).
   // We load it transparently via _setBasemapConfigRaw — downstream consumers
   // (UnifiedStackPanel `basemapPosition` prop, BuilderMap `reorderBasemapAboveData`
   // effect, MapBuilderPage `handleDragEnd` for basemap drag) read the field via
   // `basemapConfig?.basemap_position ?? 'bottom'` so legacy maps without the
   // field default to 'bottom' (the historical behaviour).
-  // fix(#793 review): a direct /maps/:id navigation keeps this hook mounted,
+  // A direct /maps/:id navigation keeps this hook mounted,
   // so a DIFFERENT map identity must re-hydrate wholesale. The
   // !hasUnsavedChanges guard on the refetch sync below is for same-map
   // refetches — a discarded-edit exit ("Leave without saving") leaves the
@@ -348,7 +348,7 @@ export function useBuilderLayers(
     }
   }, [mapData]);
 
-  // Cleanup freshLayerId timeout on unmount (T-1042-04-03 mitigation)
+  // Clean up the freshLayerId timeout on unmount.
   useEffect(() => () => {
     if (freshLayerTimeoutRef.current) clearTimeout(freshLayerTimeoutRef.current);
   }, []);
@@ -376,16 +376,16 @@ export function useBuilderLayers(
     const datasetId = searchParams.get('add_dataset');
     if (!datasetId) return;
     addDatasetProcessedRef.current = true;
-    // fix(#1854): a fresh map has no saved view of its own (center_lng/
+    // A fresh map has no saved view of its own (center_lng/
     // center_lat are null — mirrors BuilderMap's hasSavedView check) and
     // opens at the world-view default, so the just-added dataset can land
     // off-screen. Record the new layer id for the one-time auto-zoom effect
     // below; a map with its own saved view is left alone (that framing was
     // chosen on purpose). Don't call handleZoomToLayer directly from this
     // callback — layersRef is only synced via the useLayoutEffect mirror on
-    // commit (the same staleness #554 documented for the add-layer merge),
+    // commit,
     // so it would still be missing the layer just created.
-    // fix(#1867): "fresh" means no PRIOR layers too, not just no saved
+    // "Fresh" means no prior layers too, not just no saved
     // center — a centerless map with existing layers keeps BuilderMap's
     // own combined-bounds auto-fit; this single-layer zoom would race it.
     const hasSavedView = hasSavedMapCamera(mapData);
@@ -399,7 +399,7 @@ export function useBuilderLayers(
               pendingAutoZoomLayerIdRef.current = newLayerId;
               return;
             }
-            // fix(#1877): BuilderMap seeds its own auto-fit baseline from its
+            // BuilderMap seeds its auto-fit baseline from its
             // first render, so a cold mount (mapInstanceRef still null) never
             // sees this addition as a change — take charge only then.
             if (!mapInstanceRef.current) {
@@ -435,19 +435,19 @@ export function useBuilderLayers(
   // React.memo() on StackRow actually prevents re-renders on unrelated state
   // changes. Handlers that need to read the current layers list use
   // `layersRef.current` instead of `localLayers` to keep their dep lists
-  // stable (KISS-2 / PERF-N2).
+  // stable.
 
-  // codex(#794): reports whether a move actually happened, so the keyboard
+  // Reports whether a move happened, so the keyboard
   // reorder announcement can stay silent at the stack boundaries instead of
   // confirming a move that did not occur.
   const handleMove = useCallback((layerId: string, direction: 'up' | 'down'): boolean => {
     const currentLayers = layersRef.current;
-    // fix(HT-03): the stack no longer suppresses terrain-mode DEM rows, so the
-    // rendered order IS the full layer order again (the #394 LM-05 filter is
+    // The stack includes terrain-mode DEM rows, so the
+    // rendered order is the full layer order again (the temporary filter is
     // obsolete — an arrow-move can never swap with an invisible row).
     const idx = currentLayers.findIndex((l) => l.id === layerId);
     if (idx < 0) return false;
-    // codex(#794 round 3): the row's visible neighbor is its adjacent sibling
+    // A row's visible neighbor is its adjacent sibling
     // in the SAME container — the top level skips grouped children, and a
     // folder box lists only its own children — so the raw flat-array neighbor
     // can belong to another container. Swapping with that entry moves nothing
@@ -485,7 +485,7 @@ export function useBuilderLayers(
   const handleMoveDown = useCallback((layerId: string) => handleMove(layerId, 'down'), [handleMove]);
 
   const handleReorder = useCallback((reorderedLayers: MapLayerResponse[]) => {
-    // fix(#767): dragging the last child out of a folder group empties it —
+    // Dragging the last child out of a folder group empties it;
     // prune the childless group row so it does not linger in the UI only to
     // vanish on save+reload (it has no persisted carrier without children).
     const nextLayers = pruneEmptyFolderGroups(reorderedLayers)
@@ -528,7 +528,7 @@ export function useBuilderLayers(
       ...prev,
       [groupId]: { expanded: !(prev[groupId]?.expanded ?? false) },
     }));
-    // fix(#833): folder-group collapse state IS persisted (the
+    // Folder-group collapse state is persisted (the
     // folderGroupExpanded marker on each child's style_config), but a
     // collapse-only change never dirtied the save, so it only reached the
     // backend when another edit rode along and was lost on reload otherwise.
@@ -548,7 +548,7 @@ export function useBuilderLayers(
     // Validate bbox: must be 4 finite numbers with a non-inverted LATITUDE
     // range. Note: equal min/max (point geometries) is valid — fitBounds zooms
     // to maxZoom at that point.
-    // fix(#903): `bbox[0] > bbox[2]` is no longer a rejection. That pair is the
+    // `bbox[0] > bbox[2]` represents
     // RFC 7946 §5.2 spec form for an antimeridian-crossing extent, and
     // rejecting it made Zoom to Layer a silent no-op for exactly the layers a
     // user most needs it for. `toFitBounds` lets east run past 180, which
@@ -568,23 +568,9 @@ export function useBuilderLayers(
     }
   }, [mapInstanceRef]);
 
-  // fix(#1854): fires the pending auto-zoom (set by the ?add_dataset effect
-  // above) once the new layer has actually committed to localLayers — by
-  // then the useLayoutEffect mirror has already synced layersRef, so
-  // handleZoomToLayer's lookup finds the layer and its dataset_extent_bbox.
-  //
-  // fix(#1863 P2): on a cold builder entry the add-layer POST can resolve
-  // (landing the layer in localLayers) while BuilderMap is still lazy-loaded/
-  // suspended or before its onLoad has populated mapInstanceRef — handleZoomToLayer
-  // reads mapInstanceRef.current and silently no-ops when it is null. The old
-  // version cleared pendingAutoZoomLayerIdRef unconditionally as soon as the
-  // layer appeared, so nothing ever retried once the map became ready. Keep
-  // the pending id until `mapInstance` (the reactive counterpart of the ref —
-  // see the parameter above) is actually set, so this effect re-runs and
-  // retries when the map finishes loading after the layer already landed.
-  // fix(#1877): the combined-fit branch reuses this same pending-id-plus-
-  // readiness gate, firing getVisibleLayerBounds (BuilderMap's own bounds
-  // merge) across every layer instead of one.
+  // Retain the pending id until both the new layer and reactive map instance
+  // exist. The combined-fit branch shares this readiness gate and merges bounds
+  // across every visible layer.
   useEffect(() => {
     const pendingId = pendingAutoZoomLayerIdRef.current;
     if (!pendingId) return;
@@ -601,7 +587,7 @@ export function useBuilderLayers(
     const bounds = getVisibleLayerBounds(layersRef.current);
     if (!map || !bounds) return;
     try {
-      // fix(#1877): duration: 0 makes fitBounds settle synchronously (matches
+      // duration: 0 makes fitBounds settle synchronously and matches
       // BuilderMap's own auto-fit) — the zoom-2 clamp below must read the
       // post-fit zoom, not the pre-fit one an animated flyTo would leave.
       map.fitBounds(bounds, { padding: 40, maxZoom: 18, duration: 0 });
@@ -611,7 +597,7 @@ export function useBuilderLayers(
     }
   }, [localLayers, mapInstance, handleZoomToLayer, mapInstanceRef]);
 
-  // ENH-06 (Phase 1201-06): set the map-level custom legend title. Empty/null
+  // Set the map-level custom legend title. Empty/null
   // clears the override. Marks the map dirty so the save path persists it.
   const handleLegendTitleChange = useCallback((title: string | null) => {
     const next = title && title.trim() ? title.trim() : null;
@@ -622,7 +608,7 @@ export function useBuilderLayers(
     });
   }, [setHasUnsavedChanges]);
 
-  // ENH-06 (Phase 1201-06): set a per-entry legend label override on a layer's
+  // Set a per-entry legend label override on a layer's
   // style_config.legendLabel. An empty string deletes the key (falls back to
   // the display/dataset name). Routes through handleStyleConfigChange — the
   // SAME atomic single-setLocalLayers write path used for every style mutation
@@ -646,7 +632,7 @@ export function useBuilderLayers(
     if (!mapId) return;
     setExpandedLayerId((prev) => prev === layerId ? null : prev);
 
-    // BUG-02 (Phase 1051-02): optimistic state update + rollback on error,
+    // Optimistic state update with rollback on error,
     // mirroring handleBulkDelete (lines 580-661). Without this, the user
     // clicks delete and nothing visibly happens — the API mutation fires
     // and onSuccess invalidates the map query, but the resync useEffect at
@@ -654,7 +640,7 @@ export function useBuilderLayers(
     // during the builder editing flow. The sidebar row then stays visible
     // until a full page reload.
     const previousLayers = layersRef.current;
-    // fix(#767): removing a group's last child prunes the now-empty group row
+    // Removing a group's last child prunes the now-empty group row
     // in the same write; the error rollback below restores previousLayers, so
     // a failed delete brings the group back with its child.
     setLocalLayers((prev) =>
@@ -662,11 +648,11 @@ export function useBuilderLayers(
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
-    // Phase 999.17 Fix 2 (D-05/A2): if this delete removes the last DEM layer
+    // If this delete removes the last DEM layer
     // backing active 3D terrain, auto-clear terrain_config and surface a
     // non-blocking toast. Keys on dataset identity (shouldClearTerrainOnDelete),
     // so deleting an unrelated DEM/vector layer leaves terrain untouched.
-    // HI-01 (999.17 gap-closure): snapshot the prior terrain_config alongside
+    // Snapshot the prior terrain_config alongside
     // previousLayers so the onError rollback can restore it. Without this, an
     // optimistic terrain clear that is followed by a failed delete leaves the DEM
     // layer restored but 3D terrain silently disabled (layers <-> terrain drift).
@@ -683,7 +669,7 @@ export function useBuilderLayers(
       toast.success(t('toasts.terrainDisabledSourceRemoved'));
     }
 
-    // WR-01 (Phase 1050-rev): imperatively clean per-layer companions
+    // Imperatively clean per-layer companions
     // BEFORE the mutation so the visual artifacts (outline/label/extrusion/
     // arrow/cluster glyphs) disappear in lockstep with the user action.
     // Deduped sources are left in place for the next syncFromState to prune
@@ -694,27 +680,25 @@ export function useBuilderLayers(
       {
         onSuccess: () => {
           // Sync baseline so a subsequent React-Query refetch is not blocked
-          // by a stale savedLayerBaselineRef (CR-01 from handleBulkDelete).
+          // by a stale savedLayerBaselineRef.
           savedLayerBaselineRef.current = savedLayerBaselineRef.current.filter(
             (l) => l.id !== layerId,
           );
-          // fix(#1778): prune the SAVE-diff baseline too. It only refreshes
-          // while the map is clean, so a delete on an already-dirty map used to
-          // leave this id behind and the next save's diff.removed named a row
-          // the server had already dropped, a 400 the client then misread.
+          // Prune the save-diff baseline even while the map is dirty so the next
+          // save does not request removal of a row the server already dropped.
           saveBaselineSyncRef.current?.remove([layerId]);
           toast.success(t('toasts.layerRemoved'));
         },
         onError: () => {
           // Rollback: re-insert the failed layer so the user sees it reappear.
-          // fix(v1.6.0 audit B6): NOT a wholesale previousLayers write — a
+          // Do not restore previousLayers wholesale: a
           // concurrent edit (e.g. handleAddDataset onSuccess landing while the
           // DELETE was in flight) must survive the rollback, otherwise the next
           // save diff would ask the server to DELETE the just-added layer.
           setLocalLayers((current) =>
             restoreFailedLayers(current, previousLayers, new Set([layerId])),
           );
-          // HI-01: also restore terrain_config if the optimistic delete cleared it,
+          // Restore terrain_config if the optimistic delete cleared it,
           // so a failed delete does not leave terrain silently disabled.
           if (clearedTerrainOnRemove) {
             setLocalTerrainConfig(previousTerrainConfig);
@@ -733,7 +717,7 @@ export function useBuilderLayers(
       datasetName?: string,
     ) => {
       if (!mapId) return;
-      // Per BSR-18 UI-SPEC §4b: new layers PREPEND at top of user stack (sort_order: 0).
+      // New layers prepend at the top of the user stack with sort_order 0.
       // The mutation onSuccess refresh (via React Query invalidation elsewhere) will
       // renumber existing layers as needed. Do NOT use layersRef.current.length here
       // (append) — that buries the new layer under existing ones and conflicts with
@@ -742,22 +726,22 @@ export function useBuilderLayers(
         { mapId, data: { dataset_id: datasetId, sort_order: 0 } },
         {
           onSuccess: (createdLayer) => {
-            // P1-08: optimistically merge EVERY created layer into localLayers +
+            // Optimistically merge every created layer into localLayers and
             // the saved baseline so it appears immediately, even while the map is
             // dirty — the API-refetch sync (apiLayers effect) is gated on
             // !hasUnsavedChanges, so a non-group add during dirty state otherwise
             // stayed hidden until save/reload and users retried → duplicates.
-            // CR-02: dropping onto a folder group is the SAME single insertion,
+            // Dropping onto a folder group is the same single insertion,
             // just also stamping parent_group_id so the row renders inside the
             // group immediately.
             if (createdLayer?.id) {
-              // fix(#545): the WR-02 dirty-flag below exists because prepending
+              // The dirty flag below exists because prepending
               // renumbers EXISTING siblings locally (an unpersisted diff). On a
               // fresh map with no other layers there is nothing renumbered — the
               // POST-created layer alone IS the saved state — so marking dirty
               // falsely triggers the unsaved-changes prompt on every new
               // Add-to-Map / chat-created map.
-              // fix(#554 codex P2): layersRef is committed via useLayoutEffect, so
+              // layersRef is committed via useLayoutEffect, so
               // when two add mutations resolve before React commits (e.g. AI
               // "Accept all" staging several add_layer actions) it is stale-empty
               // for BOTH onSuccess calls, yet the second add renumbers the first.
@@ -791,13 +775,13 @@ export function useBuilderLayers(
                   return [insertedLayer as MapLayerResponse, ...prev].map((l, i) => ({ ...l, sort_order: i }));
                 }
 
-                // fix(#392): insert adjacent to the group's
+                // Insert adjacent to the group's
                 // existing block instead of at array index 0. hydrateFolderGroupLayers
                 // anchors the group row at the position of its FIRST child, so
                 // prepending here would drag the whole group to the stack top after a
                 // save/reload round-trip. Insert immediately after the group's LAST
                 // existing child (or immediately after the group row itself when it
-                // has no children yet) so the first child's position never moves. (audit B-004c/LM-03)
+                // has no children yet) so the first child's position never moves.
                 const groupIdx = prev.findIndex((l) => l.id === parentGroupId);
                 let lastChildIdx = -1;
                 for (let i = prev.length - 1; i >= 0; i--) {
@@ -820,17 +804,17 @@ export function useBuilderLayers(
               if (!savedLayerBaselineRef.current.some((l) => l.id === createdLayer.id)) {
                 savedLayerBaselineRef.current = [createdLayer, ...savedLayerBaselineRef.current];
               }
-              // fix(#392): also register the pure server layer into the Save-diff baseline so
+              // Register the pure server layer in the save-diff baseline so
               // Save doesn't treat this just-created layer as diff.added and PATCH a duplicate.
               saveBaselineSyncRef.current?.add(createdLayer);
-              // fix(#392): mark dirty whenever existing siblings were renumbered —
+              // Mark dirty whenever existing siblings were renumbered;
               // the non-grouped branch above renumbers every existing layer's
               // sort_order locally, but the backend does not renumber sibling rows
               // (maps/service_layers.py:106-120), so that renumber is an
               // unpersisted diff the apiLayers resync effect could otherwise
-              // silently clobber before Save. Same defect class as CR-01
-              // (handleDuplicateRendering). (audit WR-02)
-              // fix(#545): skip when this is the ONLY layer (fresh map) and no
+              // silently clobber before Save. The duplicate-rendering path
+              // applies the same rule.
+              // Skip when this is the only layer on a fresh map and no
               // group membership was stamped — local state exactly mirrors the
               // server, so the map must stay clean.
               if (hadOtherLayers || parentGroupId) setHasUnsavedChanges(true);
@@ -843,7 +827,7 @@ export function useBuilderLayers(
                 );
               }
             }
-            // Phase 1040 POL-05: named toast when datasetName is provided; generic
+            // Use a named toast when datasetName is provided; generic
             // fallback preserves backward-compat for callers that omit the name.
             if (datasetName) {
               toast.success(t('toasts.datasetAdded', { name: datasetName }), {
@@ -855,9 +839,9 @@ export function useBuilderLayers(
             if (onSuccessCb && createdLayer?.id) {
               onSuccessCb(createdLayer.id);
             }
-            // Phase 1042 POL-15: entry animation — set freshLayerId for 200ms so
+            // Set freshLayerId briefly so
             // StackRow can apply animate-in fade-in. Single-flight: clear any prior
-            // timer before scheduling a new one (T-1042-04-03 mitigation).
+            // timer before scheduling a new one.
             if (createdLayer?.id) {
               if (freshLayerTimeoutRef.current) clearTimeout(freshLayerTimeoutRef.current);
               setFreshLayerId(createdLayer.id);
@@ -868,7 +852,7 @@ export function useBuilderLayers(
             }
           },
           onError: () => {
-            // fix(#833 codex P2): the analysis add-to-map guard settles in
+            // The analysis add-to-map guard settles in
             // useAddLayer's GLOBAL callbacks (see use-maps.ts) — per-call
             // callbacks here are dropped when a second add overlaps on the
             // shared mutation observer.
@@ -882,7 +866,7 @@ export function useBuilderLayers(
 
   // AI-specific remove: removes locally (persisted on Save).
   //
-  // Phase 1050 SF-04: per-layer companion layers (label/outline/extrusion/
+  // Per-layer companion layers (label/outline/extrusion/
   // arrow + main layer-{id}) are still cleaned up imperatively because they
   // remain per-layer in the new keying scheme. Source teardown, however, is
   // delegated to the next `syncFromState` invocation's
@@ -891,11 +875,10 @@ export function useBuilderLayers(
   // a deduped `source-data-${dataset_table_name}` in place while sibling
   // layers still reference it.
   const handleAiRemoveLayer = useCallback((layerId: string) => {
-    // fix(#767): prune a group row emptied by this draft removal (same rule as
+    // Prune a group row emptied by this draft removal, matching
     // handleRemove — an empty group cannot survive save+reload).
     setLocalLayers((prev) => pruneEmptyFolderGroups(prev.filter((l) => l.id !== layerId)));
-    // Clean up MapLibre per-layer companions imperatively. WR-01 (Phase
-    // 1050-rev) factored this into removePerLayerCompanions so handleRemove
+    // Clean up MapLibre per-layer companions imperatively. The shared helper lets handleRemove
     // and handleBulkDelete now use the same helper. Sources are NOT
     // removed here — the deduped source may still be shared by sibling
     // layers, and the next syncFromState invocation's desired-set prune
@@ -918,26 +901,24 @@ export function useBuilderLayers(
     const layer = layersRef.current.find((candidate) => candidate.id === layerId);
     if (!layer) return;
 
-    // fix(#451): the old D-04 guard that refused to duplicate a
-    // render_mode:'terrain' DEM is gone. Under the composable model that mode
-    // only means "overlay off" — terrain itself is a single map-level
-    // terrain_config pointer, so duplicates can no longer accumulate terrain.
+    // Under the composable model, render_mode:'terrain' only means "overlay off";
+    // terrain itself is a single map-level terrain_config pointer.
 
     const data = buildDuplicateRenderingInput(layer, {
       layerFallback: t('layerMutations.layerFallback', { defaultValue: 'Layer' }),
       duplicateName: (baseName) => t('layerMutations.duplicateName', { name: baseName, defaultValue: '{{name}} rendering' }),
     });
-    // fix(#392): carry the source's frontend-only
+    // Carry the source's frontend-only
     // parent_group_id so a duplicate of a grouped layer stays in the group
     // instead of escaping to the stack bottom. MapLayerInput/the API cannot
-    // carry this field; it is stamped onto the LOCAL duplicate only. (audit B-004b/LM-02)
+    // carry this field; it is stamped onto the local duplicate only.
     const sourceParentGroupId = (layer as GroupedLayer).parent_group_id ?? null;
 
     addLayerMutation.mutate(
       { mapId, data },
       {
         onSuccess: (createdLayer) => {
-          // STATE-05: the functional updater stays pure — no in-updater
+          // The functional updater stays pure with no in-updater
           // `layersRef.current = next` side-write. The useLayoutEffect mirror
           // (lines ~101-103) syncs layersRef from committed state, which is the
           // single, StrictMode-safe place this hook updates the ref.
@@ -963,16 +944,16 @@ export function useBuilderLayers(
             ...savedLayerBaselineRef.current.filter((candidate) => candidate.id !== createdLayer.id),
             createdLayer,
           ];
-          // fix(#392): also register the pure server layer into the Save-diff baseline so
+          // Register the pure server layer in the save-diff baseline so
           // Save doesn't treat this just-created layer as diff.added and PATCH a duplicate.
           saveBaselineSyncRef.current?.add(createdLayer);
-          // fix(#392): the splice above always renumbers the FULL local
+          // The splice above always renumbers the full local
           // array (adjacent-insert, not append) — this is a real, unpersisted
           // diff for grouped AND non-grouped duplicates alike. Mark dirty
           // unconditionally so the `!hasUnsavedChanges`-gated apiLayers resync
           // effect (triggered by addLayerMutation's own query invalidation)
           // cannot silently overwrite the adjacent placement with server order
-          // before Save runs. (audit CR-01)
+          // before Save runs.
           setHasUnsavedChanges(true);
           if (createdLayer?.id) {
             setExpandedLayerId(createdLayer.id);
@@ -995,7 +976,7 @@ export function useBuilderLayers(
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
-  // fix(#913 review): the opaque flag is only for state this hook CANNOT compare
+  // The opaque flag is only for state this hook cannot compare
   // against server data — dock notes and plugin toggles live outside it. Marking
   // re-derivable edits (map name, description, basemap) opaque made the unsaved
   // indicator unclearable for the rest of the session once any of them was
@@ -1005,7 +986,7 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }, []);
 
-  // fix(#1854): the live camera when it is an unsaved edit made on THIS map,
+  // The live camera when it is an unsaved edit made on this map,
   // and null otherwise. The entry camera is what keeps an untouched map clean,
   // so this applies to a map with no stored view too: handleSave persists the
   // camera either way, so movement after entry is unsaved work on every map.
@@ -1017,15 +998,8 @@ export function useBuilderLayers(
     return liveCamera.camera;
   }, [liveCamera, mapData]);
 
-  // fix(#913): a banner Revert restores the saved layer through the ordinary
-  // mutation handlers, and every one of those marks the map dirty — so the
-  // revert itself re-dirtied the map and nothing ever cleared the flag. Rather
-  // than special-casing the revert path, recompute: clear the flag only when
-  // every layer matches the saved baseline AND no map-level field diverges from
-  // server state. Comparing the full layer objects (not just paint/layout/
-  // style_config, which is all hasUnsavedStyleChanges covers) is what keeps an
-  // outstanding opacity change, reorder, rename, visibility toggle, or layer
-  // add/remove from reading as clean.
+  // Revert clears dirty state only after full layer objects and map-level state
+  // match the saved baseline.
   const computeMapIsClean = useCallback((): boolean => {
     if (!mapData || opaqueDirtyRef.current) return false;
 
@@ -1039,7 +1013,7 @@ export function useBuilderLayers(
       if (!saved || saved.id !== baseline[i].id || !deepEqual(current[i], saved)) return false;
     }
 
-    // fix(#913 review): compare the SAVE payload's normalization, not the raw
+    // Compare the save payload's normalization rather than the raw
     // local strings — handleSave persists `localName || undefined`,
     // `localDescription.trim() || null`, and a trimmed-or-null legend title, so
     // an untrimmed local value would otherwise read as permanently dirty.
@@ -1056,12 +1030,12 @@ export function useBuilderLayers(
     if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
     if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
     if (!deepEqual(localTerrainConfig, savedTerrainConfig(mapData))) return false;
-    // fix(#1854): every save rewrites center/zoom/bearing/pitch from the live
+    // Every save rewrites center, zoom, bearing, and pitch from the live
     // map, so a pan this user made here and has not saved is a real pending
     // change to the stored view.
     if (unsavedCamera()) return false;
 
-    // fix(#913 review): folder expansion is persisted (prepareLayersForPersistence
+    // Folder expansion is persisted (prepareLayersForPersistence
     // reads groupMeta), and handleToggleGroupExpand marks the map dirty — without
     // this an expand-then-revert reported clean and the expansion was lost.
     // Compare ONLY persisted folder rows: the basemap row also writes a groupMeta
@@ -1088,7 +1062,7 @@ export function useBuilderLayers(
     recheckPendingRef.current = true;
     setRecheckNonce((n) => n + 1);
   }, []);
-  // fix(#913 review): a request stays pending until it actually finds the map
+  // A request stays pending until it finds the map
   // clean, and re-runs whenever the saved baselines it compares against change.
   // A save invalidates the map-detail query, so a revert racing the refetch used
   // to compare against stale server data, fail once, and never retry.
@@ -1099,7 +1073,7 @@ export function useBuilderLayers(
     setHasUnsavedChanges(false);
   }, [recheckNonce, computeMapIsClean]);
 
-  // fix(#1854): the camera a change of map identity starts from. Re-read on
+  // Camera a change of map identity starts from. Re-read on
   // every identity change because the shared MapGL instance is not
   // repositioned by one, so what is on screen is still the previous map's view.
   const currentMapId = mapData?.id ?? null;
@@ -1108,14 +1082,14 @@ export function useBuilderLayers(
     cameraEntryRef.current = { mapId: currentMapId, camera: readMapCamera(map) };
   }, [currentMapId, mapInstance, mapInstanceRef]);
 
-  // fix(#1854): moveend is the canonical "the camera settled" signal. It fires
+  // moveend is the canonical camera-settled signal. It fires
   // once per gesture rather than per frame, so no debounce of our own is
   // needed. Reads through the reactive mapInstance because a ref flipping
   // non-null does not re-run an effect.
   useEffect(() => {
     const map = mapInstance ?? mapInstanceRef.current;
     // Partial map doubles in sibling suites carry no event emitter; without a
-    // moveend there is simply no camera signal, exactly as before this fix.
+    // moveend there is no camera signal.
     if (!map || typeof map.on !== 'function') return;
     const handleMoveEnd = () => {
       const sample = { mapId: currentMapId, camera: readMapCamera(map) };
@@ -1132,7 +1106,7 @@ export function useBuilderLayers(
     return () => { map.off?.('moveend', handleMoveEnd); };
   }, [currentMapId, mapInstance, mapInstanceRef]);
 
-  // fix(#1854): an unsaved camera edit is unsaved work (the navigation blocker
+  // An unsaved camera edit is unsaved work (the navigation blocker
   // and beforeunload both read hasUnsavedChanges); anything else asks for the
   // ordinary recheck, which clears the flag only if nothing else is outstanding.
   useEffect(() => {
@@ -1144,7 +1118,7 @@ export function useBuilderLayers(
     requestCleanRecheck();
   }, [liveCamera, unsavedCamera, requestCleanRecheck]);
 
-  // fix(v1.6.0 audit D7): identity-stable "is this row a folder group?" lookup.
+  // Identity-stable "is this row a folder group?" lookup.
   // Reads through layersRef so callers (MapBuilderPage's memoized
   // onToggleVisibility) do not have to depend on localLayers — a naive
   // useCallback over localLayers re-creates on exactly the frames the row
@@ -1194,14 +1168,8 @@ export function useBuilderLayers(
     handleToggleGroupVisibility,
   ]);
 
-  // Atomic multi-field restore for chat undo. Restoring a snapshot field-by-field
-  // through the individual dispatch handlers clobbered earlier restores: each
-  // handler rebuilds the layer from `layersRef.current`, which only refreshes
-  // between renders, so successive synchronous spreads re-stamp stale values and
-  // silently drop the label/paint reverts (the undo-does-nothing bug). Replacing
-  // every snapshotted layer wholesale in ONE setState avoids the clobber; the map
-  // reconciles via BuilderMap's declarative syncLayersToMap effect (which adds /
-  // updates / removes the companion label layer to match the restored state).
+  // Restore chat snapshots in one state update because sequential handlers read
+  // the same ref snapshot. BuilderMap then reconciles the restored layers.
   const handleRestoreLayers = useCallback((restored: MapLayerResponse[]) => {
     if (restored.length === 0) return;
     const byId = new Map(restored.map((l) => [l.id, l]));
@@ -1300,7 +1268,7 @@ export function useBuilderLayers(
     handleRenderModeChange,
     handleLayoutChange,
     handleZoomToLayer,
-    // ENH-02/ENH-03 (Phase 1201-01): style clipboard
+    // Style clipboard
     handleCopyStyle,
     handlePasteStyle,
     handleBulkApplyStyle,
@@ -1325,17 +1293,17 @@ export function useBuilderLayers(
     markDirty,
     markOpaqueDirty,
     chatLayerActions,
-    // Bulk operation handlers (Phase 1041 Plan 03)
+    // Bulk operation handlers
     handleBulkVisibility,
     handleBulkOpacity,
     handleBulkGroup,
     handleBulkUngroup,
     handleBulkDelete,
-    // Phase 1047-04 (PERF-03): in-flight state for BulkActionBar spinner
+    // In-flight state for the BulkActionBar spinner
     isDeleting,
-    // fix(v1.6.0 audit A5): in-flight batch size for the BulkActionBar label
+    // In-flight batch size for the BulkActionBar label
     deletingCount,
-    // fix(v1.6.0 audit D7): stable ref-reading predicate so MapBuilderPage's
+    // Stable ref-reading predicate so MapBuilderPage's
     // onToggleVisibility callback does not re-create on every layer change.
     isFolderGroupRow,
   };

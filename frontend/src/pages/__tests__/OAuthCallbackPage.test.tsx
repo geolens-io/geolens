@@ -29,7 +29,7 @@ describe('OAuthCallbackPage', () => {
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
   });
 
-  // fix(#1302): with auth_mode=cookie the refresh token arrives as an httpOnly
+  // With auth_mode=cookie, the refresh token arrives as an httpOnly
   // cookie on the redirect and never enters the fragment, which any script on
   // this page can read.
   it('completes sign-in from a cookie-mode fragment carrying no refresh token', async () => {
@@ -56,8 +56,7 @@ describe('OAuthCallbackPage', () => {
     expect(useAuthStore.getState().refreshToken).toBe('legacy-r1');
   });
 
-  // fix(#2038): SSO completes on a new device, /auth/me/ answers 500 or the
-  // socket drops — revoking here would have ended every other session.
+  // A transient /auth/me/ failure after SSO must not revoke the user's other sessions.
   it('keeps the other sessions when getMe fails transiently after sign-in', async () => {
     mockGetMe.mockRejectedValueOnce(new ApiError('server error', 500));
     setHash('#token=access-1&expires_in=900&auth_mode=cookie');
@@ -71,8 +70,7 @@ describe('OAuthCallbackPage', () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  // fix(#2038): a 401 the client could not confirm — its refresh only failed
-  // transiently — is not a rejection, so it must not revoke either.
+  // An unconfirmed 401 is not a credential rejection and must not revoke other sessions.
   it('keeps the other sessions when getMe answers an unconfirmed 401', async () => {
     const unconfirmed = new ApiError('unauthorized', 401);
     unconfirmed.unconfirmed = true;
@@ -88,7 +86,7 @@ describe('OAuthCallbackPage', () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  // fix(#1446): the cookie is already installed by the time this page runs, so a
+  // The cookie is already installed by the time this page runs, so a
   // rejected credential must be revoked — clearing the store cannot reach it.
   it('revokes the session when getMe rejects the credential', async () => {
     mockGetMe.mockRejectedValueOnce(new ApiError('unauthorized', 401));
@@ -103,7 +101,7 @@ describe('OAuthCallbackPage', () => {
     );
   });
 
-  // fix(#2038): a fragment too incomplete to finish sign-in is no evidence the
+  // A fragment too incomplete to finish sign-in is no evidence the
   // credential was rejected, and revoking would end every other session.
   it('does not revoke when an incomplete fragment goes back to /login', async () => {
     setHash('#expires_in=900&auth_mode=cookie');
@@ -118,7 +116,7 @@ describe('OAuthCallbackPage', () => {
   });
 
   /**
-   * fix(#1527): the redirect key is read and cleared between a successful
+   * The redirect key is read and cleared between a successful
    * getMe() and the navigation that lands the user. Bare, a storage-denied
    * context threw into the sibling .catch(), which revokes the session and
    * bounces to /login — so a perfectly good SSO round-trip ended signed out.

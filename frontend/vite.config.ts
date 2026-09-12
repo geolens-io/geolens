@@ -194,7 +194,7 @@ export default defineConfig({
         'src/vite-env.d.ts',
         'src/components/ui/**',
       ],
-      // Coverage thresholds ratchet upward as the suite grows (TEST-02, Phase 278).
+      // Coverage thresholds ratchet upward as the suite grows.
       // Never lower one without a documented rationale in CHANGELOG.
       //
       // These are floor(actual) as measured on 2026-05-07, and the suite has
@@ -203,14 +203,8 @@ export default defineConfig({
       // headroom on every dimension, so an uncovered line does not trip a
       // threshold today.
       //
-      // fix(#1018): the comment here used to record the 2026-05-07 actuals
-      // (41.51 / 39.42 / 37.99 / 42.69) and warn that even a +1 buffer would
-      // fail because they sat under a point above their integer floors. Both
-      // halves were stale, and someone planning coverage work read it and
-      // believed the gate was tight. Re-ratcheting is a separate call and is
-      // deliberately NOT made here, so the invariant to read this block by is
-      // "thresholds are a floor from a recorded measurement", not "thresholds
-      // always equal floor(latest)". To ratchet: re-run `npm run
+      // Thresholds are a floor from a recorded measurement rather than the
+      // floor of the latest run. To ratchet: re-run `npm run
       // test:coverage`, set each to floor(actual), and update the measurement
       // above in the same commit.
       thresholds: {
