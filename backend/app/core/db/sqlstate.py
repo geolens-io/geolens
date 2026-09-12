@@ -1,8 +1,4 @@
-"""PostgreSQL SQLSTATE helpers for classifying database errors (fix(#435)).
-
-Handlers used to catch `Exception` (or bare `DBAPIError`) and guess. A dropped
-table, a statement timeout, and a lost connection are very different events, and
-only the first of them is a domain condition the API should paper over.
+"""PostgreSQL SQLSTATE helpers for classifying database errors.
 
 SQLSTATE reference: https://www.postgresql.org/docs/current/errcodes-appendix.html
 """

@@ -30,14 +30,12 @@ from tests.factories import (
 
 class TestListDatasets:
     async def test_list_datasets_requires_auth(self, client: AsyncClient):
-        """GET /datasets/ without token returns 401."""
         resp = await client.get("/datasets/")
         assert resp.status_code == 401
 
     async def test_list_datasets_empty(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """GET /datasets/ returns a list (may be empty) with total field."""
         resp = await client.get("/datasets/", headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
@@ -52,7 +50,6 @@ class TestListDatasets:
         viewer_auth_header: dict,
         test_db_session,
     ):
-        """Public dataset is visible to both admin and viewer."""
         admin_id = await _get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session,
@@ -61,13 +58,11 @@ class TestListDatasets:
             name="Public DS",
         )
 
-        # Admin can see it
         resp = await client.get("/datasets/", headers=admin_auth_header)
         assert resp.status_code == 200
         admin_ids = [d["id"] for d in resp.json()["datasets"]]
         assert str(ds.id) in admin_ids
 
-        # Viewer can see it
         resp = await client.get("/datasets/", headers=viewer_auth_header)
         assert resp.status_code == 200
         viewer_ids = [d["id"] for d in resp.json()["datasets"]]
@@ -80,7 +75,6 @@ class TestListDatasets:
         viewer_auth_header: dict,
         test_db_session,
     ):
-        """Private dataset owned by admin is hidden from viewer."""
         admin_id = await _get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session,
@@ -89,13 +83,11 @@ class TestListDatasets:
             name="Private DS",
         )
 
-        # Admin can see it
         resp = await client.get("/datasets/", headers=admin_auth_header)
         assert resp.status_code == 200
         admin_ids = [d["id"] for d in resp.json()["datasets"]]
         assert str(ds.id) in admin_ids
 
-        # Viewer cannot see it
         resp = await client.get("/datasets/", headers=viewer_auth_header)
         assert resp.status_code == 200
         viewer_ids = [d["id"] for d in resp.json()["datasets"]]

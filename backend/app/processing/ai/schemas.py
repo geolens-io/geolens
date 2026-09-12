@@ -128,20 +128,11 @@ def _validate_expression(expr: list) -> bool:
         return True
     if op == "match" and len(expr) >= 4:
         return True  # ["match", getter, val1, out1, ..., fallback]
+    # Stop values occupy every other slot starting at index 3.
     if op == "step" and len(expr) >= 4:
-        # Validate stop values are numeric: ["step", getter, default, stop1, out1, ...]
-        # Positions 3, 5, 7... are stop values (must be numeric)
-        for i in range(3, len(expr), 2):
-            if not isinstance(expr[i], (int, float)):
-                return False
-        return True
+        return all(isinstance(expr[i], (int, float)) for i in range(3, len(expr), 2))
     if op == "interpolate" and len(expr) >= 5:
-        # Validate stop values are numeric: ["interpolate", method, getter, stop1, out1, ...]
-        # Positions 3, 5, 7... are stop values (must be numeric)
-        for i in range(3, len(expr), 2):
-            if not isinstance(expr[i], (int, float)):
-                return False
-        return True
+        return all(isinstance(expr[i], (int, float)) for i in range(3, len(expr), 2))
     if op == "case" and len(expr) >= 3:
         return True
     if op in ("literal", "to-string", "to-number", "to-boolean"):
@@ -162,9 +153,7 @@ def _validate_expression(expr: list) -> bool:
         "!has",
     ):
         return True
-    if op in ("concat", "downcase", "upcase", "coalesce"):
-        return True
-    return False
+    return op in ("concat", "downcase", "upcase", "coalesce")
 
 
 def _paint_layer_type_for_geometry(geometry_type: str | None) -> str | None:

@@ -50,21 +50,15 @@ async def _build_data_driven_style(
     ramp = tool_input.get("ramp", default_ramp)
     method = tool_input.get("method", "quantile")
     class_count = tool_input.get("class_count", 5)
-    class_count = max(2, min(class_count, 9))  # Clamp to 2-9 classes
+    class_count = max(2, min(class_count, 9))
 
-    # Find the layer to get table_name and geometry_type
-    target_layer = None
-    for layer in layers:
-        if layer.id == layer_id:
-            target_layer = layer
-            break
+    target_layer = next((layer for layer in layers if layer.id == layer_id), None)
 
     if not target_layer:
         return {"error": f"Layer {layer_id} not found"}
 
     table_name = target_layer.dataset_table_name
 
-    # Validate column exists in layer
     if target_layer.column_info:
         col_names = {c.get("name") for c in target_layer.column_info if c.get("name")}
         if column not in col_names:
@@ -90,19 +84,18 @@ async def _build_data_driven_style(
             allowed_tables=allowed_tables,
             port=port,
         )
-    else:
-        return await _build_graduated_style(
-            session,
-            table_name,
-            column,
-            ramp,
-            method,
-            class_count,
-            color_prop,
-            layer_id,
-            allowed_tables=allowed_tables,
-            port=port,
-        )
+    return await _build_graduated_style(
+        session,
+        table_name,
+        column,
+        ramp,
+        method,
+        class_count,
+        color_prop,
+        layer_id,
+        allowed_tables=allowed_tables,
+        port=port,
+    )
 
 
 async def _build_categorical_style(

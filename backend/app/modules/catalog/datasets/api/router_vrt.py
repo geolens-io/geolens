@@ -163,7 +163,6 @@ async def get_vrt_status(
         )
     user_roles = await check_dataset_access(db, dataset, dataset_id, user)
 
-    # Load VRT RasterAsset
     asset_result = await db.execute(
         select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
     )
@@ -175,7 +174,6 @@ async def get_vrt_status(
 
     vrt_status = vrt_asset.status or "ready"
 
-    # Latest completed generation for last_generation_at
     gen_result = await db.execute(
         select(VrtGeneration)
         .where(
@@ -446,7 +444,6 @@ async def regenerate_vrt_endpoint(
     # any authenticated user could otherwise trigger it on a peer's raster.
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
-    # Load VRT RasterAsset
     asset_result = await db.execute(
         select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
     )
@@ -468,7 +465,6 @@ async def regenerate_vrt_endpoint(
             },
         )
 
-    # Count sources
     count_result = await db.execute(
         text(
             "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
@@ -477,7 +473,6 @@ async def regenerate_vrt_endpoint(
     )
     src_count = count_result.scalar() or 0
 
-    # Create VrtGeneration record
     generation = VrtGeneration(
         vrt_dataset_id=dataset_id,
         status="pending",

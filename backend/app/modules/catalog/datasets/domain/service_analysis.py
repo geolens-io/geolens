@@ -1,4 +1,4 @@
-"""Parameterized PostGIS analysis operations (M4) — preview path.
+"""Parameterized PostGIS analysis preview operations.
 
 Server-built SQL only: every statement renders from a fixed template plus
 Pydantic-validated parameters, executed through the read-only sandbox rails

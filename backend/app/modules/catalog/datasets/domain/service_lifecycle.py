@@ -1,4 +1,4 @@
-"""Dataset lifecycle operations: delete + version history (extracted from service.py — Phase 224)."""
+"""Dataset lifecycle operations: deletion and version history."""
 
 from __future__ import annotations
 

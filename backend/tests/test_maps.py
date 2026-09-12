@@ -22,7 +22,11 @@ from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.modules.catalog.maps.schemas import MapLayerDiffRequest, MapLayerInput
+from app.modules.catalog.maps.schemas import (
+    BasemapConfig,
+    MapLayerDiffRequest,
+    MapLayerInput,
+)
 from app.processing.raster.models import RasterAsset
 
 from tests.factories import create_dataset, create_raster_dataset, get_user_id
@@ -51,26 +55,17 @@ BASEMAP_CONFIG_PAYLOAD = {
 
 
 def test_basemap_config_opacity_defaults_to_one():
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     cfg = BasemapConfig()
     assert cfg.opacity == 1.0
 
 
 def test_basemap_config_opacity_accepts_valid_range():
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     assert BasemapConfig(opacity=0.0).opacity == 0.0
     assert BasemapConfig(opacity=0.55).opacity == 0.55
     assert BasemapConfig(opacity=1.0).opacity == 1.0
 
 
 def test_basemap_config_opacity_rejects_out_of_range():
-    import pytest
-    from pydantic import ValidationError
-
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     with pytest.raises(ValidationError):
         BasemapConfig(opacity=-0.1)
     with pytest.raises(ValidationError):
@@ -78,29 +73,17 @@ def test_basemap_config_opacity_rejects_out_of_range():
 
 
 def test_basemap_config_still_rejects_unknown_fields_with_opacity_set():
-    import pytest
-    from pydantic import ValidationError
-
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     with pytest.raises(ValidationError):
         BasemapConfig(opacity=0.5, unknown_field=1)
 
 
 def test_basemap_config_background_color_accepts_hex_or_null():
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     assert BasemapConfig(background_color=None).background_color is None
     assert BasemapConfig(background_color="#f8fafc").background_color == "#f8fafc"
     assert BasemapConfig(background_color="#F8FAFC").background_color == "#F8FAFC"
 
 
 def test_basemap_config_background_color_rejects_invalid_colors():
-    import pytest
-    from pydantic import ValidationError
-
-    from app.modules.catalog.maps.schemas import BasemapConfig
-
     for value in ("red", "#abc", "#1234567", "javascript:alert(1)"):
         with pytest.raises(ValidationError):
             BasemapConfig(background_color=value)
@@ -462,8 +445,6 @@ class TestListMaps:
     async def test_list_maps_as_admin(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """GET /maps/ as admin returns maps with total."""
-        # Create a map to ensure at least one exists
         await _create_map(client, admin_auth_header)
 
         resp = await client.get("/maps/", headers=admin_auth_header)
@@ -476,8 +457,6 @@ class TestListMaps:
     async def test_list_maps_as_editor_sees_own(
         self, client: AsyncClient, editor_auth_header: dict
     ):
-        """GET /maps/ as editor returns only their own maps."""
-        # Create a map as editor
         created = await _create_map(client, editor_auth_header, "Editor Own Map")
 
         resp = await client.get("/maps/", headers=editor_auth_header)
@@ -487,14 +466,12 @@ class TestListMaps:
         assert created["id"] in map_ids
 
     async def test_list_maps_unauthenticated(self, client: AsyncClient):
-        """GET /maps/ without auth returns 200 (public maps only)."""
         resp = await client.get("/maps/")
         assert resp.status_code == 200
 
     async def test_list_maps_pagination(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """GET /maps/?limit=1 returns at most 1 map."""
         await _create_map(client, admin_auth_header)
         await _create_map(client, admin_auth_header)
 
@@ -512,7 +489,6 @@ class TestListMaps:
 
 class TestGetMap:
     async def test_get_map_success(self, client: AsyncClient, admin_auth_header: dict):
-        """GET /maps/{id} returns the map with layers."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -526,12 +502,10 @@ class TestGetMap:
     async def test_get_map_not_found(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """GET /maps/{random_uuid} returns 404."""
         resp = await client.get(f"/maps/{uuid.uuid4()}", headers=admin_auth_header)
         assert resp.status_code == 404
 
     async def test_get_map_unauthenticated(self, client: AsyncClient):
-        """GET /maps/{id} without auth returns 404 (anonymous access allowed, map not found)."""
         resp = await client.get(f"/maps/{uuid.uuid4()}")
         assert resp.status_code == 404
 

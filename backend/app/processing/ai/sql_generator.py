@@ -84,7 +84,6 @@ def build_sql_schema_context(
     Returns:
         DDL string with all table definitions separated by blank lines.
     """
-    # Check cache
     cache_key = _schema_cache_key(layers, map_id)
     now = time.monotonic()
     cached = _schema_cache.get(cache_key)
@@ -103,7 +102,6 @@ def build_sql_schema_context(
         if len(cols) > _MAX_COLUMNS:
             col_defs.append(f"  -- ... and {len(cols) - _MAX_COLUMNS} more columns")
 
-        # Add geom_4326 column if the layer has geometry
         if layer.geometry_type:
             geom_type_spec = layer.geometry_type
             col_defs.append(f"  geom_4326 geometry({geom_type_spec}, 4326)")
@@ -145,7 +143,6 @@ def build_sql_schema_context(
 
     result = "\n\n".join(parts)
 
-    # Store in cache (evict oldest if full)
     if len(_schema_cache) >= _SCHEMA_CACHE_MAX:
         oldest_key = min(_schema_cache, key=lambda k: _schema_cache[k][0])
         del _schema_cache[oldest_key]

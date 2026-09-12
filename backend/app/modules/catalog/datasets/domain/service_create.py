@@ -1,4 +1,4 @@
-"""Dataset creation paths: empty + materialized (extracted from service.py — Phase 224)."""
+"""Dataset creation paths for empty and materialized datasets."""
 
 from __future__ import annotations
 

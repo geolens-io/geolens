@@ -1,4 +1,4 @@
-"""Dataset analysis endpoints: parameterized PostGIS operations (M4)."""
+"""Dataset analysis endpoints for parameterized PostGIS operations."""
 
 import re
 import uuid

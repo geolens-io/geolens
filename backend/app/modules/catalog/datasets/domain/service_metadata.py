@@ -1,4 +1,4 @@
-"""Dataset metadata + attribute operations (extracted from service.py — Phase 224)."""
+"""Dataset metadata and attribute operations."""
 
 from __future__ import annotations
 

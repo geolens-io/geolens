@@ -20,20 +20,15 @@ from app.modules.catalog.datasets.domain.models import (
 )
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 
 async def get_record(session: AsyncSession, record_id: uuid.UUID) -> Record | None:
-    """Fetch a record by ID."""
     result = await session.execute(select(Record).where(Record.id == record_id))
     return result.scalar_one_or_none()
 
 
-# ---------------------------------------------------------------------------
 # Localized record text
-# ---------------------------------------------------------------------------
 
 
 async def list_translations(
@@ -102,9 +97,7 @@ async def delete_translation(
     await session.flush()
 
 
-# ---------------------------------------------------------------------------
 # Contacts
-# ---------------------------------------------------------------------------
 
 
 async def list_contacts(
@@ -215,9 +208,7 @@ async def delete_contact(
     await session.flush()
 
 
-# ---------------------------------------------------------------------------
 # Keywords
-# ---------------------------------------------------------------------------
 
 
 async def list_keywords(
@@ -305,9 +296,7 @@ async def delete_keyword(
     await session.flush()
 
 
-# ---------------------------------------------------------------------------
 # Distributions
-# ---------------------------------------------------------------------------
 
 
 async def record_publication_version(
@@ -546,9 +535,7 @@ async def _restore_generated_primary(
     return None
 
 
-# ---------------------------------------------------------------------------
 # Distribution generation
-# ---------------------------------------------------------------------------
 
 # Standard distribution templates: (distribution_type, format, url_template, title, protocol, media_type, is_primary)
 _DISTRIBUTION_TEMPLATES = [

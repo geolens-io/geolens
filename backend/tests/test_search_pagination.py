@@ -159,7 +159,6 @@ async def test_pagination_no_dupes_no_drops_across_branches(
     tied_datasets: dict,
     sort_by: str,
 ):
-    """Paging tied rows yields every id exactly once for every sort branch."""
     expected = {str(ds.id) for ds in tied_datasets["datasets"]}
     keyword_tag = tied_datasets["keyword_tag"]
 
@@ -172,9 +171,7 @@ async def test_pagination_no_dupes_no_drops_across_branches(
     )
 
     seen = [pid for pid in paged if pid in expected]
-    # No duplicates across pages.
     assert len(seen) == len(set(seen)), f"duplicate ids paging sort_by={sort_by}"
-    # Full coverage -- no dropped rows.
     assert set(seen) == expected, f"missing/extra ids paging sort_by={sort_by}"
 
 
@@ -189,7 +186,6 @@ async def test_pagination_order_is_stable_across_runs(
     tied_datasets: dict,
     sort_by: str,
 ):
-    """The full paged order is identical across two independent runs."""
     expected = {str(ds.id) for ds in tied_datasets["datasets"]}
     keyword_tag = tied_datasets["keyword_tag"]
 

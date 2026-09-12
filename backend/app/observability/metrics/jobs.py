@@ -47,22 +47,17 @@ staging_orphans_deleted_total = Counter(
     "Staging objects deleted for having no ingest-job row tracking them",
 )
 
-# fix(#1778): the delta snapshot this module used to keep is gone with
-# the last counter branch that read it. NOTE(#655): the first cycle
-# after boot seeded the counters with historical row counts; nothing
-# seeds them now, since neither counter derives from a row count.
-
-# Queues whose gauge children have been set at least once — zeroed (not
-# removed) when their todo/doing rows disappear from a cycle. fix(#655)
+# Queues whose gauge children have been set at least once. Their gauges are
+# zeroed, rather than removed, when no todo/doing rows remain.
 _known_queues: set[str] = set()
 
 
 async def _refresh_job_metrics() -> None:
     """Run one metrics collection cycle (no loop, no sleep).
 
-    Queries procrastinate_jobs for status counts grouped by queue and
-    updates the two gauges. fix(#1778): gauges only — both counters are
-    incremented at the terminal transition, in platform/jobs/worker.py.
+    Queries procrastinate_jobs for status counts grouped by queue and updates
+    the two gauges. Terminal counters are incremented at the transition in
+    platform/jobs/worker.py.
     """
     from app.core.db import engine
 
@@ -103,8 +98,7 @@ async def _refresh_job_metrics() -> None:
             # by the worker middleware and stalled-job sweep in
             # platform/jobs/worker.py, where nothing goes stale.
 
-        # fix(#655): zero gauges for previously seen queues with no todo/doing
-        # rows this cycle — they used to freeze at their last non-zero value
+        # Zero gauges for previously seen queues with no matching rows this cycle.
         for q in _known_queues - seen_todo:
             jobs_queue_depth.labels(queue=q).set(0)
         for q in _known_queues - seen_doing:

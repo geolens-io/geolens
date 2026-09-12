@@ -60,20 +60,20 @@ class TestGeoToPixel:
 
 class TestComputePointRadius:
     def test_small_dataset_gets_large_points(self):
-        assert _compute_point_radius(10, 256) == 6.0
-        assert _compute_point_radius(50, 256) == 6.0
+        assert _compute_point_radius(10) == 6.0
+        assert _compute_point_radius(50) == 6.0
 
     def test_medium_dataset_gets_medium_points(self):
-        assert _compute_point_radius(51, 256) == 4.5
-        assert _compute_point_radius(200, 256) == 4.5
+        assert _compute_point_radius(51) == 4.5
+        assert _compute_point_radius(200) == 4.5
 
     def test_large_dataset_gets_small_points(self):
-        assert _compute_point_radius(201, 256) == 3.0
-        assert _compute_point_radius(1000, 256) == 3.0
+        assert _compute_point_radius(201) == 3.0
+        assert _compute_point_radius(1000) == 3.0
 
     def test_huge_dataset_gets_smallest_points(self):
-        assert _compute_point_radius(1001, 256) == 2.0
-        assert _compute_point_radius(1_000_000, 256) == 2.0
+        assert _compute_point_radius(1001) == 2.0
+        assert _compute_point_radius(1_000_000) == 2.0
 
 
 class TestBlankCanvas:

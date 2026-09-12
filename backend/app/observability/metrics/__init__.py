@@ -245,7 +245,7 @@ def _consolidate_dead_cumulative_metric_files() -> None:
 
 
 def _sweep_dead_worker_metrics_once() -> None:
-    """Run one reap pass (no loop, no sleep) -- split out for tests."""
+    """Run one metrics-file reap pass."""
     if "PROMETHEUS_MULTIPROC_DIR" not in os.environ:
         return
     from prometheus_client import multiprocess

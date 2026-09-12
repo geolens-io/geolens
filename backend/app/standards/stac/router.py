@@ -279,7 +279,6 @@ async def _dataset_to_stac_item(
     """
     record = dataset.record
 
-    # Build OGC record (base representation)
     ogc_record = dataset_to_ogc_record(
         dataset,
         public_api_url,
@@ -657,7 +656,6 @@ async def get_collections(
     # private-but-published rasters, matching the item-body visibility gate.
     user_roles = await _resolve_roles(db, user)
 
-    # Fetch all collections
     coll_result = await db.execute(select(Collection))
     collections = coll_result.scalars().all()
 
@@ -1226,7 +1224,6 @@ async def get_collection_item(
         db, collection_id, user, user_roles
     )
 
-    # Fetch published raster/VRT dataset within this collection
     stmt = _base_published_raster_query(user, user_roles).where(
         Dataset.id == item_id,
         collection_scope,
@@ -1293,7 +1290,6 @@ def _build_search_filters(
     *,
     bbox: str | list[float] | None = None,
     intersects: str | dict | None = None,
-    datetime_str: str | None = None,
     ids: str | list[str] | None = None,
     collections: str | list[str] | None = None,
 ) -> tuple[list, bool]:
@@ -1396,7 +1392,6 @@ def _build_search_links(
     stac_api_url: str,
     *,
     matched: int,
-    returned: int,
     offset: int,
     limit: int,
     bbox: str | list[float] | None = None,
@@ -1477,11 +1472,9 @@ async def _execute_search(
     Parameters accept both string (from GET query params) and native types
     (from POST JSON body) to avoid unnecessary serialization round-trips.
     """
-    # Build filters from search parameters
     filters, ids_empty = _build_search_filters(
         bbox=bbox,
         intersects=intersects,
-        datetime_str=datetime_str,
         ids=ids,
         collections=collections,
     )
@@ -1508,7 +1501,6 @@ async def _execute_search(
     for f in filters:
         stmt = stmt.where(f)
 
-    # Filter by datetime
     if datetime_str:
         stmt = _apply_datetime_filter(stmt, datetime_str)
 
@@ -1518,7 +1510,6 @@ async def _execute_search(
     )
     total = (await db.execute(count_stmt)).scalar() or 0
 
-    # Apply pagination
     # fix(#1778): same missing-ORDER-BY hazard as get_collection_items -- add
     # a deterministic tiebreaker before paging.
     stmt = stmt.order_by(Record.created_at.desc(), Dataset.id.desc())
@@ -1526,7 +1517,6 @@ async def _execute_search(
     result = await db.execute(stmt)
     datasets = result.unique().scalars().all()
 
-    # Fetch asset rows, raster metadata, and collection membership concurrently
     ds_ids = [d.id for d in datasets]
 
     async def _assets():
@@ -1586,7 +1576,6 @@ async def _execute_search(
         db, [d.record for d in datasets], user, user_roles or set()
     )
 
-    # Convert to STAC Items
     features = []
     for dataset in datasets:
         item = await _dataset_to_stac_item(
@@ -1607,11 +1596,9 @@ async def _execute_search(
         )
         features.append(item)
 
-    # Build links
     links = _build_search_links(
         stac_api_url,
         matched=total,
-        returned=len(features),
         offset=offset,
         limit=limit,
         bbox=bbox,
@@ -1846,20 +1833,19 @@ def _apply_datetime_filter(stmt, datetime_str: str):
                 | (Record.temporal_start.is_(None) & Record.temporal_end.isnot(None))
                 | (null_temporal & (Record.created_at < end + timedelta(days=1)))
             )
-    else:
+    elif start is not None:
         # Single instant (day-granular) — match records whose temporal range
         # contains it. Null-temporal records advertise datetime=created_at, so
         # they match when created_at falls anywhere on the requested day.
-        if start is not None:
-            range_contains = (
-                (Record.temporal_start <= start) | (Record.temporal_start.is_(None))
-            ) & ((Record.temporal_end >= start) | (Record.temporal_end.is_(None)))
-            stmt = stmt.where(
-                (range_contains & ~null_temporal)
-                | (
-                    null_temporal
-                    & (Record.created_at >= start)
-                    & (Record.created_at < start + timedelta(days=1))
-                )
+        range_contains = (
+            (Record.temporal_start <= start) | (Record.temporal_start.is_(None))
+        ) & ((Record.temporal_end >= start) | (Record.temporal_end.is_(None)))
+        stmt = stmt.where(
+            (range_contains & ~null_temporal)
+            | (
+                null_temporal
+                & (Record.created_at >= start)
+                & (Record.created_at < start + timedelta(days=1))
             )
+        )
     return stmt

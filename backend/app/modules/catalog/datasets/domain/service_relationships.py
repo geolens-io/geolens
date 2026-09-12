@@ -1,4 +1,4 @@
-"""Dataset relationship operations (extracted from service.py — Phase 224)."""
+"""Dataset relationship operations."""
 
 from __future__ import annotations
 

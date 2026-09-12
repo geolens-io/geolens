@@ -44,74 +44,28 @@ _log = logging.getLogger("alembic.env")
 
 
 def _discover_migration_paths() -> list[str]:
-    """Discover additional migration version directories from plugins.
+    """Return migration directories from installed plugins.
 
-    GAP-013: this discovery path is load-bearing for enterprise deployments —
-    a dropped enterprise entry point silently omits e001/e002 from
-    ``version_locations``, which later surfaces as an unexplained
-    ``Can't locate revision 'e002_add_saml_columns'`` (existing enterprise DB)
-    or a SAML ``UndefinedColumn`` at login (fresh enterprise DB).
-
-    fix(#1665): ANY failure of an enumerated entry point raises. "Overlay not
-    installed" is represented by the entry-point group being EMPTY, not by an
-    entry point that fails — ``entry_points()`` only enumerates what an
-    installed distribution declared, so a Community install never enters the
-    loop body at all. (Verified: a stock OSS container reports
-    ``entry_points(group="geolens.migrations") == []``.)
-
-    That is the correction this function needed. It previously read a
-    ``ModuleNotFoundError`` / ``ImportError`` from ``ep.load()`` as "the overlay
-    package is simply not installed" and continued silently, and read the two
-    broken classes below as merely worth an ``ERROR`` log:
-
-    - a non-import failure of ``ep.load()`` (bad editable install, import-time
-      error in the overlay module);
-    - any exception from CALLING the loaded path provider — including an
-      ``ImportError`` from a missing submodule inside it (Codex PR #250 review).
-
-    All three left that overlay's revisions out of ``version_locations``.
-    Alembic then computed heads over an incomplete graph and ``upgrade heads``
-    exited 0 having skipped a whole chain — including the RLS policies an
-    overlay's migrations own. Deployment pipelines gate on that exit code, so a
-    partial schema was reported as a successful migration. An ERROR log is not
-    enough when the process goes on to claim success.
-
-    The lenient first branch was the subtlest of the three: a missing submodule
-    or dependency inside the overlay's own module surfaces as
-    ``ModuleNotFoundError`` from ``ep.load()``, which is indistinguishable at
-    that point from the module being absent — so a broken overlay was skipped
-    without even an ``ERROR``. Treating the group's emptiness as the signal
-    removes the need to tell those apart.
-
-    The ``GEOLENS_EDITION=enterprise`` guard below does not cover any of this:
-    it fires only when NO paths were discovered at all, so a broken overlay
-    alongside a working one passed straight through it.
+    fix(#1665): an empty entry-point group means no overlay is installed.
+    Any installed provider failure must abort migration to prevent a
+    successful exit over an incomplete schema.
     """
     paths = []
     for ep in iter_entry_points(group="geolens.migrations"):
-        # Reaching this body at all means a distribution DECLARED the entry
-        # point, so the overlay IS installed. A Community install has an empty
-        # group and never gets here — which is why every failure below refuses
-        # to migrate rather than being read as "overlay absent".
-        #
-        # Step 1 — import the entry point.
         try:
             fn = ep.load()
-        except Exception as exc:
+        except Exception as exc:  # broad: abort on any overlay failure.
             raise RuntimeError(
                 f"geolens.migrations entry point {getattr(ep, 'name', ep)!r} is "
                 "installed but failed to import; refusing to migrate with an "
                 "incomplete version_locations set"
             ) from exc
-        # Step 2 — load() succeeded. Any failure calling its path provider —
-        # incl. an ImportError from a missing submodule inside it — is likewise
-        # a broken overlay.
         try:
             if callable(fn):
                 for p in fn():
                     if pathlib.Path(p).is_dir():
                         paths.append(p)
-        except Exception as exc:
+        except Exception as exc:  # broad: abort on any overlay failure.
             raise RuntimeError(
                 f"geolens.migrations entry point {getattr(ep, 'name', ep)!r} is "
                 "installed but its migration-path provider failed; refusing to "
@@ -121,41 +75,18 @@ def _discover_migration_paths() -> list[str]:
 
 
 def _propagate_extra_paths_to_live_script(live_script, extra_paths) -> None:
-    """MIG-04: propagate the discovered overlay version dirs onto the LIVE
-    ScriptDirectory the running command already constructed.
+    """Add overlay paths to the existing ScriptDirectory and rebuild its map.
 
-    alembic's CLI builds ``ScriptDirectory.from_config(config)`` ONCE, then
-    runs this env.py via ``script.run_env()``. The
-    ``config.set_main_option(...)`` call at the call site mutates the Config
-    AFTER that ScriptDirectory was built, so the upgrade walk (which is
-    driven by the already-constructed ScriptDirectory) never sees the
-    enterprise version dirs — ``alembic upgrade heads`` would silently apply
-    ONLY the core head and SKIP the enterprise e-chain (e001/e002), leaving
-    SAML columns absent on a GEOLENS_EDITION=enterprise deployment. (The
-    conftest test harness sidesteps this by setting version_locations on the
-    Config BEFORE ``command.upgrade``; the production CLI path cannot.)
+    The CLI creates this object before env.py runs, so changing Config alone
+    leaves the live revision graph unchanged. Preserve the core versions path.
 
-    We refresh the live ScriptDirectory's version_locations and rebuild its
-    RevisionMap so the heads-plural walk picks up the enterprise branch.
-
-    fix(#1778): this used to log an ERROR and let the caller fall through to
-    ``run_migrations_online()``, exiting 0 — the exact anti-pattern the
-    GAP-013 docstring above corrected for ``_discover_migration_paths``. This
-    function only ever runs when ``extra_paths`` is non-empty, i.e. an
-    overlay is definitely installed, so a failure here means its revisions
-    are unreachable from the live upgrade walk — raise rather than let the
-    run report success over an incomplete schema.
+    fix(#1778): propagation failure must abort migration; otherwise the CLI
+    can report success while skipping installed overlay revisions.
     """
     try:
         from alembic.script import revision as _alembic_revision
 
-        # The default ScriptDirectory derives its core versions dir IMPLICITLY
-        # from `script_location` (alembic/versions) and leaves
-        # `version_locations` EMPTY. Seeding only the enterprise paths would
-        # therefore DROP the core revisions (e001's down_revision
-        # `0002_procrastinate` would go missing → KeyError). Seed the base
-        # versions dir explicitly alongside the overlay paths so BOTH chains
-        # are walked.
+        # An empty version_locations uses the implicit core versions directory.
         existing = list(getattr(live_script, "version_locations", []) or [])
         if not existing:
             existing = [str(pathlib.Path(live_script.dir) / "versions")]
@@ -163,13 +94,10 @@ def _propagate_extra_paths_to_live_script(live_script, extra_paths) -> None:
             if p not in existing:
                 existing.append(p)
         live_script.version_locations = existing
-        # Rebuild the memoized revision map so the enterprise revisions are
-        # walked (RevisionMap lazily reads version_locations via the bound
-        # _load_revisions callable on the same ScriptDirectory instance).
         live_script.revision_map = _alembic_revision.RevisionMap(
             live_script._load_revisions
         )
-    except Exception as exc:
+    except Exception as exc:  # broad: abort on any overlay failure.
         raise RuntimeError(
             "MIG-04: failed to propagate enterprise version dirs onto the "
             "live ScriptDirectory — 'alembic upgrade heads' would silently "
@@ -237,7 +165,7 @@ if _extra_paths:
     # (now-augmented) Config directly, so there is nothing live to patch.
     try:
         _live_script = context.script  # the EnvironmentContext's ScriptDirectory
-    except Exception:
+    except Exception:  # broad: offline commands may have no active context.
         _live_script = None
     if _live_script is not None:
         _propagate_extra_paths_to_live_script(_live_script, _extra_paths)
@@ -253,32 +181,14 @@ def include_name(name, type_, parent_names):
 
 
 def include_object(obj, name, type_, reflected, compare_to):
-    """Skip procrastinate-managed objects and the runtime-built HNSW index.
+    """Exclude objects managed outside SQLAlchemy from autogenerate.
 
-    Procrastinate's tables, types, indexes, sequences, and triggers are created
-    via raw SQL in ``0002_procrastinate.py`` and are not declared as SQLAlchemy
-    models. Without this filter, ``alembic check`` and autogenerate diff produce
-    false-positive ``remove_table`` / ``remove_index`` ops because the metadata
-    lacks them.
+    Procrastinate creates its objects through raw SQL. The dimension-dependent
+    HNSW index is built at runtime. Neither appears in model metadata, so
+    comparing them would emit incorrect removal operations.
 
-    ``ix_record_embeddings_hnsw`` is a pgvector HNSW index created and dropped
-    at runtime by ``embeddings/service.py`` (``rebuild_embedding_column``) once
-    an embedding dimension is configured. It cannot be a static model index —
-    the ``embedding`` column starts dimensionless — so it is intentionally
-    absent from the metadata. Without skipping it, autogenerate emits a phantom
-    ``remove_index`` whenever the index exists in the DB but not the model; under
-    ``pytest -n4`` a sibling test that built it on the shared worker DB before
-    ``alembic check`` ran turned this into a high-rate flake in
-    ``test_alembic_check_no_drift``.
-
-    fix(#435): the four ``oauth_providers`` SAML columns used to be excluded here
-    on OSS-only deployments, because only the enterprise overlay's
-    ``e002_add_saml_columns`` created them and autogenerate reported four phantom
-    ``add_column`` ops. Core migration ``0008_oauth_saml_columns`` now creates them
-    unconditionally (``ADD COLUMN IF NOT EXISTS``), so an OSS database at head has
-    them for real. The filter had become a blind spot: dropping or retyping a
-    now-core-owned column still passed ``alembic check``. See migration-audit H-21
-    for the original rationale.
+    fix(#435): SAML columns belong to core migration 0008 and must remain
+    visible to drift detection, including on Community deployments.
     """
     if name and name.startswith("procrastinate_"):
         return False

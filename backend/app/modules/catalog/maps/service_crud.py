@@ -411,7 +411,6 @@ async def list_maps(
     def _apply_vis_filter(stmt: Select) -> Select:
         return _apply_map_visibility_filter(stmt, user_id, is_admin)
 
-    # Build search/visibility filters (applied to both count and data queries)
     def _apply_extra_filters(stmt: Select) -> Select:
         if search:
             # SEC-FU-07 (sec-audit-20260519.md + WR-01): escape \, %, _ via
@@ -433,7 +432,6 @@ async def list_maps(
             stmt = stmt.where(Map.visibility == visibility)
         return stmt
 
-    # Resolve sort column
     sort_column_map = {
         "name": Map.name,
         "created_at": Map.created_at,
@@ -442,7 +440,6 @@ async def list_maps(
     col = sort_column_map.get(sort_by, Map.updated_at)
     order_clause = col.asc() if sort_dir == "asc" else col.desc()
 
-    # Total count (with RBAC + search/visibility filters)
     count_base = select(func.count()).select_from(Map)
     count_base = _apply_vis_filter(count_base)
     count_base = _apply_extra_filters(count_base)
@@ -660,7 +657,6 @@ async def duplicate_map(
 
     fork_name = await _generate_fork_name(session, source.name, user.id)
 
-    # Create new map - always private, no thumbnail, track lineage
     new_map = Map(
         name=fork_name,
         description=source.description,

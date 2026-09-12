@@ -131,12 +131,6 @@ def _classify_tenant_host(host: str) -> _TenantHost:
     return _TenantHost(True, label)
 
 
-def _extract_subdomain(host: str) -> str | None:
-    """Return a tenant slug only from an explicitly trusted Host suffix."""
-    classified = _classify_tenant_host(host)
-    return classified.signal if classified.trusted else None
-
-
 def _extract_jwt_tenant_claim(authorization: str) -> str | None:
     """Return the tenant UUID from a verified GeoLens access token.
 

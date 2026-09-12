@@ -1,4 +1,4 @@
-"""Dataset read-side queries: lookup, list, detail, rows (extracted from service.py — Phase 224)."""
+"""Dataset read queries for lookup, listing, details, and rows."""
 
 from __future__ import annotations
 

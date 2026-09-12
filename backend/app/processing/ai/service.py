@@ -715,7 +715,6 @@ def _build_tool_executor(
     port: "ProcessingPort",
 ) -> "Callable[[str, dict], Awaitable[dict]]":
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
-        """Dispatch an AI tool call to the appropriate handler and return the result."""
         if tool_name == "search_datasets":
             return {
                 "results": await _execute_search_tool(
@@ -727,7 +726,7 @@ def _build_tool_executor(
                     port=port,
                 )
             }
-        elif tool_name == "get_dataset_details":
+        if tool_name == "get_dataset_details":
             return await _execute_get_dataset_details(
                 session,
                 user,

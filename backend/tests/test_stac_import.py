@@ -125,14 +125,12 @@ STAC_SEARCH_RESULTS = {
 
 @pytest.fixture
 def mock_stac_ssrf():
-    """Patch SSRF validation on STAC router to allow all URLs."""
     with patch("app.modules.catalog.sources.stac_router.validate_url_for_ssrf") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_stac_connect():
-    """Patch connect_stac_api to return canned landing page."""
     with patch(
         "app.modules.catalog.sources.stac_router.connect_stac_api",
         new_callable=AsyncMock,
@@ -149,7 +147,6 @@ def mock_stac_connect():
 
 @pytest.fixture
 def mock_stac_collections():
-    """Patch list_stac_collections to return canned collections."""
     with patch(
         "app.modules.catalog.sources.stac_router.list_stac_collections",
         new_callable=AsyncMock,
@@ -172,7 +169,6 @@ def mock_stac_collections():
 
 @pytest.fixture
 def mock_stac_search():
-    """Patch search_stac_items to return canned items."""
     with patch(
         "app.modules.catalog.sources.stac_router.search_stac_items",
         new_callable=AsyncMock,

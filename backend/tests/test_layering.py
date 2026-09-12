@@ -2398,169 +2398,13 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 }
 
 
-# fix(#435): each cap equals the file's current LOC, so these files can only shrink.
-# Every cap here used to carry 3-7% headroom, and each time a file grew into its cap
-# the cap was raised (five documented raises for tiles/router.py alone). That is how
-# "decomposition is queued" stayed true for a year while the routers grew past 2,000
-# lines.
-#
-# To add lines to a ratcheted file: remove lines from it, or decompose it into
-# sub-routers (per Phase 226 / Phase 238) and lower its cap in the same commit.
-# Lowering a cap is always fine. Raising one needs a written carve-out here.
-#
-# fix(#836): the dict is keyed by PATH, not filename, and no longer holds routers
-# only. The router-glob gate below scans `**/router.py`, so the largest backend
-# modules — ingest/metadata.py, ingest/tasks_common.py, maps/schemas.py,
-# api/main.py — were ungated simply because of their names, and ingest/router.py
-# sat a few lines under the 1500 default cliff where the next feature would trip
-# a gate its author had never seen. All five are now ratcheted exact.
-#
-# History of the previous caps, kept because it records why each file is large:
-#   maps/router.py    1610 → 1700 → 1800 → 1900. Phase 1047 bulk-delete, then PR #118
-#     builder polish took it to 2107; extracting _router_helpers.py brought it back.
-#     Icon/sprite assets and public sharing/export now live in composed sub-routers;
-#     media/layer mutation routes remain in the main router.
-#   search/router.py  1515 → 1600 → 1640 → 1700. OGC record metadata (#315), then the
-#     record_type/sort_by allowlist + to_filters() chokepoint (#317 A2). The OGC
-#     Records array-query contract and explicit GeoJSON response schemas add the
-#     final 21 lines after protocol helpers were extracted to records_protocol.py.
-#   standards/stac/router.py entered the allowlist at 1547 for the virtual
-#     unassigned Collection, deterministic multi-membership selection, and HTTP
-#     Link parity required by the 2026-07-12 compliance remediation.
-#   tiles/router.py   1500 → 1660 → 1850 → 1920 → 2050 → 2090 → 2329. fix(#1429) bought
-#     the generation dimension in the tile cache key: `_generation_table_key`, the
-#     dataset-id parameter threaded through `_cluster_cache_table_key`, and
-#     `_evict_dataset_meta` plus its listener registration, which is what stops a
-#     freed table name from serving its successor under the deleted dataset's
-#     visibility. Raster meta TTLCache
-#     (1176 PERF-002), SET LOCAL ROLE binding (1209-03 DP-02), cloud fairness/metering
-#     seams (1213-06), the cold-tier seam (1214-04), terrainrgb nodata (#186), and
-#     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
-#     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
-#     must update the overlay in lockstep.
-#   api/main.py 1846 -> 1883. fix(#1778 codex r2): +37 for
-#     `install_api_query_deadline` and the note under it. The query deadline
-#     moved off the `get_db` dependency onto the engine this process owns,
-#     because handlers open request-scoped sessions directly through
-#     `async_session()` in more than twenty modules -- `GET /stac/collections`
-#     runs three aggregates that way -- and a per-dependency binding covered
-#     none of them. Most of the addition is why it runs at import rather than
-#     in the lifespan (`do_connect` only fires for connections opened after
-#     registration), why the engine is late-bound (fix(#909)), and why the
-#     worker, which never imports this module, must stay excluded.
-#   api/main.py 1796 -> 1846. fix(#1778): +50 across two audit findings. The
-#     /health/live route (liveness, no dependency probes) and the paragraph
-#     saying why the container healthcheck and the frontend's depends_on had to
-#     stop targeting /health: it probes the cache, which the API is built to
-#     survive, so a Valkey outage marked the container unhealthy and took the
-#     UI down with it. The rest is the note on _rate_limit_handler explaining
-#     why it must stay a plain def -- slowapi's synchronous middleware silently
-#     discards a coroutine handler and answers the global rate limit with a
-#     bare {"error": ...} and no Retry-After, which is unreachable from any
-#     test that drives a decorated route.
-#   api/main.py 1635 -> 1750. fix(#1666): +115 for three OpenAPI post-processing
-#     passes, joining the four already here. `_normalize_validation_error_contract`
-#     replaces FastAPI's `HTTPValidationError` at every 422 with the problem+json
-#     `ProblemDetail` the app-wide handler actually returns, and
-#     `_drop_unreferenced_validation_models` removes the models once nothing
-#     references them — checked rather than popped, since a dangling `$ref`
-#     breaks SDK generation. `_repair_depends_bound_query_model` republishes the
-#     two `SearchQueryParams` fields that do not survive `Depends()` binding on
-#     `collection_items` (`keywords`, which FastAPI reads as a GET request body,
-#     and the `filter-lang` alias, which pydantic cannot name), copying them from
-#     the sibling operation that declares the same model correctly rather than
-#     restating them. Most of the addition is the rationale for why that route
-#     cannot use the query-parameter-model form the other one now does. The last
-#     13 are the codex P2 round: the reference scan excludes only the candidate,
-#     never both models, so a retained `HTTPValidationError` cannot take the
-#     `ValidationError` it points at down with it.
-#   search/router.py 1468 -> 1483. fix(#1666): +15. `search_datasets_endpoint`
-#     moved to `Annotated[SearchQueryParams, Query()]`, which binds `keywords`
-#     and `filter-lang` natively and retired its raw-query-string reads; the
-#     shared `_checked_filter_lang` that replaced the two duplicated checks costs
-#     more lines than it saves, because the reason the field stays a bare `str`
-#     (a `Literal` would answer 422 where both routes contract to 400) has to be
-#     written down or the next reader tightens it. 1483 -> 1494 for the codex
-#     P2 round: `_resolve_filter_lang` reads the wire instead of the bound value,
-#     because neither binding form sees both accepted spellings, and it keeps
-#     honouring `cql2_filter_lang` — the name the PRE-FIX contract published, so
-#     the only one older generated SDKs send. Plus `_legacy_keywords_body`, which
-#     honours the GET-body `keywords` the pre-fix contract declared and older
-#     generated clients still send — accepted, never republished, since a request
-#     body on a GET is the defect being fixed.
-#   api/main.py 1499 -> 1558. fix(#1518 codex P2): +59 for
-#     `_document_unresolvable_credential_401`, which publishes the 401 that
-#     #1518 made normal runtime behaviour on every credential-aware anonymous
-#     operation. Most of it is the docstring explaining why it targets all
-#     THREE optional dependencies while `_normalize_security_contract` targets
-#     two: a 401 RESPONSE is not a security REQUIREMENT, so the no-security-
-#     schema STAC operations must gain the status without gaining the auth
-#     markers #430 removed.
-#   api/main.py 1558 -> 1573. fix(#1518 codex P2 round 4): +15 of `info.description`
-#     prose. The docs promised a 401 for every unresolvable credential while the
-#     capability lanes deliberately serve one, so the published contract was
-#     wrong about behaviour that is right. It states the three exceptions
-#     instead: logout, a capability that authorized on its own, and a shared-map
-#     link that no credential could have opened.
-#   tiles/router.py 2557 -> 2590. fix(#1518 codex P2 round 4): +33 for
-#     `_resolve_dataset_meta_for_serving`, which routes the vector tile lookup's
-#     404 through `capability_declined`, and for moving the clusterable gate
-#     below authorization. Both ran BEFORE `_authorize_vector_tile_request` —
-#     the tile URL carries a table NAME, so the id the capability needs does not
-#     exist until the lookup returns — and both answered a resource code to a
-#     caller whose credential was dead, while the raster route already answered
-#     401 for the same request shape.
-#   tiles/router.py 2528 -> 2557. fix(#1518 codex P2 round 3): +29 for routing
-#     every capability DECLINE through `capability_declined` instead of a bare
-#     raise, plus wrapping the raster meta lookup. The rule had been applied at
-#     one exit point per handler while each has several no-capability paths, so
-#     an invalid embed token and a missing signed template both answered 403
-#     with the credential rule never running. Going through the helper makes the
-#     ordering structural rather than positional, which is also what lets
-#     test_capability_declines_route_through_the_helper check it statically.
-#   tiles/router.py 2505 -> 2528. fix(#1518 codex P2): +23 for the post-loop
-#     capability pass in the batch token handler. The flag it replaces was only
-#     set on the fallback arm, so a batch of PUBLIC datasets never consulted the
-#     embed token at all and a valid capability was rejected. The pass runs only
-#     when nothing has already established the capability and stops at the first
-#     covered id, so it costs one cached validation on exactly the requests that
-#     need it and nothing on the ones that sent no token.
-#   tiles/router.py 2468 -> 2505. fix(#1518): +37 for the CAPABILITY obligation.
-#     `_authorize_vector_tile_request` and `_resolve_raster_access` are the two
-#     centralised decision points for the six tile handlers, so the rule is
-#     applied there rather than six times; most of the cost is re-indenting the
-#     raster auth arms under an explicit `else` so the control flow SHOWS that
-#     the rule fires only when neither capability authorized, instead of leaving
-#     a reader to infer it from an elif chain. The rest is the batch handler's
-#     post-loop application, which cannot be hoisted because the embed token
-#     authorizes a scope and the loop is what resolves it.
-#   tiles/router.py 2341 -> 2468. fix(#1451): +127 for `_assert_dataset_still_registered`
-#     and its single call site in `_acquire_and_serve_tile`. GH-1443 closed the
-#     half a caller could reach; direct DDL on the `data` schema can still put a
-#     relation under a deleted dataset's name, and the schema-wide default
-#     privilege makes it readable by the tile role with no grant of its own. The
-#     cached authorization is what would carry it, and the #1441 eviction is
-#     process-local, so the catalog gets asked once per tile the pool actually has
-#     to build — never on a cache hit, which is the round-trip _dataset_cache
-#     exists to avoid. Most of the lines are the docstring recording why the check
-#     sits on the pool path and not in _resolve_dataset_meta, since that placement
-#     is the whole difference between this and the option #1451 ruled out. The
-#     codex rounds added the placement itself, which took four and is now the bulk
-#     of the lines. The check sits in each endpoint on the first line past the
-#     byte-cache short-circuit: earlier and the hot path pays for it, later and it
-#     is below the COLD-02 seam (which would wake storage for a deleted dataset)
-#     and below the three bounded resources a tile request takes in order — an
-#     API-pool connection, a FAIR-01 permit, a tile-pool connection — where every
-#     position inverts a pair against a metadata-cache miss and stalls both paths.
-#     Every rejected position is recorded in the docstring, since re-deriving them
-#     is what the four rounds were.
-#   tiles/router.py 2329 -> 2341. fix(#1444): +12 of comment, no code. Both
-#     docstrings that GH-1429 left stating "a freed table name is immediately
-#     redrawable" as a live precondition now say GH-1443 removed it, and each
-#     says why its own mechanism stays anyway (the eviction buys freshness; the
-#     generation key is what keeps a name safe independently of how names are
-#     generated). Leaving them was the worse option — a reader who trusts a
-#     stale precondition unwinds the wrong defence.
+# fix(#435): caps equal current LOC; growth needs decomposition or a documented
+# exception. Lower the cap whenever its module shrinks.
+# fix(#836): full paths cover oversized modules beyond the router.py glob.
+# fix(#1451): tile acquisition order and cache guards are documented at their
+# implementation sites; preserve those invariants when decomposing modules.
+# The Enterprise overlay pins _check_cold_rehydrate to tiles/router.py in its
+# static checks, so moving that function requires a coordinated overlay change.
 _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1873): every cap below re-ratcheted to the file's exact LOC after
     # the tree-wide comment trim; no code moved.
@@ -4910,7 +4754,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # in this module now goes through. Cap 1277 -> 1278, exact.
     # refactor(#2026): +2 — the staging cluster's names now come from
     # `tasks_staging`, so this module's one import block became two.
-    "backend/app/processing/ingest/tasks_vector.py": 1280,
+    "backend/app/processing/ingest/tasks_vector.py": 1267,  # Lowered after readability cleanup.
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
@@ -5840,7 +5684,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # replacing the four nested async_session() pool checkouts in
     # get_collections with sequential reuse of the caller's own session.
     # Cap 1854 -> 1869, exact.
-    "backend/app/standards/stac/router.py": 1865,
+    "backend/app/standards/stac/router.py": 1851,  # Lowered after readability cleanup.
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.
@@ -6044,7 +5888,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # usage_accounting context manager, including the two single-round repair
     # calls that had no failure accounting at all, and the map prompt gained
     # the tool-result protocol that says what the fence markers mean.
-    "backend/app/processing/ai/service.py": 999,
+    "backend/app/processing/ai/service.py": 998,  # Lowered after readability cleanup.
     # fix(#1463): crossed the inclusion threshold. The growth is the vector-tile
     # protocol constants and the stale-label repair in generate_distributions,
     # plus the comment recording why the repair has to exist at all: migration
@@ -6068,7 +5912,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # exact.
     # fix(#2007): +17. The distributions endpoint reads the dataset counter a
     # stored tile template is republished at. Cap 883 -> 900, exact.
-    "backend/app/modules/catalog/records/service.py": 900,
+    "backend/app/modules/catalog/records/service.py": 887,  # Lowered after readability cleanup.
     # fix(#1528): crossed the inclusion threshold, and this is the file the
     # inclusion rule's own comment named as one of the two "routers-by-role the
     # glob's filename match cannot see ... watched by nothing until they cross
@@ -6406,7 +6250,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1560, exact.
     # fix(#1988): +1. The `# codeql[py/sql-injection]` marker above the
     # feature-update sink. Cap 1388 -> 1389, exact.
-    "backend/app/modules/catalog/features/service.py": 1389,
+    "backend/app/modules/catalog/features/service.py": 1386,  # Lowered after readability cleanup.
 }
 
 

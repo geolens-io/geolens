@@ -1,15 +1,7 @@
-"""The one definition of "this request is the liveness probe".
+"""Identify liveness requests before dependency-backed middleware runs.
 
-fix(#1778): ``/health/live`` lets an orchestrator ask whether the API
-process is alive without asking whether its dependencies are, so the
-request must not touch the DB, cache, or object storage — in
-multi_tenant mode a DB-backed middleware once turned a database outage
-into a ``403`` on the probe, the restart loop the split exists to
-prevent.
-
-The predicate lives here so a later DB-backed middleware has one
-obvious thing to call (``tests/test_health_liveness_split_1778.py``
-enforces it). Path matching is exact, not prefix-based:
+``/health/live`` reports whether the API process is alive without touching the
+database, cache, or object storage. Path matching is exact, not prefix-based:
 ``scope["path"]`` is ``/health/live`` directly or behind Nginx;
 ``/api/health/live`` is also accepted for an edge without that rewrite.
 """

@@ -2,11 +2,7 @@
 name = "geolens-backend"
 version = "1.19.1"
 description = "PostGIS-native GIS data catalog"
-# Docker image (Dockerfile) ships python:3.14-slim (see the Dockerfile FROM for
-# the exact patch pin) as the project's tested runtime.
-# requires-python>=3.13 is the backward-compat floor for adopters
-# running their own Python (CI matrix could expand to test 3.13.x — deferred
-# to a future test-coverage milestone). Per INF-15.
+# Dockerfile pins the tested runtime; 3.13 is the compatibility floor.
 requires-python = ">=3.13"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -36,12 +32,9 @@ dependencies = [
     "python-slugify>=8.0.4",
     "slowapi>=0.1.10",
     "boto3>=1.43.71",
-    # Azure Blob Storage provider (STOR-01 / Phase 1210). fix(#836): azure-identity
-    # was dropped — the provider only accepts string credentials (connection string,
-    # SAS token, or account key; see platform/storage/azure.py) and nothing imports
-    # azure.identity. Reintroduce it only alongside a real DefaultAzureCredential path.
+    # fix(#836): string credentials need no azure-identity dependency.
     "azure-storage-blob>=12.24.0",
-    # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
+    # In-memory tile cache when REDIS_URL is unset.
     "cachetools>=7.1.7",
     "redis>=7.4.1",
     "jsonschema>=4.19",
@@ -49,16 +42,10 @@ dependencies = [
     "rasterio>=1.5.1",
     "Pillow>=12.3.0",
     "numpy>=2.5.2",
-    # 8.0.0 lifts the starlette<1.0.0 cap (prior 7.x pinned <1.0.0), which was
-    # the sole blocker preventing starlette>=1.0.1 from resolving for the
-    # CVE-2026-48710 fix below.
+    # >=8 permits the patched Starlette dependency below.
     "prometheus-fastapi-instrumentator>=8.1.0",
     "authlib>=1.7.1",  # CVE-2026-44681 (GHSA-r95x-qfjj-fjj2) — OIDC Implicit/Hybrid open redirect, fixed in 1.6.12 / 1.7.1
     "python-multipart>=0.0.27",
-    # httpx: promoted from [dependency-groups].dev to prod (dep-audit 2026-06-02).
-    # Imported directly by 12 production modules (catalog source adapters,
-    # processing/ai/llm_loop.py, processing/tiles/router.py); previously resolved
-    # only transitively via fastapi[standard]. Pin keeps it a first-class dep.
     "httpx>=0.27",
     "sse-starlette>=3.4.8",
     "sqlglot>=30.17.0",
@@ -72,11 +59,7 @@ dependencies = [
     "urllib3>=2.7.0",
     # idna 3.15 patches a DoS in idna.encode() with crafted inputs (Dependabot #40 / CVE-2026-45409 / GHSA-65pc-fj4g-8rjx).
     "idna>=3.18",
-    # starlette 1.0.1 fixes "BadHost": missing Host-header validation that
-    # poisons request.url.path and can bypass path-based auth checks
-    # (CVE-2026-48710 / PYSEC-2026-161 / GHSA-86qp-5c8j-p5mr). Requires
-    # prometheus-fastapi-instrumentator>=8.0.0 above; FastAPI (>=0.46.0) and
-    # sse-starlette (>=0.49.1) already permit starlette 1.x.
+    # >=1.0.1 fixes Host-header validation (CVE-2026-48710 / PYSEC-2026-161).
     "starlette>=1.6.0",
     # GeoParquet export writer (processing/export/parquet.py). The Debian GDAL
     # build has no Arrow/Parquet driver, so exports are written via pyarrow.

@@ -746,7 +746,6 @@ async def get_collection_items(
             detail=f"Unsupported filter-crs: only {_CRS84_URI} is supported.",
         )
 
-    # Parse bbox
     bbox_parsed = None
     if bbox:
         try:
@@ -779,7 +778,6 @@ async def get_collection_items(
         k: v for k, v in request.query_params.items() if k not in ogc_reserved
     } or None
 
-    # Build allowed_columns set from dataset column_info for validation
     allowed_columns = None
     if dataset.column_info:
         allowed_columns = {col["name"] for col in dataset.column_info if "name" in col}
@@ -900,19 +898,16 @@ async def get_collection_items(
             )
         raise
 
-    # Convert rows to GeoJSON features
-    features = []
-    for row in page.rows:
-        features.append(
-            {
-                "type": "Feature",
-                "id": row["gid"],
-                "geometry": row.get("geometry"),
-                "properties": row.get("properties", {}),
-            }
-        )
+    features = [
+        {
+            "type": "Feature",
+            "id": row["gid"],
+            "geometry": row.get("geometry"),
+            "properties": row.get("properties", {}),
+        }
+        for row in page.rows
+    ]
 
-    # Build pagination links
     base_path = f"/collections/{dataset_id}/items"
     active_params: dict[str, str] = {}
     if bbox:

@@ -317,19 +317,6 @@ async def _write_service_import_progress(
         await session.commit()
 
 
-async def _count_service_import_rows(table_name: str) -> int:
-    from app.core import db as db_module
-
-    async with db_module.async_session() as session:
-        result = await session.execute(
-            text(
-                f"SELECT COUNT(*) FROM "
-                f"{_qtable(table_name, schema=_current_tenant_schema())}"
-            )
-        )
-        return int(result.scalar_one())
-
-
 async def _fetch_arcgis_import_page_info(
     source_url: str, layer_id: int | str | None, token: str | None
 ) -> tuple[int | None, int | None, bool, str | None]:

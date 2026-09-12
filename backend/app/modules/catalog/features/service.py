@@ -656,7 +656,6 @@ async def get_features_geojson_z(
         "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
     )
     row_source = await _projected_row_source(db, table_name, with_geometry=True)
-    # Fetch cap+1 to detect truncation without a separate COUNT query
     data_sql = f"SELECT {select_cols} FROM {row_source} t ORDER BY gid LIMIT :limit"
     result = await db.execute(text(data_sql).bindparams(limit=cap + 1))
     rows = [dict(row._mapping) for row in result.all()]
@@ -666,10 +665,8 @@ async def get_features_geojson_z(
         rows = rows[:cap]
 
     if not truncated:
-        # All features returned — row count is authoritative
         total_count = len(rows)
     elif cached_feature_count is not None:
-        # Use caller-supplied cached count to avoid extra query
         total_count = cached_feature_count
     else:
         count_sql = f"SELECT COUNT(*) FROM {get_catalog_port().quote_table(table_name)}"

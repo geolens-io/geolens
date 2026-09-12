@@ -111,7 +111,6 @@ async def get_dataset_rows_endpoint(
     Uses cursor-based pagination: pass ``after`` (gid) to fetch the next page.
     Supports column filtering via query params: ``filter[column_name]=value``.
     """
-    # Fetch dataset
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -119,10 +118,8 @@ async def get_dataset_rows_endpoint(
             detail="Dataset not found",
         )
 
-    # Visibility check
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    # Extract filter[col]=value params
     filters: dict[str, str] = {}
     for key, value in request.query_params.items():
         if key.startswith("filter[") and key.endswith("]") and value:
