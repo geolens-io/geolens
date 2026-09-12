@@ -7,6 +7,31 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Administrators can filter the user directory by one assigned role. The filter is applied before
+  pagination, remains in the page URL, and returns to the first page when changed. Password reset
+  is disabled with an explanation for identity-provider-only accounts, while local accounts that
+  also have a linked identity provider remain eligible. (#2067)
+
+### Fixed
+
+- Large uploads through the production frontend are streamed to the API instead of being copied
+  into the frontend container's 64 MiB temporary filesystem. The configured request-size limit
+  still rejects oversized bodies, and the API retains its bounded upload staging behavior. (#2064)
+- Reusing a rotated refresh credential after its concurrency grace period revokes that device's
+  session family, including concurrent rotation branches, without ending sessions on other
+  devices. A sign-in discarded after profile loading fails is revoked instead of remaining usable.
+  (#2065)
+- Late feature, attribute, schema, and metadata responses no longer overwrite newer edits after a
+  dataset or account change. Saving a dataset flushes the active multiline metadata field, failed
+  feature creation remains retryable, and record modification timestamps advance transactionally
+  when record metadata changes. (#2066)
+- Timestamp feature fields preserve unchanged database precision, convert browser-local values to
+  explicit instants for timezone-aware columns, and retain wall-clock values for columns without
+  timezones. Invalid daylight-saving gaps and non-finite numeric values are refused before they can
+  be saved as a different value. (#2066)
+
 ## [1.19.1] - 2026-09-12
 
 ### Fixed
