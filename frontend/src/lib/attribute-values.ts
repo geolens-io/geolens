@@ -76,7 +76,7 @@ function dateTimeLocalValue(
 ): string {
   const pad = (part: number) => String(part).padStart(2, '0');
   const minuteValue = [
-    year,
+    String(year).padStart(4, '0'),
     '-',
     pad(month),
     '-',

@@ -95,6 +95,23 @@ describe('coerceAttributeValue', () => {
 });
 
 describe('timestamp form values', () => {
+  it.each(['0001', '0099', '0999'])(
+    'keeps historical year %s visible in native datetime inputs and unchanged on save',
+    (year) => {
+      for (const colType of ['timestamp with time zone', 'timestamp without time zone']) {
+        const suffix = colType === 'timestamp with time zone' ? 'Z' : '';
+        const original = `${year}-07-11T14:30:00${suffix}`;
+        const local = formatAttributeInputValue(original, colType);
+        const input = document.createElement('input');
+        input.type = 'datetime-local';
+        input.value = local;
+        expect(input.value).not.toBe('');
+        expect(input.value.startsWith(`${year}-`)).toBe(true);
+        expect(serializeAttributeInputValue(local, colType, original)).toBe(original);
+      }
+    },
+  );
+
   it('displays aware instants in browser-local time and submits changed values as instants', () => {
     expect(formatAttributeInputValue('2026-07-11T14:30:00Z', 'timestamp with time zone'))
       .toBe('2026-07-11T10:30');
