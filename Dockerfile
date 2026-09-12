@@ -1,29 +1,35 @@
 # syntax=docker/dockerfile:1
 
 # ==============================================================================
-# Stage 1: backend-builder — uv sync, all build-time prep
+# Stage 1: backend-system — patched OS packages shared by build and runtime
 # ==============================================================================
-# Build-time deps (apt cache, intermediate uv-sync state) are confined to this
-# stage. The runtime layer rebuilds from a clean python:3.14-slim base and
-# only copies the resolved /app venv from this builder.
-FROM python:3.14.6-slim AS backend-builder
+# Dependabot bumps this concrete patch pin. Both backend stages inherit this
+# system layer so they use the same patched runtime libraries.
+# Security invariant: fail closed if the mirror cannot supply fixed Perl.
+FROM python:3.14.7-slim AS backend-system
+
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
+    apt-get install -y --no-install-recommends \
+    gdal-bin \
+    libexpat1 \
+    xmlsec1 libxmlsec1-openssl \
+    && dpkg --compare-versions \
+        "$(dpkg-query -W -f='${Version}' perl-base)" \
+        ge '5.40.1-6+deb13u1' && \
+    rm -rf /var/lib/apt/lists/*
+
+# ==============================================================================
+# Stage 2: backend-builder — uv sync, all build-time prep
+# ==============================================================================
+# Build-time artifacts (uv cache and intermediate sync state) remain confined
+# to this stage. The runtime later copies only the resolved /app environment.
+FROM backend-system AS backend-builder
 
 # uv is build-time + runtime: see runtime-stage comment below for runtime rationale.
 # Aligned uv installer pin across builder + runtime stages.
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 
 WORKDIR /app
-
-# Refresh base image packages and install runtime deps the resolved venv needs
-# at install time (gdal-bin, libexpat1 for rasterio, libxmlsec1 for SAML).
-# These are reinstalled cleanly in the runtime stage; they're here so `uv sync`
-# can run native-extension build steps.
-RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
-    apt-get install -y --no-install-recommends \
-    gdal-bin \
-    libexpat1 \
-    xmlsec1 libxmlsec1-openssl \
-    && rm -rf /var/lib/apt/lists/*
 
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
@@ -98,11 +104,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     done
 
 # ==============================================================================
-# Stage 2: backend-base — clean python:3.14-slim runtime; venv from builder
+# Stage 3: backend-base — patched runtime; venv from builder
 # ==============================================================================
-# True multi-stage split: runtime starts from a fresh
-# python:3.14-slim base (no apt-cache layer from builder, no intermediate
-# uv-sync state). Only the resolved /app/.venv + code arrive via COPY --from.
+# True multi-stage split: runtime starts from backend-system, not the builder,
+# so no uv cache or intermediate sync state crosses into the runtime image.
+# Only the resolved /app/.venv + code arrive via COPY --from.
 #
 # Note: uv is kept in the runtime layer because the entrypoints and CMD use
 # `uv run --no-dev` to launch uvicorn/worker inside the project environment.
@@ -111,24 +117,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Dockerfile to install a locked wheel into this completed runtime image.
 # gcc/dev libs are still excluded from the runtime layer.
 #
-# Pin: see the `FROM python:3.14-slim` line below (Dependabot bumps the exact
+# Pin: see the `FROM python:3.14-slim` line above (Dependabot bumps the exact
 # patch, so this prose names only the minor). backend/pyproject.toml
 # requires-python>=3.13 for adopter flexibility; this image ships the pinned
 # 3.14-slim as the project's tested runtime.
 # See backend/pyproject.toml comment at requires-python for the matching note.
-FROM python:3.14.6-slim AS backend-base
+FROM backend-system AS backend-base
 
 # uv kept for `uv run --no-dev` launch pattern (entrypoints + CMD).
 # Aligned uv installer pin across builder + runtime stages.
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
-
-# Runtime apt deps — clean install on a fresh layer (no apt cache from builder).
-RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
-    apt-get install -y --no-install-recommends \
-    gdal-bin \
-    libexpat1 \
-    xmlsec1 libxmlsec1-openssl \
-    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user (shared by api and worker runtime targets).
 RUN groupadd --system --gid 1001 appgroup && \

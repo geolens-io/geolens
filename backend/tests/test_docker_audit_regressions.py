@@ -142,8 +142,35 @@ def test_docker_audit_matrix_resolver_pins_match_dockerfile_from_tags():
             f"{image} (resolved by dep-audit.yml) has no matching FROM line in Dockerfile"
         )
 
+    python_image = re.search(
+        r"^FROM (python:\S+) AS backend-system$", dockerfile_text, re.MULTILINE
+    )
+    assert python_image is not None
     report_only = [entry for entry in resolved if entry["enforce"] == "0"]
-    assert report_only == [{"image": "postgis/postgis:18-3.6", "enforce": "0"}]
+    assert report_only == [
+        {"image": python_image.group(1), "enforce": "0"},
+        {"image": "postgis/postgis:18-3.6", "enforce": "0"},
+    ]
+
+
+def test_python_system_audit_builds_and_enforces_patched_stage():
+    jobs = yaml.safe_load(DEP_AUDIT_WORKFLOW.read_text())["jobs"]
+    steps = jobs["python-system-audit"]["steps"]
+    build_step = next(step for step in steps if "run" in step)
+    scan_step = next(
+        step for step in steps if "aquasecurity/trivy-action" in step.get("uses", "")
+    )
+
+    assert "docker build --pull --no-cache" in build_step["run"]
+    assert "--target backend-system" in build_step["run"]
+    assert "--tag geolens-python-system:audit" in build_step["run"]
+    expected_scan_config = {
+        "image-ref": "geolens-python-system:audit",
+        "severity": "CRITICAL",
+        "exit-code": "1",
+        "ignore-unfixed": True,
+    }
+    assert expected_scan_config.items() <= scan_step["with"].items()
 
 
 def test_backend_runtime_does_not_recursively_chown_application_tree():

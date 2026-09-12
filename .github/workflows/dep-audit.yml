@@ -116,7 +116,7 @@ jobs:
               exit 1
             fi
           done
-          include=$(printf '[{"image":"%s","enforce":"1"},{"image":"%s","enforce":"1"},{"image":"%s","enforce":"1"},{"image":"postgis/postgis:18-3.6","enforce":"0"}]' \
+          include=$(printf '[{"image":"%s","enforce":"1"},{"image":"%s","enforce":"0"},{"image":"%s","enforce":"1"},{"image":"postgis/postgis:18-3.6","enforce":"0"}]' \
             "$node_image" "$python_image" "$nginx_image")
           echo "include=$include" >> "$GITHUB_OUTPUT"
 
@@ -128,11 +128,12 @@ jobs:
       fail-fast: false
       matrix:
         # `enforce: "1"` fails the job on a fixable CRITICAL CVE; `enforce: "0"`
-        # is report-only. The slim/alpine images we pin (node/python/nginx) are
-        # controllable — a CRITICAL there is actionable (bump the tag), so they
-        # ENFORCE; their tags come from the Dockerfile `FROM` lines via the
-        # resolve-docker-audit-matrix job above, so this can't drift out of
-        # sync. postgis/postgis:18-3.6 is an uncontrollable third-party fat
+        # is report-only. Node/nginx enforce their upstream base scans. Python
+        # reports upstream findings here and ENFORCES the upgraded backend-system
+        # stage in python-system-audit: even the newest Python patch tag can lag
+        # Debian security packages, which our shared OS stage installs.
+        # Tags come from Dockerfile FROM lines so the matrix cannot drift.
+        # postgis/postgis:18-3.6 is an uncontrollable third-party fat
         # Debian-13 image whose CRITICAL set is dominated by CVEs in baked-in Go
         # binaries that only the upstream maintainer can rebuild — and that set
         # shifts with every Trivy DB update. Gating on it would make CI red on
@@ -161,6 +162,26 @@ jobs:
           # Scoped, justified CVE suppressions only (see .trivyignore.yaml's
           # `vulnerabilities:` section). Trivy <0.71 does not auto-detect the YAML
           # ignore file, so point at it explicitly.
+          trivyignores: ".trivyignore.yaml"
+
+  python-system-audit:
+    name: Python OS layer scan (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Both backend builder and runtime inherit this exact OS layer. No cache
+      # ensures a successful scan includes the current Debian security packages.
+      - name: Build the shared patched Python OS layer
+        run: docker build --pull --no-cache --target backend-system --tag geolens-python-system:audit .
+      - name: Enforce fixable critical vulnerabilities in the patched layer
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: geolens-python-system:audit
+          format: "table"
+          severity: "CRITICAL"
+          exit-code: "1"
+          ignore-unfixed: true
           trivyignores: ".trivyignore.yaml"
 
   iac-scan:
