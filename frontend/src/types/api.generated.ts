@@ -341,7 +341,7 @@ export interface paths {
         };
         /**
          * List Users
-         * @description List all users with pagination and optional status/search/sort filter (admin only).
+         * @description List users with optional status, role, search, and sort filters (admin only).
          *
          *     `sort` and `order` are closed enums, so an unrecognised value is refused
          *     with a 422 and never reaches the query.
@@ -13707,6 +13707,11 @@ export interface components {
              * @description Assigned role names, e.g. ['admin', 'editor']
              */
             roles: string[];
+            /**
+             * Can Reset Password
+             * @description Whether an administrator can set a local password for this account. True for local accounts even when an identity provider is also linked.
+             */
+            can_reset_password: boolean;
             /** @description Per-user storage quota usage. Populated only on admin list responses; None when the caller did not load usage (e.g. /auth/me, single-user GET). */
             quota_usage?: components["schemas"]["UserQuotaUsage"] | null;
         };
@@ -15659,6 +15664,8 @@ export interface operations {
                 skip?: number;
                 limit?: number;
                 status?: string | null;
+                /** @description Assigned role membership to match. */
+                role?: ("admin" | "editor" | "viewer") | null;
                 search?: string | null;
                 /** @description Column to order by. Roles and storage are not sortable: roles is a many-to-many and storage is aggregated per page after the query. */
                 sort?: "username" | "email" | "status" | "last_login_at" | "created_at";

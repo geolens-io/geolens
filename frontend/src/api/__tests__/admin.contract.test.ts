@@ -37,8 +37,16 @@ function calledInit() {
 
 describe('admin api request contracts', () => {
   it('listUsers builds the query string and hits /admin/users/', async () => {
-    await admin.listUsers({ skip: 10, limit: 25, status: 'pending', search: 'ann' });
-    expect(calledUrl()).toBe('/admin/users/?skip=10&limit=25&status=pending&search=ann');
+    await admin.listUsers({
+      skip: 10,
+      limit: 25,
+      status: 'pending',
+      role: 'viewer',
+      search: 'ann',
+    });
+    expect(calledUrl()).toBe(
+      '/admin/users/?skip=10&limit=25&status=pending&role=viewer&search=ann',
+    );
     expect(calledInit()).toBeUndefined();
   });
 

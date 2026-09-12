@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import RefreshToken, User
+from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password
 
 
@@ -208,13 +209,21 @@ async def test_reset_password_422_for_an_identity_provider_account(
     test_db_session: AsyncSession,
 ):
     """An account with no local password credential is refused, not given one."""
-    user_id, _, _ = await _create_local_user(client, admin_auth_header)
+    user_id, username, _ = await _create_local_user(client, admin_auth_header)
     await test_db_session.execute(
         update(User)
         .where(User.id == uuid.UUID(user_id))
         .values(auth_provider="oauth", password_hash=None)
     )
     await test_db_session.commit()
+
+    listed = await client.get(
+        "/admin/users/",
+        params={"search": username},
+        headers=admin_auth_header,
+    )
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["users"][0]["can_reset_password"] is False
 
     resp = await client.post(
         f"/admin/users/{user_id}/reset-password/",
@@ -231,6 +240,49 @@ async def test_reset_password_422_for_an_identity_provider_account(
     password_hash, auth_provider = stored.one()
     assert password_hash is None
     assert auth_provider == "oauth"
+
+
+@pytest.mark.anyio
+async def test_linked_sso_does_not_disable_a_local_password_reset(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+):
+    user_id, username, _ = await _create_local_user(client, admin_auth_header)
+    suffix = uuid.uuid4().hex[:10]
+    provider = OAuthProvider(
+        slug=f"reset-linked-{suffix}",
+        display_name="Reset linked test provider",
+        provider_type="oidc",
+        client_id=f"reset-linked-client-{suffix}",
+        client_secret_encrypted=f"encrypted-reset-linked-{suffix}",
+    )
+    test_db_session.add(provider)
+    await test_db_session.flush()
+    test_db_session.add(
+        OAuthAccount(
+            provider_id=provider.id,
+            user_id=uuid.UUID(user_id),
+            subject=f"reset-linked-subject-{suffix}",
+        )
+    )
+    await test_db_session.commit()
+
+    listed = await client.get(
+        "/admin/users/",
+        params={"search": username},
+        headers=admin_auth_header,
+    )
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["users"][0]["can_reset_password"] is True
+
+    resp = await client.post(
+        f"/admin/users/{user_id}/reset-password/",
+        json={"password": _synthetic_password("linked")},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["can_reset_password"] is True
 
 
 @pytest.mark.anyio

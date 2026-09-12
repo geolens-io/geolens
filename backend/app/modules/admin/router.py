@@ -33,6 +33,7 @@ from app.modules.admin.schemas import (
     UserListResponse,
     UserNameItem,
     UserSortField,
+    RoleName,
     UserUpdate,
 )
 from app.modules.admin.service import (
@@ -94,6 +95,7 @@ def _user_response(user: User) -> UserResponse:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         roles=sorted(r.name for r in user.roles),
+        can_reset_password=user.auth_provider == "local",
     )
 
 
@@ -218,6 +220,9 @@ async def list_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     status_filter: str | None = Query(None, alias="status", max_length=50),
+    role: RoleName | None = Query(
+        None, description="Assigned role membership to match."
+    ),
     search: str | None = Query(None, max_length=200),
     sort: UserSortField = Query(
         "created_at",
@@ -229,7 +234,7 @@ async def list_users(
     order: SortDirection = Query("asc", description="Sort direction."),
     db: AsyncSession = Depends(get_db),
 ) -> UserListResponse:
-    """List all users with pagination and optional status/search/sort filter (admin only).
+    """List users with optional status, role, search, and sort filters (admin only).
 
     `sort` and `order` are closed enums, so an unrecognised value is refused
     with a 422 and never reaches the query.
@@ -239,6 +244,7 @@ async def list_users(
         skip=skip,
         limit=limit,
         status=status_filter,
+        role=role,
         search=search,
         sort=sort,
         order=order,
@@ -256,6 +262,7 @@ async def list_users(
             last_login_at=u.last_login_at,
             created_at=u.created_at,
             roles=sorted(r.name for r in u.roles),
+            can_reset_password=u.auth_provider == "local",
             quota_usage=usage_by_user[u.id],
         )
         for u in users

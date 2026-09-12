@@ -1004,6 +1004,7 @@ async def me(
         last_login_at=current_user.last_login_at,
         created_at=current_user.created_at,
         roles=sorted(roles),
+        can_reset_password=current_user.auth_provider == "local",
     )
 
 

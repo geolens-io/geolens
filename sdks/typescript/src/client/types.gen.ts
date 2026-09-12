@@ -11026,6 +11026,12 @@ export type UserResponse = {
      */
     roles: Array<string>;
     /**
+     * Can Reset Password
+     *
+     * Whether an administrator can set a local password for this account. True for local accounts even when an identity provider is also linked.
+     */
+    can_reset_password: boolean;
+    /**
      * Per-user storage quota usage. Populated only on admin list responses; None when the caller did not load usage (e.g. /auth/me, single-user GET).
      */
     quota_usage?: UserQuotaUsage | null;
@@ -12547,6 +12553,12 @@ export type ListUsersAdminUsersGetData = {
          * Status
          */
         status?: string | null;
+        /**
+         * Role
+         *
+         * Assigned role membership to match.
+         */
+        role?: 'admin' | 'editor' | 'viewer' | null;
         /**
          * Search
          */

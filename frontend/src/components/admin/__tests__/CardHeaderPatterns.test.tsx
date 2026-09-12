@@ -42,18 +42,20 @@ vi.mock('../ExportSplitButton', () => ({
 vi.mock('../FilterSelect', () => ({
   FilterSelect: ({
     label,
+    ariaLabel,
     value,
     onChange,
     options,
   }: {
     label: string;
+    ariaLabel?: string;
     value: string;
     onChange: (value: string) => void;
     options: { value: string; label: string }[];
   }) => (
     <label>
       {label}
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+      <select aria-label={label || ariaLabel} value={value} onChange={(event) => onChange(event.target.value)}>
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
@@ -241,6 +243,7 @@ describe('admin card header patterns', () => {
       last_login_at: null,
       created_at: '2026-01-01T00:00:00Z',
       roles: ['admin'],
+      can_reset_password: true,
       quota_usage: null,
     };
     useAuthStore.setState({ user: self });
@@ -260,5 +263,50 @@ describe('admin card header patterns', () => {
     expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Deactivate' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument();
+  });
+
+  it('uses the server capability to disable SSO-only password resets', async () => {
+    const localUser = {
+      id: '00000000-0000-0000-0000-000000000011',
+      username: 'local-user',
+      email: 'local@example.com',
+      is_active: true,
+      status: 'active',
+      last_login_at: null,
+      created_at: '2026-01-01T00:00:00Z',
+      roles: ['viewer'],
+      quota_usage: null,
+      can_reset_password: true,
+    };
+    const ssoUser = {
+      ...localUser,
+      id: '00000000-0000-0000-0000-000000000012',
+      username: 'sso-user',
+      email: 'sso@example.com',
+      can_reset_password: false,
+    };
+    mockUseUserList.mockReturnValue({
+      data: { users: [localUser, ssoUser], total: 2 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(<UserList />);
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for local-user' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(await screen.findByRole('menuitem', { name: 'Reset password' })).toBeEnabled();
+
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for sso-user' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(await screen.findByRole('menuitem', { name: 'Reset password' })).toHaveAttribute(
+      'data-disabled',
+    );
+    expect(screen.getByText(/signs in through an identity provider/i)).toBeInTheDocument();
   });
 });

@@ -44,6 +44,8 @@
     "searchPlaceholder": "Username / Email",
     "filters": {
       "allUsers": "All Users",
+      "allRoles": "All roles",
+      "roleLabel": "Role",
       "pending": "Pending",
       "active": "Active",
       "suspended": "Suspended",
@@ -108,7 +110,8 @@
       "selfWarning": "This is your own account, so saving signs you out here too.",
       "submit": "Reset password",
       "resetting": "Resetting...",
-      "error": "Failed to reset password"
+      "error": "Failed to reset password",
+      "unavailableForSso": "Password reset is unavailable because this account signs in through an identity provider."
     },
     "exportError": "Could not export users",
     "empty": {

@@ -93,6 +93,7 @@ export interface UserResponse {
   last_login_at: string | null;
   created_at: string;
   roles: string[];
+  can_reset_password?: boolean;
   quota_usage?: UserQuotaUsage | null;
 }
 
