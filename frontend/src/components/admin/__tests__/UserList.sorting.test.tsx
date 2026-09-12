@@ -159,6 +159,33 @@ describe('UserList sorting', () => {
     expect(lastCall()).toMatchObject({ sort: 'last_login_at', order: 'desc' });
   });
 
+  it('reads role membership from the URL and sends it with the list request', () => {
+    renderList('/admin/users?role=editor');
+
+    expect(screen.getByRole('combobox', { name: 'Role' })).toHaveValue('editor');
+    expect(lastCall()).toMatchObject({ role: 'editor' });
+  });
+
+  it('writes role changes to the URL while preserving sort state', async () => {
+    const user = userEvent.setup();
+    renderList('/admin/users?sort=username&order=desc');
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Role' }), 'admin');
+
+    const params = new URLSearchParams(screen.getByTestId('location').textContent ?? '');
+    expect(params.get('role')).toBe('admin');
+    expect(params.get('sort')).toBe('username');
+    expect(params.get('order')).toBe('desc');
+    expect(lastCall()).toMatchObject({ role: 'admin', sort: 'username', order: 'desc' });
+  });
+
+  it('ignores unknown role values instead of sending them to the API', () => {
+    renderList('/admin/users?role=owner');
+
+    expect(screen.getByRole('combobox', { name: 'Role' })).toHaveValue('');
+    expect(lastCall().role).toBeUndefined();
+  });
+
   it('falls back to the default for a sort field the API would refuse', () => {
     renderList('/admin/users?sort=password_hash&order=sideways');
 
@@ -181,6 +208,23 @@ describe('UserList sorting', () => {
     await user.click(screen.getByRole('button', { name: /^Username/ }));
     // Page 3 of the old ordering names different rows under the new one.
     expect(lastCall()).toMatchObject({ skip: 0, sort: 'username' });
+  });
+
+  it('returns to the first page when the role filter changes', async () => {
+    const user = userEvent.setup();
+    mockUseUserList.mockReturnValue({
+      data: { users: [], total: 100 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderList();
+
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(lastCall()).toMatchObject({ skip: 20 });
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Role' }), 'viewer');
+
+    expect(lastCall()).toMatchObject({ skip: 0, role: 'viewer' });
   });
 
   it('composes sort with the status filter instead of replacing it', async () => {

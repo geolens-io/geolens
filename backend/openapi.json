@@ -18543,6 +18543,11 @@
             "title": "Roles",
             "type": "array"
           },
+          "can_reset_password": {
+            "description": "Whether an administrator can set a local password for this account. True for local accounts even when an identity provider is also linked.",
+            "title": "Can Reset Password",
+            "type": "boolean"
+          },
           "quota_usage": {
             "anyOf": [
               {
@@ -18563,7 +18568,8 @@
           "status",
           "last_login_at",
           "created_at",
-          "roles"
+          "roles",
+          "can_reset_password"
         ],
         "title": "UserResponse",
         "type": "object"
@@ -22053,7 +22059,7 @@
     },
     "/admin/users/": {
       "get": {
-        "description": "List all users with pagination and optional status/search/sort filter (admin only).\n\n`sort` and `order` are closed enums, so an unrecognised value is refused\nwith a 422 and never reaches the query.",
+        "description": "List users with optional status, role, search, and sort filters (admin only).\n\n`sort` and `order` are closed enums, so an unrecognised value is refused\nwith a 422 and never reaches the query.",
         "operationId": "list_users_admin_users__get",
         "parameters": [
           {
@@ -22094,6 +22100,29 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "description": "Assigned role membership to match.",
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "admin",
+                    "editor",
+                    "viewer"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Assigned role membership to match.",
+              "title": "Role"
             }
           },
           {

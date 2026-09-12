@@ -364,7 +364,7 @@ export const getCatalogStatsAdminStatsGet = <ThrowOnError extends boolean = fals
 /**
  * List Users
  *
- * List all users with pagination and optional status/search/sort filter (admin only).
+ * List users with optional status, role, search, and sort filters (admin only).
  *
  * `sort` and `order` are closed enums, so an unrecognised value is refused
  * with a 422 and never reaches the query.

@@ -402,6 +402,7 @@ from .list_share_tokens_endpoint_admin_share_tokens_get_sort import (
     ListShareTokensEndpointAdminShareTokensGetSort,
 )
 from .list_users_admin_users_get_order import ListUsersAdminUsersGetOrder
+from .list_users_admin_users_get_role_type_0 import ListUsersAdminUsersGetRoleType0
 from .list_users_admin_users_get_sort import ListUsersAdminUsersGetSort
 from .manifest_apply_entry_result import ManifestApplyEntryResult
 from .manifest_apply_entry_result_action import ManifestApplyEntryResultAction
@@ -1060,6 +1061,7 @@ __all__ = (
     "ListShareTokensEndpointAdminShareTokensGetOrder",
     "ListShareTokensEndpointAdminShareTokensGetSort",
     "ListUsersAdminUsersGetOrder",
+    "ListUsersAdminUsersGetRoleType0",
     "ListUsersAdminUsersGetSort",
     "ManifestApplyEntryResult",
     "ManifestApplyEntryResultAction",

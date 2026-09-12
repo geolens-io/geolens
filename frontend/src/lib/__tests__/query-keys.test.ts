@@ -178,16 +178,19 @@ describe('queryKeys factory', () => {
       expect(queryKeys.admin.stats[0]).toBe('admin');
     });
 
-    it('users includes skip, limit, status, search, sort, order', () => {
+    it('users includes skip, limit, status, search, sort, order, role', () => {
       expect(queryKeys.admin.users(0, 50)).toEqual([
-        'admin', 'users', 0, 50, undefined, undefined, undefined, undefined,
+        'admin', 'users', 0, 50, undefined, undefined, undefined, undefined, undefined,
       ]);
       expect(queryKeys.admin.users(0, 50, 'active', 'bob')).toEqual([
-        'admin', 'users', 0, 50, 'active', 'bob', undefined, undefined,
+        'admin', 'users', 0, 50, 'active', 'bob', undefined, undefined, undefined,
       ]);
       // Two orderings of the same page must not share a cache entry.
       expect(queryKeys.admin.users(0, 50, undefined, undefined, 'username', 'asc')).not.toEqual(
         queryKeys.admin.users(0, 50, undefined, undefined, 'username', 'desc'),
+      );
+      expect(queryKeys.admin.users(0, 50, undefined, undefined, undefined, undefined, 'viewer')).not.toEqual(
+        queryKeys.admin.users(0, 50, undefined, undefined, undefined, undefined, 'editor'),
       );
     });
 

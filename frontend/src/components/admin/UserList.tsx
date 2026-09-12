@@ -41,6 +41,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -100,6 +101,19 @@ const STATUS_OPTIONS = [
   { value: 'deactivated', labelKey: 'users.filters.deactivated' },
 ];
 
+const ROLE_OPTIONS = [
+  { value: '', labelKey: 'users.filters.allRoles' },
+  { value: 'viewer', labelKey: 'roles.viewer' },
+  { value: 'editor', labelKey: 'roles.editor' },
+  { value: 'admin', labelKey: 'roles.admin' },
+];
+
+const FILTER_ROLES = new Set(['viewer', 'editor', 'admin']);
+
+function parseRoleFilter(raw: string | null): string {
+  return raw && FILTER_ROLES.has(raw) ? raw : '';
+}
+
 export function UserList() {
   const { t } = useTranslation('admin');
   const currentUserId = useAuthStore((state) => state.user?.id);
@@ -128,6 +142,15 @@ export function UserList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const sortField = parseSortField(searchParams.get('sort'));
   const sortOrder = parseSortOrder(searchParams.get('order'));
+  const roleFilter = parseRoleFilter(searchParams.get('role'));
+
+  function handleRoleFilter(role: string) {
+    const params = new URLSearchParams(searchParams);
+    if (role) params.set('role', role);
+    else params.delete('role');
+    setSearchParams(params, { replace: true });
+    setPage(0);
+  }
 
   function handleSort(field: string) {
     // Compare against the EFFECTIVE field, not the raw param: with no ?sort=
@@ -148,6 +171,7 @@ export function UserList() {
     skip,
     limit: PAGE_SIZE,
     status: statusFilter || undefined,
+    role: roleFilter || undefined,
     search: searchQuery || undefined,
     sort: sortField,
     order: sortOrder,
@@ -219,7 +243,7 @@ export function UserList() {
   }
 
   const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);
-  const hasFilters = statusFilter !== '' || searchQuery !== '';
+  const hasFilters = statusFilter !== '' || roleFilter !== '' || searchQuery !== '';
   const isEmpty = !isLoading && data != null && data.users.length === 0;
 
   return (
@@ -246,6 +270,13 @@ export function UserList() {
               value={statusFilter}
               onChange={(v) => { setStatusFilter(v); setPage(0); }}
               options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+            />
+            <FilterSelect
+              label=""
+              ariaLabel={t('users.filters.roleLabel')}
+              value={roleFilter}
+              onChange={handleRoleFilter}
+              options={ROLE_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
             />
             <Button
               size="sm"
@@ -343,7 +374,7 @@ export function UserList() {
                             onClick={() => {
                               setSearchQuery('');
                               setStatusFilter('');
-                              setPage(0);
+                              handleRoleFilter('');
                             }}
                           >
                             {t('users.empty.clearFilters')}
@@ -418,15 +449,17 @@ export function UserList() {
                           <DropdownMenuItem onClick={() => setEditingUser(user)}>
                             <Edit className="me-2 h-4 w-4" /> {t('common:edit')}
                           </DropdownMenuItem>
-                          {/* feat(#1715): offered on every row, self included — an
-                              admin who is still signed in but has forgotten their
-                              password has no other way back, and change-password
-                              needs the old value. The dialog says what a self-reset
-                              costs. Accounts that sign in through an identity
-                              provider are refused by the API with the reason. */}
-                          <DropdownMenuItem onClick={() => setResettingPasswordUser(user)}>
+                          <DropdownMenuItem
+                            onClick={() => setResettingPasswordUser(user)}
+                            disabled={!user.can_reset_password}
+                          >
                             <KeyRound className="me-2 h-4 w-4" /> {t('users.actions.resetPassword')}
                           </DropdownMenuItem>
+                          {!user.can_reset_password && (
+                            <DropdownMenuLabel className="max-w-64 whitespace-normal text-xs font-normal text-foreground/75">
+                              {t('users.resetPasswordDialog.unavailableForSso')}
+                            </DropdownMenuLabel>
+                          )}
                           {user.is_active && user.id !== currentUserId ? (
                             <DropdownMenuItem onClick={() => handleDeactivate(user)} className="text-destructive">
                               <UserX className="me-2 h-4 w-4" /> {t('users.actions.deactivate')}

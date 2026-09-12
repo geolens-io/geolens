@@ -171,6 +171,60 @@ async def test_sort_composes_with_status_and_search_filters(
 
 
 @pytest.mark.anyio
+async def test_role_filter_applies_before_count_and_pagination(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    token = f"role{uuid.uuid4().hex[:10]}"
+    for suffix, role in (
+        ("alpha", "viewer"),
+        ("bravo", "editor"),
+        ("charlie", "viewer"),
+        ("delta", "admin"),
+    ):
+        await _create_user(
+            client,
+            admin_auth_header,
+            f"{token}_{suffix}",
+            role=role,
+        )
+
+    resp = await client.get(
+        "/admin/users/",
+        params={
+            "search": token,
+            "status": "active",
+            "role": "viewer",
+            "sort": "username",
+            "order": "asc",
+            "limit": 1,
+            "skip": 1,
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["total"] == 2
+    assert _usernames(payload) == [f"{token}_charlie"]
+    assert payload["users"][0]["roles"] == ["viewer"]
+
+
+@pytest.mark.anyio
+async def test_role_filter_rejects_unknown_roles(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    resp = await client.get(
+        "/admin/users/",
+        params={"role": "owner"},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
 async def test_paging_a_non_unique_sort_key_never_repeats_a_row(
     client: AsyncClient,
     admin_auth_header: dict,

@@ -28,6 +28,7 @@ export async function listUsers(
     skip?: number;
     limit?: number;
     status?: string;
+    role?: string;
     search?: string;
     sort?: string;
     order?: string;
@@ -37,6 +38,7 @@ export async function listUsers(
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   if (params.status) query.set('status', params.status);
+  if (params.role) query.set('role', params.role);
   if (params.search) query.set('search', params.search);
   if (params.sort) query.set('sort', params.sort);
   if (params.order) query.set('order', params.order);

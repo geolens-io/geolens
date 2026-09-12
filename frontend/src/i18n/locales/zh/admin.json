@@ -44,6 +44,8 @@
     "searchPlaceholder": "用户名 / 电子邮箱",
     "filters": {
       "allUsers": "全部用户",
+      "allRoles": "所有角色",
+      "roleLabel": "角色",
       "pending": "待审批",
       "active": "活跃",
       "suspended": "已暂停",
@@ -108,7 +110,8 @@
       "selfWarning": "这是您自己的账户，保存后您在此处也会被登出。",
       "submit": "重置密码",
       "resetting": "正在重置...",
-      "error": "重置密码失败"
+      "error": "重置密码失败",
+      "unavailableForSso": "此账户通过身份提供商登录，因此无法重置密码。"
     },
     "exportError": "无法导出用户",
     "empty": {

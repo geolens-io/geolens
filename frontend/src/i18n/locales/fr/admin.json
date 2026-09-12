@@ -44,6 +44,8 @@
     "searchPlaceholder": "Nom d'utilisateur / E-mail",
     "filters": {
       "allUsers": "Tous les utilisateurs",
+      "allRoles": "Tous les rôles",
+      "roleLabel": "Rôle",
       "pending": "En attente",
       "active": "Actif",
       "suspended": "Suspendus",
@@ -108,7 +110,8 @@
       "selfWarning": "Il s'agit de votre propre compte, donc l'enregistrement vous déconnectera ici aussi.",
       "submit": "Réinitialiser le mot de passe",
       "resetting": "Réinitialisation...",
-      "error": "Échec de la réinitialisation du mot de passe"
+      "error": "Échec de la réinitialisation du mot de passe",
+      "unavailableForSso": "La réinitialisation du mot de passe est indisponible car ce compte se connecte via un fournisseur d’identité."
     },
     "exportError": "Échec de l'export des utilisateurs",
     "empty": {

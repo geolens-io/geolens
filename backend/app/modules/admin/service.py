@@ -620,11 +620,12 @@ class AdminService:
         skip: int = 0,
         limit: int = 50,
         status: str | None = None,
+        role: str | None = None,
         search: str | None = None,
         sort: str = "created_at",
         order: str = "asc",
     ) -> tuple[list[User], int]:
-        """List users with pagination and optional status/search filter.
+        """List users with pagination and optional status, role, and search filters.
 
         `sort` must be a key of USER_SORT_COLUMNS and `order` one of
         asc/desc; anything else raises ValueError. The default ordering
@@ -635,6 +636,8 @@ class AdminService:
         filters = []
         if status is not None:
             filters.append(User.status == status)
+        if role is not None:
+            filters.append(User.roles.any(Role.name == role))
         if search is not None:
             # T-2/T-1: normalize BOTH column AND pattern with
             # lower(catalog.immutable_unaccent(...)) to match the trigram GIN

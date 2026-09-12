@@ -44,6 +44,8 @@
     "searchPlaceholder": "Nombre de usuario / Correo electrónico",
     "filters": {
       "allUsers": "Todos los usuarios",
+      "allRoles": "Todos los roles",
+      "roleLabel": "Rol",
       "pending": "Pendientes",
       "active": "Activos",
       "suspended": "Suspendidos",
@@ -108,7 +110,8 @@
       "selfWarning": "Esta es su propia cuenta, por lo que al guardar también se cerrará su sesión aquí.",
       "submit": "Restablecer contraseña",
       "resetting": "Restableciendo...",
-      "error": "Error al restablecer la contraseña"
+      "error": "Error al restablecer la contraseña",
+      "unavailableForSso": "No se puede restablecer la contraseña porque esta cuenta inicia sesión mediante un proveedor de identidad."
     },
     "exportError": "No se pudieron exportar los usuarios",
     "empty": {

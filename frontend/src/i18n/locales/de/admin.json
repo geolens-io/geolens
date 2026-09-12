@@ -44,6 +44,8 @@
     "searchPlaceholder": "Benutzername / E-Mail",
     "filters": {
       "allUsers": "Alle Benutzer",
+      "allRoles": "Alle Rollen",
+      "roleLabel": "Rolle",
       "pending": "Ausstehend",
       "active": "Aktiv",
       "suspended": "Gesperrt",
@@ -108,7 +110,8 @@
       "selfWarning": "Dies ist Ihr eigenes Konto, das Speichern meldet Sie also auch hier ab.",
       "submit": "Passwort zurücksetzen",
       "resetting": "Wird zurückgesetzt...",
-      "error": "Passwort konnte nicht zurückgesetzt werden"
+      "error": "Passwort konnte nicht zurückgesetzt werden",
+      "unavailableForSso": "Das Passwort kann nicht zurückgesetzt werden, da sich dieses Konto über einen Identitätsanbieter anmeldet."
     },
     "exportError": "Export der Benutzer fehlgeschlagen",
     "empty": {

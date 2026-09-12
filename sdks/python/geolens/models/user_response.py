@@ -34,6 +34,8 @@ class UserResponse:
         last_login_at (datetime.datetime | None):
         created_at (datetime.datetime):
         roles (list[str]): Assigned role names, e.g. ['admin', 'editor']
+        can_reset_password (bool): Whether an administrator can set a local password for this account. True for local
+            accounts even when an identity provider is also linked.
         quota_usage (None | Unset | UserQuotaUsage): Per-user storage quota usage. Populated only on admin list
             responses; None when the caller did not load usage (e.g. /auth/me, single-user GET).
     """
@@ -46,6 +48,7 @@ class UserResponse:
     last_login_at: datetime.datetime | None
     created_at: datetime.datetime
     roles: list[str]
+    can_reset_password: bool
     quota_usage: None | Unset | UserQuotaUsage = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -73,6 +76,8 @@ class UserResponse:
 
         roles = self.roles
 
+        can_reset_password = self.can_reset_password
+
         quota_usage: dict[str, Any] | None | Unset
         if isinstance(self.quota_usage, Unset):
             quota_usage = UNSET
@@ -93,6 +98,7 @@ class UserResponse:
                 "last_login_at": last_login_at,
                 "created_at": created_at,
                 "roles": roles,
+                "can_reset_password": can_reset_password,
             }
         )
         if quota_usage is not UNSET:
@@ -139,6 +145,8 @@ class UserResponse:
 
         roles = cast(list[str], d.pop("roles"))
 
+        can_reset_password = d.pop("can_reset_password")
+
         def _parse_quota_usage(data: object) -> None | Unset | UserQuotaUsage:
             if data is None:
                 return data
@@ -165,6 +173,7 @@ class UserResponse:
             last_login_at=last_login_at,
             created_at=created_at,
             roles=roles,
+            can_reset_password=can_reset_password,
             quota_usage=quota_usage,
         )
 

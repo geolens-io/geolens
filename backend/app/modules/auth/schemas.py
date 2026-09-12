@@ -186,6 +186,12 @@ class UserResponse(BaseModel):
     roles: list[str] = Field(
         description="Assigned role names, e.g. ['admin', 'editor']"
     )
+    can_reset_password: bool = Field(
+        description=(
+            "Whether an administrator can set a local password for this account. "
+            "True for local accounts even when an identity provider is also linked."
+        )
+    )
     quota_usage: UserQuotaUsage | None = Field(
         default=None,
         description=(

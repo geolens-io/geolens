@@ -46,14 +46,15 @@ export function useUserList(params: {
   skip: number;
   limit: number;
   status?: string;
+  role?: string;
   search?: string;
   sort?: string;
   order?: string;
 }) {
-  const { skip, limit, status, search, sort, order } = params;
+  const { skip, limit, status, role, search, sort, order } = params;
   return useQuery({
-    queryKey: queryKeys.admin.users(skip, limit, status, search, sort, order),
-    queryFn: () => listUsers({ skip, limit, status, search, sort, order }),
+    queryKey: queryKeys.admin.users(skip, limit, status, search, sort, order, role),
+    queryFn: () => listUsers({ skip, limit, status, role, search, sort, order }),
     placeholderData: keepPreviousData,
   });
 }
