@@ -126,20 +126,19 @@ def sync_detailed(
     complete, so a refresh that fails leaves the live table and its freshness
     exactly as they were.
 
-    Two origin kinds take their own execution strategy, and neither moves any
-    data. A dataset registered from an existing PostGIS table (#1265) has an
-    origin that IS the table it serves from, so its refresh re-measures the
+    Different origin kinds use different execution strategies. A dataset
+    registered from an existing PostGIS table serves directly from its origin,
+    so refresh re-measures the
     live relation — recounting features, recomputing the extent, rebuilding
     the column schema snapshot and statistics. A dataset imported from a STAC
-    item (#1266) is nothing but a pointer at somebody else's COG, so its
+    item points to an external COG, so its
     refresh re-reads the item document and follows the asset if the publisher
     moved it. Admission, the run row and the history they write are identical
     across all three.
 
     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
-    active for this dataset — v1 rejects rather than queues (Decision 5b), and
-    the refusal comes from a partial unique index rather than a check, so two
-    simultaneous clicks cannot both be admitted.
+    active for this dataset. A partial unique index prevents simultaneous
+    requests from both being admitted.
 
     Args:
         dataset_id (UUID):
@@ -181,20 +180,19 @@ def sync(
     complete, so a refresh that fails leaves the live table and its freshness
     exactly as they were.
 
-    Two origin kinds take their own execution strategy, and neither moves any
-    data. A dataset registered from an existing PostGIS table (#1265) has an
-    origin that IS the table it serves from, so its refresh re-measures the
+    Different origin kinds use different execution strategies. A dataset
+    registered from an existing PostGIS table serves directly from its origin,
+    so refresh re-measures the
     live relation — recounting features, recomputing the extent, rebuilding
     the column schema snapshot and statistics. A dataset imported from a STAC
-    item (#1266) is nothing but a pointer at somebody else's COG, so its
+    item points to an external COG, so its
     refresh re-reads the item document and follows the asset if the publisher
     moved it. Admission, the run row and the history they write are identical
     across all three.
 
     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
-    active for this dataset — v1 rejects rather than queues (Decision 5b), and
-    the refusal comes from a partial unique index rather than a check, so two
-    simultaneous clicks cannot both be admitted.
+    active for this dataset. A partial unique index prevents simultaneous
+    requests from both being admitted.
 
     Args:
         dataset_id (UUID):
@@ -231,20 +229,19 @@ async def asyncio_detailed(
     complete, so a refresh that fails leaves the live table and its freshness
     exactly as they were.
 
-    Two origin kinds take their own execution strategy, and neither moves any
-    data. A dataset registered from an existing PostGIS table (#1265) has an
-    origin that IS the table it serves from, so its refresh re-measures the
+    Different origin kinds use different execution strategies. A dataset
+    registered from an existing PostGIS table serves directly from its origin,
+    so refresh re-measures the
     live relation — recounting features, recomputing the extent, rebuilding
     the column schema snapshot and statistics. A dataset imported from a STAC
-    item (#1266) is nothing but a pointer at somebody else's COG, so its
+    item points to an external COG, so its
     refresh re-reads the item document and follows the asset if the publisher
     moved it. Admission, the run row and the history they write are identical
     across all three.
 
     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
-    active for this dataset — v1 rejects rather than queues (Decision 5b), and
-    the refusal comes from a partial unique index rather than a check, so two
-    simultaneous clicks cannot both be admitted.
+    active for this dataset. A partial unique index prevents simultaneous
+    requests from both being admitted.
 
     Args:
         dataset_id (UUID):
@@ -284,20 +281,19 @@ async def asyncio(
     complete, so a refresh that fails leaves the live table and its freshness
     exactly as they were.
 
-    Two origin kinds take their own execution strategy, and neither moves any
-    data. A dataset registered from an existing PostGIS table (#1265) has an
-    origin that IS the table it serves from, so its refresh re-measures the
+    Different origin kinds use different execution strategies. A dataset
+    registered from an existing PostGIS table serves directly from its origin,
+    so refresh re-measures the
     live relation — recounting features, recomputing the extent, rebuilding
     the column schema snapshot and statistics. A dataset imported from a STAC
-    item (#1266) is nothing but a pointer at somebody else's COG, so its
+    item points to an external COG, so its
     refresh re-reads the item document and follows the asset if the publisher
     moved it. Admission, the run row and the history they write are identical
     across all three.
 
     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
-    active for this dataset — v1 rejects rather than queues (Decision 5b), and
-    the refusal comes from a partial unique index rather than a check, so two
-    simultaneous clicks cannot both be admitted.
+    active for this dataset. A partial unique index prevents simultaneous
+    requests from both being admitted.
 
     Args:
         dataset_id (UUID):

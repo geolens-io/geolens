@@ -15,11 +15,10 @@ T = TypeVar("T", bound="BackfillResponse")
 
 @_attrs_define
 class BackfillResponse:
-    """Acknowledgement that a backfill run was queued (fix(#1542)).
+    """Acknowledgement that a backfill run was queued.
 
-    The run itself happens on the job queue, so this carries no counts — a full
-    regenerate takes minutes and used to hold the HTTP request open past the
-    600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.
+    The response carries no counts because the work runs asynchronously. Poll
+    ``GET /jobs/{job_id}`` for status.
 
         Attributes:
             job_id (UUID): Identifier of the queued backfill job; poll /jobs/{job_id}.

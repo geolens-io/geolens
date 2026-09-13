@@ -50,7 +50,7 @@ class DatasetResponse:
         geometry_type (None | str | Unset): OGC geometry type, e.g. MultiPolygon
         has_generic_geometry (bool | Unset): True when the underlying column is generic GEOMETRY (created sketch
             datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above.
-            Computed on the detail endpoint only (fix #430 codex r18); list endpoints always report false. Default: False.
+            Computed on the detail endpoint only; list endpoints always report false. Default: False.
         is_3d (bool | None | Unset): True if geometry has Z dimension
         n_dims (int | None | Unset): Number of coordinate dimensions (2, 3, or 4)
         z_min (float | None | Unset): Minimum Z value across all features
@@ -76,11 +76,11 @@ class DatasetResponse:
             their own.
         origin_uri (None | str | Unset): Machine-readable pointer back to the origin, written only by ingest and
             refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created
-            datasets. feat(#1316): also null for any reader who is neither the dataset's owner nor an admin — origin (above)
-            and the freshness/health fields below are not gated and still describe the dataset's capabilities.
+            datasets. It is also null for any reader who is neither the dataset's owner nor an admin — origin (above) and
+            the freshness/health fields below are not gated and still describe the dataset's capabilities.
         origin_ref (DatasetResponseOriginRefType0 | None | Unset): Typed per-origin payload with a `kind` discriminator,
             e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials.
-            feat(#1316): owner-or-admin only, same redaction as origin_uri.
+            owner-or-admin only, same redaction as origin_uri.
         last_refreshed_at (datetime.datetime | None | Unset): Last committed successful refresh — not the last attempt
         last_checked_at (datetime.datetime | None | Unset): Last time GeoLens contacted the origin at all, whether the
             attempt succeeded or failed
@@ -124,8 +124,8 @@ class DatasetResponse:
         stac_extensions (list[str] | None | Unset):
         language (None | str | Unset): ISO 639-1 language code, e.g. en, fr
         metadata_warnings (list[str] | None | Unset): Advisory warnings produced by a metadata update — e.g. a
-            visibility or status change exposing keywords inherited from an analysis source the new audience cannot open
-            (feat #1070). Only ever set on the PATCH response; the change has already applied.
+            visibility or status change exposing keywords inherited from an analysis source the new audience cannot open.
+            Only ever set on the PATCH response; the change has already applied.
     """
 
     id: UUID

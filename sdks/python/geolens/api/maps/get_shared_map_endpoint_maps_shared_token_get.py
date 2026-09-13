@@ -124,8 +124,7 @@ def sync_detailed(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
-    token's scope authorizes, as a capability rather than a role.
+    ``X-Embed-Token`` grants access to layers in the token's scope.
 
     Args:
         token (str):
@@ -168,8 +167,7 @@ def sync(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
-    token's scope authorizes, as a capability rather than a role.
+    ``X-Embed-Token`` grants access to layers in the token's scope.
 
     Args:
         token (str):
@@ -207,8 +205,7 @@ async def asyncio_detailed(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
-    token's scope authorizes, as a capability rather than a role.
+    ``X-Embed-Token`` grants access to layers in the token's scope.
 
     Args:
         token (str):
@@ -249,8 +246,7 @@ async def asyncio(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
-    token's scope authorizes, as a capability rather than a role.
+    ``X-Embed-Token`` grants access to layers in the token's scope.
 
     Args:
         token (str):

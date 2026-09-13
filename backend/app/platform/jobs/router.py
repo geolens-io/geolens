@@ -1111,22 +1111,14 @@ async def cancel_job(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JobCancelResponse:
-    """Cancel a pending or running ingest job (imports, refreshes, and every
-    other IngestJob-shaped run — feat(#1677)).
+    """Cancel a pending or running ingest job.
 
-    The DB compare-and-swap here is the correctness mechanism: the job row
-    (fenced on the attempt id read pre-CAS) and its bound refresh run flip to
-    ``cancelled`` and COMMIT before anything touches the queue. A worker that
-    never hears the abort still cannot install data afterwards, because every
-    finalize site runs its fenced job update inside the swap transaction and
-    ``require_ingest_job_update`` raises on the cancelled row, rolling the
-    swap back. The Procrastinate ``abort=True`` request afterwards is
-    best-effort acceleration only.
+    The database marks the job and any bound refresh run as cancelled before
+    requesting a queue abort. Transaction fencing prevents a worker from
+    installing data after cancellation even if it misses the abort request.
 
-    Authorization: the job's creator, a holder of the cross-user job
-    capability (same arm view/retry use), or — wider than retry, on purpose —
-    anyone with write access to the job's dataset, so a dataset's owner can
-    always unblock their own dataset from a run someone else started.
+    The job creator, a user with cross-user job permission, or anyone with
+    write access to the job's dataset may cancel it.
     """
     # Deferred by design to preserve the platform -> modules layer boundary.
     from app.modules.audit.service import AuditEvent, audit_emit

@@ -388,9 +388,8 @@ async def column_references_endpoint(
 ) -> ColumnReferencesResponse:
     """Count saved maps whose layer config references a column.
 
-    fix(#458): surfaced in the schema editor before a rename/drop so the
-    editor knows how many saved maps depend on the column. Count only — map
-    titles may belong to other users and are not exposed here.
+    The schema editor uses this count before a rename or drop. Map titles are
+    omitted because they may belong to other users.
     """
     dataset = await get_dataset(db, dataset_id)
     if not dataset:

@@ -194,23 +194,15 @@ async def get_features_geojson_z_endpoint(
 ) -> JSONResponse:
     """Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
-    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the
-    shared-map union now exposes embed-scoped private layers to embeds — so
-    this endpoint accepts the token as fallback authorization via the SAME
-    ``validate_embed_token_access`` capability check as tile serving.
+    ``X-Embed-Token`` authorizes private datasets in the token's scope through
+    the same capability check used for tile requests.
 
-    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
-    so public+published datasets serve to anonymous callers (matching vector
-    tiles and the dataset-detail read path); private/restricted datasets still
-    404 for anon and follow full RBAC for credentialed callers. This unblocks
-    client clustering for anonymous public-map viewers.
+    Anonymous callers can read public, published datasets. Private or
+    restricted datasets return 404 unless user or embed credentials authorize
+    access.
 
-    fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
-    frontend's refresh-on-401 retry fires instead of a private layer
-    permanently failing as "not found". Truly credentialless requests keep the
-    anonymous public path.
+    Supplied credentials that are expired or revoked receive 401 so clients can
+    refresh them. Requests without credentials use the anonymous access path.
     """
     # fix(#1518): evaluated FIRST, above the dataset lookup, so the
     # capability rule covers every later exit rather than just one — the
@@ -320,9 +312,9 @@ async def list_features(
 ) -> JSONResponse:
     """Get paginated GeoJSON features for a dataset.
 
-    Pagination is OFFSET-based (fix(#458), documented limitation): rows can
-    skip or duplicate across pages under concurrent writes, though feature ids
-    stay stable (ORDER BY gid, the primary key). Clients that need stable
+    Offset pagination can skip or duplicate rows during concurrent writes,
+    though feature ids remain stable because rows are ordered by the primary
+    key. Clients that need stable
     cursoring should use the OGC API Features endpoint, which supports keyset
     pagination via ``after_gid``.
     """

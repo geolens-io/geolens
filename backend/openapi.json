@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "AIAvailabilityResponse": {
-        "description": "Public-safe AI readiness signal (#338).\n\nCarries a single boolean and intentionally exposes NO provider name, model,\nor key detail \u2014 it is readable by any non-admin editor holding\n``use_ai_chat`` so the builder can enable/disable chat without the\nadmin-only ``/admin/ai-status`` endpoint (which leaks provider/key info).",
+        "description": "Public-safe AI readiness signal.\n\nThe response exposes no provider, model, or key details. Editors with\n``use_ai_chat`` can use it without access to the admin-only AI status.",
         "properties": {
           "available": {
             "title": "Available",
@@ -221,7 +221,7 @@
           },
           "scope": {
             "default": "full",
-            "description": "Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.",
+            "description": "Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.",
             "enum": [
               "full",
               "read_only"
@@ -287,7 +287,7 @@
             "title": "Expires At"
           },
           "scope": {
-            "description": "Privilege scope: 'full' or 'read_only' (#875).",
+            "description": "Privilege scope: 'full' or 'read_only'.",
             "title": "Scope",
             "type": "string"
           },
@@ -1083,7 +1083,7 @@
                 "type": "null"
               }
             ],
-            "description": "[minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS \u2014 omit it to preview the whole dataset, unchanged from before this field existed.",
+            "description": "[minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order. Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS \u2014 omit it to preview the whole dataset, unchanged from before this field existed.",
             "title": "Bbox"
           }
         },
@@ -1132,7 +1132,7 @@
                 "type": "null"
               }
             ],
-            "description": "Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a LIVE count of rows intersecting it rather than the dataset's cached whole-table total (fix(#727)) \u2014 also null, same as match_count, when that live count could not be computed within the query budget",
+            "description": "Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a live count of rows intersecting it rather than the dataset's cached whole-table total. It is also null, like match_count, when that live count could not be computed within the query budget",
             "title": "Source Feature Count"
           },
           "match_count": {
@@ -1180,7 +1180,7 @@
           },
           "scope": {
             "default": "full",
-            "description": "Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.",
+            "description": "Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.",
             "enum": [
               "full",
               "read_only"
@@ -1230,7 +1230,7 @@
             "title": "Expires At"
           },
           "scope": {
-            "description": "Privilege scope: 'full' or 'read_only' (#875)",
+            "description": "Privilege scope: 'full' or 'read_only'",
             "title": "Scope",
             "type": "string"
           },
@@ -1292,7 +1292,7 @@
             "title": "Expires At"
           },
           "scope": {
-            "description": "Privilege scope: 'full' or 'read_only' (#875)",
+            "description": "Privilege scope: 'full' or 'read_only'",
             "title": "Scope",
             "type": "string"
           },
@@ -1845,7 +1845,7 @@
         "type": "object"
       },
       "BackfillResponse": {
-        "description": "Acknowledgement that a backfill run was queued (fix(#1542)).\n\nThe run itself happens on the job queue, so this carries no counts \u2014 a full\nregenerate takes minutes and used to hold the HTTP request open past the\n600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.",
+        "description": "Acknowledgement that a backfill run was queued.\n\nThe response carries no counts because the work runs asynchronously. Poll\n``GET /jobs/{job_id}`` for status.",
         "properties": {
           "job_id": {
             "description": "Identifier of the queued backfill job; poll /jobs/{job_id}.",
@@ -5261,7 +5261,7 @@
         "type": "object"
       },
       "DatasetRefreshRequest": {
-        "description": "Body of a one-request refresh (#1220). Carries no source pointer.\n\nEverything about WHERE the data comes from is read server-side from the\ndataset's stored origin binding \u2014 that is the whole feature. A client\ncannot re-point a dataset through this door, and a client that has been\nshown the wrong URL cannot refresh from it.",
+        "description": "Body of a one-request refresh. Carries no source pointer.\n\nEverything about WHERE the data comes from is read server-side from the\ndataset's stored origin binding \u2014 that is the whole feature. A client\ncannot re-point a dataset through this door, and a client that has been\nshown the wrong URL cannot refresh from it.",
         "properties": {
           "token": {
             "anyOf": [
@@ -5362,7 +5362,7 @@
         "type": "object"
       },
       "DatasetRefreshRunResponse": {
-        "description": "One refresh attempt, success or failure (ADR-002 Decision 4).\n\nFive fields are redacted for callers who are neither the dataset owner nor\nan admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,\n``error_message`` and ``schema_diff``. A public dataset's refresh history\notherwise enumerates who edits it, and failure text leaks internal origin\ndetail. The redaction is enumerated against NAMED third-party readers as\nwell as anonymous ones \u2014 a signed-in stranger is the case that gets\nmissed.",
+        "description": "One refresh attempt, including failures.\n\nFive fields are redacted for callers who are neither the dataset owner nor\nan admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,\n``error_message`` and ``schema_diff``. A public dataset's refresh history\notherwise enumerates who edits it, and failure text leaks internal origin\ndetail.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -5724,7 +5724,7 @@
           },
           "has_generic_geometry": {
             "default": false,
-            "description": "True when the underlying column is generic GEOMETRY (created sketch datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above. Computed on the detail endpoint only (fix #430 codex r18); list endpoints always report false.",
+            "description": "True when the underlying column is generic GEOMETRY (created sketch datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above. Computed on the detail endpoint only; list endpoints always report false.",
             "title": "Has Generic Geometry",
             "type": "boolean"
           },
@@ -5979,7 +5979,7 @@
                 "type": "null"
               }
             ],
-            "description": "Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets. feat(#1316): also null for any reader who is neither the dataset's owner nor an admin \u2014 origin (above) and the freshness/health fields below are not gated and still describe the dataset's capabilities.",
+            "description": "Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets. It is also null for any reader who is neither the dataset's owner nor an admin \u2014 origin (above) and the freshness/health fields below are not gated and still describe the dataset's capabilities.",
             "title": "Origin Uri"
           },
           "origin_ref": {
@@ -5992,7 +5992,7 @@
                 "type": "null"
               }
             ],
-            "description": "Typed per-origin payload with a `kind` discriminator, e.g. {\"kind\": \"service\", \"service_type\": \"wfs\", \"url\": \"...\", \"layer_id\": \"0\"}. Never contains credentials. feat(#1316): owner-or-admin only, same redaction as origin_uri.",
+            "description": "Typed per-origin payload with a `kind` discriminator, e.g. {\"kind\": \"service\", \"service_type\": \"wfs\", \"url\": \"...\", \"layer_id\": \"0\"}. Never contains credentials. owner-or-admin only, same redaction as origin_uri.",
             "title": "Origin Ref"
           },
           "last_refreshed_at": {
@@ -6326,7 +6326,7 @@
                 "type": "null"
               }
             ],
-            "description": "Advisory warnings produced by a metadata update \u2014 e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open (feat #1070). Only ever set on the PATCH response; the change has already applied.",
+            "description": "Advisory warnings produced by a metadata update \u2014 e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open. Only ever set on the PATCH response; the change has already applied.",
             "title": "Metadata Warnings"
           }
         },
@@ -6412,7 +6412,7 @@
         "type": "object"
       },
       "DatasetVersionResponse": {
-        "description": "One version in a dataset's history.\n\nfeat(#1316): ``file_hash`` and ``uploaded_by`` are null for any caller who\nis neither the dataset's owner nor an admin \u2014 the same predicate that\ngates ``origin_uri``/``origin_ref`` on the dataset itself and\n``triggered_by`` on refresh-runs (ADR-002 Decision 4e). Unredacted, a\npublic dataset's version history enumerates its editors.",
+        "description": "One version in a dataset's history.\n\n``file_hash`` and ``uploaded_by`` are null for callers who are neither the\ndataset owner nor an administrator. This prevents public version history\nfrom identifying editors.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -6574,7 +6574,7 @@
         "type": "object"
       },
       "DerivedFromResponse": {
-        "description": "Provenance for an analysis output: what it came from, and how.\n\nfix(#765 review): declared as a model rather than ``dict[str, Any]``. The\ndict spelled itself into the checked-in OpenAPI as bare\n``additionalProperties: true``, so both generated SDKs lost the shape \u2014 the\nTypeScript one degraded to an index signature and the Python one to an\nempty additional-properties container. The stable shape was documented in\nprose and mirrored by hand in the frontend types while the SDKs, which is\nwhere most consumers actually meet it, could not use it type-safely.\n\n``params`` stays untyped on purpose: it is the operation's own parameter\ndict, so its keys differ per operation (``distance_meters`` for a buffer,\n``mask_source``/``mask_dataset_id`` for a clip), and it is additionally\nREDACTED per requester \u2014 ``visible_derived_from`` drops any embedded\ndataset id the caller cannot see. A union of per-operation models would\ndescribe a shape the redaction is free to punch holes in.",
+        "description": "Provenance for an analysis output: what it came from, and how.\n\n``params`` stays untyped on purpose: it is the operation's own parameter\ndictionary, so its keys differ by operation. It is also redacted for each\nrequester: dataset ids that the caller cannot access are omitted.",
         "properties": {
           "dataset_id": {
             "description": "The dataset this one was derived from",
@@ -8127,7 +8127,7 @@
         "type": "object"
       },
       "GeoJSONGeometryCollection": {
-        "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+        "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nGeometry collections carry ``geometries`` instead of ``coordinates``.\nOnly generic-geometry datasets accept them on write.\n\nNested collections are rejected because PostGIS cannot round-trip them\nthrough the GeoJSON boundary.",
         "properties": {
           "type": {
             "const": "GeometryCollection",
@@ -8322,7 +8322,7 @@
         "type": "object"
       },
       "JobCancelResponse": {
-        "description": "Outcome of ``POST /jobs/{id}/cancel`` (#1677).\n\n``run_id`` is the ``dataset_refresh_runs`` row this cancel finalized, when\nthe job had one bound (refreshes and reuploads do; plain imports don't).\n``already`` is True when the job was cancelled before this request \u2014 the\nrepeat is idempotent and nothing was written.",
+        "description": "Outcome of ``POST /jobs/{id}/cancel``.\n\n``run_id`` is the ``dataset_refresh_runs`` row this cancel finalized, when\nthe job had one bound (refreshes and reuploads do; plain imports don't).\n``already`` is True when the job was cancelled before this request \u2014 the\nrepeat is idempotent and nothing was written.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -8636,7 +8636,7 @@
           },
           "inherited_audience_gap": {
             "default": false,
-            "description": "True when at least one keyword is inherited AND this record's audience \u2014 at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which are honored only for the record's owner and admins \u2014 includes someone who cannot open the source dataset (feat #1070).",
+            "description": "True when at least one keyword is inherited AND this record's audience \u2014 at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which are honored only for the record's owner and admins \u2014 includes someone who cannot open the source dataset.",
             "title": "Inherited Audience Gap",
             "type": "boolean"
           }
@@ -8681,7 +8681,7 @@
           },
           "inherited": {
             "default": false,
-            "description": "True when this keyword also exists on the dataset this record was derived from (feat #1070). Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so everyone else sees false \u2014 matching the derived_from redaction.",
+            "description": "True when this keyword also exists on the dataset this record was derived from. Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so everyone else sees false \u2014 matching the derived_from redaction.",
             "title": "Inherited",
             "type": "boolean"
           }
@@ -11288,7 +11288,7 @@
       },
       "MercatorClipDetail": {
         "additionalProperties": false,
-        "description": "fix(#888): how much geometry the Web Mercator clamp destroyed.\n\nThe clamp is a box, not a latitude cutoff: longitude -180 to 180 and\nlatitude -85.06 to 85.06. Either bound can be the one that cost the user\ngeometry, so clients must not present this as a latitude-only problem\n(fix(#899 codex r1)).\n\n``dropped_features`` lost their geometry entirely (a valid point at lat\n-89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in\nreduced form.",
+        "description": "Counts geometry changed by the Web Mercator clamp.\n\nThe clamp is a box, not a latitude cutoff: longitude -180 to 180 and\nlatitude -85.06 to 85.06. Either bound can be the one that cost the user\ngeometry, so clients must not present this as a latitude-only problem.\n\n``dropped_features`` lost their geometry entirely (a valid point at lat\n-89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in\nreduced form.",
         "properties": {
           "dropped_features": {
             "minimum": 0.0,
@@ -12418,7 +12418,7 @@
         "type": "object"
       },
       "OGCRasterBand": {
-        "description": "One entry in the raster:bands STAC extension array.\n\nfix(#1805 review round 3 P2): matches the shape service_records.py\nactually serializes per band. `statistics` matches the normalized\nband_info shape core/raster_bands.py (introduced by #1803, the raster\nlifecycle PR) produces on read; keep this in sync if that PR changes\nthe per-band keys.",
+        "description": "One entry in the raster:bands STAC extension array.\n\nThis matches the per-band data returned by catalog search. ``statistics``\nuses the normalized raster band metadata shape.",
         "properties": {
           "name": {
             "anyOf": [
@@ -14113,7 +14113,7 @@
         "type": "object"
       },
       "RasterTileToken": {
-        "description": "A raster tile template, signed like its vector sibling.\n\nfix(#688): the raster shape used to carry no signature at all, so a client\nfollowing the API contract literally received an *unauthenticated* template\nfor a private raster. MapLibre issues the tile image requests itself and\nattaches no `X-Api-Key`, so an API-key-only client could not render one \u2014\nthe workarounds were `setTransformRequest` (not available to every consumer)\nor `?api_key=` in the tile URL, which puts a non-expiring unscoped\ncredential into tile URLs, server logs, and saved client project files.\n\n`tile_url` now arrives with `sig`/`exp`/`scope` already in its query string,\nso the template is self-sufficient and expires. The three are also returned\nas fields, mirroring `VectorTileToken`, for clients that rebuild the URL.",
+        "description": "A raster tile template, signed like its vector sibling.\n\n``tile_url`` includes ``sig``, ``exp``, and ``scope`` in its query string,\nso MapLibre can request private tiles without attaching an API key. The\nsignature expires, and its fields are also returned separately for clients\nthat rebuild the URL.",
         "properties": {
           "kind": {
             "const": "raster",
@@ -14470,7 +14470,7 @@
                 "type": "null"
               }
             ],
-            "description": "The dataset origin the client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload is not silently rebound to an upload. Optional: a client that omits it keeps the pre-#1768 behaviour.",
+            "description": "The dataset origin the client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload is not silently rebound to an upload. A client may omit the field to skip this concurrency check.",
             "title": "Expected Origin Kind"
           },
           "token": {
@@ -16069,7 +16069,7 @@
         "type": "object"
       },
       "SourceHealthResponse": {
-        "description": "Result of one on-demand origin probe (ADR-002, #1222).\n\nShares its first three words with ``VrtSourceHealth.status``, so the UI\nrenders one legend across VRT members and standalone origins.\n``VrtSourceHealth`` carries a fourth, VRT-specific value, ``stale``\n(fix(#1221)): it means a member's raster was replaced after the parent\nVRT was last built, and it does not apply to a single-origin probe. This\nendpoint always probes, so it also never returns the OTHER fourth value,\n``unknown`` \u2014 the response-boundary projection of a never-determined NULL\ncolumn, which reaches clients through ``DatasetResponse``, not through\nhere.",
+        "description": "Result of one on-demand origin probe.\n\nThe values align with ``VrtSourceHealth.status`` so clients can use one\nlegend for VRT members and standalone origins. ``stale`` applies only to\nVRT members, while ``unknown`` represents health that has not been checked;\nthis endpoint always performs a probe and returns neither value.",
         "properties": {
           "dataset_id": {
             "format": "uuid",
@@ -17375,7 +17375,7 @@
                 "type": "null"
               }
             ],
-            "description": "The key the data asset is published under on the item. Echo it back on import so the dataset records WHICH asset it came from: hrefs move, and the key is what survives the move (#1266).",
+            "description": "The key the data asset is published under on the item. Echo it back on import so the dataset records which asset it came from. The key remains stable when the href changes.",
             "title": "Data Asset Key"
           },
           "data_asset_size_bytes": {
@@ -17803,7 +17803,7 @@
                 "type": "null"
               }
             ],
-            "description": "Advisory warnings from the status change \u2014 the same inherited-keyword disclosure check the metadata PATCH runs (feat #1070, fix #1178 review). The transition has already applied.",
+            "description": "Advisory warnings from the status change \u2014 the same inherited-keyword disclosure check the metadata PATCH runs. The transition has already applied.",
             "title": "Metadata Warnings"
           }
         },
@@ -17909,7 +17909,7 @@
                 "type": "null"
               }
             ],
-            "description": "Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity * master_opacity (#338). The UI opacity slider in BasemapSublayerEditorScene persists through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.",
+            "description": "Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity). The rendered opacity is the sublayer override multiplied by the master opacity.",
             "title": "Opacity"
           }
         },
@@ -18338,7 +18338,7 @@
         "type": "object"
       },
       "UrlUploadRequest": {
-        "description": "Request body for the URL variant of upload (feat #1705).\n\nThe server fetches the file itself (SSRF-validated, size-capped) and\nstages it exactly like a direct upload \u2014 preview and commit take over\nunchanged.",
+        "description": "Request body for importing a file from a URL.\n\nThe server validates the URL for SSRF, enforces the size limit, and stages\nthe file through the same preview and commit flow as a direct upload.",
         "properties": {
           "url": {
             "description": "HTTP(S) URL of the file to import. The server validates the URL against SSRF, downloads it with the configured size cap, and stages it like a direct upload.",
@@ -20631,7 +20631,7 @@
     },
     "/admin/backfill-embeddings/": {
       "post": {
-        "description": "Queue semantic-search embedding generation for records (admin only).\n\nPass ?force=true to delete all existing embeddings and regenerate from\nscratch (required after changing the embedding model or dimensions).\n\nfix(#1542): the run happens on the job queue, not in this request. A full\nregenerate is provider-bound and linear in catalog size, so it outgrew the\n600s edge timeout somewhere below 59,000 records \u2014 and the request dying at\nthe proxy never stopped the work, it only hid it. Returns the job id;\npoll ``GET /jobs/{job_id}`` for the outcome.",
+        "description": "Queue semantic-search embedding generation for records (admin only).\n\nPass ?force=true to delete all existing embeddings and regenerate from\nscratch (required after changing the embedding model or dimensions).\n\nThe run happens on the job queue because a full regeneration can exceed\nrequest timeouts. This endpoint returns the job id; poll\n``GET /jobs/{job_id}`` for the outcome.",
         "operationId": "trigger_backfill_admin_backfill_embeddings__post",
         "parameters": [
           {
@@ -23511,7 +23511,7 @@
     },
     "/admin/users/{user_id}/reset-password/": {
       "post": {
-        "description": "Set a user's password (admin only).\n\nfeat(#1715): the login page tells a locked-out user to ask an\nadministrator, and there was nothing for the administrator to do. This is\nthe recovery path, so it asks for no current password -- holding\nmanage_users is the whole authorization, and the audit row is what makes\nthe action answerable for. The submitted value reaches the hash column and\nnowhere else: not the audit details, not a log line, not the response.\n\n422 when the target signs in through an identity provider (no local\npassword to replace), 404 when no such user exists -- both via the shared\n_raise_on_error mapping the sibling lifecycle routes use.\n\nResetting your own password is permitted and ends every session the\naccount holds, including the one making this request, because the reset\nrevokes the account's credentials. That is the same consequence\nPOST /auth/change-password/ has for the caller who invokes it.",
+        "description": "Set a user's password (admin only).\n\nThe ``manage_users`` permission authorizes this recovery path, so no current\npassword is required. The submitted password is stored only as a hash and\nis omitted from audit details, logs, and the response.\n\nReturns 422 when the target signs in through an identity provider and has\nno local password, or 404 when the user does not exist.\n\nResetting your own password is permitted and ends every session the\naccount holds, including the one making this request, because the reset\nrevokes the account's credentials.",
         "operationId": "reset_user_password_admin_users__user_id__reset_password__post",
         "parameters": [
           {
@@ -23655,7 +23655,7 @@
     },
     "/ai/availability/": {
       "get": {
-        "description": "Report whether builder AI chat is usable (#338).\n\nPermission-gated on ``use_ai_chat`` so non-admin editors (who cannot read\n``/admin/ai-status``) can learn availability. Returns ``available=false``\nrather than 503 when provider keys are missing, so the builder shows a safe\ndisabled state without console-noise errors. A viewer (no ``use_ai_chat``)\ngets 403.",
+        "description": "Report whether builder AI chat is usable.\n\nRequires ``use_ai_chat``. Returns ``available=false`` when provider keys\nare missing and 403 when the caller lacks permission.",
         "operationId": "ai_availability_endpoint_ai_availability__get",
         "responses": {
           "200": {
@@ -25091,7 +25091,7 @@
     },
     "/audit/datasets/{dataset_id}/column-ddl": {
       "get": {
-        "description": "Return the column-DDL audit history for a dataset.\n\nSurfaces the column-DDL events to dataset owners so they can detect\neditor-initiated schema changes.\n\nAccess control (AGENTS.md Pre-Commit Checklist Rule 1):\n- Owner: 200 with their own dataset's DDL history\n- Admin: 200 (admin access is always allowed)\n- Anyone else \u2014 including authenticated readers of a PUBLIC dataset: 404\n  via check_dataset_write_access. fix(#458): the feed previously used\n  check_dataset_access (read visibility), which let any logged-in user\n  enumerate editor usernames/user_ids on public datasets, contradicting\n  this owner-facing contract.\n- Anonymous: 401 (get_current_active_user dependency)\n\nThe dataset 404-before-auth-query ordering ensures non-existent datasets\nreturn 404 without leaking audit log details.",
+        "description": "Return the column-DDL audit history for a dataset.\n\nSurfaces the column-DDL events to dataset owners so they can detect\neditor-initiated schema changes.\n\nOwners and administrators can read the feed. Other authenticated users\nreceive 404, including readers of a public dataset, because the entries\nidentify editors. Anonymous callers receive 401.\n\nThe dataset 404-before-auth-query ordering ensures non-existent datasets\nreturn 404 without leaking audit log details.",
         "operationId": "get_column_ddl_feed_audit_datasets__dataset_id__column_ddl_get",
         "parameters": [
           {
@@ -26187,7 +26187,7 @@
     },
     "/auth/logout/": {
       "post": {
-        "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nrevoke_all_tokens bumps User.token_version so the\naccess JWT used for this logout call (and any other outstanding access JWTs)\nare rejected on the next authenticated request \u2014 closing the\n\"logout doesn't invalidate the access JWT\" gap.\n\nfix(#821): logout deliberately does NOT bump key_epoch \u2014 API keys exist to\noutlive browser sessions (CI, MCP servers, tile URLs), so session hygiene\nmust not revoke them. Security events (password change, role change) do.\n\nfix(#1446): the refresh COOKIE can authenticate this call when the access\ntoken has aged out. Requiring a live bearer token meant a user returning\nafter their 15-minute access token expired got a 401 here while their\nmulti-day refresh cookie stayed valid \u2014 the UI reported a clean logout and\nthe session survived it. CSRF is enforced on that path exactly as it is for\n/auth/refresh, since the cookie is then the credential.",
+        "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nLogout invalidates the access JWT used for this call and all other active\nbrowser sessions.\n\nAPI keys remain valid because they are independent of browser sessions.\nPassword and role changes still revoke them.\n\nA refresh cookie can authenticate logout after the access token expires.\nCookie-authenticated requests require CSRF validation.",
         "operationId": "logout_auth_logout__post",
         "parameters": [
           {
@@ -35417,7 +35417,7 @@
     },
     "/datasets/{dataset_id}/features.geojson": {
       "get": {
-        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.\n\nfix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,\neligible cluster layers) already sends ``X-Embed-Token``, and the\nshared-map union now exposes embed-scoped private layers to embeds \u2014 so\nthis endpoint accepts the token as fallback authorization via the SAME\n``validate_embed_token_access`` capability check as tile serving.\n\nfix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``\nso public+published datasets serve to anonymous callers (matching vector\ntiles and the dataset-detail read path); private/restricted datasets still\n404 for anon and follow full RBAC for credentialed callers. This unblocks\nclient clustering for anonymous public-map viewers.\n\nfix(#390) codex P2: a request that *supplied* credentials which failed to\nresolve (expired / revoked JWT) gets 401, not the anonymous 404, so the\nfrontend's refresh-on-401 retry fires instead of a private layer\npermanently failing as \"not found\". Truly credentialless requests keep the\nanonymous public path.",
+        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.\n\n``X-Embed-Token`` authorizes private datasets in the token's scope through\nthe same capability check used for tile requests.\n\nAnonymous callers can read public, published datasets. Private or\nrestricted datasets return 404 unless user or embed credentials authorize\naccess.\n\nSupplied credentials that are expired or revoked receive 401 so clients can\nrefresh them. Requests without credentials use the anonymous access path.",
         "operationId": "get_features_geojson_z_endpoint_datasets__dataset_id__features_geojson_get",
         "parameters": [
           {
@@ -35569,7 +35569,7 @@
     },
     "/datasets/{dataset_id}/features/": {
       "get": {
-        "description": "Get paginated GeoJSON features for a dataset.\n\nPagination is OFFSET-based (fix(#458), documented limitation): rows can\nskip or duplicate across pages under concurrent writes, though feature ids\nstay stable (ORDER BY gid, the primary key). Clients that need stable\ncursoring should use the OGC API Features endpoint, which supports keyset\npagination via ``after_gid``.",
+        "description": "Get paginated GeoJSON features for a dataset.\n\nOffset pagination can skip or duplicate rows during concurrent writes,\nthough feature ids remain stable because rows are ordered by the primary\nkey. Clients that need stable\ncursoring should use the OGC API Features endpoint, which supports keyset\npagination via ``after_gid``.",
         "operationId": "list_features_datasets__dataset_id__features__get",
         "parameters": [
           {
@@ -35676,7 +35676,7 @@
                           "geometry": {
                             "anyOf": [
                               {
-                                "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                                "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nGeometry collections carry ``geometries`` instead of ``coordinates``.\nOnly generic-geometry datasets accept them on write.\n\nNested collections are rejected because PostGIS cannot round-trip them\nthrough the GeoJSON boundary.",
                                 "properties": {
                                   "type": {
                                     "const": "GeometryCollection",
@@ -35968,7 +35968,7 @@
                     "geometry": {
                       "anyOf": [
                         {
-                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nGeometry collections carry ``geometries`` instead of ``coordinates``.\nOnly generic-geometry datasets accept them on write.\n\nNested collections are rejected because PostGIS cannot round-trip them\nthrough the GeoJSON boundary.",
                           "properties": {
                             "type": {
                               "const": "GeometryCollection",
@@ -36375,7 +36375,7 @@
                     "geometry": {
                       "anyOf": [
                         {
-                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nGeometry collections carry ``geometries`` instead of ``coordinates``.\nOnly generic-geometry datasets accept them on write.\n\nNested collections are rejected because PostGIS cannot round-trip them\nthrough the GeoJSON boundary.",
                           "properties": {
                             "type": {
                               "const": "GeometryCollection",
@@ -36636,7 +36636,7 @@
                     "geometry": {
                       "anyOf": [
                         {
-                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nGeometry collections carry ``geometries`` instead of ``coordinates``.\nOnly generic-geometry datasets accept them on write.\n\nNested collections are rejected because PostGIS cannot round-trip them\nthrough the GeoJSON boundary.",
                           "properties": {
                             "type": {
                               "const": "GeometryCollection",
@@ -36907,7 +36907,7 @@
                     "geometry": {
                       "anyOf": [
                         {
-                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nGeometry collections carry ``geometries`` instead of ``coordinates``.\nOnly generic-geometry datasets accept them on write.\n\nNested collections are rejected because PostGIS cannot round-trip them\nthrough the GeoJSON boundary.",
                           "properties": {
                             "type": {
                               "const": "GeometryCollection",
@@ -38028,7 +38028,7 @@
     },
     "/datasets/{dataset_id}/refresh": {
       "post": {
-        "description": "Re-pull this dataset's data from the origin it was imported from.\n\nOne request, no source pointer, no layer selection. The dataset keeps\nserving its current data throughout: the worker loads into an\nattempt-scoped staging table and swaps only once the new data is\ncomplete, so a refresh that fails leaves the live table and its freshness\nexactly as they were.\n\nTwo origin kinds take their own execution strategy, and neither moves any\ndata. A dataset registered from an existing PostGIS table (#1265) has an\norigin that IS the table it serves from, so its refresh re-measures the\nlive relation \u2014 recounting features, recomputing the extent, rebuilding\nthe column schema snapshot and statistics. A dataset imported from a STAC\nitem (#1266) is nothing but a pointer at somebody else's COG, so its\nrefresh re-reads the item document and follows the asset if the publisher\nmoved it. Admission, the run row and the history they write are identical\nacross all three.\n\nRefuses with 409 ``dataset_busy`` while another refresh or re-upload is\nactive for this dataset \u2014 v1 rejects rather than queues (Decision 5b), and\nthe refusal comes from a partial unique index rather than a check, so two\nsimultaneous clicks cannot both be admitted.",
+        "description": "Re-pull this dataset's data from the origin it was imported from.\n\nOne request, no source pointer, no layer selection. The dataset keeps\nserving its current data throughout: the worker loads into an\nattempt-scoped staging table and swaps only once the new data is\ncomplete, so a refresh that fails leaves the live table and its freshness\nexactly as they were.\n\nDifferent origin kinds use different execution strategies. A dataset\nregistered from an existing PostGIS table serves directly from its origin,\nso refresh re-measures the\nlive relation \u2014 recounting features, recomputing the extent, rebuilding\nthe column schema snapshot and statistics. A dataset imported from a STAC\nitem points to an external COG, so its\nrefresh re-reads the item document and follows the asset if the publisher\nmoved it. Admission, the run row and the history they write are identical\nacross all three.\n\nRefuses with 409 ``dataset_busy`` while another refresh or re-upload is\nactive for this dataset. A partial unique index prevents simultaneous\nrequests from both being admitted.",
         "operationId": "refresh_dataset_datasets__dataset_id__refresh_post",
         "parameters": [
           {
@@ -38189,7 +38189,7 @@
     },
     "/datasets/{dataset_id}/refresh-runs": {
       "get": {
-        "description": "Refresh history for a dataset: every attempt, including the failures.\n\nDurable across the `ingest_jobs` retention purge \u2014 that purge is why this\ntable exists rather than the jobs table serving as the record (#1219).\n\nAccess follows Rule 1 on the read path, and ADR-002 Decision 4e adds field\nredaction on top: a caller who is neither the dataset owner nor an admin\nsees the timeline and outcomes but not who triggered each run, nor the\nfailure text, nor the schema diff. Without that, a PUBLIC dataset's\nhistory enumerates its editors and leaks origin detail through error\nstrings. The redaction is tested against a NAMED signed-in third party as\nwell as an anonymous reader; a requester-scoped check that only exercises\nthe anonymous case reads as complete and is not.\n\nThe owner-or-admin predicate (`can_view_dataset_provenance`) was extracted\nto `authorization.py` under #1316, which applies the same rule to dataset\nreads and `/versions/` \u2014 this endpoint's redaction is no longer the odd\none out among the three.",
+        "description": "Refresh history for a dataset: every attempt, including the failures.\n\nThe history remains available after the related ingest job is purged.\n\nA caller who is neither the dataset owner nor an administrator\nsees the timeline and outcomes but not who triggered each run, nor the\nfailure text, nor the schema diff. Without that, a PUBLIC dataset's\nhistory enumerates its editors and leaks origin detail through error\nstrings.",
         "operationId": "list_dataset_refresh_runs_datasets__dataset_id__refresh_runs_get",
         "parameters": [
           {
@@ -40624,7 +40624,7 @@
     },
     "/datasets/{dataset_id}/versions/": {
       "get": {
-        "description": "Get paginated version history for a dataset.\n\nAccess follows Rule 1 on the read path. feat(#1316): field redaction on\ntop follows the same owner-or-admin predicate as refresh-runs and dataset\nreads \u2014 a caller who is neither the owner nor an admin gets the version\ntimeline (filenames, formats, feature counts) but not ``file_hash`` or\n``uploaded_by``. Unredacted, a PUBLIC dataset's version history enumerates\nits editors, the exact leak ADR-002 Decision 4e closed for refresh-runs.",
+        "description": "Get paginated version history for a dataset.\n\nA caller who is neither the owner nor an administrator gets the version\ntimeline (filenames, formats, feature counts) but not ``file_hash`` or\n``uploaded_by``. This prevents public version history from identifying\neditors.",
         "operationId": "get_dataset_versions_endpoint_datasets__dataset_id__versions__get",
         "parameters": [
           {
@@ -43147,7 +43147,7 @@
     },
     "/ingest/upload/url": {
       "post": {
-        "description": "Start importing a geospatial file from an HTTP(S) URL.\n\nfeat(#1705): the URL variant of ``POST /ingest/upload`` \u2014 NOT a new\nsource type. The server fetches the file itself and the staged bytes\nenter the normal pipeline unchanged (preview then commit).\n\nfeat(#1710): the download is a background job. This call validates the\nURL and returns a job id immediately; poll ``GET /jobs/{job_id}`` and\npreview once the job reaches ``pending``. While the file is downloading\nthe job reports status ``running`` with step ``downloading``.\n\nRule 2 posture: ``validate_url_for_ssrf`` gates the URL here, the worker\ndownloads through ``make_safe_client()`` (connect-time IP pinning plus\nper-hop redirect revalidation), the size cap is enforced while\nstreaming, the staged file passes the same extension allowlist and\ncontent sniff as a direct upload, and GDAL only ever sees the staged\nlocal file.",
+        "description": "Start importing a geospatial file from an HTTP(S) URL.\n\nThe server fetches the file and sends the staged bytes through the same\npreview and commit pipeline as a direct upload.\n\nThe download runs as a background job. This call validates the URL and\nreturns a job id immediately; poll ``GET /jobs/{job_id}`` and\npreview once the job reaches ``pending``. While the file is downloading\nthe job reports status ``running`` with step ``downloading``.\n\nURL validation, connection-time IP pinning, and per-hop redirect checks\nprotect the download from SSRF. The worker enforces the size cap while\nstreaming, validates the staged file like a direct upload, and gives GDAL\nonly the local staged file.",
         "operationId": "upload_from_url_ingest_upload_url_post",
         "requestBody": {
           "content": {
@@ -44157,7 +44157,7 @@
     },
     "/jobs/{job_id}/cancel": {
       "post": {
-        "description": "Cancel a pending or running ingest job (imports, refreshes, and every\nother IngestJob-shaped run \u2014 feat(#1677)).\n\nThe DB compare-and-swap here is the correctness mechanism: the job row\n(fenced on the attempt id read pre-CAS) and its bound refresh run flip to\n``cancelled`` and COMMIT before anything touches the queue. A worker that\nnever hears the abort still cannot install data afterwards, because every\nfinalize site runs its fenced job update inside the swap transaction and\n``require_ingest_job_update`` raises on the cancelled row, rolling the\nswap back. The Procrastinate ``abort=True`` request afterwards is\nbest-effort acceleration only.\n\nAuthorization: the job's creator, a holder of the cross-user job\ncapability (same arm view/retry use), or \u2014 wider than retry, on purpose \u2014\nanyone with write access to the job's dataset, so a dataset's owner can\nalways unblock their own dataset from a run someone else started.",
+        "description": "Cancel a pending or running ingest job.\n\nThe database marks the job and any bound refresh run as cancelled before\nrequesting a queue abort. Transaction fencing prevents a worker from\ninstalling data after cancellation even if it misses the abort request.\n\nThe job creator, a user with cross-user job permission, or anyone with\nwrite access to the job's dataset may cancel it.",
         "operationId": "cancel_job_jobs__job_id__cancel_post",
         "parameters": [
           {
@@ -45057,7 +45057,7 @@
     },
     "/layers/{dataset_id}/columns/{column_name}/references": {
       "get": {
-        "description": "Count saved maps whose layer config references a column.\n\nfix(#458): surfaced in the schema editor before a rename/drop so the\neditor knows how many saved maps depend on the column. Count only \u2014 map\ntitles may belong to other users and are not exposed here.",
+        "description": "Count saved maps whose layer config references a column.\n\nThe schema editor uses this count before a rename or drop. Map titles are\nomitted because they may belong to other users.",
         "operationId": "column_references_endpoint_layers__dataset_id__columns__column_name__references_get",
         "parameters": [
           {
@@ -46276,7 +46276,7 @@
     },
     "/maps/shared/{token}": {
       "get": {
-        "description": "Get a shared map by token. Optionally authenticated for non-public layers.\n\nEmits ``Content-Security-Policy: frame-ancestors\n'self' [<allowed_origins>...]`` on the response, derived from the active\nEmbedToken for this map. When no EmbedToken exists or allowed_origins is\nempty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware\nrespects this route-level CSP and skips emitting X-Frame-Options: DENY.\n\nfix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the\ntoken's scope authorizes, as a capability rather than a role.",
+        "description": "Get a shared map by token. Optionally authenticated for non-public layers.\n\nEmits ``Content-Security-Policy: frame-ancestors\n'self' [<allowed_origins>...]`` on the response, derived from the active\nEmbedToken for this map. When no EmbedToken exists or allowed_origins is\nempty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware\nrespects this route-level CSP and skips emitting X-Frame-Options: DENY.\n\n``X-Embed-Token`` grants access to layers in the token's scope.",
         "operationId": "get_shared_map_endpoint_maps_shared__token__get",
         "parameters": [
           {
@@ -51654,7 +51654,7 @@
             }
           },
           {
-            "description": "Compute inherited_audience_gap as if the record had this visibility \u2014 the counterfactual an owner asks before widening access (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Keywords themselves are unaffected.",
+            "description": "Compute inherited_audience_gap as if the record had this visibility. Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Keywords themselves are unaffected.",
             "in": "query",
             "name": "audience_visibility",
             "required": false,
@@ -51668,12 +51668,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Compute inherited_audience_gap as if the record had this visibility \u2014 the counterfactual an owner asks before widening access (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Keywords themselves are unaffected.",
+              "description": "Compute inherited_audience_gap as if the record had this visibility. Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Keywords themselves are unaffected.",
               "title": "Audience Visibility"
             }
           },
           {
-            "description": "Compute inherited_audience_gap as if the record had this status \u2014 the counterfactual an owner asks before publishing (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come from the workflow extension's status_order(), so an overlay may define its own. An unrecognized status is treated conservatively (it reaches only the owner, which errs toward warning) rather than rejected.",
+            "description": "Compute inherited_audience_gap as if the record had this status \u2014 the counterfactual an owner asks before publishing. Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come from the workflow extension's status_order(), so an overlay may define its own. An unrecognized status is treated conservatively (it reaches only the owner, which errs toward warning) rather than rejected.",
             "in": "query",
             "name": "audience_record_status",
             "required": false,
@@ -51687,7 +51687,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Compute inherited_audience_gap as if the record had this status \u2014 the counterfactual an owner asks before publishing (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come from the workflow extension's status_order(), so an overlay may define its own. An unrecognized status is treated conservatively (it reaches only the owner, which errs toward warning) rather than rejected.",
+              "description": "Compute inherited_audience_gap as if the record had this status \u2014 the counterfactual an owner asks before publishing. Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come from the workflow extension's status_order(), so an overlay may define its own. An unrecognized status is treated conservatively (it reaches only the owner, which errs toward warning) rather than rejected.",
               "title": "Audience Record Status"
             }
           }

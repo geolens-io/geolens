@@ -7,12 +7,10 @@ export type ClientOptions = {
 /**
  * AIAvailabilityResponse
  *
- * Public-safe AI readiness signal (#338).
+ * Public-safe AI readiness signal.
  *
- * Carries a single boolean and intentionally exposes NO provider name, model,
- * or key detail — it is readable by any non-admin editor holding
- * ``use_ai_chat`` so the builder can enable/disable chat without the
- * admin-only ``/admin/ai-status`` endpoint (which leaks provider/key info).
+ * The response exposes no provider, model, or key details. Editors with
+ * ``use_ai_chat`` can use it without access to the admin-only AI status.
  */
 export type AiAvailabilityResponse = {
     /**
@@ -163,7 +161,7 @@ export type AdminApiKeyCreateRequest = {
     /**
      * Scope
      *
-     * Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.
+     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.
      */
     scope?: 'full' | 'read_only';
 };
@@ -211,7 +209,7 @@ export type AdminApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full' or 'read_only' (#875).
+     * Privilege scope: 'full' or 'read_only'.
      */
     scope: string;
     /**
@@ -657,7 +655,7 @@ export type AnalysisPreviewRequest = {
     /**
      * Bbox
      *
-     * [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the whole dataset, unchanged from before this field existed.
+     * [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order. Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the whole dataset, unchanged from before this field existed.
      */
     bbox?: Array<number> | null;
 };
@@ -689,7 +687,7 @@ export type AnalysisPreviewResponse = {
     /**
      * Source Feature Count
      *
-     * Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a LIVE count of rows intersecting it rather than the dataset's cached whole-table total (fix(#727)) — also null, same as match_count, when that live count could not be computed within the query budget
+     * Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a live count of rows intersecting it rather than the dataset's cached whole-table total. It is also null, like match_count, when that live count could not be computed within the query budget
      */
     source_feature_count?: number | null;
     /**
@@ -719,7 +717,7 @@ export type ApiKeyCreateRequest = {
     /**
      * Scope
      *
-     * Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.
+     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.
      */
     scope?: 'full' | 'read_only';
 };
@@ -757,7 +755,7 @@ export type ApiKeyCreateResponse = {
     /**
      * Scope
      *
-     * Privilege scope: 'full' or 'read_only' (#875)
+     * Privilege scope: 'full' or 'read_only'
      */
     scope: string;
     /**
@@ -797,7 +795,7 @@ export type ApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full' or 'read_only' (#875)
+     * Privilege scope: 'full' or 'read_only'
      */
     scope: string;
     /**
@@ -1116,11 +1114,10 @@ export type BackfillEstimate = {
 /**
  * BackfillResponse
  *
- * Acknowledgement that a backfill run was queued (fix(#1542)).
+ * Acknowledgement that a backfill run was queued.
  *
- * The run itself happens on the job queue, so this carries no counts — a full
- * regenerate takes minutes and used to hold the HTTP request open past the
- * 600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.
+ * The response carries no counts because the work runs asynchronously. Poll
+ * ``GET /jobs/{job_id}`` for status.
  */
 export type BackfillResponse = {
     /**
@@ -3151,7 +3148,7 @@ export type DatasetMeta = {
 /**
  * DatasetRefreshRequest
  *
- * Body of a one-request refresh (#1220). Carries no source pointer.
+ * Body of a one-request refresh. Carries no source pointer.
  *
  * Everything about WHERE the data comes from is read server-side from the
  * dataset's stored origin binding — that is the whole feature. A client
@@ -3232,15 +3229,13 @@ export type DatasetRefreshRunListResponse = {
 /**
  * DatasetRefreshRunResponse
  *
- * One refresh attempt, success or failure (ADR-002 Decision 4).
+ * One refresh attempt, including failures.
  *
  * Five fields are redacted for callers who are neither the dataset owner nor
  * an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
  * ``error_message`` and ``schema_diff``. A public dataset's refresh history
  * otherwise enumerates who edits it, and failure text leaks internal origin
- * detail. The redaction is enumerated against NAMED third-party readers as
- * well as anonymous ones — a signed-in stranger is the case that gets
- * missed.
+ * detail.
  */
 export type DatasetRefreshRunResponse = {
     /**
@@ -3461,7 +3456,7 @@ export type DatasetResponse = {
     /**
      * Has Generic Geometry
      *
-     * True when the underlying column is generic GEOMETRY (created sketch datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above. Computed on the detail endpoint only (fix #430 codex r18); list endpoints always report false.
+     * True when the underlying column is generic GEOMETRY (created sketch datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above. Computed on the detail endpoint only; list endpoints always report false.
      */
     has_generic_geometry?: boolean;
     /**
@@ -3577,13 +3572,13 @@ export type DatasetResponse = {
     /**
      * Origin Uri
      *
-     * Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets. feat(#1316): also null for any reader who is neither the dataset's owner nor an admin — origin (above) and the freshness/health fields below are not gated and still describe the dataset's capabilities.
+     * Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets. It is also null for any reader who is neither the dataset's owner nor an admin — origin (above) and the freshness/health fields below are not gated and still describe the dataset's capabilities.
      */
     origin_uri?: string | null;
     /**
      * Origin Ref
      *
-     * Typed per-origin payload with a `kind` discriminator, e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials. feat(#1316): owner-or-admin only, same redaction as origin_uri.
+     * Typed per-origin payload with a `kind` discriminator, e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials. owner-or-admin only, same redaction as origin_uri.
      */
     origin_ref?: {
         [key: string]: unknown;
@@ -3749,7 +3744,7 @@ export type DatasetResponse = {
     /**
      * Metadata Warnings
      *
-     * Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open (feat #1070). Only ever set on the PATCH response; the change has already applied.
+     * Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open. Only ever set on the PATCH response; the change has already applied.
      */
     metadata_warnings?: Array<string> | null;
 };
@@ -3801,11 +3796,9 @@ export type DatasetVersionListResponse = {
  *
  * One version in a dataset's history.
  *
- * feat(#1316): ``file_hash`` and ``uploaded_by`` are null for any caller who
- * is neither the dataset's owner nor an admin — the same predicate that
- * gates ``origin_uri``/``origin_ref`` on the dataset itself and
- * ``triggered_by`` on refresh-runs (ADR-002 Decision 4e). Unredacted, a
- * public dataset's version history enumerates its editors.
+ * ``file_hash`` and ``uploaded_by`` are null for callers who are neither the
+ * dataset owner nor an administrator. This prevents public version history
+ * from identifying editors.
  */
 export type DatasetVersionResponse = {
     /**
@@ -3887,20 +3880,9 @@ export type DbfTruncationDetail = {
  *
  * Provenance for an analysis output: what it came from, and how.
  *
- * fix(#765 review): declared as a model rather than ``dict[str, Any]``. The
- * dict spelled itself into the checked-in OpenAPI as bare
- * ``additionalProperties: true``, so both generated SDKs lost the shape — the
- * TypeScript one degraded to an index signature and the Python one to an
- * empty additional-properties container. The stable shape was documented in
- * prose and mirrored by hand in the frontend types while the SDKs, which is
- * where most consumers actually meet it, could not use it type-safely.
- *
  * ``params`` stays untyped on purpose: it is the operation's own parameter
- * dict, so its keys differ per operation (``distance_meters`` for a buffer,
- * ``mask_source``/``mask_dataset_id`` for a clip), and it is additionally
- * REDACTED per requester — ``visible_derived_from`` drops any embedded
- * dataset id the caller cannot see. A union of per-operation models would
- * describe a shape the redaction is free to punch holes in.
+ * dictionary, so its keys differ by operation. It is also redacted for each
+ * requester: dataset ids that the caller cannot access are omitted.
  */
 export type DerivedFromResponse = {
     /**
@@ -4833,17 +4815,11 @@ export type GeoJsonGeometry = {
  *
  * A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
  *
- * fix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so
- * it needs its own model — only generic-GEOMETRY datasets accept it on write
- * (enforced in the service), and any stored collection must serialize back
- * out on read.
+ * Geometry collections carry ``geometries`` instead of ``coordinates``.
+ * Only generic-geometry datasets accept them on write.
  *
- * Deliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip
- * nested collections through the GeoJSON boundary in either direction —
- * ST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises
- * 'GeoJson: geometry not supported' on read — so a recursive model could
- * never receive one and would only convert the write-side 422 into a raw
- * database 500. The write schemas add a raw-payload guard for a clear 422.
+ * Nested collections are rejected because PostGIS cannot round-trip them
+ * through the GeoJSON boundary.
  */
 export type GeoJsonGeometryCollection = {
     /**
@@ -5007,7 +4983,7 @@ export type InfrastructureResponse = {
 /**
  * JobCancelResponse
  *
- * Outcome of ``POST /jobs/{id}/cancel`` (#1677).
+ * Outcome of ``POST /jobs/{id}/cancel``.
  *
  * ``run_id`` is the ``dataset_refresh_runs`` row this cancel finalized, when
  * the job had one bound (refreshes and reuploads do; plain imports don't).
@@ -5150,7 +5126,7 @@ export type KeywordListResponse = {
     /**
      * Inherited Audience Gap
      *
-     * True when at least one keyword is inherited AND this record's audience — at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which are honored only for the record's owner and admins — includes someone who cannot open the source dataset (feat #1070).
+     * True when at least one keyword is inherited AND this record's audience — at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which are honored only for the record's owner and admins — includes someone who cannot open the source dataset.
      */
     inherited_audience_gap?: boolean;
 };
@@ -5182,7 +5158,7 @@ export type KeywordResponse = {
     /**
      * Inherited
      *
-     * True when this keyword also exists on the dataset this record was derived from (feat #1070). Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so everyone else sees false — matching the derived_from redaction.
+     * True when this keyword also exists on the dataset this record was derived from. Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so everyone else sees false — matching the derived_from redaction.
      */
     inherited?: boolean;
 };
@@ -6539,12 +6515,11 @@ export type MapVisibility = 'private' | 'internal' | 'public';
 /**
  * MercatorClipDetail
  *
- * fix(#888): how much geometry the Web Mercator clamp destroyed.
+ * Counts geometry changed by the Web Mercator clamp.
  *
  * The clamp is a box, not a latitude cutoff: longitude -180 to 180 and
  * latitude -85.06 to 85.06. Either bound can be the one that cost the user
- * geometry, so clients must not present this as a latitude-only problem
- * (fix(#899 codex r1)).
+ * geometry, so clients must not present this as a latitude-only problem.
  *
  * ``dropped_features`` lost their geometry entirely (a valid point at lat
  * -89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in
@@ -7289,11 +7264,8 @@ export type OgcLink = {
  *
  * One entry in the raster:bands STAC extension array.
  *
- * fix(#1805 review round 3 P2): matches the shape service_records.py
- * actually serializes per band. `statistics` matches the normalized
- * band_info shape core/raster_bands.py (introduced by #1803, the raster
- * lifecycle PR) produces on read; keep this in sync if that PR changes
- * the per-band keys.
+ * This matches the per-band data returned by catalog search. ``statistics``
+ * uses the normalized raster band metadata shape.
  */
 export type OgcRasterBand = {
     /**
@@ -8251,17 +8223,10 @@ export type RasterPreviewResponse = {
  *
  * A raster tile template, signed like its vector sibling.
  *
- * fix(#688): the raster shape used to carry no signature at all, so a client
- * following the API contract literally received an *unauthenticated* template
- * for a private raster. MapLibre issues the tile image requests itself and
- * attaches no `X-Api-Key`, so an API-key-only client could not render one —
- * the workarounds were `setTransformRequest` (not available to every consumer)
- * or `?api_key=` in the tile URL, which puts a non-expiring unscoped
- * credential into tile URLs, server logs, and saved client project files.
- *
- * `tile_url` now arrives with `sig`/`exp`/`scope` already in its query string,
- * so the template is self-sufficient and expires. The three are also returned
- * as fields, mirroring `VectorTileToken`, for clients that rebuild the URL.
+ * ``tile_url`` includes ``sig``, ``exp``, and ``scope`` in its query string,
+ * so MapLibre can request private tiles without attaching an API key. The
+ * signature expires, and its fields are also returned separately for clients
+ * that rebuild the URL.
  */
 export type RasterTileToken = {
     /**
@@ -8479,7 +8444,7 @@ export type ReuploadCommitRequest = {
     /**
      * Expected Origin Kind
      *
-     * The dataset origin the client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload is not silently rebound to an upload. Optional: a client that omits it keeps the pre-#1768 behaviour.
+     * The dataset origin the client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload is not silently rebound to an upload. A client may omit the field to skip this concurrency check.
      */
     expected_origin_kind?: 'upload' | 'postgis' | 'service' | 'stac' | 'created' | null;
     /**
@@ -9439,17 +9404,12 @@ export type SharedMapResponse = {
 /**
  * SourceHealthResponse
  *
- * Result of one on-demand origin probe (ADR-002, #1222).
+ * Result of one on-demand origin probe.
  *
- * Shares its first three words with ``VrtSourceHealth.status``, so the UI
- * renders one legend across VRT members and standalone origins.
- * ``VrtSourceHealth`` carries a fourth, VRT-specific value, ``stale``
- * (fix(#1221)): it means a member's raster was replaced after the parent
- * VRT was last built, and it does not apply to a single-origin probe. This
- * endpoint always probes, so it also never returns the OTHER fourth value,
- * ``unknown`` — the response-boundary projection of a never-determined NULL
- * column, which reaches clients through ``DatasetResponse``, not through
- * here.
+ * The values align with ``VrtSourceHealth.status`` so clients can use one
+ * legend for VRT members and standalone origins. ``stale`` applies only to
+ * VRT members, while ``unknown`` represents health that has not been checked;
+ * this endpoint always performs a probe and returns neither value.
  */
 export type SourceHealthResponse = {
     /**
@@ -10245,7 +10205,7 @@ export type StacItemSummary = {
     /**
      * Data Asset Key
      *
-     * The key the data asset is published under on the item. Echo it back on import so the dataset records WHICH asset it came from: hrefs move, and the key is what survives the move (#1266).
+     * The key the data asset is published under on the item. Echo it back on import so the dataset records which asset it came from. The key remains stable when the href changes.
      */
     data_asset_key?: string | null;
     /**
@@ -10496,7 +10456,7 @@ export type StatusUpdateResponse = {
     /**
      * Metadata Warnings
      *
-     * Advisory warnings from the status change — the same inherited-keyword disclosure check the metadata PATCH runs (feat #1070, fix #1178 review). The transition has already applied.
+     * Advisory warnings from the status change — the same inherited-keyword disclosure check the metadata PATCH runs. The transition has already applied.
      */
     metadata_warnings?: Array<string> | null;
 };
@@ -10559,7 +10519,7 @@ export type SublayerOverride = {
     /**
      * Opacity
      *
-     * Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity * master_opacity (#338). The UI opacity slider in BasemapSublayerEditorScene persists through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.
+     * Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity). The rendered opacity is the sublayer override multiplied by the master opacity.
      */
     opacity?: number | null;
 };
@@ -10880,11 +10840,10 @@ export type UploadResponse = {
 /**
  * UrlUploadRequest
  *
- * Request body for the URL variant of upload (feat #1705).
+ * Request body for importing a file from a URL.
  *
- * The server fetches the file itself (SSRF-validated, size-capped) and
- * stages it exactly like a direct upload — preview and commit take over
- * unchanged.
+ * The server validates the URL for SSRF, enforces the size limit, and stages
+ * the file through the same preview and commit flow as a direct upload.
  */
 export type UrlUploadRequest = {
     /**
@@ -25000,13 +24959,13 @@ export type ListKeywordsEndpointRecordsRecordIdKeywordsGetData = {
         /**
          * Audience Visibility
          *
-         * Compute inherited_audience_gap as if the record had this visibility — the counterfactual an owner asks before widening access (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Keywords themselves are unaffected.
+         * Compute inherited_audience_gap as if the record had this visibility. Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Keywords themselves are unaffected.
          */
         audience_visibility?: string | null;
         /**
          * Audience Record Status
          *
-         * Compute inherited_audience_gap as if the record had this status — the counterfactual an owner asks before publishing (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come from the workflow extension's status_order(), so an overlay may define its own. An unrecognized status is treated conservatively (it reaches only the owner, which errs toward warning) rather than rejected.
+         * Compute inherited_audience_gap as if the record had this status — the counterfactual an owner asks before publishing. Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come from the workflow extension's status_order(), so an overlay may define its own. An unrecognized status is treated conservatively (it reaches only the owner, which errs toward warning) rather than rejected.
          */
         audience_record_status?: string | null;
     };

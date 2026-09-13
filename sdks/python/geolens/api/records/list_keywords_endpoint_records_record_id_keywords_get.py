@@ -144,14 +144,13 @@ def sync_detailed(
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 100.
         audience_visibility (None | str | Unset): Compute inherited_audience_gap as if the record
-            had this visibility — the counterfactual an owner asks before widening access (feat
-            #1070). Honored only for the record's owner and admins; ignored for everyone else, who get
-            the gap at the record's stored state. Keywords themselves are unaffected.
+            had this visibility. Honored only for the record's owner and admins; ignored for everyone
+            else, who get the gap at the record's stored state. Keywords themselves are unaffected.
         audience_record_status (None | str | Unset): Compute inherited_audience_gap as if the
-            record had this status — the counterfactual an owner asks before publishing (feat #1070).
-            Honored only for the record's owner and admins; ignored for everyone else, who get the gap
-            at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses
-            come from the workflow extension's status_order(), so an overlay may define its own. An
+            record had this status — the counterfactual an owner asks before publishing. Honored only
+            for the record's owner and admins; ignored for everyone else, who get the gap at the
+            record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come
+            from the workflow extension's status_order(), so an overlay may define its own. An
             unrecognized status is treated conservatively (it reaches only the owner, which errs
             toward warning) rather than rejected.
 
@@ -196,14 +195,13 @@ def sync(
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 100.
         audience_visibility (None | str | Unset): Compute inherited_audience_gap as if the record
-            had this visibility — the counterfactual an owner asks before widening access (feat
-            #1070). Honored only for the record's owner and admins; ignored for everyone else, who get
-            the gap at the record's stored state. Keywords themselves are unaffected.
+            had this visibility. Honored only for the record's owner and admins; ignored for everyone
+            else, who get the gap at the record's stored state. Keywords themselves are unaffected.
         audience_record_status (None | str | Unset): Compute inherited_audience_gap as if the
-            record had this status — the counterfactual an owner asks before publishing (feat #1070).
-            Honored only for the record's owner and admins; ignored for everyone else, who get the gap
-            at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses
-            come from the workflow extension's status_order(), so an overlay may define its own. An
+            record had this status — the counterfactual an owner asks before publishing. Honored only
+            for the record's owner and admins; ignored for everyone else, who get the gap at the
+            record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come
+            from the workflow extension's status_order(), so an overlay may define its own. An
             unrecognized status is treated conservatively (it reaches only the owner, which errs
             toward warning) rather than rejected.
 
@@ -243,14 +241,13 @@ async def asyncio_detailed(
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 100.
         audience_visibility (None | str | Unset): Compute inherited_audience_gap as if the record
-            had this visibility — the counterfactual an owner asks before widening access (feat
-            #1070). Honored only for the record's owner and admins; ignored for everyone else, who get
-            the gap at the record's stored state. Keywords themselves are unaffected.
+            had this visibility. Honored only for the record's owner and admins; ignored for everyone
+            else, who get the gap at the record's stored state. Keywords themselves are unaffected.
         audience_record_status (None | str | Unset): Compute inherited_audience_gap as if the
-            record had this status — the counterfactual an owner asks before publishing (feat #1070).
-            Honored only for the record's owner and admins; ignored for everyone else, who get the gap
-            at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses
-            come from the workflow extension's status_order(), so an overlay may define its own. An
+            record had this status — the counterfactual an owner asks before publishing. Honored only
+            for the record's owner and admins; ignored for everyone else, who get the gap at the
+            record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come
+            from the workflow extension's status_order(), so an overlay may define its own. An
             unrecognized status is treated conservatively (it reaches only the owner, which errs
             toward warning) rather than rejected.
 
@@ -293,14 +290,13 @@ async def asyncio(
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 100.
         audience_visibility (None | str | Unset): Compute inherited_audience_gap as if the record
-            had this visibility — the counterfactual an owner asks before widening access (feat
-            #1070). Honored only for the record's owner and admins; ignored for everyone else, who get
-            the gap at the record's stored state. Keywords themselves are unaffected.
+            had this visibility. Honored only for the record's owner and admins; ignored for everyone
+            else, who get the gap at the record's stored state. Keywords themselves are unaffected.
         audience_record_status (None | str | Unset): Compute inherited_audience_gap as if the
-            record had this status — the counterfactual an owner asks before publishing (feat #1070).
-            Honored only for the record's owner and admins; ignored for everyone else, who get the gap
-            at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses
-            come from the workflow extension's status_order(), so an overlay may define its own. An
+            record had this status — the counterfactual an owner asks before publishing. Honored only
+            for the record's owner and admins; ignored for everyone else, who get the gap at the
+            record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come
+            from the workflow extension's status_order(), so an overlay may define its own. An
             unrecognized status is treated conservatively (it reaches only the owner, which errs
             toward warning) rather than rejected.
 

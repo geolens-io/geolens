@@ -29,10 +29,9 @@ class AdminApiKeyCreateRequest:
         name (str): Human-readable label for the API key (e.g. 'CI pipeline', 'QGIS desktop').
         expires_at (datetime.datetime | None | Unset): Optional expiry timestamp (RFC 3339, timezone-aware). Omit or
             null for a non-expiring key; expired keys stop authenticating.
-        scope (AdminApiKeyCreateRequestScope | Unset): Privilege scope (#875). 'full' impersonates the owner completely,
-            the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is
-            refused with 403. A service-account key minted for an application is the usual case for 'read_only'. Default:
-            'full'.
+        scope (AdminApiKeyCreateRequestScope | Unset): Privilege scope. 'full' impersonates the owner completely.
+            'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-
+            account key minted for an application is the usual case for 'read_only'. Default: 'full'.
     """
 
     user_id: UUID

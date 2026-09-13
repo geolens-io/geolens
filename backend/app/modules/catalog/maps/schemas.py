@@ -422,11 +422,8 @@ class SublayerOverride(BaseModel):
         description=(
             "Per-sublayer opacity (0-1), or null to use the basemap default. "
             "Composes on top of BasemapConfig.opacity (the whole-basemap master "
-            "opacity): the rendered opacity is override.opacity * master_opacity "
-            "(#338). The UI opacity slider in "
-            "BasemapSublayerEditorScene persists through this field: "
-            "MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity "
-            "-> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity."
+            "opacity). The rendered opacity is the sublayer override multiplied "
+            "by the master opacity."
         ),
     )
 

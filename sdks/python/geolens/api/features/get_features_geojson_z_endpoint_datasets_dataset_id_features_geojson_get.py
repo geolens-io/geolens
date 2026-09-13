@@ -103,27 +103,19 @@ def sync_detailed(
     client: AuthenticatedClient,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    r"""Get Features Geojson Z Endpoint
+    """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
-    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the
-    shared-map union now exposes embed-scoped private layers to embeds — so
-    this endpoint accepts the token as fallback authorization via the SAME
-    ``validate_embed_token_access`` capability check as tile serving.
+    ``X-Embed-Token`` authorizes private datasets in the token's scope through
+    the same capability check used for tile requests.
 
-    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
-    so public+published datasets serve to anonymous callers (matching vector
-    tiles and the dataset-detail read path); private/restricted datasets still
-    404 for anon and follow full RBAC for credentialed callers. This unblocks
-    client clustering for anonymous public-map viewers.
+    Anonymous callers can read public, published datasets. Private or
+    restricted datasets return 404 unless user or embed credentials authorize
+    access.
 
-    fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
-    frontend's refresh-on-401 retry fires instead of a private layer
-    permanently failing as \"not found\". Truly credentialless requests keep the
-    anonymous public path.
+    Supplied credentials that are expired or revoked receive 401 so clients can
+    refresh them. Requests without credentials use the anonymous access path.
 
     Args:
         dataset_id (UUID):
@@ -156,27 +148,19 @@ def sync(
     client: AuthenticatedClient,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    r"""Get Features Geojson Z Endpoint
+    """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
-    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the
-    shared-map union now exposes embed-scoped private layers to embeds — so
-    this endpoint accepts the token as fallback authorization via the SAME
-    ``validate_embed_token_access`` capability check as tile serving.
+    ``X-Embed-Token`` authorizes private datasets in the token's scope through
+    the same capability check used for tile requests.
 
-    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
-    so public+published datasets serve to anonymous callers (matching vector
-    tiles and the dataset-detail read path); private/restricted datasets still
-    404 for anon and follow full RBAC for credentialed callers. This unblocks
-    client clustering for anonymous public-map viewers.
+    Anonymous callers can read public, published datasets. Private or
+    restricted datasets return 404 unless user or embed credentials authorize
+    access.
 
-    fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
-    frontend's refresh-on-401 retry fires instead of a private layer
-    permanently failing as \"not found\". Truly credentialless requests keep the
-    anonymous public path.
+    Supplied credentials that are expired or revoked receive 401 so clients can
+    refresh them. Requests without credentials use the anonymous access path.
 
     Args:
         dataset_id (UUID):
@@ -204,27 +188,19 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    r"""Get Features Geojson Z Endpoint
+    """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
-    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the
-    shared-map union now exposes embed-scoped private layers to embeds — so
-    this endpoint accepts the token as fallback authorization via the SAME
-    ``validate_embed_token_access`` capability check as tile serving.
+    ``X-Embed-Token`` authorizes private datasets in the token's scope through
+    the same capability check used for tile requests.
 
-    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
-    so public+published datasets serve to anonymous callers (matching vector
-    tiles and the dataset-detail read path); private/restricted datasets still
-    404 for anon and follow full RBAC for credentialed callers. This unblocks
-    client clustering for anonymous public-map viewers.
+    Anonymous callers can read public, published datasets. Private or
+    restricted datasets return 404 unless user or embed credentials authorize
+    access.
 
-    fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
-    frontend's refresh-on-401 retry fires instead of a private layer
-    permanently failing as \"not found\". Truly credentialless requests keep the
-    anonymous public path.
+    Supplied credentials that are expired or revoked receive 401 so clients can
+    refresh them. Requests without credentials use the anonymous access path.
 
     Args:
         dataset_id (UUID):
@@ -255,27 +231,19 @@ async def asyncio(
     client: AuthenticatedClient,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    r"""Get Features Geojson Z Endpoint
+    """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
-    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the
-    shared-map union now exposes embed-scoped private layers to embeds — so
-    this endpoint accepts the token as fallback authorization via the SAME
-    ``validate_embed_token_access`` capability check as tile serving.
+    ``X-Embed-Token`` authorizes private datasets in the token's scope through
+    the same capability check used for tile requests.
 
-    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
-    so public+published datasets serve to anonymous callers (matching vector
-    tiles and the dataset-detail read path); private/restricted datasets still
-    404 for anon and follow full RBAC for credentialed callers. This unblocks
-    client clustering for anonymous public-map viewers.
+    Anonymous callers can read public, published datasets. Private or
+    restricted datasets return 404 unless user or embed credentials authorize
+    access.
 
-    fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
-    frontend's refresh-on-401 retry fires instead of a private layer
-    permanently failing as \"not found\". Truly credentialless requests keep the
-    anonymous public path.
+    Supplied credentials that are expired or revoked receive 401 so clients can
+    refresh them. Requests without credentials use the anonymous access path.
 
     Args:
         dataset_id (UUID):

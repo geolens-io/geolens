@@ -19,7 +19,7 @@ T = TypeVar("T", bound="DatasetRefreshRequest")
 
 @_attrs_define
 class DatasetRefreshRequest:
-    """Body of a one-request refresh (#1220). Carries no source pointer.
+    """Body of a one-request refresh. Carries no source pointer.
 
     Everything about WHERE the data comes from is read server-side from the
     dataset's stored origin binding — that is the whole feature. A client

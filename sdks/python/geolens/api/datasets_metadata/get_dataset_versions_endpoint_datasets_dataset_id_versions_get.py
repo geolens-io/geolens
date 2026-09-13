@@ -121,12 +121,10 @@ def sync_detailed(
 
      Get paginated version history for a dataset.
 
-    Access follows Rule 1 on the read path. feat(#1316): field redaction on
-    top follows the same owner-or-admin predicate as refresh-runs and dataset
-    reads — a caller who is neither the owner nor an admin gets the version
+    A caller who is neither the owner nor an administrator gets the version
     timeline (filenames, formats, feature counts) but not ``file_hash`` or
-    ``uploaded_by``. Unredacted, a PUBLIC dataset's version history enumerates
-    its editors, the exact leak ADR-002 Decision 4e closed for refresh-runs.
+    ``uploaded_by``. This prevents public version history from identifying
+    editors.
 
     Args:
         dataset_id (UUID):
@@ -165,12 +163,10 @@ def sync(
 
      Get paginated version history for a dataset.
 
-    Access follows Rule 1 on the read path. feat(#1316): field redaction on
-    top follows the same owner-or-admin predicate as refresh-runs and dataset
-    reads — a caller who is neither the owner nor an admin gets the version
+    A caller who is neither the owner nor an administrator gets the version
     timeline (filenames, formats, feature counts) but not ``file_hash`` or
-    ``uploaded_by``. Unredacted, a PUBLIC dataset's version history enumerates
-    its editors, the exact leak ADR-002 Decision 4e closed for refresh-runs.
+    ``uploaded_by``. This prevents public version history from identifying
+    editors.
 
     Args:
         dataset_id (UUID):
@@ -204,12 +200,10 @@ async def asyncio_detailed(
 
      Get paginated version history for a dataset.
 
-    Access follows Rule 1 on the read path. feat(#1316): field redaction on
-    top follows the same owner-or-admin predicate as refresh-runs and dataset
-    reads — a caller who is neither the owner nor an admin gets the version
+    A caller who is neither the owner nor an administrator gets the version
     timeline (filenames, formats, feature counts) but not ``file_hash`` or
-    ``uploaded_by``. Unredacted, a PUBLIC dataset's version history enumerates
-    its editors, the exact leak ADR-002 Decision 4e closed for refresh-runs.
+    ``uploaded_by``. This prevents public version history from identifying
+    editors.
 
     Args:
         dataset_id (UUID):
@@ -246,12 +240,10 @@ async def asyncio(
 
      Get paginated version history for a dataset.
 
-    Access follows Rule 1 on the read path. feat(#1316): field redaction on
-    top follows the same owner-or-admin predicate as refresh-runs and dataset
-    reads — a caller who is neither the owner nor an admin gets the version
+    A caller who is neither the owner nor an administrator gets the version
     timeline (filenames, formats, feature counts) but not ``file_hash`` or
-    ``uploaded_by``. Unredacted, a PUBLIC dataset's version history enumerates
-    its editors, the exact leak ADR-002 Decision 4e closed for refresh-runs.
+    ``uploaded_by``. This prevents public version history from identifying
+    editors.
 
     Args:
         dataset_id (UUID):

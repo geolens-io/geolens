@@ -506,8 +506,7 @@ async def list_keywords_endpoint(
         pattern="^(private|restricted|internal|public)$",
         description=(
             "Compute inherited_audience_gap as if the record had this "
-            "visibility — the counterfactual an owner asks before widening "
-            "access (feat #1070). Honored only for the record's owner and "
+            "visibility. Honored only for the record's owner and "
             "admins; ignored for everyone else, who get the gap at the "
             "record's stored state. Keywords themselves are unaffected."
         ),
@@ -517,7 +516,7 @@ async def list_keywords_endpoint(
         max_length=30,
         description=(
             "Compute inherited_audience_gap as if the record had this status — "
-            "the counterfactual an owner asks before publishing (feat #1070). "
+            "the counterfactual an owner asks before publishing. "
             "Honored only for the record's owner and admins; ignored for "
             "everyone else, who get the gap at the record's stored state. "
             "Deliberately not pinned to an enum: the lifecycle statuses come "

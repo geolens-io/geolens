@@ -217,20 +217,9 @@ class CollectionRef(BaseModel):
 class DerivedFromResponse(BaseModel):
     """Provenance for an analysis output: what it came from, and how.
 
-    fix(#765 review): declared as a model rather than ``dict[str, Any]``. The
-    dict spelled itself into the checked-in OpenAPI as bare
-    ``additionalProperties: true``, so both generated SDKs lost the shape — the
-    TypeScript one degraded to an index signature and the Python one to an
-    empty additional-properties container. The stable shape was documented in
-    prose and mirrored by hand in the frontend types while the SDKs, which is
-    where most consumers actually meet it, could not use it type-safely.
-
     ``params`` stays untyped on purpose: it is the operation's own parameter
-    dict, so its keys differ per operation (``distance_meters`` for a buffer,
-    ``mask_source``/``mask_dataset_id`` for a clip), and it is additionally
-    REDACTED per requester — ``visible_derived_from`` drops any embedded
-    dataset id the caller cannot see. A union of per-operation models would
-    describe a shape the redaction is free to punch holes in.
+    dictionary, so its keys differ by operation. It is also redacted for each
+    requester: dataset ids that the caller cannot access are omitted.
     """
 
     dataset_id: uuid.UUID = Field(description="The dataset this one was derived from")
@@ -262,7 +251,7 @@ class DatasetResponse(BaseModel):
             "True when the underlying column is generic GEOMETRY (created "
             "sketch datasets): the dataset accepts ANY geometry subtype on "
             "write regardless of the display geometry_type above. Computed "
-            "on the detail endpoint only (fix #430 codex r18); list "
+            "on the detail endpoint only; list "
             "endpoints always report false."
         ),
     )
@@ -345,8 +334,8 @@ class DatasetResponse(BaseModel):
         description=(
             "Machine-readable pointer back to the origin, written only by "
             "ingest and refresh. Distinct from source_url, which is editable "
-            "descriptive metadata. Null for uploads and created datasets. "
-            "feat(#1316): also null for any reader who is neither the "
+            "descriptive metadata. Null for uploads and created datasets. It "
+            "is also null for any reader who is neither the "
             "dataset's owner nor an admin — origin (above) and the "
             "freshness/health fields below are not gated and still describe "
             "the dataset's capabilities."
@@ -357,7 +346,7 @@ class DatasetResponse(BaseModel):
         description=(
             "Typed per-origin payload with a `kind` discriminator, e.g. "
             '{"kind": "service", "service_type": "wfs", "url": "...", '
-            '"layer_id": "0"}. Never contains credentials. feat(#1316): '
+            '"layer_id": "0"}. Never contains credentials. '
             "owner-or-admin only, same redaction as origin_uri."
         ),
     )
@@ -474,7 +463,7 @@ class DatasetResponse(BaseModel):
         description=(
             "Advisory warnings produced by a metadata update — e.g. a "
             "visibility or status change exposing keywords inherited from an "
-            "analysis source the new audience cannot open (feat #1070). Only "
+            "analysis source the new audience cannot open. Only "
             "ever set on the PATCH response; the change has already applied."
         ),
     )
@@ -489,8 +478,8 @@ class StatusUpdateResponse(BaseModel):
         default=None,
         description=(
             "Advisory warnings from the status change — the same "
-            "inherited-keyword disclosure check the metadata PATCH runs "
-            "(feat #1070, fix #1178 review). The transition has already "
+            "inherited-keyword disclosure check the metadata PATCH runs. "
+            "The transition has already "
             "applied."
         ),
     )
@@ -800,8 +789,8 @@ class ReuploadCommitRequest(BaseModel):
             "replacement. When set, the commit is refused with 409 "
             "`origin_changed` if the dataset's origin no longer matches, so a "
             "service, STAC or registered-table binding established after the "
-            "upload is not silently rebound to an upload. Optional: a client "
-            "that omits it keeps the pre-#1768 behaviour."
+            "upload is not silently rebound to an upload. A client may omit "
+            "the field to skip this concurrency check."
         ),
     )
     token: str | None = Field(
@@ -823,7 +812,7 @@ class ReuploadCommitResponse(BaseModel):
 
 
 class DatasetRefreshRequest(BaseModel):
-    """Body of a one-request refresh (#1220). Carries no source pointer.
+    """Body of a one-request refresh. Carries no source pointer.
 
     Everything about WHERE the data comes from is read server-side from the
     dataset's stored origin binding — that is the whole feature. A client
@@ -868,11 +857,9 @@ class DatasetRefreshResponse(BaseModel):
 class DatasetVersionResponse(BaseModel):
     """One version in a dataset's history.
 
-    feat(#1316): ``file_hash`` and ``uploaded_by`` are null for any caller who
-    is neither the dataset's owner nor an admin — the same predicate that
-    gates ``origin_uri``/``origin_ref`` on the dataset itself and
-    ``triggered_by`` on refresh-runs (ADR-002 Decision 4e). Unredacted, a
-    public dataset's version history enumerates its editors.
+    ``file_hash`` and ``uploaded_by`` are null for callers who are neither the
+    dataset owner nor an administrator. This prevents public version history
+    from identifying editors.
     """
 
     id: uuid.UUID
@@ -1012,17 +999,12 @@ class VrtGenerationListResponse(BaseModel):
 
 
 class SourceHealthResponse(BaseModel):
-    """Result of one on-demand origin probe (ADR-002, #1222).
+    """Result of one on-demand origin probe.
 
-    Shares its first three words with ``VrtSourceHealth.status``, so the UI
-    renders one legend across VRT members and standalone origins.
-    ``VrtSourceHealth`` carries a fourth, VRT-specific value, ``stale``
-    (fix(#1221)): it means a member's raster was replaced after the parent
-    VRT was last built, and it does not apply to a single-origin probe. This
-    endpoint always probes, so it also never returns the OTHER fourth value,
-    ``unknown`` — the response-boundary projection of a never-determined NULL
-    column, which reaches clients through ``DatasetResponse``, not through
-    here.
+    The values align with ``VrtSourceHealth.status`` so clients can use one
+    legend for VRT members and standalone origins. ``stale`` applies only to
+    VRT members, while ``unknown`` represents health that has not been checked;
+    this endpoint always performs a probe and returns neither value.
     """
 
     dataset_id: uuid.UUID
@@ -1278,7 +1260,7 @@ class AnalysisPreviewRequest(BaseModel):
             "current viewport. When present, only source features "
             "intersecting the envelope are considered before the preview's "
             "row cap applies, so a capped result reflects what is on screen "
-            "rather than an arbitrary sample in ingest order (fix(#727)). "
+            "rather than an arbitrary sample in ingest order. "
             "Applies to every operation, not just one, so it is deliberately "
             "absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the "
             "whole dataset, unchanged from before this field existed."
@@ -1330,9 +1312,9 @@ class AnalysisPreviewResponse(BaseModel):
         description=(
             "Total feature count of the source dataset (1:1 operations only; "
             "null when the operation filters rows, e.g. clip). When the "
-            "request carried a bbox this is a LIVE count of rows intersecting "
-            "it rather than the dataset's cached whole-table total (fix(#727)) "
-            "— also null, same as match_count, when that live count could not "
+            "request carried a bbox this is a live count of rows intersecting "
+            "it rather than the dataset's cached whole-table total. It is also "
+            "null, like match_count, when that live count could not "
             "be computed within the query budget"
         ),
     )
@@ -1438,15 +1420,13 @@ class AnalysisMaterializeResponse(BaseModel):
 
 
 class DatasetRefreshRunResponse(BaseModel):
-    """One refresh attempt, success or failure (ADR-002 Decision 4).
+    """One refresh attempt, including failures.
 
     Five fields are redacted for callers who are neither the dataset owner nor
     an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
     ``error_message`` and ``schema_diff``. A public dataset's refresh history
     otherwise enumerates who edits it, and failure text leaks internal origin
-    detail. The redaction is enumerated against NAMED third-party readers as
-    well as anonymous ones — a signed-in stranger is the case that gets
-    missed.
+    detail.
     """
 
     id: uuid.UUID

@@ -26,7 +26,7 @@ class AdminApiKeyListItem:
         name (str): Human-readable label.
         fingerprint (None | str): Non-secret key identifier; null for legacy keys.
         is_active (bool): Whether the key is active. Inactive keys cannot authenticate.
-        scope (str): Privilege scope: 'full' or 'read_only' (#875).
+        scope (str): Privilege scope: 'full' or 'read_only'.
         created_at (datetime.datetime): Timestamp when the key was created.
         last_used_at (datetime.datetime | None): Timestamp of the most recent successful authentication using this key.
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire.

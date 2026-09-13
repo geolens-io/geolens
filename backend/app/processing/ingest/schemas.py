@@ -18,11 +18,10 @@ Visibility = Literal["private", "restricted", "internal", "public"]
 
 
 class UrlUploadRequest(BaseModel):
-    """Request body for the URL variant of upload (feat #1705).
+    """Request body for importing a file from a URL.
 
-    The server fetches the file itself (SSRF-validated, size-capped) and
-    stages it exactly like a direct upload — preview and commit take over
-    unchanged.
+    The server validates the URL for SSRF, enforces the size limit, and stages
+    the file through the same preview and commit flow as a direct upload.
     """
 
     url: str = Field(

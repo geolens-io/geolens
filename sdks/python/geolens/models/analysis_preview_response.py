@@ -29,9 +29,9 @@ class AnalysisPreviewResponse:
         truncated (bool):
         bbox (list[float] | None | Unset):
         source_feature_count (int | None | Unset): Total feature count of the source dataset (1:1 operations only; null
-            when the operation filters rows, e.g. clip). When the request carried a bbox this is a LIVE count of rows
-            intersecting it rather than the dataset's cached whole-table total (fix(#727)) — also null, same as match_count,
-            when that live count could not be computed within the query budget
+            when the operation filters rows, e.g. clip). When the request carried a bbox this is a live count of rows
+            intersecting it rather than the dataset's cached whole-table total. It is also null, like match_count, when that
+            live count could not be computed within the query budget
         match_count (int | None | Unset): Exact total across the WHOLE source, not just the previewed features — WHOLE
             meaning the request's bbox when one was sent, the same sense source_feature_count uses that word. What it counts
             is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives
