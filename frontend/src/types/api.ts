@@ -1103,6 +1103,9 @@ export interface DatasetRefreshRunResponse {
     count_status: 'matched' | 'mismatched' | 'unavailable';
     identity_check: 'unavailable' | 'content_digest';
     content_digest?: string | null;
+    staged_geometry_type?: string | null;
+    staged_srid?: number | null;
+    staged_coordinate_dimension?: number | null;
     review_reasons: Array<
       'source_count_unavailable' | 'empty_result' | 'destructive_schema_change'
     >;

@@ -478,6 +478,50 @@ describe('SourceRefreshAction', () => {
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 
+  it('does not open a blocked-run retry while another refresh is busy', async () => {
+    const onAcceptHandled = vi.fn();
+
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch({ isBusy: true })}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await waitFor(() => expect(onAcceptHandled).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the busy state before confirming a blocked-run retry', async () => {
+    const user = userEvent.setup();
+    const onAcceptHandled = vi.fn();
+    const { rerender } = render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch()}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+    await screen.findByRole('dialog');
+
+    rerender(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch({ isBusy: true })}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('rechecks the feature selection before confirming a blocked-run retry', async () => {
     const user = userEvent.setup();
     const onAcceptHandled = vi.fn();

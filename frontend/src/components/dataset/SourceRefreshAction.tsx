@@ -140,12 +140,12 @@ export function SourceRefreshAction({
 
   useEffect(() => {
     if (!acceptBlockedRunId) return;
-    if (hasSelectedFeature) {
+    if (isBusy || hasSelectedFeature) {
       onAcceptHandled?.();
       return;
     }
     setOpen(true);
-  }, [acceptBlockedRunId, hasSelectedFeature, onAcceptHandled]);
+  }, [acceptBlockedRunId, hasSelectedFeature, isBusy, onAcceptHandled]);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -167,7 +167,7 @@ export function SourceRefreshAction({
   };
 
   const handleConfirm = async () => {
-    if (hasSelectedFeature) {
+    if (isBusy || hasSelectedFeature) {
       handleOpenChange(false);
       return;
     }

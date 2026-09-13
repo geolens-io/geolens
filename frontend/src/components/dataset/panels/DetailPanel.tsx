@@ -161,6 +161,7 @@ export function DetailPanel(props: DetailPanelProps) {
         <SourcePanel
           dataset={dataset}
           canEdit={canEdit}
+          refreshBusy={refreshWatch.isBusy}
           onAcceptBlockedRun={setAcceptBlockedRunId}
           actions={
             canEdit && canRefresh

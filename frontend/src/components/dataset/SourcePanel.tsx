@@ -53,6 +53,7 @@ export interface SourcePanelProps {
    *  whose origin no longer resolves). Gates the Cancel button on the
    *  active run row in the refresh history. */
   canEdit?: boolean;
+  refreshBusy?: boolean;
   onAcceptBlockedRun?: (runId: string) => void;
 }
 
@@ -296,10 +297,12 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
 function RefreshRunHistory({
   dataset,
   canEdit,
+  refreshBusy = false,
   onAcceptBlockedRun,
 }: {
   dataset: DatasetResponse;
   canEdit: boolean;
+  refreshBusy?: boolean;
   onAcceptBlockedRun?: (runId: string) => void;
 }) {
   const { t, i18n } = useTranslation('dataset');
@@ -465,7 +468,12 @@ function RefreshRunHistory({
                     && run.verification.review_fingerprint
                     && !run.verification.acceptance_consumed_by_run_id
                     && onAcceptBlockedRun && (
-                    <Button size="sm" variant="outline" onClick={() => onAcceptBlockedRun(run.id)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={refreshBusy}
+                      onClick={() => onAcceptBlockedRun(run.id)}
+                    >
                       {t('sourcePanel.refresh.history.reviewAndRetry')}
                     </Button>
                   )}
@@ -648,6 +656,7 @@ export function SourcePanel({
   dataset,
   actions,
   canEdit = false,
+  refreshBusy = false,
   onAcceptBlockedRun,
 }: SourcePanelProps) {
   const { t } = useTranslation('dataset');
@@ -744,6 +753,7 @@ export function SourcePanel({
             <RefreshRunHistory
               dataset={dataset}
               canEdit={canEdit}
+              refreshBusy={refreshBusy}
               onAcceptBlockedRun={onAcceptBlockedRun}
             />
           )}
