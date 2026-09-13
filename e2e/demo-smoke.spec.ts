@@ -137,21 +137,28 @@ test.describe('live demo read-only smoke', () => {
   });
 
   test('seeded standards catalogs return public data', async ({ request }) => {
-    const endpoints = [
-      '/api/',
-      '/api/conformance',
-      '/api/collections',
-      '/api/stac/',
-      '/api/stac/collections',
-      '/api/datasets/dcat/',
-      '/api/datasets/dcat-us/3.0/',
-      '/api/datasets/geodcat-ap/',
-    ];
+    const endpoints = ['/api/', '/api/conformance', '/api/stac/'];
 
     for (const endpoint of endpoints) {
       const response = await request.get(endpoint);
       expect(response.ok(), `${endpoint} returned HTTP ${response.status()}`).toBeTruthy();
       expect((await response.body()).length, `${endpoint} returned an empty body`).toBeGreaterThan(0);
+    }
+
+    const catalogs = [
+      ['/api/collections', 'collections'],
+      ['/api/stac/collections', 'collections'],
+      ['/api/datasets/dcat/', 'dcat:dataset'],
+      ['/api/datasets/dcat-us/3.0/', 'dataset'],
+      ['/api/datasets/geodcat-ap/', 'dcat:dataset'],
+    ] as const;
+
+    for (const [endpoint, entriesKey] of catalogs) {
+      const response = await request.get(endpoint);
+      expect(response.ok(), `${endpoint} returned HTTP ${response.status()}`).toBeTruthy();
+      const body = await response.json();
+      expect(Array.isArray(body[entriesKey]), `${endpoint} omitted ${entriesKey}`).toBe(true);
+      expect(body[entriesKey].length, `${endpoint} returned no public entries`).toBeGreaterThan(0);
     }
   });
 
@@ -159,11 +166,21 @@ test.describe('live demo read-only smoke', () => {
     const diagnostics = observeBrowser(page);
     await page.setViewportSize({ width: 390, height: 844 });
 
-    for (const path of ['/', '/maps', '/collections', '/login']) {
+    const routes = [
+      { path: '/', loaded: () => page.getByTestId('search-result-card').first() },
+      { path: '/maps', loaded: () => page.getByRole('link', { name: SHOWCASE_MAP_NAMES[0], exact: true }) },
+      { path: '/collections', loaded: () => page.getByRole('link', { name: 'Human World' }) },
+      { path: '/login', loaded: () => page.getByRole('button', { name: 'Sign in with GitHub' }) },
+    ];
+
+    for (const { path, loaded } of routes) {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
-      await expect(page.locator('main')).toBeVisible();
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      expect(overflow, `${path} overflows the mobile viewport`).toBeLessThanOrEqual(1);
+      await expect(loaded()).toBeVisible();
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), {
+          message: `${path} overflows the mobile viewport`,
+        })
+        .toBeLessThanOrEqual(1);
     }
 
     diagnostics.assertClean();
