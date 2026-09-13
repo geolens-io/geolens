@@ -903,7 +903,15 @@ describe('SourcePanel', () => {
 
     render(
       <SourcePanel
-        dataset={makeDataset()}
+        dataset={makeDataset({
+          origin: 'service',
+          origin_ref: {
+            kind: 'service',
+            service_type: 'wfs',
+            url: 'https://user:secret@example.com/wfs?token=hidden#private',
+            layer_id: 'roads',
+          },
+        })}
         canEdit
         onAcceptBlockedRun={onAcceptBlockedRun}
       />,
@@ -944,7 +952,11 @@ describe('SourcePanel', () => {
           schema_diff: null,
           verification: {
             decision: 'blocked',
-            source_binding: {},
+            source_binding: {
+              service_type: 'wfs',
+              url: 'https://user:secret@example.com/wfs?token=hidden#private',
+              layer_id: 'roads',
+            },
             source_count: 0,
             fetched_count: 0,
             count_status: 'matched',
@@ -962,9 +974,17 @@ describe('SourcePanel', () => {
       isError: false,
     } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
 
-    render(
+    const { rerender } = render(
       <SourcePanel
-        dataset={makeDataset({ origin: 'service' })}
+        dataset={makeDataset({
+          origin: 'service',
+          origin_ref: {
+            kind: 'service',
+            service_type: 'wfs',
+            url: 'https://user:secret@example.com/wfs?token=hidden#private',
+            layer_id: 'roads',
+          },
+        })}
         canEdit
         refreshBusy
         onAcceptBlockedRun={onAcceptBlockedRun}
@@ -972,5 +992,14 @@ describe('SourcePanel', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Review and retry' })).toBeDisabled();
+
+    rerender(
+      <SourcePanel
+        dataset={makeDataset({ origin: 'upload' })}
+        canEdit
+        onAcceptBlockedRun={onAcceptBlockedRun}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Review and retry' })).not.toBeInTheDocument();
   });
 });

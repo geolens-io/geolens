@@ -134,6 +134,23 @@ function safeHttpPointer(value: string | null): string | null {
   }
 }
 
+function matchesCurrentServiceBinding(
+  dataset: DatasetResponse,
+  binding: Record<string, unknown>,
+): boolean {
+  if ((dataset.origin ?? datasetOrigin(dataset)) !== 'service') return false;
+  const ref = trustedRef(dataset, 'service');
+  const currentServiceType = refString(ref, 'service_type');
+  const currentLayer = refString(ref, 'layer_id');
+  const currentUrl = safeHttpPointer(refString(ref, 'url') ?? dataset.origin_uri ?? null);
+  return typeof binding.service_type === 'string'
+    && binding.service_type === currentServiceType
+    && typeof binding.layer_id === 'string'
+    && binding.layer_id === currentLayer
+    && typeof binding.url === 'string'
+    && safeHttpPointer(binding.url) === currentUrl;
+}
+
 function trustedRef(dataset: DatasetResponse, origin: DatasetOrigin): Record<string, unknown> | null {
   const ref = dataset.origin_ref;
   return ref && ref.kind === origin ? ref : null;
@@ -465,6 +482,8 @@ function RefreshRunHistory({
                   )}
                   {run.status === 'blocked'
                     && canEdit
+                    && run.verification
+                    && matchesCurrentServiceBinding(dataset, run.verification.source_binding)
                     && run.verification.review_fingerprint
                     && !run.verification.acceptance_consumed_by_run_id
                     && onAcceptBlockedRun && (
