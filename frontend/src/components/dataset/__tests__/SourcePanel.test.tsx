@@ -1,4 +1,5 @@
 import { render, screen } from '@/test/test-utils';
+import { waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   useCancelRefreshJob,
@@ -80,6 +81,7 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
 }
 
 beforeEach(() => {
+  window.history.replaceState({}, '', '/');
   useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
   vi.mocked(useDatasetVersions).mockReturnValue({
     data: {
@@ -303,6 +305,49 @@ describe('SourcePanel', () => {
 
     expect(useDatasetRefreshRuns).toHaveBeenLastCalledWith('dataset-1', { limit: 200 });
     expect(screen.queryByRole('button', { name: 'Load older runs' })).not.toBeInTheDocument();
+  });
+
+  it('loads a refresh run targeted by a permalink before scrolling to it', async () => {
+    const targetRun: DatasetRefreshRunResponse = {
+      id: 'run-target',
+      dataset_id: 'dataset-1',
+      dataset_version_id: null,
+      ingest_job_id: 'job-target',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'succeeded',
+      triggered_by: null,
+      triggered_by_username: null,
+      started_at: '2026-08-05T00:00:00Z',
+      claimed_at: '2026-08-05T00:00:01Z',
+      finished_at: '2026-08-05T00:01:00Z',
+      feature_count_before: 1200,
+      feature_count_after: 1234,
+      schema_diff: null,
+      verification: null,
+      error_code: null,
+      error_message: null,
+    };
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    window.history.replaceState({}, '', '#refresh-run-run-target');
+    vi.mocked(useDatasetRefreshRuns).mockImplementation((_datasetId, params) => ({
+      data: {
+        runs: params?.limit && params.limit >= 15 ? [targetRun] : [],
+        total: 1,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>));
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    await waitFor(() => {
+      expect(useDatasetRefreshRuns).toHaveBeenLastCalledWith('dataset-1', { limit: 15 });
+      expect(screen.getByText('Succeeded')).toBeInTheDocument();
+    });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
   });
 
   // feat(#1677): the one-click cancel affordance on the active run row.

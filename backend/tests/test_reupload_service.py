@@ -76,6 +76,19 @@ async def _create_service_reupload_job(
     return job
 
 
+def test_verified_refresh_has_a_distinct_registered_task_name() -> None:
+    from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
+    from app.processing.ingest.tasks import reupload_verified_refresh
+
+    verified_task = DefaultCatalogPort().verified_refresh_service_task()
+
+    assert verified_task is reupload_verified_refresh
+    assert verified_task.name == "app.ingest.tasks.reupload_verified_refresh"
+    assert verified_task.name != reupload_service.name
+    assert verified_task.name not in reupload_service.aliases
+    assert verified_task.func is reupload_service.func
+
+
 class TestServiceReuploadCommitDispatch:
     async def test_commit_dispatches_to_reupload_service_and_keeps_token_request_only(
         self,

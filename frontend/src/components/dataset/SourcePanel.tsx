@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { describeFailureReason } from '@/lib/failure-reason';
 import { Link } from 'react-router';
@@ -85,6 +85,8 @@ const HEALTH_DETAILS = new Set<HealthDetail>([
   'blocked_by_policy',
   'auth_required',
 ]);
+
+const MAX_REFRESH_HISTORY_LIMIT = 200;
 
 const healthClasses: Record<SourceHealth, string> = {
   healthy: semanticBadgeColors.success,
@@ -300,12 +302,28 @@ function RefreshRunHistory({
   canEdit: boolean;
   onAcceptBlockedRun?: (runId: string) => void;
 }) {
-  const maxHistoryLimit = 200;
   const { t, i18n } = useTranslation('dataset');
   const [limit, setLimit] = useState(5);
-  const { data, isLoading, isError } = useDatasetRefreshRuns(dataset.id, { limit });
+  const { data, isLoading, isError, isFetching } = useDatasetRefreshRuns(dataset.id, { limit });
   const cancelRefreshJob = useCancelRefreshJob();
-  const runs = data?.runs ?? [];
+  const runs = useMemo(() => data?.runs ?? [], [data?.runs]);
+  const targetRunId = typeof window !== 'undefined' && window.location.hash.startsWith('#refresh-run-')
+    ? window.location.hash.slice(1)
+    : null;
+  const scrolledTargetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!targetRunId || !data) return;
+    if (!runs.some((run) => `refresh-run-${run.id}` === targetRunId)) {
+      if (!isFetching && data.total > runs.length && limit < MAX_REFRESH_HISTORY_LIMIT) {
+        setLimit((value) => Math.min(value + 10, MAX_REFRESH_HISTORY_LIMIT));
+      }
+      return;
+    }
+    if (scrolledTargetRef.current === targetRunId) return;
+    scrolledTargetRef.current = targetRunId;
+    document.getElementById(targetRunId)?.scrollIntoView({ block: 'center' });
+  }, [data, isFetching, limit, runs, targetRunId]);
 
   return (
     <section aria-labelledby="refresh-history-heading" className="space-y-3">
@@ -452,11 +470,11 @@ function RefreshRunHistory({
           ))}
         </ol>
       )}
-      {data && limit < maxHistoryLimit && data.total > runs.length && (
+      {data && limit < MAX_REFRESH_HISTORY_LIMIT && data.total > runs.length && (
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setLimit((value) => Math.min(value + 10, maxHistoryLimit))}
+          onClick={() => setLimit((value) => Math.min(value + 10, MAX_REFRESH_HISTORY_LIMIT))}
         >
           {t('sourcePanel.refresh.history.loadMore')}
         </Button>

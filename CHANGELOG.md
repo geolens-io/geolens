@@ -9,10 +9,21 @@ and releases use semantic versioning.
 
 ### Added
 
+- Service refreshes verify source and fetched counts before publication and block
+  empty replacements, unknown source counts, and destructive schema changes for
+  review. A blocked run can be accepted once only when its source, schema, counts,
+  attributes, and geometries match the reviewed result. Refresh history now exposes
+  the verification evidence and supports links to older runs.
 - Administrators can filter the user directory by one assigned role. The filter is applied before
   pagination, remains in the page URL, and returns to the first page when changed. Password reset
   is disabled with an explanation for identity-provider-only accounts, while local accounts that
   also have a linked identity provider remain eligible. (#2067)
+
+### Changed
+
+- The extension API version is now 10. Catalog extensions must provide
+  `verified_refresh_service_task()` so older workers cannot process verified
+  refreshes through the ordinary service-reupload task during a rolling deployment.
 
 ### Fixed
 

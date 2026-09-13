@@ -139,8 +139,13 @@ export function SourceRefreshAction({
   const isDisabled = isBusy || hasSelectedFeature;
 
   useEffect(() => {
-    if (acceptBlockedRunId) setOpen(true);
-  }, [acceptBlockedRunId]);
+    if (!acceptBlockedRunId) return;
+    if (hasSelectedFeature) {
+      onAcceptHandled?.();
+      return;
+    }
+    setOpen(true);
+  }, [acceptBlockedRunId, hasSelectedFeature, onAcceptHandled]);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -162,6 +167,11 @@ export function SourceRefreshAction({
   };
 
   const handleConfirm = async () => {
+    if (hasSelectedFeature) {
+      setOpen(false);
+      onAcceptHandled?.();
+      return;
+    }
     setError(null);
     // codex #1759 P2: recheck expiry synchronously, right here, before
     // `token` (below) is trusted. ArcgisCredentialBlock's own belt effect

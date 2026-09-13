@@ -11,7 +11,7 @@ Separate module rather than more of ``router_reupload.py`` (already the
 largest file in the package, at its size cap); shares almost nothing
 with preview/commit beyond two helpers. The admission control, run row,
 and worker dispatch machinery IS deliberately the same
-(``create_pending_run``, the same ``reupload_service`` task) -- a
+(``create_pending_run``, with a dedicated verified-refresh task name) -- a
 second admission path is how the two doors end up with different rules.
 
 feat(#1265) added a second execution strategy behind that same
@@ -1399,7 +1399,7 @@ async def refresh_dataset(
         await discard_service_credential(credential_ref)
 
     async def _defer_refresh() -> None:
-        task = get_catalog_port().reupload_service_task()
+        task = get_catalog_port().verified_refresh_service_task()
         await defer_async_with_tenant(
             task,
             job_id=str(job_id),
@@ -1411,19 +1411,10 @@ async def refresh_dataset(
             # The REFERENCE, never the secret. Task arguments are durable
             # rows; this value means nothing once claimed or expired.
             #
-            # fix(#1277): ROLLING-DEPLOY SKEW, accepted. `reupload_service`
-            # takes **kwargs, so an old-generation worker accepts this arg
-            # and silently discards it, fetching unauthenticated -- the
-            # origin refuses and the run fails. The alternative, a task
-            # name old workers don't register, is WORSE: Procrastinate
-            # marks it FAILED cleanly, but nothing ever writes the ingest
-            # job or run, so both sit pending, holding the dataset against
-            # the admission index, until the abandoned-run sweep cancels
-            # them -- the user sees a refresh that appears to hang.
-            # Accepting the skew instead gives a prompt failure
-            # (`_looks_like_auth_error` matches the origin's 401/403,
-            # releasing the dataset immediately) and the stranded
-            # credential expires by TTL, same precedent #1274 set.
+            # The versioned task name is deliberate: a pre-change worker does
+            # not know this task and cannot process a verified refresh as an
+            # ordinary service reupload. Procrastinate fails the unknown task;
+            # the abandoned-run sweep then releases the pending run.
             credential_ref=credential_ref,
         )
 

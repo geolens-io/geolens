@@ -1439,3 +1439,14 @@ async def reupload_service(
             await stop_ingest_job_heartbeat(heartbeat_task)
         async with cleanup_step("reupload_service staging table", job_id=job_id):
             await _drop_attempt_staging_table(staging_tn)
+
+
+# Verified refreshes use a task name introduced with the publication protocol;
+# pre-change workers therefore cannot run them through the ordinary reupload door.
+reupload_verified_refresh = task_app.task(
+    reupload_service.func,
+    queue="ingest",
+    retry=0,
+    name="app.ingest.tasks.reupload_verified_refresh",
+    pass_context=True,
+)

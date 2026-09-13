@@ -459,6 +459,54 @@ describe('SourceRefreshAction', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not open a blocked-run retry while a feature is selected', async () => {
+    drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingStoreState.targetDatasetId = 'dataset-1';
+    const onAcceptHandled = vi.fn();
+
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch()}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await waitFor(() => expect(onAcceptHandled).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the feature selection before confirming a blocked-run retry', async () => {
+    const user = userEvent.setup();
+    const onAcceptHandled = vi.fn();
+    const { rerender } = render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch()}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+    await screen.findByRole('dialog');
+
+    drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingStoreState.targetDatasetId = 'dataset-1';
+    rerender(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch()}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('does not block on a feature selection that belongs to a different dataset', () => {
     drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingStoreState.isEditDirty = true;

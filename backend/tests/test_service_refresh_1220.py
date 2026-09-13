@@ -138,6 +138,7 @@ async def _dispatch_harness():
     task.configure = MagicMock(return_value=task)
     port = MagicMock()
     port.reupload_service_task.return_value = task
+    port.verified_refresh_service_task.return_value = task
     with (
         patch.object(router_refresh, "validate_url_for_ssrf", AsyncMock()),
         patch.object(router_refresh, "get_catalog_port", return_value=port),

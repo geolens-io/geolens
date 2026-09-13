@@ -50,6 +50,7 @@ from app.processing.ingest.tasks_vrt import (  # noqa: F401
 from app.processing.ingest.tasks_reupload import (  # noqa: F401
     reupload_file,
     reupload_service,
+    reupload_verified_refresh,
 )
 from app.processing.ingest.tasks_url_fetch import (  # noqa: F401
     fetch_url,

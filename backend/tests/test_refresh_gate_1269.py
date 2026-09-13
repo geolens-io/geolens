@@ -176,6 +176,7 @@ async def _dispatch_harness():
     port = MagicMock()
     port.refresh_postgis_task.return_value = task
     port.reupload_service_task.return_value = task
+    port.verified_refresh_service_task.return_value = task
     port.refresh_stac_task.return_value = task
     with (
         patch.object(router_refresh, "validate_url_for_ssrf", AsyncMock()),
@@ -1051,6 +1052,7 @@ class TestSentinelTokenSweep:
             task.configure = MagicMock(return_value=task)
             port = MagicMock()
             port.reupload_service_task.return_value = task
+            port.verified_refresh_service_task.return_value = task
             with (
                 patch.object(router_refresh, "validate_url_for_ssrf", AsyncMock()),
                 patch.object(router_refresh, "get_catalog_port", return_value=port),
