@@ -111,21 +111,16 @@ def sync_detailed(
 
      Set a user's password (admin only).
 
-    feat(#1715): the login page tells a locked-out user to ask an
-    administrator, and there was nothing for the administrator to do. This is
-    the recovery path, so it asks for no current password -- holding
-    manage_users is the whole authorization, and the audit row is what makes
-    the action answerable for. The submitted value reaches the hash column and
-    nowhere else: not the audit details, not a log line, not the response.
+    The ``manage_users`` permission authorizes this recovery path, so no current
+    password is required. The submitted password is stored only as a hash and
+    is omitted from audit details, logs, and the response.
 
-    422 when the target signs in through an identity provider (no local
-    password to replace), 404 when no such user exists -- both via the shared
-    _raise_on_error mapping the sibling lifecycle routes use.
+    Returns 422 when the target signs in through an identity provider and has
+    no local password, or 404 when the user does not exist.
 
     Resetting your own password is permitted and ends every session the
     account holds, including the one making this request, because the reset
-    revokes the account's credentials. That is the same consequence
-    POST /auth/change-password/ has for the caller who invokes it.
+    revokes the account's credentials.
 
     Args:
         user_id (UUID):
@@ -166,21 +161,16 @@ def sync(
 
      Set a user's password (admin only).
 
-    feat(#1715): the login page tells a locked-out user to ask an
-    administrator, and there was nothing for the administrator to do. This is
-    the recovery path, so it asks for no current password -- holding
-    manage_users is the whole authorization, and the audit row is what makes
-    the action answerable for. The submitted value reaches the hash column and
-    nowhere else: not the audit details, not a log line, not the response.
+    The ``manage_users`` permission authorizes this recovery path, so no current
+    password is required. The submitted password is stored only as a hash and
+    is omitted from audit details, logs, and the response.
 
-    422 when the target signs in through an identity provider (no local
-    password to replace), 404 when no such user exists -- both via the shared
-    _raise_on_error mapping the sibling lifecycle routes use.
+    Returns 422 when the target signs in through an identity provider and has
+    no local password, or 404 when the user does not exist.
 
     Resetting your own password is permitted and ends every session the
     account holds, including the one making this request, because the reset
-    revokes the account's credentials. That is the same consequence
-    POST /auth/change-password/ has for the caller who invokes it.
+    revokes the account's credentials.
 
     Args:
         user_id (UUID):
@@ -216,21 +206,16 @@ async def asyncio_detailed(
 
      Set a user's password (admin only).
 
-    feat(#1715): the login page tells a locked-out user to ask an
-    administrator, and there was nothing for the administrator to do. This is
-    the recovery path, so it asks for no current password -- holding
-    manage_users is the whole authorization, and the audit row is what makes
-    the action answerable for. The submitted value reaches the hash column and
-    nowhere else: not the audit details, not a log line, not the response.
+    The ``manage_users`` permission authorizes this recovery path, so no current
+    password is required. The submitted password is stored only as a hash and
+    is omitted from audit details, logs, and the response.
 
-    422 when the target signs in through an identity provider (no local
-    password to replace), 404 when no such user exists -- both via the shared
-    _raise_on_error mapping the sibling lifecycle routes use.
+    Returns 422 when the target signs in through an identity provider and has
+    no local password, or 404 when the user does not exist.
 
     Resetting your own password is permitted and ends every session the
     account holds, including the one making this request, because the reset
-    revokes the account's credentials. That is the same consequence
-    POST /auth/change-password/ has for the caller who invokes it.
+    revokes the account's credentials.
 
     Args:
         user_id (UUID):
@@ -269,21 +254,16 @@ async def asyncio(
 
      Set a user's password (admin only).
 
-    feat(#1715): the login page tells a locked-out user to ask an
-    administrator, and there was nothing for the administrator to do. This is
-    the recovery path, so it asks for no current password -- holding
-    manage_users is the whole authorization, and the audit row is what makes
-    the action answerable for. The submitted value reaches the hash column and
-    nowhere else: not the audit details, not a log line, not the response.
+    The ``manage_users`` permission authorizes this recovery path, so no current
+    password is required. The submitted password is stored only as a hash and
+    is omitted from audit details, logs, and the response.
 
-    422 when the target signs in through an identity provider (no local
-    password to replace), 404 when no such user exists -- both via the shared
-    _raise_on_error mapping the sibling lifecycle routes use.
+    Returns 422 when the target signs in through an identity provider and has
+    no local password, or 404 when the user does not exist.
 
     Resetting your own password is permitted and ends every session the
     account holds, including the one making this request, because the reset
-    revokes the account's credentials. That is the same consequence
-    POST /auth/change-password/ has for the caller who invokes it.
+    revokes the account's credentials.
 
     Args:
         user_id (UUID):

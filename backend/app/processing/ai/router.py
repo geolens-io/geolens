@@ -167,12 +167,10 @@ _require_ai_chat = require_permission("use_ai_chat")
 
 
 class AIAvailabilityResponse(BaseModel):
-    """Public-safe AI readiness signal (#338).
+    """Public-safe AI readiness signal.
 
-    Carries a single boolean and intentionally exposes NO provider name, model,
-    or key detail — it is readable by any non-admin editor holding
-    ``use_ai_chat`` so the builder can enable/disable chat without the
-    admin-only ``/admin/ai-status`` endpoint (which leaks provider/key info).
+    The response exposes no provider, model, or key details. Editors with
+    ``use_ai_chat`` can use it without access to the admin-only AI status.
     """
 
     available: bool
@@ -266,13 +264,10 @@ async def ai_availability_endpoint(
     user: Identity = Depends(_require_ai_chat),
     db: AsyncSession = Depends(get_db),
 ) -> AIAvailabilityResponse:
-    """Report whether builder AI chat is usable (#338).
+    """Report whether builder AI chat is usable.
 
-    Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
-    ``/admin/ai-status``) can learn availability. Returns ``available=false``
-    rather than 503 when provider keys are missing, so the builder shows a safe
-    disabled state without console-noise errors. A viewer (no ``use_ai_chat``)
-    gets 403.
+    Requires ``use_ai_chat``. Returns ``available=false`` when provider keys
+    are missing and 403 when the caller lacks permission.
     """
     return AIAvailabilityResponse(available=await _ai_availability(db))
 

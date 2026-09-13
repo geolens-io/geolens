@@ -474,15 +474,9 @@ async def get_column_ddl_feed(
     Surfaces the column-DDL events to dataset owners so they can detect
     editor-initiated schema changes.
 
-    Access control (AGENTS.md Pre-Commit Checklist Rule 1):
-    - Owner: 200 with their own dataset's DDL history
-    - Admin: 200 (admin access is always allowed)
-    - Anyone else — including authenticated readers of a PUBLIC dataset: 404
-      via check_dataset_write_access. fix(#458): the feed previously used
-      check_dataset_access (read visibility), which let any logged-in user
-      enumerate editor usernames/user_ids on public datasets, contradicting
-      this owner-facing contract.
-    - Anonymous: 401 (get_current_active_user dependency)
+    Owners and administrators can read the feed. Other authenticated users
+    receive 404, including readers of a public dataset, because the entries
+    identify editors. Anonymous callers receive 401.
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets
     return 404 without leaking audit log details.

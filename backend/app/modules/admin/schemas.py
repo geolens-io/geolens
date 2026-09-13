@@ -438,11 +438,10 @@ class EmbeddingStatsResponse(BaseModel):
 
 
 class BackfillResponse(BaseModel):
-    """Acknowledgement that a backfill run was queued (fix(#1542)).
+    """Acknowledgement that a backfill run was queued.
 
-    The run itself happens on the job queue, so this carries no counts — a full
-    regenerate takes minutes and used to hold the HTTP request open past the
-    600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.
+    The response carries no counts because the work runs asynchronously. Poll
+    ``GET /jobs/{job_id}`` for status.
     """
 
     job_id: uuid.UUID = Field(
@@ -513,8 +512,8 @@ class AdminApiKeyCreateRequest(BaseModel):
     scope: Literal["full", "read_only"] = Field(
         default="full",
         description=(
-            "Privilege scope (#875). 'full' impersonates the owner completely, "
-            "the pre-existing behavior. 'read_only' authenticates GET, HEAD and "
+            "Privilege scope. 'full' impersonates the owner completely. "
+            "'read_only' authenticates GET, HEAD and "
             "OPTIONS requests only; any other method is refused with 403. A "
             "service-account key minted for an application is the usual case "
             "for 'read_only'."
@@ -538,7 +537,7 @@ class AdminApiKeyListItem(BaseModel):
         default=None,
         description="Expiry timestamp; null means the key does not expire.",
     )
-    scope: str = Field(description="Privilege scope: 'full' or 'read_only' (#875).")
+    scope: str = Field(description="Privilege scope: 'full' or 'read_only'.")
     created_at: datetime = Field(description="Timestamp when the key was created.")
     last_used_at: datetime | None = Field(
         description="Timestamp of the most recent successful authentication using this key."

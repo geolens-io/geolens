@@ -120,28 +120,24 @@ def sync_detailed(
 
      Start importing a geospatial file from an HTTP(S) URL.
 
-    feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
-    source type. The server fetches the file itself and the staged bytes
-    enter the normal pipeline unchanged (preview then commit).
+    The server fetches the file and sends the staged bytes through the same
+    preview and commit pipeline as a direct upload.
 
-    feat(#1710): the download is a background job. This call validates the
-    URL and returns a job id immediately; poll ``GET /jobs/{job_id}`` and
+    The download runs as a background job. This call validates the URL and
+    returns a job id immediately; poll ``GET /jobs/{job_id}`` and
     preview once the job reaches ``pending``. While the file is downloading
     the job reports status ``running`` with step ``downloading``.
 
-    Rule 2 posture: ``validate_url_for_ssrf`` gates the URL here, the worker
-    downloads through ``make_safe_client()`` (connect-time IP pinning plus
-    per-hop redirect revalidation), the size cap is enforced while
-    streaming, the staged file passes the same extension allowlist and
-    content sniff as a direct upload, and GDAL only ever sees the staged
-    local file.
+    URL validation, connection-time IP pinning, and per-hop redirect checks
+    protect the download from SSRF. The worker enforces the size cap while
+    streaming, validates the staged file like a direct upload, and gives GDAL
+    only the local staged file.
 
     Args:
-        body (UrlUploadRequest): Request body for the URL variant of upload (feat #1705).
+        body (UrlUploadRequest): Request body for importing a file from a URL.
 
-            The server fetches the file itself (SSRF-validated, size-capped) and
-            stages it exactly like a direct upload — preview and commit take over
-            unchanged.
+            The server validates the URL for SSRF, enforces the size limit, and stages
+            the file through the same preview and commit flow as a direct upload.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -171,28 +167,24 @@ def sync(
 
      Start importing a geospatial file from an HTTP(S) URL.
 
-    feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
-    source type. The server fetches the file itself and the staged bytes
-    enter the normal pipeline unchanged (preview then commit).
+    The server fetches the file and sends the staged bytes through the same
+    preview and commit pipeline as a direct upload.
 
-    feat(#1710): the download is a background job. This call validates the
-    URL and returns a job id immediately; poll ``GET /jobs/{job_id}`` and
+    The download runs as a background job. This call validates the URL and
+    returns a job id immediately; poll ``GET /jobs/{job_id}`` and
     preview once the job reaches ``pending``. While the file is downloading
     the job reports status ``running`` with step ``downloading``.
 
-    Rule 2 posture: ``validate_url_for_ssrf`` gates the URL here, the worker
-    downloads through ``make_safe_client()`` (connect-time IP pinning plus
-    per-hop redirect revalidation), the size cap is enforced while
-    streaming, the staged file passes the same extension allowlist and
-    content sniff as a direct upload, and GDAL only ever sees the staged
-    local file.
+    URL validation, connection-time IP pinning, and per-hop redirect checks
+    protect the download from SSRF. The worker enforces the size cap while
+    streaming, validates the staged file like a direct upload, and gives GDAL
+    only the local staged file.
 
     Args:
-        body (UrlUploadRequest): Request body for the URL variant of upload (feat #1705).
+        body (UrlUploadRequest): Request body for importing a file from a URL.
 
-            The server fetches the file itself (SSRF-validated, size-capped) and
-            stages it exactly like a direct upload — preview and commit take over
-            unchanged.
+            The server validates the URL for SSRF, enforces the size limit, and stages
+            the file through the same preview and commit flow as a direct upload.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -217,28 +209,24 @@ async def asyncio_detailed(
 
      Start importing a geospatial file from an HTTP(S) URL.
 
-    feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
-    source type. The server fetches the file itself and the staged bytes
-    enter the normal pipeline unchanged (preview then commit).
+    The server fetches the file and sends the staged bytes through the same
+    preview and commit pipeline as a direct upload.
 
-    feat(#1710): the download is a background job. This call validates the
-    URL and returns a job id immediately; poll ``GET /jobs/{job_id}`` and
+    The download runs as a background job. This call validates the URL and
+    returns a job id immediately; poll ``GET /jobs/{job_id}`` and
     preview once the job reaches ``pending``. While the file is downloading
     the job reports status ``running`` with step ``downloading``.
 
-    Rule 2 posture: ``validate_url_for_ssrf`` gates the URL here, the worker
-    downloads through ``make_safe_client()`` (connect-time IP pinning plus
-    per-hop redirect revalidation), the size cap is enforced while
-    streaming, the staged file passes the same extension allowlist and
-    content sniff as a direct upload, and GDAL only ever sees the staged
-    local file.
+    URL validation, connection-time IP pinning, and per-hop redirect checks
+    protect the download from SSRF. The worker enforces the size cap while
+    streaming, validates the staged file like a direct upload, and gives GDAL
+    only the local staged file.
 
     Args:
-        body (UrlUploadRequest): Request body for the URL variant of upload (feat #1705).
+        body (UrlUploadRequest): Request body for importing a file from a URL.
 
-            The server fetches the file itself (SSRF-validated, size-capped) and
-            stages it exactly like a direct upload — preview and commit take over
-            unchanged.
+            The server validates the URL for SSRF, enforces the size limit, and stages
+            the file through the same preview and commit flow as a direct upload.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -266,28 +254,24 @@ async def asyncio(
 
      Start importing a geospatial file from an HTTP(S) URL.
 
-    feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
-    source type. The server fetches the file itself and the staged bytes
-    enter the normal pipeline unchanged (preview then commit).
+    The server fetches the file and sends the staged bytes through the same
+    preview and commit pipeline as a direct upload.
 
-    feat(#1710): the download is a background job. This call validates the
-    URL and returns a job id immediately; poll ``GET /jobs/{job_id}`` and
+    The download runs as a background job. This call validates the URL and
+    returns a job id immediately; poll ``GET /jobs/{job_id}`` and
     preview once the job reaches ``pending``. While the file is downloading
     the job reports status ``running`` with step ``downloading``.
 
-    Rule 2 posture: ``validate_url_for_ssrf`` gates the URL here, the worker
-    downloads through ``make_safe_client()`` (connect-time IP pinning plus
-    per-hop redirect revalidation), the size cap is enforced while
-    streaming, the staged file passes the same extension allowlist and
-    content sniff as a direct upload, and GDAL only ever sees the staged
-    local file.
+    URL validation, connection-time IP pinning, and per-hop redirect checks
+    protect the download from SSRF. The worker enforces the size cap while
+    streaming, validates the staged file like a direct upload, and gives GDAL
+    only the local staged file.
 
     Args:
-        body (UrlUploadRequest): Request body for the URL variant of upload (feat #1705).
+        body (UrlUploadRequest): Request body for importing a file from a URL.
 
-            The server fetches the file itself (SSRF-validated, size-capped) and
-            stages it exactly like a direct upload — preview and commit take over
-            unchanged.
+            The server validates the URL for SSRF, enforces the size limit, and stages
+            the file through the same preview and commit flow as a direct upload.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

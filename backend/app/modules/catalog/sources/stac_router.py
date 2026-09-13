@@ -225,8 +225,8 @@ class StacItemSummary(BaseModel):
         default=None,
         description=(
             "The key the data asset is published under on the item. Echo it "
-            "back on import so the dataset records WHICH asset it came from: "
-            "hrefs move, and the key is what survives the move (#1266)."
+            "back on import so the dataset records which asset it came from. "
+            "The key remains stable when the href changes."
         ),
     )
     data_asset_size_bytes: int | None = Field(

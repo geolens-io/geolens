@@ -92,13 +92,10 @@ def sync_detailed(
 ) -> Response[AIAvailabilityResponse | ProblemDetail]:
     """Ai Availability Endpoint
 
-     Report whether builder AI chat is usable (#338).
+     Report whether builder AI chat is usable.
 
-    Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
-    ``/admin/ai-status``) can learn availability. Returns ``available=false``
-    rather than 503 when provider keys are missing, so the builder shows a safe
-    disabled state without console-noise errors. A viewer (no ``use_ai_chat``)
-    gets 403.
+    Requires ``use_ai_chat``. Returns ``available=false`` when provider keys
+    are missing and 403 when the caller lacks permission.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -123,13 +120,10 @@ def sync(
 ) -> AIAvailabilityResponse | ProblemDetail | None:
     """Ai Availability Endpoint
 
-     Report whether builder AI chat is usable (#338).
+     Report whether builder AI chat is usable.
 
-    Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
-    ``/admin/ai-status``) can learn availability. Returns ``available=false``
-    rather than 503 when provider keys are missing, so the builder shows a safe
-    disabled state without console-noise errors. A viewer (no ``use_ai_chat``)
-    gets 403.
+    Requires ``use_ai_chat``. Returns ``available=false`` when provider keys
+    are missing and 403 when the caller lacks permission.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -150,13 +144,10 @@ async def asyncio_detailed(
 ) -> Response[AIAvailabilityResponse | ProblemDetail]:
     """Ai Availability Endpoint
 
-     Report whether builder AI chat is usable (#338).
+     Report whether builder AI chat is usable.
 
-    Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
-    ``/admin/ai-status``) can learn availability. Returns ``available=false``
-    rather than 503 when provider keys are missing, so the builder shows a safe
-    disabled state without console-noise errors. A viewer (no ``use_ai_chat``)
-    gets 403.
+    Requires ``use_ai_chat``. Returns ``available=false`` when provider keys
+    are missing and 403 when the caller lacks permission.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -179,13 +170,10 @@ async def asyncio(
 ) -> AIAvailabilityResponse | ProblemDetail | None:
     """Ai Availability Endpoint
 
-     Report whether builder AI chat is usable (#338).
+     Report whether builder AI chat is usable.
 
-    Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
-    ``/admin/ai-status``) can learn availability. Returns ``available=false``
-    rather than 503 when provider keys are missing, so the builder shows a safe
-    disabled state without console-noise errors. A viewer (no ``use_ai_chat``)
-    gets 403.
+    Requires ``use_ai_chat``. Returns ``available=false`` when provider keys
+    are missing and 403 when the caller lacks permission.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

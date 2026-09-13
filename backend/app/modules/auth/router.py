@@ -793,21 +793,14 @@ async def logout(
 ) -> Response:
     """Revoke all refresh tokens and bump token_version for the current user.
 
-    revoke_all_tokens bumps User.token_version so the
-    access JWT used for this logout call (and any other outstanding access JWTs)
-    are rejected on the next authenticated request — closing the
-    "logout doesn't invalidate the access JWT" gap.
+    Logout invalidates the access JWT used for this call and all other active
+    browser sessions.
 
-    fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
-    outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
-    must not revoke them. Security events (password change, role change) do.
+    API keys remain valid because they are independent of browser sessions.
+    Password and role changes still revoke them.
 
-    fix(#1446): the refresh COOKIE can authenticate this call when the access
-    token has aged out. Requiring a live bearer token meant a user returning
-    after their 15-minute access token expired got a 401 here while their
-    multi-day refresh cookie stayed valid — the UI reported a clean logout and
-    the session survived it. CSRF is enforced on that path exactly as it is for
-    /auth/refresh, since the cookie is then the credential.
+    A refresh cookie can authenticate logout after the access token expires.
+    Cookie-authenticated requests require CSRF validation.
     """
     from app.modules.audit.service import (
         AuditEvent,

@@ -114,11 +114,9 @@ def sync_detailed(
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
 
-    fix(#1542): the run happens on the job queue, not in this request. A full
-    regenerate is provider-bound and linear in catalog size, so it outgrew the
-    600s edge timeout somewhere below 59,000 records — and the request dying at
-    the proxy never stopped the work, it only hid it. Returns the job id;
-    poll ``GET /jobs/{job_id}`` for the outcome.
+    The run happens on the job queue because a full regeneration can exceed
+    request timeouts. This endpoint returns the job id; poll
+    ``GET /jobs/{job_id}`` for the outcome.
 
     Args:
         force (bool | Unset):  Default: False.
@@ -154,11 +152,9 @@ def sync(
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
 
-    fix(#1542): the run happens on the job queue, not in this request. A full
-    regenerate is provider-bound and linear in catalog size, so it outgrew the
-    600s edge timeout somewhere below 59,000 records — and the request dying at
-    the proxy never stopped the work, it only hid it. Returns the job id;
-    poll ``GET /jobs/{job_id}`` for the outcome.
+    The run happens on the job queue because a full regeneration can exceed
+    request timeouts. This endpoint returns the job id; poll
+    ``GET /jobs/{job_id}`` for the outcome.
 
     Args:
         force (bool | Unset):  Default: False.
@@ -189,11 +185,9 @@ async def asyncio_detailed(
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
 
-    fix(#1542): the run happens on the job queue, not in this request. A full
-    regenerate is provider-bound and linear in catalog size, so it outgrew the
-    600s edge timeout somewhere below 59,000 records — and the request dying at
-    the proxy never stopped the work, it only hid it. Returns the job id;
-    poll ``GET /jobs/{job_id}`` for the outcome.
+    The run happens on the job queue because a full regeneration can exceed
+    request timeouts. This endpoint returns the job id; poll
+    ``GET /jobs/{job_id}`` for the outcome.
 
     Args:
         force (bool | Unset):  Default: False.
@@ -227,11 +221,9 @@ async def asyncio(
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
 
-    fix(#1542): the run happens on the job queue, not in this request. A full
-    regenerate is provider-bound and linear in catalog size, so it outgrew the
-    600s edge timeout somewhere below 59,000 records — and the request dying at
-    the proxy never stopped the work, it only hid it. Returns the job id;
-    poll ``GET /jobs/{job_id}`` for the outcome.
+    The run happens on the job queue because a full regeneration can exceed
+    request timeouts. This endpoint returns the job id; poll
+    ``GET /jobs/{job_id}`` for the outcome.
 
     Args:
         force (bool | Unset):  Default: False.

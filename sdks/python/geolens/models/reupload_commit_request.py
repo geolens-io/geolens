@@ -31,7 +31,7 @@ class ReuploadCommitRequest:
         expected_origin_kind (None | ReuploadCommitRequestExpectedOriginKindType0 | Unset): The dataset origin the
             client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the
             dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload
-            is not silently rebound to an upload. Optional: a client that omits it keeps the pre-#1768 behaviour.
+            is not silently rebound to an upload. A client may omit the field to skip this concurrency check.
         token (None | str | Unset): Deprecated: use the auth object with method bearer.
         layer_name (None | str | Unset):
         auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with

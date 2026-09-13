@@ -12,12 +12,10 @@ T = TypeVar("T", bound="AIAvailabilityResponse")
 
 @_attrs_define
 class AIAvailabilityResponse:
-    """Public-safe AI readiness signal (#338).
+    """Public-safe AI readiness signal.
 
-    Carries a single boolean and intentionally exposes NO provider name, model,
-    or key detail — it is readable by any non-admin editor holding
-    ``use_ai_chat`` so the builder can enable/disable chat without the
-    admin-only ``/admin/ai-status`` endpoint (which leaks provider/key info).
+    The response exposes no provider, model, or key details. Editors with
+    ``use_ai_chat`` can use it without access to the admin-only AI status.
 
         Attributes:
             available (bool):

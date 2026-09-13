@@ -156,7 +156,7 @@ class KeywordResponse(BaseModel):
         default=False,
         description=(
             "True when this keyword also exists on the dataset this record was "
-            "derived from (feat #1070). Derived at read time from derived_from; "
+            "derived from. Derived at read time from derived_from; "
             "only ever true for a requester who can access that source dataset, "
             "so everyone else sees false — matching the derived_from redaction."
         ),
@@ -175,7 +175,7 @@ class KeywordListResponse(BaseModel):
             "audience — at its stored state, or at the counterfactual "
             "audience_visibility/audience_record_status query parameters, "
             "which are honored only for the record's owner and admins — "
-            "includes someone who cannot open the source dataset (feat #1070)."
+            "includes someone who cannot open the source dataset."
         ),
     )
 

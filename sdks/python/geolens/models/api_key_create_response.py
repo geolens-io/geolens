@@ -25,7 +25,7 @@ class ApiKeyCreateResponse:
         key (str): The API key secret (shown only once)
         fingerprint (str): Non-secret key identifier (prefix and last four characters)
         name (str):
-        scope (str): Privilege scope: 'full' or 'read_only' (#875)
+        scope (str): Privilege scope: 'full' or 'read_only'
         created_at (datetime.datetime):
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire
     """

@@ -22,15 +22,13 @@ T = TypeVar("T", bound="DatasetRefreshRunResponse")
 
 @_attrs_define
 class DatasetRefreshRunResponse:
-    """One refresh attempt, success or failure (ADR-002 Decision 4).
+    """One refresh attempt, including failures.
 
     Five fields are redacted for callers who are neither the dataset owner nor
     an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
     ``error_message`` and ``schema_diff``. A public dataset's refresh history
     otherwise enumerates who edits it, and failure text leaks internal origin
-    detail. The redaction is enumerated against NAMED third-party readers as
-    well as anonymous ones — a signed-in stranger is the case that gets
-    missed.
+    detail.
 
         Attributes:
             id (UUID):

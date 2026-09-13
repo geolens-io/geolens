@@ -241,8 +241,8 @@ class ApiKeyCreateRequest(BaseModel):
     scope: Literal["full", "read_only"] = Field(
         default="full",
         description=(
-            "Privilege scope (#875). 'full' impersonates the owner completely, "
-            "the pre-existing behavior. 'read_only' authenticates GET, HEAD and "
+            "Privilege scope. 'full' impersonates the owner completely. "
+            "'read_only' authenticates GET, HEAD and "
             "OPTIONS requests only; any other method is refused with 403."
         ),
     )
@@ -262,7 +262,7 @@ class ApiKeyCreateResponse(BaseModel):
         description="Expiry timestamp; null means the key does not expire",
     )
     scope: str = Field(
-        description="Privilege scope: 'full' or 'read_only' (#875)",
+        description="Privilege scope: 'full' or 'read_only'",
     )
     created_at: datetime
 
@@ -279,7 +279,7 @@ class ApiKeyListItem(BaseModel):
         description="Expiry timestamp; null means the key does not expire",
     )
     scope: str = Field(
-        description="Privilege scope: 'full' or 'read_only' (#875)",
+        description="Privilege scope: 'full' or 'read_only'",
     )
     created_at: datetime
     last_used_at: datetime | None

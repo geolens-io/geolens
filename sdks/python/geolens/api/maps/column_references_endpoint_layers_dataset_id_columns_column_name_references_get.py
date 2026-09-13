@@ -109,9 +109,8 @@ def sync_detailed(
 
      Count saved maps whose layer config references a column.
 
-    fix(#458): surfaced in the schema editor before a rename/drop so the
-    editor knows how many saved maps depend on the column. Count only — map
-    titles may belong to other users and are not exposed here.
+    The schema editor uses this count before a rename or drop. Map titles are
+    omitted because they may belong to other users.
 
     Args:
         dataset_id (UUID):
@@ -147,9 +146,8 @@ def sync(
 
      Count saved maps whose layer config references a column.
 
-    fix(#458): surfaced in the schema editor before a rename/drop so the
-    editor knows how many saved maps depend on the column. Count only — map
-    titles may belong to other users and are not exposed here.
+    The schema editor uses this count before a rename or drop. Map titles are
+    omitted because they may belong to other users.
 
     Args:
         dataset_id (UUID):
@@ -180,9 +178,8 @@ async def asyncio_detailed(
 
      Count saved maps whose layer config references a column.
 
-    fix(#458): surfaced in the schema editor before a rename/drop so the
-    editor knows how many saved maps depend on the column. Count only — map
-    titles may belong to other users and are not exposed here.
+    The schema editor uses this count before a rename or drop. Map titles are
+    omitted because they may belong to other users.
 
     Args:
         dataset_id (UUID):
@@ -216,9 +213,8 @@ async def asyncio(
 
      Count saved maps whose layer config references a column.
 
-    fix(#458): surfaced in the schema editor before a rename/drop so the
-    editor knows how many saved maps depend on the column. Count only — map
-    titles may belong to other users and are not exposed here.
+    The schema editor uses this count before a rename or drop. Map titles are
+    omitted because they may belong to other users.
 
     Args:
         dataset_id (UUID):

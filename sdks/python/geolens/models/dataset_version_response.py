@@ -20,11 +20,9 @@ T = TypeVar("T", bound="DatasetVersionResponse")
 class DatasetVersionResponse:
     """One version in a dataset's history.
 
-    feat(#1316): ``file_hash`` and ``uploaded_by`` are null for any caller who
-    is neither the dataset's owner nor an admin — the same predicate that
-    gates ``origin_uri``/``origin_ref`` on the dataset itself and
-    ``triggered_by`` on refresh-runs (ADR-002 Decision 4e). Unredacted, a
-    public dataset's version history enumerates its editors.
+    ``file_hash`` and ``uploaded_by`` are null for callers who are neither the
+    dataset owner nor an administrator. This prevents public version history
+    from identifying editors.
 
         Attributes:
             id (UUID):

@@ -25,7 +25,7 @@ class ApiKeyListItem:
         name (str):
         fingerprint (None | str): Non-secret key identifier; null for keys created before fingerprint support
         is_active (bool):
-        scope (str): Privilege scope: 'full' or 'read_only' (#875)
+        scope (str): Privilege scope: 'full' or 'read_only'
         created_at (datetime.datetime):
         last_used_at (datetime.datetime | None):
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire

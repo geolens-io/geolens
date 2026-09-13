@@ -34,8 +34,7 @@ class StacItemSummary:
         data_asset_href (None | str | Unset): URL of the primary data asset (COG).
         data_asset_type (None | str | Unset): Media type of the data asset.
         data_asset_key (None | str | Unset): The key the data asset is published under on the item. Echo it back on
-            import so the dataset records WHICH asset it came from: hrefs move, and the key is what survives the move
-            (#1266).
+            import so the dataset records which asset it came from. The key remains stable when the href changes.
         data_asset_size_bytes (int | None | Unset): Size of the primary data asset in bytes (from STAC file:size). None
             when not in manifest.
         thumbnail_href (None | str | Unset): Thumbnail URL if available.

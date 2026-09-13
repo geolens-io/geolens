@@ -18,7 +18,7 @@ T = TypeVar("T", bound="JobCancelResponse")
 
 @_attrs_define
 class JobCancelResponse:
-    """Outcome of ``POST /jobs/{id}/cancel`` (#1677).
+    """Outcome of ``POST /jobs/{id}/cancel``.
 
     ``run_id`` is the ``dataset_refresh_runs`` row this cancel finalized, when
     the job had one bound (refreshes and reuploads do; plain imports don't).

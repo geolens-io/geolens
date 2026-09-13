@@ -151,8 +151,7 @@ async def get_shared_map_endpoint(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the
-    token's scope authorizes, as a capability rather than a role.
+    ``X-Embed-Token`` grants access to layers in the token's scope.
     """
     user_roles = await get_user_roles(db, user) if user is not None else set()
     result = await get_shared_map(

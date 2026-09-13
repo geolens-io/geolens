@@ -24,9 +24,9 @@ class KeywordResponse:
         keyword (str):
         vocabulary_uri (None | str):
         keyword_type (str):
-        inherited (bool | Unset): True when this keyword also exists on the dataset this record was derived from (feat
-            #1070). Derived at read time from derived_from; only ever true for a requester who can access that source
-            dataset, so everyone else sees false — matching the derived_from redaction. Default: False.
+        inherited (bool | Unset): True when this keyword also exists on the dataset this record was derived from.
+            Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so
+            everyone else sees false — matching the derived_from redaction. Default: False.
     """
 
     id: UUID

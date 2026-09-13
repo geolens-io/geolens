@@ -46,9 +46,9 @@ class AnalysisPreviewRequest:
                 the output. Ties break on the lowest join-layer gid (spatial_join only)
             bbox (list[float] | None | Unset): [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport.
                 When present, only source features intersecting the envelope are considered before the preview's row cap
-                applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order
-                (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS
-                — omit it to preview the whole dataset, unchanged from before this field existed.
+                applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order. Applies
+                to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview
+                the whole dataset, unchanged from before this field existed.
     """
 
     operation: AnalysisPreviewRequestOperation

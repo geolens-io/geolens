@@ -21,8 +21,7 @@ class StatusUpdateResponse:
         id (str):
         record_status (str):
         metadata_warnings (list[str] | None | Unset): Advisory warnings from the status change — the same inherited-
-            keyword disclosure check the metadata PATCH runs (feat #1070, fix #1178 review). The transition has already
-            applied.
+            keyword disclosure check the metadata PATCH runs. The transition has already applied.
     """
 
     id: str

@@ -64,11 +64,8 @@ class SearchParams(BaseModel):
 class OGCRasterBand(BaseModel):
     """One entry in the raster:bands STAC extension array.
 
-    fix(#1805 review round 3 P2): matches the shape service_records.py
-    actually serializes per band. `statistics` matches the normalized
-    band_info shape core/raster_bands.py (introduced by #1803, the raster
-    lifecycle PR) produces on read; keep this in sync if that PR changes
-    the per-band keys.
+    This matches the per-band data returned by catalog search. ``statistics``
+    uses the normalized raster band metadata shape.
     """
 
     name: str | None = None

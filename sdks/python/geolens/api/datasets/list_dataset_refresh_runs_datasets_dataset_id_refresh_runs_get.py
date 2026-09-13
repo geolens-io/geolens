@@ -121,22 +121,13 @@ def sync_detailed(
 
      Refresh history for a dataset: every attempt, including the failures.
 
-    Durable across the `ingest_jobs` retention purge — that purge is why this
-    table exists rather than the jobs table serving as the record (#1219).
+    The history remains available after the related ingest job is purged.
 
-    Access follows Rule 1 on the read path, and ADR-002 Decision 4e adds field
-    redaction on top: a caller who is neither the dataset owner nor an admin
+    A caller who is neither the dataset owner nor an administrator
     sees the timeline and outcomes but not who triggered each run, nor the
     failure text, nor the schema diff. Without that, a PUBLIC dataset's
     history enumerates its editors and leaks origin detail through error
-    strings. The redaction is tested against a NAMED signed-in third party as
-    well as an anonymous reader; a requester-scoped check that only exercises
-    the anonymous case reads as complete and is not.
-
-    The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
-    to `authorization.py` under #1316, which applies the same rule to dataset
-    reads and `/versions/` — this endpoint's redaction is no longer the odd
-    one out among the three.
+    strings.
 
     Args:
         dataset_id (UUID):
@@ -175,22 +166,13 @@ def sync(
 
      Refresh history for a dataset: every attempt, including the failures.
 
-    Durable across the `ingest_jobs` retention purge — that purge is why this
-    table exists rather than the jobs table serving as the record (#1219).
+    The history remains available after the related ingest job is purged.
 
-    Access follows Rule 1 on the read path, and ADR-002 Decision 4e adds field
-    redaction on top: a caller who is neither the dataset owner nor an admin
+    A caller who is neither the dataset owner nor an administrator
     sees the timeline and outcomes but not who triggered each run, nor the
     failure text, nor the schema diff. Without that, a PUBLIC dataset's
     history enumerates its editors and leaks origin detail through error
-    strings. The redaction is tested against a NAMED signed-in third party as
-    well as an anonymous reader; a requester-scoped check that only exercises
-    the anonymous case reads as complete and is not.
-
-    The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
-    to `authorization.py` under #1316, which applies the same rule to dataset
-    reads and `/versions/` — this endpoint's redaction is no longer the odd
-    one out among the three.
+    strings.
 
     Args:
         dataset_id (UUID):
@@ -224,22 +206,13 @@ async def asyncio_detailed(
 
      Refresh history for a dataset: every attempt, including the failures.
 
-    Durable across the `ingest_jobs` retention purge — that purge is why this
-    table exists rather than the jobs table serving as the record (#1219).
+    The history remains available after the related ingest job is purged.
 
-    Access follows Rule 1 on the read path, and ADR-002 Decision 4e adds field
-    redaction on top: a caller who is neither the dataset owner nor an admin
+    A caller who is neither the dataset owner nor an administrator
     sees the timeline and outcomes but not who triggered each run, nor the
     failure text, nor the schema diff. Without that, a PUBLIC dataset's
     history enumerates its editors and leaks origin detail through error
-    strings. The redaction is tested against a NAMED signed-in third party as
-    well as an anonymous reader; a requester-scoped check that only exercises
-    the anonymous case reads as complete and is not.
-
-    The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
-    to `authorization.py` under #1316, which applies the same rule to dataset
-    reads and `/versions/` — this endpoint's redaction is no longer the odd
-    one out among the three.
+    strings.
 
     Args:
         dataset_id (UUID):
@@ -276,22 +249,13 @@ async def asyncio(
 
      Refresh history for a dataset: every attempt, including the failures.
 
-    Durable across the `ingest_jobs` retention purge — that purge is why this
-    table exists rather than the jobs table serving as the record (#1219).
+    The history remains available after the related ingest job is purged.
 
-    Access follows Rule 1 on the read path, and ADR-002 Decision 4e adds field
-    redaction on top: a caller who is neither the dataset owner nor an admin
+    A caller who is neither the dataset owner nor an administrator
     sees the timeline and outcomes but not who triggered each run, nor the
     failure text, nor the schema diff. Without that, a PUBLIC dataset's
     history enumerates its editors and leaks origin detail through error
-    strings. The redaction is tested against a NAMED signed-in third party as
-    well as an anonymous reader; a requester-scoped check that only exercises
-    the anonymous case reads as complete and is not.
-
-    The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
-    to `authorization.py` under #1316, which applies the same rule to dataset
-    reads and `/versions/` — this endpoint's redaction is no longer the odd
-    one out among the three.
+    strings.
 
     Args:
         dataset_id (UUID):

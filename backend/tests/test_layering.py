@@ -1293,13 +1293,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # splitting.
     "backend/app/api/main.py": 1721,
     # Published map schema debt; separate validation helpers before raising.
-    "backend/app/modules/catalog/maps/schemas.py": 1396,
+    "backend/app/modules/catalog/maps/schemas.py": 1393,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 153,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising.
-    "backend/app/processing/ingest/router.py": 1830,
+    "backend/app/processing/ingest/router.py": 1827,
     # Shared task finalization keeps lifecycle and cleanup consistent across ingest
     # formats.
     "backend/app/processing/ingest/tasks_common.py": 1912,
@@ -1308,7 +1308,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_reupload.py": 1295,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1291,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1290,
     # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1161,
     # Reconciliation and reapers serve startup, workers and admin cleanup consistently.
@@ -1352,7 +1352,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # updates.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 979,
     # Dataset schema debt; split request/response families before raising.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1510,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1490,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1421,

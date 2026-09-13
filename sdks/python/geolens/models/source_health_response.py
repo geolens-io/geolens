@@ -25,17 +25,12 @@ T = TypeVar("T", bound="SourceHealthResponse")
 
 @_attrs_define
 class SourceHealthResponse:
-    """Result of one on-demand origin probe (ADR-002, #1222).
+    """Result of one on-demand origin probe.
 
-    Shares its first three words with ``VrtSourceHealth.status``, so the UI
-    renders one legend across VRT members and standalone origins.
-    ``VrtSourceHealth`` carries a fourth, VRT-specific value, ``stale``
-    (fix(#1221)): it means a member's raster was replaced after the parent
-    VRT was last built, and it does not apply to a single-origin probe. This
-    endpoint always probes, so it also never returns the OTHER fourth value,
-    ``unknown`` — the response-boundary projection of a never-determined NULL
-    column, which reaches clients through ``DatasetResponse``, not through
-    here.
+    The values align with ``VrtSourceHealth.status`` so clients can use one
+    legend for VRT members and standalone origins. ``stale`` applies only to
+    VRT members, while ``unknown`` represents health that has not been checked;
+    this endpoint always performs a probe and returns neither value.
 
         Attributes:
             dataset_id (UUID):

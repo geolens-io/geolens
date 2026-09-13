@@ -25,9 +25,8 @@ class ApiKeyCreateRequest:
         name (str): Human-readable label for the API key
         expires_at (datetime.datetime | None | Unset): Optional expiry timestamp (RFC 3339, timezone-aware). Omit or
             null for a non-expiring key; expired keys stop authenticating.
-        scope (ApiKeyCreateRequestScope | Unset): Privilege scope (#875). 'full' impersonates the owner completely, the
-            pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is
-            refused with 403. Default: 'full'.
+        scope (ApiKeyCreateRequestScope | Unset): Privilege scope. 'full' impersonates the owner completely. 'read_only'
+            authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. Default: 'full'.
     """
 
     name: str
