@@ -5,8 +5,9 @@ const SHOWCASE_MAP_NAMES = [
   'The Matterhorn in 3D',
   'Manhattan - A Century of Skyline',
   'Hurricane Alley - Major Atlantic Storms Since 1950',
+  'Hurricane Exposure - Which Coasts the Major Storms Reach',
   'Everything That Fell From the Sky',
-  'New York From Orbit - Sentinel-2, by Reference',
+  'New York From Orbit - Sentinel-2',
 ] as const;
 
 const CLOUDFLARE_BEACON =
@@ -99,6 +100,89 @@ test.describe('live demo read-only smoke', () => {
     }
 
     await attachScreenshot(page, testInfo, 'anonymous-catalog.png');
+    diagnostics.assertClean();
+  });
+
+  test('catalog discovery, collections, and SSO entry points remain usable', async ({ page }) => {
+    const diagnostics = observeBrowser(page);
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    const search = page.getByRole('combobox', { name: 'Search the catalog...' });
+    await search.fill('earthquake');
+    const earthquake = page
+      .getByTestId('search-result-card')
+      .filter({ hasText: 'Recent Earthquakes (M2.5+, last 30 days)' })
+      .first();
+    await expect(earthquake).toBeVisible();
+    await earthquake.click();
+    await expect(page).toHaveURL(/\/datasets\/[0-9a-f-]+$/);
+    await expect(page.getByRole('heading', { name: 'Recent Earthquakes (M2.5+, last 30 days)' })).toBeVisible();
+
+    await page.goto('/collections', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('link', { name: 'Human World' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Restless Planet' })).toBeVisible();
+    await page.getByRole('link', { name: 'Human World' }).click();
+    await expect(page).toHaveURL(/\/collections\/[0-9a-f-]+$/);
+    await expect(page.getByRole('heading', { name: 'Human World' })).toBeVisible();
+    await expect(page.locator('a[href^="/datasets/"]').first()).toBeVisible();
+
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: 'Sign in with GitHub' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in with Microsoft' })).toBeVisible();
+    await expect(page.getByText('Need access? Contact a GeoLens administrator.')).toBeVisible();
+    await expect(page.locator('a[href*="register"]')).toHaveCount(0);
+
+    diagnostics.assertClean();
+  });
+
+  test('seeded standards catalogs return public data', async ({ request }) => {
+    const endpoints = ['/api/', '/api/conformance', '/api/stac/'];
+
+    for (const endpoint of endpoints) {
+      const response = await request.get(endpoint);
+      expect(response.ok(), `${endpoint} returned HTTP ${response.status()}`).toBeTruthy();
+      expect((await response.body()).length, `${endpoint} returned an empty body`).toBeGreaterThan(0);
+    }
+
+    const catalogs = [
+      ['/api/collections', 'collections'],
+      ['/api/stac/collections', 'collections'],
+      ['/api/datasets/dcat/', 'dcat:dataset'],
+      ['/api/datasets/dcat-us/3.0/', 'dataset'],
+      ['/api/datasets/geodcat-ap/', 'dcat:dataset'],
+    ] as const;
+
+    for (const [endpoint, entriesKey] of catalogs) {
+      const response = await request.get(endpoint);
+      expect(response.ok(), `${endpoint} returned HTTP ${response.status()}`).toBeTruthy();
+      const body = await response.json();
+      expect(Array.isArray(body[entriesKey]), `${endpoint} omitted ${entriesKey}`).toBe(true);
+      expect(body[entriesKey].length, `${endpoint} returned no public entries`).toBeGreaterThan(0);
+    }
+  });
+
+  test('anonymous catalog and sign-in surfaces fit a mobile viewport', async ({ page }) => {
+    const diagnostics = observeBrowser(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const routes = [
+      { path: '/', loaded: () => page.getByTestId('search-result-card').first() },
+      { path: '/maps', loaded: () => page.getByRole('link', { name: SHOWCASE_MAP_NAMES[0], exact: true }) },
+      { path: '/collections', loaded: () => page.getByRole('link', { name: 'Human World' }) },
+      { path: '/login', loaded: () => page.getByRole('button', { name: 'Sign in with GitHub' }) },
+    ];
+
+    for (const { path, loaded } of routes) {
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await expect(loaded()).toBeVisible();
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), {
+          message: `${path} overflows the mobile viewport`,
+        })
+        .toBeLessThanOrEqual(1);
+    }
+
     diagnostics.assertClean();
   });
 
