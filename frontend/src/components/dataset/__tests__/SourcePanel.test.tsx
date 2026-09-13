@@ -772,6 +772,22 @@ describe('SourcePanel', () => {
 
   it('shows verification evidence and offers an exact blocked-run retry', async () => {
     const onAcceptBlockedRun = vi.fn();
+    const verification: NonNullable<DatasetRefreshRunResponse['verification']> = {
+      decision: 'blocked',
+      source_binding: {
+        service_type: 'wfs',
+        url: 'https://user:secret@example.com/wfs?token=hidden#private',
+        layer_id: 'roads',
+      },
+      source_count: 0,
+      fetched_count: 0,
+      count_status: 'matched',
+      identity_check: 'content_digest',
+      content_digest: 'sha256:content-digest',
+      review_reasons: ['empty_result'],
+      review_fingerprint: 'fingerprint',
+      accepted_blocked_run_id: null,
+    };
     vi.mocked(useDatasetRefreshRuns).mockReturnValue({
       data: {
         runs: [{
@@ -790,21 +806,7 @@ describe('SourcePanel', () => {
           feature_count_before: 1200,
           feature_count_after: 0,
           schema_diff: null,
-          verification: {
-            decision: 'blocked',
-            source_binding: {
-              service_type: 'wfs',
-              url: 'https://user:secret@example.com/wfs?token=hidden#private',
-              layer_id: 'roads',
-            },
-            source_count: 0,
-            fetched_count: 0,
-            count_status: 'matched',
-            identity_check: 'unavailable',
-            review_reasons: ['empty_result'],
-            review_fingerprint: 'fingerprint',
-            accepted_blocked_run_id: null,
-          },
+          verification,
           error_code: 'review_required',
           error_message: 'Review the detected changes before publication.',
         }],

@@ -284,6 +284,10 @@ class TestServiceReuploadWorker:
                 new_callable=AsyncMock,
             ) as mock_quality_score,
             patch(
+                "app.processing.ingest.metadata.compute_table_content_digest",
+                new_callable=AsyncMock,
+            ) as mock_content_digest,
+            patch(
                 "app.processing.ingest.tasks_reupload.invalidate_catalog_cache",
                 new_callable=AsyncMock,
             ) as mock_invalidate_catalog,
@@ -375,6 +379,7 @@ class TestServiceReuploadWorker:
         )
         mock_refresh_attributes.assert_awaited_once()
         mock_quality_score.assert_awaited_once()
+        mock_content_digest.assert_not_awaited()
         mock_invalidate_catalog.assert_awaited_once_with()
 
     @pytest.mark.parametrize(

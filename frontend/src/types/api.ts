@@ -1101,7 +1101,8 @@ export interface DatasetRefreshRunResponse {
     source_count: number | null;
     fetched_count: number | null;
     count_status: 'matched' | 'mismatched' | 'unavailable';
-    identity_check: 'unavailable';
+    identity_check: 'unavailable' | 'content_digest';
+    content_digest?: string | null;
     review_reasons: Array<
       'source_count_unavailable' | 'empty_result' | 'destructive_schema_change'
     >;

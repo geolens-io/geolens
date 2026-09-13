@@ -142,9 +142,15 @@ async def test_refresh_pages_large_arcgis_layer(
 
     calls: list[dict] = []
     task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
-    await _execute_with_fake(
-        task_kwargs, _fake_ogr2ogr(calls, lambda i: 1000 if i < 4 else 500)
-    )
+    with patch(
+        "app.processing.ingest.metadata.compute_table_content_digest",
+        new_callable=AsyncMock,
+        return_value="a" * 64,
+    ) as mock_content_digest:
+        await _execute_with_fake(
+            task_kwargs, _fake_ogr2ogr(calls, lambda i: 1000 if i < 4 else 500)
+        )
+    mock_content_digest.assert_awaited_once()
 
     assert len(calls) == 5, calls
     assert [c["append"] for c in calls] == [False, True, True, True, True]

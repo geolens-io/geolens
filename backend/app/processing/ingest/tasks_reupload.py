@@ -830,13 +830,14 @@ async def _enforce_service_refresh_verification(
     schema_diff: dict,
     expected_feature_count: int | None,
     fetched_feature_count: int | None,
-    content_digest: str,
+    content_digest: str | None,
     accepted_fingerprint: str | None,
     accepted_run_id: str | None,
 ) -> tuple[dict | None, bool]:
     """Record the verification result and stop unsafe publication."""
     if not is_refresh:
         return None, True
+    assert content_digest is not None
     verification = verify_service_refresh(
         source_binding=source_binding,
         schema_diff=schema_diff,
@@ -1236,11 +1237,15 @@ async def reupload_service(
                 metadata.get("column_info", []),
                 schema=_schema,
             )
-            content_digest = await compute_table_content_digest(
-                session,
-                staging_tn,
-                schema=_schema,
-                has_geometry=has_geom,
+            content_digest = (
+                await compute_table_content_digest(
+                    session,
+                    staging_tn,
+                    schema=_schema,
+                    has_geometry=has_geom,
+                )
+                if is_refresh
+                else None
             )
 
             reupload_source_url = (
