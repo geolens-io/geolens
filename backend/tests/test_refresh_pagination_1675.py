@@ -45,7 +45,9 @@ async def _arcgis_dataset(session, *, created_by: uuid.UUID):
     return dataset
 
 
-def _fake_ogr2ogr(calls: list[dict], rows_per_call):
+def _fake_ogr2ogr(
+    calls: list[dict], rows_per_call, *, geometry_type: str = "Point", srid: int = 4326
+):
     """Record every fetch and materialize rows like the subprocess would.
 
     ``rows_per_call(call_index)`` returns how many rows this page inserts —
@@ -81,7 +83,7 @@ def _fake_ogr2ogr(calls: list[dict], rows_per_call):
                     text(
                         f'CREATE TABLE "{schema}"."{table_name}" '
                         "(gid serial PRIMARY KEY, name text, "
-                        "geom geometry(Point, 4326))"
+                        f"geom geometry({geometry_type}, {srid}))"
                     )
                 )
             rows = rows_per_call(index)
@@ -264,6 +266,78 @@ async def test_empty_refresh_blocks_until_exact_run_is_accepted(
             headers=admin_auth_header,
         )
     assert reused.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_empty_refresh_acceptance_fences_staged_spatial_contract(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    dataset.feature_count = 10
+    await test_db_session.commit()
+    dataset_id = dataset.id
+    original_version = dataset.current_version
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return 0, 1000, True, "FID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+
+    first_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset_id)
+    await _execute_with_fake(
+        first_kwargs,
+        _fake_ogr2ogr([], lambda i: 0, geometry_type="PointZ", srid=4326),
+    )
+    first_blocked = (await _runs_ordered(test_db_session, dataset_id))[0]
+    assert first_blocked.status == "blocked"
+    assert first_blocked.verification["staged_geometry_type"] == "POINT"
+    assert first_blocked.verification["staged_srid"] == 4326
+    assert first_blocked.verification["staged_coordinate_dimension"] == 3
+
+    changed_kwargs = await _dispatch_refresh(
+        client,
+        admin_auth_header,
+        dataset_id,
+        body={"accept_blocked_run_id": str(first_blocked.id)},
+    )
+    await _execute_with_fake(
+        changed_kwargs,
+        _fake_ogr2ogr([], lambda i: 0, geometry_type="Point", srid=4326),
+    )
+
+    test_db_session.expire_all()
+    runs = await _runs_ordered(test_db_session, dataset_id)
+    second_blocked = runs[1]
+    assert [run.status for run in runs] == ["blocked", "blocked"]
+    assert second_blocked.verification["accepted_blocked_run_id"] is None
+    assert second_blocked.verification["staged_geometry_type"] == "POINT"
+    assert second_blocked.verification["staged_srid"] == 4326
+    assert second_blocked.verification["staged_coordinate_dimension"] == 2
+    dataset = await test_db_session.get(type(dataset), dataset_id)
+    assert dataset is not None
+    assert dataset.current_version == original_version
+
+    retry_kwargs = await _dispatch_refresh(
+        client,
+        admin_auth_header,
+        dataset_id,
+        body={"accept_blocked_run_id": str(second_blocked.id)},
+    )
+    await _execute_with_fake(
+        retry_kwargs,
+        _fake_ogr2ogr([], lambda i: 0, geometry_type="Point", srid=4326),
+    )
+
+    test_db_session.expire_all()
+    runs = await _runs_ordered(test_db_session, dataset_id)
+    assert [run.status for run in runs] == ["blocked", "blocked", "succeeded"]
+    assert runs[2].verification["accepted_blocked_run_id"] == str(second_blocked.id)
+    dataset = await test_db_session.get(type(dataset), dataset_id)
+    assert dataset is not None
+    assert dataset.current_version != original_version
+    assert dataset.geometry_type == "POINT"
+    assert dataset.srid == 4326
 
 
 @pytest.mark.anyio

@@ -1434,6 +1434,9 @@ class RefreshVerification(BaseModel):
     count_status: Literal["matched", "mismatched", "unavailable"]
     identity_check: Literal["unavailable", "content_digest"]
     content_digest: str | None = None
+    staged_geometry_type: str | None = None
+    staged_srid: int | None = None
+    staged_coordinate_dimension: int | None = None
     review_reasons: list[
         Literal[
             "source_count_unavailable",

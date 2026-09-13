@@ -1305,7 +1305,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_common.py": 1914,
     # Reupload coordinates staging, credentials and fenced settlement across
     # file/service paths, including the versioned verified-refresh task.
-    "backend/app/processing/ingest/tasks_reupload.py": 1452,
+    "backend/app/processing/ingest/tasks_reupload.py": 1486,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1431,
@@ -1352,7 +1352,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # updates.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 979,
     # Dataset schema debt; split request/response families before raising.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1525,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1528,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1421,

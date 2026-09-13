@@ -14,6 +14,9 @@ def verify_service_refresh(
     expected_feature_count: int | None,
     fetched_feature_count: int | None,
     content_digest: str,
+    staged_geometry_type: str | None,
+    staged_srid: int | None,
+    staged_coordinate_dimension: int | None,
     accepted_fingerprint: str | None = None,
     accepted_run_id: str | None = None,
 ) -> dict[str, Any]:
@@ -39,6 +42,9 @@ def verify_service_refresh(
         "expected_feature_count": expected_feature_count,
         "fetched_feature_count": fetched_feature_count,
         "content_digest": content_digest,
+        "staged_geometry_type": staged_geometry_type,
+        "staged_srid": staged_srid,
+        "staged_coordinate_dimension": staged_coordinate_dimension,
         "review_reasons": review_reasons,
     }
     fingerprint = hashlib.sha256(
@@ -68,6 +74,9 @@ def verify_service_refresh(
         "count_status": count_status,
         "identity_check": "content_digest",
         "content_digest": content_digest,
+        "staged_geometry_type": staged_geometry_type,
+        "staged_srid": staged_srid,
+        "staged_coordinate_dimension": staged_coordinate_dimension,
         "review_reasons": review_reasons,
         "review_fingerprint": fingerprint if review_reasons else None,
         "accepted_blocked_run_id": accepted_run_id if accepted else None,

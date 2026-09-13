@@ -11576,6 +11576,12 @@ export interface components {
             identity_check: "unavailable" | "content_digest";
             /** Content Digest */
             content_digest?: string | null;
+            /** Staged Geometry Type */
+            staged_geometry_type?: string | null;
+            /** Staged Srid */
+            staged_srid?: number | null;
+            /** Staged Coordinate Dimension */
+            staged_coordinate_dimension?: number | null;
             /** Review Reasons */
             review_reasons: ("source_count_unavailable" | "empty_result" | "destructive_schema_change")[];
             /** Review Fingerprint */

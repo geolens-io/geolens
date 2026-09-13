@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import redact_failure_reason
@@ -831,6 +831,9 @@ async def _enforce_service_refresh_verification(
     expected_feature_count: int | None,
     fetched_feature_count: int | None,
     content_digest: str | None,
+    staged_geometry_type: str | None,
+    staged_srid: int | None,
+    staged_coordinate_dimension: int | None,
     accepted_fingerprint: str | None,
     accepted_run_id: str | None,
 ) -> tuple[dict | None, bool]:
@@ -844,6 +847,9 @@ async def _enforce_service_refresh_verification(
         expected_feature_count=expected_feature_count,
         fetched_feature_count=fetched_feature_count,
         content_digest=content_digest,
+        staged_geometry_type=staged_geometry_type,
+        staged_srid=staged_srid,
+        staged_coordinate_dimension=staged_coordinate_dimension,
         accepted_fingerprint=accepted_fingerprint,
         accepted_run_id=accepted_run_id,
     )
@@ -889,6 +895,24 @@ async def _enforce_service_refresh_verification(
         )
     await session.commit()
     return verification, False
+
+
+async def _staged_geometry_contract(
+    session, *, schema: str, table: str
+) -> tuple[str | None, int | None, int | None]:
+    row = (
+        await session.execute(
+            text(
+                "SELECT type, srid, coord_dimension FROM geometry_columns "
+                "WHERE f_table_schema = :schema AND f_table_name = :table "
+                "AND f_geometry_column = 'geom'"
+            ),
+            {"schema": schema, "table": table},
+        )
+    ).one_or_none()
+    if row is None:
+        return None, None, None
+    return row.type, int(row.srid), int(row.coord_dimension)
 
 
 def _matches_service_origin(
@@ -1231,6 +1255,13 @@ async def reupload_service(
             )
 
             metadata = await extract_metadata(session, staging_tn, schema=_schema)
+            staged_geometry_type, staged_srid, staged_coordinate_dimension = (
+                await _staged_geometry_contract(
+                    session, schema=_schema, table=staging_tn
+                )
+                if is_refresh
+                else (None, None, None)
+            )
             sample_values = await get_sample_values(
                 session,
                 staging_tn,
@@ -1291,6 +1322,9 @@ async def reupload_service(
                 expected_feature_count=expected_feature_count,
                 fetched_feature_count=metadata.get("feature_count"),
                 content_digest=content_digest,
+                staged_geometry_type=staged_geometry_type,
+                staged_srid=staged_srid,
+                staged_coordinate_dimension=staged_coordinate_dimension,
                 accepted_fingerprint=accepted_refresh_fingerprint,
                 accepted_run_id=accepted_refresh_run_id,
             )

@@ -27,6 +27,9 @@ def _verify(**overrides):
         "expected_feature_count": 10,
         "fetched_feature_count": 10,
         "content_digest": "a" * 64,
+        "staged_geometry_type": "POINT",
+        "staged_srid": 4326,
+        "staged_coordinate_dimension": 2,
     }
     kwargs.update(overrides)
     return verify_service_refresh(**kwargs)
@@ -120,3 +123,38 @@ def test_changed_staged_content_invalidates_acceptance() -> None:
 
     assert changed["decision"] == "blocked"
     assert changed["accepted_blocked_run_id"] is None
+
+
+def test_changed_staged_spatial_contract_invalidates_acceptance() -> None:
+    blocked = _verify(
+        schema_diff=_diff(columns_removed=[{"name": "zoning_code", "type": "text"}])
+    )
+
+    for changed in (
+        _verify(
+            schema_diff=_diff(
+                columns_removed=[{"name": "zoning_code", "type": "text"}]
+            ),
+            staged_geometry_type="POLYGON",
+            accepted_fingerprint=blocked["review_fingerprint"],
+            accepted_run_id="prior-run",
+        ),
+        _verify(
+            schema_diff=_diff(
+                columns_removed=[{"name": "zoning_code", "type": "text"}]
+            ),
+            staged_coordinate_dimension=3,
+            accepted_fingerprint=blocked["review_fingerprint"],
+            accepted_run_id="prior-run",
+        ),
+        _verify(
+            schema_diff=_diff(
+                columns_removed=[{"name": "zoning_code", "type": "text"}]
+            ),
+            staged_srid=3857,
+            accepted_fingerprint=blocked["review_fingerprint"],
+            accepted_run_id="prior-run",
+        ),
+    ):
+        assert changed["decision"] == "blocked"
+        assert changed["accepted_blocked_run_id"] is None

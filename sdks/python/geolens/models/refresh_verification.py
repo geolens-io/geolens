@@ -52,6 +52,9 @@ class RefreshVerification:
         review_fingerprint (None | str):
         accepted_blocked_run_id (None | UUID):
         content_digest (None | str | Unset):
+        staged_geometry_type (None | str | Unset):
+        staged_srid (int | None | Unset):
+        staged_coordinate_dimension (int | None | Unset):
         acceptance_consumed_by_run_id (None | Unset | UUID):
     """
 
@@ -65,6 +68,9 @@ class RefreshVerification:
     review_fingerprint: None | str
     accepted_blocked_run_id: None | UUID
     content_digest: None | str | Unset = UNSET
+    staged_geometry_type: None | str | Unset = UNSET
+    staged_srid: int | None | Unset = UNSET
+    staged_coordinate_dimension: int | None | Unset = UNSET
     acceptance_consumed_by_run_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -103,6 +109,24 @@ class RefreshVerification:
         else:
             content_digest = self.content_digest
 
+        staged_geometry_type: None | str | Unset
+        if isinstance(self.staged_geometry_type, Unset):
+            staged_geometry_type = UNSET
+        else:
+            staged_geometry_type = self.staged_geometry_type
+
+        staged_srid: int | None | Unset
+        if isinstance(self.staged_srid, Unset):
+            staged_srid = UNSET
+        else:
+            staged_srid = self.staged_srid
+
+        staged_coordinate_dimension: int | None | Unset
+        if isinstance(self.staged_coordinate_dimension, Unset):
+            staged_coordinate_dimension = UNSET
+        else:
+            staged_coordinate_dimension = self.staged_coordinate_dimension
+
         acceptance_consumed_by_run_id: None | str | Unset
         if isinstance(self.acceptance_consumed_by_run_id, Unset):
             acceptance_consumed_by_run_id = UNSET
@@ -128,6 +152,12 @@ class RefreshVerification:
         )
         if content_digest is not UNSET:
             field_dict["content_digest"] = content_digest
+        if staged_geometry_type is not UNSET:
+            field_dict["staged_geometry_type"] = staged_geometry_type
+        if staged_srid is not UNSET:
+            field_dict["staged_srid"] = staged_srid
+        if staged_coordinate_dimension is not UNSET:
+            field_dict["staged_coordinate_dimension"] = staged_coordinate_dimension
         if acceptance_consumed_by_run_id is not UNSET:
             field_dict["acceptance_consumed_by_run_id"] = acceptance_consumed_by_run_id
 
@@ -208,6 +238,37 @@ class RefreshVerification:
 
         content_digest = _parse_content_digest(d.pop("content_digest", UNSET))
 
+        def _parse_staged_geometry_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        staged_geometry_type = _parse_staged_geometry_type(
+            d.pop("staged_geometry_type", UNSET)
+        )
+
+        def _parse_staged_srid(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        staged_srid = _parse_staged_srid(d.pop("staged_srid", UNSET))
+
+        def _parse_staged_coordinate_dimension(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        staged_coordinate_dimension = _parse_staged_coordinate_dimension(
+            d.pop("staged_coordinate_dimension", UNSET)
+        )
+
         def _parse_acceptance_consumed_by_run_id(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
@@ -238,6 +299,9 @@ class RefreshVerification:
             review_fingerprint=review_fingerprint,
             accepted_blocked_run_id=accepted_blocked_run_id,
             content_digest=content_digest,
+            staged_geometry_type=staged_geometry_type,
+            staged_srid=staged_srid,
+            staged_coordinate_dimension=staged_coordinate_dimension,
             acceptance_consumed_by_run_id=acceptance_consumed_by_run_id,
         )
 

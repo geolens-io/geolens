@@ -14296,6 +14296,39 @@
             ],
             "title": "Content Digest"
           },
+          "staged_geometry_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staged Geometry Type"
+          },
+          "staged_srid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staged Srid"
+          },
+          "staged_coordinate_dimension": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staged Coordinate Dimension"
+          },
           "review_reasons": {
             "items": {
               "enum": [
