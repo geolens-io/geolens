@@ -1,15 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Dataset refresh and source-status helpers.
-
-Hand-maintained — NOT regenerated.  The request path deliberately stays on
-the generated SDK surface: the only client-supplied refresh field is the
-transient service ``token``.  Origin, layer, and trigger remain server-owned.
-"""
+"""Dataset refresh and source-status helpers."""
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.parse import quote
 from uuid import UUID
@@ -30,6 +27,7 @@ from ._sdk_helpers import (
 REFRESH_ACCEPTED_STATUS = 202
 DATASET_STATUS_OK = 200
 JOB_STATUS_OK = 200
+REFRESH_RUNS_STATUS_OK = 200
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0
 
 
@@ -48,10 +46,11 @@ class RefreshPollResult:
 
     status: str
     error_message: str | None = None
+    verification: dict[str, Any] | None = None
 
     @property
     def succeeded(self) -> bool:
-        return self.status == "complete"
+        return self.status in {"complete", "succeeded"}
 
 
 _REFUSAL_MESSAGES: dict[str, str] = {
@@ -60,12 +59,6 @@ _REFUSAL_MESSAGES: dict[str, str] = {
         "through re-upload, or re-run 'geolens apply' with an updated "
         "manifest."
     ),
-    # fix(#1266): kind-agnostic for the same reason #1319 made its sibling so.
-    # This code now answers for three origins — a service binding with no base
-    # URL or layer, a registered table with no table name, a STAC dataset with
-    # no item href — and naming one of them was already stale for the other
-    # two. The recovery is the same sentence in every case: import it again
-    # through the flow it came from.
     "origin_unavailable": (
         "This dataset's stored source binding is incomplete, so GeoLens "
         "cannot tell what to refresh from. Import it again through the flow "
@@ -108,28 +101,70 @@ def describe_failure_reason(reason: str) -> str:
     return FAILURE_REASON_MESSAGES.get(reason, reason)
 
 
-def start_refresh(client: Any, dataset_id: UUID, token: str | None = None) -> Any:
+def start_refresh(
+    client: Any,
+    dataset_id: UUID,
+    token: str | None = None,
+    *,
+    auth: Any = None,
+    accept_blocked_run_id: UUID | None = None,
+    instance: str | None = None,
+    credential_kind: str | None = None,
+    credential_provenance: str | None = None,
+    on_reauthenticated: Callable[[Any], None] | None = None,
+) -> Any:
     """Dispatch a refresh through the generated SDK.
 
-    With no credential, the optional request body is omitted.  With a
-    credential, ``DatasetRefreshRequest`` guarantees that the serialized body
-    contains only ``token``; notably, there is no client-supplied trigger or
-    source pointer.
+    The request may carry one transient credential and an exact blocked-run
+    acceptance. The source pointer and trigger remain server-owned.
     """
     from geolens.api.datasets_refresh import (
         refresh_dataset_datasets_dataset_id_refresh_post as refresh_endpoint,
     )
 
     kwargs: dict[str, Any] = {"dataset_id": dataset_id, "client": client}
-    if token is not None:
+    if token is not None or auth is not None or accept_blocked_run_id is not None:
         from geolens.models.dataset_refresh_request import DatasetRefreshRequest
 
-        kwargs["body"] = DatasetRefreshRequest(token=token)
+        body_kwargs: dict[str, Any] = {}
+        if token is not None:
+            body_kwargs["token"] = token
+        if auth is not None:
+            body_kwargs["auth"] = auth
+        if accept_blocked_run_id is not None:
+            body_kwargs["accept_blocked_run_id"] = accept_blocked_run_id
+        kwargs["body"] = DatasetRefreshRequest(**body_kwargs)
 
-    response = call_sdk(refresh_endpoint.sync_detailed, **kwargs)
+    if instance is not None and credential_kind is not None:
+        response = call_sdk_with_reauth(
+            refresh_endpoint.sync_detailed,
+            instance=instance,
+            credential_kind=credential_kind,
+            credential_provenance=credential_provenance,
+            on_reauthenticated=on_reauthenticated,
+            **kwargs,
+        )
+    else:
+        response = call_sdk(refresh_endpoint.sync_detailed, **kwargs)
     if int(response.status_code) != REFRESH_ACCEPTED_STATUS:
         raise _refresh_request_error(response, token=token)
     return unwrap(response, expected=REFRESH_ACCEPTED_STATUS)
+
+
+def load_refresh_auth(path: Path) -> Any:
+    """Load a structured service credential from a local JSON file."""
+    from geolens.models.service_auth_request import ServiceAuthRequest
+
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Could not read structured credential: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Structured credential JSON must be an object")
+    try:
+        return ServiceAuthRequest.from_dict(payload)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid structured credential: {exc}") from exc
 
 
 def _refresh_request_error(
@@ -206,29 +241,15 @@ def wait_for_refresh(
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> RefreshPollResult:
-    """Poll until terminal, or until an explicitly supplied timeout expires.
-
-    fix(#1778 review round 8): a per-request httpx.TimeoutException is
-    retried via poll_until() (logged at debug, slept past) instead of
-    being treated as immediately fatal. Previously this called plain
-    call_sdk() with no ``reraise_timeout`` — call_sdk's own
-    deadline_expired/DeadlineTimeout path only distinguishes "the
-    request timed out AND the deadline has already passed" from a hard
-    exit; there was no third option to retry a timeout that happens
-    BEFORE the deadline. That meant one slow status GET exited
-    EXIT_NETWORK immediately even with the deadline nowhere near (or,
-    for the default unbounded ``--wait``, with no deadline at all).
-    """
+    """Poll until terminal, or until an explicitly supplied timeout expires."""
     from geolens.api.admin import get_job_status_jobs_job_id_get
 
     uuid_arg = job_id if isinstance(job_id, UUID) else UUID(str(job_id))
     deadline = monotonic() + timeout if timeout is not None else None
     transport = client.get_httpx_client() if deadline is not None else None
     original_timeout = transport.timeout if transport is not None else None
-    # poll_until() needs a concrete deadline to retry against; the
-    # unbounded default --wait (deadline=None here) has no operation
-    # deadline to give up at, so a per-request timeout is retried
-    # forever — same "no bound" convention as analysis.POLL_FOREVER.
+    # An infinite deadline makes transient request timeouts retry for an
+    # unbounded --wait while preserving poll_until's deadline contract.
     poll_deadline = deadline if deadline is not None else float("inf")
     status = "pending"
     try:
@@ -274,9 +295,6 @@ def wait_for_refresh(
                 return RefreshPollResult(status=status)
             if status in {"failed", "cancelled"}:
                 error = getattr(job, "error_message", None)
-                # fix(#2010): the one point a stored reason enters the CLI, so
-                # the human views and the JSON payload cannot disagree about
-                # whether a coded reason reads as an identifier or a sentence.
                 return RefreshPollResult(
                     status=status,
                     error_message=(
@@ -303,6 +321,126 @@ def wait_for_refresh(
             transport.timeout = original_timeout
 
 
+def wait_for_refresh_run(
+    client: Any,
+    dataset_id: UUID,
+    run_id: UUID,
+    *,
+    instance: str,
+    credential_kind: str,
+    credential_provenance: str | None = None,
+    token: str | None = None,
+    interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
+    timeout: float | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> RefreshPollResult:
+    """Poll until the run is terminal or the optional timeout expires."""
+    from geolens.api.datasets import (
+        list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get,
+    )
+
+    active_client = client
+    deadline = monotonic() + timeout if timeout is not None else None
+    status = "pending"
+
+    def replace_client(replacement: Any) -> None:
+        nonlocal active_client
+        active_client = replacement
+
+    def fetch() -> Any:
+        bounded: list[tuple[Any, Any]] = []
+
+        def bound_client(candidate: Any) -> None:
+            if deadline is None:
+                return
+            transport = candidate.get_httpx_client()
+            if any(existing is transport for existing, _ in bounded):
+                return
+            bounded.append((transport, transport.timeout))
+            transport.timeout = max(deadline - monotonic(), 0.001)
+
+        def replace_bounded_client(replacement: Any) -> None:
+            replace_client(replacement)
+            bound_client(replacement)
+
+        bound_client(active_client)
+        try:
+            return call_sdk_with_reauth(
+                list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get.sync_detailed,
+                instance=instance,
+                credential_kind=credential_kind,
+                credential_provenance=credential_provenance,
+                on_reauthenticated=replace_bounded_client,
+                dataset_id=dataset_id,
+                limit=50,
+                client=active_client,
+                reraise_timeout=True,
+            )
+        finally:
+            for transport, original_timeout in bounded:
+                transport.timeout = original_timeout
+
+    while True:
+        if deadline is not None and monotonic() >= deadline:
+            return RefreshPollResult(
+                status="timed_out",
+                error_message=f"Refresh run {run_id} is still {status}; check it later.",
+            )
+        poll_deadline = deadline if deadline is not None else float("inf")
+        try:
+            response = poll_until(
+                fetch,
+                deadline=poll_deadline,
+                interval=interval,
+                sleep=sleep,
+                monotonic=monotonic,
+            )
+        except PollDeadlineExceeded:
+            return RefreshPollResult(
+                status="timed_out",
+                error_message=f"Refresh run {run_id} is still {status}; check it later.",
+            )
+        page = unwrap(response, expected=REFRESH_RUNS_STATUS_OK)
+        run = next((candidate for candidate in page.runs if candidate.id == run_id), None)
+        if run is None:
+            raise RefreshRequestError(
+                f"Refresh run {run_id} was not found in this dataset's history."
+            )
+        status = str(run.status)
+        verification_value = _value(getattr(run, "verification", None))
+        verification = (
+            verification_value.to_dict()
+            if callable(getattr(verification_value, "to_dict", None))
+            else verification_value
+            if isinstance(verification_value, dict)
+            else None
+        )
+        if status == "succeeded":
+            return RefreshPollResult(status=status, verification=verification)
+        if status in {"failed", "cancelled", "blocked"}:
+            error = _value(getattr(run, "error_message", None))
+            return RefreshPollResult(
+                status=status,
+                error_message=(
+                    describe_failure_reason(_redact_secret(str(error), token))
+                    if error
+                    else None
+                ),
+                verification=verification,
+            )
+        if deadline is None:
+            sleep(interval)
+            continue
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return RefreshPollResult(
+                status="timed_out",
+                error_message=f"Refresh run {run_id} is still {status}; check it later.",
+            )
+        sleep(min(interval, remaining))
+
+
 def _redact_secret(message: str, secret: str | None) -> str:
     """Keep a supplied token out of an upstream failure message."""
     if not secret:
@@ -315,7 +453,7 @@ def _redact_secret(message: str, secret: str | None) -> str:
 
 
 def refresh_payload(response: Any, poll: RefreshPollResult | None = None) -> dict:
-    """Serialize the 202 response, optionally replacing status with job status."""
+    """Serialize the dispatch response with an optional terminal status."""
     to_dict = getattr(response, "to_dict", None)
     payload = (
         to_dict()
@@ -337,6 +475,8 @@ def refresh_payload(response: Any, poll: RefreshPollResult | None = None) -> dic
         payload["status"] = poll.status
         if poll.error_message:
             payload["error_message"] = poll.error_message
+        if poll.verification is not None:
+            payload["verification"] = poll.verification
     return payload
 
 

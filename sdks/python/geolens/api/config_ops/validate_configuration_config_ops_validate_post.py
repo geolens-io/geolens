@@ -92,7 +92,7 @@ def sync_detailed(
 ) -> Response[ConnectivityResult | ProblemDetail]:
     """Validate Configuration
 
-     Validate connectivity to storage, cache, and all enabled OIDC providers.
+     Validate storage, cache, credential handoff, and enabled OIDC providers.
 
     Returns pass/fail with latency and error details for each service.
 
@@ -119,7 +119,7 @@ def sync(
 ) -> ConnectivityResult | ProblemDetail | None:
     """Validate Configuration
 
-     Validate connectivity to storage, cache, and all enabled OIDC providers.
+     Validate storage, cache, credential handoff, and enabled OIDC providers.
 
     Returns pass/fail with latency and error details for each service.
 
@@ -142,7 +142,7 @@ async def asyncio_detailed(
 ) -> Response[ConnectivityResult | ProblemDetail]:
     """Validate Configuration
 
-     Validate connectivity to storage, cache, and all enabled OIDC providers.
+     Validate storage, cache, credential handoff, and enabled OIDC providers.
 
     Returns pass/fail with latency and error details for each service.
 
@@ -167,7 +167,7 @@ async def asyncio(
 ) -> ConnectivityResult | ProblemDetail | None:
     """Validate Configuration
 
-     Validate connectivity to storage, cache, and all enabled OIDC providers.
+     Validate storage, cache, credential handoff, and enabled OIDC providers.
 
     Returns pass/fail with latency and error details for each service.
 

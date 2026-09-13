@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DatasetResponse } from '@/types/api';
 import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
@@ -70,6 +70,7 @@ export function DetailPanel(props: DetailPanelProps) {
   // dispatch table.
   const origin = dataset.origin ?? datasetOrigin(dataset);
   const canRefresh = origin != null && REFRESHABLE_ORIGINS.has(origin);
+  const [acceptBlockedRunId, setAcceptBlockedRunId] = useState<string>();
 
   const showData = isVector;
   const showStructure = isVector;
@@ -160,9 +161,18 @@ export function DetailPanel(props: DetailPanelProps) {
         <SourcePanel
           dataset={dataset}
           canEdit={canEdit}
+          refreshBusy={refreshWatch.isBusy}
+          onAcceptBlockedRun={setAcceptBlockedRunId}
           actions={
             canEdit && canRefresh
-              ? <SourceRefreshAction dataset={dataset} watch={refreshWatch} />
+              ? (
+                <SourceRefreshAction
+                  dataset={dataset}
+                  watch={refreshWatch}
+                  acceptBlockedRunId={acceptBlockedRunId}
+                  onAcceptHandled={() => setAcceptBlockedRunId(undefined)}
+                />
+              )
               : undefined
           }
         />

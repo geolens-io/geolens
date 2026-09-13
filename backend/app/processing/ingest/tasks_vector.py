@@ -324,12 +324,6 @@ async def _fetch_arcgis_import_page_info(
             ) = await fetch_arcgis_pagination_info(
                 source_url, layer_id, client, token=token
             )
-            if (
-                not supports_pagination
-                or max_record_count is None
-                or order_field is None
-            ):
-                return None, max_record_count, supports_pagination, order_field
             feature_count = await fetch_arcgis_feature_count(
                 source_url, layer_id, client, token=token
             )

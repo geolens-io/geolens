@@ -254,6 +254,11 @@ class DefaultCatalogPort:
 
         return reupload_service
 
+    def verified_refresh_service_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import reupload_verified_refresh
+
+        return reupload_verified_refresh
+
     def reupload_raster_task(self):  # type: ignore[no-untyped-def]
         from app.processing.ingest.tasks import reupload_raster
 

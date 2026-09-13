@@ -24,12 +24,14 @@ class ConnectivityResult:
     Attributes:
         storage (ServiceProbeResult): Result of a single service connectivity probe.
         cache (ServiceProbeResult): Result of a single service connectivity probe.
+        credential_store (ServiceProbeResult): Result of a single service connectivity probe.
         oidc_providers (ConnectivityResultOidcProviders): Per-provider OIDC discovery probe results, keyed by provider
             slug.
     """
 
     storage: ServiceProbeResult
     cache: ServiceProbeResult
+    credential_store: ServiceProbeResult
     oidc_providers: ConnectivityResultOidcProviders
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -37,6 +39,8 @@ class ConnectivityResult:
         storage = self.storage.to_dict()
 
         cache = self.cache.to_dict()
+
+        credential_store = self.credential_store.to_dict()
 
         oidc_providers = self.oidc_providers.to_dict()
 
@@ -46,6 +50,7 @@ class ConnectivityResult:
             {
                 "storage": storage,
                 "cache": cache,
+                "credential_store": credential_store,
                 "oidc_providers": oidc_providers,
             }
         )
@@ -64,6 +69,8 @@ class ConnectivityResult:
 
         cache = ServiceProbeResult.from_dict(d.pop("cache"))
 
+        credential_store = ServiceProbeResult.from_dict(d.pop("credential_store"))
+
         oidc_providers = ConnectivityResultOidcProviders.from_dict(
             d.pop("oidc_providers")
         )
@@ -71,6 +78,7 @@ class ConnectivityResult:
         connectivity_result = cls(
             storage=storage,
             cache=cache,
+            credential_store=credential_store,
             oidc_providers=oidc_providers,
         )
 

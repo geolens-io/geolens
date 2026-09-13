@@ -106,6 +106,7 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         # ledger); these four are the append-only record. `abandoned` is the
         # stale-run sweep's correction, deliberately not spelled `failed`.
         "refresh.abandoned",
+        "refresh.blocked",
         # feat(#1677): the explicit-cancel counterpart to `abandoned` — a
         # person asked in-flight work to stop, vs. the sweep's bookkeeping
         # correction for a task proven gone.

@@ -832,6 +832,8 @@
       "featureEditBlockedHint": "Terminez la modification ou désélectionnez l'entité avant d'actualiser.",
       "dialogTitle": "Actualiser depuis la source",
       "dialogDescription": "Récupère à nouveau les données de ce jeu de données depuis son origine d'importation. Le jeu de données continue de servir ses données actuelles jusqu'à ce que les nouvelles soient prêtes.",
+      "reviewDialogTitle": "Examiner et relancer l’actualisation",
+      "reviewDialogDescription": "Interrogez à nouveau la source et publiez uniquement si elle correspond à l’exécution examinée.",
       "tokenLabel": "Jeton d'accès (facultatif)",
       "tokenPlaceholder": "Nécessaire uniquement pour une source protégée",
       "tokenHint": "Utilisé uniquement pour cette actualisation ; non stocké avec le jeu de données.",
@@ -898,8 +900,23 @@
           "running": "En cours",
           "succeeded": "Réussie",
           "failed": "Échouée",
-          "cancelled": "Annulée"
-        }
+          "cancelled": "Annulée",
+          "blocked": "Examen requis"
+        },
+        "sourceCountUnavailable": "Décompte de la source indisponible.",
+        "identityUnavailable": "Les identifiants des enregistrements n’ont pas été comparés.",
+        "countEvidence": "Source : {{source}} · récupérées : {{fetched}}",
+        "sourceUsed": "Source utilisée : {{source}}",
+        "columnsRemoved": "Colonnes supprimées : {{columns}}",
+        "typesChanged": "Types de colonne modifiés : {{columns}}",
+        "permalink": "Lien",
+        "reason": {
+          "source_count_unavailable": "GeoLens n’a pas pu comparer les lignes récupérées avec la source ; la publication doit être vérifiée.",
+          "empty_result": "L’actualisation remplacerait un jeu de données non vide par un résultat vide.",
+          "destructive_schema_change": "L’actualisation supprime des colonnes ou modifie leur type."
+        },
+        "reviewAndRetry": "Examiner et relancer",
+        "loadMore": "Charger les exécutions précédentes"
       }
     },
     "vrt": {

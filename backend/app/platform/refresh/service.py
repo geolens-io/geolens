@@ -39,8 +39,14 @@ RUN_STATUSES: tuple[str, ...] = (
     "succeeded",
     "failed",
     "cancelled",
+    "blocked",
 )
-TERMINAL_RUN_STATUSES: tuple[str, ...] = ("succeeded", "failed", "cancelled")
+TERMINAL_RUN_STATUSES: tuple[str, ...] = (
+    "succeeded",
+    "failed",
+    "cancelled",
+    "blocked",
+)
 ACTIVE_RUN_STATUSES: tuple[str, ...] = ("pending", "running")
 RUN_TRIGGERS: tuple[str, ...] = ("manual", "api", "cli")
 RUN_ORIGIN_KINDS: tuple[str, ...] = (
@@ -201,6 +207,26 @@ async def _emit_refresh_failed(session: AsyncSession, run_id: uuid.UUID) -> None
         AuditEvent(
             user_id=actor,
             action="refresh.failed",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details=details,
+        ),
+    )
+
+
+async def _emit_refresh_blocked(session: AsyncSession, run_id: uuid.UUID) -> None:
+    """Record a refresh that needs review before it can publish."""
+    from app.platform.audit import AuditEvent, audit_emit
+
+    context = await _run_audit_context(session, run_id)
+    if context is None:
+        return
+    actor, dataset_id, details = context
+    await audit_emit(
+        session,
+        AuditEvent(
+            user_id=actor,
+            action="refresh.blocked",
             resource_type="dataset",
             resource_id=dataset_id,
             details=details,
@@ -546,6 +572,7 @@ async def record_refresh_success(
     feature_count_after: int | None,
     schema_diff: dict[str, Any] | None,
     contacted_origin: bool,
+    verification: dict[str, Any] | None = None,
 ) -> uuid.UUID | None:
     """Finalize this job's run as ``succeeded``; project drift onto the dataset.
 
@@ -578,6 +605,7 @@ async def record_refresh_success(
             "dataset_version_id": dataset_version_id,
             "feature_count_after": feature_count_after,
             "schema_diff": schema_diff,
+            "verification": verification,
         },
     )
     if not won:
@@ -594,6 +622,9 @@ async def record_refresh_failure(
     error_message: str | BaseException,
     contacted_origin: bool,
     origin_binding: tuple[str | None, dict[str, Any] | None, str | None] | None = None,
+    feature_count_after: int | None = None,
+    schema_diff: dict[str, Any] | None = None,
+    verification: dict[str, Any] | None = None,
 ) -> uuid.UUID | None:
     """Finalize this job's run as ``failed``.
 
@@ -644,6 +675,9 @@ async def record_refresh_failure(
             "finished_at": now,
             "error_code": error_code[:64],
             "error_message": redact_run_error(error_message),
+            "feature_count_after": feature_count_after,
+            "schema_diff": schema_diff,
+            "verification": verification,
         },
     )
     if not won:
@@ -657,6 +691,40 @@ async def record_refresh_failure(
             now=now,
         )
     return row.id
+
+
+async def record_refresh_blocked(
+    session: AsyncSession,
+    *,
+    ingest_job_id: uuid.UUID,
+    feature_count_after: int | None,
+    schema_diff: dict[str, Any],
+    verification: dict[str, Any],
+) -> uuid.UUID | None:
+    """Finalize a run that requires an explicit publication decision."""
+    run_id = await _active_run_id_for_job(session, ingest_job_id)
+    if run_id is None:
+        return None
+    won = await transition_run(
+        session,
+        run_id,
+        expected=("running",),
+        to="blocked",
+        values={
+            "finished_at": datetime.now(timezone.utc),
+            "feature_count_after": feature_count_after,
+            "schema_diff": schema_diff,
+            "verification": verification,
+            "error_code": "review_required",
+            "error_message": redact_run_error(
+                "Review the detected changes before publication."
+            ),
+        },
+    )
+    if not won:
+        return None
+    await _emit_refresh_blocked(session, run_id)
+    return run_id
 
 
 # fix(#1220): jsonb, not text. `origin_ref` is compared semantically, so an

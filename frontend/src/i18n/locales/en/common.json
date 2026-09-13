@@ -521,7 +521,7 @@
     },
     "validate": {
       "title": "Validate Connectivity",
-      "description": "Test connectivity to storage, cache, and OIDC providers.",
+      "description": "Test storage, cache, credential store, and OIDC connectivity.",
       "button": "Run Validation",
       "serviceHeader": "Service",
       "statusHeader": "Status",
@@ -531,6 +531,7 @@
       "statusError": "Failed",
       "latency": "{{ms}}ms",
       "noOidc": "No OIDC providers configured",
+      "credentialStore": "Credential store",
       "resultsLabel": "Connectivity results"
     },
     "import": {

@@ -832,6 +832,8 @@
       "featureEditBlockedHint": "Schließen Sie die Bearbeitung ab oder heben Sie die Auswahl des Features auf, bevor Sie aktualisieren.",
       "dialogTitle": "Von der Quelle aktualisieren",
       "dialogDescription": "Die Daten dieses Datensatzes werden erneut von der ursprünglichen Importquelle abgerufen. Der Datensatz liefert weiterhin seine aktuellen Daten, bis die neuen Daten bereit sind.",
+      "reviewDialogTitle": "Aktualisierung prüfen und wiederholen",
+      "reviewDialogDescription": "Die Quelle erneut abrufen und nur veröffentlichen, wenn sie dem geprüften Lauf entspricht.",
       "tokenLabel": "Zugriffstoken (optional)",
       "tokenPlaceholder": "Nur für eine geschützte Quelle erforderlich",
       "tokenHint": "Wird nur für diese Aktualisierung verwendet; nicht mit dem Datensatz gespeichert.",
@@ -898,8 +900,23 @@
           "running": "Läuft",
           "succeeded": "Erfolgreich",
           "failed": "Fehlgeschlagen",
-          "cancelled": "Abgebrochen"
-        }
+          "cancelled": "Abgebrochen",
+          "blocked": "Prüfung erforderlich"
+        },
+        "sourceCountUnavailable": "Quellanzahl nicht verfügbar.",
+        "identityUnavailable": "Datensatzkennungen wurden nicht verglichen.",
+        "countEvidence": "Quelle: {{source}} · abgerufen: {{fetched}}",
+        "sourceUsed": "Verwendete Quelle: {{source}}",
+        "columnsRemoved": "Entfernte Spalten: {{columns}}",
+        "typesChanged": "Geänderte Spaltentypen: {{columns}}",
+        "permalink": "Link",
+        "reason": {
+          "source_count_unavailable": "GeoLens konnte die abgerufenen Zeilen nicht mit der Quelle vergleichen; die Veröffentlichung muss geprüft werden.",
+          "empty_result": "Die Aktualisierung würde einen nicht leeren Datensatz durch ein leeres Ergebnis ersetzen.",
+          "destructive_schema_change": "Die Aktualisierung entfernt Spalten oder ändert deren Typen."
+        },
+        "reviewAndRetry": "Prüfen und wiederholen",
+        "loadMore": "Ältere Läufe laden"
       }
     },
     "vrt": {

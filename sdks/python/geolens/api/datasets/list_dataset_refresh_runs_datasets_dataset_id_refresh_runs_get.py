@@ -119,15 +119,11 @@ def sync_detailed(
 ) -> Response[DatasetRefreshRunListResponse | ProblemDetail]:
     """List Dataset Refresh Runs
 
-     Refresh history for a dataset: every attempt, including the failures.
+     Return durable refresh history for a dataset.
 
-    The history remains available after the related ingest job is purged.
-
-    A caller who is neither the dataset owner nor an administrator
-    sees the timeline and outcomes but not who triggered each run, nor the
-    failure text, nor the schema diff. Without that, a PUBLIC dataset's
-    history enumerates its editors and leaks origin detail through error
-    strings.
+    Readers can see the timeline and outcomes. Only the dataset owner and
+    admins can see actors, failure details, schema changes, and verification
+    source data.
 
     Args:
         dataset_id (UUID):
@@ -164,15 +160,11 @@ def sync(
 ) -> DatasetRefreshRunListResponse | ProblemDetail | None:
     """List Dataset Refresh Runs
 
-     Refresh history for a dataset: every attempt, including the failures.
+     Return durable refresh history for a dataset.
 
-    The history remains available after the related ingest job is purged.
-
-    A caller who is neither the dataset owner nor an administrator
-    sees the timeline and outcomes but not who triggered each run, nor the
-    failure text, nor the schema diff. Without that, a PUBLIC dataset's
-    history enumerates its editors and leaks origin detail through error
-    strings.
+    Readers can see the timeline and outcomes. Only the dataset owner and
+    admins can see actors, failure details, schema changes, and verification
+    source data.
 
     Args:
         dataset_id (UUID):
@@ -204,15 +196,11 @@ async def asyncio_detailed(
 ) -> Response[DatasetRefreshRunListResponse | ProblemDetail]:
     """List Dataset Refresh Runs
 
-     Refresh history for a dataset: every attempt, including the failures.
+     Return durable refresh history for a dataset.
 
-    The history remains available after the related ingest job is purged.
-
-    A caller who is neither the dataset owner nor an administrator
-    sees the timeline and outcomes but not who triggered each run, nor the
-    failure text, nor the schema diff. Without that, a PUBLIC dataset's
-    history enumerates its editors and leaks origin detail through error
-    strings.
+    Readers can see the timeline and outcomes. Only the dataset owner and
+    admins can see actors, failure details, schema changes, and verification
+    source data.
 
     Args:
         dataset_id (UUID):
@@ -247,15 +235,11 @@ async def asyncio(
 ) -> DatasetRefreshRunListResponse | ProblemDetail | None:
     """List Dataset Refresh Runs
 
-     Refresh history for a dataset: every attempt, including the failures.
+     Return durable refresh history for a dataset.
 
-    The history remains available after the related ingest job is purged.
-
-    A caller who is neither the dataset owner nor an administrator
-    sees the timeline and outcomes but not who triggered each run, nor the
-    failure text, nor the schema diff. Without that, a PUBLIC dataset's
-    history enumerates its editors and leaks origin detail through error
-    strings.
+    Readers can see the timeline and outcomes. Only the dataset owner and
+    admins can see actors, failure details, schema changes, and verification
+    source data.
 
     Args:
         dataset_id (UUID):

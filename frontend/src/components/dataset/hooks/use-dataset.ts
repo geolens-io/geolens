@@ -215,11 +215,13 @@ export function useRefreshDataset() {
       datasetId,
       token,
       auth,
+      acceptBlockedRunId,
     }: {
       datasetId: string;
       token?: string;
       auth?: ServiceAuthRequest;
-    }) => refreshDataset(datasetId, token, auth),
+      acceptBlockedRunId?: string;
+    }) => refreshDataset(datasetId, token, auth, acceptBlockedRunId),
     // The dispatched run belongs in history immediately (status "pending"),
     // and dataset-detail health/freshness change once the worker finishes —
     // both queries are cheap enough to just invalidate rather than patch.

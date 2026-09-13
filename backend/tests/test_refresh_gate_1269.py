@@ -176,6 +176,7 @@ async def _dispatch_harness():
     port = MagicMock()
     port.refresh_postgis_task.return_value = task
     port.reupload_service_task.return_value = task
+    port.verified_refresh_service_task.return_value = task
     port.refresh_stac_task.return_value = task
     with (
         patch.object(router_refresh, "validate_url_for_ssrf", AsyncMock()),
@@ -241,29 +242,11 @@ async def _service_dataset(
 
 
 async def _execute_service(task_kwargs: dict, *, expected_token: str | None) -> None:
-    """Drive ``reupload_service`` to a genuine success through its real
-    worker entry point (fix(#1330 review) — the prior version of this braid
-    called ``record_refresh_success`` directly, so "protected refresh
-    succeeds" was never actually exercised end to end).
+    """Run the worker with only its outbound network boundaries replaced.
 
-    Only the outbound boundary is faked: the ogr2ogr subprocess
-    (``run_ogr2ogr_service``) and the SSRF check the fixture's fake domain
-    would fail for real. Everything downstream — column renaming, geometry
-    detection, metadata extraction, the swap, and the run's own
-    ``record_refresh_success`` call — runs unmocked against a genuine
-    staging table, so the terminal state is produced by the code under
-    test. Mirrors ``test_reupload_service.py``'s own success-path recipe,
-    trimmed: that suite mocks the metadata pipeline too to pin exact
-    values for its own identity-preservation assertions, which this braid
-    does not need.
-
-    ``expected_token`` closes the seam one level deeper (fix(#1330 review
-    round 6)): the fake used to create the staging table regardless of
-    ``token``, so this braid would still pass a world where
-    ``reupload_service`` stopped redeeming ``credential_ref`` or forwarded
-    ``None``. The fake now refuses to run unless the planted secret
-    actually reached this call, so that drift fails loudly instead of
-    silently.
+    Metadata extraction, publication, and run finalization use the real
+    implementations. ``expected_token`` also verifies that the worker redeemed
+    and forwarded the staged credential.
     """
 
     async def _fake_run_ogr2ogr_service(
@@ -837,19 +820,14 @@ class TestLifecycleBraids:
                 feature_count_before=None,
             )
 
-    async def test_service_family_protected_refresh_then_origin_change_refuses(
+    async def test_service_family_reviewed_refresh_then_origin_change_refuses(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
         credential_backend,
     ) -> None:
-        """service import -> protected refresh succeeds -> origin changes
-        (rebound to upload) -> refresh is now refused. The rebind proves
-        `refresh_not_applicable`'s admission check reads the CURRENT origin,
-        not a stale classification, and that a refused attempt never
-        pollutes the ledger the first (real) refresh built.
-        """
+        """A reviewed protected refresh succeeds, then an origin rebind refuses."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
 
@@ -862,19 +840,36 @@ class TestLifecycleBraids:
             )
         assert resp.status_code == 202, resp.text
 
-        # Drive the real worker to succeed (fix(#1330 review) — "protected
-        # refresh succeeds" must be produced by the code under test, not
-        # composed via record_refresh_success directly). task_kwargs IS what
-        # a live worker would have received off the queue.
         task_kwargs = task.defer_async.call_args.kwargs
-        # feat(#1746 B2b) plan D9: what a WFS origin dispatches, and therefore
-        # what the worker redeems, is the composed header line.
         await _execute_service(
             task_kwargs, expected_token=f"Authorization: Bearer {secret}"
         )
 
         runs = await _runs_ordered(test_db_session, dataset.id)
-        assert [r.status for r in runs] == ["succeeded"]
+        assert [r.status for r in runs] == ["blocked"]
+        assert runs[0].verification["review_reasons"] == [
+            "source_count_unavailable",
+            "empty_result",
+        ]
+
+        retry_secret = "tok-" + uuid.uuid4().hex
+        async with _dispatch_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                json={
+                    "token": retry_secret,
+                    "accept_blocked_run_id": str(runs[0].id),
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 202, resp.text
+        await _execute_service(
+            task.defer_async.call_args.kwargs,
+            expected_token=f"Authorization: Bearer {retry_secret}",
+        )
+
+        runs = await _runs_ordered(test_db_session, dataset.id)
+        assert [r.status for r in runs] == ["blocked", "succeeded"]
 
         set_dataset_origin(
             dataset,
@@ -895,8 +890,8 @@ class TestLifecycleBraids:
         task.defer_async.assert_not_awaited()
 
         runs = await _runs_ordered(test_db_session, dataset.id)
-        assert [r.status for r in runs] == ["succeeded"], (
-            "the refused rebind attempt must not add a second row"
+        assert [r.status for r in runs] == ["blocked", "succeeded"], (
+            "the refused rebind attempt must not add another row"
         )
 
     async def test_postgis_family_register_refresh_drop_fails(
@@ -1057,6 +1052,7 @@ class TestSentinelTokenSweep:
             task.configure = MagicMock(return_value=task)
             port = MagicMock()
             port.reupload_service_task.return_value = task
+            port.verified_refresh_service_task.return_value = task
             with (
                 patch.object(router_refresh, "validate_url_for_ssrf", AsyncMock()),
                 patch.object(router_refresh, "get_catalog_port", return_value=port),

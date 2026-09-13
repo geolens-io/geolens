@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import redact_failure_reason
@@ -16,6 +16,7 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
+    lock_catalog_rows,
 )
 from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.platform.jobs.heartbeat import (
@@ -36,9 +37,12 @@ from app.platform.refresh.credentials import (
 )
 from app.platform.refresh.service import (
     claim_run_for_job,
+    drift_status_from_diff,
+    record_refresh_blocked,
     record_refresh_failure,
     record_refresh_success,
 )
+from app.platform.refresh.verification import verify_service_refresh
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
@@ -737,7 +741,7 @@ async def _fetch_service_layer_with_paging_guard(
     schema: str,
     fallback_order_field: str | None,
     on_spawn,
-) -> None:
+) -> int | None:
     """Fetch a service layer into staging, paging large ArcGIS layers.
 
     fix(#1675): parity with the initial-import path. A refresh of a large
@@ -793,7 +797,7 @@ async def _fetch_service_layer_with_paging_guard(
             order_field=pagination_order_field,
             on_spawn=on_spawn,
         )
-        return
+        return feature_count
 
     gdal_source, layer_arg = get_processing_port().build_gdal_source(
         service_type_raw,
@@ -813,6 +817,145 @@ async def _fetch_service_layer_with_paging_guard(
         schema=schema,
         on_spawn=on_spawn,
     )
+    return feature_count
+
+
+async def _enforce_service_refresh_verification(
+    session,
+    *,
+    is_refresh: bool,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    dataset,
+    source_binding: dict,
+    schema_diff: dict,
+    expected_feature_count: int | None,
+    fetched_feature_count: int | None,
+    content_digest: str | None,
+    staged_geometry_type: str | None,
+    staged_srid: int | None,
+    staged_coordinate_dimension: int | None,
+    accepted_fingerprint: str | None,
+    accepted_run_id: str | None,
+) -> tuple[dict | None, bool]:
+    """Record the verification result and stop unsafe publication."""
+    if not is_refresh:
+        return None, True
+    assert content_digest is not None
+    verification = verify_service_refresh(
+        source_binding=source_binding,
+        schema_diff=schema_diff,
+        expected_feature_count=expected_feature_count,
+        fetched_feature_count=fetched_feature_count,
+        content_digest=content_digest,
+        staged_geometry_type=staged_geometry_type,
+        staged_srid=staged_srid,
+        staged_coordinate_dimension=staged_coordinate_dimension,
+        accepted_fingerprint=accepted_fingerprint,
+        accepted_run_id=accepted_run_id,
+    )
+    if verification["decision"] == "allowed":
+        return verification, True
+
+    rejected = verification["decision"] == "rejected"
+    message = (
+        "The staged row count did not match the source count."
+        if rejected
+        else "Review the detected changes before publication."
+    )
+    await require_ingest_job_update(
+        session,
+        job_uuid,
+        attempt_uuid,
+        values={
+            "status": "failed",
+            "error_message": redact_failure_reason(message),
+            "completed_at": datetime.now(timezone.utc),
+        },
+    )
+    from app.platform.extensions import get_processing_port
+
+    port = get_processing_port()
+    await lock_catalog_rows(
+        session,
+        dataset_cls=port.get_dataset_orm_class(),
+        record_cls=port.get_record_orm_class(),
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+    )
+    dataset.last_checked_at = datetime.now(timezone.utc)
+    dataset.schema_drift_status = drift_status_from_diff(schema_diff)
+    if rejected:
+        await record_refresh_failure(
+            session,
+            ingest_job_id=job_uuid,
+            error_code="source_count_mismatch",
+            error_message=message,
+            contacted_origin=False,
+            feature_count_after=fetched_feature_count,
+            schema_diff=schema_diff,
+            verification=verification,
+        )
+    else:
+        await record_refresh_blocked(
+            session,
+            ingest_job_id=job_uuid,
+            feature_count_after=fetched_feature_count,
+            schema_diff=schema_diff,
+            verification=verification,
+        )
+    await session.commit()
+    return verification, False
+
+
+async def _staged_geometry_contract(
+    session, *, schema: str, table: str
+) -> tuple[str | None, int | None, int | None]:
+    row = (
+        await session.execute(
+            text(
+                "SELECT type, srid, coord_dimension FROM geometry_columns "
+                "WHERE f_table_schema = :schema AND f_table_name = :table "
+                "AND f_geometry_column = 'geom'"
+            ),
+            {"schema": schema, "table": table},
+        )
+    ).one_or_none()
+    if row is None:
+        return None, None, None
+    return row.type, int(row.srid), int(row.coord_dimension)
+
+
+def _matches_service_origin(
+    bound: tuple,
+    *,
+    source_format: str,
+    source_url: str,
+    layer_id,
+    layer_name: str,
+) -> bool:
+    """Return whether a fetch still describes the dataset's stored source."""
+    stored_ref = bound[1] or {}
+    return (
+        classify_origin(bound[2]) == "service"
+        and stored_ref.get("service_type") == source_format
+        and stored_ref.get("url") == source_url
+        and stored_ref.get("layer_id")
+        == service_layer_identity(
+            source_format,
+            layer_id=layer_id,
+            layer_name=layer_name,
+        )
+    )
+
+
+def _require_service_source_url(value: str | None) -> str:
+    """Return a usable service URL or fail the re-upload job."""
+    if not value:
+        from app.processing.ingest.ogr import IngestionError
+
+        raise IngestionError("Missing service source URL for re-upload commit job.")
+    return value
 
 
 @task_app.task(
@@ -864,6 +1007,7 @@ async def reupload_service(
         _qtable,
         add_4326_column,
         clip_to_mercator_bounds,
+        compute_table_content_digest,
         ensure_geom_column,
         extract_metadata,
         get_sample_values,
@@ -895,6 +1039,9 @@ async def reupload_service(
     dataset_uuid = uuid.UUID(dataset_id)
     staging_tn: str = ""
     heartbeat_task: asyncio.Task[None] | None = None
+    measured_feature_count: int | None = None
+    measured_schema_diff: dict | None = None
+    verification_evidence: dict | None = None
 
     try:
         # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
@@ -961,7 +1108,7 @@ async def reupload_service(
             um = job.user_metadata or {}
             service_type_raw = um.get("service_type", "")
             layer_id = um.get("layer_id")
-            source_url_value = job.source_url or source_url
+            source_url_value = _require_service_source_url(job.source_url or source_url)
             source_layer_value = job.source_layer or source_layer
             source_filename = job.source_filename
             reupload_oid_field = um.get("object_id_field") or None
@@ -969,11 +1116,8 @@ async def reupload_service(
             # copy can name the call the operator actually made. router_refresh
             # writes "refresh" into user_metadata; reupload_commit does not.
             is_refresh = bool(um.get("refresh"))
-
-            if not source_url_value:
-                raise IngestionError(
-                    "Missing service source URL for re-upload commit job."
-                )
+            accepted_refresh_fingerprint = um.get("accepted_refresh_fingerprint")
+            accepted_refresh_run_id = um.get("accepted_refresh_run_id")
 
             service_type, source_format = resolve_service_type(service_type_raw)
             db_conn_str = build_pg_conn_str()
@@ -997,15 +1141,12 @@ async def reupload_service(
         # only when the COMPLETE attempted binding (type, base URL, layer
         # identity) equals the stored one. A successful swap re-stamps via
         # set_dataset_origin regardless.
-        _stored_ref = reupload_bound[1] or {}
-        attempt_matches_binding = (
-            classify_origin(reupload_bound[2]) == "service"
-            and _stored_ref.get("service_type") == source_format
-            and _stored_ref.get("url") == source_url_value
-            and _stored_ref.get("layer_id")
-            == service_layer_identity(
-                source_format, layer_id=layer_id, layer_name=source_layer_value
-            )
+        attempt_matches_binding = _matches_service_origin(
+            reupload_bound,
+            source_format=source_format,
+            source_url=source_url_value,
+            layer_id=layer_id,
+            layer_name=source_layer_value,
         )
 
         def _arm_contact() -> None:
@@ -1020,8 +1161,11 @@ async def reupload_service(
                 origin_contact_attempted or attempt_matches_binding
             )
 
+        expected_feature_count: int | None = None
+
         async def _run_service_import(layer_name: str) -> None:
-            await _fetch_service_layer_with_paging_guard(
+            nonlocal expected_feature_count
+            expected_feature_count = await _fetch_service_layer_with_paging_guard(
                 service_type_raw=service_type_raw,
                 service_type=service_type,
                 source_url=source_url_value,
@@ -1122,11 +1266,28 @@ async def reupload_service(
             )
 
             metadata = await extract_metadata(session, staging_tn, schema=_schema)
+            staged_geometry_type, staged_srid, staged_coordinate_dimension = (
+                await _staged_geometry_contract(
+                    session, schema=_schema, table=staging_tn
+                )
+                if is_refresh
+                else (None, None, None)
+            )
             sample_values = await get_sample_values(
                 session,
                 staging_tn,
                 metadata.get("column_info", []),
                 schema=_schema,
+            )
+            content_digest = (
+                await compute_table_content_digest(
+                    session,
+                    staging_tn,
+                    schema=_schema,
+                    has_geometry=has_geom,
+                )
+                if is_refresh
+                else None
             )
 
             reupload_source_url = (
@@ -1150,6 +1311,38 @@ async def reupload_service(
                 dataset.feature_count,
                 metadata.get("feature_count"),
             )
+            measured_feature_count = metadata.get("feature_count")
+            measured_schema_diff = schema_diff
+            source_binding = {
+                "service_type": source_format,
+                "url": source_url_value,
+                "layer_id": service_layer_identity(
+                    source_format,
+                    layer_id=layer_id,
+                    layer_name=source_layer_value,
+                ),
+            }
+            verification, may_publish = await _enforce_service_refresh_verification(
+                session,
+                is_refresh=is_refresh,
+                job_uuid=job_uuid,
+                attempt_uuid=attempt_uuid,
+                dataset=dataset,
+                source_binding=source_binding,
+                schema_diff=schema_diff,
+                expected_feature_count=expected_feature_count,
+                fetched_feature_count=metadata.get("feature_count"),
+                content_digest=content_digest,
+                staged_geometry_type=staged_geometry_type,
+                staged_srid=staged_srid,
+                staged_coordinate_dimension=staged_coordinate_dimension,
+                accepted_fingerprint=accepted_refresh_fingerprint,
+                accepted_run_id=accepted_refresh_run_id,
+            )
+            verification_evidence = verification
+            if not may_publish:
+                await invalidate_catalog_cache()
+                return
             version = await _apply_reupload_swap(
                 session,
                 dataset=dataset,
@@ -1167,13 +1360,7 @@ async def reupload_service(
                 # tasks_vector.ingest_service for why build_gdal_source
                 # makes them mutually exclusive per service type.
                 origin_ref={
-                    "service_type": source_format,
-                    "url": source_url_value,
-                    "layer_id": service_layer_identity(
-                        source_format,
-                        layer_id=layer_id,
-                        layer_name=source_layer_value,
-                    ),
+                    **source_binding,
                     # fix(#1746): means "made WITH a token", not "origin
                     # demanded one" — see tasks_vector.ingest_service.
                     # Written on the SUCCESS path only: a failed attempt
@@ -1206,6 +1393,7 @@ async def reupload_service(
                 dataset_version_id=version.id,
                 feature_count_after=metadata.get("feature_count"),
                 schema_diff=schema_diff,
+                verification=verification,
                 contacted_origin=True,
             )
             await session.commit()
@@ -1282,6 +1470,9 @@ async def reupload_service(
                 error_code=_service_refresh_error_code(exc),
                 error_message=exc,
                 contacted_origin=False,
+                feature_count_after=measured_feature_count,
+                schema_diff=measured_schema_diff,
+                verification=verification_evidence,
             )
             await err_session.commit()
         raise
@@ -1293,3 +1484,14 @@ async def reupload_service(
             await stop_ingest_job_heartbeat(heartbeat_task)
         async with cleanup_step("reupload_service staging table", job_id=job_id):
             await _drop_attempt_staging_table(staging_tn)
+
+
+# Verified refreshes use a task name introduced with the publication protocol;
+# pre-change workers therefore cannot run them through the ordinary reupload door.
+reupload_verified_refresh = task_app.task(
+    reupload_service.func,
+    queue="ingest",
+    retry=0,
+    name="app.ingest.tasks.reupload_verified_refresh",
+    pass_context=True,
+)

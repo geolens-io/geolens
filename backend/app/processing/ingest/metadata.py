@@ -51,6 +51,9 @@ from app.processing.ingest.metadata_extent import (
     get_table_srid,  # noqa: F401
     promote_z_to_elev,  # noqa: F401
 )
+from app.processing.ingest.metadata_digest import (  # noqa: F401
+    compute_table_content_digest,
+)
 from app.processing.ingest.metadata_geometry import (
     construct_point_geometry,  # noqa: F401
     construct_wkt_geometry,  # noqa: F401
@@ -129,6 +132,7 @@ __all__ = [
     "add_4326_column",
     "clip_to_mercator_bounds",
     "compute_quality_score",
+    "compute_table_content_digest",
     "construct_point_geometry",
     "construct_wkt_geometry",
     "detect_3d_metadata",

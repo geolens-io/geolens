@@ -1,23 +1,20 @@
-"""fix(#1675): the refresh executor pages large ArcGIS layers.
-
-A refresh used to do ONE unpaged ogr2ogr fetch and trust GDAL driver paging,
-while the initial-import path pages explicitly with a row-count no-progress
-guard. Both doors now share tasks_common.run_paged_arcgis_service_fetch;
-these tests drive the real ``reupload_service`` worker entry point (the
-test_refresh_gate_1269 recipe) and fake only the outbound ogr2ogr boundary.
-"""
+"""Service-refresh paging and pre-publication verification tests."""
 
 from __future__ import annotations
 
 import uuid
 from unittest.mock import AsyncMock, patch
 
+import anyio
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import text
 
+from app.modules.catalog.datasets.api import router_refresh
+from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.dataset_origin import set_dataset_origin
-from app.processing.ingest import tasks_vector
+from app.processing.ingest import tasks_reupload, tasks_vector
 from app.processing.ingest.tasks_reupload import reupload_service
 
 from tests.factories import create_dataset, get_user_id
@@ -48,7 +45,9 @@ async def _arcgis_dataset(session, *, created_by: uuid.UUID):
     return dataset
 
 
-def _fake_ogr2ogr(calls: list[dict], rows_per_call):
+def _fake_ogr2ogr(
+    calls: list[dict], rows_per_call, *, geometry_type: str = "Point", srid: int = 4326
+):
     """Record every fetch and materialize rows like the subprocess would.
 
     ``rows_per_call(call_index)`` returns how many rows this page inserts —
@@ -83,10 +82,8 @@ def _fake_ogr2ogr(calls: list[dict], rows_per_call):
                 await session.execute(
                     text(
                         f'CREATE TABLE "{schema}"."{table_name}" '
-                        # fix(#2031): as above — the replacement has to carry
-                        # geometry, since the dataset under refresh has some.
                         "(gid serial PRIMARY KEY, name text, "
-                        "geom geometry(Point, 4326))"
+                        f"geom geometry({geometry_type}, {srid}))"
                     )
                 )
             rows = rows_per_call(index)
@@ -103,12 +100,16 @@ def _fake_ogr2ogr(calls: list[dict], rows_per_call):
 
 
 async def _dispatch_refresh(
-    client: AsyncClient, admin_auth_header: dict, dataset_id
+    client: AsyncClient,
+    admin_auth_header: dict,
+    dataset_id,
+    *,
+    body: dict | None = None,
 ) -> dict:
     async with _dispatch_harness() as task:
         resp = await client.post(
             f"/datasets/{dataset_id}/refresh",
-            json={},
+            json=body or {},
             headers=admin_auth_header,
         )
     assert resp.status_code == 202, resp.text
@@ -143,9 +144,15 @@ async def test_refresh_pages_large_arcgis_layer(
 
     calls: list[dict] = []
     task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
-    await _execute_with_fake(
-        task_kwargs, _fake_ogr2ogr(calls, lambda i: 1000 if i < 4 else 500)
-    )
+    with patch(
+        "app.processing.ingest.metadata.compute_table_content_digest",
+        new_callable=AsyncMock,
+        return_value="a" * 64,
+    ) as mock_content_digest:
+        await _execute_with_fake(
+            task_kwargs, _fake_ogr2ogr(calls, lambda i: 1000 if i < 4 else 500)
+        )
+    mock_content_digest.assert_awaited_once()
 
     assert len(calls) == 5, calls
     assert [c["append"] for c in calls] == [False, True, True, True, True]
@@ -156,6 +163,374 @@ async def test_refresh_pages_large_arcgis_layer(
     runs = await _runs_ordered(test_db_session, dataset.id)
     assert [r.status for r in runs] == ["succeeded"]
     assert runs[0].feature_count_after == 4500
+
+
+@pytest.mark.anyio
+async def test_small_arcgis_count_mismatch_refuses_publication(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return 500, 1000, False, None
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+
+    calls: list[dict] = []
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    await _execute_with_fake(task_kwargs, _fake_ogr2ogr(calls, lambda i: 400))
+
+    assert len(calls) == 1
+    runs = await _runs_ordered(test_db_session, dataset.id)
+    assert runs[0].status == "failed"
+    assert runs[0].error_code == "source_count_mismatch"
+    assert runs[0].verification["source_count"] == 500
+    assert runs[0].verification["fetched_count"] == 400
+
+
+@pytest.mark.anyio
+async def test_empty_refresh_blocks_until_exact_run_is_accepted(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    dataset.feature_count = 10
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.records SET spatial_extent = "
+            "ST_GeomFromText('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))', 4326) "
+            "WHERE id = :record_id"
+        ),
+        {"record_id": dataset.record_id},
+    )
+    await test_db_session.commit()
+    dataset_id = dataset.id
+    record_id = dataset.record_id
+    original_version = dataset.current_version
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return 0, 1000, True, "FID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    fake = _fake_ogr2ogr([], lambda i: 0)
+
+    first_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset_id)
+    await _execute_with_fake(first_kwargs, fake)
+
+    runs = await _runs_ordered(test_db_session, dataset_id)
+    blocked = runs[0]
+    assert blocked.status == "blocked"
+    assert blocked.verification["review_reasons"] == ["empty_result"]
+    await test_db_session.refresh(dataset)
+    assert dataset.current_version == original_version
+
+    async with _dispatch_harness() as failed_task:
+        failed_task.defer_async.side_effect = RuntimeError("queue unavailable")
+        failed_dispatch = await client.post(
+            f"/datasets/{dataset_id}/refresh",
+            json={"accept_blocked_run_id": str(blocked.id)},
+            headers=admin_auth_header,
+        )
+    assert failed_dispatch.status_code == 503
+    await test_db_session.refresh(blocked)
+    assert "acceptance_consumed_by_run_id" not in blocked.verification
+
+    accepted_kwargs = await _dispatch_refresh(
+        client,
+        admin_auth_header,
+        dataset_id,
+        body={"accept_blocked_run_id": str(blocked.id)},
+    )
+    await _execute_with_fake(accepted_kwargs, fake)
+
+    test_db_session.expire_all()
+    runs = await _runs_ordered(test_db_session, dataset_id)
+    assert [run.status for run in runs] == ["blocked", "failed", "succeeded"]
+    succeeded = next(run for run in runs if run.status == "succeeded")
+    assert succeeded.verification["accepted_blocked_run_id"] == str(blocked.id)
+    blocked = next(run for run in runs if run.status == "blocked")
+    assert blocked.verification["acceptance_consumed_by_run_id"] == str(succeeded.id)
+    assert (
+        await test_db_session.scalar(
+            text("SELECT spatial_extent FROM catalog.records WHERE id = :record_id"),
+            {"record_id": record_id},
+        )
+        is None
+    )
+
+    async with _dispatch_harness():
+        reused = await client.post(
+            f"/datasets/{dataset_id}/refresh",
+            json={"accept_blocked_run_id": str(blocked.id)},
+            headers=admin_auth_header,
+        )
+    assert reused.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_empty_refresh_acceptance_fences_staged_spatial_contract(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    dataset.feature_count = 10
+    await test_db_session.commit()
+    dataset_id = dataset.id
+    original_version = dataset.current_version
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return 0, 1000, True, "FID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+
+    first_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset_id)
+    await _execute_with_fake(
+        first_kwargs,
+        _fake_ogr2ogr([], lambda i: 0, geometry_type="PointZ", srid=4326),
+    )
+    first_blocked = (await _runs_ordered(test_db_session, dataset_id))[0]
+    assert first_blocked.status == "blocked"
+    assert first_blocked.verification["staged_geometry_type"] == "POINT"
+    assert first_blocked.verification["staged_srid"] == 4326
+    assert first_blocked.verification["staged_coordinate_dimension"] == 3
+
+    changed_kwargs = await _dispatch_refresh(
+        client,
+        admin_auth_header,
+        dataset_id,
+        body={"accept_blocked_run_id": str(first_blocked.id)},
+    )
+    await _execute_with_fake(
+        changed_kwargs,
+        _fake_ogr2ogr([], lambda i: 0, geometry_type="Point", srid=4326),
+    )
+
+    test_db_session.expire_all()
+    runs = await _runs_ordered(test_db_session, dataset_id)
+    second_blocked = runs[1]
+    assert [run.status for run in runs] == ["blocked", "blocked"]
+    assert second_blocked.verification["accepted_blocked_run_id"] is None
+    assert second_blocked.verification["staged_geometry_type"] == "POINT"
+    assert second_blocked.verification["staged_srid"] == 4326
+    assert second_blocked.verification["staged_coordinate_dimension"] == 2
+    dataset = await test_db_session.get(type(dataset), dataset_id)
+    assert dataset is not None
+    assert dataset.current_version == original_version
+
+    retry_kwargs = await _dispatch_refresh(
+        client,
+        admin_auth_header,
+        dataset_id,
+        body={"accept_blocked_run_id": str(second_blocked.id)},
+    )
+    await _execute_with_fake(
+        retry_kwargs,
+        _fake_ogr2ogr([], lambda i: 0, geometry_type="Point", srid=4326),
+    )
+
+    test_db_session.expire_all()
+    runs = await _runs_ordered(test_db_session, dataset_id)
+    assert [run.status for run in runs] == ["blocked", "blocked", "succeeded"]
+    assert runs[2].verification["accepted_blocked_run_id"] == str(second_blocked.id)
+    dataset = await test_db_session.get(type(dataset), dataset_id)
+    assert dataset is not None
+    assert dataset.current_version != original_version
+    assert dataset.geometry_type == "POINT"
+    assert dataset.srid == 4326
+
+
+@pytest.mark.anyio
+async def test_blocked_refresh_acceptance_is_consumed_by_one_concurrent_session(
+    test_db_session,
+):
+    """Two dispatches cannot both consume one blocked refresh approval."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    blocked = DatasetRefreshRun(
+        dataset_id=dataset.id,
+        origin_kind="service",
+        trigger="api",
+        status="blocked",
+        verification={"review_fingerprint": "same-fingerprint"},
+    )
+    test_db_session.add(blocked)
+    await test_db_session.commit()
+    blocked_id = blocked.id
+    dataset_id = dataset.id
+    run_ids = [uuid.uuid4(), uuid.uuid4()]
+
+    import app.core.db as db_module
+
+    outcomes: list[tuple[str, uuid.UUID | int]] = []
+
+    async def _consume_once(new_run_id: uuid.UUID) -> None:
+        async with db_module.async_session() as session:
+            try:
+                await router_refresh._consume_blocked_refresh_acceptance(
+                    session,
+                    dataset_id=dataset_id,
+                    blocked_run_id=blocked_id,
+                    new_run_id=new_run_id,
+                    fingerprint="same-fingerprint",
+                )
+            except HTTPException as exc:
+                await session.rollback()
+                outcomes.append(("rejected", exc.status_code))
+            else:
+                await session.commit()
+                outcomes.append(("consumed", new_run_id))
+
+    with anyio.fail_after(30):
+        async with anyio.create_task_group() as task_group:
+            for run_id in run_ids:
+                task_group.start_soon(_consume_once, run_id)
+
+    assert sorted(outcome[0] for outcome in outcomes) == ["consumed", "rejected"]
+    winner_id = next(value for kind, value in outcomes if kind == "consumed")
+    loser_status = next(value for kind, value in outcomes if kind == "rejected")
+    assert loser_status == 422
+
+    test_db_session.expire_all()
+    consumed = await test_db_session.get(DatasetRefreshRun, blocked_id)
+    assert consumed is not None
+    assert consumed.verification["acceptance_consumed_by_run_id"] == str(winner_id)
+
+
+@pytest.mark.anyio
+async def test_unavailable_source_count_blocks_until_exact_run_is_accepted(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    original_version = dataset.current_version
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return None, 1000, False, None
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    fake = _fake_ogr2ogr([], lambda i: 10)
+
+    first_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    await _execute_with_fake(first_kwargs, fake)
+    blocked = (await _runs_ordered(test_db_session, dataset.id))[0]
+
+    assert blocked.status == "blocked"
+    assert blocked.verification["review_reasons"] == ["source_count_unavailable"]
+    await test_db_session.refresh(dataset)
+    assert dataset.current_version == original_version
+
+    accepted_kwargs = await _dispatch_refresh(
+        client,
+        admin_auth_header,
+        dataset.id,
+        body={"accept_blocked_run_id": str(blocked.id)},
+    )
+    await _execute_with_fake(accepted_kwargs, fake)
+
+    runs = await _runs_ordered(test_db_session, dataset.id)
+    assert [run.status for run in runs] == ["blocked", "succeeded"]
+    assert runs[1].verification["accepted_blocked_run_id"] == str(blocked.id)
+
+
+@pytest.mark.anyio
+async def test_destructive_schema_change_blocks_before_swap(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    dataset.feature_count = 10
+    dataset.column_info = [
+        {"name": "name", "type": "text", "ordinal_position": 2, "is_nullable": True},
+        {
+            "name": "zoning_code",
+            "type": "text",
+            "ordinal_position": 3,
+            "is_nullable": True,
+        },
+    ]
+    await test_db_session.commit()
+    original_version = dataset.current_version
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return 10, 1000, False, None
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    await _execute_with_fake(task_kwargs, _fake_ogr2ogr([], lambda i: 10))
+
+    blocked = (await _runs_ordered(test_db_session, dataset.id))[0]
+    assert blocked.status == "blocked"
+    assert blocked.verification["review_reasons"] == ["destructive_schema_change"]
+    assert blocked.schema_diff["columns_removed"] == [
+        {"name": "zoning_code", "type": "text"}
+    ]
+    await test_db_session.refresh(dataset)
+    assert dataset.current_version == original_version
+
+    accepted_kwargs = await _dispatch_refresh(
+        client,
+        admin_auth_header,
+        dataset.id,
+        body={"accept_blocked_run_id": str(blocked.id)},
+    )
+    await _execute_with_fake(accepted_kwargs, _fake_ogr2ogr([], lambda i: 10))
+
+    runs = await _runs_ordered(test_db_session, dataset.id)
+    assert [run.status for run in runs] == ["blocked", "succeeded"]
+    assert runs[1].verification["accepted_blocked_run_id"] == str(blocked.id)
+
+
+@pytest.mark.anyio
+async def test_post_verification_failure_preserves_evidence_and_live_dataset(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    dataset.feature_count = 10
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.records SET spatial_extent = "
+            "ST_GeomFromText('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))', 4326) "
+            "WHERE id = :record_id"
+        ),
+        {"record_id": dataset.record_id},
+    )
+    await test_db_session.commit()
+    dataset_id = dataset.id
+    record_id = dataset.record_id
+    original_version = dataset.current_version
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return 10, 1000, False, None
+
+    async def _fail_after_swap(*args, **kwargs):
+        raise RuntimeError("publication failed")
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(tasks_reupload, "record_refresh_success", _fail_after_swap)
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset_id)
+
+    with pytest.raises(RuntimeError, match="publication failed"):
+        await _execute_with_fake(task_kwargs, _fake_ogr2ogr([], lambda i: 10))
+
+    test_db_session.expire_all()
+    run = (await _runs_ordered(test_db_session, dataset_id))[0]
+    assert run.status == "failed"
+    assert run.feature_count_after == 10
+    assert run.verification["decision"] == "allowed"
+    assert run.verification["count_status"] == "matched"
+    assert run.schema_diff["row_count_new"] == 10
+    refreshed = await test_db_session.get(type(dataset), dataset_id)
+    assert refreshed.current_version == original_version
+    extent = await test_db_session.scalar(
+        text(
+            "SELECT ST_AsText(spatial_extent) FROM catalog.records "
+            "WHERE id = :record_id"
+        ),
+        {"record_id": record_id},
+    )
+    assert extent == "POLYGON((0 0,0 1,1 1,1 0,0 0))"
 
 
 @pytest.mark.anyio

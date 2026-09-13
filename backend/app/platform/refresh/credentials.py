@@ -303,6 +303,17 @@ async def stash_service_credential(
     return ref
 
 
+async def probe_credential_store() -> None:
+    """Exercise the same single-use handoff used by protected refreshes."""
+    secret = secrets.token_urlsafe(24)
+    ref = await stash_service_credential(secret, ttl_seconds=5)
+    claimed = await claim_service_credential(ref)
+    if not secrets.compare_digest(claimed, secret):
+        raise CredentialStoreUnavailable(
+            "The credential store returned invalid probe data."
+        )
+
+
 async def claim_service_credential(ref: str) -> str:
     """Consume the credential *ref* names. Raises once it is gone.
 

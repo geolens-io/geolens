@@ -999,12 +999,13 @@ async def test_validate_connectivity(
     client: AsyncClient,
     admin_auth_header: dict,
 ):
-    """POST /config-ops/validate/ returns 200 with storage, cache, oidc_providers keys."""
+    """Connectivity validation reports every supported provider."""
     resp = await client.post("/config-ops/validate/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
     assert "storage" in data
     assert "cache" in data
+    assert "credential_store" in data
     assert "oidc_providers" in data
     # Check storage shape
     assert "name" in data["storage"]
@@ -1014,6 +1015,27 @@ async def test_validate_connectivity(
     assert "name" in data["cache"]
     assert "status" in data["cache"]
     assert "latency_ms" in data["cache"]
+    assert data["credential_store"]["name"] == "credential_store"
+    assert data["credential_store"]["status"] in {"ok", "error"}
+
+
+@pytest.mark.anyio
+async def test_validate_explains_missing_credential_store(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch,
+):
+    from app.core.config import settings
+    from app.platform.refresh.credentials import set_credential_backend
+
+    monkeypatch.setattr(settings, "redis_url", None)
+    set_credential_backend(None)
+    resp = await client.post("/config-ops/validate/", headers=admin_auth_header)
+
+    assert resp.status_code == 200
+    result = resp.json()["credential_store"]
+    assert result["status"] == "error"
+    assert "Set REDIS_URL" in result["error"]
 
 
 @pytest.mark.anyio

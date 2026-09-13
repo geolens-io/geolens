@@ -1779,7 +1779,9 @@ async def _apply_reupload_swap(
         dataset.record.record_type, effective_geometry_type
     )
     dataset.feature_count = metadata["feature_count"]
-    if metadata["extent_wkt"] is not None:
+    if metadata["extent_wkt"] is None:
+        dataset.record.spatial_extent = None
+    else:
         dataset.record.spatial_extent = func.ST_GeomFromText(
             metadata["extent_wkt"], 4326
         )

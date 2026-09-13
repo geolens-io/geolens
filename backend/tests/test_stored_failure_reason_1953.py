@@ -367,7 +367,7 @@ class TestEverySinkGoesThroughTheOneDoor:
             for key, item in zip(node.keys, node.values)
             if isinstance(key, ast.Constant) and key.value == "error_message"
         ]
-        assert len(values) == 3, "the run row's error_message writers moved"
+        assert len(values) == 4, "the run row's error_message writers moved"
         for value in values:
             if isinstance(value, ast.Name):
                 # The sweep's own constant: composed here, nothing to redact.

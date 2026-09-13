@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { describeFailureReason } from '@/lib/failure-reason';
 import { Link } from 'react-router';
@@ -53,6 +53,8 @@ export interface SourcePanelProps {
    *  whose origin no longer resolves). Gates the Cancel button on the
    *  active run row in the refresh history. */
   canEdit?: boolean;
+  refreshBusy?: boolean;
+  onAcceptBlockedRun?: (runId: string) => void;
 }
 
 type PointerField = {
@@ -84,6 +86,8 @@ const HEALTH_DETAILS = new Set<HealthDetail>([
   'blocked_by_policy',
   'auth_required',
 ]);
+
+const MAX_REFRESH_HISTORY_LIMIT = 200;
 
 const healthClasses: Record<SourceHealth, string> = {
   healthy: semanticBadgeColors.success,
@@ -128,6 +132,23 @@ function safeHttpPointer(value: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function matchesCurrentServiceBinding(
+  dataset: DatasetResponse,
+  binding: Record<string, unknown>,
+): boolean {
+  if ((dataset.origin ?? datasetOrigin(dataset)) !== 'service') return false;
+  const ref = trustedRef(dataset, 'service');
+  const currentServiceType = refString(ref, 'service_type');
+  const currentLayer = refString(ref, 'layer_id');
+  const currentUrl = safeHttpPointer(refString(ref, 'url') ?? dataset.origin_uri ?? null);
+  return typeof binding.service_type === 'string'
+    && binding.service_type === currentServiceType
+    && typeof binding.layer_id === 'string'
+    && binding.layer_id === currentLayer
+    && typeof binding.url === 'string'
+    && safeHttpPointer(binding.url) === currentUrl;
 }
 
 function trustedRef(dataset: DatasetResponse, origin: DatasetOrigin): Record<string, unknown> | null {
@@ -290,11 +311,44 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
  * see the dataset at all; the backend redacts triggered_by/error detail for
  * non-owner, non-admin readers rather than hiding the section outright.
  */
-function RefreshRunHistory({ dataset, canEdit }: { dataset: DatasetResponse; canEdit: boolean }) {
+function RefreshRunHistory({
+  dataset,
+  canEdit,
+  refreshBusy = false,
+  onAcceptBlockedRun,
+}: {
+  dataset: DatasetResponse;
+  canEdit: boolean;
+  refreshBusy?: boolean;
+  onAcceptBlockedRun?: (runId: string) => void;
+}) {
   const { t, i18n } = useTranslation('dataset');
-  const { data, isLoading, isError } = useDatasetRefreshRuns(dataset.id, { limit: 5 });
+  const [limit, setLimit] = useState(5);
+  const [skip, setSkip] = useState(0);
+  const refreshRunQuery = skip > 0 ? { skip, limit } : { limit };
+  const { data, isLoading, isError, isFetching } = useDatasetRefreshRuns(dataset.id, refreshRunQuery);
   const cancelRefreshJob = useCancelRefreshJob();
-  const runs = data?.runs ?? [];
+  const runs = useMemo(() => data?.runs ?? [], [data?.runs]);
+  const targetRunId = typeof window !== 'undefined' && window.location.hash.startsWith('#refresh-run-')
+    ? window.location.hash.slice(1)
+    : null;
+  const scrolledTargetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!targetRunId || !data) return;
+    if (!runs.some((run) => `refresh-run-${run.id}` === targetRunId)) {
+      if (!isFetching && data.total > runs.length && limit < MAX_REFRESH_HISTORY_LIMIT) {
+        setLimit(MAX_REFRESH_HISTORY_LIMIT);
+      } else if (!isFetching && limit === MAX_REFRESH_HISTORY_LIMIT
+        && data.total > skip + runs.length) {
+        setSkip((value) => value + MAX_REFRESH_HISTORY_LIMIT);
+      }
+      return;
+    }
+    if (scrolledTargetRef.current === targetRunId) return;
+    scrolledTargetRef.current = targetRunId;
+    document.getElementById(targetRunId)?.scrollIntoView({ block: 'center' });
+  }, [data, isFetching, limit, runs, skip, targetRunId]);
 
   return (
     <section aria-labelledby="refresh-history-heading" className="space-y-3">
@@ -312,7 +366,11 @@ function RefreshRunHistory({ dataset, canEdit }: { dataset: DatasetResponse; can
       ) : (
         <ol className="space-y-3">
           {runs.map((run) => (
-            <li key={run.id} className="border-s-2 border-muted ps-4">
+            <li
+              key={run.id}
+              id={`refresh-run-${run.id}`}
+              className="border-s-2 border-muted ps-4"
+            >
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={refreshRunStatusColors[run.status] ?? ''}>
                   {t(`sourcePanel.refresh.history.status.${run.status}`, { defaultValue: run.status })}
@@ -371,6 +429,10 @@ function RefreshRunHistory({ dataset, canEdit }: { dataset: DatasetResponse; can
                 {run.triggered_by_username
                   ? ` · ${t('sourcePanel.refresh.history.triggeredBy', { username: run.triggered_by_username })}`
                   : ''}
+                {' · '}
+                <a className="underline" href={`#refresh-run-${run.id}`}>
+                  {t('sourcePanel.refresh.history.permalink')}
+                </a>
               </p>
               {run.status === 'failed' && run.error_message && (
                 <p className="mt-1 text-xs text-destructive">
@@ -380,9 +442,74 @@ function RefreshRunHistory({ dataset, canEdit }: { dataset: DatasetResponse; can
                   )}
                 </p>
               )}
+              {run.verification && (
+                <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  <p>
+                    {run.verification.source_count == null
+                      ? t('sourcePanel.refresh.history.sourceCountUnavailable')
+                      : t('sourcePanel.refresh.history.countEvidence', {
+                        source: run.verification.source_count.toLocaleString(i18n.language),
+                        fetched: (run.verification.fetched_count ?? 0).toLocaleString(i18n.language),
+                      })}
+                  </p>
+                  {run.verification.identity_check === 'unavailable' && (
+                    <p>{t('sourcePanel.refresh.history.identityUnavailable')}</p>
+                  )}
+                  {typeof run.verification.source_binding.url === 'string'
+                    && safeHttpPointer(run.verification.source_binding.url) && (
+                    <p className="break-all">
+                      {t('sourcePanel.refresh.history.sourceUsed', {
+                        source: safeHttpPointer(run.verification.source_binding.url),
+                      })}
+                    </p>
+                  )}
+                  {run.verification.review_reasons.map((reason) => (
+                    <p key={reason}>{t(`sourcePanel.refresh.history.reason.${reason}`)}</p>
+                  ))}
+                  {run.schema_diff && run.schema_diff.columns_removed.length > 0 && (
+                    <p>
+                      {t('sourcePanel.refresh.history.columnsRemoved', {
+                        columns: run.schema_diff.columns_removed.map((column) => column.name).join(', '),
+                      })}
+                    </p>
+                  )}
+                  {run.schema_diff && run.schema_diff.type_changes.length > 0 && (
+                    <p>
+                      {t('sourcePanel.refresh.history.typesChanged', {
+                        columns: run.schema_diff.type_changes.map((column) => column.name).join(', '),
+                      })}
+                    </p>
+                  )}
+                  {run.status === 'blocked'
+                    && canEdit
+                    && run.verification
+                    && matchesCurrentServiceBinding(dataset, run.verification.source_binding)
+                    && run.verification.review_fingerprint
+                    && !run.verification.acceptance_consumed_by_run_id
+                    && onAcceptBlockedRun && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={refreshBusy}
+                      onClick={() => onAcceptBlockedRun(run.id)}
+                    >
+                      {t('sourcePanel.refresh.history.reviewAndRetry')}
+                    </Button>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ol>
+      )}
+      {data && limit < MAX_REFRESH_HISTORY_LIMIT && data.total > runs.length && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setLimit((value) => Math.min(value + 10, MAX_REFRESH_HISTORY_LIMIT))}
+        >
+          {t('sourcePanel.refresh.history.loadMore')}
+        </Button>
       )}
     </section>
   );
@@ -544,7 +671,13 @@ function VrtSection({ dataset, isAuthenticated }: { dataset: DatasetResponse; is
   );
 }
 
-export function SourcePanel({ dataset, actions, canEdit = false }: SourcePanelProps) {
+export function SourcePanel({
+  dataset,
+  actions,
+  canEdit = false,
+  refreshBusy = false,
+  onAcceptBlockedRun,
+}: SourcePanelProps) {
   const { t } = useTranslation('dataset');
   const isAuthenticated = useAuthStore((state) => Boolean(state.token));
   const isVrt = dataset.record_type === 'vrt_dataset';
@@ -635,7 +768,14 @@ export function SourcePanel({ dataset, actions, canEdit = false }: SourcePanelPr
           <SourceHistory dataset={dataset} />
           {/* Gated the same way SourceRefreshAction is: no origin, nothing
               could ever have been refreshed, so no history to show. */}
-          {origin && <RefreshRunHistory dataset={dataset} canEdit={canEdit} />}
+          {origin && (
+            <RefreshRunHistory
+              dataset={dataset}
+              canEdit={canEdit}
+              refreshBusy={refreshBusy}
+              onAcceptBlockedRun={onAcceptBlockedRun}
+            />
+          )}
         </>
       )}
     </div>

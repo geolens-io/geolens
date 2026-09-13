@@ -44,6 +44,7 @@ from app.platform.refresh.service import (
     RUN_ORIGIN_KINDS,
     RUN_STATUSES,
     RUN_TRIGGERS,
+    TERMINAL_RUN_STATUSES,
     DatasetBusyError,
     claim_run_for_job,
     create_pending_run,
@@ -227,9 +228,9 @@ class TestVocabularyMatchesTheConstraints:
         `scheduled` must add `scheduled_for` and its unique index with it."""
         assert "scheduled" not in RUN_TRIGGERS
 
-    def test_blocked_is_not_a_status(self) -> None:
-        """Reserved, not shipped — v1 has no schema policy to reach it."""
-        assert "blocked" not in RUN_STATUSES
+    def test_blocked_is_terminal(self) -> None:
+        assert "blocked" in RUN_STATUSES
+        assert "blocked" in TERMINAL_RUN_STATUSES
 
 
 class TestCreatePendingRunRefusesBadVocabulary:
@@ -1080,7 +1081,7 @@ class TestSchemaInvariants:
                 dataset_id=dataset.id,
                 origin_kind="upload",
                 trigger="manual",
-                status="blocked",
+                status="paused",
                 started_at=datetime.now(timezone.utc),
             )
         )
@@ -1369,6 +1370,25 @@ async def _seed_history(session, *, visibility: str = "public"):
         error_message="Layer 'parcels' vanished from the service",
         contacted_origin=True,
         origin_binding=(dataset.origin_uri, dataset.origin_ref, dataset.source_format),
+        schema_diff={
+            "columns_added": [],
+            "columns_removed": [{"name": "private_column", "type": "text"}],
+            "type_changes": [],
+            "row_count_old": 42,
+            "row_count_new": 41,
+            "row_count_delta": -1,
+        },
+        verification={
+            "decision": "blocked",
+            "source_binding": {"url": "https://private.example.com/source"},
+            "source_count": 42,
+            "fetched_count": 41,
+            "count_status": "mismatched",
+            "identity_check": "unavailable",
+            "review_reasons": [],
+            "review_fingerprint": None,
+            "accepted_blocked_run_id": None,
+        },
     )
     await session.commit()
     await session.refresh(run)
@@ -1383,6 +1403,7 @@ _REDACTED_FIELDS = (
     "error_code",
     "error_message",
     "schema_diff",
+    "verification",
 )
 
 
@@ -1407,6 +1428,7 @@ class TestRefreshRunListEndpoint:
         assert row["triggered_by_username"] == "admin"
         assert row["error_code"] == "service_refresh_failed"
         assert "parcels" in row["error_message"]
+        assert row["verification"]["source_binding"]["url"].startswith("https://")
 
     @pytest.mark.parametrize("reader", ["viewer", "editor"])
     async def test_a_named_third_party_gets_the_timeline_without_the_people(

@@ -4279,6 +4279,10 @@
             "$ref": "#/components/schemas/ServiceProbeResult",
             "description": "Cache backend probe result."
           },
+          "credential_store": {
+            "$ref": "#/components/schemas/ServiceProbeResult",
+            "description": "Shared credential handoff probe result."
+          },
           "oidc_providers": {
             "additionalProperties": {
               "$ref": "#/components/schemas/ServiceProbeResult"
@@ -4291,6 +4295,7 @@
         "required": [
           "storage",
           "cache",
+          "credential_store",
           "oidc_providers"
         ],
         "title": "ConnectivityResult",
@@ -5276,6 +5281,19 @@
             "description": "Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token. Deprecated: use the auth object with method bearer.",
             "title": "Token"
           },
+          "accept_blocked_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.",
+            "title": "Accept Blocked Run Id"
+          },
           "auth": {
             "anyOf": [
               {
@@ -5362,7 +5380,7 @@
         "type": "object"
       },
       "DatasetRefreshRunResponse": {
-        "description": "One refresh attempt, including failures.\n\nFive fields are redacted for callers who are neither the dataset owner nor\nan admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,\n``error_message`` and ``schema_diff``. A public dataset's refresh history\notherwise enumerates who edits it, and failure text leaks internal origin\ndetail.",
+        "description": "One refresh attempt, including failures.\n\nRefresh details are redacted for callers who are neither the dataset owner nor\nan admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,\n``error_message``, ``schema_diff`` and ``verification``. A public dataset's refresh history\notherwise enumerates who edits it, and failure text leaks internal origin\ndetail.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -5411,7 +5429,7 @@
             "type": "string"
           },
           "status": {
-            "description": "pending, running, succeeded, failed, or cancelled",
+            "description": "pending, running, succeeded, failed, cancelled, or blocked",
             "title": "Status",
             "type": "string"
           },
@@ -5501,6 +5519,17 @@
               }
             ],
             "description": "Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap."
+          },
+          "verification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefreshVerification"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pre-publication count evidence, review reasons, and publication decision."
           },
           "error_code": {
             "anyOf": [
@@ -14199,6 +14228,167 @@
           "refresh_token"
         ],
         "title": "RefreshRequest",
+        "type": "object"
+      },
+      "RefreshVerification": {
+        "properties": {
+          "decision": {
+            "enum": [
+              "allowed",
+              "blocked",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "source_binding": {
+            "additionalProperties": true,
+            "title": "Source Binding",
+            "type": "object"
+          },
+          "source_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Count"
+          },
+          "fetched_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched Count"
+          },
+          "count_status": {
+            "enum": [
+              "matched",
+              "mismatched",
+              "unavailable"
+            ],
+            "title": "Count Status",
+            "type": "string"
+          },
+          "identity_check": {
+            "enum": [
+              "unavailable",
+              "content_digest"
+            ],
+            "title": "Identity Check",
+            "type": "string"
+          },
+          "content_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Digest"
+          },
+          "staged_geometry_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staged Geometry Type"
+          },
+          "staged_srid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staged Srid"
+          },
+          "staged_coordinate_dimension": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staged Coordinate Dimension"
+          },
+          "review_reasons": {
+            "items": {
+              "enum": [
+                "source_count_unavailable",
+                "empty_result",
+                "destructive_schema_change"
+              ],
+              "type": "string"
+            },
+            "title": "Review Reasons",
+            "type": "array"
+          },
+          "review_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Fingerprint"
+          },
+          "accepted_blocked_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Blocked Run Id"
+          },
+          "acceptance_consumed_by_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acceptance Consumed By Run Id"
+          }
+        },
+        "required": [
+          "decision",
+          "source_binding",
+          "source_count",
+          "fetched_count",
+          "count_status",
+          "identity_check",
+          "review_reasons",
+          "review_fingerprint",
+          "accepted_blocked_run_id"
+        ],
+        "title": "RefreshVerification",
         "type": "object"
       },
       "RegisterRequest": {
@@ -31439,7 +31629,7 @@
     },
     "/config-ops/validate/": {
       "post": {
-        "description": "Validate connectivity to storage, cache, and all enabled OIDC providers.\n\nReturns pass/fail with latency and error details for each service.",
+        "description": "Validate storage, cache, credential handoff, and enabled OIDC providers.\n\nReturns pass/fail with latency and error details for each service.",
         "operationId": "validate_configuration_config_ops_validate__post",
         "responses": {
           "200": {
@@ -38189,7 +38379,7 @@
     },
     "/datasets/{dataset_id}/refresh-runs": {
       "get": {
-        "description": "Refresh history for a dataset: every attempt, including the failures.\n\nThe history remains available after the related ingest job is purged.\n\nA caller who is neither the dataset owner nor an administrator\nsees the timeline and outcomes but not who triggered each run, nor the\nfailure text, nor the schema diff. Without that, a PUBLIC dataset's\nhistory enumerates its editors and leaks origin detail through error\nstrings.",
+        "description": "Return durable refresh history for a dataset.\n\nReaders can see the timeline and outcomes. Only the dataset owner and\nadmins can see actors, failure details, schema changes, and verification\nsource data.",
         "operationId": "list_dataset_refresh_runs_datasets__dataset_id__refresh_runs_get",
         "parameters": [
           {

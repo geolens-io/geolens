@@ -103,7 +103,12 @@ logger = logging.getLogger(__name__)
 # against that commit boots cleanly against post-#1580 core and then hits
 # AttributeError/TypeError on the first related-items request. Silent skew
 # is exactly what this check exists to refuse.
-EXTENSION_API_VERSION: int = 9
+#
+# 9 -> 10 (feat(refresh)): CatalogPort gained the required
+# ``verified_refresh_service_task`` method. Refresh dispatch must resolve a
+# task name that pre-change workers do not register, while ordinary service
+# reuploads continue using ``reupload_service_task``.
+EXTENSION_API_VERSION: int = 10
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

@@ -504,7 +504,7 @@
     "validateFailed": "Konnektivitätsprüfung fehlgeschlagen",
     "validate": {
       "title": "Konnektivität prüfen",
-      "description": "Testen Sie die Verbindung zu Speicher, Cache und OIDC-Anbietern.",
+      "description": "Testen Sie die Verbindung zu Speicher, Cache, Anmeldedatenspeicher und OIDC-Anbietern.",
       "button": "Validierung starten",
       "serviceHeader": "Dienst",
       "statusHeader": "Status",
@@ -514,6 +514,7 @@
       "statusError": "Fehlgeschlagen",
       "latency": "{{ms}}ms",
       "noOidc": "Keine OIDC-Anbieter konfiguriert",
+      "credentialStore": "Anmeldedatenspeicher",
       "resultsLabel": "Konnektivitätsergebnisse"
     },
     "import": {

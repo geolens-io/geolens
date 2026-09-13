@@ -85,17 +85,147 @@ def _patch_refresh_endpoint(monkeypatch, response, captured: dict | None = None)
     )
 
 
-def _patch_job(monkeypatch, *, status: str, error_message: str | None = None):
+def _patch_run(
+    monkeypatch,
+    *,
+    status: str,
+    error_message: str | None = None,
+    verification: dict | None = None,
+):
     monkeypatch.setattr(
-        "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+        "geolens.api.datasets."
+        "list_dataset_refresh_runs_datasets_dataset_id_refresh_runs_get.sync_detailed",
         lambda **_kwargs: SimpleNamespace(
             status_code=HTTPStatus.OK,
-            parsed=SimpleNamespace(status=status, error_message=error_message),
+            parsed=SimpleNamespace(
+                runs=[
+                    SimpleNamespace(
+                        id=RUN_ID,
+                        status=status,
+                        error_message=error_message,
+                        verification=verification,
+                    )
+                ]
+            ),
         ),
     )
 
 
 class TestRefreshRequest:
+    def test_structured_auth_file_is_sent_without_echoing_the_secret(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, tmp_path
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        captured: dict = {}
+        secret = "source-password-42"
+        auth_file = tmp_path / "service-auth.json"
+        auth_file.write_text(
+            json.dumps(
+                {"method": "basic", "username": "source-user", "password": secret}
+            )
+        )
+        _patch_refresh_endpoint(monkeypatch, _accepted(), captured)
+
+        result = runner.invoke(
+            app,
+            ["--json", "refresh", str(DATASET_ID), "--auth-file", str(auth_file)],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["body"].to_dict()["auth"] == {
+            "method": "basic",
+            "username": "source-user",
+            "password": secret,
+        }
+        assert secret not in result.output
+
+    def test_accept_blocked_run_is_sent_as_an_exact_run_id(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        captured: dict = {}
+        _patch_refresh_endpoint(monkeypatch, _accepted(), captured)
+
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "refresh",
+                str(DATASET_ID),
+                "--accept-blocked-run",
+                str(RUN_ID),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["body"].to_dict() == {"accept_blocked_run_id": str(RUN_ID)}
+
+    def test_dispatch_exposes_the_client_created_by_reauthentication(
+        self, monkeypatch
+    ) -> None:
+        from geolens_cli.refresh import start_refresh
+
+        original = object()
+        replacement = object()
+        observed: list[object] = []
+
+        def fake_call(_fn, **kwargs):
+            kwargs["on_reauthenticated"](replacement)
+            return _accepted()
+
+        monkeypatch.setattr("geolens_cli.refresh.call_sdk_with_reauth", fake_call)
+
+        start_refresh(
+            original,
+            DATASET_ID,
+            instance=INSTANCE,
+            credential_kind="bearer",
+            credential_provenance="stored-bearer",
+            on_reauthenticated=observed.append,
+        )
+
+        assert observed == [replacement]
+
+    def test_token_and_auth_file_are_mutually_exclusive(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, tmp_path
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        called = False
+        auth_file = tmp_path / "service-auth.json"
+        auth_file.write_text(json.dumps({"method": "bearer", "token": "file-token"}))
+
+        def should_not_run(**_kwargs):
+            nonlocal called
+            called = True
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_refresh."
+            "refresh_dataset_datasets_dataset_id_refresh_post.sync_detailed",
+            should_not_run,
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "refresh",
+                str(DATASET_ID),
+                "--token",
+                "inline-token",
+                "--auth-file",
+                str(auth_file),
+            ],
+        )
+
+        assert result.exit_code == 2
+        assert "cannot be used together" in result.output
+        assert called is False
+
     def test_no_token_omits_the_optional_body_and_preserves_202_payload(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
@@ -169,7 +299,7 @@ class TestRefreshRequest:
         captured: dict = {}
         secret = "prompt-then-wait-secret"
         _patch_refresh_endpoint(monkeypatch, _accepted(), captured)
-        _patch_job(monkeypatch, status="complete")
+        _patch_run(monkeypatch, status="succeeded")
 
         result = runner.invoke(
             app,
@@ -486,11 +616,12 @@ class TestRefreshWait:
             elapsed[0] = 10.0
             raise httpx.ReadTimeout("request consumed the deadline budget")
 
-        def wait_with_clock(client, job_id, **kwargs):
+        def wait_with_clock(client, _dataset_id, _run_id, **kwargs):
             return wait_for_refresh(
                 client,
-                job_id,
-                **kwargs,
+                JOB_ID,
+                token=kwargs["token"],
+                timeout=kwargs["timeout"],
                 sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds),
                 monotonic=lambda: elapsed[0],
             )
@@ -499,7 +630,7 @@ class TestRefreshWait:
             "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
             exhaust_request_budget,
         )
-        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh", wait_with_clock)
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", wait_with_clock)
 
         result = runner.invoke(
             app,
@@ -595,11 +726,11 @@ class TestRefreshWait:
         _patch_refresh_endpoint(monkeypatch, _accepted())
         seen: dict = {}
 
-        def capture_wait(_client, _job_id, **kwargs):
+        def capture_wait(_client, _dataset_id, _run_id, **kwargs):
             seen.update(kwargs)
-            return RefreshPollResult(status="complete")
+            return RefreshPollResult(status="succeeded")
 
-        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh", capture_wait)
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", capture_wait)
 
         result = runner.invoke(app, ["refresh", str(DATASET_ID), "--wait"])
 
@@ -616,11 +747,11 @@ class TestRefreshWait:
         _patch_refresh_endpoint(monkeypatch, _accepted())
         seen: dict = {}
 
-        def capture_wait(_client, _job_id, **kwargs):
+        def capture_wait(_client, _dataset_id, _run_id, **kwargs):
             seen.update(kwargs)
-            return RefreshPollResult(status="complete")
+            return RefreshPollResult(status="succeeded")
 
-        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh", capture_wait)
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh_run", capture_wait)
 
         result = runner.invoke(
             app,
@@ -637,7 +768,7 @@ class TestRefreshWait:
 
         _seed_login(mock_keyring)
         _patch_refresh_endpoint(monkeypatch, _accepted())
-        _patch_job(monkeypatch, status="complete")
+        _patch_run(monkeypatch, status="succeeded")
 
         result = runner.invoke(
             app,
@@ -645,7 +776,131 @@ class TestRefreshWait:
         )
 
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output)["status"] == "complete"
+        assert json.loads(result.output)["status"] == "succeeded"
+
+    def test_wait_reports_blocked_verification(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_refresh_endpoint(monkeypatch, _accepted())
+        _patch_run(
+            monkeypatch,
+            status="blocked",
+            error_message="Review the detected changes before publication.",
+            verification={
+                "decision": "blocked",
+                "review_reasons": ["destructive_schema_change"],
+                "review_fingerprint": "review-123",
+            },
+        )
+
+        result = runner.invoke(
+            app,
+            ["--json", "refresh", str(DATASET_ID), "--wait"],
+        )
+
+        assert result.exit_code == 1
+        payload = json.loads(result.output)
+        assert payload["status"] == "blocked"
+        assert payload["verification"]["review_reasons"] == [
+            "destructive_schema_change"
+        ]
+
+    def test_run_poll_keeps_the_reauthenticated_client(self, monkeypatch) -> None:
+        from geolens_cli.refresh import wait_for_refresh_run
+
+        original = object()
+        replacement = object()
+        clients: list[object] = []
+
+        def fake_call(_fn, **kwargs):
+            clients.append(kwargs["client"])
+            if len(clients) == 1:
+                kwargs["on_reauthenticated"](replacement)
+                status = "running"
+            else:
+                status = "succeeded"
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    runs=[
+                        SimpleNamespace(
+                            id=RUN_ID,
+                            status=status,
+                            error_message=None,
+                            verification=None,
+                        )
+                    ]
+                ),
+            )
+
+        monkeypatch.setattr("geolens_cli.refresh.call_sdk_with_reauth", fake_call)
+
+        result = wait_for_refresh_run(
+            original,
+            DATASET_ID,
+            RUN_ID,
+            instance=INSTANCE,
+            credential_kind="bearer",
+            credential_provenance="stored-bearer",
+            interval=0,
+            sleep=lambda _seconds: None,
+        )
+
+        assert result.status == "succeeded"
+        assert clients == [original, replacement]
+
+    def test_run_poll_clamps_request_and_sleep_to_the_deadline(
+        self, monkeypatch
+    ) -> None:
+        from geolens_cli.refresh import wait_for_refresh_run
+
+        elapsed = [0.0]
+        sleeps: list[float] = []
+        request_timeouts: list[float] = []
+        client = self._timeout_tracking_client()
+
+        def fake_call(_fn, **kwargs):
+            request_timeouts.append(kwargs["client"].get_httpx_client().timeout)
+            elapsed[0] += 9.75
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    runs=[
+                        SimpleNamespace(
+                            id=RUN_ID,
+                            status="running",
+                            error_message=None,
+                            verification=None,
+                        )
+                    ]
+                ),
+            )
+
+        def advance_clock(seconds: float) -> None:
+            sleeps.append(seconds)
+            elapsed[0] += seconds
+
+        monkeypatch.setattr("geolens_cli.refresh.call_sdk_with_reauth", fake_call)
+
+        result = wait_for_refresh_run(
+            client,
+            DATASET_ID,
+            RUN_ID,
+            instance=INSTANCE,
+            credential_kind="bearer",
+            timeout=10.0,
+            interval=1.0,
+            sleep=advance_clock,
+            monotonic=lambda: elapsed[0],
+        )
+
+        assert result.status == "timed_out"
+        assert request_timeouts == pytest.approx([10.0])
+        assert sleeps == pytest.approx([0.25])
+        assert client.transport.timeout is None
 
     def test_failed_job_is_nonzero_and_redacts_the_submitted_token(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
@@ -655,7 +910,7 @@ class TestRefreshWait:
         _seed_login(mock_keyring)
         secret = "never-print-this-service-token"
         _patch_refresh_endpoint(monkeypatch, _accepted())
-        _patch_job(
+        _patch_run(
             monkeypatch,
             status="failed",
             error_message=f"Upstream rejected credential {secret}",
@@ -1670,7 +1925,7 @@ class TestCodedFailureReasonsRenderAsSentences:
 
         _seed_login(mock_keyring)
         _patch_refresh_endpoint(monkeypatch, _accepted())
-        _patch_job(monkeypatch, status="failed", error_message=INTERNAL_FAILURE_REASON)
+        _patch_run(monkeypatch, status="failed", error_message=INTERNAL_FAILURE_REASON)
 
         result = runner.invoke(app, ["refresh", str(DATASET_ID), "--wait"])
 
@@ -1691,7 +1946,7 @@ class TestCodedFailureReasonsRenderAsSentences:
 
         _seed_login(mock_keyring)
         _patch_refresh_endpoint(monkeypatch, _accepted())
-        _patch_job(monkeypatch, status="failed", error_message=INTERNAL_FAILURE_REASON)
+        _patch_run(monkeypatch, status="failed", error_message=INTERNAL_FAILURE_REASON)
 
         result = runner.invoke(app, ["--json", "refresh", str(DATASET_ID), "--wait"])
 

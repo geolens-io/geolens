@@ -9,6 +9,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 from typing import cast
+from uuid import UUID
 
 if TYPE_CHECKING:
     from ..models.service_auth_request import ServiceAuthRequest
@@ -30,11 +31,14 @@ class DatasetRefreshRequest:
             token (None | str | Unset): Transient credential for a protected service. Used for this refresh only and never
                 persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A
                 retry needs a new token. Deprecated: use the auth object with method bearer.
+            accept_blocked_run_id (None | Unset | UUID): A blocked run whose reviewed source and staged content may be
+                accepted once. A different result blocks again.
             auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
                 the token field.
     """
 
     token: None | str | Unset = UNSET
+    accept_blocked_run_id: None | Unset | UUID = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -46,6 +50,14 @@ class DatasetRefreshRequest:
             token = UNSET
         else:
             token = self.token
+
+        accept_blocked_run_id: None | str | Unset
+        if isinstance(self.accept_blocked_run_id, Unset):
+            accept_blocked_run_id = UNSET
+        elif isinstance(self.accept_blocked_run_id, UUID):
+            accept_blocked_run_id = str(self.accept_blocked_run_id)
+        else:
+            accept_blocked_run_id = self.accept_blocked_run_id
 
         auth: dict[str, Any] | None | Unset
         if isinstance(self.auth, Unset):
@@ -60,6 +72,8 @@ class DatasetRefreshRequest:
         field_dict.update({})
         if token is not UNSET:
             field_dict["token"] = token
+        if accept_blocked_run_id is not UNSET:
+            field_dict["accept_blocked_run_id"] = accept_blocked_run_id
         if auth is not UNSET:
             field_dict["auth"] = auth
 
@@ -80,6 +94,25 @@ class DatasetRefreshRequest:
 
         token = _parse_token(d.pop("token", UNSET))
 
+        def _parse_accept_blocked_run_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                accept_blocked_run_id_type_0 = UUID(data)
+
+                return accept_blocked_run_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        accept_blocked_run_id = _parse_accept_blocked_run_id(
+            d.pop("accept_blocked_run_id", UNSET)
+        )
+
         def _parse_auth(data: object) -> None | ServiceAuthRequest | Unset:
             if data is None:
                 return data
@@ -99,6 +132,7 @@ class DatasetRefreshRequest:
 
         dataset_refresh_request = cls(
             token=token,
+            accept_blocked_run_id=accept_blocked_run_id,
             auth=auth,
         )
 

@@ -1,4 +1,5 @@
 import { render, screen } from '@/test/test-utils';
+import { waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   useCancelRefreshJob,
@@ -80,6 +81,7 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
 }
 
 beforeEach(() => {
+  window.history.replaceState({}, '', '/');
   useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
   vi.mocked(useDatasetVersions).mockReturnValue({
     data: {
@@ -265,6 +267,127 @@ describe('SourcePanel', () => {
     render(<SourcePanel dataset={makeDataset()} />);
 
     expect(screen.getByText('No refresh runs yet.')).toBeInTheDocument();
+  });
+
+  it('caps refresh history loading at the backend limit', async () => {
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-1',
+          dataset_id: 'dataset-1',
+          dataset_version_id: null,
+          ingest_job_id: 'job-1',
+          origin_kind: 'service',
+          trigger: 'api',
+          status: 'succeeded',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-05T00:00:00Z',
+          claimed_at: '2026-08-05T00:00:01Z',
+          finished_at: '2026-08-05T00:01:00Z',
+          feature_count_before: 1200,
+          feature_count_after: 1234,
+          schema_diff: null,
+          error_code: null,
+          error_message: null,
+        }],
+        total: 205,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    for (let click = 0; click < 20; click += 1) {
+      await userEvent.click(screen.getByRole('button', { name: 'Load older runs' }));
+    }
+
+    expect(useDatasetRefreshRuns).toHaveBeenLastCalledWith('dataset-1', { limit: 200 });
+    expect(screen.queryByRole('button', { name: 'Load older runs' })).not.toBeInTheDocument();
+  });
+
+  it('loads a refresh run targeted by a permalink before scrolling to it', async () => {
+    const targetRun: DatasetRefreshRunResponse = {
+      id: 'run-target',
+      dataset_id: 'dataset-1',
+      dataset_version_id: null,
+      ingest_job_id: 'job-target',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'succeeded',
+      triggered_by: null,
+      triggered_by_username: null,
+      started_at: '2026-08-05T00:00:00Z',
+      claimed_at: '2026-08-05T00:00:01Z',
+      finished_at: '2026-08-05T00:01:00Z',
+      feature_count_before: 1200,
+      feature_count_after: 1234,
+      schema_diff: null,
+      verification: null,
+      error_code: null,
+      error_message: null,
+    };
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    window.history.replaceState({}, '', '#refresh-run-run-target');
+    vi.mocked(useDatasetRefreshRuns).mockImplementation((_datasetId, params = {}) => ({
+      data: {
+        runs: params?.limit && params.limit >= 15 ? [targetRun] : [],
+        total: 1,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>));
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    await waitFor(() => {
+      expect(useDatasetRefreshRuns).toHaveBeenLastCalledWith('dataset-1', { limit: 200 });
+      expect(screen.getByText('Succeeded')).toBeInTheDocument();
+    });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+  });
+
+  it('uses bounded skip pages for a permalink beyond the first 200 runs', async () => {
+    const targetRun: DatasetRefreshRunResponse = {
+      id: 'run-old-target',
+      dataset_id: 'dataset-1',
+      dataset_version_id: null,
+      ingest_job_id: 'job-old-target',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'succeeded',
+      triggered_by: null,
+      triggered_by_username: null,
+      started_at: '2026-08-05T00:00:00Z',
+      claimed_at: '2026-08-05T00:00:01Z',
+      finished_at: '2026-08-05T00:01:00Z',
+      feature_count_before: 1200,
+      feature_count_after: 1234,
+      schema_diff: null,
+      verification: null,
+      error_code: null,
+      error_message: null,
+    };
+    window.history.replaceState({}, '', '#refresh-run-run-old-target');
+    vi.mocked(useDatasetRefreshRuns).mockImplementation((_datasetId, params = {}) => ({
+      data: {
+        runs: params.skip === 200 ? [targetRun] : [],
+        total: 401,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>));
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    await waitFor(() => {
+      expect(useDatasetRefreshRuns).toHaveBeenLastCalledWith('dataset-1', { skip: 200, limit: 200 });
+      expect(screen.getByText('Succeeded')).toBeInTheDocument();
+    });
   });
 
   // feat(#1677): the one-click cancel affordance on the active run row.
@@ -730,5 +853,153 @@ describe('SourcePanel', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument();
+  });
+
+  it('shows verification evidence and offers an exact blocked-run retry', async () => {
+    const onAcceptBlockedRun = vi.fn();
+    const verification: NonNullable<DatasetRefreshRunResponse['verification']> = {
+      decision: 'blocked',
+      source_binding: {
+        service_type: 'wfs',
+        url: 'https://user:secret@example.com/wfs?token=hidden#private',
+        layer_id: 'roads',
+      },
+      source_count: 0,
+      fetched_count: 0,
+      count_status: 'matched',
+      identity_check: 'content_digest',
+      content_digest: 'sha256:content-digest',
+      review_reasons: ['empty_result'],
+      review_fingerprint: 'fingerprint',
+      accepted_blocked_run_id: null,
+    };
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-blocked',
+          dataset_id: 'dataset-1',
+          dataset_version_id: null,
+          ingest_job_id: 'job-1',
+          origin_kind: 'service',
+          trigger: 'api',
+          status: 'blocked',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-05T00:00:00Z',
+          claimed_at: '2026-08-05T00:00:01Z',
+          finished_at: '2026-08-05T00:01:00Z',
+          feature_count_before: 1200,
+          feature_count_after: 0,
+          schema_diff: null,
+          verification,
+          error_code: 'review_required',
+          error_message: 'Review the detected changes before publication.',
+        }],
+        total: 6,
+      } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(
+      <SourcePanel
+        dataset={makeDataset({
+          origin: 'service',
+          origin_ref: {
+            kind: 'service',
+            service_type: 'wfs',
+            url: 'https://user:secret@example.com/wfs?token=hidden#private',
+            layer_id: 'roads',
+          },
+        })}
+        canEdit
+        onAcceptBlockedRun={onAcceptBlockedRun}
+      />,
+    );
+
+    expect(screen.getByText('Needs review')).toHaveClass(
+      'border-warning/30',
+      'bg-warning/10',
+      'text-warning',
+    );
+    expect(screen.getByText('Source: 0 · fetched: 0')).toBeInTheDocument();
+    expect(screen.getByText('Source used: https://example.com/wfs')).toBeInTheDocument();
+    expect(screen.queryByText(/secret|hidden|private/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load older runs' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Review and retry' }));
+    expect(onAcceptBlockedRun).toHaveBeenCalledWith('run-blocked');
+  });
+
+  it('disables blocked-run retry while a refresh is busy', () => {
+    const onAcceptBlockedRun = vi.fn();
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-blocked',
+          dataset_id: 'dataset-1',
+          dataset_version_id: null,
+          ingest_job_id: 'job-1',
+          origin_kind: 'service',
+          trigger: 'api',
+          status: 'blocked',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-05T00:00:00Z',
+          claimed_at: '2026-08-05T00:00:01Z',
+          finished_at: '2026-08-05T00:01:00Z',
+          feature_count_before: 1200,
+          feature_count_after: 0,
+          schema_diff: null,
+          verification: {
+            decision: 'blocked',
+            source_binding: {
+              service_type: 'wfs',
+              url: 'https://user:secret@example.com/wfs?token=hidden#private',
+              layer_id: 'roads',
+            },
+            source_count: 0,
+            fetched_count: 0,
+            count_status: 'matched',
+            identity_check: 'unavailable',
+            review_reasons: ['empty_result'],
+            review_fingerprint: 'fingerprint',
+            accepted_blocked_run_id: null,
+          },
+          error_code: 'review_required',
+          error_message: null,
+        }],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    const { rerender } = render(
+      <SourcePanel
+        dataset={makeDataset({
+          origin: 'service',
+          origin_ref: {
+            kind: 'service',
+            service_type: 'wfs',
+            url: 'https://user:secret@example.com/wfs?token=hidden#private',
+            layer_id: 'roads',
+          },
+        })}
+        canEdit
+        refreshBusy
+        onAcceptBlockedRun={onAcceptBlockedRun}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Review and retry' })).toBeDisabled();
+
+    rerender(
+      <SourcePanel
+        dataset={makeDataset({ origin: 'upload' })}
+        canEdit
+        onAcceptBlockedRun={onAcceptBlockedRun}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Review and retry' })).not.toBeInTheDocument();
   });
 });

@@ -1130,17 +1130,28 @@ async def check_oidc_endpoint(provider: Any) -> None:
 
 
 async def validate_connectivity(db: AsyncSession) -> ConnectivityResult:
-    """Validate connectivity to storage, cache, and all enabled OIDC providers.
+    """Validate storage, cache, credential handoff, and enabled OIDC providers.
 
     Probes run concurrently. Failures return error details rather than raising.
     """
     from app.modules.auth.oauth import service as oauth_service
-    from app.observability.health.service import _check_cache, _check_storage, _probe
-
-    storage_result, cache_result = await asyncio.gather(
-        _probe("storage", _check_storage()),
-        _probe("cache", _check_cache()),
+    from app.observability.health.service import (
+        _check_cache,
+        _check_storage,
+        _include_probe_errors,
+        _probe,
     )
+    from app.platform.refresh.credentials import probe_credential_store
+
+    error_token = _include_probe_errors.set(True)
+    try:
+        storage_result, cache_result, credential_store_result = await asyncio.gather(
+            _probe("storage", _check_storage()),
+            _probe("cache", _check_cache()),
+            _probe("credential_store", probe_credential_store()),
+        )
+    finally:
+        _include_probe_errors.reset(error_token)
 
     providers = await oauth_service.list_providers(db, enabled_only=True)
     oidc_results: dict[str, ServiceProbeResult] = {}
@@ -1157,5 +1168,8 @@ async def validate_connectivity(db: AsyncSession) -> ConnectivityResult:
     return ConnectivityResult(
         storage=ServiceProbeResult(name="storage", **storage_result),
         cache=ServiceProbeResult(name="cache", **cache_result),
+        credential_store=ServiceProbeResult(
+            name="credential_store", **credential_store_result
+        ),
         oidc_providers=oidc_results,
     )

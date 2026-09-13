@@ -92,12 +92,18 @@ function normalizeLegacyTabHash(hash: string): string | null {
   return null;
 }
 
-/** Read initial tab from URL hash, defaulting to "overview" */
-function getInitialTab(): string {
-  const hash = window.location.hash.replace('#', '');
+/** Resolve tab hashes, including refresh-run anchors that live in Sources. */
+function getTabFromHash(hashValue: string): string | null {
+  const hash = hashValue.replace('#', '');
+  if (hash.startsWith('refresh-run-')) return 'sources';
   const normalizedLegacyHash = normalizeLegacyTabHash(hash);
   if (normalizedLegacyHash) return normalizedLegacyHash;
-  return VALID_TABS.includes(hash as (typeof VALID_TABS)[number]) ? hash : 'overview';
+  return VALID_TABS.includes(hash as (typeof VALID_TABS)[number]) ? hash : null;
+}
+
+/** Read initial tab from URL hash, defaulting to "overview" */
+function getInitialTab(): string {
+  return getTabFromHash(window.location.hash) ?? 'overview';
 }
 
 const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -303,9 +309,8 @@ export function DatasetPage() {
   // Sync active tab when hash changes (e.g. browser back/forward)
   useEffect(() => {
     const handler = () => {
-      const hash = window.location.hash.replace('#', '');
-      const normalized = normalizeLegacyTabHash(hash) ?? hash;
-      if (VALID_TABS.includes(normalized as (typeof VALID_TABS)[number])) {
+      const normalized = getTabFromHash(window.location.hash);
+      if (normalized) {
         setActiveTab(normalized);
       }
     };

@@ -241,6 +241,39 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByLabelText('Authentication')).toHaveValue('none');
   });
 
+  it('clears a blocked-run acceptance after its retry is queued', async () => {
+    mutateAsync.mockResolvedValue({
+      run_id: 'run-43',
+      job_id: 'job-43',
+      dataset_id: 'dataset-1',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the stored source',
+    });
+    const onAcceptHandled = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch()}
+        acceptBlockedRunId="blocked-run-1"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await screen.findByRole('dialog');
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => expect(onAcceptHandled).toHaveBeenCalledOnce());
+    expect(mutateAsync).toHaveBeenCalledWith({
+      datasetId: 'dataset-1',
+      token: undefined,
+      auth: undefined,
+      acceptBlockedRunId: 'blocked-run-1',
+    });
+  });
+
   it('sends no token when the field is left blank', async () => {
     mutateAsync.mockResolvedValue({
       run_id: 'run-1',
@@ -424,6 +457,110 @@ describe('SourceRefreshAction', () => {
     expect(
       screen.getByText('Finish editing or deselect the feature before refreshing.'),
     ).toBeInTheDocument();
+  });
+
+  it('does not open a blocked-run retry while a feature is selected', async () => {
+    drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingStoreState.targetDatasetId = 'dataset-1';
+    const onAcceptHandled = vi.fn();
+
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch()}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await waitFor(() => expect(onAcceptHandled).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('does not open a blocked-run retry while another refresh is busy', async () => {
+    const onAcceptHandled = vi.fn();
+
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch({ isBusy: true })}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await waitFor(() => expect(onAcceptHandled).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the busy state before confirming a blocked-run retry', async () => {
+    const user = userEvent.setup();
+    const onAcceptHandled = vi.fn();
+    const { rerender } = render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch()}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+    await screen.findByRole('dialog');
+
+    rerender(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch({ isBusy: true })}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('rechecks the feature selection before confirming a blocked-run retry', async () => {
+    const user = userEvent.setup();
+    const onAcceptHandled = vi.fn();
+    const { rerender } = render(
+      <SourceRefreshAction
+        dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+        watch={makeWatch()}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+    await screen.findByRole('dialog');
+    await user.type(screen.getByLabelText('Access token (optional)'), 'abandoned-token');
+
+    drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingStoreState.targetDatasetId = 'dataset-1';
+    rerender(
+      <SourceRefreshAction
+        dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+        watch={makeWatch()}
+        acceptBlockedRunId="run-blocked"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    drawingStoreState.selectedFeature = null;
+    drawingStoreState.targetDatasetId = null;
+    rerender(
+      <SourceRefreshAction
+        dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+        watch={makeWatch()}
+      />,
+    );
+    await openDialog(user);
+    expect(screen.getByLabelText('Access token (optional)')).toHaveValue('');
   });
 
   it('does not block on a feature selection that belongs to a different dataset', () => {

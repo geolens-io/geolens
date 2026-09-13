@@ -162,7 +162,7 @@ async def validate_configuration(
     user: Identity = Depends(require_config_operator),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectivityResult:
-    """Validate connectivity to storage, cache, and all enabled OIDC providers.
+    """Validate storage, cache, credential handoff, and enabled OIDC providers.
 
     Returns pass/fail with latency and error details for each service.
     """

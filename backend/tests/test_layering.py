@@ -1296,26 +1296,26 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/schemas.py": 1393,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
-    "backend/app/processing/ingest/metadata.py": 153,
+    "backend/app/processing/ingest/metadata.py": 157,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising.
     "backend/app/processing/ingest/router.py": 1827,
     # Shared task finalization keeps lifecycle and cleanup consistent across ingest
     # formats.
-    "backend/app/processing/ingest/tasks_common.py": 1912,
+    "backend/app/processing/ingest/tasks_common.py": 1914,
     # Reupload coordinates staging, credentials and fenced settlement across
-    # file/service paths.
-    "backend/app/processing/ingest/tasks_reupload.py": 1295,
+    # file/service paths, including the versioned verified-refresh task.
+    "backend/app/processing/ingest/tasks_reupload.py": 1497,
     # Refresh strategies share access, admission and dispatch rules at this API
-    # boundary.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1290,
+    # boundary, including task-capability selection.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1431,
     # Config planning, signed dry runs and application share one transaction workflow.
-    "backend/app/platform/config_ops/service.py": 1161,
+    "backend/app/platform/config_ops/service.py": 1175,
     # Reconciliation and reapers serve startup, workers and admin cleanup consistently.
     "backend/app/platform/jobs/sweep.py": 1537,
     # Refresh transitions serve request and worker paths without crossing domain
     # boundaries.
-    "backend/app/platform/refresh/service.py": 929,
+    "backend/app/platform/refresh/service.py": 997,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1496,
@@ -1334,7 +1334,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 996,
     # File/service tasks share publication fencing, heartbeat phases and failure
     # cleanup.
-    "backend/app/processing/ingest/tasks_vector.py": 1179,
+    "backend/app/processing/ingest/tasks_vector.py": 1173,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1351,
@@ -1352,7 +1352,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # updates.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 979,
     # Dataset schema debt; split request/response families before raising.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1490,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1528,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1421,

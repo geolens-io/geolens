@@ -184,10 +184,12 @@ describe('SourceRefreshAction + useDatasetRefreshWatch (tab-switch survival)', (
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    // feat(#1746 B4): refreshDataset gained a third `auth` argument; this
-    // dataset is a 'wfs' origin with no credential entered, so it is
-    // undefined same as `token`.
-    expect(mockRefreshDataset).toHaveBeenCalledWith('dataset-1', undefined, undefined);
+    expect(mockRefreshDataset).toHaveBeenCalledWith(
+      'dataset-1',
+      undefined,
+      undefined,
+      undefined,
+    );
     expect(screen.getByTestId('is-busy')).toHaveTextContent('true');
 
     // Switch away from the Source tab. In the real app this is Radix Tabs
