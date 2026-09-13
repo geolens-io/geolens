@@ -131,6 +131,7 @@ const CURRENT_AUDIT_ACTIONS = [
   'query.execute',
   'query.reject',
   'refresh.abandoned',
+  'refresh.blocked',
   'refresh.cancelled',
   'refresh.dispatch',
   'refresh.failed',

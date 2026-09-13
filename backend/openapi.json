@@ -5281,17 +5281,6 @@
             "description": "Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token. Deprecated: use the auth object with method bearer.",
             "title": "Token"
           },
-          "auth": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ServiceAuthRequest"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
-          },
           "accept_blocked_run_id": {
             "anyOf": [
               {
@@ -5304,6 +5293,17 @@
             ],
             "description": "A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.",
             "title": "Accept Blocked Run Id"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "title": "DatasetRefreshRequest",

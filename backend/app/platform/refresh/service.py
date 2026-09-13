@@ -716,7 +716,9 @@ async def record_refresh_blocked(
             "schema_diff": schema_diff,
             "verification": verification,
             "error_code": "review_required",
-            "error_message": "Review the detected changes before publication.",
+            "error_message": redact_run_error(
+                "Review the detected changes before publication."
+            ),
         },
     )
     if not won:

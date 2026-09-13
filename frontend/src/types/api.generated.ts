@@ -7713,13 +7713,13 @@ export interface components {
              * @description Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token. Deprecated: use the auth object with method bearer.
              */
             token?: string | null;
-            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
-            auth?: components["schemas"]["ServiceAuthRequest"] | null;
             /**
              * Accept Blocked Run Id
              * @description A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.
              */
             accept_blocked_run_id?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /**
          * DatasetRefreshResponse

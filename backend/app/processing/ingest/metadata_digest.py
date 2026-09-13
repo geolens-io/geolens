@@ -49,8 +49,8 @@ async def compute_table_content_digest(
 
     # ``gid`` is assigned during ingest. Fixed-endian EWKB preserves the complete
     # geometry while allowing otherwise identical rows to arrive in any order.
-    # codeql[py/sql-injection]
     statement = text(
+        # codeql[py/sql-injection]
         f"""
         SELECT sha256(convert_to(({payload})::text, 'UTF8')) AS row_digest
         FROM {table} AS staged

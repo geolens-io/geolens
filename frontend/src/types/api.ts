@@ -1051,10 +1051,10 @@ export interface DatasetVersionListResponse {
 export interface DatasetRefreshRequest {
   /** Transient credential for a protected service; never persisted. */
   token?: string | null;
+  accept_blocked_run_id?: string | null;
   // feat(#1746 B4): structured credential, mutually exclusive with `token`
   // above — see `ServiceAuthRequest`.
   auth?: ServiceAuthRequest | null;
-  accept_blocked_run_id?: string | null;
 }
 
 export interface DatasetRefreshResponse {

@@ -3167,15 +3167,15 @@ export type DatasetRefreshRequest = {
      */
     token?: string | null;
     /**
-     * Structured credential for a protected service. Mutually exclusive with the token field.
-     */
-    auth?: ServiceAuthRequest | null;
-    /**
      * Accept Blocked Run Id
      *
      * A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.
      */
     accept_blocked_run_id?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**

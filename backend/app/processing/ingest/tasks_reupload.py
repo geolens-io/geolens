@@ -16,6 +16,7 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
+    lock_catalog_rows,
 )
 from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.platform.jobs.heartbeat import (
@@ -868,9 +869,19 @@ async def _enforce_service_refresh_verification(
         attempt_uuid,
         values={
             "status": "failed",
-            "error_message": message,
+            "error_message": redact_failure_reason(message),
             "completed_at": datetime.now(timezone.utc),
         },
+    )
+    from app.platform.extensions import get_processing_port
+
+    port = get_processing_port()
+    await lock_catalog_rows(
+        session,
+        dataset_cls=port.get_dataset_orm_class(),
+        record_cls=port.get_record_orm_class(),
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
     )
     dataset.last_checked_at = datetime.now(timezone.utc)
     dataset.schema_drift_status = drift_status_from_diff(schema_diff)

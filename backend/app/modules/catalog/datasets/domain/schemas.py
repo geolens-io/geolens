@@ -831,15 +831,15 @@ class DatasetRefreshRequest(BaseModel):
         ),
     )
     _validate_token = field_validator("token")(_validate_safe_token)
-    auth: ServiceAuthRequest | None = Field(
-        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
-    )
     accept_blocked_run_id: uuid.UUID | None = Field(
         default=None,
         description=(
             "A blocked run whose reviewed source and staged content may be "
             "accepted once. A different result blocks again."
         ),
+    )
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
