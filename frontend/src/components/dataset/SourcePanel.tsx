@@ -304,7 +304,9 @@ function RefreshRunHistory({
 }) {
   const { t, i18n } = useTranslation('dataset');
   const [limit, setLimit] = useState(5);
-  const { data, isLoading, isError, isFetching } = useDatasetRefreshRuns(dataset.id, { limit });
+  const [skip, setSkip] = useState(0);
+  const refreshRunQuery = skip > 0 ? { skip, limit } : { limit };
+  const { data, isLoading, isError, isFetching } = useDatasetRefreshRuns(dataset.id, refreshRunQuery);
   const cancelRefreshJob = useCancelRefreshJob();
   const runs = useMemo(() => data?.runs ?? [], [data?.runs]);
   const targetRunId = typeof window !== 'undefined' && window.location.hash.startsWith('#refresh-run-')
@@ -316,14 +318,17 @@ function RefreshRunHistory({
     if (!targetRunId || !data) return;
     if (!runs.some((run) => `refresh-run-${run.id}` === targetRunId)) {
       if (!isFetching && data.total > runs.length && limit < MAX_REFRESH_HISTORY_LIMIT) {
-        setLimit((value) => Math.min(value + 10, MAX_REFRESH_HISTORY_LIMIT));
+        setLimit(MAX_REFRESH_HISTORY_LIMIT);
+      } else if (!isFetching && limit === MAX_REFRESH_HISTORY_LIMIT
+        && data.total > skip + runs.length) {
+        setSkip((value) => value + MAX_REFRESH_HISTORY_LIMIT);
       }
       return;
     }
     if (scrolledTargetRef.current === targetRunId) return;
     scrolledTargetRef.current = targetRunId;
     document.getElementById(targetRunId)?.scrollIntoView({ block: 'center' });
-  }, [data, isFetching, limit, runs, targetRunId]);
+  }, [data, isFetching, limit, runs, skip, targetRunId]);
 
   return (
     <section aria-labelledby="refresh-history-heading" className="space-y-3">

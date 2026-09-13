@@ -331,7 +331,7 @@ describe('SourcePanel', () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;
     window.history.replaceState({}, '', '#refresh-run-run-target');
-    vi.mocked(useDatasetRefreshRuns).mockImplementation((_datasetId, params) => ({
+    vi.mocked(useDatasetRefreshRuns).mockImplementation((_datasetId, params = {}) => ({
       data: {
         runs: params?.limit && params.limit >= 15 ? [targetRun] : [],
         total: 1,
@@ -344,10 +344,50 @@ describe('SourcePanel', () => {
     render(<SourcePanel dataset={makeDataset()} />);
 
     await waitFor(() => {
-      expect(useDatasetRefreshRuns).toHaveBeenLastCalledWith('dataset-1', { limit: 15 });
+      expect(useDatasetRefreshRuns).toHaveBeenLastCalledWith('dataset-1', { limit: 200 });
       expect(screen.getByText('Succeeded')).toBeInTheDocument();
     });
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+  });
+
+  it('uses bounded skip pages for a permalink beyond the first 200 runs', async () => {
+    const targetRun: DatasetRefreshRunResponse = {
+      id: 'run-old-target',
+      dataset_id: 'dataset-1',
+      dataset_version_id: null,
+      ingest_job_id: 'job-old-target',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'succeeded',
+      triggered_by: null,
+      triggered_by_username: null,
+      started_at: '2026-08-05T00:00:00Z',
+      claimed_at: '2026-08-05T00:00:01Z',
+      finished_at: '2026-08-05T00:01:00Z',
+      feature_count_before: 1200,
+      feature_count_after: 1234,
+      schema_diff: null,
+      verification: null,
+      error_code: null,
+      error_message: null,
+    };
+    window.history.replaceState({}, '', '#refresh-run-run-old-target');
+    vi.mocked(useDatasetRefreshRuns).mockImplementation((_datasetId, params = {}) => ({
+      data: {
+        runs: params.skip === 200 ? [targetRun] : [],
+        total: 401,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>));
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    await waitFor(() => {
+      expect(useDatasetRefreshRuns).toHaveBeenLastCalledWith('dataset-1', { skip: 200, limit: 200 });
+      expect(screen.getByText('Succeeded')).toBeInTheDocument();
+    });
   });
 
   // feat(#1677): the one-click cancel affordance on the active run row.
