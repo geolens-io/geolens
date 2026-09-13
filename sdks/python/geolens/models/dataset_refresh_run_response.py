@@ -14,6 +14,7 @@ from uuid import UUID
 import datetime
 
 if TYPE_CHECKING:
+    from ..models.refresh_verification import RefreshVerification
     from ..models.schema_diff import SchemaDiff
 
 
@@ -24,9 +25,9 @@ T = TypeVar("T", bound="DatasetRefreshRunResponse")
 class DatasetRefreshRunResponse:
     """One refresh attempt, including failures.
 
-    Five fields are redacted for callers who are neither the dataset owner nor
+    Refresh details are redacted for callers who are neither the dataset owner nor
     an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
-    ``error_message`` and ``schema_diff``. A public dataset's refresh history
+    ``error_message``, ``schema_diff`` and ``verification``. A public dataset's refresh history
     otherwise enumerates who edits it, and failure text leaks internal origin
     detail.
 
@@ -38,7 +39,7 @@ class DatasetRefreshRunResponse:
                 recorded 'upload' while the dataset's origin stays 'stac' until the replace succeeds. 'raster' itself is
                 reserved for a future, distinct raster-replace door label, with today's raster-replace runs recorded 'upload'.
             trigger (str): manual, api, or cli
-            status (str): pending, running, succeeded, failed, or cancelled
+            status (str): pending, running, succeeded, failed, cancelled, or blocked
             started_at (datetime.datetime): Dispatch time, not claim time — queue wait is visible
             dataset_version_id (None | Unset | UUID): The version this run produced. Null for a run that never committed a
                 swap.
@@ -53,6 +54,8 @@ class DatasetRefreshRunResponse:
             feature_count_after (int | None | Unset):
             schema_diff (None | SchemaDiff | Unset): Schema drift measured against the incoming data at swap time. Null for
                 a run that never reached the swap.
+            verification (None | RefreshVerification | Unset): Pre-publication count evidence, review reasons, and
+                publication decision.
             error_code (None | str | Unset):
             error_message (None | str | Unset): Short redacted failure reason
     """
@@ -72,11 +75,13 @@ class DatasetRefreshRunResponse:
     feature_count_before: int | None | Unset = UNSET
     feature_count_after: int | None | Unset = UNSET
     schema_diff: None | SchemaDiff | Unset = UNSET
+    verification: None | RefreshVerification | Unset = UNSET
     error_code: None | str | Unset = UNSET
     error_message: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.refresh_verification import RefreshVerification
         from ..models.schema_diff import SchemaDiff
 
         id = str(self.id)
@@ -157,6 +162,14 @@ class DatasetRefreshRunResponse:
         else:
             schema_diff = self.schema_diff
 
+        verification: dict[str, Any] | None | Unset
+        if isinstance(self.verification, Unset):
+            verification = UNSET
+        elif isinstance(self.verification, RefreshVerification):
+            verification = self.verification.to_dict()
+        else:
+            verification = self.verification
+
         error_code: None | str | Unset
         if isinstance(self.error_code, Unset):
             error_code = UNSET
@@ -199,6 +212,8 @@ class DatasetRefreshRunResponse:
             field_dict["feature_count_after"] = feature_count_after
         if schema_diff is not UNSET:
             field_dict["schema_diff"] = schema_diff
+        if verification is not UNSET:
+            field_dict["verification"] = verification
         if error_code is not UNSET:
             field_dict["error_code"] = error_code
         if error_message is not UNSET:
@@ -208,6 +223,7 @@ class DatasetRefreshRunResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.refresh_verification import RefreshVerification
         from ..models.schema_diff import SchemaDiff
 
         d = dict(src_dict)
@@ -360,6 +376,23 @@ class DatasetRefreshRunResponse:
 
         schema_diff = _parse_schema_diff(d.pop("schema_diff", UNSET))
 
+        def _parse_verification(data: object) -> None | RefreshVerification | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                verification_type_0 = RefreshVerification.from_dict(data)
+
+                return verification_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | RefreshVerification | Unset, data)
+
+        verification = _parse_verification(d.pop("verification", UNSET))
+
         def _parse_error_code(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -394,6 +427,7 @@ class DatasetRefreshRunResponse:
             feature_count_before=feature_count_before,
             feature_count_after=feature_count_after,
             schema_diff=schema_diff,
+            verification=verification,
             error_code=error_code,
             error_message=error_message,
         )

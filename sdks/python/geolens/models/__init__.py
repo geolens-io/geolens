@@ -578,6 +578,14 @@ from .raster_tile_proxy_tiles_raster_proxy_dataset_id_zxy_fmt_get_stretch_type_0
 )
 from .raster_tile_token import RasterTileToken
 from .refresh_request import RefreshRequest
+from .refresh_verification import RefreshVerification
+from .refresh_verification_count_status import RefreshVerificationCountStatus
+from .refresh_verification_decision import RefreshVerificationDecision
+from .refresh_verification_identity_check import RefreshVerificationIdentityCheck
+from .refresh_verification_review_reasons_item import (
+    RefreshVerificationReviewReasonsItem,
+)
+from .refresh_verification_source_binding import RefreshVerificationSourceBinding
 from .register_request import RegisterRequest
 from .register_request_visibility import RegisterRequestVisibility
 from .register_response import RegisterResponse
@@ -1189,6 +1197,12 @@ __all__ = (
     "RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0",
     "RasterTileToken",
     "RefreshRequest",
+    "RefreshVerification",
+    "RefreshVerificationCountStatus",
+    "RefreshVerificationDecision",
+    "RefreshVerificationIdentityCheck",
+    "RefreshVerificationReviewReasonsItem",
+    "RefreshVerificationSourceBinding",
     "RegisterRequest",
     "RegisterRequestVisibility",
     "RegisterResponse",

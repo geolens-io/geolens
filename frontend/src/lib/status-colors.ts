@@ -69,6 +69,7 @@ export const refreshRunStatusColors: Record<string, string> = {
   running: semanticBadgeColors.info,
   succeeded: semanticBadgeColors.success,
   failed: semanticBadgeColors.destructive,
+  blocked: semanticBadgeColors.warning,
   cancelled: 'border-border bg-muted text-muted-foreground',
 };
 

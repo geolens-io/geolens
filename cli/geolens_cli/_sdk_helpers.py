@@ -519,64 +519,15 @@ def call_sdk_with_reauth(
     credential_provenance: str | None = None,
     client_kwarg: str = "client",
     deadline_expired: Callable[[], bool] | None = None,
+    on_reauthenticated: Callable[[Any], None] | None = None,
     **kwargs: Any,
 ) -> Any:
-    """Like ``call_sdk``, but refresh-retries once on 401 (D-13).
+    """Retry one 401 with the paired refresh token for a stored bearer.
 
-    fix(#1778): a stored refresh token was only ever spent by ``whoami`` —
-    every other command hard-failed on an expired access token even though
-    login stores a refresh token whenever the server returns one. This
-    generalizes ``whoami``'s inline retry so other commands can opt in
-    without duplicating it: on 401, attempt one
-    ``auth.try_refresh(instance)``; if it yields a new access token, the
-    request is retried once with a client built directly from that token.
-
-    fix(#1778 review round 1):
-
-    - 401 only, not 403. A 403 is a real permission denial, not an
-      expired token — refreshing on it let a legacy profile holding both
-      an API key and a stale refresh token silently retry as a different
-      (renewed-bearer) identity instead of surfacing the denial.
-    - The retry client is built from ``new_access`` directly via
-      ``make_client(instance, bearer_token=new_access)`` rather than by
-      re-resolving credentials (the previous ``rebuild_client()``
-      parameter). Re-resolving picks GEOLENS_TOKEN over a stored
-      credential (D-35), so with an expired env token and a valid stored
-      refresh token, the retry kept resending the same expired env token
-      and burned the rotated refresh token for nothing.
-
-    fix(#1778 review round 2): the retry client above (and every other
-    client construction in this package) now goes through
-    ``make_client()`` so the timeout bound is structurally guaranteed
-    rather than repeated at each call site.
-
-    fix(#1778 review round 3): ``credential_kind`` — the value
-    ``make_client()`` tagged the ORIGINAL request's client with — gates
-    the refresh attempt to bearer clients only. An API-key client gets a
-    401 (not 403 — ``_resolve_api_key()`` returns None for a revoked or
-    mistyped key, so the backend reports it the same as no credential at
-    all) for a reason that has nothing to do with a stored bearer
-    session. A legacy profile can hold both an API key AND an old
-    refresh token; refreshing that unrelated bearer session and retrying
-    with it would silently switch the retry to a different identity
-    instead of reporting the invalid key. Anonymous clients are skipped
-    for the same reason — there is no session to refresh.
-
-    fix(#1778 review round 26): ``credential_kind == "bearer"`` alone
-    does not mean this request was authenticated by a STORED session —
-    GEOLENS_TOKEN (D-35's top-precedence override) also produces a
-    "bearer" client. Refreshing on ITS 401 spent a stored refresh token
-    that may belong to a completely different login, and a successful
-    refresh then silently continued the command as THAT stored
-    principal instead of reporting that the env override was rejected —
-    the opposite of what an explicit, session-scoped override is for.
-    ``credential_provenance`` narrows the refresh attempt to exactly
-    ``"stored-bearer"``: a GEOLENS_TOKEN 401 is reported directly, here,
-    as its own failure (naming the env var, never touching the keyring
-    or file) rather than falling through to the caller's generic
-    ``unwrap()`` 401 message, which would read as an ordinary "not
-    logged in" — misleading when a perfectly good stored login might
-    exist underneath the rejected override.
+    API keys, anonymous clients, environment tokens, and 403 responses cannot
+    switch identity through this helper. The retry uses the newly issued
+    access token directly. ``on_reauthenticated`` exposes that replacement
+    client to callers that make subsequent requests.
     """
     from . import auth as _auth  # lazy: avoid an import cycle with main.py
 
@@ -589,6 +540,8 @@ def call_sdk_with_reauth(
                     instance, bearer_token=new_access, provenance="stored-bearer"
                 )
                 kwargs[client_kwarg] = retry_sdk.client
+                if on_reauthenticated is not None:
+                    on_reauthenticated(retry_sdk.client)
                 resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
         elif credential_provenance == "env":
             typer.secho(

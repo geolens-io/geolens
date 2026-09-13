@@ -1054,6 +1054,7 @@ export interface DatasetRefreshRequest {
   // feat(#1746 B4): structured credential, mutually exclusive with `token`
   // above — see `ServiceAuthRequest`.
   auth?: ServiceAuthRequest | null;
+  accept_blocked_run_id?: string | null;
 }
 
 export interface DatasetRefreshResponse {
@@ -1079,7 +1080,7 @@ export interface DatasetRefreshRunResponse {
    *  'upload'. */
   origin_kind: string;
   trigger: string;
-  /** "pending" | "running" | "succeeded" | "failed" | "cancelled", kept as a
+  /** "pending" | "running" | "succeeded" | "failed" | "cancelled" | "blocked", kept as a
    *  plain string so an unrecognized future value degrades to its raw text
    *  instead of a type error. */
   status: string;
@@ -1093,6 +1094,21 @@ export interface DatasetRefreshRunResponse {
   feature_count_after: number | null;
   /** Redacted to null for a reader who is neither the owner nor an admin. */
   schema_diff: SchemaDiff | null;
+  /** Redacted to null for a reader who is neither the owner nor an admin. */
+  verification?: {
+    decision: 'allowed' | 'blocked' | 'rejected';
+    source_binding: Record<string, unknown>;
+    source_count: number | null;
+    fetched_count: number | null;
+    count_status: 'matched' | 'mismatched' | 'unavailable';
+    identity_check: 'unavailable';
+    review_reasons: Array<
+      'source_count_unavailable' | 'empty_result' | 'destructive_schema_change'
+    >;
+    review_fingerprint: string | null;
+    accepted_blocked_run_id: string | null;
+    acceptance_consumed_by_run_id?: string | null;
+  } | null;
   /** Redacted to null for a reader who is neither the owner nor an admin. */
   error_code: string | null;
   /** Redacted to null for a reader who is neither the owner nor an admin. */

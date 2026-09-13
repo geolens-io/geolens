@@ -241,6 +241,39 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByLabelText('Authentication')).toHaveValue('none');
   });
 
+  it('clears a blocked-run acceptance after its retry is queued', async () => {
+    mutateAsync.mockResolvedValue({
+      run_id: 'run-43',
+      job_id: 'job-43',
+      dataset_id: 'dataset-1',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the stored source',
+    });
+    const onAcceptHandled = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch()}
+        acceptBlockedRunId="blocked-run-1"
+        onAcceptHandled={onAcceptHandled}
+      />,
+    );
+
+    await screen.findByRole('dialog');
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => expect(onAcceptHandled).toHaveBeenCalledOnce());
+    expect(mutateAsync).toHaveBeenCalledWith({
+      datasetId: 'dataset-1',
+      token: undefined,
+      auth: undefined,
+      acceptBlockedRunId: 'blocked-run-1',
+    });
+  });
+
   it('sends no token when the field is left blank', async () => {
     mutateAsync.mockResolvedValue({
       run_id: 'run-1',

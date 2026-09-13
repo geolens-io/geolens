@@ -1228,9 +1228,26 @@ def refresh(
             ),
         ),
     ] = None,
+    auth_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--auth-file",
+            help=(
+                "JSON file containing a bearer, basic, or named-header "
+                "service credential. Mutually exclusive with --token."
+            ),
+        ),
+    ] = None,
+    accept_blocked_run: Annotated[
+        Optional[str],
+        typer.Option(
+            "--accept-blocked-run",
+            help="UUID of a blocked run to approve its matching source and changes once.",
+        ),
+    ] = None,
     wait: Annotated[
         bool,
-        typer.Option("--wait/--no-wait", help="Wait for the refresh job to finish"),
+        typer.Option("--wait/--no-wait", help="Wait for the refresh run to finish"),
     ] = False,
     timeout: Annotated[
         Optional[float],
@@ -1245,7 +1262,7 @@ def refresh(
 ) -> None:
     """Re-pull a dataset from its server-stored source binding.
 
-    Queue time has no upper bound, so ``--wait`` follows the job to a terminal
+    Queue time has no upper bound, so ``--wait`` follows the run to a terminal
     state by default. Pass ``--timeout`` when automation needs a finite bound.
     """
     state: AppState = ctx.obj
@@ -1266,22 +1283,56 @@ def refresh(
     if token == "":
         state.output.error("Service token must not be empty")
         raise typer.Exit(EXIT_USAGE)
+    if token is not None and auth_file is not None:
+        state.output.error("--token and --auth-file cannot be used together")
+        raise typer.Exit(EXIT_USAGE)
+
+    try:
+        auth = _refresh.load_refresh_auth(auth_file) if auth_file is not None else None
+        accepted_run_uuid = UUID(accept_blocked_run) if accept_blocked_run else None
+    except ValueError as exc:
+        state.output.error(str(exc))
+        raise typer.Exit(EXIT_USAGE)
 
     sdk = state.sdk()
+    active_client = sdk.client
+
+    def replace_client(replacement):
+        nonlocal active_client
+        active_client = replacement
+
     try:
-        accepted = _refresh.start_refresh(sdk.client, dataset_uuid, token)
+        accepted = _refresh.start_refresh(
+            active_client,
+            dataset_uuid,
+            token,
+            auth=auth,
+            accept_blocked_run_id=accepted_run_uuid,
+            instance=state.active_instance(),
+            credential_kind=sdk.credential_kind,
+            credential_provenance=sdk.credential_provenance,
+            on_reauthenticated=replace_client,
+        )
     except _refresh.RefreshRequestError as exc:
         state.output.error(exc.message)
         raise typer.Exit(exc.exit_code)
 
     poll = None
     if wait:
-        poll = _refresh.wait_for_refresh(
-            sdk.client,
-            accepted.job_id,
-            token=token,
-            timeout=timeout,
-        )
+        try:
+            poll = _refresh.wait_for_refresh_run(
+                active_client,
+                dataset_uuid,
+                accepted.run_id,
+                instance=state.active_instance(),
+                credential_kind=sdk.credential_kind,
+                credential_provenance=sdk.credential_provenance,
+                token=token,
+                timeout=timeout,
+            )
+        except _refresh.RefreshRequestError as exc:
+            state.output.error(exc.message)
+            raise typer.Exit(exc.exit_code)
 
     payload = _refresh.refresh_payload(accepted, poll)
     if state.json_mode:

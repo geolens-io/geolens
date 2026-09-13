@@ -9,6 +9,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 from typing import cast
+from uuid import UUID
 
 if TYPE_CHECKING:
     from ..models.service_auth_request import ServiceAuthRequest
@@ -32,10 +33,13 @@ class DatasetRefreshRequest:
                 retry needs a new token. Deprecated: use the auth object with method bearer.
             auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
                 the token field.
+            accept_blocked_run_id (None | Unset | UUID): A blocked run whose reviewed source and staged content may be
+                accepted once. A different result blocks again.
     """
 
     token: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
+    accept_blocked_run_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -55,6 +59,14 @@ class DatasetRefreshRequest:
         else:
             auth = self.auth
 
+        accept_blocked_run_id: None | str | Unset
+        if isinstance(self.accept_blocked_run_id, Unset):
+            accept_blocked_run_id = UNSET
+        elif isinstance(self.accept_blocked_run_id, UUID):
+            accept_blocked_run_id = str(self.accept_blocked_run_id)
+        else:
+            accept_blocked_run_id = self.accept_blocked_run_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -62,6 +74,8 @@ class DatasetRefreshRequest:
             field_dict["token"] = token
         if auth is not UNSET:
             field_dict["auth"] = auth
+        if accept_blocked_run_id is not UNSET:
+            field_dict["accept_blocked_run_id"] = accept_blocked_run_id
 
         return field_dict
 
@@ -97,9 +111,29 @@ class DatasetRefreshRequest:
 
         auth = _parse_auth(d.pop("auth", UNSET))
 
+        def _parse_accept_blocked_run_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                accept_blocked_run_id_type_0 = UUID(data)
+
+                return accept_blocked_run_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        accept_blocked_run_id = _parse_accept_blocked_run_id(
+            d.pop("accept_blocked_run_id", UNSET)
+        )
+
         dataset_refresh_request = cls(
             token=token,
             auth=auth,
+            accept_blocked_run_id=accept_blocked_run_id,
         )
 
         dataset_refresh_request.additional_properties = d

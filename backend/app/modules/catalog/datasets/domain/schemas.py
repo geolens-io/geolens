@@ -834,6 +834,13 @@ class DatasetRefreshRequest(BaseModel):
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
+    accept_blocked_run_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "A blocked run whose reviewed source and staged content may be "
+            "accepted once. A different result blocks again."
+        ),
+    )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
@@ -1419,12 +1426,32 @@ class AnalysisMaterializeResponse(BaseModel):
     status: str
 
 
+class RefreshVerification(BaseModel):
+    decision: Literal["allowed", "blocked", "rejected"]
+    source_binding: dict[str, Any]
+    source_count: int | None
+    fetched_count: int | None
+    count_status: Literal["matched", "mismatched", "unavailable"]
+    identity_check: Literal["unavailable", "content_digest"]
+    content_digest: str | None = None
+    review_reasons: list[
+        Literal[
+            "source_count_unavailable",
+            "empty_result",
+            "destructive_schema_change",
+        ]
+    ]
+    review_fingerprint: str | None
+    accepted_blocked_run_id: uuid.UUID | None
+    acceptance_consumed_by_run_id: uuid.UUID | None = None
+
+
 class DatasetRefreshRunResponse(BaseModel):
     """One refresh attempt, including failures.
 
-    Five fields are redacted for callers who are neither the dataset owner nor
+    Refresh details are redacted for callers who are neither the dataset owner nor
     an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
-    ``error_message`` and ``schema_diff``. A public dataset's refresh history
+    ``error_message``, ``schema_diff`` and ``verification``. A public dataset's refresh history
     otherwise enumerates who edits it, and failure text leaks internal origin
     detail.
     """
@@ -1456,7 +1483,9 @@ class DatasetRefreshRunResponse(BaseModel):
         )
     )
     trigger: str = Field(description="manual, api, or cli")
-    status: str = Field(description="pending, running, succeeded, failed, or cancelled")
+    status: str = Field(
+        description="pending, running, succeeded, failed, cancelled, or blocked"
+    )
     triggered_by: uuid.UUID | None = None
     triggered_by_username: str | None = None
     started_at: datetime = Field(
@@ -1477,6 +1506,12 @@ class DatasetRefreshRunResponse(BaseModel):
         description=(
             "Schema drift measured against the incoming data at swap time. "
             "Null for a run that never reached the swap."
+        ),
+    )
+    verification: RefreshVerification | None = Field(
+        default=None,
+        description=(
+            "Pre-publication count evidence, review reasons, and publication decision."
         ),
     )
     error_code: str | None = None

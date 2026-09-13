@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -60,6 +60,8 @@ interface SourceRefreshActionProps {
    * `latestRun`/`isBusy` back, rather than polling or tracking on its own.
    */
   watch: DatasetRefreshWatch;
+  acceptBlockedRunId?: string;
+  onAcceptHandled?: () => void;
 }
 
 /**
@@ -73,7 +75,12 @@ interface SourceRefreshActionProps {
  * a distinct, actionable sentence rather than a single generic failure toast
  * — see `frontend/src/lib/error-map.ts`.
  */
-export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps) {
+export function SourceRefreshAction({
+  dataset,
+  watch,
+  acceptBlockedRunId,
+  onAcceptHandled,
+}: SourceRefreshActionProps) {
   const { t } = useTranslation('dataset');
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState('');
@@ -131,9 +138,14 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
 
   const isDisabled = isBusy || hasSelectedFeature;
 
+  useEffect(() => {
+    if (acceptBlockedRunId) setOpen(true);
+  }, [acceptBlockedRunId]);
+
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
     if (!next) {
+      onAcceptHandled?.();
       // Cleared on cancel/close too: a dismissed dialog must not leave a
       // typed token sitting in this component's state any longer than the
       // confirm path does.
@@ -192,6 +204,7 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
         datasetId: dataset.id,
         token: isArcgisOrigin ? submittedToken : undefined,
         auth: isArcgisOrigin ? undefined : submittedAuth,
+        acceptBlockedRunId,
       });
       // Reported to the page-level watch rather than a local ref — this call
       // is safe even if the user has already switched away from the Source
@@ -200,6 +213,7 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
       watch.trackDispatchedRun(result.run_id);
       setServiceAuth(undefined);
       setOpen(false);
+      onAcceptHandled?.();
       toast.success(t('sourcePanel.refresh.toastAccepted', { runId: result.run_id }));
     } catch (err) {
       // fix(#1755 item 4, plan 3.7): a 422 `service_token_required` gets its
@@ -244,8 +258,16 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('sourcePanel.refresh.dialogTitle')}</DialogTitle>
-            <DialogDescription>{t('sourcePanel.refresh.dialogDescription')}</DialogDescription>
+            <DialogTitle>
+              {t(acceptBlockedRunId
+                ? 'sourcePanel.refresh.reviewDialogTitle'
+                : 'sourcePanel.refresh.dialogTitle')}
+            </DialogTitle>
+            <DialogDescription>
+              {t(acceptBlockedRunId
+                ? 'sourcePanel.refresh.reviewDialogDescription'
+                : 'sourcePanel.refresh.dialogDescription')}
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">

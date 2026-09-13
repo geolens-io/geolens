@@ -65,31 +65,34 @@ whose data comes from a remote service origin, or a registered database
 table, cannot be replaced this way; use `geolens refresh` for that instead.
 `--json` never prompts, so it requires `--yes`.
 
-`geolens refresh <dataset-id>` is the explicit data-refresh path. It re-pulls
-the dataset from the origin binding stored by GeoLens, without accepting a URL,
-layer, or client-selected trigger. Add `--wait` to poll the refresh job to a
-terminal state without an implicit deadline; pass `--timeout` when automation
-needs a finite bound. Use `apply` when the declared source configuration itself
-changes.
+`geolens refresh <dataset-id>` re-pulls data from the origin binding stored by
+GeoLens. It does not accept a URL, layer, or client-selected trigger. Add
+`--wait` to poll the durable refresh run; pass `--timeout` when automation needs
+a finite bound. JSON output includes the verification result. Use `apply` when
+the declared source configuration itself changes.
 
-Unattended refresh is not supported yet. GeoLens does not verify that a
-re-pulled source is complete, and schema drift is reported but does not block
-the swap, so the person who triggers a refresh and reads the result is the only
-thing standing between a truncated or reshaped source and live data. Nothing in
-the API stops you calling this from a scheduler, but until completeness
-verification ships, you are the check.
+Service refresh compares the staged row count with the source count when the
+provider supplies one. A mismatch fails without changing live data. A missing
+source count, an empty replacement for a non-empty dataset, or a removed or
+retyped column blocks publication for review. After checking the Source panel,
+use `--accept-blocked-run <run-id>` to accept that source and staged content
+once. The retry must match the reviewed attributes and geometries. A later or
+different result blocks again. Matching counts still do not prove that a mutable
+provider served every page from one snapshot.
 
-`--wait` reports the job's terminal status, not what changed in the data. Drift
-is recorded on the dataset: read `schema_drift_status` from `GET /datasets/{id}`,
-or open the dataset's Source panel in the web app. Neither `geolens refresh` nor
-`geolens status` surfaces it today.
+Registered PostGIS refresh measures the registered live relation; it does not
+copy or preserve that relation. Referenced STAC refresh updates the remote item
+and asset pointer; it does not copy the asset bytes. A failed or blocked service
+refresh retains the current managed table. After a successful replacement,
+restoring earlier data requires a backup or re-import because refresh history
+does not retain the previous table.
 
-Protected services can receive a transient credential with `--token`. Use bare
-`--token` to open a hidden-input prompt, which keeps the value out of terminal
-output and shell history. Supplying a token value directly is supported for
-automation but can expose it through process arguments or shell history, so
-inject it only through an appropriately protected runner. GeoLens never stores
-the credential in the dataset binding.
+Protected services can receive bearer credentials with `--token`. Use bare
+`--token` for a hidden prompt. Use `--auth-file` with a protected JSON file for
+bearer, Basic, or named-header credentials. The server needs a reachable shared
+credential store (`REDIS_URL`) to hand the single-use secret to the worker; the
+configuration validation endpoint reports this separately from ordinary cache
+health. GeoLens does not store the credential in the dataset binding.
 
 `geolens status <dataset-id>` reports the catalog status together with source
 origin, freshness, health, and the last successful refresh time. Use `--json`

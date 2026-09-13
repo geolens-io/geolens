@@ -832,6 +832,8 @@
       "featureEditBlockedHint": "Termina la edición o deselecciona la entidad antes de actualizar.",
       "dialogTitle": "Actualizar desde la fuente",
       "dialogDescription": "Vuelve a extraer los datos de este conjunto desde donde se importaron originalmente. El conjunto de datos sigue sirviendo sus datos actuales hasta que los nuevos estén listos.",
+      "reviewDialogTitle": "Revisar y reintentar la actualización",
+      "reviewDialogDescription": "Vuelve a consultar la fuente y publica solo si coincide con la ejecución revisada.",
       "tokenLabel": "Token de acceso (opcional)",
       "tokenPlaceholder": "Solo necesario para una fuente protegida",
       "tokenHint": "Se usa solo para esta actualización; no se almacena con el conjunto de datos.",
@@ -898,8 +900,23 @@
           "running": "En curso",
           "succeeded": "Correcta",
           "failed": "Fallida",
-          "cancelled": "Cancelada"
-        }
+          "cancelled": "Cancelada",
+          "blocked": "Requiere revisión"
+        },
+        "sourceCountUnavailable": "Recuento de la fuente no disponible.",
+        "identityUnavailable": "No se compararon las identidades de los registros.",
+        "countEvidence": "Fuente: {{source}} · obtenidas: {{fetched}}",
+        "sourceUsed": "Fuente utilizada: {{source}}",
+        "columnsRemoved": "Columnas eliminadas: {{columns}}",
+        "typesChanged": "Tipos de columna modificados: {{columns}}",
+        "permalink": "Enlace",
+        "reason": {
+          "source_count_unavailable": "GeoLens no pudo comparar las filas obtenidas con la fuente, por lo que la publicación requiere revisión.",
+          "empty_result": "La actualización sustituiría un conjunto con datos por un resultado vacío.",
+          "destructive_schema_change": "La actualización elimina columnas o cambia sus tipos."
+        },
+        "reviewAndRetry": "Revisar y reintentar",
+        "loadMore": "Cargar ejecuciones anteriores"
       }
     },
     "vrt": {

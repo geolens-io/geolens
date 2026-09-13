@@ -267,6 +267,44 @@ describe('SourcePanel', () => {
     expect(screen.getByText('No refresh runs yet.')).toBeInTheDocument();
   });
 
+  it('caps refresh history loading at the backend limit', async () => {
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-1',
+          dataset_id: 'dataset-1',
+          dataset_version_id: null,
+          ingest_job_id: 'job-1',
+          origin_kind: 'service',
+          trigger: 'api',
+          status: 'succeeded',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-05T00:00:00Z',
+          claimed_at: '2026-08-05T00:00:01Z',
+          finished_at: '2026-08-05T00:01:00Z',
+          feature_count_before: 1200,
+          feature_count_after: 1234,
+          schema_diff: null,
+          error_code: null,
+          error_message: null,
+        }],
+        total: 205,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    for (let click = 0; click < 20; click += 1) {
+      await userEvent.click(screen.getByRole('button', { name: 'Load older runs' }));
+    }
+
+    expect(useDatasetRefreshRuns).toHaveBeenLastCalledWith('dataset-1', { limit: 200 });
+    expect(screen.queryByRole('button', { name: 'Load older runs' })).not.toBeInTheDocument();
+  });
+
   // feat(#1677): the one-click cancel affordance on the active run row.
   it('offers cancel only on the active run, for a manager, and fires the mutation', async () => {
     mockActiveAndTerminalRuns();
@@ -730,5 +768,70 @@ describe('SourcePanel', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument();
+  });
+
+  it('shows verification evidence and offers an exact blocked-run retry', async () => {
+    const onAcceptBlockedRun = vi.fn();
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [{
+          id: 'run-blocked',
+          dataset_id: 'dataset-1',
+          dataset_version_id: null,
+          ingest_job_id: 'job-1',
+          origin_kind: 'service',
+          trigger: 'api',
+          status: 'blocked',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-05T00:00:00Z',
+          claimed_at: '2026-08-05T00:00:01Z',
+          finished_at: '2026-08-05T00:01:00Z',
+          feature_count_before: 1200,
+          feature_count_after: 0,
+          schema_diff: null,
+          verification: {
+            decision: 'blocked',
+            source_binding: {
+              service_type: 'wfs',
+              url: 'https://user:secret@example.com/wfs?token=hidden#private',
+              layer_id: 'roads',
+            },
+            source_count: 0,
+            fetched_count: 0,
+            count_status: 'matched',
+            identity_check: 'unavailable',
+            review_reasons: ['empty_result'],
+            review_fingerprint: 'fingerprint',
+            accepted_blocked_run_id: null,
+          },
+          error_code: 'review_required',
+          error_message: 'Review the detected changes before publication.',
+        }],
+        total: 6,
+      } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(
+      <SourcePanel
+        dataset={makeDataset()}
+        canEdit
+        onAcceptBlockedRun={onAcceptBlockedRun}
+      />,
+    );
+
+    expect(screen.getByText('Needs review')).toHaveClass(
+      'border-warning/30',
+      'bg-warning/10',
+      'text-warning',
+    );
+    expect(screen.getByText('Source: 0 · fetched: 0')).toBeInTheDocument();
+    expect(screen.getByText('Source used: https://example.com/wfs')).toBeInTheDocument();
+    expect(screen.queryByText(/secret|hidden|private/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load older runs' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Review and retry' }));
+    expect(onAcceptBlockedRun).toHaveBeenCalledWith('run-blocked');
   });
 });

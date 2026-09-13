@@ -47,6 +47,7 @@ _ALLOWED_DETAIL_KEYS = {"run_id", "origin_kind", "trigger", "status", "error_cod
 
 _REFRESH_ACTIONS = {
     "refresh.abandoned",
+    "refresh.blocked",
     "refresh.dispatch",
     "refresh.failed",
     "refresh.succeeded",

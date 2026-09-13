@@ -36,11 +36,8 @@ from app.core.db import Base
 class DatasetRefreshRun(Base):
     __tablename__ = "dataset_refresh_runs"
     __table_args__ = (
-        # `blocked` is deliberately absent: v1 has no schema policy so the
-        # state is unreachable. Reserved spelling for whoever adds one;
-        # widening the VARCHAR CHECK is a two-line migration.
         CheckConstraint(
-            "status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')",
+            "status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled', 'blocked')",
             name="chk_refresh_runs_status",
         ),
         # `scheduled` excluded on purpose (no scheduler in Community). The
@@ -148,6 +145,7 @@ class DatasetRefreshRun(Base):
     # compute_schema_diff() output (#1223), recomputed at swap time against the
     # staging table rather than copied from the preview.
     schema_diff: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    verification: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

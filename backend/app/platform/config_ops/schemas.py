@@ -141,6 +141,9 @@ class ConnectivityResult(BaseModel):
 
     storage: ServiceProbeResult = Field(description="Object storage probe result.")
     cache: ServiceProbeResult = Field(description="Cache backend probe result.")
+    credential_store: ServiceProbeResult = Field(
+        description="Shared credential handoff probe result."
+    )
     oidc_providers: dict[str, ServiceProbeResult] = Field(
         description="Per-provider OIDC discovery probe results, keyed by provider slug."
     )

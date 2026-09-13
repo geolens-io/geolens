@@ -2602,6 +2602,10 @@ export type ConnectivityResult = {
      */
     cache: ServiceProbeResult;
     /**
+     * Shared credential handoff probe result.
+     */
+    credential_store: ServiceProbeResult;
+    /**
      * Oidc Providers
      *
      * Per-provider OIDC discovery probe results, keyed by provider slug.
@@ -3166,6 +3170,12 @@ export type DatasetRefreshRequest = {
      * Structured credential for a protected service. Mutually exclusive with the token field.
      */
     auth?: ServiceAuthRequest | null;
+    /**
+     * Accept Blocked Run Id
+     *
+     * A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.
+     */
+    accept_blocked_run_id?: string | null;
 };
 
 /**
@@ -3231,9 +3241,9 @@ export type DatasetRefreshRunListResponse = {
  *
  * One refresh attempt, including failures.
  *
- * Five fields are redacted for callers who are neither the dataset owner nor
+ * Refresh details are redacted for callers who are neither the dataset owner nor
  * an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
- * ``error_message`` and ``schema_diff``. A public dataset's refresh history
+ * ``error_message``, ``schema_diff`` and ``verification``. A public dataset's refresh history
  * otherwise enumerates who edits it, and failure text leaks internal origin
  * detail.
  */
@@ -3273,7 +3283,7 @@ export type DatasetRefreshRunResponse = {
     /**
      * Status
      *
-     * pending, running, succeeded, failed, or cancelled
+     * pending, running, succeeded, failed, cancelled, or blocked
      */
     status: string;
     /**
@@ -3312,6 +3322,10 @@ export type DatasetRefreshRunResponse = {
      * Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap.
      */
     schema_diff?: SchemaDiff | null;
+    /**
+     * Pre-publication count evidence, review reasons, and publication decision.
+     */
+    verification?: RefreshVerification | null;
     /**
      * Error Code
      */
@@ -8283,6 +8297,58 @@ export type RefreshRequest = {
      * Refresh Token
      */
     refresh_token: string;
+};
+
+/**
+ * RefreshVerification
+ */
+export type RefreshVerification = {
+    /**
+     * Decision
+     */
+    decision: 'allowed' | 'blocked' | 'rejected';
+    /**
+     * Source Binding
+     */
+    source_binding: {
+        [key: string]: unknown;
+    };
+    /**
+     * Source Count
+     */
+    source_count: number | null;
+    /**
+     * Fetched Count
+     */
+    fetched_count: number | null;
+    /**
+     * Count Status
+     */
+    count_status: 'matched' | 'mismatched' | 'unavailable';
+    /**
+     * Identity Check
+     */
+    identity_check: 'unavailable' | 'content_digest';
+    /**
+     * Content Digest
+     */
+    content_digest?: string | null;
+    /**
+     * Review Reasons
+     */
+    review_reasons: Array<'source_count_unavailable' | 'empty_result' | 'destructive_schema_change'>;
+    /**
+     * Review Fingerprint
+     */
+    review_fingerprint: string | null;
+    /**
+     * Accepted Blocked Run Id
+     */
+    accepted_blocked_run_id: string | null;
+    /**
+     * Acceptance Consumed By Run Id
+     */
+    acceptance_consumed_by_run_id?: string | null;
 };
 
 /**

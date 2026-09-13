@@ -55,6 +55,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     DatasetRefreshRunListResponse,
     DatasetRefreshRunResponse,
     DatasetResponse,
+    RefreshVerification,
     SchemaDiff,
 )
 from app.platform.refresh.service import list_runs_for_dataset
@@ -741,15 +742,11 @@ async def list_dataset_refresh_runs(
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRefreshRunListResponse:
-    """Refresh history for a dataset: every attempt, including the failures.
+    """Return durable refresh history for a dataset.
 
-    The history remains available after the related ingest job is purged.
-
-    A caller who is neither the dataset owner nor an administrator
-    sees the timeline and outcomes but not who triggered each run, nor the
-    failure text, nor the schema diff. Without that, a PUBLIC dataset's
-    history enumerates its editors and leaks origin detail through error
-    strings.
+    Readers can see the timeline and outcomes. Only the dataset owner and
+    admins can see actors, failure details, schema changes, and verification
+    source data.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -789,6 +786,11 @@ async def list_dataset_refresh_runs(
                 schema_diff=(
                     SchemaDiff(**run.schema_diff)
                     if can_view_detail and run.schema_diff
+                    else None
+                ),
+                verification=(
+                    RefreshVerification(**run.verification)
+                    if can_view_detail and run.verification
                     else None
                 ),
                 error_code=run.error_code if can_view_detail else None,

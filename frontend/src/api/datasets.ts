@@ -306,12 +306,17 @@ export async function refreshDataset(
   datasetId: string,
   token?: string,
   auth?: ServiceAuthRequest,
+  acceptBlockedRunId?: string,
 ): Promise<DatasetRefreshResponse> {
   // feat(#1746 B4): the door refuses a body naming both spellings
   // (reject_service_auth_conflict), so send at most one.
-  const payload: DatasetRefreshRequest = auth
+  const credentialPayload: DatasetRefreshRequest = auth
     ? { auth }
     : { token: token ?? null };
+  const payload = {
+    ...credentialPayload,
+    ...(acceptBlockedRunId ? { accept_blocked_run_id: acceptBlockedRunId } : {}),
+  };
   return apiFetch<DatasetRefreshResponse>(`/datasets/${datasetId}/refresh`, {
     method: 'POST',
     body: JSON.stringify(payload),

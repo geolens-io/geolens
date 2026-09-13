@@ -783,6 +783,8 @@
       "featureEditBlockedHint": "Finish editing or deselect the feature before refreshing.",
       "dialogTitle": "Refresh from source",
       "dialogDescription": "Re-pull this dataset's data from where it was originally imported. The dataset keeps serving its current data until the new data is ready.",
+      "reviewDialogTitle": "Review and retry refresh",
+      "reviewDialogDescription": "Fetch the source again and publish only if it matches the run you reviewed.",
       "tokenLabel": "Access token (optional)",
       "tokenPlaceholder": "Only needed for a protected source",
       "tokenHint": "Used for this refresh only; not stored with the dataset.",
@@ -849,8 +851,23 @@
           "running": "Running",
           "succeeded": "Succeeded",
           "failed": "Failed",
-          "cancelled": "Cancelled"
-        }
+          "cancelled": "Cancelled",
+          "blocked": "Needs review"
+        },
+        "sourceCountUnavailable": "Source count unavailable.",
+        "identityUnavailable": "Record identities were not compared.",
+        "countEvidence": "Source: {{source}} · fetched: {{fetched}}",
+        "sourceUsed": "Source used: {{source}}",
+        "columnsRemoved": "Columns removed: {{columns}}",
+        "typesChanged": "Column types changed: {{columns}}",
+        "permalink": "Link",
+        "reason": {
+          "source_count_unavailable": "GeoLens could not compare the fetched row count with the source, so publication requires review.",
+          "empty_result": "The refresh would replace a non-empty dataset with an empty result.",
+          "destructive_schema_change": "The refresh removes columns or changes their types."
+        },
+        "reviewAndRetry": "Review and retry",
+        "loadMore": "Load older runs"
       }
     },
     "vrt": {

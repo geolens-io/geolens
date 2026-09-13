@@ -31,7 +31,7 @@ from dataclasses import dataclass
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import defer_async_with_tenant
@@ -66,6 +66,7 @@ from app.platform.refresh.credentials import (
     discard_service_credential,
     stash_service_credential,
 )
+from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
     DatasetBusyError,
     create_pending_run,
@@ -110,6 +111,127 @@ class _ServiceOrigin:
     base_url: str
     layer_id: int | str | None
     layer_name: str
+
+
+async def _accepted_refresh_fingerprint(
+    db: AsyncSession,
+    *,
+    dataset_id: uuid.UUID,
+    run_id: uuid.UUID | None,
+) -> str | None:
+    """Resolve the approval token from an actionable blocked run."""
+    if run_id is None:
+        return None
+    accepted_run = await db.scalar(
+        select(DatasetRefreshRun).where(
+            DatasetRefreshRun.id == run_id,
+            DatasetRefreshRun.dataset_id == dataset_id,
+            DatasetRefreshRun.status == "blocked",
+        )
+    )
+    verification = accepted_run.verification if accepted_run is not None else None
+    fingerprint = (
+        verification.get("review_fingerprint")
+        if isinstance(verification, dict)
+        else None
+    )
+    consumed_by = (
+        verification.get("acceptance_consumed_by_run_id")
+        if isinstance(verification, dict)
+        else None
+    )
+    if not isinstance(fingerprint, str) or consumed_by is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The selected run is not an actionable blocked refresh.",
+        )
+    return fingerprint
+
+
+async def _prepare_blocked_refresh_acceptance(
+    db: AsyncSession,
+    *,
+    dataset_id: uuid.UUID,
+    run_id: uuid.UUID | None,
+    origin_kind: str | None,
+) -> str | None:
+    if run_id is None:
+        return None
+    if origin_kind != "service":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only service refreshes can accept a blocked publication.",
+        )
+    return await _accepted_refresh_fingerprint(
+        db,
+        dataset_id=dataset_id,
+        run_id=run_id,
+    )
+
+
+async def _consume_blocked_refresh_acceptance(
+    db: AsyncSession,
+    *,
+    dataset_id: uuid.UUID,
+    blocked_run_id: uuid.UUID,
+    new_run_id: uuid.UUID,
+    fingerprint: str,
+) -> None:
+    """Atomically mark the matching blocked run as consumed by this dispatch."""
+    consumed = await db.scalar(
+        text(
+            """
+            UPDATE catalog.dataset_refresh_runs
+            SET verification = verification || jsonb_build_object(
+                'acceptance_consumed_by_run_id', CAST(:new_run_id AS text)
+            )
+            WHERE id = :blocked_run_id
+              AND dataset_id = :dataset_id
+              AND status = 'blocked'
+              AND verification->>'review_fingerprint' = :fingerprint
+              AND NOT (verification ? 'acceptance_consumed_by_run_id')
+            RETURNING id
+            """
+        ),
+        {
+            "blocked_run_id": str(blocked_run_id),
+            "dataset_id": str(dataset_id),
+            "new_run_id": str(new_run_id),
+            "fingerprint": fingerprint,
+        },
+    )
+    if consumed is None:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The selected blocked refresh was already accepted or changed.",
+        )
+
+
+async def _release_blocked_refresh_acceptance(
+    db: AsyncSession,
+    *,
+    blocked_run_id: uuid.UUID | None,
+    new_run_id: uuid.UUID,
+) -> None:
+    """Make an acceptance reusable when its dispatch never reached the queue."""
+    if blocked_run_id is None:
+        return
+    await db.execute(
+        text(
+            """
+            UPDATE catalog.dataset_refresh_runs
+            SET verification = verification - 'acceptance_consumed_by_run_id'
+            WHERE id = :blocked_run_id
+              AND status = 'blocked'
+              AND verification->>'acceptance_consumed_by_run_id' = :new_run_id
+            """
+        ),
+        {
+            "blocked_run_id": str(blocked_run_id),
+            "new_run_id": str(new_run_id),
+        },
+    )
 
 
 def _resolve_service_origin(dataset) -> _ServiceOrigin:
@@ -961,6 +1083,12 @@ async def refresh_dataset(
     # with it. Unnamed kinds fall through to the service path, whose
     # resolver answers `refresh_not_applicable` for originless kinds.
     origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
+    accepted_refresh_fingerprint = await _prepare_blocked_refresh_acceptance(
+        db,
+        dataset_id=dataset_id,
+        run_id=body.accept_blocked_run_id,
+        origin_kind=origin_kind,
+    )
     if origin_kind == "postgis":
         return await _dispatch_postgis_refresh(
             db,
@@ -1152,6 +1280,15 @@ async def refresh_dataset(
         db, dataset_id
     )
 
+    if body.accept_blocked_run_id is not None:
+        await _consume_blocked_refresh_acceptance(
+            db,
+            dataset_id=dataset_id,
+            blocked_run_id=body.accept_blocked_run_id,
+            new_run_id=run.id,
+            fingerprint=accepted_refresh_fingerprint,
+        )
+
     # fix(#1277): the credential is judged by the policy the WORKER will
     # apply, selected by the dispatched binding's service type -- done
     # HERE too, after the re-read, since the request model can't know
@@ -1195,6 +1332,14 @@ async def refresh_dataset(
         # Distinguishes a server-side refresh from a dialog-driven
         # re-upload in the job list, where both are `reupload: True`.
         "refresh": True,
+        **(
+            {
+                "accepted_refresh_run_id": str(body.accept_blocked_run_id),
+                "accepted_refresh_fingerprint": accepted_refresh_fingerprint,
+            }
+            if body.accept_blocked_run_id is not None
+            else {}
+        ),
     }
     # Read after the reservation too, for the same reason the binding is: a
     # refresh that finished in the window changed the count this one is
@@ -1244,6 +1389,11 @@ async def refresh_dataset(
 
     async def _rollback(defer_exc: BaseException) -> None:
         await inner_rollback(defer_exc)
+        await _release_blocked_refresh_acceptance(
+            db,
+            blocked_run_id=body.accept_blocked_run_id,
+            new_run_id=run_id,
+        )
         # The worker will never come for it, and the run is already terminal.
         # Best-effort; the TTL is the real guarantee.
         await discard_service_credential(credential_ref)

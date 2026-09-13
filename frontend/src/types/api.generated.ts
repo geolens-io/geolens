@@ -1605,7 +1605,7 @@ export interface paths {
         put?: never;
         /**
          * Validate Configuration
-         * @description Validate connectivity to storage, cache, and all enabled OIDC providers.
+         * @description Validate storage, cache, credential handoff, and enabled OIDC providers.
          *
          *     Returns pass/fail with latency and error details for each service.
          */
@@ -2416,15 +2416,11 @@ export interface paths {
         };
         /**
          * List Dataset Refresh Runs
-         * @description Refresh history for a dataset: every attempt, including the failures.
+         * @description Return durable refresh history for a dataset.
          *
-         *     The history remains available after the related ingest job is purged.
-         *
-         *     A caller who is neither the dataset owner nor an administrator
-         *     sees the timeline and outcomes but not who triggered each run, nor the
-         *     failure text, nor the schema diff. Without that, a PUBLIC dataset's
-         *     history enumerates its editors and leaks origin detail through error
-         *     strings.
+         *     Readers can see the timeline and outcomes. Only the dataset owner and
+         *     admins can see actors, failure details, schema changes, and verification
+         *     source data.
          */
         get: operations["list_dataset_refresh_runs_datasets__dataset_id__refresh_runs_get"];
         put?: never;
@@ -7319,6 +7315,8 @@ export interface components {
             storage: components["schemas"]["ServiceProbeResult"];
             /** @description Cache backend probe result. */
             cache: components["schemas"]["ServiceProbeResult"];
+            /** @description Shared credential handoff probe result. */
+            credential_store: components["schemas"]["ServiceProbeResult"];
             /**
              * Oidc Providers
              * @description Per-provider OIDC discovery probe results, keyed by provider slug.
@@ -7717,6 +7715,11 @@ export interface components {
             token?: string | null;
             /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
             auth?: components["schemas"]["ServiceAuthRequest"] | null;
+            /**
+             * Accept Blocked Run Id
+             * @description A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.
+             */
+            accept_blocked_run_id?: string | null;
         };
         /**
          * DatasetRefreshResponse
@@ -7771,9 +7774,9 @@ export interface components {
          * DatasetRefreshRunResponse
          * @description One refresh attempt, including failures.
          *
-         *     Five fields are redacted for callers who are neither the dataset owner nor
+         *     Refresh details are redacted for callers who are neither the dataset owner nor
          *     an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
-         *     ``error_message`` and ``schema_diff``. A public dataset's refresh history
+         *     ``error_message``, ``schema_diff`` and ``verification``. A public dataset's refresh history
          *     otherwise enumerates who edits it, and failure text leaks internal origin
          *     detail.
          */
@@ -7810,7 +7813,7 @@ export interface components {
             trigger: string;
             /**
              * Status
-             * @description pending, running, succeeded, failed, or cancelled
+             * @description pending, running, succeeded, failed, cancelled, or blocked
              */
             status: string;
             /** Triggered By */
@@ -7836,6 +7839,8 @@ export interface components {
             feature_count_after?: number | null;
             /** @description Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap. */
             schema_diff?: components["schemas"]["SchemaDiff"] | null;
+            /** @description Pre-publication count evidence, review reasons, and publication decision. */
+            verification?: components["schemas"]["RefreshVerification"] | null;
             /** Error Code */
             error_code?: string | null;
             /**
@@ -11543,6 +11548,42 @@ export interface components {
         RefreshRequest: {
             /** Refresh Token */
             refresh_token: string;
+        };
+        /** RefreshVerification */
+        RefreshVerification: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "allowed" | "blocked" | "rejected";
+            /** Source Binding */
+            source_binding: {
+                [key: string]: unknown;
+            };
+            /** Source Count */
+            source_count: number | null;
+            /** Fetched Count */
+            fetched_count: number | null;
+            /**
+             * Count Status
+             * @enum {string}
+             */
+            count_status: "matched" | "mismatched" | "unavailable";
+            /**
+             * Identity Check
+             * @enum {string}
+             */
+            identity_check: "unavailable" | "content_digest";
+            /** Content Digest */
+            content_digest?: string | null;
+            /** Review Reasons */
+            review_reasons: ("source_count_unavailable" | "empty_result" | "destructive_schema_change")[];
+            /** Review Fingerprint */
+            review_fingerprint: string | null;
+            /** Accepted Blocked Run Id */
+            accepted_blocked_run_id: string | null;
+            /** Acceptance Consumed By Run Id */
+            acceptance_consumed_by_run_id?: string | null;
         };
         /** RegisterRequest */
         RegisterRequest: {
