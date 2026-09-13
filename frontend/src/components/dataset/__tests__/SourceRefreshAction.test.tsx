@@ -483,19 +483,20 @@ describe('SourceRefreshAction', () => {
     const onAcceptHandled = vi.fn();
     const { rerender } = render(
       <SourceRefreshAction
-        dataset={makeDataset()}
+        dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
         watch={makeWatch()}
         acceptBlockedRunId="run-blocked"
         onAcceptHandled={onAcceptHandled}
       />,
     );
     await screen.findByRole('dialog');
+    await user.type(screen.getByLabelText('Access token (optional)'), 'abandoned-token');
 
     drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingStoreState.targetDatasetId = 'dataset-1';
     rerender(
       <SourceRefreshAction
-        dataset={makeDataset()}
+        dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
         watch={makeWatch()}
         acceptBlockedRunId="run-blocked"
         onAcceptHandled={onAcceptHandled}
@@ -505,6 +506,17 @@ describe('SourceRefreshAction', () => {
     await user.click(screen.getByRole('button', { name: 'Start refresh' }));
     expect(mutateAsync).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    drawingStoreState.selectedFeature = null;
+    drawingStoreState.targetDatasetId = null;
+    rerender(
+      <SourceRefreshAction
+        dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+        watch={makeWatch()}
+      />,
+    );
+    await openDialog(user);
+    expect(screen.getByLabelText('Access token (optional)')).toHaveValue('');
   });
 
   it('does not block on a feature selection that belongs to a different dataset', () => {

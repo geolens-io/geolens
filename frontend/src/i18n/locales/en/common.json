@@ -531,6 +531,7 @@
       "statusError": "Failed",
       "latency": "{{ms}}ms",
       "noOidc": "No OIDC providers configured",
+      "credentialStore": "Credential store",
       "resultsLabel": "Connectivity results"
     },
     "import": {

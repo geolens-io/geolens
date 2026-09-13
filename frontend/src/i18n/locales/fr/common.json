@@ -514,6 +514,7 @@
       "statusError": "Échoué",
       "latency": "{{ms}}ms",
       "noOidc": "Aucun fournisseur OIDC configuré",
+      "credentialStore": "Stockage des identifiants",
       "resultsLabel": "Résultats de connectivité"
     },
     "import": {

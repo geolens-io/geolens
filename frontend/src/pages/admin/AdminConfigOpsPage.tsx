@@ -191,6 +191,10 @@ function ValidateSection() {
               <TableBody>
                 <ServiceRow name="Storage" probe={result.storage} />
                 <ServiceRow name="Cache" probe={result.cache} />
+                <ServiceRow
+                  name={t('configOps.validate.credentialStore')}
+                  probe={result.credential_store}
+                />
                 {oidcEntries.length > 0 ? (
                   oidcEntries.map(([providerName, probe]) => (
                     <ServiceRow key={providerName} name={`OIDC: ${providerName}`} probe={probe} />

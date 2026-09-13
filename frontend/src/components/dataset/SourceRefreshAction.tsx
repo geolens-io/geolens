@@ -168,8 +168,7 @@ export function SourceRefreshAction({
 
   const handleConfirm = async () => {
     if (hasSelectedFeature) {
-      setOpen(false);
-      onAcceptHandled?.();
+      handleOpenChange(false);
       return;
     }
     setError(null);

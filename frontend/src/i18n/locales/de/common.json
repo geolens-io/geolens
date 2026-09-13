@@ -514,6 +514,7 @@
       "statusError": "Fehlgeschlagen",
       "latency": "{{ms}}ms",
       "noOidc": "Keine OIDC-Anbieter konfiguriert",
+      "credentialStore": "Anmeldedatenspeicher",
       "resultsLabel": "Konnektivitätsergebnisse"
     },
     "import": {

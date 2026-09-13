@@ -96,6 +96,7 @@ export interface ServiceProbeResult {
 export interface ConnectivityResult {
   storage: ServiceProbeResult;
   cache: ServiceProbeResult;
+  credential_store: ServiceProbeResult;
   oidc_providers: Record<string, ServiceProbeResult>;
 }
 

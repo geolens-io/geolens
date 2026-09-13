@@ -451,11 +451,22 @@ describe('DatasetPage editable affordance integration', () => {
 
   it('selects Sources for a refresh-run permalink on a fresh page', async () => {
     setUser(EDITOR_USER);
+    const user = userEvent.setup();
     window.history.replaceState({}, '', '/datasets/dataset-1#refresh-run-run-old-target');
 
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    expect(await screen.findByRole('tab', { name: 'Source' })).toHaveAttribute('aria-selected', 'true');
+    const sourceTab = await screen.findByRole('tab', { name: 'Source' });
+    expect(sourceTab).toHaveAttribute('aria-selected', 'true');
+
+    await user.click(screen.getByRole('tab', { name: 'Overview' }));
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+
+    act(() => {
+      window.history.replaceState({}, '', '/datasets/dataset-1#refresh-run-run-old-target');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    expect(sourceTab).toHaveAttribute('aria-selected', 'true');
   });
 
   it('does not show metadata pending controls when only geometry edits are dirty', () => {
