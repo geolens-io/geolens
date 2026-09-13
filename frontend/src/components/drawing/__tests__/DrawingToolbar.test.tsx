@@ -135,6 +135,17 @@ describe('DrawingToolbar edit action bar', () => {
     expect(screen.getByLabelText('drawing.editAttributes')).toBeInTheDocument();
     expect(screen.getByLabelText('drawing.deleteFeature')).toBeInTheDocument();
   });
+
+  it('disables edit actions while a feature mutation is pending', () => {
+    drawingState.selectedFeature = { gid: 1, tdId: 'td-1', properties: {} };
+
+    render(<DrawingToolbar geometryType="POINT" onClose={vi.fn()} isMutating />);
+
+    expect(screen.getByLabelText('drawing.saveChanges')).toBeDisabled();
+    expect(screen.getByLabelText('drawing.cancelEditing')).toBeDisabled();
+    expect(screen.getByLabelText('drawing.editAttributes')).toBeDisabled();
+    expect(screen.getByLabelText('drawing.deleteFeature')).toBeDisabled();
+  });
 });
 
 describe('DrawingToolbar callbacks', () => {

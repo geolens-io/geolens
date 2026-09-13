@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Trash2, Plus } from 'lucide-react';
@@ -38,6 +38,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAddColumn, useColumnReferences, useDropColumn } from '@/hooks/use-features';
+import { useAuthStore } from '@/stores/auth-store';
+import { formatMutationError } from '@/lib/error-map';
 
 const ALLOWED_TYPES = ['text', 'integer', 'real', 'boolean', 'date', 'timestamp'] as const;
 const COLUMN_NAME_RE = /^[a-z][a-z0-9_]{0,62}$/;
@@ -58,6 +60,17 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const nameInputId = useId();
   const nameErrorId = useId();
+  const newNameRef = useRef('');
+  const newTypeRef = useRef('text');
+  const addInFlightRef = useRef(false);
+  const authIdentity = useAuthStore((state) => `${state.sessionEpoch}:${state.user?.id ?? ''}`);
+  const requestScopeRef = useRef({ datasetId, authIdentity });
+  if (
+    requestScopeRef.current.datasetId !== datasetId
+    || requestScopeRef.current.authIdentity !== authIdentity
+  ) {
+    requestScopeRef.current = { datasetId, authIdentity };
+  }
 
   const addColumnMutation = useAddColumn();
   const dropColumnMutation = useDropColumn();
@@ -65,6 +78,15 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
   const columnReferences = useColumnReferences(datasetId, confirmDelete);
 
   const displayColumns = columns.filter((c) => !SYSTEM_COLUMNS.has(c.name));
+
+  useEffect(() => {
+    newNameRef.current = '';
+    newTypeRef.current = 'text';
+    setNewName('');
+    setNewType('text');
+    setNameError(null);
+    setConfirmDelete(null);
+  }, [datasetId]);
 
   function validateName(name: string): string | null {
     if (!name) return t('schema.validation.required');
@@ -81,38 +103,59 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
   }
 
   function handleAddColumn() {
+    if (addInFlightRef.current) return;
     const error = validateName(newName);
     if (error) {
       setNameError(error);
       return;
     }
 
+    const submittedDatasetId = datasetId;
+    const submittedName = newName;
+    const submittedType = newType;
+    const submittedScope = requestScopeRef.current;
+    addInFlightRef.current = true;
     addColumnMutation.mutate(
-      { datasetId, column: { name: newName, type: newType } },
+      { datasetId: submittedDatasetId, column: { name: submittedName, type: submittedType } },
       {
         onSuccess: () => {
+          if (requestScopeRef.current !== submittedScope) return;
           toast.success(t('schema.columnAdded'));
-          setNewName('');
-          setNewType('text');
-          setNameError(null);
+          if (
+            newNameRef.current === submittedName
+            && newTypeRef.current === submittedType
+          ) {
+            newNameRef.current = '';
+            newTypeRef.current = 'text';
+            setNewName('');
+            setNewType('text');
+            setNameError(null);
+          }
         },
         onError: (err) => {
+          if (requestScopeRef.current !== submittedScope) return;
           toast.error(err instanceof Error ? err.message : t('schema.addFailed'));
+        },
+        onSettled: () => {
+          addInFlightRef.current = false;
         },
       },
     );
   }
 
   function handleDropColumn(columnName: string) {
+    const submittedScope = requestScopeRef.current;
     dropColumnMutation.mutate(
       { datasetId, columnName },
       {
         onSuccess: () => {
+          if (requestScopeRef.current !== submittedScope) return;
           toast.success(t('schema.columnRemoved'));
           setConfirmDelete(null);
         },
-        // fix(#438): UX-07 — the dropColumn hook raises the error toast.
-        onError: () => {
+        onError: (err) => {
+          if (requestScopeRef.current !== submittedScope) return;
+          toast.error(formatMutationError('dataset:schema.removeFailed', err));
           setConfirmDelete(null);
         },
       },
@@ -223,6 +266,7 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
                 placeholder={t('schema.columnNamePlaceholder')}
                 value={newName}
                 onChange={(e) => {
+                  newNameRef.current = e.target.value;
                   setNewName(e.target.value);
                   if (nameError) setNameError(null);
                 }}
@@ -241,7 +285,13 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
                 </p>
               )}
             </div>
-            <Select value={newType} onValueChange={setNewType}>
+            <Select
+              value={newType}
+              onValueChange={(value) => {
+                newTypeRef.current = value;
+                setNewType(value);
+              }}
+            >
               <SelectTrigger className="w-[130px]" aria-label={t('schema.columnType')}>
                 <SelectValue />
               </SelectTrigger>

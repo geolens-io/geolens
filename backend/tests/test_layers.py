@@ -144,6 +144,38 @@ class TestCreateLayerRBAC:
 
 
 class TestCreateLayerValidation:
+    async def test_duplicate_column_names_rejected_before_creation(
+        self, client: AsyncClient, editor_auth_header: dict
+    ):
+        """Repeated definitions are a caller error and leave no partial layer."""
+        title = f"Duplicate Columns {uuid.uuid4().hex[:8]}"
+        response = await client.post(
+            "/layers/",
+            json={
+                "title": title,
+                "geometry_type": "Point",
+                "columns": [
+                    {"name": "note", "type": "text"},
+                    {"name": "note", "type": "integer"},
+                ],
+            },
+            headers=editor_auth_header,
+        )
+        assert response.status_code == 400, response.text
+        assert "note" in response.json()["detail"]
+
+        retry = await client.post(
+            "/layers/",
+            json={
+                "title": title,
+                "geometry_type": "Point",
+                "columns": [{"name": "note", "type": "text"}],
+            },
+            headers=editor_auth_header,
+        )
+        assert retry.status_code == 201, retry.text
+        assert retry.json()["table_name"] == title.lower().replace(" ", "_")
+
     async def test_create_layer_invalid_geometry_type(
         self, client: AsyncClient, editor_auth_header: dict
     ):

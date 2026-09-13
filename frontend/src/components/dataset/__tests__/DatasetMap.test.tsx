@@ -105,6 +105,7 @@ vi.mock('@/stores/drawing-store', () => {
   // useDrawingStore.getState() directly (not via the selector hook), the
   // same static-access pattern the real zustand store supports.
   useDrawingStore.getState = () => drawingState;
+  useDrawingStore.subscribe = vi.fn(() => vi.fn());
   return { useDrawingStore };
 });
 
@@ -112,6 +113,11 @@ vi.mock('@/stores/drawing-store', () => {
 // literal per render) so a test can hold onto `terraDrawState.clear` and
 // assert it was invoked by the identity-change cleanup effect.
 const terraDrawState = vi.hoisted(() => ({
+  handleDrawFinish: null as ((feature: {
+    type: 'Feature';
+    geometry: { type: 'Point'; coordinates: number[] };
+    properties: Record<string, unknown>;
+  }) => void) | null,
   setMode: vi.fn(),
   isReady: false,
   addFeatures: vi.fn(),
@@ -125,7 +131,10 @@ const terraDrawState = vi.hoisted(() => ({
 }));
 
 vi.mock('@/components/drawing/hooks/use-terra-draw', () => ({
-  useTerraDraw: () => terraDrawState,
+  useTerraDraw: (_map: unknown, handleDrawFinish: typeof terraDrawState.handleDrawFinish) => {
+    terraDrawState.handleDrawFinish = handleDrawFinish;
+    return terraDrawState;
+  },
   getModeName: () => 'polygon',
   getAvailableModes: vi.fn(() => ['select', 'point', 'linestring', 'polygon']),
 }));
@@ -136,8 +145,9 @@ import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 // vi.fn() per render) so a test can control WHEN the update mutation
 // resolves, to simulate an identity change while it is in flight.
 const updateFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const createFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/hooks/use-features', () => ({
-  useCreateFeature: () => ({ mutateAsync: vi.fn() }),
+  useCreateFeature: () => ({ mutateAsync: createFeatureMutateAsync }),
   useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync }),
   useDeleteFeature: () => ({ mutateAsync: vi.fn() }),
 }));
@@ -165,6 +175,49 @@ describe('DatasetMap interaction state', () => {
     drawingState.isDrawing = false;
     drawingState.activeMode = null;
     drawingState.setDrawing.mockReset();
+    createFeatureMutateAsync.mockReset();
+    createFeatureMutateAsync.mockResolvedValue({});
+  });
+
+  it('does not let an older create completion clear a replacement draft', async () => {
+    let resolveCreate!: (value: unknown) => void;
+    createFeatureMutateAsync.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Point"
+        datasetId="dataset-1"
+        columnInfo={[{ name: 'population', type: 'integer' }]}
+        canEdit
+      />,
+    );
+
+    act(() => {
+      terraDrawState.handleDrawFinish?.({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [1, 1] },
+        properties: {},
+      });
+    });
+    fireEvent.change(screen.getByLabelText('population'), { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(createFeatureMutateAsync).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      terraDrawState.handleDrawFinish?.({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [2, 2] },
+        properties: {},
+      });
+    });
+    await act(async () => {
+      resolveCreate({});
+    });
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
   it('keeps the hero map static until edit mode starts', () => {

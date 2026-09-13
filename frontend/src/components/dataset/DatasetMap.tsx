@@ -269,6 +269,13 @@ export const DatasetMap = memo(function DatasetMap({
   const clearDrawing = useDrawingStore((s) => s.clearDrawing);
   const selectedFeature = useDrawingStore((s) => s.selectedFeature);
   const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
+  const requestScopeRef = useRef({ datasetId, sessionEpoch });
+  if (
+    requestScopeRef.current.datasetId !== datasetId
+    || requestScopeRef.current.sessionEpoch !== sessionEpoch
+  ) {
+    requestScopeRef.current = { datasetId, sessionEpoch };
+  }
 
   // Editable columns (non-system) for the attribute form
   const editableColumns = useMemo(
@@ -337,6 +344,7 @@ export const DatasetMap = memo(function DatasetMap({
     selectFeatureFromMap,
     cleanupOverlayListener,
     resetOverlay,
+    isFeatureMutationPending,
   } = useFeatureEditing({
     mapRef,
     datasetId,
@@ -929,11 +937,15 @@ export const DatasetMap = memo(function DatasetMap({
 
   // Attribute form handlers (new feature creation)
   const handleAttributeSubmit = useCallback(
-    (properties: Record<string, unknown>) => {
+    async (properties: Record<string, unknown>) => {
       if (pendingGeometry) {
-        saveAndRefresh(pendingGeometry, properties);
+        const submittedGeometry = pendingGeometry;
+        const submittedScope = requestScopeRef.current;
+        const saved = await saveAndRefresh(submittedGeometry, properties);
+        if (saved && requestScopeRef.current === submittedScope) {
+          setPendingGeometry((current) => current === submittedGeometry ? null : current);
+        }
       }
-      setPendingGeometry(null);
     },
     [pendingGeometry, saveAndRefresh],
   );
@@ -1092,6 +1104,7 @@ export const DatasetMap = memo(function DatasetMap({
           onDeleteFeature={() => setDeleteConfirmOpen(true)}
           onUndo={undo}
           canUndo={canUndo}
+          isMutating={isFeatureMutationPending}
         />
       )}
 

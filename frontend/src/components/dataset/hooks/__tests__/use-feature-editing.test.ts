@@ -286,6 +286,80 @@ describe('useFeatureEditing — post-mutation cleanup skipped after a stale iden
     expect(useDrawingStore.getState().selectedFeature).toEqual({ gid: 7, tdId: 'td-7', properties: {} });
   });
 
+  it('handleSaveEdit skips cleanup when another dataset is opened while the update is in flight', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const update = deferred<unknown>();
+    updateMutateAsync.mockReturnValueOnce(update.promise);
+
+    const removeFeatures = vi.fn();
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { removeFeatures, getSnapshotFeature });
+
+    const saving = result.current.handleSaveEdit();
+    act(() => {
+      useDrawingStore.getState().setDrawing('ds-2', 'buildings', 'Point');
+      useDrawingStore.getState().setSelectedFeature(
+        { gid: 7, tdId: 'td-7', properties: { dataset: 'ds-2' } },
+        useDrawingStore.getState().sessionEpoch,
+      );
+    });
+    update.resolve({});
+    await act(async () => {
+      await saving;
+    });
+
+    expect(removeFeatures).not.toHaveBeenCalled();
+    expect(map.setFilter).not.toHaveBeenCalled();
+    expect(useDrawingStore.getState().selectedFeature).toEqual({
+      gid: 7,
+      tdId: 'td-7',
+      properties: { dataset: 'ds-2' },
+    });
+  });
+
+  it('handleSaveEdit does not clear a newer selection in the same dataset', async () => {
+    useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+    useDrawingStore.getState().setSelectedFeature(
+      { gid: 7, tdId: 'td-7', properties: {} },
+      useDrawingStore.getState().sessionEpoch,
+    );
+    const update = deferred<unknown>();
+    updateMutateAsync.mockReturnValueOnce(update.promise);
+
+    const removeFeatures = vi.fn();
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { removeFeatures, getSnapshotFeature });
+
+    const saving = result.current.handleSaveEdit();
+    act(() => {
+      useDrawingStore.getState().setSelectedFeature(
+        { gid: 8, tdId: 'td-8', properties: { name: 'new selection' } },
+        useDrawingStore.getState().sessionEpoch,
+      );
+    });
+    update.resolve({});
+    await act(async () => {
+      await saving;
+    });
+
+    expect(removeFeatures).not.toHaveBeenCalled();
+    expect(useDrawingStore.getState().selectedFeature).toEqual({
+      gid: 8,
+      tdId: 'td-8',
+      properties: { name: 'new selection' },
+    });
+  });
+
   it('handleSaveEdit still cleans up normally when the identity has not changed', async () => {
     useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
     const removeFeatures = vi.fn();
@@ -804,10 +878,12 @@ describe('useFeatureEditing — stale-failure feedback suppressed (fix #1761 rev
 
     createMutateAsync.mockRejectedValueOnce(new Error('boom'));
 
+    let saved: boolean | undefined;
     await act(async () => {
-      await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+      saved = await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
     });
 
+    expect(saved).toBe(false);
     expect(toast.error).toHaveBeenCalledTimes(1);
   });
 
@@ -938,5 +1014,57 @@ describe('useFeatureEditing — stale-failure feedback suppressed (fix #1761 rev
     });
 
     expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('drawing session return to the same dataset', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+  });
+
+  it('ignores create completion after leaving and reopening the drawing target', async () => {
+    const request = deferred<unknown>();
+    createMutateAsync.mockReturnValueOnce(request.promise);
+    const { result } = renderEditing(makeMapWithVectorSource(vi.fn()));
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    });
+    act(() => {
+      useDrawingStore.getState().setDrawing('ds-2', 'other', 'Point');
+      useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+    });
+    await act(async () => {
+      request.resolve({});
+      expect(await saving).toBe(false);
+    });
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('ignores a feature fetch after leaving and reopening the drawing target', async () => {
+    const request = deferred<GeoJSONFeature>();
+    vi.mocked(getFeature).mockReturnValueOnce(request.promise);
+    const map = {
+      getLayer: vi.fn(() => true),
+      queryRenderedFeatures: vi.fn(() => [{ id: 9, properties: {} }]),
+      getSource: vi.fn(),
+      setFilter: vi.fn(),
+      getFilter: vi.fn(),
+    } as unknown as MaplibreMap;
+    const { result, opts } = renderEditing(map);
+    let selecting!: Promise<void>;
+    act(() => { selecting = result.current.selectFeatureFromMap(map, FAKE_POINT); });
+    act(() => {
+      useDrawingStore.getState().setDrawing('ds-2', 'other', 'Point');
+      useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+    });
+    await act(async () => {
+      request.resolve({ type: 'Feature', id: 9, geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} });
+      await selecting;
+    });
+    expect(opts.clear).not.toHaveBeenCalled();
+    expect(opts.addFeatures).not.toHaveBeenCalled();
   });
 });

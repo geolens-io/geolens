@@ -81,6 +81,15 @@ _LANGUAGE_PATH = Path(
 )
 
 
+async def _touch_record(db: AsyncSession, record: Record, user: Identity) -> None:
+    """Stamp the parent before child writes, in their transaction."""
+    # Force an UPDATE for the same actor; the trigger supplies monotonic wall time.
+    record.updated_at = func.now()
+    record.updated_by = user.id
+    # Acquire the parent write lock before a child lock to match cascading delete.
+    await db.flush()
+
+
 async def _propagate_record_write(
     record_id: uuid.UUID,
     *,
@@ -371,6 +380,7 @@ async def create_contact_endpoint(
     """Create a new contact for a record."""
     record = await _check_record_ownership(db, record_id, user)
     try:
+        await _touch_record(db, record, user)
         contact = await create_contact(
             db,
             record_id,
@@ -414,8 +424,9 @@ async def update_contact_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> ContactResponse:
     """Update a contact."""
-    await _check_record_ownership(db, record_id, user)
+    record = await _check_record_ownership(db, record_id, user)
     try:
+        await _touch_record(db, record, user)
         # fix(#458): exclude_unset, not exclude_none — an explicitly-set
         # null clears the field (the dataset contract); the schema already
         # 422s nulls on non-clearable fields.
@@ -458,8 +469,9 @@ async def delete_contact_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a contact."""
-    await _check_record_ownership(db, record_id, user)
+    record = await _check_record_ownership(db, record_id, user)
     try:
+        await _touch_record(db, record, user)
         await delete_contact(db, contact_id, record_id)
         await db.commit()
     except ValueError:
@@ -588,6 +600,7 @@ async def create_keyword_endpoint(
     """Create a new keyword for a record."""
     record = await _check_record_ownership(db, record_id, user)
     try:
+        await _touch_record(db, record, user)
         kw = await create_keyword(
             db,
             record_id,
@@ -628,8 +641,9 @@ async def delete_keyword_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a keyword."""
-    await _check_record_ownership(db, record_id, user)
+    record = await _check_record_ownership(db, record_id, user)
     try:
+        await _touch_record(db, record, user)
         await delete_keyword(db, keyword_id, record_id)
         await db.commit()
     except ValueError:
@@ -714,6 +728,7 @@ async def create_distribution_endpoint(
     """Create a manual distribution for a record."""
     record = await _check_record_ownership(db, record_id, user)
     try:
+        await _touch_record(db, record, user)
         dist = await create_distribution(
             db,
             record_id,
@@ -765,8 +780,9 @@ async def update_distribution_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> DistributionResponse:
     """Update a distribution (manual only; auto-generated distributions are immutable)."""
-    await _check_record_ownership(db, record_id, user)
+    record = await _check_record_ownership(db, record_id, user)
     try:
+        await _touch_record(db, record, user)
         # fix(#458): exclude_unset, not exclude_none — see update_contact.
         dist = await update_distribution(
             db, distribution_id, record_id, **body.model_dump(exclude_unset=True)
@@ -813,8 +829,9 @@ async def delete_distribution_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a distribution (manual only; auto-generated distributions are immutable)."""
-    await _check_record_ownership(db, record_id, user)
+    record = await _check_record_ownership(db, record_id, user)
     try:
+        await _touch_record(db, record, user)
         await delete_distribution(db, distribution_id, record_id)
         await db.commit()
     except ValueError as e:

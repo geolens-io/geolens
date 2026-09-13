@@ -352,6 +352,7 @@ export function OverviewTab({
                     allowClear
                     as="p"
                     multiline
+                    saveOnBlur
                     canEdit={capabilities.summary.editable}
                     placeholder={t('inline.noDescription')}
                     className="text-sm leading-7"

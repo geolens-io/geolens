@@ -55,6 +55,62 @@ async def test_rename_column_to_existing_name_fails(
 
 
 @pytest.mark.anyio
+async def test_rename_column_preserves_a_dropped_names_metadata(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """A retained name is rejected clearly without losing either column's metadata."""
+    dataset_id = await _create_layer(
+        client, admin_auth_header, title="Reuse Dropped Column Name"
+    )
+    inserted = await client.post(
+        f"/datasets/{dataset_id}/features/",
+        json={
+            "geometry": {"type": "Point", "coordinates": [1, 2]},
+            "properties": {"name": "preserved", "value": "removed"},
+        },
+        headers=admin_auth_header,
+    )
+    assert inserted.status_code == 201, inserted.text
+    gid = inserted.json()["id"]
+
+    dropped = await client.delete(
+        f"/layers/{dataset_id}/columns/value", headers=admin_auth_header
+    )
+    assert dropped.status_code == 200, dropped.text
+    before = await client.get(
+        f"/datasets/{dataset_id}/attributes/",
+        params={"include_removed": True},
+        headers=admin_auth_header,
+    )
+    assert before.status_code == 200, before.text
+    attributes = {a["field_name"]: a for a in before.json()["attributes"]}
+    assert attributes["name"]["is_current"] is True
+    assert attributes["value"]["is_current"] is False
+
+    renamed = await client.patch(
+        f"/layers/{dataset_id}/columns/name/name",
+        json={"new_name": "value"},
+        headers=admin_auth_header,
+    )
+    assert renamed.status_code == 400, renamed.text
+    assert "retained metadata" in renamed.json()["detail"]
+    assert "different name" in renamed.json()["detail"]
+
+    persisted = await client.get(
+        f"/datasets/{dataset_id}/features/{gid}", headers=admin_auth_header
+    )
+    assert persisted.status_code == 200, persisted.text
+    assert persisted.json()["properties"] == {"name": "preserved"}
+    after = await client.get(
+        f"/datasets/{dataset_id}/attributes/",
+        params={"include_removed": True},
+        headers=admin_auth_header,
+    )
+    assert after.status_code == 200, after.text
+    assert after.json() == before.json()
+
+
+@pytest.mark.anyio
 async def test_rename_column_reserved_rejected(
     client: AsyncClient, admin_auth_header: dict
 ):
@@ -82,6 +138,71 @@ async def test_alter_column_type_success(client: AsyncClient, admin_auth_header:
     assert resp.status_code == 200, resp.text
     cols = {c["name"]: c for c in resp.json()["columns"]}
     assert cols["value"]["type"].lower().startswith("int")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("column_type", "value", "next_value"),
+    [
+        ("date", "2026-09-12", "2026-09-13"),
+        ("timestamp", "2026-09-12T10:30:00+00:00", "2026-09-13T11:45:00+00:00"),
+    ],
+)
+async def test_feature_temporal_column_round_trips(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    column_type: str,
+    value: str,
+    next_value: str,
+):
+    """JSON temporal values must remain writable after a supported column cast."""
+    dataset_id = await _create_layer(
+        client, admin_auth_header, title=f"Temporal Edit {column_type}"
+    )
+    changed = await client.patch(
+        f"/layers/{dataset_id}/columns/value/type",
+        json={"new_type": column_type},
+        headers=admin_auth_header,
+    )
+    assert changed.status_code == 200, changed.text
+    inserted = await client.post(
+        f"/datasets/{dataset_id}/features/",
+        json={
+            "geometry": {"type": "Point", "coordinates": [1, 2]},
+            "properties": {"value": value},
+        },
+        headers=admin_auth_header,
+    )
+    assert inserted.status_code == 201, inserted.text
+    assert inserted.json()["properties"]["value"] == value
+    feature_url = f"/datasets/{dataset_id}/features/{inserted.json()['id']}"
+    for method in ("PATCH", "PUT"):
+        updated = await client.request(
+            method,
+            feature_url,
+            json={
+                "geometry": {"type": "Point", "coordinates": [2, 3]},
+                "properties": {"value": next_value},
+            },
+            headers=admin_auth_header,
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["properties"]["value"] == next_value
+
+    invalid = await client.patch(
+        feature_url,
+        json={"properties": {"name": "partial", "value": "not-a-date"}},
+        headers=admin_auth_header,
+    )
+    assert invalid.status_code == 400, invalid.text
+    persisted = await client.get(feature_url, headers=admin_auth_header)
+    assert persisted.json()["properties"] == {"name": None, "value": next_value}
+
+    cleared = await client.patch(
+        feature_url, json={"properties": {"value": None}}, headers=admin_auth_header
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["properties"]["value"] is None
 
 
 @pytest.mark.anyio
@@ -300,3 +421,39 @@ async def test_column_ddl_recomputes_quality_detail(
     assert after.status_code == 200
     computed_after = after.json()["quality_detail"]["computed_at"]
     assert computed_after > computed_before
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
+async def test_timestamp_writes_preserve_offsets_and_reject_ambiguous_local_time(
+    client: AsyncClient, admin_auth_header: dict, method: str
+):
+    dataset_id = await _create_layer(
+        client, admin_auth_header, title=f"Offset {method}"
+    )
+    changed = await client.patch(
+        f"/layers/{dataset_id}/columns/value/type",
+        json={"new_type": "timestamp"},
+        headers=admin_auth_header,
+    )
+    assert changed.status_code == 200, changed.text
+    collection_url = f"/datasets/{dataset_id}/features/"
+    body = {
+        "geometry": {"type": "Point", "coordinates": [1, 2]},
+        "properties": {"value": "2026-09-12T10:30:00-04:00"},
+    }
+    created = await client.post(collection_url, json=body, headers=admin_auth_header)
+    assert created.status_code == 201, created.text
+    feature_url = f"{collection_url}{created.json()['id']}"
+    url = collection_url if method == "POST" else feature_url
+    accepted = await client.request(method, url, json=body, headers=admin_auth_header)
+    assert accepted.status_code == (201 if method == "POST" else 200), accepted.text
+    assert accepted.json()["properties"]["value"] == "2026-09-12T14:30:00+00:00"
+
+    body["properties"] = {"name": "must not persist", "value": "2026-09-12T10:30"}
+    denied = await client.request(method, url, json=body, headers=admin_auth_header)
+    assert denied.status_code == 400, denied.text
+    assert "timezone offset" in denied.json()["detail"]
+    persisted = await client.get(feature_url, headers=admin_auth_header)
+    assert persisted.json()["properties"]["value"] == "2026-09-12T14:30:00+00:00"
+    assert persisted.json()["properties"]["name"] is None

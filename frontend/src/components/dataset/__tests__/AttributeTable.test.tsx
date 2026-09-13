@@ -157,7 +157,7 @@ describe('AttributeTable editing contracts (E-35/E-39/E-51)', () => {
 
   it('E-51: an open cell edit closes when the row set changes', () => {
     expect(attributeTableSrc).toMatch(
-      /setEditingCell\(null\);\s*setEditError\(null\);\s*\}, \[cursor, activeFilters, pageSize\]\)/,
+      /setEditingCell\(null\);\s*setEditError\(null\);\s*\}, \[datasetId, cursor, activeFilters, pageSize\]\)/,
     );
   });
 });

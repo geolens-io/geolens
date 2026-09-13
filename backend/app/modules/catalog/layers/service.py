@@ -93,9 +93,13 @@ async def create_layer(
         geom_type=geometry_type,
     )
     if columns:
+        seen_columns: set[str] = set()
         for col in columns:
             if not COLUMN_NAME_RE.match(col.name):
                 raise ValueError(f"Invalid column name: {col.name!r}")
+            if col.name in seen_columns:
+                raise ValueError(f"Column {col.name!r} is defined more than once.")
+            seen_columns.add(col.name)
             pg_type = ALLOWED_COLUMN_TYPES[col.type]
             col_defs += f", {_qcol(col.name)} {pg_type}"
 
@@ -278,6 +282,9 @@ async def rename_column(
     Validates names, rejects reserved columns, and ensures the destination
     name is not already in use. Refreshes ``column_info`` and migrates the
     matching ``AttributeMetadata`` row to the new name afterwards.
+
+    Names retained by removed attribute metadata cannot be rename targets;
+    preserving both histories requires distinct names.
     """
     get_catalog_port().validate_table_name(dataset.table_name)
 
@@ -297,6 +304,19 @@ async def rename_column(
         raise ValueError(f"Column {column_name!r} does not exist on this layer.")
     if new_name in existing_names:
         raise ValueError(f"Column {new_name!r} already exists on this layer.")
+
+    retained_attribute = await session.scalar(
+        select(AttributeMetadata.id).where(
+            AttributeMetadata.dataset_id == dataset.id,
+            AttributeMetadata.field_name == new_name,
+            AttributeMetadata.is_current.is_(False),
+        )
+    )
+    if retained_attribute is not None:
+        raise ValueError(
+            f"Column name {new_name!r} has retained metadata from a removed column. "
+            "Choose a different name to preserve that metadata."
+        )
 
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} RENAME COLUMN {_qcol(column_name)} TO {_qcol(new_name)}"

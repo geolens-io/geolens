@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -12,7 +12,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { getAttributeInputType as getInputType } from '@/lib/attribute-values';
+import {
+  formatAttributeInputValue,
+  getAttributeInputType as getInputType,
+  serializeAttributeInputValue,
+} from '@/lib/attribute-values';
 
 /** System columns that should never appear in the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -26,7 +30,7 @@ interface AttributeFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   columns: Column[];
-  onSubmit: (properties: Record<string, unknown>) => void;
+  onSubmit: (properties: Record<string, unknown>) => void | Promise<void>;
   onCancel: () => void;
   initialValues?: Record<string, unknown>;
 }
@@ -43,7 +47,7 @@ function buildFormValues(
       if (inputType === 'checkbox') {
         init[col.name] = Boolean(initial);
       } else {
-        init[col.name] = String(initial);
+        init[col.name] = formatAttributeInputValue(initial, col.type);
       }
     } else {
       init[col.name] = inputType === 'checkbox' ? false : '';
@@ -66,6 +70,8 @@ export function AttributeForm({
     [columns],
   );
   const isEditing = initialValues !== undefined;
+  const submittingRef = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [values, setValues] = useState<Record<string, string | boolean>>(() =>
     buildFormValues(editableColumns, initialValues),
@@ -76,6 +82,18 @@ export function AttributeForm({
     setValues(buildFormValues(editableColumns, initialValues));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reseed the form only when initialValues change; the setters are stable
   }, [initialValues]);
+
+  async function submit(properties: Record<string, unknown>) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(properties);
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -90,18 +108,26 @@ export function AttributeForm({
         properties[col.name] = str === '' ? null : Number(str);
       } else {
         const str = raw as string;
-        properties[col.name] = str === '' ? null : str;
+        properties[col.name] = str === ''
+          ? null
+          : serializeAttributeInputValue(str, col.type, initialValues?.[col.name]);
       }
     }
-    onSubmit(properties);
+    void submit(properties);
   }
 
   function handleSkip() {
-    onSubmit({});
+    void submit({});
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && submittingRef.current) return;
+        onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{isEditing ? t('attributeForm.titleEdit') : t('attributeForm.titleNew')}</DialogTitle>
@@ -114,7 +140,7 @@ export function AttributeForm({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {editableColumns.map((col) => {
-            const inputType = getInputType(col.type);
+            const inputType = getInputType(col.type, initialValues?.[col.name]);
 
             if (inputType === 'checkbox') {
               return (
@@ -122,6 +148,7 @@ export function AttributeForm({
                   <Checkbox
                     id={`attr-${col.name}`}
                     checked={values[col.name] === true}
+                    disabled={isSubmitting}
                     onCheckedChange={(checked) =>
                       setValues((v) => ({ ...v, [col.name]: checked === true }))
                     }
@@ -142,8 +169,15 @@ export function AttributeForm({
                 <Input
                   id={`attr-${col.name}`}
                   type={htmlType}
-                  step={inputType === 'number-int' ? '1' : inputType === 'number-float' ? 'any' : undefined}
+                  step={
+                    inputType === 'number-int'
+                      ? '1'
+                      : inputType === 'number-float' || inputType === 'datetime-local'
+                        ? 'any'
+                        : undefined
+                  }
                   value={values[col.name] as string}
+                  disabled={isSubmitting}
                   onChange={(e) =>
                     setValues((v) => ({ ...v, [col.name]: e.target.value }))
                   }
@@ -154,14 +188,14 @@ export function AttributeForm({
 
           <DialogFooter>
             {!isEditing && (
-              <Button type="button" variant="outline" onClick={handleSkip}>
+              <Button type="button" variant="outline" onClick={handleSkip} disabled={isSubmitting}>
                 {t('attributeForm.skip')}
               </Button>
             )}
-            <Button type="button" variant="ghost" onClick={onCancel}>
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
               {t('common:cancel')}
             </Button>
-            <Button type="submit">{t('common:save')}</Button>
+            <Button type="submit" disabled={isSubmitting}>{t('common:save')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
