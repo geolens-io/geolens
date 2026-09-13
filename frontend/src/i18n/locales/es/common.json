@@ -504,7 +504,7 @@
     "validateFailed": "La validación de conectividad falló",
     "validate": {
       "title": "Validar conectividad",
-      "description": "Probar la conectividad al almacenamiento, caché y proveedores OIDC.",
+      "description": "Probar la conectividad al almacenamiento, caché, almacén de credenciales y proveedores OIDC.",
       "button": "Ejecutar validación",
       "serviceHeader": "Servicio",
       "statusHeader": "Estado",

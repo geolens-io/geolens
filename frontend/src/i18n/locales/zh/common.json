@@ -521,7 +521,7 @@
     },
     "validate": {
       "title": "验证连通性",
-      "description": "测试与存储、缓存和 OIDC 提供商的连通性。",
+      "description": "测试存储、缓存、凭据存储和 OIDC 提供商的连通性。",
       "button": "运行验证",
       "serviceHeader": "服务",
       "statusHeader": "状态",

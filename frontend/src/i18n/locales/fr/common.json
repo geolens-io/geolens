@@ -504,7 +504,7 @@
     "validateFailed": "La validation de la connectivité a échoué",
     "validate": {
       "title": "Valider la connectivité",
-      "description": "Tester la connectivité au stockage, au cache et aux fournisseurs OIDC.",
+      "description": "Tester la connectivité au stockage, au cache, au stockage des identifiants et aux fournisseurs OIDC.",
       "button": "Lancer la validation",
       "serviceHeader": "Service",
       "statusHeader": "Statut",
