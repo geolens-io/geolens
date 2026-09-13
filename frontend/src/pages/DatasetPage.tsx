@@ -95,6 +95,7 @@ function normalizeLegacyTabHash(hash: string): string | null {
 /** Read initial tab from URL hash, defaulting to "overview" */
 function getInitialTab(): string {
   const hash = window.location.hash.replace('#', '');
+  if (hash.startsWith('refresh-run-')) return 'sources';
   const normalizedLegacyHash = normalizeLegacyTabHash(hash);
   if (normalizedLegacyHash) return normalizedLegacyHash;
   return VALID_TABS.includes(hash as (typeof VALID_TABS)[number]) ? hash : 'overview';

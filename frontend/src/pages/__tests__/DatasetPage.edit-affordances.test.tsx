@@ -36,6 +36,13 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useSetTargetStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useValidation: () => ({ data: { errors: [], warnings: [] } }),
   useDatasetVersions: () => ({ data: { versions: [], total: 0 }, isLoading: false }),
+  useDatasetRefreshRuns: () => ({
+    data: { runs: [], total: 0 },
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+  }),
+  useCancelRefreshJob: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAttributes: () => ({ data: [] }),
   useUpdateAttribute: () => ({ mutateAsync: vi.fn() }),
   useDatasetHistory: () => ({ data: { history: [], total: 0 }, isLoading: false }),
@@ -271,6 +278,7 @@ describe('DatasetPage editable affordance integration', () => {
   });
 
   afterEach(() => {
+    window.history.replaceState({}, '', '/');
     setUser(null);
   });
 
@@ -439,6 +447,15 @@ describe('DatasetPage editable affordance integration', () => {
     // DetailPanel is React.lazy (Phase 276 CODE-06) — wait for the chunk
     // to resolve before querying tab roles synchronously.
     expect(await screen.findByRole('tab', { name: 'Metadata' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('selects Sources for a refresh-run permalink on a fresh page', async () => {
+    setUser(EDITOR_USER);
+    window.history.replaceState({}, '', '/datasets/dataset-1#refresh-run-run-old-target');
+
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(await screen.findByRole('tab', { name: 'Source' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('does not show metadata pending controls when only geometry edits are dirty', () => {
