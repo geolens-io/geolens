@@ -32,9 +32,9 @@ describe('AdminConfigOpsPage heading hierarchy', () => {
     render(<AdminConfigOpsPage />);
 
     expect(screen.getByRole('heading', { level: 1, name: 'Config Operations' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: 'Export Configuration' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Export instance configuration' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Validate Connectivity' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: 'Import Configuration' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Import instance configuration' })).toBeInTheDocument();
   });
 
   it('uses level-three headings for the conditional import result groups', () => {
@@ -49,5 +49,23 @@ describe('AdminConfigOpsPage heading hierarchy', () => {
     expect(row).not.toBeNull();
     expect(row).toHaveTextContent('Failed');
     expect(row).toHaveTextContent('Redis unavailable');
+  });
+
+  it('lists what the export leaves out, with a link to the backup guide', () => {
+    render(<AdminConfigOpsPage />);
+
+    const list = screen.getByRole('list', { name: 'What this export leaves out' });
+    expect(list).toHaveTextContent('Users and role memberships');
+    expect(list).toHaveTextContent('Linked sign-in identities (accounts connected to an OAuth provider)');
+    expect(list).toHaveTextContent('Sessions');
+    expect(list).toHaveTextContent('Datasets and maps');
+    expect(list).toHaveTextContent(
+      'Provider secrets and certificates (client secrets and identity-provider signing certificates)',
+    );
+
+    const link = screen.getByRole('link', { name: 'backup and restore guide' });
+    expect(link).toHaveAttribute('href', 'https://docs.getgeolens.com/guides/admin/backups/');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 });

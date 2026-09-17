@@ -497,9 +497,17 @@
       "description": "Exportez et importez la configuration de votre instance."
     },
     "export": {
-      "title": "Exporter la configuration",
-      "description": "Téléchargez la configuration actuelle au format JSON. Inclut les paramètres et les fournisseurs OAuth.",
-      "button": "Exporter JSON"
+      "title": "Exporter la configuration de l'instance",
+      "description": "Télécharge les paramètres de l'instance et les définitions des fournisseurs OAuth au format JSON. Les secrets des fournisseurs ne sont pas inclus.",
+      "button": "Exporter JSON",
+      "notIncludedTitle": "Non inclus",
+      "notIncludedUsers": "Utilisateurs et appartenances aux rôles",
+      "notIncludedIdentities": "Identités de connexion liées (comptes connectés à un fournisseur OAuth)",
+      "notIncludedSessions": "Sessions",
+      "notIncludedData": "Jeux de données et cartes",
+      "notIncludedSecrets": "Secrets et certificats des fournisseurs (secrets client et certificats de signature du fournisseur d'identité)",
+      "notIncludedListLabel": "Ce que cet export n'inclut pas",
+      "backupNote": "Pour une sauvegarde complète capable de restaurer tout cela, consultez le <1>guide de sauvegarde et de restauration</1>."
     },
     "validateFailed": "La validation de la connectivité a échoué",
     "validate": {
@@ -518,7 +526,7 @@
       "resultsLabel": "Résultats de connectivité"
     },
     "import": {
-      "title": "Importer la configuration",
+      "title": "Importer la configuration de l'instance",
       "description": "Importez un fichier JSON de configuration. Prévisualisez les changements avant de les appliquer.",
       "fileLabel": "Fichier de configuration",
       "chooseFile": "Choisir un fichier",

@@ -497,9 +497,17 @@
       "description": "Exportieren und importieren Sie Ihre Instanzkonfiguration."
     },
     "export": {
-      "title": "Konfiguration exportieren",
-      "description": "Laden Sie die aktuelle Konfiguration als JSON-Datei herunter. Enthält Einstellungen und OAuth-Anbieter.",
-      "button": "JSON exportieren"
+      "title": "Instanzkonfiguration exportieren",
+      "description": "Lädt die Instanzeinstellungen und OAuth-Anbieterdefinitionen als JSON-Datei herunter. Anbietergeheimnisse sind nicht enthalten.",
+      "button": "JSON exportieren",
+      "notIncludedTitle": "Nicht enthalten",
+      "notIncludedUsers": "Benutzer und Rollenzugehörigkeiten",
+      "notIncludedIdentities": "Verknüpfte Anmeldeidentitäten (mit einem OAuth-Anbieter verbundene Konten)",
+      "notIncludedSessions": "Sitzungen",
+      "notIncludedData": "Datensätze und Karten",
+      "notIncludedSecrets": "Anbietergeheimnisse und -zertifikate (Client-Geheimnisse und Signaturzertifikate des Identitätsanbieters)",
+      "notIncludedListLabel": "Was dieser Export nicht enthält",
+      "backupNote": "Für ein vollständiges Backup, das all dies wiederherstellen kann, siehe die <1>Backup- und Wiederherstellungsanleitung</1>."
     },
     "validateFailed": "Konnektivitätsprüfung fehlgeschlagen",
     "validate": {
@@ -518,7 +526,7 @@
       "resultsLabel": "Konnektivitätsergebnisse"
     },
     "import": {
-      "title": "Konfiguration importieren",
+      "title": "Instanzkonfiguration importieren",
       "description": "Laden Sie eine JSON-Konfigurationsdatei hoch. Vorschau der Änderungen vor dem Anwenden.",
       "fileLabel": "Konfigurationsdatei",
       "chooseFile": "Datei wählen",

@@ -497,9 +497,17 @@
       "description": "Exporte e importe la configuración de su instancia."
     },
     "export": {
-      "title": "Exportar configuración",
-      "description": "Descargue la configuración actual como archivo JSON. Incluye configuraciones y proveedores OAuth.",
-      "button": "Exportar JSON"
+      "title": "Exportar la configuración de la instancia",
+      "description": "Descarga los ajustes de la instancia y las definiciones de proveedores OAuth como un archivo JSON. Los secretos de los proveedores no se incluyen.",
+      "button": "Exportar JSON",
+      "notIncludedTitle": "No incluido",
+      "notIncludedUsers": "Usuarios y membresías de roles",
+      "notIncludedIdentities": "Identidades de inicio de sesión vinculadas (cuentas conectadas a un proveedor OAuth)",
+      "notIncludedSessions": "Sesiones",
+      "notIncludedData": "Conjuntos de datos y mapas",
+      "notIncludedSecrets": "Secretos y certificados de los proveedores (secretos de cliente y certificados de firma del proveedor de identidad)",
+      "notIncludedListLabel": "Qué queda fuera de esta exportación",
+      "backupNote": "Para una copia de seguridad completa que pueda restaurar todo esto, consulta la <1>guía de copias de seguridad y restauración</1>."
     },
     "validateFailed": "La validación de conectividad falló",
     "validate": {
@@ -518,7 +526,7 @@
       "resultsLabel": "Resultados de conectividad"
     },
     "import": {
-      "title": "Importar configuración",
+      "title": "Importar la configuración de la instancia",
       "description": "Suba un archivo JSON de configuración. Previsualice los cambios antes de aplicarlos.",
       "fileLabel": "Archivo de configuración",
       "chooseFile": "Elegir archivo",
