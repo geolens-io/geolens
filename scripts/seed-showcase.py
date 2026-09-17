@@ -677,6 +677,9 @@ class Api:
     def poll(self, job_id: str, timeout: int = 300) -> dict:
         start = time.monotonic()
         while True:
+            # Sixty-plus already-finished manifest jobs polled back to back trip
+            # the per-second global rate limit; pacing keeps the burst under it.
+            time.sleep(0.05)
             r = self.client.get(f"{self.base}/api/jobs/{job_id}", headers=self.h)
             r.raise_for_status()
             j = r.json()
