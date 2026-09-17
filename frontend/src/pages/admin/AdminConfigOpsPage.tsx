@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import {
@@ -99,7 +99,7 @@ function ExportSection() {
           {t('configOps.export.description')}
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <Button
           onClick={() => exportMutation.mutate()}
           disabled={exportMutation.isPending}
@@ -111,6 +111,37 @@ function ExportSection() {
           )}
           {t('configOps.export.button')}
         </Button>
+        <div className="rounded-md border border-border bg-muted/30 p-3 text-sm space-y-2">
+          <p className="font-medium">{t('configOps.export.notIncludedTitle')}</p>
+          <ul
+            aria-label={t('configOps.export.notIncludedListLabel')}
+            className="list-disc ps-5 space-y-1 text-muted-foreground"
+          >
+            <li>{t('configOps.export.notIncludedUsers')}</li>
+            <li>{t('configOps.export.notIncludedIdentities')}</li>
+            <li>{t('configOps.export.notIncludedSessions')}</li>
+            <li>{t('configOps.export.notIncludedData')}</li>
+            <li>{t('configOps.export.notIncludedSecrets')}</li>
+          </ul>
+          <p className="text-muted-foreground">
+            <Trans
+              i18nKey="configOps.export.backupNote"
+              t={t}
+              components={{
+                1: (
+                  // Trans fills this element's text from the translation at render time.
+                  // eslint-disable-next-line jsx-a11y/anchor-has-content
+                  <a
+                    href="https://docs.getgeolens.com/guides/admin/backups/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  />
+                ),
+              }}
+            />
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

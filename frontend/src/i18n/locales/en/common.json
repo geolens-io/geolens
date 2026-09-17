@@ -515,9 +515,17 @@
       "description": "Export and import your instance configuration."
     },
     "export": {
-      "title": "Export Configuration",
-      "description": "Download the current configuration as a JSON file. Includes settings and OAuth providers.",
-      "button": "Export JSON"
+      "title": "Export instance configuration",
+      "description": "Downloads instance settings and OAuth provider definitions as a JSON file. Provider secrets are not included.",
+      "button": "Export JSON",
+      "notIncludedTitle": "Not included",
+      "notIncludedUsers": "Users and role memberships",
+      "notIncludedIdentities": "Linked sign-in identities (accounts connected to an OAuth provider)",
+      "notIncludedSessions": "Sessions",
+      "notIncludedData": "Datasets and maps",
+      "notIncludedSecrets": "Provider secrets and certificates (client secrets and identity-provider signing certificates)",
+      "notIncludedListLabel": "What this export leaves out",
+      "backupNote": "For a full backup that can restore all of this, see the <1>backup and restore guide</1>."
     },
     "validate": {
       "title": "Validate Connectivity",
@@ -535,7 +543,7 @@
       "resultsLabel": "Connectivity results"
     },
     "import": {
-      "title": "Import Configuration",
+      "title": "Import instance configuration",
       "description": "Upload a configuration JSON file. Preview changes before applying.",
       "fileLabel": "Configuration file",
       "chooseFile": "Choose File",

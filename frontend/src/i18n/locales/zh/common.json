@@ -515,9 +515,17 @@
       "description": "导出和导入您的实例配置。"
     },
     "export": {
-      "title": "导出配置",
-      "description": "将当前配置下载为 JSON 文件。包含设置和 OAuth 提供商。",
-      "button": "导出 JSON"
+      "title": "导出实例配置",
+      "description": "将实例设置和 OAuth 提供商定义下载为 JSON 文件。不包含提供商密钥。",
+      "button": "导出 JSON",
+      "notIncludedTitle": "不包含的内容",
+      "notIncludedUsers": "用户和角色成员关系",
+      "notIncludedIdentities": "已关联的登录身份（连接到 OAuth 提供商的账户）",
+      "notIncludedSessions": "会话",
+      "notIncludedData": "数据集和地图",
+      "notIncludedSecrets": "提供商密钥和证书（客户端密钥和身份提供商签名证书）",
+      "notIncludedListLabel": "此导出未包含的内容",
+      "backupNote": "如需完整备份以恢复以上全部内容，请参阅<1>备份与恢复指南</1>。"
     },
     "validate": {
       "title": "验证连通性",
@@ -535,7 +543,7 @@
       "resultsLabel": "连通性结果"
     },
     "import": {
-      "title": "导入配置",
+      "title": "导入实例配置",
       "description": "上传配置 JSON 文件。应用前可预览更改。",
       "fileLabel": "配置文件",
       "chooseFile": "选择文件",
