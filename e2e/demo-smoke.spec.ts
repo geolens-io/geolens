@@ -15,6 +15,31 @@ const CLOUDFLARE_BEACON =
 const ABORTED_REQUEST = /(?:ERR_ABORTED|NS_BINDING_ABORTED|cancelled)/i;
 const ALLOW_LEGACY_READINESS = process.env.E2E_DEMO_LEGACY_READINESS === '1';
 
+// Captured from the map builder's export crop (use-builder-save.ts); the
+// gallery card renders whatever the backend stored, so a mismatch is real.
+const THUMBNAIL_WIDTH = 400;
+const THUMBNAIL_HEIGHT = 250;
+
+type MapSummary = {
+  id: string;
+  name: string;
+  thumbnail_url: string | null;
+};
+
+type OAuthProvider = {
+  slug: string;
+  display_name: string;
+  provider_type: string;
+};
+
+// Only these three provider types have a fixed, known authorization host;
+// oidc/saml providers are discovery-configured and have no fixed host to assert.
+const PROVIDER_AUTH_HOSTS: Record<string, string> = {
+  github: 'github.com',
+  google: 'accounts.google.com',
+  microsoft: 'login.microsoftonline.com',
+};
+
 type BrowserDiagnostics = {
   assertClean: () => void;
   successfulDataRequests: string[];
@@ -184,6 +209,90 @@ test.describe('live demo read-only smoke', () => {
     }
 
     diagnostics.assertClean();
+  });
+
+  test('gallery thumbnails are real, correctly sized images', async ({ page, request }) => {
+    const diagnostics = observeBrowser(page);
+
+    const listResponse = await request.get('/api/maps/?limit=200');
+    expect(listResponse.ok(), `map list returned HTTP ${listResponse.status()}`).toBeTruthy();
+    const { maps } = (await listResponse.json()) as { maps: MapSummary[] };
+
+    // Anonymous listing already excludes private/internal maps, so any
+    // showcase name missing here is a map the public visitor cannot see.
+    const showcaseMaps = maps.filter((m) => (SHOWCASE_MAP_NAMES as readonly string[]).includes(m.name));
+    const foundNames = showcaseMaps.map((m) => m.name);
+    for (const name of SHOWCASE_MAP_NAMES) {
+      expect(foundNames, `${name} is missing from the public gallery listing`).toContain(name);
+    }
+
+    await page.goto('/maps', { waitUntil: 'domcontentloaded' });
+
+    for (const map of showcaseMaps) {
+      expect(map.thumbnail_url, `${map.name} has no thumbnail_url`).toBeTruthy();
+
+      const thumbLink = page.getByRole('link', { name: `${map.name} preview`, exact: true });
+      await expect(thumbLink).toBeVisible();
+      const img = thumbLink.locator('img');
+      await expect
+        .poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), {
+          message: `${map.name} thumbnail <img> never finished loading`,
+        })
+        .toBe(true);
+      const size = await img.evaluate((el: HTMLImageElement) => ({
+        width: el.naturalWidth,
+        height: el.naturalHeight,
+      }));
+      expect(size, `${map.name} thumbnail natural size`).toEqual({
+        width: THUMBNAIL_WIDTH,
+        height: THUMBNAIL_HEIGHT,
+      });
+
+      const thumbResponse = await request.get(`/api${map.thumbnail_url}`);
+      expect(thumbResponse.ok(), `${map.name} thumbnail endpoint returned HTTP ${thumbResponse.status()}`).toBeTruthy();
+      const contentType = thumbResponse.headers()['content-type'] ?? '';
+      expect(contentType, `${map.name} thumbnail content-type was "${contentType}"`).toMatch(/^image\//);
+      const body = await thumbResponse.body();
+      expect(body.length, `${map.name} thumbnail body was only ${body.length} bytes`).toBeGreaterThan(1024);
+    }
+
+    diagnostics.assertClean();
+  });
+
+  test('SSO providers issue real authorization redirects', async ({ request }) => {
+    const providersResponse = await request.get('/api/auth/oauth/providers/');
+    expect(providersResponse.ok(), `providers endpoint returned HTTP ${providersResponse.status()}`).toBeTruthy();
+    const providers = (await providersResponse.json()) as OAuthProvider[];
+    expect(providers.length, 'no SSO providers are configured on the demo').toBeGreaterThan(0);
+
+    for (const provider of providers) {
+      const expectedHost = PROVIDER_AUTH_HOSTS[provider.provider_type];
+      expect(expectedHost, `unrecognized provider_type "${provider.provider_type}" for ${provider.slug}`).toBeTruthy();
+
+      const loginResponse = await request.get(`/api/auth/oauth/${provider.slug}/login`, {
+        maxRedirects: 0,
+      });
+      expect(
+        [302, 303, 307],
+        `${provider.slug} login returned HTTP ${loginResponse.status()} instead of a redirect`,
+      ).toContain(loginResponse.status());
+
+      const location = loginResponse.headers()['location'];
+      expect(location, `${provider.slug} login redirect had no Location header`).toBeTruthy();
+      const authorizeUrl = new URL(location);
+      expect(authorizeUrl.hostname, `${provider.slug} redirected to an unexpected host`).toBe(expectedHost);
+
+      const clientId = authorizeUrl.searchParams.get('client_id');
+      const state = authorizeUrl.searchParams.get('state');
+      const redirectUri = authorizeUrl.searchParams.get('redirect_uri');
+      expect(clientId, `${provider.slug} authorization URL missing client_id`).toBeTruthy();
+      expect(state, `${provider.slug} authorization URL missing state`).toBeTruthy();
+      expect(redirectUri, `${provider.slug} authorization URL missing redirect_uri`).toBeTruthy();
+      expect(
+        redirectUri,
+        `${provider.slug} redirect_uri "${redirectUri}" does not point back at the demo callback`,
+      ).toMatch(new RegExp(`^https?://[^/]+/(?:api/)?auth/oauth/${provider.slug}/callback$`));
+    }
   });
 
   for (const name of SHOWCASE_MAP_NAMES) {
