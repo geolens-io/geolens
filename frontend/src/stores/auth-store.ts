@@ -72,6 +72,16 @@ const persistConfig: PersistOptions<AuthState> = {
     }
     return persistedState as AuthState;
   },
+  // The persisted blob is untrusted: a `user` without the `roles` array every
+  // role check reads throws during render instead of reaching the sign-in path.
+  merge: (persistedState, currentState) => {
+    const persisted = (persistedState ?? {}) as Partial<AuthState>;
+    return {
+      ...currentState,
+      ...persisted,
+      user: Array.isArray(persisted.user?.roles) ? persisted.user : null,
+    };
+  },
   /**
    * `partialize` makes the persisted surface explicit — only these auth fields
    * are written, never any transient UI state that might later be added.
