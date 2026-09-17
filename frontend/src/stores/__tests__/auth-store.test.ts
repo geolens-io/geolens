@@ -124,6 +124,29 @@ describe('useAuthStore — persist version + migrate (CODE-04)', () => {
     expect(result).toEqual(v1Blob);
   });
 
+  it('rehydration drops a persisted user without roles and keeps role checks callable', async () => {
+    const { roles: _roles, ...userWithoutRoles } = mockUser();
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+    window.localStorage.setItem(
+      'geolens-auth',
+      JSON.stringify({
+        state: { token: 'live-token', refreshToken: null, expiresAt: 9999999999, user: userWithoutRoles },
+        version: 1,
+      }),
+    );
+
+    await useAuthStore.persist.rehydrate();
+
+    expect(useAuthStore.getState().token).toBe('live-token');
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(() => useAuthStore.getState().isAdmin()).not.toThrow();
+    expect(useAuthStore.getState().isAdmin()).toBe(false);
+    expect(useAuthStore.getState().isEditor()).toBe(false);
+
+    window.localStorage.removeItem('geolens-auth');
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+  });
+
   it('localStorage rehydration of legacy un-versioned blob preserves token and user', async () => {
     // Simulate a pre-CODE-04 user session sitting in localStorage with no `version` field.
     const legacyUser = mockUser({ id: 'legacy-1', username: 'legacyuser' });
