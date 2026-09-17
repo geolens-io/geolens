@@ -6250,7 +6250,13 @@ def _backfill_thumbnails(base_url: str, username: str, password: str) -> None:
     browser must not turn a good seed into a failed one.
     """
     script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backfill-map-thumbnails.mjs")
-    manual_cmd = f"node {script} --include-public"
+    # Spell out the env the manual command needs: base_url/username may differ
+    # from the mjs script's own defaults (admin, localhost:8080), and the
+    # password is never echoed - a real value here would land in shell history.
+    manual_cmd = (
+        f"GEOLENS_URL={base_url} GEOLENS_ADMIN_USERNAME={username} "
+        f"GEOLENS_ADMIN_PASSWORD=<your password> node {script} --include-public"
+    )
     env = dict(os.environ)
     env["GEOLENS_URL"] = base_url
     env["GEOLENS_ADMIN_USERNAME"] = username
