@@ -40,6 +40,10 @@ const PROVIDER_AUTH_HOSTS: Record<string, string> = {
   microsoft: 'login.microsoftonline.com',
 };
 
+// Parsed the same way playwright.demo.config.ts derives baseURL, so the
+// redirect_uri check is pinned to the actual target, not a loose pattern.
+const DEMO_ORIGIN = new URL(process.env.E2E_DEMO_BASE_URL!).origin;
+
 type BrowserDiagnostics = {
   assertClean: () => void;
   successfulDataRequests: string[];
@@ -288,10 +292,17 @@ test.describe('live demo read-only smoke', () => {
       expect(clientId, `${provider.slug} authorization URL missing client_id`).toBeTruthy();
       expect(state, `${provider.slug} authorization URL missing state`).toBeTruthy();
       expect(redirectUri, `${provider.slug} authorization URL missing redirect_uri`).toBeTruthy();
+
+      // Parsed (not regex-matched) so a misconfigured PUBLIC_API_URL pointing
+      // at another host or scheme fails instead of slipping past a loose pattern.
+      const callbackUrl = new URL(redirectUri!);
+      expect(callbackUrl.origin, `${provider.slug} redirect_uri origin was "${callbackUrl.origin}"`).toBe(
+        DEMO_ORIGIN,
+      );
       expect(
-        redirectUri,
-        `${provider.slug} redirect_uri "${redirectUri}" does not point back at the demo callback`,
-      ).toMatch(new RegExp(`^https?://[^/]+/(?:api/)?auth/oauth/${provider.slug}/callback$`));
+        callbackUrl.pathname,
+        `${provider.slug} redirect_uri path was "${callbackUrl.pathname}"`,
+      ).toMatch(new RegExp(`/auth/oauth/${provider.slug}/callback$`));
     }
   });
 
