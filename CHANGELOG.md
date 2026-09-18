@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-09-18
+
 ### Added
 
 - Service refreshes verify source and fetched counts before publication and block
@@ -24,6 +26,10 @@ and releases use semantic versioning.
 - The extension API version is now 10. Catalog extensions must provide
   `verified_refresh_service_task()` so older workers cannot process verified
   refreshes through the ordinary service-reupload task during a rolling deployment.
+- Dependency updates: React 19.3, Vite 8.3, terra-draw 1.33, @vis.gl/react-maplibre 8.1.3,
+  MapLibre style spec 26.4.2, lucide-react 1.44, react-i18next 17.0.13, Playwright 1.63,
+  numpy 2.5.3, alembic 1.19.2, sse-starlette 3.4.11, boto3 1.43.92, and Node 26.8.2 in the
+  container images. (#2072 to #2092)
 
 ### Fixed
 
@@ -42,6 +48,21 @@ and releases use semantic versioning.
   explicit instants for timezone-aware columns, and retain wall-clock values for columns without
   timezones. Invalid daylight-saving gaps and non-finite numeric values are refused before they can
   be saved as a different value. (#2066)
+- A stored browser session whose user record lacks its roles no longer crashes the page on
+  reload; the session keeps its token and reloads the profile instead. (#2094, #2095)
+- The admin configuration export screen states what the export leaves out: users and role
+  memberships, linked sign-in identities, sessions, datasets and maps, and provider secrets and
+  certificates. It links to the backup guide for recovering those. (#2097)
+- The showcase seed script paces its job polling under the per-second rate limit and runs the
+  map thumbnail backfill after a successful seed, so seeded galleries no longer show placeholder
+  tiles. (#2093, #2096)
+
+### Security
+
+- The backend container image moves to Python 3.14.7 slim with its operating-system packages
+  upgraded in a shared build stage, which removes three fixable critical advisories that Trivy
+  reported against `perl-base`. The image build fails if that package falls below the patched
+  version, and the container scan job now blocks on the patched stage. (#2061)
 
 ## [1.19.1] - 2026-09-12
 
@@ -3930,7 +3951,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.19.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/geolens-io/geolens/compare/v1.19.1...v1.20.0
 [1.19.1]: https://github.com/geolens-io/geolens/compare/v1.19.0...v1.19.1
 [1.19.0]: https://github.com/geolens-io/geolens/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/geolens-io/geolens/compare/v1.18.0...v1.18.1
