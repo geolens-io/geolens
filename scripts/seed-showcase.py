@@ -77,6 +77,15 @@ Maintenance:
   --prune-userdata    reports what a cleanup would delete (visitor-uploaded
                       maps/datasets); add --execute to actually delete.
 
+After a successful seed (no builder failed, and not one of the maintenance
+modes above), this script automatically runs
+scripts/backfill-map-thumbnails.mjs --include-public so private/seeded maps
+get a real thumbnail instead of a grey placeholder - a thumbnail only exists
+once a browser opens the map, and the seeder is not a browser. Pass
+--no-thumbnails to skip it. A missing `node` or a failed backfill (e.g.
+Playwright/chromium not installed) prints the manual command and does not
+fail the seed.
+
 Upgrading an existing instance: run with --prune to delete the retired
 first-generation showcase maps/datasets (see RETIRED_* below), then seed.
 --force rebuilds a showcase map that already exists - except the four in
@@ -222,6 +231,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -6233,6 +6243,38 @@ def _builder_outcome_line(bname: str, result: str | None) -> str | None:
     return None
 
 
+def _backfill_thumbnails(base_url: str, username: str, password: str) -> None:
+    """Open every thumbnail-less map in a real browser (see
+    backfill-map-thumbnails.mjs) so the gallery stops showing grey
+    placeholders. Best-effort: a missing `node` or an unconfigured Playwright
+    browser must not turn a good seed into a failed one.
+    """
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backfill-map-thumbnails.mjs")
+    # Spell out the env the manual command needs: base_url/username may differ
+    # from the mjs script's own defaults (admin, localhost:8080), and the
+    # password is never echoed - a real value here would land in shell history.
+    manual_cmd = (
+        f"GEOLENS_URL={base_url} GEOLENS_ADMIN_USERNAME={username} "
+        f"GEOLENS_ADMIN_PASSWORD=<your password> node {script} --include-public"
+    )
+    env = dict(os.environ)
+    env["GEOLENS_URL"] = base_url
+    env["GEOLENS_ADMIN_USERNAME"] = username
+    env["GEOLENS_ADMIN_PASSWORD"] = password
+    print("\nBackfilling map thumbnails...")
+    sys.stdout.flush()  # the child inherits stdout and writes unbuffered; keep log order sane
+    try:
+        result = subprocess.run(["node", script, "--include-public"], env=env)
+    except FileNotFoundError:
+        print(f"  node not found; run the backfill manually: {manual_cmd}")
+        return
+    if result.returncode != 0:
+        print(
+            f"  thumbnail backfill exited {result.returncode}; "
+            f"run it manually once fixed: {manual_cmd}"
+        )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Seed GeoLens showcase maps.")
     ap.add_argument(
@@ -6324,6 +6366,11 @@ def main() -> int:
         "--execute",
         action="store_true",
         help="with --prune-userdata, actually perform the deletions",
+    )
+    ap.add_argument(
+        "--no-thumbnails",
+        action="store_true",
+        help="skip the automatic post-seed thumbnail backfill",
     )
     args = ap.parse_args()
     if not args.password:
@@ -6459,6 +6506,9 @@ def main() -> int:
         for bname, msg in failed.items():
             print(f"  {bname}: {msg[:200]}", file=sys.stderr)
         return 1
+
+    if not args.no_thumbnails:
+        _backfill_thumbnails(args.base_url, args.username, args.password)
     return 0
 
 

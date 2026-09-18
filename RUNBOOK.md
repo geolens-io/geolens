@@ -76,6 +76,17 @@ must keep the same protection as the dump itself wherever it is copied. A
 `pg_dumpall` failure fails the whole cycle: a backup set that cannot restore its
 roles should not be reported as a good one.
 
+A database backup (the `.dump` above) is the supported way to recover
+identities. Users, their role memberships, and the links between accounts and
+OAuth/OIDC providers all live in the database. The admin configuration export
+(the Config Operations page, `/admin/config-ops`) is not a substitute. It
+covers `PersistentConfig` settings and OAuth provider definitions only, with
+client secrets redacted, so it cannot restore users, roles, linked accounts,
+sessions, or provider secrets. Restoring that export in overwrite mode also
+deletes every existing OAuth provider and, with it, every linked OAuth account
+row (cascade delete) before re-creating the imported providers. Treat it as a
+settings/provider replacement tool, not a backup.
+
 ### Retention
 
 Artifacts land at:
