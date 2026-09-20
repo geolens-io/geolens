@@ -43,7 +43,7 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
-from app.platform.refresh.verification import verify_service_refresh
+from app.platform.refresh import verification as refresh_policy
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
@@ -1004,7 +1004,7 @@ async def _enforce_service_refresh_verification(
     if not is_refresh:
         return None, True
     assert content_digest is not None
-    verification = verify_service_refresh(
+    verification = refresh_policy.verify_service_refresh(
         source_binding=source_binding,
         schema_diff=schema_diff,
         expected_feature_count=expected_feature_count,
@@ -1020,11 +1020,11 @@ async def _enforce_service_refresh_verification(
         return verification, True
 
     rejected = verification["decision"] == "rejected"
-    message = (
-        "The staged row count did not match the source count."
-        if rejected
-        else "Review the detected changes before publication."
-    )
+    if rejected:
+        error_code, message = refresh_policy.refresh_rejection_diagnostic(verification)
+    else:
+        error_code = "review_required"
+        message = "Review the detected changes before publication."
     await require_ingest_job_update(
         session,
         job_uuid,
@@ -1051,7 +1051,7 @@ async def _enforce_service_refresh_verification(
         await record_refresh_failure(
             session,
             ingest_job_id=job_uuid,
-            error_code="source_count_mismatch",
+            error_code=error_code,
             error_message=message,
             contacted_origin=False,
             feature_count_after=fetched_feature_count,

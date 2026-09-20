@@ -1025,6 +1025,49 @@ async def test_stronger_arcgis_policy_rejects_same_count_duplicate_source_oids(
     await test_db_session.refresh(dataset)
     run = (await _runs_ordered(test_db_session, dataset.id))[0]
     assert run.status == "failed"
+    assert run.error_code == "arcgis_id_coverage_mismatch"
+    assert run.error_message == (
+        "The staged ArcGIS object IDs did not match the source IDs."
+    )
     assert dataset.current_version == original_version
     assert run.verification["arcgis_id_coverage"]["duplicate_count"] == 1
     assert run.verification["arcgis_id_coverage"]["missing_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_stronger_arcgis_policy_reports_changed_source_membership(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    original_version = dataset.current_version
+    initial_ids = (3, 991, 9_223_372_036_854_775_807)
+    changed_ids = (3, 992, 9_223_372_036_854_775_807)
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return len(initial_ids), 1000, True, "OBJECTID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_id_plan",
+        AsyncMock(
+            side_effect=[_arcgis_id_plan(initial_ids), _arcgis_id_plan(changed_ids)]
+        ),
+    )
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    task_kwargs["verification_policy"] = "arcgis_id_set_v1"
+    await _execute_with_fake(
+        task_kwargs, _fake_ogr2ogr_with_source_oids([], list(initial_ids))
+    )
+
+    await test_db_session.refresh(dataset)
+    run = (await _runs_ordered(test_db_session, dataset.id))[0]
+    assert run.status == "failed"
+    assert run.error_code == "arcgis_source_membership_changed"
+    assert run.error_message == "The ArcGIS source membership changed during refresh."
+    assert dataset.current_version == original_version
+    assert run.verification["count_status"] == "matched"
+    assert run.verification["arcgis_id_coverage"]["status"] == "matched"
+    assert (
+        run.verification["arcgis_id_coverage"]["source_membership_status"] == "changed"
+    )

@@ -141,3 +141,30 @@ def verify_service_refresh(
             accepted_run_id if accepted and decision == "allowed" else None
         ),
     }
+
+
+def refresh_rejection_diagnostic(verification: dict[str, Any]) -> tuple[str, str]:
+    """Describe the highest-priority hard verification failure."""
+    if verification.get("count_status") == "mismatched":
+        return (
+            "source_count_mismatch",
+            "The staged row count did not match the source count.",
+        )
+
+    coverage = verification.get("arcgis_id_coverage")
+    if isinstance(coverage, dict):
+        if coverage.get("status") == "mismatched":
+            return (
+                "arcgis_id_coverage_mismatch",
+                "The staged ArcGIS object IDs did not match the source IDs.",
+            )
+        if coverage.get("source_membership_status") == "changed":
+            return (
+                "arcgis_source_membership_changed",
+                "The ArcGIS source membership changed during refresh.",
+            )
+
+    return (
+        "refresh_verification_rejected",
+        "Refresh verification rejected publication.",
+    )
