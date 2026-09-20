@@ -30,6 +30,8 @@ function invalidateSyncDerivedData(queryClient: ReturnType<typeof useQueryClient
   queryClient.invalidateQueries({ queryKey: queryKeys.maps.columnStatsPrefix(datasetId) });
 }
 
+const terminalOccurrenceStates = new Set(['completed', 'failed', 'cancelled', 'expired']);
+
 export function useDatasetSync(datasetId: string, enabled: boolean) {
   const queryClient = useQueryClient();
   const priorOccurrenceRef = useRef<{ id: string; state: string } | null>(null);
@@ -47,10 +49,10 @@ export function useDatasetSync(datasetId: string, enabled: boolean) {
     if (!occurrence) return;
     const prior = priorOccurrenceRef.current;
     priorOccurrenceRef.current = { id: occurrence.id, state: occurrence.state };
-    const completedAfterActive = prior?.id === occurrence.id
-      && prior.state === 'claimed'
-      && ['completed', 'failed', 'cancelled', 'expired'].includes(occurrence.state);
-    if (completedAfterActive) invalidateSyncDerivedData(queryClient, datasetId);
+    const changedOccurrence = prior?.id !== occurrence.id || prior.state !== occurrence.state;
+    if (changedOccurrence && terminalOccurrenceStates.has(occurrence.state)) {
+      invalidateSyncDerivedData(queryClient, datasetId);
+    }
   }, [datasetId, query.data?.last_occurrence, queryClient]);
 
   return query;

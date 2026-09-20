@@ -111,6 +111,21 @@ describe('SourceSyncDialog', () => {
     }));
   });
 
+  it('updates the schedule source when the dataset provenance binding changed', async () => {
+    const user = userEvent.setup();
+    const changedSource = { ...source, service_url: 'https://maps.example.test/arcgis/rest/services/UpdatedParks/FeatureServer' };
+    mocks.updateDatasetSync.mockResolvedValue({ ...automation, source: changedSource });
+    render(<SourceSyncDialog datasetId="dataset-1" source={changedSource} automation={automation} open onOpenChange={vi.fn()} onRevisionConflict={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Save schedule' }));
+
+    await waitFor(() => expect(mocks.updateDatasetSync).toHaveBeenCalledWith('dataset-1', {
+      revision: 4,
+      source: changedSource,
+      cadence: { kind: 'daily', hour: 2, minute: 0 },
+    }));
+  });
+
   it('repairs an expired credential by replacing its write-only token before saving the schedule', async () => {
     const user = userEvent.setup();
     const expiredCredential = { id: 'credential-1', connector_name: 'arcgis_feature_server', allowed_origin: 'https://maps.example.test', display_name: 'Expired token', current_version: 2, current_expires_at: '2026-09-01T00:00:00Z', revoked_at: null, created_at: '2026-08-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z' };

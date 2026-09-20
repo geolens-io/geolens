@@ -38,6 +38,12 @@ function cadenceFromAutomation(automation: SyncAutomation | null): SyncCadence {
   return automation?.cadence ?? { kind: 'daily', hour: 2, minute: 0 };
 }
 
+function sourceChanged(current: SyncSource, configured: SyncAutomation['source']): boolean {
+  return current.connector !== configured.connector
+    || current.service_url !== configured.service_url
+    || current.layer_id !== configured.layer_id;
+}
+
 function apiErrorCode(error: unknown): string | undefined {
   if (!(error instanceof ApiError) || !error.body || typeof error.body !== 'object') return undefined;
   const body = error.body as { code?: unknown };
@@ -142,6 +148,7 @@ export function SourceSyncDialog({
           datasetId,
           request: {
             revision: automation.revision,
+            ...(sourceChanged(source, automation.source) ? { source } : {}),
             cadence,
             ...(clearCredential ? { clear_credential: true } : credentialId ? { credential_id: credentialId } : {}),
           },
