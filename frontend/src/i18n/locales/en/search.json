@@ -1,4 +1,12 @@
 {
+  "mapsMatchingQuery": "Maps matching \"{{query}}\"",
+  "loadingMaps": "Loading map matches...",
+  "mapsError": "Couldn't load map matches.",
+  "retryMaps": "Retry map search",
+  "mapsScopeHint": "Map matches use the search text only; catalog filters do not apply.",
+  "catalogResults_one": "{{count}} catalog result",
+  "catalogResults_other": "{{count}} catalog results",
+  "catalogResults_many": "{{count}} catalog results",
   "title": "Find Geospatial Data",
   "subtitle": "Search, preview, and export geospatial data from the catalog",
   "placeholder": "Search the catalog...",
@@ -8,6 +16,8 @@
   "resultCount_other": "{{count}} results",
   "mapsSectionTitle": "Maps",
   "empty": {
+    "catalogResultsTitle": "No catalog results found",
+    "catalogResultsDescription": "Try changing the search or filters.",
     "title": "No results found",
     "description": "Try adjusting your search query or filters",
     "cta": "Import your first dataset",
@@ -19,6 +29,10 @@
     "message": "Failed to load results: {{message}}"
   },
   "filters": {
+    "datasetFilters": "Dataset filters",
+    "activeRefinements": "Active refinements",
+    "advancedFilters": "Advanced filters",
+    "dataCoverageDate": "Dates covered by the data",
     "geometry": "Geometry Type",
     "anyCollection": "Any collection",
     "areaSelected": "Area selected",

@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Copy, Link2 } from 'lucide-react';
+import { BookOpen, Copy, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +15,8 @@ import type { DatasetResponse } from '@/types/api';
 
 interface ConnectDropdownProps {
   dataset: DatasetResponse;
+  /** Opens the dataset Access tab, where supported API connections have QGIS, Python, and curl guidance. */
+  onShowInstructions?: () => void;
 }
 
 async function copyToClipboard(value: string, t: (key: string, opts?: Record<string, unknown>) => string) {
@@ -34,11 +36,11 @@ async function copyToClipboard(value: string, t: (key: string, opts?: Record<str
   toast.success(t('connect.copied', { preview }));
 }
 
-export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
+export function ConnectDropdown({ dataset, onShowInstructions }: ConnectDropdownProps) {
   const { t } = useTranslation('dataset');
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.roles?.includes('admin') ?? false;
-  const { endpoints } = useDatasetAccessEndpoints(dataset);
+  const { endpoints, publicApiBaseUrl } = useDatasetAccessEndpoints(dataset);
 
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
@@ -47,6 +49,7 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
   const cogUrl = dataset.raster?.connect?.download_url;
   const tileUrl = dataset.raster?.connect?.tile_url;
   const s3Uri = dataset.raster?.connect?.s3_uri;
+  const hasApiInstructions = !isRaster && !isVrt && Boolean(endpoints.ogcFeaturesUrl && publicApiBaseUrl);
 
   return (
     <DropdownMenu>
@@ -109,6 +112,17 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
               </DropdownMenuItem>
             )}
           </>
+        )}
+        {onShowInstructions && hasApiInstructions && (
+          <DropdownMenuItem onClick={onShowInstructions} className="flex-col items-start gap-0.5">
+            <span className="flex items-center">
+              <BookOpen className="me-2 size-3.5" />
+              {t('connect.openInstructions')}
+            </span>
+            <span className="ps-5 text-xs text-muted-foreground">
+              {t('connect.instructionsTools')}
+            </span>
+          </DropdownMenuItem>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

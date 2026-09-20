@@ -1,4 +1,12 @@
 {
+  "mapsMatchingQuery": "与“{{query}}”匹配的地图",
+  "loadingMaps": "正在加载匹配的地图...",
+  "mapsError": "无法加载匹配的地图。",
+  "retryMaps": "重试地图搜索",
+  "mapsScopeHint": "地图仅按搜索文本匹配；目录筛选条件不适用于地图。",
+  "catalogResults_other": "{{count}} 个目录结果",
+  "catalogResults_one": "{{count}} 个目录结果",
+  "catalogResults_many": "{{count}} 个目录结果",
   "title": "查找地理空间数据",
   "subtitle": "从目录中搜索、预览和导出地理空间数据",
   "placeholder": "搜索目录...",
@@ -8,6 +16,8 @@
   "resultCount_other": "{{count}} 个结果",
   "mapsSectionTitle": "地图",
   "empty": {
+    "catalogResultsTitle": "未找到目录结果",
+    "catalogResultsDescription": "请尝试更改搜索内容或筛选条件。",
     "title": "未找到结果",
     "description": "请尝试调整搜索关键词或筛选器",
     "cta": "导入您的第一个数据集",
@@ -19,6 +29,10 @@
     "message": "加载结果失败：{{message}}"
   },
   "filters": {
+    "datasetFilters": "数据集筛选条件",
+    "activeRefinements": "已应用的筛选条件",
+    "advancedFilters": "高级筛选",
+    "dataCoverageDate": "数据涵盖的日期",
     "geometry": "几何类型",
     "anyCollection": "任意集合",
     "areaSelected": "已选择区域",

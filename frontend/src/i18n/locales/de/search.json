@@ -1,4 +1,12 @@
 {
+  "mapsMatchingQuery": "Karten passend zu „{{query}}“",
+  "loadingMaps": "Passende Karten werden geladen...",
+  "mapsError": "Passende Karten konnten nicht geladen werden.",
+  "retryMaps": "Kartensuche wiederholen",
+  "mapsScopeHint": "Karten werden nur anhand des Suchtexts gefunden; Katalogfilter gelten nicht für Karten.",
+  "catalogResults_one": "{{count}} Katalogergebnis",
+  "catalogResults_other": "{{count}} Katalogergebnisse",
+  "catalogResults_many": "{{count}} Katalogergebnisse",
   "title": "Geodaten finden",
   "subtitle": "Geodaten aus dem Katalog suchen, ansehen und exportieren",
   "placeholder": "Katalog durchsuchen...",
@@ -8,6 +16,8 @@
   "resultCount_other": "{{count}} Ergebnisse",
   "mapsSectionTitle": "Karten",
   "empty": {
+    "catalogResultsTitle": "Keine Katalogergebnisse gefunden",
+    "catalogResultsDescription": "Ändern Sie die Suche oder die Filter.",
     "title": "Keine Datensätze gefunden",
     "description": "Passen Sie Ihre Suchanfrage oder Filter an",
     "cta": "Importieren Sie Ihren ersten Datensatz",
@@ -19,6 +29,10 @@
     "message": "Ergebnisse konnten nicht geladen werden: {{message}}"
   },
   "filters": {
+    "datasetFilters": "Datensatzfilter",
+    "activeRefinements": "Aktive Filter",
+    "advancedFilters": "Erweiterte Filter",
+    "dataCoverageDate": "Von den Daten abgedeckter Zeitraum",
     "geometry": "Geometrie",
     "anyGeometry": "Beliebige Geometrie",
     "point": "Punkt",

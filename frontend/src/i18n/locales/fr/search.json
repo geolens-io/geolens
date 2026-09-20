@@ -1,4 +1,12 @@
 {
+  "mapsMatchingQuery": "Cartes correspondant à « {{query}} »",
+  "loadingMaps": "Chargement des cartes correspondantes...",
+  "mapsError": "Impossible de charger les cartes correspondantes.",
+  "retryMaps": "Relancer la recherche de cartes",
+  "mapsScopeHint": "Les cartes correspondent uniquement au texte recherché ; les filtres du catalogue ne s'appliquent pas.",
+  "catalogResults_one": "{{count}} résultat du catalogue",
+  "catalogResults_other": "{{count}} résultats du catalogue",
+  "catalogResults_many": "{{count}} résultats du catalogue",
   "title": "Trouver des données géospatiales",
   "subtitle": "Recherchez, prévisualisez et exportez des données géospatiales du catalogue",
   "placeholder": "Rechercher dans le catalogue...",
@@ -8,6 +16,8 @@
   "resultCount_other": "{{count}} résultats",
   "mapsSectionTitle": "Cartes",
   "empty": {
+    "catalogResultsTitle": "Aucun résultat dans le catalogue",
+    "catalogResultsDescription": "Essayez de modifier la recherche ou les filtres.",
     "title": "Aucun jeu de données trouvé",
     "description": "Essayez d'ajuster votre recherche ou vos filtres",
     "cta": "Importez votre premier jeu de données",
@@ -19,6 +29,10 @@
     "message": "Échec du chargement des résultats : {{message}}"
   },
   "filters": {
+    "datasetFilters": "Filtres des jeux de données",
+    "activeRefinements": "Filtres actifs",
+    "advancedFilters": "Filtres avancés",
+    "dataCoverageDate": "Dates couvertes par les données",
     "geometry": "Géométrie",
     "anyGeometry": "Toute géométrie",
     "point": "Point",
