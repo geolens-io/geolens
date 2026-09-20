@@ -127,33 +127,63 @@ def require_scheduled_execution_claim(fn):
                 # settle the admitted run. Terminalize it here before the
                 # queue sees the timeout; a late worker cannot publish after
                 # this transition.
-                from app.platform.jobs.heartbeat import update_ingest_job_for_attempt
-                from app.platform.refresh.service import record_refresh_failure
-
-                async with async_session() as session:
-                    settled_job = await update_ingest_job_for_attempt(
-                        session,
-                        job_id,
-                        attempt_id,
-                        values={
-                            "status": "failed",
-                            "error_message": "The admitted refresh exceeded its execution time limit.",
-                            "completed_at": datetime.now(timezone.utc),
-                        },
-                    )
-                    if settled_job:
-                        await record_refresh_failure(
-                            session,
-                            ingest_job_id=job_id,
-                            error_code="scheduled_execution_timeout",
-                            error_message="The admitted refresh exceeded its execution time limit.",
-                            contacted_origin=False,
-                        )
-                    await session.commit()
+                await _settle_keyed_execution_timeout(job_id, attempt_id)
                 raise
         return await fn(*args, **kwargs)
 
     return _wrapped
+
+
+async def _settle_keyed_execution_timeout(
+    job_id: uuid.UUID, attempt_id: uuid.UUID
+) -> bool:
+    """Atomically settle a timed-out keyed run within the error-write budget."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.core.db import async_session
+    from app.platform.jobs.heartbeat import (
+        JOB_ERROR_WRITE_TIMEOUT_MS,
+        arm_job_error_write_budget,
+        log_job_error_write_failure,
+    )
+    from app.platform.refresh.service import record_refresh_failure
+
+    TIMEOUT_ERROR_MESSAGE = "The admitted refresh exceeded its execution time limit."
+    try:
+        async with async_session() as session:
+            # The session's pool checkout needs its own deadline; SET LOCAL
+            # only protects statements after the connection is acquired.
+            await asyncio.wait_for(
+                session.connection(), timeout=JOB_ERROR_WRITE_TIMEOUT_MS / 1000
+            )
+            await arm_job_error_write_budget(session)
+            settled_job = await update_ingest_job_for_attempt(
+                session,
+                job_id,
+                attempt_id,
+                values={
+                    "status": "failed",
+                    "error_message": TIMEOUT_ERROR_MESSAGE,
+                    "completed_at": datetime.now(timezone.utc),
+                },
+            )
+            if settled_job:
+                await record_refresh_failure(
+                    session,
+                    ingest_job_id=job_id,
+                    error_code="scheduled_execution_timeout",
+                    error_message=TIMEOUT_ERROR_MESSAGE,
+                    contacted_origin=False,
+                )
+            await session.commit()
+            return settled_job
+    except (SQLAlchemyError, TimeoutError) as write_failure:
+        log_job_error_write_failure(
+            write_failure,
+            job_id=str(job_id),
+            task="scheduled_refresh_execution_timeout",
+        )
+        return False
 
 
 async def _drop_attempt_staging_table(staging_table: str) -> None:

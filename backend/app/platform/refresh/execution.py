@@ -17,6 +17,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.failure_reason import coded_failure_reason
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
@@ -312,7 +313,10 @@ async def execute_admitted_refresh(
                     ingest_job_id=job_id,
                     execution_key=claim_key,
                     error_code="scheduled_credential_unavailable",
-                    error_message=resolver_error,
+                    error_message=coded_failure_reason(
+                        "Scheduled refresh credential resolution failed",
+                        resolver_error,
+                    ),
                 )
                 await session.commit()
             return RefreshExecutionResult(

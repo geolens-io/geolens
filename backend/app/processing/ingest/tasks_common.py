@@ -941,14 +941,15 @@ async def verify_arcgis_staged_oid_coverage(
     # catalog table validator. The limit detects an ignored objectIds filter
     # without materializing an unbounded source response in worker memory.
     safe_oid_field = matching_columns[0]
+    query = (
+        f'SELECT "{safe_oid_field}", COUNT(*) '
+        f"FROM {_qtable(table_name, schema=schema)} "
+        f'GROUP BY "{safe_oid_field}" '
+        f"LIMIT {len(planned_ids) + 1}"
+    )
     result = await session.execute(
         # codeql[py/sql-injection]
-        text(
-            f'SELECT "{safe_oid_field}", COUNT(*) '
-            f"FROM {_qtable(table_name, schema=schema)} "
-            f'GROUP BY "{safe_oid_field}" '
-            f"LIMIT {len(planned_ids) + 1}"
-        )
+        text(query)
     )
     rows = result.all()
     if len(rows) > len(planned_ids):

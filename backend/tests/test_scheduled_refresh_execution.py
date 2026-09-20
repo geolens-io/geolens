@@ -390,8 +390,16 @@ async def test_credential_resolution_failure_terminalizes_claimed_job_and_run(
     assert persisted_run is not None
     assert persisted_run.status == "failed"
     assert persisted_run.error_code == "scheduled_credential_unavailable"
+    assert (
+        persisted_run.error_message
+        == "Scheduled refresh credential resolution failed (RuntimeError)"
+    )
     assert persisted_job is not None
     assert persisted_job.status == "failed"
+    assert (
+        persisted_job.error_message
+        == "Scheduled refresh credential resolution failed (RuntimeError)"
+    )
     assert persisted_job.completed_at is not None
 
 
