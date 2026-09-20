@@ -2,15 +2,27 @@
 
 [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [简体中文](README.zh.md)
 
-**Der selbst gehostete Geodaten-Hub Ihres Teams: an einem Ort durchsuchen, kartieren und teilen.**
+**Machen Sie aus verstreuten GIS-Dateien einen durchsuchbaren Katalog und teilbare Karten – auf Ihrer eigenen Infrastruktur.**
 
-GeoLens ist ein quelloffener Geodaten-Hub für GIS- und Datenteams: ein zentraler Ort, um Daten auf Ihrer eigenen Infrastruktur und ohne Telemetrie zu finden und zu nutzen. GeoLens selbst stellt keinerlei externe Verbindungen her, mit Ausnahme der Standard-Basiskartenkacheln, die bis zur Konfiguration eigener Kacheln von tiles.openfreemap.org geladen werden. (Weitere von Ihnen aktivierte Funktionen können ausgehende Verbindungen nutzen: die KI-Unterstützung zum gewählten OpenAI-kompatiblen Endpunkt oder Anthropic-Schlüssel, OAuth/OIDC-Anmeldung, SMTP, entfernte/S3-Datenquellen und externe Sicherungen.) Laden Sie Dateien hoch, erstellen Sie Datensätze im Browser, registrieren Sie bereits in GeoLens’ eigener PostGIS-Datenbank vorhandene Tabellen ohne Kopie, importieren Sie einmalige Kopien aus WFS, ArcGIS FeatureServer oder OGC API Features oder referenzieren Sie entfernte STAC-Assets live. GeoLens erfasst die Herkunft jedes Datensatzes, indiziert die Katalogmetadaten mit pg_trgm für sofort verfügbare unscharfe Suche (pgvector ergänzt semantische Rangfolge, sobald ein Embedding-Anbieter konfiguriert und die semantische Suche aktiviert ist) und stellt OGC/STAC-APIs bereit, mit denen sich QGIS, ArcGIS und MapLibre nativ verbinden. Erstellen, gestalten und teilen Sie mehrschichtige Karten direkt im Browser. Entwickelt mit FastAPI und React. Bereitgestellt mit einem Befehl.
+GeoLens vereint Dateien, Datenbanktabellen, Service-Snapshots und entfernte Assets in einem Geodatenkatalog, den Sie kontrollieren. Durchsuchen Sie Metadaten, zeigen Sie Daten in der Vorschau an und behalten Sie die Herkunft jedes Datensatzes im Blick. Erstellen Sie Karten im Browser, veröffentlichen Sie Links oder Einbettungen und nutzen Sie QGIS sowie offene Standards weiter mit den vorhandenen Werkzeugen Ihres Teams.
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Live-Demo ausprobieren" /></a>
   <br />
   <sub>Keine Installation erforderlich. Erkunden Sie Beispielkatalog und -karten ohne Konto oder melden Sie sich mit Google, GitHub oder Microsoft an, um den Karteneditor zu testen. Demodaten können jederzeit gelöscht werden.</sub>
 </p>
+
+<p align="center">
+  <a href="https://demo.getgeolens.com/maps"><img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens-Karteneditor mit Manhattans Gebäudegrundrissen als 3D-Skyline, nach Bauzeit eingefärbt, daneben U-Bahn und sortierbarer Ebenenstapel" width="900" /></a>
+  <br />
+  <em>Der Karteneditor: jedes Gebäude Manhattans bis zur tatsächlichen Dachhöhe extrudiert und nach Bauzeit eingefärbt, darunter die U-Bahn; aus offenen Daten mit <code>scripts/seed-showcase.py</code> erstellt</em>
+</p>
+
+## Was Sie tun können
+
+- **Datensätze finden:** durchsuchen Sie einen Katalog über hochgeladene Dateien, Datenbanktabellen und importierte Service-Snapshots hinweg.
+- **Karten erstellen und teilen:** stellen Sie mehrschichtige Karten im Browser zusammen und veröffentlichen Sie einen Link oder betten Sie sie dort ein, wo Ihr Team arbeitet.
+- **Vorhandene Werkzeuge nutzen:** verbinden Sie QGIS, ArcGIS, MapLibre und Skripte über OGC/STAC-APIs und direkte Kachel-URLs.
 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -23,11 +35,11 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 # Open http://localhost:8080, then log in with the credentials you chose
 ```
 
-<p align="center">
-  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens-Karteneditor mit Manhattans Gebäudegrundrissen als 3D-Skyline, nach Bauzeit eingefärbt, daneben U-Bahn und sortierbarer Ebenenstapel" width="900" />
-  <br />
-  <em>Der Karteneditor: jedes Gebäude Manhattans bis zur tatsächlichen Dachhöhe extrudiert und nach Bauzeit eingefärbt, darunter die U-Bahn; aus offenen Daten mit <code>scripts/seed-showcase.py</code> erstellt</em>
-</p>
+## Datenschutz, ausgehende Verbindungen und Datenquellen
+
+GeoLens verwendet keine Telemetrie und stellt keine externen Verbindungen her, mit Ausnahme der Standard-Basiskartenkacheln von tiles.openfreemap.org, bis ein Administrator einen anderen Anbieter konfiguriert. Von Ihnen aktivierte Funktionen können ausgehende Verbindungen nutzen: KI-Unterstützung zum gewählten OpenAI-kompatiblen Endpunkt oder Anthropic-Schlüssel, OAuth/OIDC-Anmeldung, SMTP, entfernte oder S3-Datenquellen und externe Sicherungen.
+
+Laden Sie Dateien hoch, erstellen Sie Datensätze im Browser oder registrieren Sie bereits in GeoLens’ eigener PostGIS-Datenbank vorhandene Tabellen ohne Kopie. WFS-, ArcGIS FeatureServer- und OGC API Features-Importe erstellen einmalige Kopien; entfernte STAC-Assets bleiben Live-Referenzen. GeoLens erfasst die Herkunft jedes Datensatzes, indiziert Metadaten mit pg_trgm für unscharfe Suche und kann nach Konfiguration eines Embedding-Anbieters und Aktivierung der Funktion semantische Rangfolge mit pgvector ergänzen.
 
 > [!NOTE]
 > **API-Stabilität.** Die Standardschnittstellen (OGC API Features/Records,

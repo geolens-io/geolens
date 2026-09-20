@@ -2,15 +2,27 @@
 
 [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [简体中文](README.zh.md)
 
-**La plateforme de données géospatiales auto-hébergée de votre équipe : recherchez, cartographiez et partagez au même endroit.**
+**Transformez des fichiers SIG dispersés en un catalogue consultable et des cartes partageables, sur votre propre infrastructure.**
 
-GeoLens est une plateforme de données géospatiales open source pour les équipes SIG et données : un espace unique où trouver et exploiter les données sur l’infrastructure que vous contrôlez, sans télémétrie. GeoLens ne contacte aucun service externe de lui-même, à l'exception des tuiles de fond de carte par défaut, chargées depuis tiles.openfreemap.org tant qu'un administrateur n'en configure pas d'autres. (Les autres fonctions que vous activez peuvent effectuer des appels sortants : assistance IA vers le point de terminaison compatible OpenAI ou la clé Anthropic de votre choix, connexion OAuth/OIDC, SMTP, sources distantes/S3 et sauvegardes hors site.) Chargez des fichiers, créez des jeux de données dans le navigateur, enregistrez sans les copier des tables déjà présentes dans la base PostGIS de GeoLens, importez des copies ponctuelles depuis WFS, ArcGIS FeatureServer ou OGC API Features, ou conservez une référence active vers des ressources STAC distantes. GeoLens consigne l’origine de chaque jeu de données, indexe les métadonnées du catalogue avec pg_trgm pour fournir immédiatement une recherche approximative (pgvector ajoute un classement sémantique après la configuration d’un fournisseur d’embeddings et l’activation de la recherche sémantique), et expose des APIs OGC/STAC auxquelles QGIS, ArcGIS et MapLibre se connectent nativement. Composez, stylisez et partagez des cartes multicouches dans le navigateur. Construit avec FastAPI et React. Déployé en une commande.
+GeoLens réunit fichiers, tables de base de données, instantanés de services et ressources distantes dans un catalogue spatial que vous contrôlez. Recherchez les métadonnées, prévisualisez les données et gardez visible l’origine de chaque jeu. Créez des cartes dans le navigateur, publiez des liens ou intégrations, et continuez d’utiliser QGIS et les standards ouverts avec les outils de votre équipe.
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Essayer la démonstration en ligne" /></a>
   <br />
   <sub>Aucune installation nécessaire. Parcourez le catalogue et les cartes d’exemple sans compte, ou connectez-vous avec Google, GitHub ou Microsoft pour essayer le générateur de cartes. Les données de démonstration peuvent être effacées à tout moment.</sub>
 </p>
+
+<p align="center">
+  <a href="https://demo.getgeolens.com/maps"><img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Générateur de cartes GeoLens montrant les bâtiments de Manhattan extrudés en une silhouette 3D, colorés par époque de construction, avec le métro et la pile de couches réordonnable à côté de la carte" width="900" /></a>
+  <br />
+  <em>Le générateur de cartes : chaque bâtiment de Manhattan extrudé à la hauteur réelle de son toit et coloré selon son époque de construction, le métro passant en dessous ; créé à partir de données ouvertes avec <code>scripts/seed-showcase.py</code></em>
+</p>
+
+## Ce que vous pouvez faire
+
+- **Trouver des jeux de données :** recherchez dans un catalogue unique les fichiers chargés, les tables de base de données et les instantanés de services importés.
+- **Créer et partager des cartes :** composez des cartes multicouches dans le navigateur, puis publiez un lien ou intégrez-les là où votre équipe travaille.
+- **Utiliser vos outils existants :** connectez QGIS, ArcGIS, MapLibre et vos scripts via les APIs OGC/STAC et les URLs de tuiles directes.
 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -23,11 +35,11 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 # Open http://localhost:8080, then log in with the credentials you chose
 ```
 
-<p align="center">
-  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Générateur de cartes GeoLens montrant les bâtiments de Manhattan extrudés en une silhouette 3D, colorés par époque de construction, avec le métro et la pile de couches réordonnable à côté de la carte" width="900" />
-  <br />
-  <em>Le générateur de cartes : chaque bâtiment de Manhattan extrudé à la hauteur réelle de son toit et coloré selon son époque de construction, le métro passant en dessous ; créé à partir de données ouvertes avec <code>scripts/seed-showcase.py</code></em>
-</p>
+## Confidentialité, connexions sortantes et sources de données
+
+GeoLens n’utilise aucune télémétrie et ne contacte aucun service externe, à l’exception des tuiles de fond de carte par défaut de tiles.openfreemap.org tant qu’un administrateur ne configure pas un autre fournisseur. Les fonctions que vous activez peuvent effectuer des appels sortants : assistance IA vers le point de terminaison compatible OpenAI ou la clé Anthropic de votre choix, connexion OAuth/OIDC, SMTP, sources de données distantes ou S3 et sauvegardes hors site.
+
+Chargez des fichiers, créez des jeux de données dans le navigateur ou enregistrez sans les copier des tables déjà présentes dans la base PostGIS de GeoLens. Les importations WFS, ArcGIS FeatureServer ou OGC API Features créent des copies ponctuelles ; les ressources STAC distantes restent des références actives. GeoLens consigne l’origine de chaque jeu, indexe les métadonnées avec pg_trgm pour la recherche approximative et peut ajouter un classement sémantique avec pgvector après configuration d’un fournisseur d’embeddings et activation de cette recherche.
 
 > [!NOTE]
 > **Stabilité de l’API.** Les surfaces standard (OGC API Features/Records,
