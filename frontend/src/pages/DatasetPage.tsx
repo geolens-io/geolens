@@ -598,7 +598,7 @@ export function DatasetPage() {
             className={cn(
               'relative overflow-hidden transition-[height] duration-300 ease-in-out',
               !isMapPreviewOpen && 'hidden',
-              isOverview ? (isDrawing ? 'h-[60vh]' : 'h-72 lg:h-96') : 'h-52 lg:h-56',
+              isDrawing ? 'h-[60vh]' : isOverview ? 'h-72 lg:h-96' : 'h-52 lg:h-56',
             )}
           >
             {tracksHero && heroState === 'loading' && (

@@ -579,6 +579,18 @@ describe('DatasetPage task-tab map preview', () => {
     expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).toHaveClass('hidden');
   });
 
+  it('expands the map for geometry drawing on task tabs', async () => {
+    setup({ record_type: 'vector_dataset' });
+    drawingStoreState.isDrawing = true;
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Metadata' }), { button: 0, ctrlKey: false });
+
+    expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).toHaveClass('h-[60vh]');
+    expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).not.toHaveClass('hidden');
+    expect(screen.queryByRole('button', { name: /map preview/i })).not.toBeInTheDocument();
+  });
+
   it('keeps table datasets map-free on task tabs', async () => {
     setup({ record_type: 'table' });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
