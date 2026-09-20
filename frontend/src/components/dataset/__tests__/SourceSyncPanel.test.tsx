@@ -98,6 +98,14 @@ describe('SourceSyncPanel', () => {
     expect(screen.queryByText('stale revision')).not.toBeInTheDocument();
   });
 
+  it('shows immediate review guidance when a blocked refresh pauses the schedule', async () => {
+    mocks.getDatasetSync.mockResolvedValue({ ...configured, status: 'paused', pause_reason: 'review_required' });
+    render(<SourceSyncPanel dataset={dataset()} canEdit onRunDispatched={vi.fn()} />);
+
+    expect(await screen.findByText('Review the latest refresh before enabling this schedule.')).toBeInTheDocument();
+    expect(screen.queryByText('The schedule paused after repeated transient failures.')).not.toBeInTheDocument();
+  });
+
   it('shows a failed occurrence state with its safe actionable reason', async () => {
     mocks.getDatasetSync.mockResolvedValue({
       ...configured,

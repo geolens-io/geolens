@@ -964,6 +964,7 @@
       },
       "pauseReason": {
         "qualification_required": "需要合格的验证运行。",
+        "review_required": "请在启用此计划前检查最新刷新。",
         "transient_failures": "计划在多次临时失败后已暂停。",
         "credential_invalid": "已存凭据不再有效。",
         "authorization_changed": "数据源授权已更改。",

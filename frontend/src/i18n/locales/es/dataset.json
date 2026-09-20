@@ -1013,6 +1013,7 @@
       },
       "pauseReason": {
         "qualification_required": "Se requiere una ejecución de verificación válida.",
+        "review_required": "Revisa la actualización más reciente antes de activar esta programación.",
         "transient_failures": "La programación se pausó tras fallos transitorios repetidos.",
         "credential_invalid": "La credencial guardada ya no es válida.",
         "authorization_changed": "La autorización de la fuente cambió.",

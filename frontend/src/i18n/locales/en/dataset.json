@@ -964,6 +964,7 @@
       },
       "pauseReason": {
         "qualification_required": "A qualifying verification run is required.",
+        "review_required": "Review the latest refresh before enabling this schedule.",
         "transient_failures": "The schedule paused after repeated transient failures.",
         "credential_invalid": "The stored credential is no longer valid.",
         "authorization_changed": "Source authorization changed.",

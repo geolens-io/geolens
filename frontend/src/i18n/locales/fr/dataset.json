@@ -1013,6 +1013,7 @@
       },
       "pauseReason": {
         "qualification_required": "Une vérification admissible est requise.",
+        "review_required": "Examinez la dernière actualisation avant d’activer ce planning.",
         "transient_failures": "Le planning a été suspendu après des échecs transitoires répétés.",
         "credential_invalid": "L’identifiant enregistré n’est plus valide.",
         "authorization_changed": "L’autorisation de la source a changé.",

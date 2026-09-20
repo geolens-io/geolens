@@ -1013,6 +1013,7 @@
       },
       "pauseReason": {
         "qualification_required": "Ein qualifizierender Prüflauf ist erforderlich.",
+        "review_required": "Prüfen Sie die letzte Aktualisierung, bevor Sie diesen Zeitplan aktivieren.",
         "transient_failures": "Der Zeitplan wurde nach wiederholten vorübergehenden Fehlern pausiert.",
         "credential_invalid": "Die gespeicherte Anmeldung ist nicht mehr gültig.",
         "authorization_changed": "Die Quellautorisierung wurde geändert.",
