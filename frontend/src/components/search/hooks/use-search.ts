@@ -25,8 +25,6 @@ export function useMapSearchResults() {
     queryFn: () => listMaps({ search: q, limit: 6 }),
     enabled: q.length > 0,
     staleTime: 30_000,
-    // Do not retain map cards after the user clears the search query.
-    placeholderData: q.length > 0 ? keepPreviousData : undefined,
   });
 }
 

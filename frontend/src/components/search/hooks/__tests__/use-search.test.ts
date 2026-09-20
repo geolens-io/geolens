@@ -6,13 +6,17 @@ vi.mock('@/api/search', async (importOriginal) => {
   return { ...actual, searchDatasets: vi.fn(), fetchCatalogSummary: vi.fn(), fetchFacets: vi.fn() };
 });
 
+vi.mock('@/api/maps', () => ({ listMaps: vi.fn() }));
+
 import { searchDatasets, fetchCatalogSummary, fetchFacets } from '@/api/search';
-import { useSearchResults, useFacets, useCatalogSummary } from '@/components/search/hooks/use-search';
+import { listMaps } from '@/api/maps';
+import { useSearchResults, useMapSearchResults, useFacets, useCatalogSummary } from '@/components/search/hooks/use-search';
 import { useSearchStore } from '@/stores/search-store';
 
 const mockSearchDatasets = vi.mocked(searchDatasets);
 const mockFetchFacets = vi.mocked(fetchFacets);
 const mockFetchCatalogSummary = vi.mocked(fetchCatalogSummary);
+const mockListMaps = vi.mocked(listMaps);
 
 const initialState = useSearchStore.getState();
 
@@ -34,6 +38,24 @@ describe('useSearchResults', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual(mockData);
+  });
+});
+
+describe('useMapSearchResults', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSearchStore.setState(initialState, true);
+  });
+
+  it('uses only the text query, not catalog filters', async () => {
+    useSearchStore.getState().setQuery('Matterhorn');
+    useSearchStore.getState().setFilter('record_type', 'vector');
+    mockListMaps.mockResolvedValueOnce({ maps: [], total: 0 } as never);
+
+    const { result } = renderHook(() => useMapSearchResults());
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockListMaps).toHaveBeenCalledWith({ search: 'Matterhorn', limit: 6 });
   });
 });
 

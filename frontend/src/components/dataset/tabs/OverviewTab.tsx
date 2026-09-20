@@ -37,22 +37,31 @@ import { cn } from '@/lib/utils';
 import { vrtRasterStatusColors } from '@/lib/status-colors';
 
 /** Compact key-value row for sidebar cards — grid layout matching design */
-function SideKV({ label, value, mono, title, children }: {
+function SideKV({ label, value, mono, title, wrap, children }: {
   label: string;
   value?: string;
   mono?: boolean;
   title?: string;
+  /** Use for human-readable reuse terms, which must remain available without hover. */
+  wrap?: boolean;
   children?: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[110px_1fr] gap-3 py-2 text-xs items-baseline">
+    <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3 py-2 text-xs items-baseline">
       {/* Quiet sans field label — tier 2 of the label system, deliberately
           distinct from the mono-caps SectionEyebrow marker above it. */}
       <span className="text-xs text-muted-foreground pt-px">
         {label}
       </span>
       {children ?? (
-        <span className={cn('font-medium truncate', mono && 'font-mono text-xs tracking-wide')} title={title ?? value}>
+        <span
+          className={cn(
+            'font-medium min-w-0',
+            wrap ? 'whitespace-normal break-words' : 'truncate',
+            mono && 'font-mono text-xs tracking-wide',
+          )}
+          title={wrap ? undefined : title ?? value}
+        >
           {value}
         </span>
       )}
@@ -204,10 +213,10 @@ export function OverviewTab({
         <CardContent className="pt-0">
           <div className="divide-y divide-border/60">
             {dataset.license && (
-              <SideKV label={t('metadata.license', { defaultValue: 'License' })} value={dataset.license} />
+              <SideKV label={t('metadata.license', { defaultValue: 'License' })} value={dataset.license} wrap />
             )}
             {dataset.source_organization && (
-              <SideKV label={t('overview.source', { defaultValue: 'Source' })} value={dataset.source_organization} />
+              <SideKV label={t('overview.source', { defaultValue: 'Source' })} value={dataset.source_organization} wrap />
             )}
             {!isVrt && dataset.source_format && (
               <SideKV label={t('metadata.sourceFormat')} value={getSourceFormatLabel(t, dataset.source_format)} />

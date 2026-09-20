@@ -183,6 +183,7 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
     if (dateTo) return dateTo;
     return '';
   })();
+  const dataCoverageDateChipLabel = `${t('filters.dataCoverageDate', { defaultValue: 'Dates covered by the data' })}: ${temporalStart || '..'} - ${temporalEnd || '..'}`;
 
   const clearFilters = () => {
     useSearchStore.getState().resetFilters();
@@ -295,11 +296,7 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
             )}
             {datetime && (
               <FilterChip
-                label={t('filters.temporalExtentRange', {
-                  start: temporalStart || '..',
-                  end: temporalEnd || '..',
-                  defaultValue: 'Temporal Extent: {{start}} - {{end}}',
-                })}
+                label={dataCoverageDateChipLabel}
                 onRemove={() => useSearchStore.getState().setFilter('datetime', '')}
               />
             )}
@@ -571,10 +568,9 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
             </Button>
           </div>
 
-          {/* Temporal Extent (mobile) */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">
-              {t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}
+              {t('filters.dataCoverageDate', { defaultValue: 'Dates covered by the data' })}
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">

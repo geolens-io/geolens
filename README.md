@@ -2,15 +2,27 @@
 
 [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [简体中文](README.zh.md)
 
-**Your team's self-hosted spatial data hub: searchable, mappable, and shareable in one place.**
+**Turn scattered GIS files into a searchable catalog and shareable maps—on your own infrastructure.**
 
-GeoLens is an open-source spatial data hub for GIS and data teams: one place to find and work with data on infrastructure you control, with no telemetry. GeoLens itself phones home to nothing, except the default basemap tiles, which load from tiles.openfreemap.org until an admin configures a different one. (Other features you opt into can make outbound calls: AI assist to your chosen OpenAI-compatible endpoint or Anthropic key, OAuth/OIDC sign-in, SMTP, remote/S3 data sources, and off-site backups.) Upload files, create datasets in the browser, register tables already in GeoLens's own PostGIS database without copying them, import one-shot copies from WFS, ArcGIS FeatureServer, or OGC API Features, or reference remote STAC assets live. GeoLens records each dataset's origin, indexes catalog metadata with pg_trgm for fuzzy search out of the box (pgvector adds semantic ranking once you configure an embedding provider and enable semantic search), and serves OGC/STAC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Compose, style, and share multi-layer maps right in the browser. Built on FastAPI and React. Deployed with one command.
+GeoLens brings files, database tables, service snapshots, and remote assets into one spatial catalog you control. Search metadata, preview data, and keep every dataset’s origin visible. Build maps in the browser, publish links or embeds, and keep using QGIS and open standards alongside your team’s existing tools.
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Try the live demo" /></a>
   <br />
   <sub>No install required. Browse the sample catalog and maps without an account, or sign in with Google, GitHub, or Microsoft to try the map builder. Demo data may be wiped at any time.</sub>
 </p>
+
+<p align="center">
+  <a href="https://demo.getgeolens.com/maps"><img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens map builder with Manhattan building footprints extruded into a 3D skyline, colored by construction era, with the subway and the drag-orderable layer stack beside the map" width="900" /></a>
+  <br />
+  <em>The map builder: every Manhattan building extruded to its true roof height and colored by the era it was built, the subway threading beneath, built from open data with <code>scripts/seed-showcase.py</code></em>
+</p>
+
+## What you can do
+
+- **Find datasets:** search one catalog across file uploads, database tables, and imported service snapshots.
+- **Build and share maps:** compose multi-layer maps in the browser, then publish a link or embed them where people work.
+- **Use your existing tools:** connect QGIS, ArcGIS, MapLibre, and scripts through OGC/STAC APIs and direct tile URLs.
 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -32,11 +44,11 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 
 Images are published for linux/amd64 and linux/arm64. A fresh install runs six containers at about 1.3 GB resident.
 
-<p align="center">
-  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens map builder with Manhattan building footprints extruded into a 3D skyline, colored by construction era, with the subway and the drag-orderable layer stack beside the map" width="900" />
-  <br />
-  <em>The map builder: every Manhattan building extruded to its true roof height and colored by the era it was built, the subway threading beneath, built from open data with <code>scripts/seed-showcase.py</code></em>
-</p>
+## Privacy, outbound connections, and data sources
+
+GeoLens has no telemetry and phones home to nothing, except default basemap tiles from tiles.openfreemap.org until an administrator configures another provider. Features you opt into can make outbound calls: AI assist to your chosen OpenAI-compatible endpoint or Anthropic key, OAuth/OIDC sign-in, SMTP, remote or S3 data sources, and off-site backups.
+
+Upload files, create datasets in the browser, or register tables already in GeoLens’s own PostGIS database without copying them. WFS, ArcGIS FeatureServer, and OGC API Features imports create one-shot copies; remote STAC assets remain live references. GeoLens records each dataset’s origin, indexes catalog metadata with pg_trgm for fuzzy search, and can add pgvector semantic ranking after you configure an embedding provider and enable semantic search.
 
 > [!NOTE]
 > **API stability.** The standards surfaces (OGC API Features/Records, STAC,

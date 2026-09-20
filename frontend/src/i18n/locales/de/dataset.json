@@ -4,6 +4,8 @@
   "rowCount_one": "{{count}} Zeile",
   "rowCount_other": "{{count}} Zeilen",
   "page": {
+    "showMapPreview": "Kartenvorschau anzeigen",
+    "hideMapPreview": "Kartenvorschau ausblenden",
     "loading": "Datensatz wird geladen...",
     "errorTitle": "Datensatz nicht gefunden",
     "errorMessage": "Der angeforderte Datensatz konnte nicht geladen werden.",
@@ -63,6 +65,8 @@
     "notOwner": "Nur der Eigentümer des Datensatzes oder ein Administrator kann diesen Eintrag bearbeiten."
   },
   "connect": {
+    "openInstructions": "Verbindungsanleitung öffnen",
+    "instructionsTools": "QGIS, Python und curl",
     "copyCogUrl": "COG-URL kopieren",
     "copyXyzTileUrl": "XYZ-Kachel-URL kopieren",
     "copyS3Uri": "S3-URI kopieren",

@@ -48,7 +48,14 @@ export function SearchPage() {
   useDocumentTitle(t('common:pageTitle.search'));
   const { data, isLoading, error, isFetching, refetch } = useSearchResults();
   // Map search uses the visibility-scoped maps endpoint because catalog search indexes datasets only.
-  const { data: mapResults } = useMapSearchResults();
+  const {
+    data: mapResults,
+    isLoading: isLoadingMaps,
+    isFetching: isFetchingMaps,
+    error: mapsError,
+    refetch: refetchMaps,
+  } = useMapSearchResults();
+  const mapQuery = useSearchStore((s) => s.q).trim();
   const offset = useSearchStore((s) => s.offset);
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
@@ -76,6 +83,10 @@ export function SearchPage() {
   // logged in AND allowed. See Navbar.tsx CreateMenu.
   const canImport = !!token && can('upload');
   const totalMatched = data ? Math.max(data.numberMatched ?? 0, data.features.length) : 0;
+  const hasMapTextQuery = mapQuery.length > 0;
+  const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
+  const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
+  const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
 
@@ -128,28 +139,49 @@ export function SearchPage() {
               <ErrorState message={t('error.message', { message: error.message })} onRetry={() => refetch()} />
             )}
 
-            {/* A query can match a map without matching any datasets. */}
-            {mapResults && mapResults.maps.length > 0 && (
-              <section className="space-y-3" aria-label={t('mapsSectionTitle', { defaultValue: 'Maps' })}>
-                <h2 className="text-sm font-medium text-foreground px-0.5">
-                  {t('mapsSectionTitle', { defaultValue: 'Maps' })}
-                </h2>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {mapResults.maps.map((map) => (
-                    <MapCard key={map.id} map={map} />
-                  ))}
+            {shouldShowMapSearch && (
+              <section className="space-y-3" aria-labelledby="map-search-results-heading">
+                <div className="space-y-1 px-0.5">
+                  <h2 id="map-search-results-heading" className="text-sm font-medium text-foreground">
+                    {t('mapsMatchingQuery', { query: mapQuery })}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">{t('mapsScopeHint')}</p>
                 </div>
+
+                {isMapSearchPending && (
+                  <div role="status" aria-live="polite" className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    {t('loadingMaps')}
+                  </div>
+                )}
+
+                {mapsError && (
+                  <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    <span>{t('mapsError')}</span>
+                    <Button variant="outline" size="sm" onClick={() => refetchMaps()}>
+                      {t('retryMaps')}
+                    </Button>
+                  </div>
+                )}
+
+                {hasMapMatches && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {mapResults?.maps.map((map) => (
+                      <MapCard key={map.id} map={map} />
+                    ))}
+                  </div>
+                )}
               </section>
             )}
 
-            {/* Map-only matches must not render the dataset empty state. */}
-            {data && data.features.length === 0 && !(mapResults && mapResults.maps.length > 0) && (
+            {/* Wait for text-only map matching before treating the whole search as empty. */}
+            {data && data.features.length === 0 && !isMapSearchPending && !hasMapMatches && (
               // A positive total with an empty page means the current offset is out of range.
               hasActiveSearch || totalMatched > 0 ? (
                 <EmptyState
                   icon={SearchX}
-                  title={t('empty.title')}
-                  description={t('empty.description')}
+                  title={t('empty.catalogResultsTitle')}
+                  description={t('empty.catalogResultsDescription')}
                   action={
                     <Button variant="outline" onClick={() => resetFilters()}>
                       <X className="h-4 w-4 me-1" />
@@ -178,12 +210,27 @@ export function SearchPage() {
               )
             )}
 
+            {data && data.features.length === 0 && !isMapSearchPending && hasMapMatches && (
+              <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 px-4 py-3" aria-labelledby="catalog-empty-heading">
+                <div className="space-y-0.5">
+                  <h2 id="catalog-empty-heading" className="text-sm font-medium text-foreground">
+                    {t('empty.catalogResultsTitle')}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">{t('empty.catalogResultsDescription')}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => resetFilters()}>
+                  <X className="h-4 w-4 me-1" />
+                  {t('empty.clear')}
+                </Button>
+              </section>
+            )}
+
             {data && data.features.length > 0 && (
               <div ref={resultsRef} tabIndex={-1} className="scroll-mt-20 space-y-3 outline-none">
                 {/* Keep the result count visible at every viewport width. */}
                 <div className="flex items-center justify-between gap-3 px-0.5">
                   <h2 className="text-sm font-medium text-foreground">
-                    {t('resultCount', { count: totalMatched })}
+                    {t('catalogResults', { count: totalMatched })}
                   </h2>
                 </div>
                 <section className="space-y-3" aria-label={t('results', { defaultValue: 'Search results' })}>
