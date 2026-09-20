@@ -869,7 +869,9 @@
         "reason": {
           "source_count_unavailable": "GeoLens 无法将获取的行数与数据源进行比较，因此发布前需要审核。",
           "empty_result": "此次刷新会用空结果替换非空数据集。",
-          "destructive_schema_change": "此次刷新会删除列或更改列类型。"
+          "destructive_schema_change": "此次刷新会删除列或更改列类型。",
+          "arcgis_id_coverage_unavailable": "GeoLens 无法验证 ArcGIS 对象 ID 的覆盖情况。",
+          "arcgis_source_membership_changed": "此次刷新运行期间，ArcGIS 数据源发生了变化。"
         },
         "reviewAndRetry": "审核并重试",
         "loadMore": "加载更早的运行"

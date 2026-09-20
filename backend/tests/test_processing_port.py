@@ -249,6 +249,7 @@ class FakeProcessingPort:
         result_limit=None,
         result_offset=None,
         object_ids=None,
+        force_arcgis_geojson=False,
     ):
         return (f"{service_type}:{base_url}", layer_name)
 

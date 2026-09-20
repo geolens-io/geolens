@@ -1109,13 +1109,18 @@ export interface DatasetRefreshRunResponse {
     source_count: number | null;
     fetched_count: number | null;
     count_status: 'matched' | 'mismatched' | 'unavailable';
-    identity_check: 'unavailable' | 'content_digest';
+    identity_check: 'unavailable' | 'content_digest' | 'arcgis_id_set';
     content_digest?: string | null;
+    arcgis_id_coverage?: Record<string, unknown> | null;
     staged_geometry_type?: string | null;
     staged_srid?: number | null;
     staged_coordinate_dimension?: number | null;
     review_reasons: Array<
-      'source_count_unavailable' | 'empty_result' | 'destructive_schema_change'
+      | 'source_count_unavailable'
+      | 'empty_result'
+      | 'destructive_schema_change'
+      | 'arcgis_id_coverage_unavailable'
+      | 'arcgis_source_membership_changed'
     >;
     review_fingerprint: string | null;
     accepted_blocked_run_id: string | null;

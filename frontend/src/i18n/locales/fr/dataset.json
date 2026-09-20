@@ -918,7 +918,9 @@
         "reason": {
           "source_count_unavailable": "GeoLens n’a pas pu comparer les lignes récupérées avec la source ; la publication doit être vérifiée.",
           "empty_result": "L’actualisation remplacerait un jeu de données non vide par un résultat vide.",
-          "destructive_schema_change": "L’actualisation supprime des colonnes ou modifie leur type."
+          "destructive_schema_change": "L’actualisation supprime des colonnes ou modifie leur type.",
+          "arcgis_id_coverage_unavailable": "GeoLens n’a pas pu vérifier la couverture des identifiants d’objet ArcGIS.",
+          "arcgis_source_membership_changed": "La source ArcGIS a changé pendant cette actualisation."
         },
         "reviewAndRetry": "Examiner et relancer",
         "loadMore": "Charger les exécutions précédentes"

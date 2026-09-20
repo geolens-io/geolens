@@ -870,9 +870,16 @@ describe('SourcePanel', () => {
       source_count: 0,
       fetched_count: 0,
       count_status: 'matched',
-      identity_check: 'content_digest',
+      identity_check: 'arcgis_id_set',
       content_digest: 'sha256:content-digest',
-      review_reasons: ['empty_result'],
+      arcgis_id_coverage: {
+        status: 'matched',
+        source_membership_status: 'changed',
+      },
+      review_reasons: [
+        'arcgis_id_coverage_unavailable',
+        'arcgis_source_membership_changed',
+      ],
       review_fingerprint: 'fingerprint',
       accepted_blocked_run_id: null,
     };
@@ -929,6 +936,12 @@ describe('SourcePanel', () => {
     expect(screen.getByText('Source: 0 · fetched: 0')).toBeInTheDocument();
     expect(screen.getByText(/Scheduled for/)).toBeInTheDocument();
     expect(screen.getByText('Source used: https://example.com/wfs')).toBeInTheDocument();
+    expect(
+      screen.getByText('GeoLens could not verify ArcGIS object ID coverage.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('The ArcGIS source changed while this refresh was running.'),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/secret|hidden|private/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Load older runs' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Review and retry' }));

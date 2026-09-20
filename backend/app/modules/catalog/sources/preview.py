@@ -168,6 +168,7 @@ def build_gdal_source(
     result_limit: int | None = None,
     result_offset: int | None = None,
     object_ids: list[int] | tuple[int, ...] | None = None,
+    force_arcgis_geojson: bool = False,
 ) -> tuple[str, str]:
     """Construct a GDAL-prefixed source string for a remote service.
 
@@ -217,7 +218,9 @@ def build_gdal_source(
             # when the exact plan needs a wider identifier; otherwise an
             # all-integral floating column could be inferred as an integer
             # and create artificial schema drift.
-            if any(value > (1 << 31) - 1 for value in object_ids):
+            if force_arcgis_geojson or any(
+                value > (1 << 31) - 1 for value in object_ids
+            ):
                 params["f"] = "geojson"
                 source_driver = "GeoJSON"
             params["objectIds"] = ",".join(str(value) for value in object_ids)

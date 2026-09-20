@@ -918,7 +918,9 @@
         "reason": {
           "source_count_unavailable": "GeoLens konnte die abgerufenen Zeilen nicht mit der Quelle vergleichen; die Veröffentlichung muss geprüft werden.",
           "empty_result": "Die Aktualisierung würde einen nicht leeren Datensatz durch ein leeres Ergebnis ersetzen.",
-          "destructive_schema_change": "Die Aktualisierung entfernt Spalten oder ändert deren Typen."
+          "destructive_schema_change": "Die Aktualisierung entfernt Spalten oder ändert deren Typen.",
+          "arcgis_id_coverage_unavailable": "GeoLens konnte die Abdeckung der ArcGIS-Objekt-IDs nicht überprüfen.",
+          "arcgis_source_membership_changed": "Die ArcGIS-Quelle hat sich während dieser Aktualisierung geändert."
         },
         "reviewAndRetry": "Prüfen und wiederholen",
         "loadMore": "Ältere Läufe laden"

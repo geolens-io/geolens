@@ -869,7 +869,9 @@
         "reason": {
           "source_count_unavailable": "GeoLens could not compare the fetched row count with the source, so publication requires review.",
           "empty_result": "The refresh would replace a non-empty dataset with an empty result.",
-          "destructive_schema_change": "The refresh removes columns or changes their types."
+          "destructive_schema_change": "The refresh removes columns or changes their types.",
+          "arcgis_id_coverage_unavailable": "GeoLens could not verify ArcGIS object ID coverage.",
+          "arcgis_source_membership_changed": "The ArcGIS source changed while this refresh was running."
         },
         "reviewAndRetry": "Review and retry",
         "loadMore": "Load older runs"

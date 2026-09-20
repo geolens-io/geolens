@@ -115,7 +115,10 @@ logger = logging.getLogger(__name__)
 # a verified ArcGIS ID chunk; an older overlay would reject that keyword.
 # ProcessingPort.fetch_arcgis_id_plan also crosses the catalog-owned adapter
 # through the sanctioned port, avoiding a processing-to-catalog import.
-EXTENSION_API_VERSION: int = 11
+# 11 -> 12 (fix(refresh)): ProcessingPort.build_gdal_source gained the optional
+# ``force_arcgis_geojson`` keyword so every chunk in one verified ArcGIS ID
+# plan uses the same GDAL driver when any object ID exceeds ESRIJSON's range.
+EXTENSION_API_VERSION: int = 12
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

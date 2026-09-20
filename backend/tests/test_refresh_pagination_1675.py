@@ -906,7 +906,7 @@ async def test_stronger_arcgis_policy_clamps_exact_id_chunks_to_gdal_bound(
 ):
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
-    ids = tuple(range(1_001))
+    ids = (*range(1_000), (1 << 63) - 1)
 
     async def _fake_page_info(source_url, layer_id, token):
         return len(ids), 2_000, True, "OBJECTID"
@@ -931,6 +931,7 @@ async def test_stronger_arcgis_policy_clamps_exact_id_chunks_to_gdal_bound(
         )
         for call in calls
     ] == [1_000, 1]
+    assert all(call["source"].startswith("GeoJSON:") for call in calls)
     run = (await _runs_ordered(test_db_session, dataset.id))[0]
     assert run.status == "succeeded"
     assert run.verification["arcgis_id_coverage"]["status"] == "matched"

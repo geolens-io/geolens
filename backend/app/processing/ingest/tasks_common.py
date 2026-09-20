@@ -747,12 +747,10 @@ async def run_paged_arcgis_service_fetch(
     on_page: Any = None,
     planned_ids: tuple[int, ...] | None = None,
 ) -> None:
-    """Guarded resultOffset paging for an ArcGIS FeatureServer fetch.
+    """Guarded ArcGIS paging shared by initial import and refresh/reupload.
 
-    fix(#1675): shared by initial import and the refresh/reupload executor
-    so both distrust driver-side paging the same way — a page that makes
-    no row-count progress aborts the fetch rather than looping or
-    silently stopping short.
+    Both doors distrust driver-side paging: a page that makes no row-count
+    progress aborts rather than looping or silently stopping short.
 
     ``on_spawn`` is forwarded to every page's subprocess spawn (the refresh
     door's origin-contact stamp is a monotonic OR, so repeated arming is
@@ -767,8 +765,8 @@ async def run_paged_arcgis_service_fetch(
     from app.processing.ingest.metadata import _qtable
 
     port = get_processing_port()
-    imported_rows = 0
-    append = False
+    imported_rows, append = 0, False
+    force_arcgis_geojson = bool(planned_ids and max(planned_ids) > (1 << 31) - 1)
     if planned_ids is not None:
         planned_chunk_size = min(page_size, _ARCGIS_OBJECT_ID_FETCH_CHUNK_SIZE)
 
@@ -786,6 +784,7 @@ async def run_paged_arcgis_service_fetch(
                 result_limit=None,
                 result_offset=None,
                 object_ids=object_ids,
+                force_arcgis_geojson=force_arcgis_geojson,
             )
             return len(page_source.encode("utf-8")) <= _ARCGIS_GDAL_GET_URL_MAX_BYTES
 
@@ -830,6 +829,7 @@ async def run_paged_arcgis_service_fetch(
             result_limit=None if object_ids is not None else page_size,
             result_offset=offset,
             object_ids=object_ids,
+            force_arcgis_geojson=force_arcgis_geojson,
         )
         await ogr.run_ogr2ogr_service(
             page_source,

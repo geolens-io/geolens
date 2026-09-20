@@ -918,7 +918,9 @@
         "reason": {
           "source_count_unavailable": "GeoLens no pudo comparar las filas obtenidas con la fuente, por lo que la publicación requiere revisión.",
           "empty_result": "La actualización sustituiría un conjunto con datos por un resultado vacío.",
-          "destructive_schema_change": "La actualización elimina columnas o cambia sus tipos."
+          "destructive_schema_change": "La actualización elimina columnas o cambia sus tipos.",
+          "arcgis_id_coverage_unavailable": "GeoLens no pudo verificar la cobertura de identificadores de objeto de ArcGIS.",
+          "arcgis_source_membership_changed": "La fuente de ArcGIS cambió mientras se ejecutaba esta actualización."
         },
         "reviewAndRetry": "Revisar y reintentar",
         "loadMore": "Cargar ejecuciones anteriores"
