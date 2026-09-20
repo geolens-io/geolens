@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { render } from '@/test/test-utils';
 import { useDatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import { SourceRefreshAction } from '../SourceRefreshAction';
-import type { DatasetRefreshRunListResponse, DatasetRefreshResponse, DatasetResponse } from '@/types/api';
+import type { DatasetRefreshRequest, DatasetRefreshRunListResponse, DatasetRefreshResponse, DatasetResponse } from '@/types/api';
 
 /**
  * fix(#1285 codex round 4): the root-cause test. SourceRefreshAction used to
@@ -101,11 +101,17 @@ const dataset = makeDataset();
  * `showSourceTab` is true, mirroring how DetailPanel only mounts it inside
  * the active "sources" TabsContent.
  */
-function Harness({ showSourceTab }: { showSourceTab: boolean }) {
+function Harness({
+  showSourceTab,
+  acceptBlockedRun,
+}: {
+  showSourceTab: boolean;
+  acceptBlockedRun?: { id: string; verificationPolicy?: DatasetRefreshRequest['verification_policy'] };
+}) {
   const watch = useDatasetRefreshWatch(dataset.id);
   return (
     <>
-      {showSourceTab && <SourceRefreshAction dataset={dataset} watch={watch} />}
+      {showSourceTab && <SourceRefreshAction dataset={dataset} watch={watch} acceptBlockedRun={acceptBlockedRun} />}
       <div data-testid="is-busy">{String(watch.isBusy)}</div>
     </>
   );
@@ -189,6 +195,7 @@ describe('SourceRefreshAction + useDatasetRefreshWatch (tab-switch survival)', (
       undefined,
       undefined,
       undefined,
+      undefined,
     );
     expect(screen.getByTestId('is-busy')).toHaveTextContent('true');
 
@@ -212,5 +219,36 @@ describe('SourceRefreshAction + useDatasetRefreshWatch (tab-switch survival)', (
     // gone when it happened.
     rerender(<Harness showSourceTab />);
     expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
+  });
+
+  it('keeps a strong blocked-run policy through a Sources-tab remount', async () => {
+    const user = userEvent.setup();
+    const acceptBlockedRun = { id: 'blocked-run-strong', verificationPolicy: 'arcgis_id_set_v1' as const };
+    mockGetDatasetRefreshRuns.mockResolvedValue({ runs: [], total: 0 });
+    mockRefreshDataset.mockResolvedValue({
+      run_id: 'run-strong',
+      job_id: 'job-strong',
+      dataset_id: 'dataset-1',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the stored source',
+    });
+
+    const { rerender } = render(<Harness showSourceTab acceptBlockedRun={acceptBlockedRun} />);
+    await screen.findByRole('dialog');
+    rerender(<Harness showSourceTab={false} acceptBlockedRun={acceptBlockedRun} />);
+    rerender(<Harness showSourceTab acceptBlockedRun={acceptBlockedRun} />);
+    await screen.findByRole('dialog');
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await act(async () => {});
+    expect(mockRefreshDataset).toHaveBeenCalledWith(
+      'dataset-1',
+      undefined,
+      undefined,
+      'blocked-run-strong',
+      'arcgis_id_set_v1',
+    );
   });
 });

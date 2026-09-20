@@ -1,12 +1,18 @@
 from typing import Literal, cast
 
 RefreshVerificationReviewReasonsItem = Literal[
-    "destructive_schema_change", "empty_result", "source_count_unavailable"
+    "arcgis_id_coverage_unavailable",
+    "arcgis_source_membership_changed",
+    "destructive_schema_change",
+    "empty_result",
+    "source_count_unavailable",
 ]
 
 REFRESH_VERIFICATION_REVIEW_REASONS_ITEM_VALUES: set[
     RefreshVerificationReviewReasonsItem
 ] = {
+    "arcgis_id_coverage_unavailable",
+    "arcgis_source_membership_changed",
     "destructive_schema_change",
     "empty_result",
     "source_count_unavailable",

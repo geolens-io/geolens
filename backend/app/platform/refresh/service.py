@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import coded_failure_reason, redact_failure_reason
+from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 
 logger = structlog.get_logger(__name__)
@@ -48,7 +49,7 @@ TERMINAL_RUN_STATUSES: tuple[str, ...] = (
     "blocked",
 )
 ACTIVE_RUN_STATUSES: tuple[str, ...] = ("pending", "running")
-RUN_TRIGGERS: tuple[str, ...] = ("manual", "api", "cli")
+RUN_TRIGGERS: tuple[str, ...] = ("manual", "api", "cli", "scheduled")
 RUN_ORIGIN_KINDS: tuple[str, ...] = (
     "upload",
     "postgis",
@@ -63,6 +64,13 @@ RUN_ORIGIN_KINDS: tuple[str, ...] = (
 # live-Procrastinate-job predicate below rather than by this number, so the
 # cutoff only has to be longer than the gap between dispatch and claim.
 ABANDONED_RUN_CUTOFF_SECONDS = 3600
+SCHEDULED_CLAIM_DEADLINE_SECONDS = 30 * 60
+ADMITTED_EXPIRY_BATCH_SIZE = 100
+
+ADMITTED_CLAIM_EXPIRED_ERROR_CODE = "scheduled_claim_expired"
+ADMITTED_CLAIM_EXPIRED_ERROR_MESSAGE = (
+    "Scheduled refresh was not claimed before its deadline."
+)
 
 ABANDONED_ERROR_CODE = "abandoned"
 ABANDONED_ERROR_MESSAGE = (
@@ -314,6 +322,14 @@ async def create_pending_run(
     triggered_by: uuid.UUID | None,
     ingest_job_id: uuid.UUID | None,
     feature_count_before: int | None,
+    scheduled_for: datetime | None = None,
+    occurrence_key: str | None = None,
+    execution_key: uuid.UUID | None = None,
+    source_binding_fingerprint: str | None = None,
+    local_edit_baseline: datetime | None = None,
+    verification_policy: str | None = None,
+    credential_reference: str | None = None,
+    credential_version: str | None = None,
 ) -> DatasetRefreshRun:
     """Insert the ``pending`` row in the caller's transaction, before ``defer``.
 
@@ -336,6 +352,19 @@ async def create_pending_run(
         raise ValueError(f"unknown origin_kind {origin_kind!r}")
     if trigger not in RUN_TRIGGERS:
         raise ValueError(f"unknown trigger {trigger!r}")
+    scheduled_identity = (
+        scheduled_for,
+        occurrence_key,
+        execution_key,
+        source_binding_fingerprint,
+        verification_policy,
+    )
+    if trigger == "scheduled" and any(value is None for value in scheduled_identity):
+        raise ValueError(
+            "scheduled runs require immutable occurrence and source identity"
+        )
+    if trigger != "scheduled" and scheduled_for is not None:
+        raise ValueError("only scheduled runs may carry scheduled_for")
 
     # Read the parent's STORED tenant_id rather than copying an ORM attribute:
     # the stamping trigger fills `datasets.tenant_id` in the DB while the ORM
@@ -382,6 +411,24 @@ async def create_pending_run(
         raise DatasetBusyError("A refresh is already in progress for this dataset.")
 
     now = datetime.now(timezone.utc)
+    admitted_execution = execution_key is not None
+    db_now = (
+        await session.scalar(text("SELECT CURRENT_TIMESTAMP"))
+        if trigger == "scheduled" or admitted_execution
+        else now
+    )
+    if db_now is None:
+        raise RuntimeError(
+            "database did not return a timestamp for scheduled admission"
+        )
+    # Every facade-admitted occurrence, including an idempotent manual Run now,
+    # has a bounded delivery/claim window. Legacy manual refreshes do not carry
+    # an execution key and retain their existing direct-dispatch behavior.
+    claim_deadline = (
+        db_now + timedelta(seconds=SCHEDULED_CLAIM_DEADLINE_SECONDS)
+        if trigger == "scheduled" or admitted_execution
+        else None
+    )
     run = DatasetRefreshRun(
         dataset_id=dataset_id,
         tenant_id=tenant_id,
@@ -393,6 +440,15 @@ async def create_pending_run(
         started_at=now,
         created_at=now,
         feature_count_before=feature_count_before,
+        scheduled_for=scheduled_for,
+        occurrence_key=occurrence_key,
+        claim_deadline=claim_deadline,
+        execution_key=execution_key,
+        source_binding_fingerprint=source_binding_fingerprint,
+        local_edit_baseline=local_edit_baseline,
+        verification_policy=verification_policy,
+        credential_reference=credential_reference,
+        credential_version=credential_version,
     )
     try:
         async with session.begin_nested():
@@ -499,6 +555,139 @@ async def claim_run_for_job(
         values={"claimed_at": datetime.now(timezone.utc)},
     )
     return run_id if won else None
+
+
+async def claim_admitted_run_for_job(
+    session: AsyncSession,
+    ingest_job_id: uuid.UUID,
+    *,
+    execution_key: uuid.UUID,
+) -> uuid.UUID | None:
+    """Claim a keyed admitted run once, before any source access.
+
+    The compare-and-set includes the durable key and deadline. Duplicate
+    delivery and late workers therefore receive no run and cannot publish a
+    second dataset version.
+    """
+    now = await session.scalar(text("SELECT CURRENT_TIMESTAMP"))
+    if now is None:
+        raise RuntimeError("database did not return a timestamp for scheduled claim")
+    result = await session.execute(
+        update(DatasetRefreshRun)
+        .where(
+            DatasetRefreshRun.ingest_job_id == ingest_job_id,
+            DatasetRefreshRun.status == "pending",
+            DatasetRefreshRun.execution_key == execution_key,
+            DatasetRefreshRun.claim_deadline > now,
+        )
+        .values(status="running", claimed_at=now)
+        .returning(DatasetRefreshRun.id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def claim_scheduled_run_for_job(
+    session: AsyncSession,
+    ingest_job_id: uuid.UUID,
+    *,
+    execution_key: uuid.UUID,
+) -> uuid.UUID | None:
+    """Compatibility wrapper for callers that only admit scheduled work."""
+    return await claim_admitted_run_for_job(
+        session, ingest_job_id, execution_key=execution_key
+    )
+
+
+async def reject_pending_admitted_refresh(
+    session: AsyncSession,
+    *,
+    ingest_job_id: uuid.UUID,
+    execution_key: uuid.UUID,
+    error_code: str,
+    error_message: str,
+) -> uuid.UUID | None:
+    """Fail one unclaimed keyed refresh and its job in the caller transaction.
+
+    The job lock precedes the run lock, matching worker and cancellation paths.
+    A worker that already claimed the run wins the race and this function leaves
+    both rows unchanged; callers must never use it to stop running work.
+    """
+    job = await session.scalar(
+        select(IngestJob).where(IngestJob.id == ingest_job_id).with_for_update()
+    )
+    if job is None or job.status != "pending":
+        return None
+    run = await session.scalar(
+        select(DatasetRefreshRun)
+        .where(
+            DatasetRefreshRun.ingest_job_id == ingest_job_id,
+            DatasetRefreshRun.execution_key == execution_key,
+            DatasetRefreshRun.status == "pending",
+        )
+        .with_for_update()
+    )
+    if run is None:
+        return None
+    now = await session.scalar(text("SELECT CURRENT_TIMESTAMP"))
+    if now is None:
+        raise RuntimeError(
+            "database did not return a timestamp for admission rejection"
+        )
+    safe_message = redact_run_error(error_message)
+    job.status = "failed"
+    job.completed_at = now
+    job.error_message = safe_message
+    run.status = "failed"
+    run.finished_at = now
+    run.error_code = error_code
+    run.error_message = safe_message
+    await _emit_refresh_failed(session, run.id)
+    return run.id
+
+
+async def expire_unclaimed_admitted_runs(session: AsyncSession) -> list[uuid.UUID]:
+    """Terminalize a bounded batch of keyed work whose claim window elapsed.
+
+    Each candidate is settled through the job-first lock helper so a worker
+    that claims it while the sweep is running wins without a partial outcome.
+    """
+    now = await session.scalar(text("SELECT CURRENT_TIMESTAMP"))
+    if now is None:
+        raise RuntimeError("database did not return a timestamp for scheduled expiry")
+    candidates = (
+        await session.execute(
+            select(
+                DatasetRefreshRun.ingest_job_id,
+                DatasetRefreshRun.execution_key,
+            )
+            .where(
+                DatasetRefreshRun.status == "pending",
+                DatasetRefreshRun.ingest_job_id.is_not(None),
+                DatasetRefreshRun.execution_key.is_not(None),
+                DatasetRefreshRun.claim_deadline <= now,
+            )
+            .limit(ADMITTED_EXPIRY_BATCH_SIZE)
+        )
+    ).all()
+    expired: list[uuid.UUID] = []
+    for ingest_job_id, execution_key in candidates:
+        if ingest_job_id is None or execution_key is None:
+            continue
+        run_id = await reject_pending_admitted_refresh(
+            session,
+            ingest_job_id=ingest_job_id,
+            execution_key=execution_key,
+            error_code=ADMITTED_CLAIM_EXPIRED_ERROR_CODE,
+            error_message=ADMITTED_CLAIM_EXPIRED_ERROR_MESSAGE,
+        )
+        if run_id is not None:
+            expired.append(run_id)
+    return expired
+
+
+async def expire_unclaimed_scheduled_runs(session: AsyncSession) -> list[uuid.UUID]:
+    """Compatibility wrapper for the historical scheduled-only recovery name."""
+    return await expire_unclaimed_admitted_runs(session)
 
 
 async def cancel_active_run_for_job(

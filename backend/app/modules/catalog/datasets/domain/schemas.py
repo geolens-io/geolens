@@ -831,6 +831,13 @@ class DatasetRefreshRequest(BaseModel):
         ),
     )
     _validate_token = field_validator("token")(_validate_safe_token)
+    verification_policy: Literal["standard", "arcgis_id_set_v1"] = Field(
+        default="standard",
+        description=(
+            "Verification policy for this refresh. arcgis_id_set_v1 performs "
+            "the stronger ArcGIS object-ID membership check."
+        ),
+    )
     accept_blocked_run_id: uuid.UUID | None = Field(
         default=None,
         description=(
@@ -1429,11 +1436,13 @@ class AnalysisMaterializeResponse(BaseModel):
 class RefreshVerification(BaseModel):
     decision: Literal["allowed", "blocked", "rejected"]
     source_binding: dict[str, Any]
+    source_binding_fingerprint: str | None = None
     source_count: int | None
     fetched_count: int | None
     count_status: Literal["matched", "mismatched", "unavailable"]
-    identity_check: Literal["unavailable", "content_digest"]
+    identity_check: Literal["unavailable", "content_digest", "arcgis_id_set"]
     content_digest: str | None = None
+    arcgis_id_coverage: dict[str, Any] | None = None
     staged_geometry_type: str | None = None
     staged_srid: int | None = None
     staged_coordinate_dimension: int | None = None
@@ -1442,6 +1451,8 @@ class RefreshVerification(BaseModel):
             "source_count_unavailable",
             "empty_result",
             "destructive_schema_change",
+            "arcgis_id_coverage_unavailable",
+            "arcgis_source_membership_changed",
         ]
     ]
     review_fingerprint: str | None
@@ -1485,7 +1496,20 @@ class DatasetRefreshRunResponse(BaseModel):
             "label, with today's raster-replace runs recorded 'upload'."
         )
     )
-    trigger: str = Field(description="manual, api, or cli")
+    trigger: str = Field(description="manual, api, cli, or scheduled")
+    scheduled_for: datetime | None = Field(
+        default=None,
+        description=(
+            "The scheduled occurrence time. Null for manual, API, and CLI runs."
+        ),
+    )
+    claim_deadline: datetime | None = Field(
+        default=None,
+        description=(
+            "The immutable admission deadline for a scheduled or keyed run. "
+            "Null for legacy runs without an admission fence."
+        ),
+    )
     status: str = Field(
         description="pending, running, succeeded, failed, cancelled, or blocked"
     )

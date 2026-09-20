@@ -23,7 +23,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import type { DatasetOrigin, DatasetResponse, ServiceAuthRequest } from '@/types/api';
+import type { DatasetOrigin, DatasetResponse, DatasetRefreshRequest, ServiceAuthRequest } from '@/types/api';
 import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 
 // fix(#1285 codex round 1): refresh-door origins. router_refresh.py dispatches
@@ -60,7 +60,10 @@ interface SourceRefreshActionProps {
    * `latestRun`/`isBusy` back, rather than polling or tracking on its own.
    */
   watch: DatasetRefreshWatch;
-  acceptBlockedRunId?: string;
+  acceptBlockedRun?: {
+    id: string;
+    verificationPolicy?: DatasetRefreshRequest['verification_policy'];
+  };
   onAcceptHandled?: () => void;
 }
 
@@ -78,7 +81,7 @@ interface SourceRefreshActionProps {
 export function SourceRefreshAction({
   dataset,
   watch,
-  acceptBlockedRunId,
+  acceptBlockedRun,
   onAcceptHandled,
 }: SourceRefreshActionProps) {
   const { t } = useTranslation('dataset');
@@ -119,6 +122,7 @@ export function SourceRefreshAction({
   // are told plainly that the refusal was unconditional.
   const isArcgisOrigin = dataset.source_format === 'arcgis_featureserver';
   const { isBusy } = watch;
+  const acceptBlockedRunId = acceptBlockedRun?.id;
 
   // fix(#1285 codex round 6, widened on completion): DatasetMap stays
   // mounted above DetailPanel regardless of which tab is active, so a
@@ -214,6 +218,9 @@ export function SourceRefreshAction({
         token: isArcgisOrigin ? submittedToken : undefined,
         auth: isArcgisOrigin ? undefined : submittedAuth,
         acceptBlockedRunId,
+        ...(acceptBlockedRun?.verificationPolicy
+          ? { verificationPolicy: acceptBlockedRun.verificationPolicy }
+          : {}),
       });
       // Reported to the page-level watch rather than a local ref — this call
       // is safe even if the user has already switched away from the Source

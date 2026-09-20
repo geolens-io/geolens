@@ -1280,8 +1280,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1151,
-    # ArcGIS probing and metadata adapter debt; split protocol helpers before raising.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 887,
+    # ArcGIS identity enumeration and bounded verification share this adapter.
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1045,
     # Source API router debt; split discovery, preview and dispatch endpoints before
     # raising.
     "backend/app/modules/catalog/sources/router.py": 1736,
@@ -1300,22 +1300,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising.
     "backend/app/processing/ingest/router.py": 1827,
-    # Shared task finalization keeps lifecycle and cleanup consistent across ingest
-    # formats.
-    "backend/app/processing/ingest/tasks_common.py": 1914,
-    # Reupload coordinates staging, credentials and fenced settlement across
-    # file/service paths, including the versioned verified-refresh task.
-    "backend/app/processing/ingest/tasks_reupload.py": 1497,
+    # Shared ingest finalization carries verification and lifecycle context across formats.
+    "backend/app/processing/ingest/tasks_common.py": 2059,
+    # Reupload coordinates staged service verification and fenced publication.
+    "backend/app/processing/ingest/tasks_reupload.py": 1752,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1431,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1434,
     # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1175,
     # Reconciliation and reapers serve startup, workers and admin cleanup consistently.
     "backend/app/platform/jobs/sweep.py": 1537,
-    # Refresh transitions serve request and worker paths without crossing domain
-    # boundaries.
-    "backend/app/platform/refresh/service.py": 997,
+    # Refresh admission, claim fencing and terminal transitions stay domain-neutral.
+    "backend/app/platform/refresh/service.py": 1186,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1496,
@@ -1351,8 +1348,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # PostGIS refresh coordinates geometry repair, measurement and fenced catalog
     # updates.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 979,
-    # Dataset schema debt; split request/response families before raising.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1528,
+    # Dataset request and verification response families share this public contract.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1552,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1421,

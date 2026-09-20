@@ -775,6 +775,8 @@ async def list_dataset_refresh_runs(
                 ingest_job_id=run.ingest_job_id,
                 origin_kind=run.origin_kind,
                 trigger=run.trigger,
+                scheduled_for=run.scheduled_for,
+                claim_deadline=run.claim_deadline,
                 status=run.status,
                 triggered_by=run.triggered_by if can_view_detail else None,
                 triggered_by_username=usernames.get(run.triggered_by),

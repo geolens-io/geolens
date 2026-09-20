@@ -106,7 +106,7 @@ class TestExtensionApiVersionConstant:
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 10
+        assert EXTENSION_API_VERSION == 11
 
 
 class TestCheckExtensionApiVersion:

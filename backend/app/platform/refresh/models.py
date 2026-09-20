@@ -45,8 +45,14 @@ class DatasetRefreshRun(Base):
         # `scheduled_for` and its UNIQUE (dataset_id, scheduled_for) partial
         # index, or a scheduled occurrence loses its durable identity.
         CheckConstraint(
-            "trigger IN ('manual', 'api', 'cli')",
+            "trigger IN ('manual', 'api', 'cli', 'scheduled')",
             name="chk_refresh_runs_trigger",
+        ),
+        CheckConstraint(
+            "trigger != 'scheduled' OR (scheduled_for IS NOT NULL "
+            "AND occurrence_key IS NOT NULL AND claim_deadline IS NOT NULL "
+            "AND execution_key IS NOT NULL)",
+            name="chk_refresh_runs_scheduled_identity",
         ),
         # fix(#1325): origin_kind is the run's execution DOOR, written once
         # by create_pending_run at commit time and never updated afterward.
@@ -72,6 +78,21 @@ class DatasetRefreshRun(Base):
             "dataset_id",
             unique=True,
             postgresql_where=text("status IN ('pending', 'running')"),
+        ),
+        Index(
+            "uq_refresh_runs_scheduled_occurrence",
+            "dataset_id",
+            "scheduled_for",
+            unique=True,
+            postgresql_where=text(
+                "trigger = 'scheduled' AND scheduled_for IS NOT NULL"
+            ),
+        ),
+        Index(
+            "uq_refresh_runs_execution_key",
+            "execution_key",
+            unique=True,
+            postgresql_where=text("execution_key IS NOT NULL"),
         ),
         # The history query: newest-first for one dataset.
         Index("ix_dataset_refresh_runs_dataset_started", "dataset_id", "started_at"),
@@ -122,6 +143,25 @@ class DatasetRefreshRun(Base):
     )
     origin_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     trigger: Mapped[str] = mapped_column(String(20), nullable=False)
+    scheduled_for: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    occurrence_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    claim_deadline: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    execution_key: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    source_binding_fingerprint: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    local_edit_baseline: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    verification_policy: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    credential_reference: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    credential_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     triggered_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True

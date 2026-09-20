@@ -74,6 +74,11 @@ describe('queryKeys factory', () => {
       const full = queryKeys.datasets.versions('abc', 0, 50);
       expect(full.slice(0, prefix.length)).toEqual([...prefix]);
     });
+
+    it('keeps sync configuration and credential metadata dataset-scoped', () => {
+      expect(queryKeys.datasets.sync('abc')).toEqual(['dataset-sync', 'abc']);
+      expect(queryKeys.datasets.syncCredentials('abc')).toEqual(['sync-credentials', 'abc']);
+    });
   });
 
   // -------------------------------------------------------------------------

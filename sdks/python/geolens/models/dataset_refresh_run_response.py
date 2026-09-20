@@ -38,13 +38,17 @@ class DatasetRefreshRunResponse:
                 raster. The two can visibly diverge; for example a STAC-imported raster's pending or failed replace run is
                 recorded 'upload' while the dataset's origin stays 'stac' until the replace succeeds. 'raster' itself is
                 reserved for a future, distinct raster-replace door label, with today's raster-replace runs recorded 'upload'.
-            trigger (str): manual, api, or cli
+            trigger (str): manual, api, cli, or scheduled
             status (str): pending, running, succeeded, failed, cancelled, or blocked
             started_at (datetime.datetime): Dispatch time, not claim time — queue wait is visible
             dataset_version_id (None | Unset | UUID): The version this run produced. Null for a run that never committed a
                 swap.
             ingest_job_id (None | Unset | UUID): The ingest job that carried out the work. Nulls out when the job row is
                 purged by retention; the run itself survives.
+            scheduled_for (datetime.datetime | None | Unset): The scheduled occurrence time. Null for manual, API, and CLI
+                runs.
+            claim_deadline (datetime.datetime | None | Unset): The immutable admission deadline for a scheduled or keyed
+                run. Null for legacy runs without an admission fence.
             triggered_by (None | Unset | UUID):
             triggered_by_username (None | str | Unset):
             claimed_at (datetime.datetime | None | Unset): When a worker began executing the run. Queue wait is this minus
@@ -68,6 +72,8 @@ class DatasetRefreshRunResponse:
     started_at: datetime.datetime
     dataset_version_id: None | Unset | UUID = UNSET
     ingest_job_id: None | Unset | UUID = UNSET
+    scheduled_for: datetime.datetime | None | Unset = UNSET
+    claim_deadline: datetime.datetime | None | Unset = UNSET
     triggered_by: None | Unset | UUID = UNSET
     triggered_by_username: None | str | Unset = UNSET
     claimed_at: datetime.datetime | None | Unset = UNSET
@@ -111,6 +117,22 @@ class DatasetRefreshRunResponse:
             ingest_job_id = str(self.ingest_job_id)
         else:
             ingest_job_id = self.ingest_job_id
+
+        scheduled_for: None | str | Unset
+        if isinstance(self.scheduled_for, Unset):
+            scheduled_for = UNSET
+        elif isinstance(self.scheduled_for, datetime.datetime):
+            scheduled_for = self.scheduled_for.isoformat()
+        else:
+            scheduled_for = self.scheduled_for
+
+        claim_deadline: None | str | Unset
+        if isinstance(self.claim_deadline, Unset):
+            claim_deadline = UNSET
+        elif isinstance(self.claim_deadline, datetime.datetime):
+            claim_deadline = self.claim_deadline.isoformat()
+        else:
+            claim_deadline = self.claim_deadline
 
         triggered_by: None | str | Unset
         if isinstance(self.triggered_by, Unset):
@@ -198,6 +220,10 @@ class DatasetRefreshRunResponse:
             field_dict["dataset_version_id"] = dataset_version_id
         if ingest_job_id is not UNSET:
             field_dict["ingest_job_id"] = ingest_job_id
+        if scheduled_for is not UNSET:
+            field_dict["scheduled_for"] = scheduled_for
+        if claim_deadline is not UNSET:
+            field_dict["claim_deadline"] = claim_deadline
         if triggered_by is not UNSET:
             field_dict["triggered_by"] = triggered_by
         if triggered_by_username is not UNSET:
@@ -274,6 +300,40 @@ class DatasetRefreshRunResponse:
             return cast(None | Unset | UUID, data)
 
         ingest_job_id = _parse_ingest_job_id(d.pop("ingest_job_id", UNSET))
+
+        def _parse_scheduled_for(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                scheduled_for_type_0 = isoparse(data)
+
+                return scheduled_for_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        scheduled_for = _parse_scheduled_for(d.pop("scheduled_for", UNSET))
+
+        def _parse_claim_deadline(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                claim_deadline_type_0 = isoparse(data)
+
+                return claim_deadline_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        claim_deadline = _parse_claim_deadline(d.pop("claim_deadline", UNSET))
 
         def _parse_triggered_by(data: object) -> None | Unset | UUID:
             if data is None:
@@ -420,6 +480,8 @@ class DatasetRefreshRunResponse:
             started_at=started_at,
             dataset_version_id=dataset_version_id,
             ingest_job_id=ingest_job_id,
+            scheduled_for=scheduled_for,
+            claim_deadline=claim_deadline,
             triggered_by=triggered_by,
             triggered_by_username=triggered_by_username,
             claimed_at=claimed_at,

@@ -1051,6 +1051,8 @@ export interface DatasetVersionListResponse {
 export interface DatasetRefreshRequest {
   /** Transient credential for a protected service; never persisted. */
   token?: string | null;
+  /** Preserves a blocked run's stronger verification transport on review retry. */
+  verification_policy?: 'standard' | 'arcgis_id_set_v1';
   accept_blocked_run_id?: string | null;
   // feat(#1746 B4): structured credential, mutually exclusive with `token`
   // above — see `ServiceAuthRequest`.
@@ -1080,6 +1082,10 @@ export interface DatasetRefreshRunResponse {
    *  'upload'. */
   origin_kind: string;
   trigger: string;
+  /** UTC occurrence time for scheduler-dispatched runs; absent on manual history. */
+  scheduled_for?: string | null;
+  /** Safe scheduler admission cutoff; no execution or credential reference. */
+  claim_deadline?: string | null;
   /** "pending" | "running" | "succeeded" | "failed" | "cancelled" | "blocked", kept as a
    *  plain string so an unrecognized future value degrades to its raw text
    *  instead of a type error. */
@@ -1097,6 +1103,8 @@ export interface DatasetRefreshRunResponse {
   /** Redacted to null for a reader who is neither the owner nor an admin. */
   verification?: {
     decision: 'allowed' | 'blocked' | 'rejected';
+    /** Policy captured when this run fetched and verified the source. */
+    verification_policy?: 'standard' | 'arcgis_id_set_v1';
     source_binding: Record<string, unknown>;
     source_count: number | null;
     fetched_count: number | null;

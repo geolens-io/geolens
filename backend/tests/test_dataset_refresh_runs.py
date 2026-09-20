@@ -223,10 +223,34 @@ class TestVocabularyMatchesTheConstraints:
             RUN_ORIGIN_KINDS
         )
 
-    def test_scheduled_is_not_a_trigger(self) -> None:
-        """Gate 4. Invariant 8 rides on this exclusion: whoever adds
-        `scheduled` must add `scheduled_for` and its unique index with it."""
-        assert "scheduled" not in RUN_TRIGGERS
+    def test_scheduled_trigger_has_durable_identity_fences(self) -> None:
+        """Scheduled occurrences must remain idempotent across redelivery."""
+        assert "scheduled" in RUN_TRIGGERS
+
+        constraints = {
+            constraint.name: str(constraint.sqltext)
+            for constraint in DatasetRefreshRun.__table__.constraints
+            if getattr(constraint, "name", None)
+            == "chk_refresh_runs_scheduled_identity"
+        }
+        assert constraints == {
+            "chk_refresh_runs_scheduled_identity": (
+                "trigger != 'scheduled' OR (scheduled_for IS NOT NULL "
+                "AND occurrence_key IS NOT NULL AND claim_deadline IS NOT NULL "
+                "AND execution_key IS NOT NULL)"
+            )
+        }
+
+        indexes = {
+            index.name: tuple(column.name for column in index.columns)
+            for index in DatasetRefreshRun.__table__.indexes
+            if index.unique
+        }
+        assert indexes["uq_refresh_runs_scheduled_occurrence"] == (
+            "dataset_id",
+            "scheduled_for",
+        )
+        assert indexes["uq_refresh_runs_execution_key"] == ("execution_key",)
 
     def test_blocked_is_terminal(self) -> None:
         assert "blocked" in RUN_STATUSES
@@ -246,8 +270,10 @@ class TestCreatePendingRunRefusesBadVocabulary:
                 feature_count_before=None,
             )
 
-    async def test_scheduled_trigger_raises(self) -> None:
-        with pytest.raises(ValueError, match="trigger"):
+    async def test_scheduled_trigger_requires_immutable_identity(self) -> None:
+        with pytest.raises(
+            ValueError, match="immutable occurrence and source identity"
+        ):
             await create_pending_run(
                 None,  # type: ignore[arg-type]
                 dataset_id=uuid.uuid4(),
@@ -1429,6 +1455,32 @@ class TestRefreshRunListEndpoint:
         assert row["error_code"] == "service_refresh_failed"
         assert "parcels" in row["error_message"]
         assert row["verification"]["source_binding"]["url"].startswith("https://")
+
+    async def test_scheduled_history_exposes_only_safe_timing_metadata(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        dataset, run = await _seed_history(test_db_session)
+        scheduled_for = datetime(2030, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+        claim_deadline = scheduled_for + timedelta(minutes=30)
+        run.trigger = "scheduled"
+        run.scheduled_for = scheduled_for
+        run.occurrence_key = f"history:{uuid.uuid4()}"
+        run.claim_deadline = claim_deadline
+        run.execution_key = uuid.uuid4()
+        await test_db_session.commit()
+
+        resp = await client.get(
+            f"/datasets/{dataset.id}/refresh-runs", headers=admin_auth_header
+        )
+
+        assert resp.status_code == 200, resp.text
+        row = resp.json()["runs"][0]
+        assert row["trigger"] == "scheduled"
+        assert row["scheduled_for"].startswith("2030-01-02T03:04:05")
+        assert row["claim_deadline"].startswith("2030-01-02T03:34:05")
+        assert "execution_key" not in row
+        assert "credential_reference" not in row
+        assert "credential_version" not in row
 
     @pytest.mark.parametrize("reader", ["viewer", "editor"])
     async def test_a_named_third_party_gets_the_timeline_without_the_people(

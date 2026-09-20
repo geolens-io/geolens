@@ -30,6 +30,9 @@ from typing import cast
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from ..models.refresh_verification_arcgis_id_coverage_type_0 import (
+        RefreshVerificationArcgisIdCoverageType0,
+    )
     from ..models.refresh_verification_source_binding import (
         RefreshVerificationSourceBinding,
     )
@@ -51,7 +54,9 @@ class RefreshVerification:
         review_reasons (list[RefreshVerificationReviewReasonsItem]):
         review_fingerprint (None | str):
         accepted_blocked_run_id (None | UUID):
+        source_binding_fingerprint (None | str | Unset):
         content_digest (None | str | Unset):
+        arcgis_id_coverage (None | RefreshVerificationArcgisIdCoverageType0 | Unset):
         staged_geometry_type (None | str | Unset):
         staged_srid (int | None | Unset):
         staged_coordinate_dimension (int | None | Unset):
@@ -67,7 +72,9 @@ class RefreshVerification:
     review_reasons: list[RefreshVerificationReviewReasonsItem]
     review_fingerprint: None | str
     accepted_blocked_run_id: None | UUID
+    source_binding_fingerprint: None | str | Unset = UNSET
     content_digest: None | str | Unset = UNSET
+    arcgis_id_coverage: None | RefreshVerificationArcgisIdCoverageType0 | Unset = UNSET
     staged_geometry_type: None | str | Unset = UNSET
     staged_srid: int | None | Unset = UNSET
     staged_coordinate_dimension: int | None | Unset = UNSET
@@ -75,6 +82,10 @@ class RefreshVerification:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.refresh_verification_arcgis_id_coverage_type_0 import (
+            RefreshVerificationArcgisIdCoverageType0,
+        )
+
         decision: str = self.decision
 
         source_binding = self.source_binding.to_dict()
@@ -103,11 +114,27 @@ class RefreshVerification:
         else:
             accepted_blocked_run_id = self.accepted_blocked_run_id
 
+        source_binding_fingerprint: None | str | Unset
+        if isinstance(self.source_binding_fingerprint, Unset):
+            source_binding_fingerprint = UNSET
+        else:
+            source_binding_fingerprint = self.source_binding_fingerprint
+
         content_digest: None | str | Unset
         if isinstance(self.content_digest, Unset):
             content_digest = UNSET
         else:
             content_digest = self.content_digest
+
+        arcgis_id_coverage: dict[str, Any] | None | Unset
+        if isinstance(self.arcgis_id_coverage, Unset):
+            arcgis_id_coverage = UNSET
+        elif isinstance(
+            self.arcgis_id_coverage, RefreshVerificationArcgisIdCoverageType0
+        ):
+            arcgis_id_coverage = self.arcgis_id_coverage.to_dict()
+        else:
+            arcgis_id_coverage = self.arcgis_id_coverage
 
         staged_geometry_type: None | str | Unset
         if isinstance(self.staged_geometry_type, Unset):
@@ -150,8 +177,12 @@ class RefreshVerification:
                 "accepted_blocked_run_id": accepted_blocked_run_id,
             }
         )
+        if source_binding_fingerprint is not UNSET:
+            field_dict["source_binding_fingerprint"] = source_binding_fingerprint
         if content_digest is not UNSET:
             field_dict["content_digest"] = content_digest
+        if arcgis_id_coverage is not UNSET:
+            field_dict["arcgis_id_coverage"] = arcgis_id_coverage
         if staged_geometry_type is not UNSET:
             field_dict["staged_geometry_type"] = staged_geometry_type
         if staged_srid is not UNSET:
@@ -165,6 +196,9 @@ class RefreshVerification:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.refresh_verification_arcgis_id_coverage_type_0 import (
+            RefreshVerificationArcgisIdCoverageType0,
+        )
         from ..models.refresh_verification_source_binding import (
             RefreshVerificationSourceBinding,
         )
@@ -229,6 +263,17 @@ class RefreshVerification:
             d.pop("accepted_blocked_run_id")
         )
 
+        def _parse_source_binding_fingerprint(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_binding_fingerprint = _parse_source_binding_fingerprint(
+            d.pop("source_binding_fingerprint", UNSET)
+        )
+
         def _parse_content_digest(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -237,6 +282,29 @@ class RefreshVerification:
             return cast(None | str | Unset, data)
 
         content_digest = _parse_content_digest(d.pop("content_digest", UNSET))
+
+        def _parse_arcgis_id_coverage(
+            data: object,
+        ) -> None | RefreshVerificationArcgisIdCoverageType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                arcgis_id_coverage_type_0 = (
+                    RefreshVerificationArcgisIdCoverageType0.from_dict(data)
+                )
+
+                return arcgis_id_coverage_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | RefreshVerificationArcgisIdCoverageType0 | Unset, data)
+
+        arcgis_id_coverage = _parse_arcgis_id_coverage(
+            d.pop("arcgis_id_coverage", UNSET)
+        )
 
         def _parse_staged_geometry_type(data: object) -> None | str | Unset:
             if data is None:
@@ -298,7 +366,9 @@ class RefreshVerification:
             review_reasons=review_reasons,
             review_fingerprint=review_fingerprint,
             accepted_blocked_run_id=accepted_blocked_run_id,
+            source_binding_fingerprint=source_binding_fingerprint,
             content_digest=content_digest,
+            arcgis_id_coverage=arcgis_id_coverage,
             staged_geometry_type=staged_geometry_type,
             staged_srid=staged_srid,
             staged_coordinate_dimension=staged_coordinate_dimension,

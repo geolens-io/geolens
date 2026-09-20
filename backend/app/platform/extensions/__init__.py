@@ -46,6 +46,10 @@ from app.platform.extensions.protocols import (
     RecordAudience as RecordAudience,
     RecordAudienceQuery as RecordAudienceQuery,
 )
+from app.platform.extensions.scheduled_refresh import (
+    DefaultScheduledRefreshLifecycle,
+    ScheduledRefreshLifecycle,
+)
 
 if TYPE_CHECKING:
     from app.core.catalog_port import CatalogPort
@@ -86,6 +90,7 @@ SINGLE_SLOT_KEYS: frozenset[str] = frozenset(
         "entitlement",  # ENTSEAM-01 — cloud overlay claims this
         "connectors",
         "data_serving",
+        "scheduled_refresh_lifecycle",
     }
 )
 
@@ -302,6 +307,14 @@ def get_connector_extension() -> "ConnectorExtension":
     ext = _extensions.get("connectors")
     if ext is None:
         return DefaultConnectorExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_scheduled_refresh_lifecycle() -> ScheduledRefreshLifecycle:
+    """Return scheduled-refresh worker hooks or the community no-op default."""
+    ext = _extensions.get("scheduled_refresh_lifecycle")
+    if ext is None:
+        return DefaultScheduledRefreshLifecycle()
     return ext  # type: ignore[return-value]
 
 

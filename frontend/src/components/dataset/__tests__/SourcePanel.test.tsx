@@ -156,7 +156,8 @@ function mockActiveAndTerminalRuns() {
           dataset_version_id: 'version-2',
           ingest_job_id: 'job-done',
           origin_kind: 'service',
-          trigger: 'api',
+          trigger: 'scheduled',
+          scheduled_for: '2026-08-06T02:00:00Z',
           status: 'succeeded',
           triggered_by: 'user-1',
           triggered_by_username: 'jdoe',
@@ -278,7 +279,8 @@ describe('SourcePanel', () => {
           dataset_version_id: null,
           ingest_job_id: 'job-1',
           origin_kind: 'service',
-          trigger: 'api',
+          trigger: 'scheduled',
+          scheduled_for: '2026-08-06T02:00:00Z',
           status: 'succeeded',
           triggered_by: 'user-1',
           triggered_by_username: 'jdoe',
@@ -863,6 +865,7 @@ describe('SourcePanel', () => {
         service_type: 'wfs',
         url: 'https://user:secret@example.com/wfs?token=hidden#private',
         layer_id: 'roads',
+        verification_policy: 'arcgis_id_set_v1',
       },
       source_count: 0,
       fetched_count: 0,
@@ -881,7 +884,8 @@ describe('SourcePanel', () => {
           dataset_version_id: null,
           ingest_job_id: 'job-1',
           origin_kind: 'service',
-          trigger: 'api',
+          trigger: 'scheduled',
+          scheduled_for: '2026-08-06T02:00:00Z',
           status: 'blocked',
           triggered_by: 'user-1',
           triggered_by_username: 'jdoe',
@@ -923,11 +927,15 @@ describe('SourcePanel', () => {
       'text-warning',
     );
     expect(screen.getByText('Source: 0 · fetched: 0')).toBeInTheDocument();
+    expect(screen.getByText(/Scheduled for/)).toBeInTheDocument();
     expect(screen.getByText('Source used: https://example.com/wfs')).toBeInTheDocument();
     expect(screen.queryByText(/secret|hidden|private/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Load older runs' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Review and retry' }));
-    expect(onAcceptBlockedRun).toHaveBeenCalledWith('run-blocked');
+    expect(onAcceptBlockedRun).toHaveBeenCalledWith({
+      id: 'run-blocked',
+      verificationPolicy: 'arcgis_id_set_v1',
+    });
   });
 
   it('disables blocked-run retry while a refresh is busy', () => {

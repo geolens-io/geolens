@@ -108,7 +108,14 @@ logger = logging.getLogger(__name__)
 # ``verified_refresh_service_task`` method. Refresh dispatch must resolve a
 # task name that pre-change workers do not register, while ordinary service
 # reuploads continue using ``reupload_service_task``.
-EXTENSION_API_VERSION: int = 10
+# 10 -> 11 (feat(scheduled-refresh)): a single-slot
+# "scheduled_refresh_lifecycle" registry key was added. It owns optional
+# scheduler/dispatcher tasks while the worker's queue connector is live.
+# ProcessingPort.build_gdal_source also gained required object_ids support for
+# a verified ArcGIS ID chunk; an older overlay would reject that keyword.
+# ProcessingPort.fetch_arcgis_id_plan also crosses the catalog-owned adapter
+# through the sanctioned port, avoiding a processing-to-catalog import.
+EXTENSION_API_VERSION: int = 11
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

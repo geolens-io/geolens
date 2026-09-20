@@ -7,6 +7,21 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- ArcGIS refreshes can opt into exact object-ID coverage verification. Missing,
+  duplicate, unexpected, or changing source IDs block publication; successful
+  coverage verifies layer membership without claiming an atomic source snapshot.
+- Dataset Source panels support capability-gated Enterprise sync setup, UTC
+  scheduling, write-only credential controls, and explicit verification before
+  enabling a schedule.
+
+### Changed
+
+- Extension API 11 adds bounded ArcGIS ID planning and a supervised scheduled
+  refresh lifecycle. Keyed refresh admissions fence duplicate queue deliveries,
+  expire unclaimed work, and block publication after concurrent local edits.
+
 ## [1.20.0] - 2026-09-18
 
 ### Added

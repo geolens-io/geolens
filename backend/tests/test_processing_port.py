@@ -247,8 +247,22 @@ class FakeProcessingPort:
         token=None,
         order_field=None,
         result_limit=None,
+        result_offset=None,
+        object_ids=None,
     ):
         return (f"{service_type}:{base_url}", layer_name)
+
+    async def fetch_arcgis_id_plan(
+        self,
+        base_url,
+        layer_id,
+        client,
+        token=None,
+        *,
+        expected_oid_field=None,
+        current_version=None,
+    ):
+        return MagicMock()
 
     # -------------------------------------------------------------------------
     # ORM class helpers (Plans 02 + 03a/03b)

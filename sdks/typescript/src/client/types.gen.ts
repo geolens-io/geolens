@@ -3167,6 +3167,12 @@ export type DatasetRefreshRequest = {
      */
     token?: string | null;
     /**
+     * Verification Policy
+     *
+     * Verification policy for this refresh. arcgis_id_set_v1 performs the stronger ArcGIS object-ID membership check.
+     */
+    verification_policy?: 'standard' | 'arcgis_id_set_v1';
+    /**
      * Accept Blocked Run Id
      *
      * A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.
@@ -3277,9 +3283,21 @@ export type DatasetRefreshRunResponse = {
     /**
      * Trigger
      *
-     * manual, api, or cli
+     * manual, api, cli, or scheduled
      */
     trigger: string;
+    /**
+     * Scheduled For
+     *
+     * The scheduled occurrence time. Null for manual, API, and CLI runs.
+     */
+    scheduled_for?: string | null;
+    /**
+     * Claim Deadline
+     *
+     * The immutable admission deadline for a scheduled or keyed run. Null for legacy runs without an admission fence.
+     */
+    claim_deadline?: string | null;
     /**
      * Status
      *
@@ -8314,6 +8332,10 @@ export type RefreshVerification = {
         [key: string]: unknown;
     };
     /**
+     * Source Binding Fingerprint
+     */
+    source_binding_fingerprint?: string | null;
+    /**
      * Source Count
      */
     source_count: number | null;
@@ -8328,11 +8350,17 @@ export type RefreshVerification = {
     /**
      * Identity Check
      */
-    identity_check: 'unavailable' | 'content_digest';
+    identity_check: 'unavailable' | 'content_digest' | 'arcgis_id_set';
     /**
      * Content Digest
      */
     content_digest?: string | null;
+    /**
+     * Arcgis Id Coverage
+     */
+    arcgis_id_coverage?: {
+        [key: string]: unknown;
+    } | null;
     /**
      * Staged Geometry Type
      */
@@ -8348,7 +8376,7 @@ export type RefreshVerification = {
     /**
      * Review Reasons
      */
-    review_reasons: Array<'source_count_unavailable' | 'empty_result' | 'destructive_schema_change'>;
+    review_reasons: Array<'source_count_unavailable' | 'empty_result' | 'destructive_schema_change' | 'arcgis_id_coverage_unavailable' | 'arcgis_source_membership_changed'>;
     /**
      * Review Fingerprint
      */

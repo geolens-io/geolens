@@ -167,6 +167,7 @@ def build_gdal_source(
     order_field: str | None = "OBJECTID",
     result_limit: int | None = None,
     result_offset: int | None = None,
+    object_ids: list[int] | tuple[int, ...] | None = None,
 ) -> tuple[str, str]:
     """Construct a GDAL-prefixed source string for a remote service.
 
@@ -195,6 +196,31 @@ def build_gdal_source(
             params["resultRecordCount"] = result_limit
         if result_offset is not None:
             params["resultOffset"] = result_offset
+        source_driver = "ESRIJSON"
+        if object_ids is not None:
+            if not object_ids:
+                raise ValueError("ArcGIS object-ID fetch requires at least one ID")
+            if len(object_ids) > 1_000:
+                raise ValueError("ArcGIS object-ID fetch exceeds the chunk limit")
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > (1 << 63) - 1
+                for value in object_ids
+            ):
+                raise ValueError("ArcGIS object-ID fetch contains an invalid ID")
+            if result_offset is not None or result_limit is not None:
+                raise ValueError("ArcGIS object-ID fetch cannot use offset paging")
+            # ESRIJSON preserves ArcGIS's declared field types, but its OID
+            # reader is limited to signed 32-bit values. Use GeoJSON only
+            # when the exact plan needs a wider identifier; otherwise an
+            # all-integral floating column could be inferred as an integer
+            # and create artificial schema drift.
+            if any(value > (1 << 31) - 1 for value in object_ids):
+                params["f"] = "geojson"
+                source_driver = "GeoJSON"
+            params["objectIds"] = ",".join(str(value) for value in object_ids)
         # feat(C2): kept as a query param — GDAL only reads credentials from
         # GDAL_HTTP_HEADER_FILE, whose charset rejects the `+`/`/` a real
         # ArcGIS token can contain. Exposure (argv, GDAL error text) is
@@ -202,7 +228,7 @@ def build_gdal_source(
         if token:
             params["token"] = token
         query_url = f"{safe_base_url}/{safe_layer_id}/query?{urlencode(params)}"
-        return (f"ESRIJSON:{query_url}", "")
+        return (f"{source_driver}:{query_url}", "")
     elif service_type.startswith("OGC API"):
         return (f"OAPIF:{base_url}", layer_name)
     else:

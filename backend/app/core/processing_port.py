@@ -348,7 +348,19 @@ class ProcessingPort(Protocol):
         order_field: str | None = None,
         result_limit: int | None = None,
         result_offset: int | None = None,
+        object_ids: list[int] | tuple[int, ...] | None = None,
     ) -> tuple[str, str]: ...
+
+    async def fetch_arcgis_id_plan(
+        self,
+        base_url: str,
+        layer_id: int | str,
+        client: Any,
+        token: str | None = None,
+        *,
+        expected_oid_field: str | None = None,
+        current_version: str | None = None,
+    ) -> Any: ...
 
     # ORM class helpers: let processing/* call sites pass concrete ORM
     # classes to select()/session.add() without importing app.modules.catalog.*

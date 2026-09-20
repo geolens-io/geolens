@@ -205,6 +205,9 @@ from .dataset_list_response import DatasetListResponse
 from .dataset_meta import DatasetMeta
 from .dataset_meta_visibility_type_0 import DatasetMetaVisibilityType0
 from .dataset_refresh_request import DatasetRefreshRequest
+from .dataset_refresh_request_verification_policy import (
+    DatasetRefreshRequestVerificationPolicy,
+)
 from .dataset_refresh_response import DatasetRefreshResponse
 from .dataset_refresh_run_list_response import DatasetRefreshRunListResponse
 from .dataset_refresh_run_response import DatasetRefreshRunResponse
@@ -579,6 +582,9 @@ from .raster_tile_proxy_tiles_raster_proxy_dataset_id_zxy_fmt_get_stretch_type_0
 from .raster_tile_token import RasterTileToken
 from .refresh_request import RefreshRequest
 from .refresh_verification import RefreshVerification
+from .refresh_verification_arcgis_id_coverage_type_0 import (
+    RefreshVerificationArcgisIdCoverageType0,
+)
 from .refresh_verification_count_status import RefreshVerificationCountStatus
 from .refresh_verification_decision import RefreshVerificationDecision
 from .refresh_verification_identity_check import RefreshVerificationIdentityCheck
@@ -946,6 +952,7 @@ __all__ = (
     "DatasetMeta",
     "DatasetMetaVisibilityType0",
     "DatasetRefreshRequest",
+    "DatasetRefreshRequestVerificationPolicy",
     "DatasetRefreshResponse",
     "DatasetRefreshRunListResponse",
     "DatasetRefreshRunResponse",
@@ -1198,6 +1205,7 @@ __all__ = (
     "RasterTileToken",
     "RefreshRequest",
     "RefreshVerification",
+    "RefreshVerificationArcgisIdCoverageType0",
     "RefreshVerificationCountStatus",
     "RefreshVerificationDecision",
     "RefreshVerificationIdentityCheck",

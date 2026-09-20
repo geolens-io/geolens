@@ -1,6 +1,9 @@
 """Publication decisions for staged service refreshes."""
 
-from app.platform.refresh.verification import verify_service_refresh
+from app.platform.refresh.verification import (
+    canonical_service_source_binding_fingerprint,
+    verify_service_refresh,
+)
 
 
 def _diff(**overrides):
@@ -158,3 +161,98 @@ def test_changed_staged_spatial_contract_invalidates_acceptance() -> None:
     ):
         assert changed["decision"] == "blocked"
         assert changed["accepted_blocked_run_id"] is None
+
+
+def _arcgis_id_binding(
+    *, coverage_status: str = "matched", membership: str = "matched"
+):
+    return {
+        "service_type": "arcgis_featureserver",
+        "url": "https://services.example.com/FeatureServer",
+        "layer_id": "0",
+        "verification_policy": "arcgis_id_set_v1",
+        "credential_version": "credential-version-7",
+        "arcgis_id_coverage": {
+            "status": coverage_status,
+            "source_membership_status": membership,
+            "oid_field": "OBJECTID",
+            "planned_count": 3,
+            "staged_distinct_count": 3,
+            "missing_count": 0,
+            "unexpected_count": 0,
+            "duplicate_count": 0,
+            "invalid_count": 0,
+            "staged_id_set_digest": "b" * 64,
+        },
+    }
+
+
+def test_exact_arcgis_id_coverage_qualifies_without_a_snapshot_claim() -> None:
+    result = _verify(source_binding=_arcgis_id_binding())
+
+    assert result["decision"] == "allowed"
+    assert result["identity_check"] == "arcgis_id_set"
+    assert result["source_binding"]["credential_version"] == "credential-version-7"
+
+
+def test_same_count_duplicate_or_missing_arcgis_ids_are_rejected() -> None:
+    result = _verify(source_binding=_arcgis_id_binding(coverage_status="mismatched"))
+
+    assert result["decision"] == "rejected"
+    assert "arcgis_id_coverage_unavailable" in result["review_reasons"]
+
+
+def test_arcgis_source_membership_change_is_rejected_and_cannot_be_accepted() -> None:
+    blocked = _verify(source_binding=_arcgis_id_binding(membership="changed"))
+    retried = _verify(
+        source_binding=_arcgis_id_binding(membership="changed"),
+        accepted_fingerprint=blocked["review_fingerprint"],
+        accepted_run_id="prior-run",
+    )
+
+    assert blocked["decision"] == "rejected"
+    assert retried["decision"] == "rejected"
+    assert retried["accepted_blocked_run_id"] is None
+
+
+def test_stronger_policy_without_arcgis_coverage_never_qualifies() -> None:
+    result = _verify(
+        source_binding={
+            "service_type": "wfs",
+            "url": "https://example.com/wfs",
+            "layer_id": "roads",
+            "verification_policy": "arcgis_id_set_v1",
+        }
+    )
+
+    assert result["decision"] == "blocked"
+    assert "arcgis_id_coverage_unavailable" in result["review_reasons"]
+
+
+def test_unavailable_arcgis_membership_cannot_be_accepted_as_strong() -> None:
+    blocked = _verify(source_binding=_arcgis_id_binding(membership="unavailable"))
+    retried = _verify(
+        source_binding=_arcgis_id_binding(membership="unavailable"),
+        accepted_fingerprint=blocked["review_fingerprint"],
+        accepted_run_id="prior-run",
+    )
+
+    assert blocked["decision"] == "blocked"
+    assert retried["decision"] == "blocked"
+    assert retried["accepted_blocked_run_id"] is None
+
+
+def test_source_fingerprint_uses_only_canonical_service_identity() -> None:
+    binding = _arcgis_id_binding()
+    fingerprint = canonical_service_source_binding_fingerprint(binding)
+
+    assert fingerprint == canonical_service_source_binding_fingerprint(
+        {
+            **binding,
+            "credential_version": "rotated-version",
+            "arcgis_id_coverage": {"status": "mismatched"},
+        }
+    )
+    assert fingerprint != canonical_service_source_binding_fingerprint(
+        {**binding, "layer_id": "1"}
+    )

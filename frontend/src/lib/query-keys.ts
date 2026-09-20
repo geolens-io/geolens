@@ -48,6 +48,9 @@ export const queryKeys = {
     refreshRuns: (id: string, skip: number, limit: number) =>
       ['dataset-refresh-runs', id, skip, limit] as const,
     refreshRunsPrefix: (id: string) => ['dataset-refresh-runs', id] as const,
+    sync: (id: string) => ['dataset-sync', id] as const,
+    syncCredentialsPrefix: ['sync-credentials'] as const,
+    syncCredentials: (datasetId: string) => ['sync-credentials', datasetId] as const,
     attributes: (id: string | undefined) => ['attributes', id] as const,
     validation: (id: string | undefined) => ['validation', id] as const,
     related: (id: string) => ['datasets', id, 'related'] as const,

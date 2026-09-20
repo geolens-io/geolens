@@ -1,4 +1,4 @@
-import { formatDateTimeSmart, formatBytes, formatGsd } from '@/lib/format';
+import { formatDateTimeSmart, formatDateTimeUtc, formatBytes, formatGsd } from '@/lib/format';
 
 describe('formatDateTimeSmart', () => {
   beforeEach(() => {
@@ -45,6 +45,19 @@ describe('formatDateTimeSmart', () => {
     // Should use formatDate output (month short, day, year)
     expect(result).toContain('2024');
     expect(result).not.toMatch(/\d{1,2}:\d{2}/);
+  });
+});
+
+describe('formatDateTimeUtc', () => {
+  it('formats the instant in UTC and labels the zone explicitly', () => {
+    const result = formatDateTimeUtc('2026-01-15T13:05:00Z');
+    expect(result).toContain('1:05 PM');
+    expect(result).toMatch(/ UTC$/);
+  });
+
+  it('returns N/A for absent or invalid values', () => {
+    expect(formatDateTimeUtc(null)).toBe('N/A');
+    expect(formatDateTimeUtc('invalid')).toBe('N/A');
   });
 });
 

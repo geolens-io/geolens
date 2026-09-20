@@ -431,6 +431,7 @@ class DefaultProcessingPort:
         order_field=None,
         result_limit=None,
         result_offset=None,
+        object_ids=None,
     ):  # type: ignore[no-untyped-def]
         from app.modules.catalog.sources.preview import build_gdal_source
 
@@ -443,6 +444,28 @@ class DefaultProcessingPort:
             order_field=order_field,
             result_limit=result_limit,
             result_offset=result_offset,
+            object_ids=object_ids,
+        )
+
+    async def fetch_arcgis_id_plan(
+        self,
+        base_url,
+        layer_id,
+        client,
+        token=None,
+        *,
+        expected_oid_field=None,
+        current_version=None,
+    ):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.sources.adapters.arcgis import fetch_arcgis_id_plan
+
+        return await fetch_arcgis_id_plan(
+            base_url,
+            layer_id,
+            client,
+            token=token,
+            expected_oid_field=expected_oid_field,
+            current_version=current_version,
         )
 
     # ORM class helpers: returned by Port so processing/* callers can pass

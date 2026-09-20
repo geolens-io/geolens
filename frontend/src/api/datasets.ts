@@ -307,6 +307,7 @@ export async function refreshDataset(
   token?: string,
   auth?: ServiceAuthRequest,
   acceptBlockedRunId?: string,
+  verificationPolicy?: DatasetRefreshRequest['verification_policy'],
 ): Promise<DatasetRefreshResponse> {
   // feat(#1746 B4): the door refuses a body naming both spellings
   // (reject_service_auth_conflict), so send at most one.
@@ -316,6 +317,7 @@ export async function refreshDataset(
   const payload = {
     ...credentialPayload,
     ...(acceptBlockedRunId ? { accept_blocked_run_id: acceptBlockedRunId } : {}),
+    ...(verificationPolicy ? { verification_policy: verificationPolicy } : {}),
   };
   return apiFetch<DatasetRefreshResponse>(`/datasets/${datasetId}/refresh`, {
     method: 'POST',
