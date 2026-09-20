@@ -953,8 +953,9 @@
       "nextDue": "Prochaine échéance",
       "credential": "Identifiant",
       "publicSource": "Source publique",
-      "lastRun": "Dernière exécution planifiée",
+      "lastRun": "Dernière exécution de synchronisation",
       "noRuns": "Aucune exécution planifiée pour le moment",
+      "verificationRun": "Exécution de vérification",
       "occurrenceState": {
         "planned": "En attente",
         "admitted": "Admise",

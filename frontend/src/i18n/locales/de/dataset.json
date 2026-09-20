@@ -953,8 +953,9 @@
       "nextDue": "Nächste Fälligkeit",
       "credential": "Anmeldung",
       "publicSource": "Öffentliche Quelle",
-      "lastRun": "Letzter geplanter Lauf",
+      "lastRun": "Letzter Synchronisierungslauf",
       "noRuns": "Noch keine geplanten Läufe",
+      "verificationRun": "Verifizierungslauf",
       "occurrenceState": {
         "planned": "In Warteschlange",
         "admitted": "Zugelassen",

@@ -111,6 +111,18 @@ describe('SourceSyncPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('The stored credential expired. Update it and run verification again.');
   });
 
+  it('identifies a manual verification occurrence without calling it a scheduled run', async () => {
+    mocks.getDatasetSync.mockResolvedValue({
+      ...configured,
+      last_occurrence: { id: 'occurrence-1', state: 'completed', scheduled_for: null },
+    });
+    render(<SourceSyncPanel dataset={dataset()} canEdit onRunDispatched={vi.fn()} />);
+
+    expect(await screen.findByText('Last sync run')).toBeInTheDocument();
+    expect(screen.getByText('Verification run')).toBeInTheDocument();
+    expect(screen.queryByText('No scheduled runs yet')).not.toBeInTheDocument();
+  });
+
   it('uses generic guidance instead of rendering an unknown failed-occurrence code', async () => {
     mocks.getDatasetSync.mockResolvedValue({
       ...configured,

@@ -904,8 +904,9 @@
       "nextDue": "下次时间",
       "credential": "凭据",
       "publicSource": "公开数据源",
-      "lastRun": "上次定时运行",
+      "lastRun": "上次同步运行",
       "noRuns": "尚无定时运行",
+      "verificationRun": "验证运行",
       "occurrenceState": {
         "planned": "已排队",
         "admitted": "已准入",

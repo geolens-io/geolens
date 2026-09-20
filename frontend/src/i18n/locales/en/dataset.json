@@ -904,8 +904,9 @@
       "nextDue": "Next due",
       "credential": "Credential",
       "publicSource": "Public source",
-      "lastRun": "Last scheduled run",
+      "lastRun": "Last sync run",
       "noRuns": "No scheduled runs yet",
+      "verificationRun": "Verification run",
       "occurrenceState": {
         "planned": "Queued",
         "admitted": "Admitted",
