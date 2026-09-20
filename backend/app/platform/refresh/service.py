@@ -645,6 +645,53 @@ async def reject_pending_admitted_refresh(
     return run.id
 
 
+async def fail_claimed_admitted_refresh(
+    session: AsyncSession,
+    *,
+    ingest_job_id: uuid.UUID,
+    execution_key: uuid.UUID,
+    error_code: str,
+    error_message: str | BaseException,
+) -> uuid.UUID | None:
+    """Fail a claimed admission and its still-pending job atomically.
+
+    Credential resolution occurs after the core claim and before the ingest
+    task starts. Locking the job first prevents that pre-task failure from
+    leaving a retryable job beside a terminal refresh run.
+    """
+    job = await session.scalar(
+        select(IngestJob).where(IngestJob.id == ingest_job_id).with_for_update()
+    )
+    if job is None or job.status != "pending":
+        return None
+    run = await session.scalar(
+        select(DatasetRefreshRun)
+        .where(
+            DatasetRefreshRun.ingest_job_id == ingest_job_id,
+            DatasetRefreshRun.execution_key == execution_key,
+            DatasetRefreshRun.status == "running",
+        )
+        .with_for_update()
+    )
+    if run is None:
+        return None
+    now = await session.scalar(text("SELECT CURRENT_TIMESTAMP"))
+    if now is None:
+        raise RuntimeError(
+            "database did not return a timestamp for admitted refresh failure"
+        )
+    safe_message = redact_run_error(error_message)
+    job.status = "failed"
+    job.completed_at = now
+    job.error_message = safe_message
+    run.status = "failed"
+    run.finished_at = now
+    run.error_code = error_code[:64]
+    run.error_message = safe_message
+    await _emit_refresh_failed(session, run.id)
+    return run.id
+
+
 async def expire_unclaimed_admitted_runs(session: AsyncSession) -> list[uuid.UUID]:
     """Terminalize a bounded batch of keyed work whose claim window elapsed.
 

@@ -23,6 +23,7 @@ from app.platform.refresh.service import (
     claim_admitted_run_for_job,
     create_pending_run,
     expire_unclaimed_admitted_runs,
+    fail_claimed_admitted_refresh,
     reject_pending_admitted_refresh,
     record_refresh_failure,
 )
@@ -305,12 +306,12 @@ async def execute_admitted_refresh(
                 resolver_error = exc
         if resolver_error is not None:
             async with async_session() as session:
-                await record_refresh_failure(
+                await fail_claimed_admitted_refresh(
                     session,
                     ingest_job_id=job_id,
+                    execution_key=claim_key,
                     error_code="scheduled_credential_unavailable",
                     error_message=resolver_error,
-                    contacted_origin=False,
                 )
                 await session.commit()
             return RefreshExecutionResult(

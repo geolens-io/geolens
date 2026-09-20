@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -18,6 +19,7 @@ from app.platform.refresh.service import (
     expire_unclaimed_admitted_runs,
 )
 from app.platform.refresh.execution import (
+    execute_admitted_refresh,
     register_scheduled_refresh_task,
     reject_admitted_refresh,
 )
@@ -290,6 +292,47 @@ async def test_preclaim_rejection_leaves_claimed_work_untouched(
     assert persisted_job is not None
     assert persisted_run.status == "running"
     assert persisted_job.status == "pending"
+
+
+async def test_credential_resolution_failure_terminalizes_claimed_job_and_run(
+    test_db_session,
+) -> None:
+    run, job = await _scheduled_run(test_db_session)
+    assert run.execution_key is not None
+    run.credential_reference = "credential-1"
+    await test_db_session.commit()
+    run_id = run.id
+    job_id = job.id
+
+    @asynccontextmanager
+    async def test_session_factory():
+        yield test_db_session
+
+    async def credential_resolver(_reference: str, _version: str | None) -> str:
+        raise RuntimeError("credential provider unavailable")
+
+    with (
+        patch("app.core.db.async_session", test_session_factory),
+        patch("app.platform.extensions.get_catalog_port") as catalog_port,
+    ):
+        result = await execute_admitted_refresh(
+            job_id,
+            str(run.execution_key),
+            credential_resolver=credential_resolver,
+        )
+
+    assert result.status == "rejected"
+    assert result.run_id == run_id
+    catalog_port.assert_not_called()
+    test_db_session.expire_all()
+    persisted_run = await test_db_session.get(DatasetRefreshRun, run_id)
+    persisted_job = await test_db_session.get(IngestJob, job_id)
+    assert persisted_run is not None
+    assert persisted_run.status == "failed"
+    assert persisted_run.error_code == "scheduled_credential_unavailable"
+    assert persisted_job is not None
+    assert persisted_job.status == "failed"
+    assert persisted_job.completed_at is not None
 
 
 async def test_core_registers_only_the_versioned_scheduled_task() -> None:

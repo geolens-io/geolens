@@ -1312,7 +1312,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Reconciliation and reapers serve startup, workers and admin cleanup consistently.
     "backend/app/platform/jobs/sweep.py": 1537,
     # Refresh admission, claim fencing and terminal transitions stay domain-neutral.
-    "backend/app/platform/refresh/service.py": 1186,
+    "backend/app/platform/refresh/service.py": 1233,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1496,
