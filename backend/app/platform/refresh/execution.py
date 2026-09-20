@@ -279,6 +279,7 @@ async def execute_admitted_refresh(
             "source_layer": job.source_layer or "",
             "user_id": str(job.created_by),
             "attempt_id": str(job.attempt_id),
+            "tenant_id": str(run.tenant_id) if run.tenant_id is not None else None,
         }
         await session.commit()
         credential_reference = run.credential_reference

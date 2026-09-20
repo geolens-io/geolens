@@ -1302,8 +1302,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/router.py": 1827,
     # Shared ingest finalization carries verification and lifecycle context across formats.
     "backend/app/processing/ingest/tasks_common.py": 2059,
-    # Reupload coordinates staged service verification and fenced publication.
-    "backend/app/processing/ingest/tasks_reupload.py": 1752,
+    # Reupload coordinates verified publication and attempt-fenced job/run timeout settlement.
+    "backend/app/processing/ingest/tasks_reupload.py": 1765,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1434,

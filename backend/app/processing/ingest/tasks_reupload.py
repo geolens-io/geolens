@@ -95,9 +95,10 @@ def require_scheduled_execution_claim(fn):
             try:
                 execution_key = uuid.UUID(str(scheduled_execution_key))
                 job_id = uuid.UUID(str(kwargs["job_id"]))
+                attempt_id = uuid.UUID(str(kwargs["attempt_id"]))
             except (KeyError, TypeError, ValueError):
                 structlog.get_logger().warning(
-                    "scheduled_refresh_execution_key_invalid"
+                    "scheduled_refresh_execution_claim_invalid"
                 )
                 return None
 
@@ -126,16 +127,28 @@ def require_scheduled_execution_claim(fn):
                 # settle the admitted run. Terminalize it here before the
                 # queue sees the timeout; a late worker cannot publish after
                 # this transition.
+                from app.platform.jobs.heartbeat import update_ingest_job_for_attempt
                 from app.platform.refresh.service import record_refresh_failure
 
                 async with async_session() as session:
-                    await record_refresh_failure(
+                    settled_job = await update_ingest_job_for_attempt(
                         session,
-                        ingest_job_id=job_id,
-                        error_code="scheduled_execution_timeout",
-                        error_message="The admitted refresh exceeded its execution time limit.",
-                        contacted_origin=False,
+                        job_id,
+                        attempt_id,
+                        values={
+                            "status": "failed",
+                            "error_message": "The admitted refresh exceeded its execution time limit.",
+                            "completed_at": datetime.now(timezone.utc),
+                        },
                     )
+                    if settled_job:
+                        await record_refresh_failure(
+                            session,
+                            ingest_job_id=job_id,
+                            error_code="scheduled_execution_timeout",
+                            error_message="The admitted refresh exceeded its execution time limit.",
+                            contacted_origin=False,
+                        )
                     await session.commit()
                 raise
         return await fn(*args, **kwargs)
