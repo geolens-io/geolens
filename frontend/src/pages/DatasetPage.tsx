@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useCallback, useEffect, useMemo, useRef } fro
 import { useParams, Link, useNavigate, useLocation } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Database } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Database, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -197,6 +197,10 @@ export function DatasetPage() {
 
   const [isDataTabExpanded, setIsDataTabExpanded] = useState(false);
   const toggleDataTabExpand = useCallback(() => setIsDataTabExpanded((prev) => !prev), []);
+  const [isTaskMapPreviewOpen, setIsTaskMapPreviewOpen] = useState(false);
+  useEffect(() => {
+    setIsTaskMapPreviewOpen(false);
+  }, [id]);
   // fix(#583): pad the page clear of the open AI chat panel — the fixed panel
   // otherwise floats over the sticky detail tabs and header stat cells.
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -268,6 +272,7 @@ export function DatasetPage() {
       if (value !== 'data') {
         setIsDataTabExpanded(false);
       }
+      setIsTaskMapPreviewOpen(false);
     },
     [navigate, location.search],
   );
@@ -292,6 +297,9 @@ export function DatasetPage() {
       if (action.tab) {
         handleTabChange(action.tab);
       }
+      if (action.anchor === 'dataset_map') {
+        setIsTaskMapPreviewOpen(true);
+      }
       setPendingNavigationAnchor(action.anchor);
     },
     [handleTabChange],
@@ -312,6 +320,7 @@ export function DatasetPage() {
       const normalized = getTabFromHash(window.location.hash);
       if (normalized) {
         setActiveTab(normalized);
+        setIsTaskMapPreviewOpen(false);
       }
     };
     window.addEventListener('hashchange', handler);
@@ -370,6 +379,14 @@ export function DatasetPage() {
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
   const isTable = dataset.record_type === 'table';
+  // DetailPanel renders a raster/VRT deep link to Data or Structure as the
+  // Overview tab. Keep the page-level map in that same effective layout so
+  // the tab fallback never leaves the preview in its compact task-tab state.
+  const effectivePageTab = (isRaster || isVrt) && (activeTab === 'data' || activeTab === 'structure')
+    ? 'overview'
+    : activeTab;
+  const isOverview = effectivePageTab === 'overview';
+  const isMapPreviewOpen = isOverview || isDrawing || isTaskMapPreviewOpen;
 
   const isPublished = dataset.record_status === 'published';
   const hasValidationErrors = validationData ? validationData.errors.length > 0 : false;
@@ -539,7 +556,7 @@ export function DatasetPage() {
                 {t('actions.downloadCog', { defaultValue: 'Download COG' })}
               </Button>
             )}
-            <ConnectDropdown dataset={dataset} />
+            <ConnectDropdown dataset={dataset} onShowInstructions={() => handleTabChange('access')} />
           </div>
         }
       />
@@ -555,72 +572,91 @@ export function DatasetPage() {
       {/* Hero Data Grid for table datasets (no map) */}
       {isTable && <TableHero />}
 
-      {/* Hero Map -- visible for all spatial dataset types */}
+      {/* Keep the spatial canvas prominent for orientation, but let task tabs
+          lead with their own work instead of a full-height map. */}
       {!isDataTabExpanded && !isTable && (
-        <div
-          ref={mapContainerRef}
-          data-field-anchor="dataset_map"
-          tabIndex={-1}
-          className={cn(
-            'rounded-lg border shadow-sm overflow-hidden relative transition-[height] duration-300 ease-in-out',
-            isDrawing ? 'h-[60vh]' : 'h-72 lg:h-96'
-          )}
-        >
-          {tracksHero && heroState === 'loading' && (
-            <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
-          )}
-          <MapErrorBoundary>
-            <Suspense
-              fallback={
-                <Skeleton
-                  data-testid="dataset-map-suspense"
-                  className="absolute inset-0 z-10 rounded-lg"
-                />
-              }
+        <section aria-label={t('page.mapPreview')} className="rounded-lg border shadow-sm overflow-hidden">
+          {!isOverview && !isDrawing && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-between rounded-none px-3"
+              aria-expanded={isMapPreviewOpen}
+              aria-controls="dataset-map-preview"
+              onClick={() => setIsTaskMapPreviewOpen((open) => !open)}
             >
-              {/* fix(#430 codex r18/r19): geometryType stays the concrete
-                  display type (rendering); hasGenericGeometry separately
-                  gates the drawing toolbar so generic sketch layers keep
-                  every draw mode. */}
-              <DatasetMap
-                key={isRasterOrVrt ? mapKey : undefined}
-                bbox={bbox}
-                tableName={dataset.table_name}
-                geometryType={dataset.geometry_type}
-                hasGenericGeometry={dataset.has_generic_geometry}
-                datasetId={id}
-                columnInfo={dataset.column_info}
-                containerRef={mapContainerRef}
-                canEdit={canEditData && !isRaster && !isVrt && !isTable}
-                recordType={dataset.record_type}
-                rasterTileUrl={dataset.raster?.tile_url}
-                tileVersion={dataset.updated_at}
-                attribution={dataset.attribution}
-                onFeatureClick={setReadOnlyFeatureGid}
-                {...(tracksHero ? {
-                  onMapReady,
-                  onTileError,
-                } : {})}
-              />
-            </Suspense>
-          </MapErrorBoundary>
-          {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
-            <div className="absolute bottom-2 start-2 z-10 px-2 py-1 rounded-sm bg-muted/80 text-xs text-muted-foreground">
-              {t('raster.noTiles')}
-            </div>
+              <span>{t(isMapPreviewOpen ? 'page.hideMapPreview' : 'page.showMapPreview')}</span>
+              <ChevronDown className={cn('size-4 transition-transform', isMapPreviewOpen && 'rotate-180')} />
+            </Button>
           )}
-          {tracksHero && heroState === 'error' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10">
-              <AlertTriangle className="size-8 text-destructive mb-2" />
-              <p className="text-sm text-muted-foreground mb-3">{t('raster.previewUnavailable')}</p>
-              {retryCount < 3 ? (
-                <Button size="sm" onClick={handleRetry}>{t('raster.retry')}</Button>
-              ) : (
-                <p className="text-xs text-muted-foreground">{t('raster.tilesProcessing')}</p>
-              )}
-            </div>
-          )}
-        </div>
+          <div
+            id="dataset-map-preview"
+            ref={mapContainerRef}
+            data-field-anchor="dataset_map"
+            tabIndex={-1}
+            className={cn(
+              'relative overflow-hidden transition-[height] duration-300 ease-in-out',
+              !isMapPreviewOpen && 'hidden',
+              isDrawing ? 'h-[60vh]' : isOverview ? 'h-72 lg:h-96' : 'h-52 lg:h-56',
+            )}
+          >
+            {tracksHero && heroState === 'loading' && (
+              <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
+            )}
+            <MapErrorBoundary>
+              <Suspense
+                fallback={
+                  <Skeleton
+                    data-testid="dataset-map-suspense"
+                    className="absolute inset-0 z-10 rounded-lg"
+                  />
+                }
+              >
+                {/* fix(#430 codex r18/r19): geometryType stays the concrete
+                    display type (rendering); hasGenericGeometry separately
+                    gates the drawing toolbar so generic sketch layers keep
+                    every draw mode. */}
+                <DatasetMap
+                  key={isRasterOrVrt ? mapKey : undefined}
+                  bbox={bbox}
+                  tableName={dataset.table_name}
+                  geometryType={dataset.geometry_type}
+                  hasGenericGeometry={dataset.has_generic_geometry}
+                  datasetId={id}
+                  columnInfo={dataset.column_info}
+                  containerRef={mapContainerRef}
+                  canEdit={canEditData && !isRaster && !isVrt && !isTable}
+                  recordType={dataset.record_type}
+                  rasterTileUrl={dataset.raster?.tile_url}
+                  tileVersion={dataset.updated_at}
+                  attribution={dataset.attribution}
+                  onFeatureClick={setReadOnlyFeatureGid}
+                  {...(tracksHero ? {
+                    onMapReady,
+                    onTileError,
+                  } : {})}
+                />
+              </Suspense>
+            </MapErrorBoundary>
+            {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
+              <div className="absolute bottom-2 start-2 z-10 px-2 py-1 rounded-sm bg-muted/80 text-xs text-muted-foreground">
+                {t('raster.noTiles')}
+              </div>
+            )}
+            {tracksHero && heroState === 'error' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10">
+                <AlertTriangle className="size-8 text-destructive mb-2" />
+                <p className="text-sm text-muted-foreground mb-3">{t('raster.previewUnavailable')}</p>
+                {retryCount < 3 ? (
+                  <Button size="sm" onClick={handleRetry}>{t('raster.retry')}</Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{t('raster.tilesProcessing')}</p>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {/* Stats instrument bar — key metrics at a glance */}

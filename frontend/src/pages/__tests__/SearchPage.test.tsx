@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen } from '@/test/test-utils';
 import { SearchPage } from '@/pages/SearchPage';
 import { useSearchResults, useMapSearchResults } from '@/components/search/hooks/use-search';
 import { useSearchStore } from '@/stores/search-store';
@@ -242,6 +242,9 @@ describe('SearchPage', () => {
   // map cards WITHOUT the contradictory dataset empty state below them.
   it('map-only match renders map cards and suppresses the empty state', () => {
     setAnonymousUser();
+    act(() => {
+      useSearchStore.getState().setQuery('Matterhorn');
+    });
     mockUseSearchResults.mockReturnValue({
       data: {
         type: 'FeatureCollection',
@@ -260,9 +263,61 @@ describe('SearchPage', () => {
     render(<SearchPage />, { route: '/' });
 
     expect(screen.getByTestId('map-card')).toBeInTheDocument();
-    // Neither empty-state branch renders: no onboarding (the pre-fix branch
-    // for this scenario) and no "no results" state.
     expect(screen.queryByText(/your catalog is empty/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/no results found/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /no catalog results found/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /clear search & filters/i })).toBeInTheDocument();
+  });
+
+  it('keeps the no-results state hidden while map text matches are loading', () => {
+    setAnonymousUser();
+    act(() => {
+      useSearchStore.getState().setQuery('Matterhorn');
+    });
+    mockUseSearchResults.mockReturnValue({
+      data: {
+        type: 'FeatureCollection',
+        numberMatched: 0,
+        numberReturned: 0,
+        features: [] as OGCRecordResponse[],
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+    } as unknown as ReturnType<typeof useSearchResults>);
+    mockUseMapSearchResults.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isFetching: true,
+      error: null,
+    } as unknown as ReturnType<typeof useMapSearchResults>);
+
+    render(<SearchPage />, { route: '/' });
+
+    expect(screen.getByText('Maps matching "Matterhorn"')).toBeInTheDocument();
+    expect(screen.getByText(/map matches use the search text only/i)).toBeInTheDocument();
+    expect(screen.getByText(/loading map matches/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no catalog results found/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a retryable map error separately from catalog results', () => {
+    setAnonymousUser();
+    const refetchMaps = vi.fn();
+    act(() => {
+      useSearchStore.getState().setQuery('Matterhorn');
+    });
+    mockUseMapSearchResults.mockReturnValue({
+      data: { maps: [], total: 0 },
+      isLoading: false,
+      isFetching: false,
+      error: new Error('Maps unreachable'),
+      refetch: refetchMaps,
+    } as unknown as ReturnType<typeof useMapSearchResults>);
+
+    render(<SearchPage />, { route: '/' });
+
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load map matches.");
+    fireEvent.click(screen.getByRole('button', { name: /retry map search/i }));
+    expect(refetchMaps).toHaveBeenCalledOnce();
+    expect(screen.getByText('12 catalog results')).toBeInTheDocument();
   });
 });

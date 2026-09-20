@@ -4,6 +4,8 @@
   "rowCount_one": "{{count}} ligne",
   "rowCount_other": "{{count}} lignes",
   "page": {
+    "showMapPreview": "Afficher l'aperçu de la carte",
+    "hideMapPreview": "Masquer l'aperçu de la carte",
     "loading": "Chargement du jeu de données...",
     "errorTitle": "Jeu de données introuvable",
     "errorMessage": "Le jeu de données demandé n'a pas pu être chargé.",
@@ -63,6 +65,8 @@
     "notOwner": "Seul le propriétaire du jeu de données ou un administrateur peut modifier cet enregistrement."
   },
   "connect": {
+    "openInstructions": "Ouvrir les instructions de connexion",
+    "instructionsTools": "QGIS, Python et curl",
     "copyCogUrl": "Copier l'URL COG",
     "copyXyzTileUrl": "Copier l'URL XYZ Tile",
     "copyS3Uri": "Copier l'URI S3",

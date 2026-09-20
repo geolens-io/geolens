@@ -85,6 +85,35 @@ describe('FilterPanel', () => {
     expect(secondaryRow).toBeInTheDocument();
     expect(secondaryRow).toHaveTextContent(/Vector.*filters/);
   });
+
+  it('keeps active specialist refinements visible while advanced rail filters are collapsed', () => {
+    act(() => {
+      useSearchStore.getState().setFilter('record_type', 'vector_dataset');
+      useSearchStore.getState().setFilter('geometry_type', 'POINT');
+    });
+    render(<FilterPanel totalResults={10} showMobile={false} desktopLayout="rail" />);
+
+    expect(screen.getByText('Dataset filters')).toBeInTheDocument();
+    expect(screen.getByText('Active refinements')).toBeInTheDocument();
+    expect(screen.getByText('Point')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Advanced filters' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Geometry Type')).not.toBeInTheDocument();
+  });
+
+  it('expands specialist rail controls without clearing their active values', () => {
+    act(() => {
+      useSearchStore.getState().setFilter('record_type', 'vector_dataset');
+      useSearchStore.getState().setFilter('geometry_type', 'POINT');
+    });
+    render(<FilterPanel totalResults={10} showMobile={false} desktopLayout="rail" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced filters' }));
+
+    expect(screen.getByRole('button', { name: 'Advanced filters' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Geometry Type')).toBeInTheDocument();
+    expect(screen.getAllByText('Point')).not.toHaveLength(0);
+    expect(useSearchStore.getState().geometry_type).toBe('POINT');
+  });
 });
 
 // fix(#1761 review round 4): the uncommitted date-range draft
@@ -163,7 +192,7 @@ describe('FilterPanel identity reset (fix #1761 review round 4)', () => {
   it('names the "From" and "To" date inputs in the temporal-extent popover (#1778)', () => {
     render(<FilterPanel totalResults={10} showMobile={false} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /Temporal Extent/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Dates covered by the data/i }));
 
     expect(screen.getByLabelText('From')).toBeInTheDocument();
     expect(screen.getByLabelText('To')).toBeInTheDocument();

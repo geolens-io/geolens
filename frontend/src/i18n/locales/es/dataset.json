@@ -4,6 +4,8 @@
   "rowCount_one": "{{count}} fila",
   "rowCount_other": "{{count}} filas",
   "page": {
+    "showMapPreview": "Mostrar vista previa del mapa",
+    "hideMapPreview": "Ocultar vista previa del mapa",
     "loading": "Cargando conjunto de datos...",
     "errorTitle": "Conjunto de datos no encontrado",
     "errorMessage": "No se pudo cargar el conjunto de datos solicitado.",
@@ -63,6 +65,8 @@
     "notOwner": "Solo el propietario del conjunto de datos o un administrador puede editar este registro."
   },
   "connect": {
+    "openInstructions": "Abrir instrucciones de conexión",
+    "instructionsTools": "QGIS, Python y curl",
     "copyCogUrl": "Copiar URL de COG",
     "copyXyzTileUrl": "Copiar URL de mosaico XYZ",
     "copyS3Uri": "Copiar URI de S3",

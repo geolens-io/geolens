@@ -1,4 +1,12 @@
 {
+  "mapsMatchingQuery": "Mapas que coinciden con \"{{query}}\"",
+  "loadingMaps": "Cargando mapas coincidentes...",
+  "mapsError": "No se pudieron cargar los mapas coincidentes.",
+  "retryMaps": "Reintentar búsqueda de mapas",
+  "mapsScopeHint": "Los mapas coinciden solo con el texto de búsqueda; los filtros del catálogo no se aplican.",
+  "catalogResults_one": "{{count}} resultado del catálogo",
+  "catalogResults_other": "{{count}} resultados del catálogo",
+  "catalogResults_many": "{{count}} resultados del catálogo",
   "title": "Buscar datos geoespaciales",
   "subtitle": "Busque, previsualice y exporte datos geoespaciales del catálogo",
   "placeholder": "Buscar en el catálogo...",
@@ -8,6 +16,8 @@
   "resultCount_other": "{{count}} resultados",
   "mapsSectionTitle": "Mapas",
   "empty": {
+    "catalogResultsTitle": "No se encontraron resultados en el catálogo",
+    "catalogResultsDescription": "Prueba a cambiar la búsqueda o los filtros.",
     "title": "No se encontraron conjuntos de datos",
     "description": "Intente ajustar su consulta de búsqueda o los filtros",
     "cta": "Importe su primer conjunto de datos",
@@ -19,6 +29,10 @@
     "message": "Error al cargar resultados: {{message}}"
   },
   "filters": {
+    "datasetFilters": "Filtros de conjuntos de datos",
+    "activeRefinements": "Filtros activos",
+    "advancedFilters": "Filtros avanzados",
+    "dataCoverageDate": "Fechas cubiertas por los datos",
     "geometry": "Geometría",
     "anyGeometry": "Cualquier geometría",
     "point": "Punto",

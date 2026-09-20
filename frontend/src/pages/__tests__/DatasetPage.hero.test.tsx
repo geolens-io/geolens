@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, act } from '@/test/test-utils';
+import { render, screen, act, fireEvent } from '@/test/test-utils';
 import { useParams } from 'react-router';
 import { useDataset, useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useAuthStore } from '@/stores/auth-store';
@@ -515,5 +515,89 @@ describe('DatasetPage header status badge', () => {
 
     expect(screen.queryByTestId('source-freshness-chip')).not.toBeInTheDocument();
     expect(screen.queryByTestId('source-health-chip')).not.toBeInTheDocument();
+  });
+});
+
+describe('DatasetPage task-tab map preview', () => {
+  beforeEach(() => {
+    drawingStoreState.isDrawing = false;
+    drawingStoreState.isEditDirty = false;
+    mockMapConfig.autoFireMapReady = false;
+  });
+
+  afterEach(() => {
+    setUser(null);
+  });
+
+  it('collapses the vector map when changing to Metadata and restores it on request', async () => {
+    setup({ record_type: 'vector_dataset' });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Metadata' }), { button: 0, ctrlKey: false });
+
+    expect(await screen.findByRole('button', { name: 'Show map preview' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).toHaveClass('hidden');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show map preview' }));
+
+    expect(screen.getByRole('button', { name: 'Hide map preview' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).not.toHaveClass('hidden');
+  });
+
+  it('collapses the preview when browser history returns to a task tab', async () => {
+    setup({ record_type: 'vector_dataset' });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Metadata' }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole('button', { name: 'Show map preview' }));
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Overview' }), { button: 0, ctrlKey: false });
+
+    const previousUrl = window.location.href;
+    try {
+      act(() => {
+        window.history.replaceState(null, '', '#metadata');
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      });
+
+      expect(await screen.findByRole('button', { name: 'Show map preview' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).toHaveClass('hidden');
+    } finally {
+      window.history.replaceState(null, '', previousUrl);
+    }
+  });
+
+  it('uses the same compact preview on raster task tabs', async () => {
+    setup({
+      record_type: 'raster_dataset',
+      raster: { tile_url: '/raster-tiles/test/{z}/{x}/{y}.png' } as DatasetResponse['raster'],
+    });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Metadata' }), { button: 0, ctrlKey: false });
+
+    expect(await screen.findByRole('button', { name: 'Show map preview' })).toBeInTheDocument();
+    expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).toHaveClass('hidden');
+  });
+
+  it('expands the map for geometry drawing on task tabs', async () => {
+    setup({ record_type: 'vector_dataset' });
+    drawingStoreState.isDrawing = true;
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Metadata' }), { button: 0, ctrlKey: false });
+
+    expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).toHaveClass('h-[60vh]');
+    expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).not.toHaveClass('hidden');
+    expect(screen.queryByRole('button', { name: /map preview/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps table datasets map-free on task tabs', async () => {
+    setup({ record_type: 'table' });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Metadata' }), { button: 0, ctrlKey: false });
+
+    expect(screen.queryByRole('button', { name: /map preview/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-map')).not.toBeInTheDocument();
   });
 });

@@ -137,6 +137,22 @@ describe('ConnectDropdown', () => {
     expect(screen.queryByText('Copy CSV Export URL')).not.toBeInTheDocument();
   });
 
+  it('keeps copy shortcuts and opens the available QGIS, Python, and curl instructions', async () => {
+    const user = userEvent.setup();
+    const onShowInstructions = vi.fn();
+    render(<ConnectDropdown dataset={makeDataset()} onShowInstructions={onShowInstructions} />);
+
+    await user.click(screen.getByRole('button', { name: /connect/i }));
+
+    expect(screen.getByText('Copy OGC Features URL')).toBeInTheDocument();
+    expect(screen.getByText('Copy Vector Tiles URL')).toBeInTheDocument();
+    expect(screen.getByText('QGIS, Python, and curl')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('menuitem', { name: /open connection instructions/i }));
+
+    expect(onShowInstructions).toHaveBeenCalledOnce();
+  });
+
   it('renders OGC features and CSV actions for table datasets', async () => {
     const user = userEvent.setup();
     render(<ConnectDropdown dataset={makeDataset({ record_type: 'table' })} />);
@@ -173,5 +189,22 @@ describe('ConnectDropdown', () => {
     expect(screen.getByText('Copy S3 URI')).toBeInTheDocument();
     expect(screen.queryByText('Copy OGC Features URL')).not.toBeInTheDocument();
     expect(screen.queryByText('Copy Vector Tiles URL')).not.toBeInTheDocument();
+  });
+
+  it('does not imply QGIS, Python, or curl instructions for raster connections', async () => {
+    const user = userEvent.setup();
+    render(
+      <ConnectDropdown
+        dataset={makeDataset({
+          record_type: 'raster_dataset',
+          raster: { connect: { tile_url: 'http://tiles/{z}/{x}/{y}.png' } } as DatasetResponse['raster'],
+        })}
+        onShowInstructions={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /connect/i }));
+
+    expect(screen.queryByRole('menuitem', { name: /connection instructions/i })).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Calendar, MapPin } from 'lucide-react';
+import { Calendar, ChevronDown, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +17,11 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { FilterChip } from './FilterChip';
 import { FilterSheet } from './FilterSheet';
 import { KeywordFacetPicker } from './KeywordFacetPicker';
@@ -192,6 +197,7 @@ export function FilterPanel({
   // search refetch. Other open/close booleans are pure UI state.
   // ====================================================================
   const [dateOpen, setDateOpen] = useState(false);
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [localDateFrom, setLocalDateFrom] = useState(dateFrom);
   const [localDateTo, setLocalDateTo] = useState(dateTo);
   const spatialPanelOpen = useSearchStore((s) => s.spatialPanelOpen);
@@ -227,6 +233,7 @@ export function FilterPanel({
     if (dateTo) return dateTo;
     return '';
   })();
+  const dataCoverageDateChipLabel = `${t('filters.dataCoverageDate', { defaultValue: 'Dates covered by the data' })}: ${temporalStart || '..'} - ${temporalEnd || '..'}`;
 
   const clearFilters = () => {
     useSearchStore.getState().resetFilters();
@@ -391,11 +398,7 @@ export function FilterPanel({
     if (datetime) {
       return (
         <FilterChip
-          label={t('filters.temporalExtentRange', {
-            start: temporalStart || '..',
-            end: temporalEnd || '..',
-            defaultValue: 'Temporal Extent: {{start}} - {{end}}',
-          })}
+          label={dataCoverageDateChipLabel}
           onRemove={() => useSearchStore.getState().setFilter('datetime', '')}
         />
       );
@@ -406,7 +409,7 @@ export function FilterPanel({
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm" className={cn(fullWidth && 'w-full justify-start')}>
               <Calendar className="me-1 size-3.5" />
-              {t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}
+              {t('filters.dataCoverageDate', { defaultValue: 'Dates covered by the data' })}
             </Button>
           </PopoverTrigger>
         <PopoverContent align="start" className="w-64">
@@ -585,7 +588,7 @@ export function FilterPanel({
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-sm font-semibold text-foreground">
-            {t('filters.filtersButton', { defaultValue: 'Filters' })}
+            {t('filters.datasetFilters', { defaultValue: 'Dataset filters' })}
           </p>
           {totalResultsLabel ? (
             <p className="text-sm text-muted-foreground">{totalResultsLabel}</p>
@@ -608,6 +611,84 @@ export function FilterPanel({
           <SaveSearchButton />
         </div>
       ) : null}
+
+      {hasActiveFilters && (
+        <div className="space-y-2 border-y border-border/60 py-3">
+          <p className="eyebrow">
+            {t('filters.activeRefinements', { defaultValue: 'Active refinements' })}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {recordType && (
+              <FilterChip
+                label={getRecordTypeLabel(recordType)}
+                onRemove={() => useSearchStore.getState().setFilter('record_type', '')}
+              />
+            )}
+            {collectionId && facets?.collections && (
+              <FilterChip
+                label={facets.collections.find((c) => c.id === collectionId)?.name || t('filters.collection', { defaultValue: 'Collection' })}
+                onRemove={() => useSearchStore.getState().setFilter('collection_id', '')}
+              />
+            )}
+            {geometryType && (
+              <FilterChip
+                label={activeGeomLabel || geometryType}
+                onRemove={() => useSearchStore.getState().setFilter('geometry_type', '')}
+              />
+            )}
+            {sourceOrganization && (
+              <FilterChip
+                label={sourceOrganization}
+                onRemove={() => useSearchStore.getState().setFilter('source_organization', '')}
+              />
+            )}
+            {srid && (
+              <FilterChip
+                label={`EPSG:${srid}`}
+                onRemove={() => useSearchStore.getState().setFilter('srid', '')}
+              />
+            )}
+            {bbox && (
+              <FilterChip
+                label={t('filters.areaSelected', { defaultValue: 'Area selected' })}
+                onRemove={() => {
+                  const store = useSearchStore.getState();
+                  store.setFilter('bbox', '');
+                  store.setFilter('geometry', '');
+                  store.setFilter('spatial_predicate', 'intersects');
+                }}
+              />
+            )}
+            {(dateFrom || dateTo) && (
+              <FilterChip
+                label={dateChipLabel}
+                onRemove={() => {
+                  useSearchStore.getState().setFilter('date_from', '');
+                  useSearchStore.getState().setFilter('date_to', '');
+                  setLocalDateFrom('');
+                  setLocalDateTo('');
+                }}
+              />
+            )}
+            {datetime && (
+              <FilterChip
+                label={dataCoverageDateChipLabel}
+                onRemove={() => useSearchStore.getState().setFilter('datetime', '')}
+              />
+            )}
+            {selectedKeywords.map((keyword) => (
+              <FilterChip
+                key={keyword}
+                label={keyword}
+                onRemove={() => useSearchStore.getState().setFilter(
+                  'keywords',
+                  useSearchStore.getState().keywords.filter((value) => value !== keyword),
+                )}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         <p className="eyebrow">
@@ -685,26 +766,10 @@ export function FilterPanel({
 
       <div className="space-y-2">
         <p className="eyebrow">
-          {t('filters.dateRange')}
-        </p>
-        {renderDesktopDateFilter(true)}
-      </div>
-
-      <div className="space-y-2">
-        <p className="eyebrow">
-          {t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}
+          {t('filters.dataCoverageDate', { defaultValue: 'Dates covered by the data' })}
         </p>
         {renderTemporalExtentControl(true)}
       </div>
-
-      {recordType === 'vector_dataset' && (
-        <div className="space-y-2">
-          <p className="eyebrow">
-            {t('filters.geometry')}
-          </p>
-          {renderGeometryControl()}
-        </div>
-      )}
 
       {organizations.length > 0 && (
         <div className="space-y-2">
@@ -715,19 +780,45 @@ export function FilterPanel({
         </div>
       )}
 
-      {showSridFilter && (
-        <div className="space-y-2">
-          <p className="eyebrow">
-            {t('filters.crs')}
-          </p>
-          {renderSridControl()}
-        </div>
-      )}
+      <Collapsible open={advancedFiltersOpen} onOpenChange={setAdvancedFiltersOpen}>
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-between"
+          >
+            {t('filters.advancedFilters', { defaultValue: 'Advanced filters' })}
+            <ChevronDown
+              className={cn('size-4 transition-transform', advancedFiltersOpen && 'rotate-180')}
+              aria-hidden="true"
+            />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 pt-4">
+          {recordType === 'vector_dataset' && (
+            <div className="space-y-2">
+              <p className="eyebrow">{t('filters.geometry')}</p>
+              {renderGeometryControl()}
+            </div>
+          )}
+
+          {showSridFilter && (
+            <div className="space-y-2">
+              <p className="eyebrow">{t('filters.crs')}</p>
+              {renderSridControl()}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <p className="eyebrow">{t('filters.dateRange')}</p>
+            {renderDesktopDateFilter(true)}
+          </div>
+
+        </CollapsibleContent>
+      </Collapsible>
 
       <div className="space-y-2">
-        <p className="eyebrow">
-          {t('filters.sort')}
-        </p>
+        <p className="eyebrow">{t('filters.sort')}</p>
         {renderSortControl(true, false)}
       </div>
     </div>
