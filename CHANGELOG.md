@@ -12,7 +12,7 @@ and releases use semantic versioning.
 - ArcGIS refreshes can opt into exact object-ID coverage verification. Missing,
   duplicate, unexpected, or changing source IDs block publication; successful
   coverage verifies layer membership without claiming an atomic source snapshot.
-- Dataset Source panels support capability-gated Enterprise sync setup, UTC
+- Dataset Source panels support capability-gated scheduled sync setup, UTC
   scheduling, write-only credential controls, and explicit verification before
   enabling a schedule.
 
