@@ -12,6 +12,20 @@ Import domain service façades, never another domain's split internals (datasets
 
 Frontend API calls use `apiFetch()` in `frontend/src/api/client.ts`. Auth comes from `useAuthStore` (persisted as `geolens-auth`); outside React use `useAuthStore.getState().token`. Reuse `components/ui/`, TanStack Query and existing zustand stores.
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues using the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the five default canonical label names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Domain documentation uses the single-context layout. See `docs/agents/domain.md`.
+
 ## Working Principles
 
 - Inspect relevant code and the working tree; preserve unrelated edits. Build requested behavior with the smallest correct diff; avoid speculative features and unrelated refactors.
@@ -112,6 +126,6 @@ Run `backend/tests/test_rule2_structural.py` and relevant `backend/tests/test_gd
 
 Use scoped Conventional Commits and DCO sign-off (`git commit -s`). Follow `.github/PULL_REQUEST_TEMPLATE.md`: describe behavior, link issues, note schema/API/config impacts, list verification and include screenshots for UI work.
 
-Root docs: `README.md` (overview), `SUPPORT.md`, `CHANGELOG.md` (release notes), `EDITIONS.md` (open-core boundary), `RUNBOOK.md` (recovery). Contributor docs: `.github/`; README images: `.github/assets/`; product docs: docs.getgeolens.com; private notes: ignored `docs-internal/`. Do not add root `docs/` or duplicate product docs. Brand assets come from a tagged `geolens-io/branding` release; changes flow branding → this repo → marketing → docs.
+Root docs: `README.md` (overview), `SUPPORT.md`, `CHANGELOG.md` (release notes), `EDITIONS.md` (open-core boundary), `RUNBOOK.md` (recovery). Contributor docs: `.github/`; README images: `.github/assets/`; shared agent configuration: `docs/agents/`; architectural decisions: `docs/adr/`; product docs: docs.getgeolens.com; private notes: ignored `docs-internal/`. Do not add other root `docs/` content or duplicate product docs. Brand assets come from a tagged `geolens-io/branding` release; changes flow branding → this repo → marketing → docs.
 
 Use `.env.example` / `.env.test.example` as templates. Never commit secrets, environments, dependencies, coverage or Playwright output. Keep ignored assistant/internal directories (`.claude/`, `.planning/`, `docs-internal/`) out of tracked changes.

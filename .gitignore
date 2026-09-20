@@ -102,8 +102,13 @@ cache/
 # Internal docs (not for public release)
 docs-internal/
 
-# Product docs live in the getgeolens.com repo.
-docs/
+# Product docs live in the getgeolens.com repo. Keep only shared agent
+# configuration and architectural decisions in this repository.
+docs/*
+!docs/agents/
+!docs/agents/**
+!docs/adr/
+!docs/adr/**
 
 # Images: ignore stray screenshots, keep curated assets
 *.png
