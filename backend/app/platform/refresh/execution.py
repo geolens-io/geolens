@@ -111,7 +111,7 @@ async def prepare_admitted_refresh(
     session: AsyncSession,
     *,
     dataset: object,
-    actor: object | None,
+    actor: object,
     request: RefreshAdmissionRequest,
     trigger: RefreshTrigger,
     scheduled_for: datetime | None = None,
@@ -119,15 +119,15 @@ async def prepare_admitted_refresh(
 ) -> RefreshAdmission:
     """Create the job and refresh run in the caller's transaction.
 
-    Authorization belongs to the caller's domain guard. This facade refuses
-    malformed identities but never commits, defers queue work, or accepts a
-    credential value.
+    Authorization belongs to the caller's domain guard. This facade requires
+    a user-bound actor and refuses malformed identities before writing. It never
+    commits, defers queue work, or accepts a credential value.
     """
     dataset_id = getattr(dataset, "id", None)
     actor_id = getattr(actor, "id", None)
     if not isinstance(dataset_id, UUID):
         raise ValueError("dataset must expose a UUID id")
-    if actor is not None and not isinstance(actor_id, UUID):
+    if not isinstance(actor_id, UUID):
         raise ValueError("actor must expose a UUID id")
     if not request.source_binding_fingerprint:
         raise ValueError("source_binding_fingerprint is required")

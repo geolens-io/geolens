@@ -25,6 +25,7 @@ from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.jobs.models import IngestJob
 from app.platform.dataset_origin import set_dataset_origin
 from app.processing.ingest import tasks_reupload, tasks_vector
+from app.processing.ingest.tasks_common import _ARCGIS_GDAL_GET_URL_MAX_BYTES
 from app.processing.ingest.tasks_reupload import reupload_service
 
 from tests.factories import create_dataset, get_user_id
@@ -930,6 +931,43 @@ async def test_stronger_arcgis_policy_clamps_exact_id_chunks_to_gdal_bound(
         )
         for call in calls
     ] == [1_000, 1]
+    run = (await _runs_ordered(test_db_session, dataset.id))[0]
+    assert run.status == "succeeded"
+    assert run.verification["arcgis_id_coverage"]["status"] == "matched"
+
+
+@pytest.mark.anyio
+async def test_stronger_arcgis_policy_bounds_long_id_chunks_by_gdal_url_size(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    ids = tuple((1 << 63) - 1 - offset for offset in range(1_000))
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return len(ids), 2_000, True, "OBJECTID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_id_plan",
+        AsyncMock(side_effect=[_arcgis_id_plan(ids), _arcgis_id_plan(ids)]),
+    )
+    calls: list[dict] = []
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    task_kwargs["verification_policy"] = "arcgis_id_set_v1"
+    await _execute_with_fake(
+        task_kwargs, _fake_ogr2ogr_with_source_oids(calls, list(ids))
+    )
+
+    requested_ids: list[int] = []
+    for call in calls:
+        assert len(call["source"].encode("utf-8")) <= _ARCGIS_GDAL_GET_URL_MAX_BYTES
+        query = parse_qs(urlparse(call["source"].split(":", 1)[1]).query)
+        requested_ids.extend(int(value) for value in query["objectIds"][0].split(","))
+
+    assert len(calls) > 1
+    assert requested_ids == list(ids)
+    assert len(requested_ids) == len(set(requested_ids))
     run = (await _runs_ordered(test_db_session, dataset.id))[0]
     assert run.status == "succeeded"
     assert run.verification["arcgis_id_coverage"]["status"] == "matched"

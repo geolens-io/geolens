@@ -771,10 +771,52 @@ async def run_paged_arcgis_service_fetch(
     append = False
     if planned_ids is not None:
         planned_chunk_size = min(page_size, _ARCGIS_OBJECT_ID_FETCH_CHUNK_SIZE)
-        page_specs = [
-            (None, planned_ids[start : start + planned_chunk_size])
-            for start in range(0, len(planned_ids), planned_chunk_size)
-        ]
+
+        def _fits_gdal_get_url(object_ids: tuple[int, ...]) -> bool:
+            # Use the same builder as the actual import so this includes the
+            # ArcGIS options and a query-form credential without exposing the
+            # resulting URL in an error or log.
+            page_source, _ = port.build_gdal_source(
+                service_type_raw,
+                source_url,
+                layer_name,
+                layer_id,
+                token=token,
+                order_field=order_field,
+                result_limit=None,
+                result_offset=None,
+                object_ids=object_ids,
+            )
+            return len(page_source.encode("utf-8")) <= _ARCGIS_GDAL_GET_URL_MAX_BYTES
+
+        page_specs: list[tuple[int | None, tuple[int, ...] | None]] = []
+        start = 0
+        while start < len(planned_ids):
+            remaining = min(planned_chunk_size, len(planned_ids) - start)
+            candidate = planned_ids[start : start + remaining]
+            if _fits_gdal_get_url(candidate):
+                page_specs.append((None, candidate))
+                start += remaining
+                continue
+
+            # A count-only chunk can exceed the URL limits of proxies when
+            # object IDs are long signed 64-bit values. Find the largest
+            # prefix that the actual GDAL GET request can transport.
+            lower, upper = 1, remaining - 1
+            largest_fitting = 0
+            while lower <= upper:
+                midpoint = (lower + upper) // 2
+                if _fits_gdal_get_url(planned_ids[start : start + midpoint]):
+                    largest_fitting = midpoint
+                    lower = midpoint + 1
+                else:
+                    upper = midpoint - 1
+            if largest_fitting == 0:
+                raise ogr.IngestionError(
+                    "ArcGIS object-ID request exceeds the safe URL transport budget."
+                )
+            page_specs.append((None, planned_ids[start : start + largest_fitting]))
+            start += largest_fitting
     else:
         page_specs = [(offset, None) for offset in range(0, feature_count, page_size)]
     for offset, object_ids in page_specs:
@@ -842,6 +884,9 @@ _ARCGIS_MAX_OID = (1 << 63) - 1
 # The normal service page limit can be larger, so planned-ID fetches must not
 # reuse it unchecked.
 _ARCGIS_OBJECT_ID_FETCH_CHUNK_SIZE = 1_000
+# Keep GET requests below common proxy limits. The source builder includes the
+# driver prefix, endpoint, ArcGIS query parameters, and any query-form token.
+_ARCGIS_GDAL_GET_URL_MAX_BYTES = 8 * 1024
 
 
 def _arcgis_staged_oid_digest(oid_field: str, ids: list[int]) -> str:

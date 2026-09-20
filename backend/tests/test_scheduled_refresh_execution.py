@@ -6,7 +6,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import anyio
 import pytest
@@ -21,7 +21,9 @@ from app.platform.refresh.service import (
     expire_unclaimed_admitted_runs,
 )
 from app.platform.refresh.execution import (
+    RefreshAdmissionRequest,
     execute_admitted_refresh,
+    prepare_admitted_refresh,
     register_scheduled_refresh_task,
     reject_admitted_refresh,
 )
@@ -391,6 +393,34 @@ async def test_credential_resolution_failure_terminalizes_claimed_job_and_run(
     assert persisted_job is not None
     assert persisted_job.status == "failed"
     assert persisted_job.completed_at is not None
+
+
+@pytest.mark.parametrize(
+    "actor",
+    [None, SimpleNamespace(), SimpleNamespace(id="not-a-uuid")],
+    ids=["missing", "missing-id", "invalid-id"],
+)
+async def test_admission_rejects_actorless_or_invalid_callers_before_writes(
+    actor,
+) -> None:
+    session = SimpleNamespace(add=Mock(), flush=AsyncMock())
+    request = RefreshAdmissionRequest(
+        source_binding_fingerprint="a" * 64,
+        local_edit_baseline=None,
+        origin_kind="service",
+    )
+
+    with pytest.raises(ValueError, match="actor must expose a UUID id"):
+        await prepare_admitted_refresh(
+            session,  # type: ignore[arg-type]
+            dataset=SimpleNamespace(id=uuid.uuid4()),
+            actor=actor,
+            request=request,
+            trigger="manual",
+        )
+
+    session.add.assert_not_called()
+    session.flush.assert_not_awaited()
 
 
 async def test_admitted_execution_forwards_tenant_to_the_real_task_wrapper(
