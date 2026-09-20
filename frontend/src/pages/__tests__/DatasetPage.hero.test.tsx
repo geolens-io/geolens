@@ -544,6 +544,28 @@ describe('DatasetPage task-tab map preview', () => {
     expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).not.toHaveClass('hidden');
   });
 
+  it('collapses the preview when browser history returns to a task tab', async () => {
+    setup({ record_type: 'vector_dataset' });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Metadata' }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole('button', { name: 'Show map preview' }));
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Overview' }), { button: 0, ctrlKey: false });
+
+    const previousUrl = window.location.href;
+    try {
+      act(() => {
+        window.history.replaceState(null, '', '#metadata');
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      });
+
+      expect(await screen.findByRole('button', { name: 'Show map preview' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByTestId('dataset-map').closest('#dataset-map-preview')).toHaveClass('hidden');
+    } finally {
+      window.history.replaceState(null, '', previousUrl);
+    }
+  });
+
   it('uses the same compact preview on raster task tabs', async () => {
     setup({
       record_type: 'raster_dataset',

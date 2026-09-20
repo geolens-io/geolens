@@ -272,7 +272,7 @@ export function DatasetPage() {
       if (value !== 'data') {
         setIsDataTabExpanded(false);
       }
-      setIsTaskMapPreviewOpen(value === 'overview');
+      setIsTaskMapPreviewOpen(false);
     },
     [navigate, location.search],
   );
@@ -320,6 +320,7 @@ export function DatasetPage() {
       const normalized = getTabFromHash(window.location.hash);
       if (normalized) {
         setActiveTab(normalized);
+        setIsTaskMapPreviewOpen(false);
       }
     };
     window.addEventListener('hashchange', handler);
