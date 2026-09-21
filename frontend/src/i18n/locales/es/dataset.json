@@ -897,6 +897,7 @@
         "empty": "Todavía no hay actualizaciones.",
         "featureDelta": "{{before}} → {{after}} entidades",
         "triggeredBy": "Iniciado por {{username}}",
+        "scheduledFor": "Programada para {{time}}",
         "mechanismLabel": "Método: {{mechanism}}",
         "mechanismTooltip": "Cómo se ejecutó esta actualización, no el origen del conjunto de datos",
         "status": {
@@ -917,11 +918,139 @@
         "reason": {
           "source_count_unavailable": "GeoLens no pudo comparar las filas obtenidas con la fuente, por lo que la publicación requiere revisión.",
           "empty_result": "La actualización sustituiría un conjunto con datos por un resultado vacío.",
-          "destructive_schema_change": "La actualización elimina columnas o cambia sus tipos."
+          "destructive_schema_change": "La actualización elimina columnas o cambia sus tipos.",
+          "arcgis_id_coverage_unavailable": "GeoLens no pudo verificar la cobertura de identificadores de objeto de ArcGIS.",
+          "arcgis_source_membership_changed": "La fuente de ArcGIS cambió mientras se ejecutaba esta actualización."
         },
         "reviewAndRetry": "Revisar y reintentar",
         "loadMore": "Cargar ejecuciones anteriores"
       }
+    },
+    "sync": {
+      "title": "Sincronización programada",
+      "description": "Mantén esta fuente ArcGIS actualizada con una programación UTC.",
+      "loading": "Cargando sincronización programada",
+      "unavailable": "La sincronización programada está disponible cuando la capacidad de programación Enterprise está activa.",
+      "unsupportedSource": "Esta fuente no se puede programar. Se admiten capas ArcGIS FeatureServer con identificador entero.",
+      "reader": "Puedes ver la fuente de este conjunto de datos. Un propietario o administrador puede configurar la sincronización programada.",
+      "notConfigured": "No hay una programación configurada. Crea un borrador, ejecuta la verificación y actívala explícitamente.",
+      "setup": "Configurar programación",
+      "setupTitle": "Configurar sincronización programada",
+      "editTitle": "Editar sincronización programada",
+      "dialogDescription": "La vinculación de la fuente permanece fija. Las horas usan UTC.",
+      "replacementWarningTitle": "La actualización programada reemplaza los datos locales",
+      "replacementWarning": "Cada actualización programada reemplaza la copia local del conjunto de datos. Los cambios locales pueden sobrescribirse.",
+      "createDraft": "Crear borrador",
+      "save": "Guardar programación",
+      "edit": "Editar",
+      "runNow": "Ejecutar verificación",
+      "pause": "Pausar",
+      "enable": "Activar programación",
+      "detach": "Desvincular",
+      "detachTitle": "¿Desvincular sincronización programada?",
+      "detachDescription": "Se cancelará el trabajo futuro no reclamado. Las ejecuciones ya reclamadas continúan y permanecen en el historial.",
+      "enableTitle": "¿Activar la sincronización programada?",
+      "enableDescription": "Cada actualización programada reemplaza la copia local del conjunto de datos. Los cambios locales pueden sobrescribirse. Actívela solo si esto es lo esperado.",
+      "runAccepted": "Ejecución de verificación en cola.",
+      "paused": "Sincronización programada pausada.",
+      "enabled": "Sincronización programada activada.",
+      "detached": "Sincronización programada desvinculada.",
+      "cadenceLabel": "Programación",
+      "nextDue": "Próxima ejecución",
+      "credential": "Credencial",
+      "publicSource": "Fuente pública",
+      "lastRun": "Última ejecución de sincronización",
+      "noRuns": "Aún no hay ejecuciones programadas",
+      "verificationRun": "Ejecución de verificación",
+      "occurrenceState": {
+        "planned": "En cola",
+        "admitted": "Admitida",
+        "delivered": "Entregada",
+        "claimed": "En ejecución",
+        "completed": "Completada",
+        "failed": "Fallida",
+        "cancelled": "Cancelada",
+        "expired": "Expirada"
+      },
+      "status": {
+        "draft": "Borrador",
+        "enabled": "Activa",
+        "paused": "Pausada"
+      },
+      "cadence": {
+        "hourly": "Cada hora",
+        "daily": "Diaria",
+        "weekly": "Semanal",
+        "hourlyAt": "Cada hora a las {{time}}",
+        "dailyAt": "Diariamente a las {{time}}",
+        "weeklyAt": "{{weekday}} a las {{time}}"
+      },
+      "weekday": {
+        "0": "Lunes",
+        "1": "Martes",
+        "2": "Miércoles",
+        "3": "Jueves",
+        "4": "Viernes",
+        "5": "Sábado",
+        "6": "Domingo"
+      },
+      "form": {
+        "cadence": "Frecuencia",
+        "weekday": "Día de la semana",
+        "hour": "Hora",
+        "minute": "Minuto",
+        "utc": "Todas las horas usan UTC.",
+        "credential": "Credencial",
+        "publicSource": "Sin credencial (fuente pública)",
+        "newCredential": "Guardar una credencial nueva",
+        "credentialName": "Nombre de la credencial",
+        "token": "Token de ArcGIS",
+        "tokenHint": "El token se envía una vez y nunca se muestra ni se guarda en este navegador.",
+        "replaceToken": "Reemplazar token guardado",
+        "cancelReplace": "Conservar token actual",
+        "credentialRequired": "Introduce un nombre de credencial y un token.",
+        "tokenRequired": "Introduce un token.",
+        "invalidTime": "Introduce una hora UTC válida."
+      },
+      "eligibility": {
+        "qualifying_run_required": "Ejecuta correctamente la verificación antes de activar esta programación.",
+        "verification_policy_changed": "La política de verificación cambió. Ejecuta la verificación de nuevo antes de activar esta programación.",
+        "source_or_credential_changed": "La fuente o la credencial cambió. Ejecuta la verificación de nuevo antes de activar esta programación."
+      },
+      "pauseReason": {
+        "qualification_required": "Se requiere una ejecución de verificación válida.",
+        "review_required": "Revisa la actualización más reciente antes de activar esta programación.",
+        "transient_failures": "La programación se pausó tras fallos transitorios repetidos.",
+        "credential_invalid": "La credencial guardada ya no es válida.",
+        "authorization_changed": "La autorización de la fuente cambió.",
+        "source_changed": "La vinculación de la fuente cambió y requiere verificación.",
+        "source_or_credential_changed": "La fuente o la credencial cambió y requiere verificación.",
+        "database_restored": "La programación se pausó después de restaurar la base de datos.",
+        "restored": "La programación se restauró en pausa.",
+        "manual": "La programación se pausó manualmente."
+      },
+      "errors": {
+        "loadFailed": "No se pudo cargar la sincronización programada.",
+        "credentialsUnavailable": "No se pudieron cargar las credenciales almacenadas. Aún puede programar una fuente pública o guardar una credencial nueva.",
+        "saveFailed": "No se pudo guardar la sincronización programada.",
+        "revisionConflict": "Esta programación cambió en el servidor. Revisa los detalles actuales e inténtalo de nuevo.",
+        "notEligible": "Esta fuente no es apta para una ejecución de verificación.",
+        "runFailed": "No se pudo iniciar la verificación.",
+        "qualificationRequired": "Ejecuta correctamente la verificación antes de activar esta programación.",
+        "statusFailed": "No se pudo cambiar el estado de la programación.",
+        "detachFailed": "No se pudo desvincular la sincronización programada.",
+        "occurrenceError": {
+          "admissionMetadataError": "No se pudo admitir la programación porque cambió la metadata de la fuente. Revise la fuente e inténtelo de nuevo.",
+          "admissionInvalid": "No se pudo admitir la programación. Revise la fuente y la configuración, e inténtelo de nuevo.",
+          "admissionFailed": "No se pudo admitir la programación. Inténtelo de nuevo o revise la configuración de la fuente.",
+          "sourceChanged": "La fuente cambió. Revísela y ejecute la verificación antes de activar la programación.",
+          "localEditsChanged": "Las ediciones locales cambiaron el conjunto de datos. Revise y resuelva los cambios locales antes de la próxima ejecución.",
+          "credentialExpired": "La credencial almacenada caducó. Actualícela y ejecute la verificación de nuevo.",
+          "failed": "Esta ejecución programada no se completó. Revise la programación e inténtelo de nuevo.",
+          "expired": "Esta ejecución programada venció antes de poder iniciarse. Se volverá a intentar en el próximo horario programado."
+        }
+      },
+      "verificationHelp": "La verificación comprueba que se hayan obtenido todos los ID de la fuente y que el conjunto de ID no haya cambiado. Los atributos de la fuente aún pueden cambiar durante la actualización."
     },
     "vrt": {
       "title": "Miembros VRT",

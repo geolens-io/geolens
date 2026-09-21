@@ -81,6 +81,8 @@ const README_ASSETS = {
   'source-panel-vrt.png': { width: 1232, height: 619 },
   'source-state-dataset-header.png': { width: 1232, height: 116 },
   'source-state-search-chips.png': { width: 760, height: 176 },
+  'scheduled-sync-completed.png': { width: 1232, height: 256 },
+  'scheduled-sync-setup.png': { width: 512, height: 556 },
 };
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif']);

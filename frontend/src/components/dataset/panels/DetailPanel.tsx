@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { DatasetResponse } from '@/types/api';
+import type { DatasetRefreshRequest, DatasetResponse } from '@/types/api';
 import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import type { PendingDraftField } from '@/components/dataset/hooks/use-draft-editing';
-import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
+import { useDatasetRefreshRuns, type DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
+import { useDatasetSync } from '@/components/dataset/hooks/use-dataset-sync';
+import { useEdition } from '@/hooks/use-edition';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { OverviewTab } from '../tabs/OverviewTab';
 import { MetadataTab } from '../tabs/MetadataTab';
@@ -70,7 +72,13 @@ export function DetailPanel(props: DetailPanelProps) {
   // dispatch table.
   const origin = dataset.origin ?? datasetOrigin(dataset);
   const canRefresh = origin != null && REFRESHABLE_ORIGINS.has(origin);
-  const [acceptBlockedRunId, setAcceptBlockedRunId] = useState<string>();
+  const [acceptBlockedRun, setAcceptBlockedRun] = useState<{ id: string; verificationPolicy?: DatasetRefreshRequest['verification_policy'] }>();
+  const { features } = useEdition();
+  const scheduledSync = useDatasetSync(dataset.id, features.includes('scheduled_sync'));
+  // This observer stays mounted while switching Sources and Data tabs. It shares
+  // the refresh-runs cache with the page watch so runs begun by the scheduler
+  // are detected even if the source card is not currently mounted.
+  useDatasetRefreshRuns(dataset.id, { limit: 1, pollWhenScheduled: Boolean(scheduledSync.data) });
 
   const showData = isVector;
   const showStructure = isVector;
@@ -162,15 +170,16 @@ export function DetailPanel(props: DetailPanelProps) {
           dataset={dataset}
           canEdit={canEdit}
           refreshBusy={refreshWatch.isBusy}
-          onAcceptBlockedRun={setAcceptBlockedRunId}
+          onAcceptBlockedRun={setAcceptBlockedRun}
+          onSyncRunDispatched={refreshWatch.trackDispatchedRun}
           actions={
             canEdit && canRefresh
               ? (
                 <SourceRefreshAction
                   dataset={dataset}
                   watch={refreshWatch}
-                  acceptBlockedRunId={acceptBlockedRunId}
-                  onAcceptHandled={() => setAcceptBlockedRunId(undefined)}
+                  acceptBlockedRun={acceptBlockedRun}
+                  onAcceptHandled={() => setAcceptBlockedRun(undefined)}
                 />
               )
               : undefined

@@ -46,6 +46,26 @@ export function formatDateTimeSmart(dateString: string | null): string {
   }
 }
 
+/** Scheduled automation is defined in UTC, so its due times must never imply local time. */
+export function formatDateTimeUtc(dateString: string | null): string {
+  if (!dateString) return i18n.t('common:notAvailable');
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return i18n.t('common:notAvailable');
+    const formatted = new Intl.DateTimeFormat(i18n.language, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'UTC',
+    }).format(date);
+    return `${formatted} UTC`;
+  } catch {
+    return i18n.t('common:notAvailable');
+  }
+}
+
 export function formatNumber(n: number | null | undefined, options?: Intl.NumberFormatOptions): string {
   if (n === null || n === undefined) return i18n.t('common:notAvailable');
   return new Intl.NumberFormat(i18n.language, options).format(n);

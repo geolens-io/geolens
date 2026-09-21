@@ -274,6 +274,7 @@ class TestSingleSlotKeySet:
                 "entitlement",  # Phase 1207 / ENTSEAM-01
                 "connectors",
                 "data_serving",
+                "scheduled_refresh_lifecycle",
             }
         )
         assert SINGLE_SLOT_KEYS == expected, (

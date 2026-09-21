@@ -10,6 +10,7 @@ import {
   useDatasetVersions,
 } from '@/components/dataset/hooks/use-dataset';
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
+import { SourceSyncPanel } from '@/components/dataset/SourceSyncPanel';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatDateTimeSmart, formatNumber } from '@/lib/format';
+import { formatDateTimeSmart, formatDateTimeUtc, formatNumber } from '@/lib/format';
 import {
   healthDotColors,
   refreshRunStatusColors,
@@ -33,6 +34,7 @@ import {
 import { useAuthStore } from '@/stores/auth-store';
 import type {
   DatasetOrigin,
+  DatasetRefreshRequest,
   DatasetResponse,
   DatasetVersionResponse,
   SchemaDriftStatus,
@@ -54,7 +56,8 @@ export interface SourcePanelProps {
    *  active run row in the refresh history. */
   canEdit?: boolean;
   refreshBusy?: boolean;
-  onAcceptBlockedRun?: (runId: string) => void;
+  onAcceptBlockedRun?: (run: { id: string; verificationPolicy?: DatasetRefreshRequest['verification_policy'] }) => void;
+  onSyncRunDispatched?: (runId: string) => void;
 }
 
 type PointerField = {
@@ -320,7 +323,7 @@ function RefreshRunHistory({
   dataset: DatasetResponse;
   canEdit: boolean;
   refreshBusy?: boolean;
-  onAcceptBlockedRun?: (runId: string) => void;
+  onAcceptBlockedRun?: (run: { id: string; verificationPolicy?: DatasetRefreshRequest['verification_policy'] }) => void;
 }) {
   const { t, i18n } = useTranslation('dataset');
   const [limit, setLimit] = useState(5);
@@ -429,6 +432,9 @@ function RefreshRunHistory({
                 {run.triggered_by_username
                   ? ` · ${t('sourcePanel.refresh.history.triggeredBy', { username: run.triggered_by_username })}`
                   : ''}
+                {run.trigger === 'scheduled' && run.scheduled_for
+                  ? ` · ${t('sourcePanel.refresh.history.scheduledFor', { time: formatDateTimeUtc(run.scheduled_for) })}`
+                  : ''}
                 {' · '}
                 <a className="underline" href={`#refresh-run-${run.id}`}>
                   {t('sourcePanel.refresh.history.permalink')}
@@ -491,7 +497,15 @@ function RefreshRunHistory({
                       size="sm"
                       variant="outline"
                       disabled={refreshBusy}
-                      onClick={() => onAcceptBlockedRun(run.id)}
+                      onClick={() => {
+                        const sourcePolicy = run.verification?.source_binding.verification_policy;
+                        const verificationPolicy = sourcePolicy === 'arcgis_id_set_v1'
+                          ? sourcePolicy
+                          : run.verification?.verification_policy === 'arcgis_id_set_v1'
+                            ? run.verification.verification_policy
+                            : undefined;
+                        onAcceptBlockedRun({ id: run.id, verificationPolicy });
+                      }}
                     >
                       {t('sourcePanel.refresh.history.reviewAndRetry')}
                     </Button>
@@ -677,6 +691,7 @@ export function SourcePanel({
   canEdit = false,
   refreshBusy = false,
   onAcceptBlockedRun,
+  onSyncRunDispatched,
 }: SourcePanelProps) {
   const { t } = useTranslation('dataset');
   const isAuthenticated = useAuthStore((state) => Boolean(state.token));
@@ -765,6 +780,7 @@ export function SourcePanel({
         <VrtSection dataset={dataset} isAuthenticated={isAuthenticated} />
       ) : (
         <>
+          <SourceSyncPanel dataset={dataset} canEdit={canEdit} onRunDispatched={onSyncRunDispatched} />
           <SourceHistory dataset={dataset} />
           {/* Gated the same way SourceRefreshAction is: no origin, nothing
               could ever have been refreshed, so no history to show. */}

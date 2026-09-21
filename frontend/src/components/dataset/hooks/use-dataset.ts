@@ -28,6 +28,7 @@ import type {
   AttributeMetadataUpdate,
   ReuploadServicePreviewRequest,
   DatasetRefreshRunResponse,
+  DatasetRefreshRequest,
   ServiceAuthRequest,
 } from '@/types/api';
 
@@ -216,12 +217,14 @@ export function useRefreshDataset() {
       token,
       auth,
       acceptBlockedRunId,
+      verificationPolicy,
     }: {
       datasetId: string;
       token?: string;
       auth?: ServiceAuthRequest;
       acceptBlockedRunId?: string;
-    }) => refreshDataset(datasetId, token, auth, acceptBlockedRunId),
+      verificationPolicy?: DatasetRefreshRequest['verification_policy'];
+    }) => refreshDataset(datasetId, token, auth, acceptBlockedRunId, verificationPolicy),
     // The dispatched run belongs in history immediately (status "pending"),
     // and dataset-detail health/freshness change once the worker finishes —
     // both queries are cheap enough to just invalidate rather than patch.
@@ -249,7 +252,7 @@ export function useCancelRefreshJob() {
 
 export function useDatasetRefreshRuns(
   datasetId: string,
-  params: { skip?: number; limit?: number } = {},
+  params: { skip?: number; limit?: number; pollWhenScheduled?: boolean } = {},
 ) {
   const skip = params.skip ?? 0;
   const limit = params.limit ?? 10;
@@ -306,7 +309,8 @@ export function useDatasetRefreshRuns(
     // dataset_id filter rather than trusting index 0 belongs to `datasetId`.
     refetchInterval: (query) => {
       const latest = query.state.data?.runs.find((run) => run.dataset_id === datasetId);
-      return latest?.status === 'pending' || latest?.status === 'running' ? 5_000 : false;
+      if (latest?.status === 'pending' || latest?.status === 'running') return 5_000;
+      return params.pollWhenScheduled ? 10_000 : false;
     },
   });
 }

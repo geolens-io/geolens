@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 from datetime import datetime, timezone
+from functools import partial, wraps
 from pathlib import Path
 
 import structlog
@@ -42,7 +43,7 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
-from app.platform.refresh.verification import verify_service_refresh
+from app.platform.refresh import verification as refresh_policy
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
@@ -68,6 +69,121 @@ from app.processing.ingest.tasks_staging import (
     _run_staging_pipeline,
     _validate_upload_file_safety,
 )
+
+
+# A keyed admitted occurrence has its own wall-clock budget.  The queue claim
+# deadline ends at the pending -> running CAS; it must not terminate a
+# legitimate fetch that started before that deadline.
+_KEYED_REFRESH_EXECUTION_TIMEOUT_SECONDS = 1_800.0
+
+
+class RefreshPublicationFenceError(RuntimeError):
+    """A durable source or local-edit publication fence refused the swap."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(message)
+
+
+def require_scheduled_execution_claim(fn):
+    """Fence direct/late scheduled invocations before they contact a source."""
+
+    @wraps(fn)
+    async def _wrapped(*args, **kwargs):
+        scheduled_execution_key = kwargs.get("scheduled_execution_key")
+        if scheduled_execution_key is not None:
+            try:
+                execution_key = uuid.UUID(str(scheduled_execution_key))
+                job_id = uuid.UUID(str(kwargs["job_id"]))
+                attempt_id = uuid.UUID(str(kwargs["attempt_id"]))
+            except (KeyError, TypeError, ValueError):
+                structlog.get_logger().warning(
+                    "scheduled_refresh_execution_claim_invalid"
+                )
+                return None
+
+            from app.core.db import async_session
+            from app.platform.refresh.models import DatasetRefreshRun
+
+            async with async_session() as session:
+                matching_run = await session.scalar(
+                    select(DatasetRefreshRun).where(
+                        DatasetRefreshRun.ingest_job_id == job_id,
+                        DatasetRefreshRun.status == "running",
+                        DatasetRefreshRun.execution_key == execution_key,
+                    )
+                )
+            if matching_run is None:
+                structlog.get_logger().warning(
+                    "scheduled_refresh_execution_not_claimed", job_id=str(job_id)
+                )
+                return None
+            try:
+                async with asyncio.timeout(_KEYED_REFRESH_EXECUTION_TIMEOUT_SECONDS):
+                    return await fn(*args, **kwargs)
+            except TimeoutError:
+                # ``asyncio.timeout`` injects cancellation, so the service
+                # task's ordinary Exception handler does not get a chance to
+                # settle the admitted run. Terminalize it here before the
+                # queue sees the timeout; a late worker cannot publish after
+                # this transition.
+                await _settle_keyed_execution_timeout(job_id, attempt_id)
+                raise
+        return await fn(*args, **kwargs)
+
+    return _wrapped
+
+
+async def _settle_keyed_execution_timeout(
+    job_id: uuid.UUID, attempt_id: uuid.UUID
+) -> bool:
+    """Atomically settle a timed-out keyed run within the error-write budget."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.core.db import async_session
+    from app.platform.jobs.heartbeat import (
+        JOB_ERROR_WRITE_TIMEOUT_MS,
+        arm_job_error_write_budget,
+        log_job_error_write_failure,
+    )
+    from app.platform.refresh.service import record_refresh_failure
+
+    TIMEOUT_ERROR_MESSAGE = "The admitted refresh exceeded its execution time limit."
+    try:
+        async with async_session() as session:
+            # The session's pool checkout needs its own deadline; SET LOCAL
+            # only protects statements after the connection is acquired.
+            await asyncio.wait_for(
+                session.connection(), timeout=JOB_ERROR_WRITE_TIMEOUT_MS / 1000
+            )
+            await arm_job_error_write_budget(session)
+            settled_job = await update_ingest_job_for_attempt(
+                session,
+                job_id,
+                attempt_id,
+                values={
+                    "status": "failed",
+                    "error_message": TIMEOUT_ERROR_MESSAGE,
+                    "completed_at": datetime.now(timezone.utc),
+                },
+            )
+            if settled_job:
+                await record_refresh_failure(
+                    session,
+                    ingest_job_id=job_id,
+                    error_code="scheduled_execution_timeout",
+                    error_message=TIMEOUT_ERROR_MESSAGE,
+                    contacted_origin=False,
+                )
+            await session.commit()
+            return settled_job
+    except (SQLAlchemyError, TimeoutError) as write_failure:
+        log_job_error_write_failure(
+            write_failure,
+            job_id=str(job_id),
+            task="scheduled_refresh_execution_timeout",
+        )
+        return False
 
 
 async def _drop_attempt_staging_table(staging_table: str) -> None:
@@ -712,6 +828,14 @@ def _service_refresh_error_code(exc: BaseException) -> str:
         return "credential_expired"
     if isinstance(exc, CredentialStoreUnavailable):
         return "credential_store_unavailable"
+    if isinstance(exc, RefreshPublicationFenceError):
+        return exc.code
+    # The catalog adapter exposes ArcGIS's 498/499 challenge as a typed
+    # exception across the ProcessingPort. Keep processing independent of
+    # that adapter while preserving the established refresh outcome for a
+    # token rejected by the source itself.
+    if getattr(exc, "code", None) in (498, 499):
+        return "credential_expired"
     return "service_refresh_failed"
 
 
@@ -741,7 +865,8 @@ async def _fetch_service_layer_with_paging_guard(
     schema: str,
     fallback_order_field: str | None,
     on_spawn,
-) -> int | None:
+    verification_policy: str | None = None,
+) -> tuple[int | None, object | None]:
     """Fetch a service layer into staging, paging large ArcGIS layers.
 
     fix(#1675): parity with the initial-import path. A refresh of a large
@@ -752,14 +877,17 @@ async def _fetch_service_layer_with_paging_guard(
     cover both doors.
     """
     from app.platform.extensions import get_processing_port
+    from app.platform.security import make_safe_client
     from app.processing.ingest import tasks_vector as _tv
     from app.processing.ingest.ogr import run_ogr2ogr_service
     from app.processing.ingest.tasks_common import run_paged_arcgis_service_fetch
 
+    port = get_processing_port()
     page_size = _tv._ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
     feature_count = None
     supports_pagination = False
     pagination_order_field = None
+    id_plan = None
     if service_type == "arcgis_featureserver":
         # fix(#1675): the page-info probe is the FIRST outbound
         # contact of a refresh and can fail before any subprocess exists to
@@ -775,6 +903,40 @@ async def _fetch_service_layer_with_paging_guard(
         ) = await _tv._fetch_arcgis_import_page_info(source_url, layer_id, token)
         if max_record_count is not None:
             page_size = max(1, min(page_size, max_record_count))
+        if verification_policy == "arcgis_id_set_v1":
+            try:
+                async with make_safe_client(timeout=30.0) as client:
+                    id_plan = await port.fetch_arcgis_id_plan(
+                        source_url,
+                        layer_id,
+                        client,
+                        token=token,
+                        expected_oid_field=(
+                            pagination_order_field or fallback_order_field
+                        ),
+                    )
+            except ValueError as exc:
+                from app.processing.ingest.ogr import IngestionError
+
+                raise IngestionError(f"ArcGIS ID plan unavailable: {exc}") from exc
+            if id_plan.count:
+                await run_paged_arcgis_service_fetch(
+                    service_type_raw=service_type_raw,
+                    service_type=service_type,
+                    source_url=source_url,
+                    layer_name=layer_name,
+                    layer_id=layer_id,
+                    token=token,
+                    staging_table=staging_table,
+                    db_conn_str=db_conn_str,
+                    schema=schema,
+                    feature_count=id_plan.count,
+                    page_size=page_size,
+                    order_field=id_plan.oid_field,
+                    on_spawn=on_spawn,
+                    planned_ids=id_plan.ids,
+                )
+                return feature_count, id_plan
     if (
         service_type == "arcgis_featureserver"
         and supports_pagination
@@ -797,9 +959,9 @@ async def _fetch_service_layer_with_paging_guard(
             order_field=pagination_order_field,
             on_spawn=on_spawn,
         )
-        return feature_count
+        return feature_count, id_plan
 
-    gdal_source, layer_arg = get_processing_port().build_gdal_source(
+    gdal_source, layer_arg = port.build_gdal_source(
         service_type_raw,
         source_url,
         layer_name,
@@ -817,7 +979,7 @@ async def _fetch_service_layer_with_paging_guard(
         schema=schema,
         on_spawn=on_spawn,
     )
-    return feature_count
+    return feature_count, id_plan
 
 
 async def _enforce_service_refresh_verification(
@@ -842,7 +1004,7 @@ async def _enforce_service_refresh_verification(
     if not is_refresh:
         return None, True
     assert content_digest is not None
-    verification = verify_service_refresh(
+    verification = refresh_policy.verify_service_refresh(
         source_binding=source_binding,
         schema_diff=schema_diff,
         expected_feature_count=expected_feature_count,
@@ -858,11 +1020,11 @@ async def _enforce_service_refresh_verification(
         return verification, True
 
     rejected = verification["decision"] == "rejected"
-    message = (
-        "The staged row count did not match the source count."
-        if rejected
-        else "Review the detected changes before publication."
-    )
+    if rejected:
+        error_code, message = refresh_policy.refresh_rejection_diagnostic(verification)
+    else:
+        error_code = "review_required"
+        message = "Review the detected changes before publication."
     await require_ingest_job_update(
         session,
         job_uuid,
@@ -889,7 +1051,7 @@ async def _enforce_service_refresh_verification(
         await record_refresh_failure(
             session,
             ingest_job_id=job_uuid,
-            error_code="source_count_mismatch",
+            error_code=error_code,
             error_message=message,
             contacted_origin=False,
             feature_count_after=fetched_feature_count,
@@ -906,6 +1068,110 @@ async def _enforce_service_refresh_verification(
         )
     await session.commit()
     return verification, False
+
+
+async def _arcgis_id_coverage_evidence(
+    session,
+    *,
+    initial_id_plan,
+    schema: str,
+    table_name: str,
+    source_url: str,
+    layer_id,
+    token: str | None,
+) -> dict | None:
+    """Return compact pre/post ArcGIS membership evidence for a staged fetch."""
+    if initial_id_plan is None:
+        return None
+
+    from app.platform.extensions import get_processing_port
+    from app.platform.security import make_safe_client
+    from app.processing.ingest.tasks_common import verify_arcgis_staged_oid_coverage
+
+    coverage = await verify_arcgis_staged_oid_coverage(
+        session,
+        schema=schema,
+        table_name=table_name,
+        oid_field=initial_id_plan.oid_field,
+        planned_ids=initial_id_plan.ids,
+    )
+    try:
+        async with make_safe_client(timeout=30.0) as client:
+            final_id_plan = await get_processing_port().fetch_arcgis_id_plan(
+                source_url,
+                layer_id,
+                client,
+                token=token,
+                expected_oid_field=initial_id_plan.oid_field,
+            )
+    except ValueError:
+        coverage["source_membership_status"] = "unavailable"
+    else:
+        coverage["source_membership_status"] = (
+            "matched" if final_id_plan.digest == initial_id_plan.digest else "changed"
+        )
+        coverage["source_marker_before"] = initial_id_plan.source_marker
+        coverage["source_marker_after"] = final_id_plan.source_marker
+    return coverage
+
+
+async def _enforce_refresh_publication_fence(
+    session,
+    *,
+    job_uuid: uuid.UUID,
+    dataset,
+    verification: dict | None,
+) -> None:
+    """Refuse a late swap after a scheduled source rebind or local edit."""
+    if verification is None:
+        return
+
+    from app.platform.refresh.models import DatasetRefreshRun
+    from app.platform.refresh.verification import (
+        canonical_service_source_binding_fingerprint,
+    )
+
+    run = await session.scalar(
+        select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job_uuid)
+    )
+    if run is None or run.source_binding_fingerprint is None:
+        return
+
+    from app.platform.extensions import get_processing_port
+
+    record_cls = get_processing_port().get_record_orm_class()
+    current_origin, current_record_modified_at = (
+        await session.execute(
+            select(dataset.__class__.origin_ref, record_cls.updated_at)
+            .join(record_cls, record_cls.id == dataset.record_id)
+            .where(dataset.__class__.id == dataset.id)
+        )
+    ).one()
+    if not isinstance(current_origin, dict):
+        raise RefreshPublicationFenceError(
+            "source_changed", "Refresh source changed before publication."
+        )
+    try:
+        current_fingerprint = canonical_service_source_binding_fingerprint(
+            current_origin
+        )
+    except ValueError as exc:
+        raise RefreshPublicationFenceError(
+            "source_changed", "Refresh source changed before publication."
+        ) from exc
+    if current_fingerprint != run.source_binding_fingerprint:
+        raise RefreshPublicationFenceError(
+            "source_changed", "Refresh source changed before publication."
+        )
+    if (
+        run.local_edit_baseline is not None
+        and current_record_modified_at is not None
+        and current_record_modified_at > run.local_edit_baseline
+    ):
+        raise RefreshPublicationFenceError(
+            "local_edits_changed",
+            "Dataset changed locally before refresh publication.",
+        )
 
 
 async def _staged_geometry_contract(
@@ -968,6 +1234,7 @@ def _require_service_source_url(value: str | None) -> str:
 )
 @tenant_task
 @purge_token_on_failure
+@require_scheduled_execution_claim
 async def reupload_service(
     job_id: str,
     dataset_id: str,
@@ -1042,6 +1309,8 @@ async def reupload_service(
     measured_feature_count: int | None = None
     measured_schema_diff: dict | None = None
     verification_evidence: dict | None = None
+    initial_arcgis_id_plan = None
+    job_verification_policy = None
 
     try:
         # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
@@ -1116,6 +1385,7 @@ async def reupload_service(
             # copy can name the call the operator actually made. router_refresh
             # writes "refresh" into user_metadata; reupload_commit does not.
             is_refresh = bool(um.get("refresh"))
+            job_verification_policy = um.get("verification_policy")
             accepted_refresh_fingerprint = um.get("accepted_refresh_fingerprint")
             accepted_refresh_run_id = um.get("accepted_refresh_run_id")
 
@@ -1162,10 +1432,15 @@ async def reupload_service(
             )
 
         expected_feature_count: int | None = None
+        verification_policy = kwargs.get("verification_policy", job_verification_policy)
+        credential_version = kwargs.get("credential_version")
 
         async def _run_service_import(layer_name: str) -> None:
-            nonlocal expected_feature_count
-            expected_feature_count = await _fetch_service_layer_with_paging_guard(
+            nonlocal expected_feature_count, initial_arcgis_id_plan
+            (
+                expected_feature_count,
+                initial_arcgis_id_plan,
+            ) = await _fetch_service_layer_with_paging_guard(
                 service_type_raw=service_type_raw,
                 service_type=service_type,
                 source_url=source_url_value,
@@ -1177,6 +1452,7 @@ async def reupload_service(
                 schema=_current_tenant_schema(),
                 fallback_order_field=reupload_oid_field,
                 on_spawn=_arm_contact,
+                verification_policy=verification_policy,
             )
 
         try:
@@ -1321,7 +1597,20 @@ async def reupload_service(
                     layer_id=layer_id,
                     layer_name=source_layer_value,
                 ),
+                "verification_policy": verification_policy,
+                "credential_version": (
+                    credential_version if isinstance(credential_version, str) else None
+                ),
             }
+            source_binding["arcgis_id_coverage"] = await _arcgis_id_coverage_evidence(
+                session,
+                initial_id_plan=initial_arcgis_id_plan,
+                schema=_schema,
+                table_name=staging_tn,
+                source_url=source_url_value,
+                layer_id=layer_id,
+                token=token,
+            )
             verification, may_publish = await _enforce_service_refresh_verification(
                 session,
                 is_refresh=is_refresh,
@@ -1360,7 +1649,9 @@ async def reupload_service(
                 # tasks_vector.ingest_service for why build_gdal_source
                 # makes them mutually exclusive per service type.
                 origin_ref={
-                    **source_binding,
+                    "service_type": source_binding["service_type"],
+                    "url": source_binding["url"],
+                    "layer_id": source_binding["layer_id"],
                     # fix(#1746): means "made WITH a token", not "origin
                     # demanded one" — see tasks_vector.ingest_service.
                     # Written on the SUCCESS path only: a failed attempt
@@ -1368,6 +1659,13 @@ async def reupload_service(
                     # un-marks a service that went public.
                     "auth_required": True if token else None,
                 },
+                pre_catalog_write=partial(
+                    _enforce_refresh_publication_fence,
+                    session,
+                    job_uuid=job_uuid,
+                    dataset=dataset,
+                    verification=verification,
+                ),
             )
             # Captured pre-commit: the ORM attribute may be expired after commit.
             live_table_name = dataset.table_name

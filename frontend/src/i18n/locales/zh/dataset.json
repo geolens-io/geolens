@@ -848,6 +848,7 @@
         "empty": "尚无刷新运行记录。",
         "featureDelta": "{{before}} → {{after}} 个要素",
         "triggeredBy": "由 {{username}} 启动",
+        "scheduledFor": "计划于 {{time}} 执行",
         "mechanismLabel": "方式：{{mechanism}}",
         "mechanismTooltip": "此运行的执行方式，而非数据集的来源",
         "status": {
@@ -868,11 +869,139 @@
         "reason": {
           "source_count_unavailable": "GeoLens 无法将获取的行数与数据源进行比较，因此发布前需要审核。",
           "empty_result": "此次刷新会用空结果替换非空数据集。",
-          "destructive_schema_change": "此次刷新会删除列或更改列类型。"
+          "destructive_schema_change": "此次刷新会删除列或更改列类型。",
+          "arcgis_id_coverage_unavailable": "GeoLens 无法验证 ArcGIS 对象 ID 的覆盖情况。",
+          "arcgis_source_membership_changed": "此次刷新运行期间，ArcGIS 数据源发生了变化。"
         },
         "reviewAndRetry": "审核并重试",
         "loadMore": "加载更早的运行"
       }
+    },
+    "sync": {
+      "title": "定时同步",
+      "description": "按 UTC 计划保持此 ArcGIS 数据源为最新状态。",
+      "loading": "正在加载定时同步",
+      "unavailable": "Enterprise 定时功能启用后可使用定时同步。",
+      "unsupportedSource": "此数据源无法定时同步。支持带整数图层标识符的 ArcGIS FeatureServer 图层。",
+      "reader": "你可以查看此数据集的数据源。所有者或管理员可以配置定时同步。",
+      "notConfigured": "尚未配置计划。请先创建草稿、运行验证，然后明确启用。",
+      "setup": "设置计划",
+      "setupTitle": "设置定时同步",
+      "editTitle": "编辑定时同步",
+      "dialogDescription": "数据源绑定保持不变。时间使用 UTC。",
+      "replacementWarningTitle": "定时刷新会替换本地数据",
+      "replacementWarning": "每次定时刷新都会替换数据集的本地副本。本地更改可能会被覆盖。",
+      "createDraft": "创建草稿",
+      "save": "保存计划",
+      "edit": "编辑",
+      "runNow": "运行验证",
+      "pause": "暂停",
+      "enable": "启用计划",
+      "detach": "解除关联",
+      "detachTitle": "解除定时同步关联？",
+      "detachDescription": "将取消未来未认领的定时工作。已经认领的运行会继续并保留在历史记录中。",
+      "enableTitle": "启用定时同步？",
+      "enableDescription": "每次定时刷新都会替换数据集的本地副本。本地更改可能会被覆盖。仅在确认符合预期时启用。",
+      "runAccepted": "验证运行已加入队列。",
+      "paused": "定时同步已暂停。",
+      "enabled": "定时同步已启用。",
+      "detached": "定时同步已解除关联。",
+      "cadenceLabel": "计划",
+      "nextDue": "下次时间",
+      "credential": "凭据",
+      "publicSource": "公开数据源",
+      "lastRun": "上次同步运行",
+      "noRuns": "尚无定时运行",
+      "verificationRun": "验证运行",
+      "occurrenceState": {
+        "planned": "已排队",
+        "admitted": "已准入",
+        "delivered": "已交付",
+        "claimed": "运行中",
+        "completed": "已完成",
+        "failed": "失败",
+        "cancelled": "已取消",
+        "expired": "已过期"
+      },
+      "status": {
+        "draft": "草稿",
+        "enabled": "已启用",
+        "paused": "已暂停"
+      },
+      "cadence": {
+        "hourly": "每小时",
+        "daily": "每天",
+        "weekly": "每周",
+        "hourlyAt": "每小时 {{time}}",
+        "dailyAt": "每天 {{time}}",
+        "weeklyAt": "{{weekday}} {{time}}"
+      },
+      "weekday": {
+        "0": "星期一",
+        "1": "星期二",
+        "2": "星期三",
+        "3": "星期四",
+        "4": "星期五",
+        "5": "星期六",
+        "6": "星期日"
+      },
+      "form": {
+        "cadence": "频率",
+        "weekday": "星期",
+        "hour": "小时",
+        "minute": "分钟",
+        "utc": "所有计划时间均使用 UTC。",
+        "credential": "凭据",
+        "publicSource": "无凭据（公开数据源）",
+        "newCredential": "保存新凭据",
+        "credentialName": "凭据名称",
+        "token": "ArcGIS 令牌",
+        "tokenHint": "令牌只会发送一次，绝不会在此浏览器中显示或存储。",
+        "replaceToken": "替换已存令牌",
+        "cancelReplace": "保留当前令牌",
+        "credentialRequired": "请输入凭据名称和令牌。",
+        "tokenRequired": "请输入令牌。",
+        "invalidTime": "请输入有效的 UTC 时间。"
+      },
+      "eligibility": {
+        "qualifying_run_required": "请在启用此计划前成功运行验证。",
+        "verification_policy_changed": "验证策略已更改。请在启用此计划前重新运行验证。",
+        "source_or_credential_changed": "数据源或凭据已更改。请在启用此计划前重新运行验证。"
+      },
+      "pauseReason": {
+        "qualification_required": "需要合格的验证运行。",
+        "review_required": "请在启用此计划前检查最新刷新。",
+        "transient_failures": "计划在多次临时失败后已暂停。",
+        "credential_invalid": "已存凭据不再有效。",
+        "authorization_changed": "数据源授权已更改。",
+        "source_changed": "数据源绑定已更改，需要验证。",
+        "source_or_credential_changed": "数据源或凭据已更改，需要验证。",
+        "database_restored": "计划在数据库恢复后已暂停。",
+        "restored": "计划已恢复为暂停状态。",
+        "manual": "计划已手动暂停。"
+      },
+      "errors": {
+        "loadFailed": "无法加载定时同步。",
+        "credentialsUnavailable": "无法加载已保存的凭据。您仍可以为公开数据源安排定时同步，或保存新凭据。",
+        "saveFailed": "无法保存定时同步。",
+        "revisionConflict": "服务器上的此计划已更改。请查看最新详情后重试。",
+        "notEligible": "此数据源不符合验证运行条件。",
+        "runFailed": "无法启动验证运行。",
+        "qualificationRequired": "请在启用此计划前成功运行验证。",
+        "statusFailed": "无法更改计划状态。",
+        "detachFailed": "无法解除定时同步关联。",
+        "occurrenceError": {
+          "admissionMetadataError": "由于数据源元数据已更改，计划无法准入。请检查数据源后重试。",
+          "admissionInvalid": "计划无法准入。请检查数据源和计划设置后重试。",
+          "admissionFailed": "计划无法准入。请重试或检查数据源设置。",
+          "sourceChanged": "数据源已更改。请在启用计划前检查数据源并重新运行验证。",
+          "localEditsChanged": "本地编辑已更改数据集。请在下次运行前检查并解决本地更改。",
+          "credentialExpired": "已保存的凭据已过期。请更新凭据并重新运行验证。",
+          "failed": "此定时运行未完成。请检查计划后重试。",
+          "expired": "此定时运行在开始前已过期。将在下一个计划时间重试。"
+        }
+      },
+      "verificationHelp": "验证会检查是否已获取每个数据源 ID，以及 ID 集合是否保持不变。数据源属性仍可能在刷新期间发生变化。"
     },
     "vrt": {
       "title": "VRT 成员",

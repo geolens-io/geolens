@@ -3,18 +3,29 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import anyio
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
-from sqlalchemy import text
+from sqlalchemy import text, update
 
 from app.modules.catalog.datasets.api import router_refresh
+from app.modules.catalog.sources.adapters.arcgis import ArcGISIDPlan
+from app.modules.catalog.sources.adapters.arcgis import ArcGISTokenError
+from app.modules.catalog.datasets.domain.models import Record
+from app.platform.catalog_locks import lock_catalog_rows
+from app.platform.refresh.verification import (
+    canonical_service_source_binding_fingerprint,
+)
 from app.platform.refresh.models import DatasetRefreshRun
+from app.platform.jobs.models import IngestJob
 from app.platform.dataset_origin import set_dataset_origin
 from app.processing.ingest import tasks_reupload, tasks_vector
+from app.processing.ingest.tasks_common import _ARCGIS_GDAL_GET_URL_MAX_BYTES
 from app.processing.ingest.tasks_reupload import reupload_service
 
 from tests.factories import create_dataset, get_user_id
@@ -125,6 +136,138 @@ async def _execute_with_fake(task_kwargs: dict, fake) -> None:
     ):
         mock_run.side_effect = fake
         await reupload_service.func(**task_kwargs)
+
+
+@pytest.mark.anyio
+async def test_finalization_fence_blocks_a_local_edit_after_the_run_baseline(
+    test_db_session,
+):
+    """A fresh locked record clock fences edits made while fetch was in flight."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    baseline = dataset.record.updated_at
+    assert baseline is not None
+    job = IngestJob(
+        dataset_id=dataset.id,
+        created_by=admin_id,
+        status="running",
+        user_metadata={"refresh": True},
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    test_db_session.add(
+        DatasetRefreshRun(
+            dataset_id=dataset.id,
+            ingest_job_id=job.id,
+            origin_kind="service",
+            trigger="scheduled",
+            status="running",
+            started_at=datetime.now(timezone.utc),
+            scheduled_for=datetime.now(timezone.utc),
+            occurrence_key=f"local-edit-fence:{uuid.uuid4()}",
+            claim_deadline=datetime.now(timezone.utc),
+            execution_key=uuid.uuid4(),
+            local_edit_baseline=baseline,
+            source_binding_fingerprint=canonical_service_source_binding_fingerprint(
+                dataset.origin_ref
+            ),
+            verification_policy="arcgis_id_set_v1",
+        )
+    )
+    await test_db_session.commit()
+
+    from app.core.db import async_session
+
+    async with async_session() as editor:
+        await editor.execute(
+            update(Record)
+            .where(Record.id == dataset.record_id)
+            .values(title="Edited while refresh was fetching")
+        )
+        await editor.commit()
+
+    await lock_catalog_rows(
+        test_db_session,
+        dataset_cls=type(dataset),
+        record_cls=Record,
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        lock_timeout=None,
+    )
+    with pytest.raises(
+        tasks_reupload.RefreshPublicationFenceError, match="Dataset changed locally"
+    ) as refused:
+        await tasks_reupload._enforce_refresh_publication_fence(
+            test_db_session,
+            job_uuid=job.id,
+            dataset=dataset,
+            verification={"decision": "allowed"},
+        )
+    assert refused.value.code == "local_edits_changed"
+
+
+@pytest.mark.anyio
+async def test_finalization_fence_blocks_a_source_rebind_before_publication(
+    test_db_session,
+):
+    """A run cannot publish after the service binding it admitted has changed."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    job = IngestJob(
+        dataset_id=dataset.id,
+        created_by=admin_id,
+        status="running",
+        user_metadata={"refresh": True},
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    test_db_session.add(
+        DatasetRefreshRun(
+            dataset_id=dataset.id,
+            ingest_job_id=job.id,
+            origin_kind="service",
+            trigger="scheduled",
+            status="running",
+            started_at=datetime.now(timezone.utc),
+            scheduled_for=datetime.now(timezone.utc),
+            occurrence_key=f"source-fence:{uuid.uuid4()}",
+            claim_deadline=datetime.now(timezone.utc),
+            execution_key=uuid.uuid4(),
+            source_binding_fingerprint=canonical_service_source_binding_fingerprint(
+                dataset.origin_ref
+            ),
+            verification_policy="arcgis_id_set_v1",
+        )
+    )
+    await test_db_session.flush()
+    set_dataset_origin(
+        dataset,
+        "service",
+        uri=f"{_ARCGIS_BASE}/1",
+        service_type="arcgis_featureserver",
+        url=_ARCGIS_BASE,
+        layer_id="1",
+    )
+    await test_db_session.commit()
+
+    await lock_catalog_rows(
+        test_db_session,
+        dataset_cls=type(dataset),
+        record_cls=Record,
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        lock_timeout=None,
+    )
+    with pytest.raises(
+        tasks_reupload.RefreshPublicationFenceError, match="Refresh source changed"
+    ) as refused:
+        await tasks_reupload._enforce_refresh_publication_fence(
+            test_db_session,
+            job_uuid=job.id,
+            dataset=dataset,
+            verification={"decision": "allowed"},
+        )
+    assert refused.value.code == "source_changed"
 
 
 @pytest.mark.anyio
@@ -647,3 +790,285 @@ async def test_refresh_small_layer_keeps_single_fetch(
     assert "resultOffset" not in calls[0]["source"], calls[0]["source"]
     runs = await _runs_ordered(test_db_session, dataset.id)
     assert [r.status for r in runs] == ["succeeded"]
+
+
+def _arcgis_id_plan(ids: tuple[int, ...]) -> ArcGISIDPlan:
+    from hashlib import sha256
+    import json
+
+    payload = json.dumps(
+        {"oid_field": "OBJECTID", "ids": list(ids)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return ArcGISIDPlan(
+        oid_field="OBJECTID",
+        ids=ids,
+        digest=sha256(payload.encode()).hexdigest(),
+        source_marker=123,
+    )
+
+
+def _fake_ogr2ogr_with_source_oids(calls: list[dict], staged_ids: list[int]):
+    """Materialize the ArcGIS OBJECTID attribute GDAL transports from query."""
+
+    async def _fake(
+        gdal_source: str,
+        layer_name: str,
+        table_name: str,
+        db_conn_str: str,
+        service_type: str,
+        timeout: float = 1800.0,
+        token: str | None = None,
+        is_non_spatial: bool = False,
+        append: bool = False,
+        *,
+        schema: str,
+        on_spawn=None,
+    ) -> None:
+        if on_spawn is not None:
+            on_spawn()
+        calls.append({"source": gdal_source, "append": append})
+        query = parse_qs(urlparse(gdal_source.split(":", 1)[1]).query)
+        requested_ids = {
+            int(value) for value in query["objectIds"][0].split(",") if value
+        }
+        from app.core.db import async_session
+
+        async with async_session() as session:
+            if not append:
+                await session.execute(
+                    text(f'DROP TABLE IF EXISTS "{schema}"."{table_name}"')
+                )
+                await session.execute(
+                    text(
+                        f'CREATE TABLE "{schema}"."{table_name}" '
+                        "(gid serial PRIMARY KEY, objectid bigint, name text, "
+                        "geom geometry(Point, 4326))"
+                    )
+                )
+            await session.execute(
+                text(
+                    f'INSERT INTO "{schema}"."{table_name}" (objectid, name) '
+                    "SELECT source_id, 'r' FROM unnest(CAST(:ids AS bigint[])) "
+                    "AS source_id"
+                ),
+                {
+                    "ids": [
+                        source_id
+                        for source_id in staged_ids
+                        if source_id in requested_ids
+                    ]
+                },
+            )
+            await session.commit()
+
+    return _fake
+
+
+@pytest.mark.anyio
+async def test_stronger_arcgis_policy_uses_exact_id_chunks_and_records_coverage(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    ids = (3, 991, 9_223_372_036_854_775_807)
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return len(ids), 1000, True, "OBJECTID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_id_plan",
+        AsyncMock(side_effect=[_arcgis_id_plan(ids), _arcgis_id_plan(ids)]),
+    )
+    calls: list[dict] = []
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    task_kwargs["verification_policy"] = "arcgis_id_set_v1"
+    await _execute_with_fake(
+        task_kwargs, _fake_ogr2ogr_with_source_oids(calls, list(ids))
+    )
+
+    assert len(calls) == 1
+    assert "objectIds=3%2C991%2C9223372036854775807" in calls[0]["source"]
+    runs = await _runs_ordered(test_db_session, dataset.id)
+    verification = runs[0].verification
+    assert verification["decision"] == "allowed", verification
+    assert runs[0].status == "succeeded", verification
+    assert verification["identity_check"] == "arcgis_id_set"
+    assert verification["arcgis_id_coverage"]["status"] == "matched"
+    assert verification["arcgis_id_coverage"]["source_membership_status"] == "matched"
+
+
+@pytest.mark.anyio
+async def test_stronger_arcgis_policy_clamps_exact_id_chunks_to_gdal_bound(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    ids = (*range(1_000), (1 << 63) - 1)
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return len(ids), 2_000, True, "OBJECTID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_id_plan",
+        AsyncMock(side_effect=[_arcgis_id_plan(ids), _arcgis_id_plan(ids)]),
+    )
+    calls: list[dict] = []
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    task_kwargs["verification_policy"] = "arcgis_id_set_v1"
+    await _execute_with_fake(
+        task_kwargs, _fake_ogr2ogr_with_source_oids(calls, list(ids))
+    )
+
+    assert [
+        len(
+            parse_qs(urlparse(call["source"].split(":", 1)[1]).query)["objectIds"][
+                0
+            ].split(",")
+        )
+        for call in calls
+    ] == [1_000, 1]
+    assert all(call["source"].startswith("GeoJSON:") for call in calls)
+    run = (await _runs_ordered(test_db_session, dataset.id))[0]
+    assert run.status == "succeeded"
+    assert run.verification["arcgis_id_coverage"]["status"] == "matched"
+
+
+@pytest.mark.anyio
+async def test_stronger_arcgis_policy_bounds_long_id_chunks_by_gdal_url_size(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    ids = tuple((1 << 63) - 1 - offset for offset in range(1_000))
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return len(ids), 2_000, True, "OBJECTID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_id_plan",
+        AsyncMock(side_effect=[_arcgis_id_plan(ids), _arcgis_id_plan(ids)]),
+    )
+    calls: list[dict] = []
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    task_kwargs["verification_policy"] = "arcgis_id_set_v1"
+    await _execute_with_fake(
+        task_kwargs, _fake_ogr2ogr_with_source_oids(calls, list(ids))
+    )
+
+    requested_ids: list[int] = []
+    for call in calls:
+        assert len(call["source"].encode("utf-8")) <= _ARCGIS_GDAL_GET_URL_MAX_BYTES
+        query = parse_qs(urlparse(call["source"].split(":", 1)[1]).query)
+        requested_ids.extend(int(value) for value in query["objectIds"][0].split(","))
+
+    assert len(calls) > 1
+    assert requested_ids == list(ids)
+    assert len(requested_ids) == len(set(requested_ids))
+    run = (await _runs_ordered(test_db_session, dataset.id))[0]
+    assert run.status == "succeeded"
+    assert run.verification["arcgis_id_coverage"]["status"] == "matched"
+
+
+@pytest.mark.anyio
+async def test_stronger_arcgis_policy_records_source_token_challenge_as_expired(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return 1, 1000, True, "OBJECTID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_id_plan",
+        AsyncMock(side_effect=ArcGISTokenError(498, "Token rejected")),
+    )
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    task_kwargs["verification_policy"] = "arcgis_id_set_v1"
+
+    with pytest.raises(ArcGISTokenError, match="498"):
+        await _execute_with_fake(task_kwargs, _fake_ogr2ogr([], 1))
+
+    run = (await _runs_ordered(test_db_session, dataset.id))[0]
+    assert run.status == "failed"
+    assert run.error_code == "credential_expired"
+
+
+@pytest.mark.anyio
+async def test_stronger_arcgis_policy_rejects_same_count_duplicate_source_oids(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    original_version = dataset.current_version
+    ids = (3, 991, 9_223_372_036_854_775_807)
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return len(ids), 1000, True, "OBJECTID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_id_plan",
+        AsyncMock(side_effect=[_arcgis_id_plan(ids), _arcgis_id_plan(ids)]),
+    )
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    task_kwargs["verification_policy"] = "arcgis_id_set_v1"
+    await _execute_with_fake(
+        task_kwargs, _fake_ogr2ogr_with_source_oids([], [3, 3, 991])
+    )
+
+    await test_db_session.refresh(dataset)
+    run = (await _runs_ordered(test_db_session, dataset.id))[0]
+    assert run.status == "failed"
+    assert run.error_code == "arcgis_id_coverage_mismatch"
+    assert run.error_message == (
+        "The staged ArcGIS object IDs did not match the source IDs."
+    )
+    assert dataset.current_version == original_version
+    assert run.verification["arcgis_id_coverage"]["duplicate_count"] == 1
+    assert run.verification["arcgis_id_coverage"]["missing_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_stronger_arcgis_policy_reports_changed_source_membership(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    original_version = dataset.current_version
+    initial_ids = (3, 991, 9_223_372_036_854_775_807)
+    changed_ids = (3, 992, 9_223_372_036_854_775_807)
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return len(initial_ids), 1000, True, "OBJECTID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_id_plan",
+        AsyncMock(
+            side_effect=[_arcgis_id_plan(initial_ids), _arcgis_id_plan(changed_ids)]
+        ),
+    )
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    task_kwargs["verification_policy"] = "arcgis_id_set_v1"
+    await _execute_with_fake(
+        task_kwargs, _fake_ogr2ogr_with_source_oids([], list(initial_ids))
+    )
+
+    await test_db_session.refresh(dataset)
+    run = (await _runs_ordered(test_db_session, dataset.id))[0]
+    assert run.status == "failed"
+    assert run.error_code == "arcgis_source_membership_changed"
+    assert run.error_message == "The ArcGIS source membership changed during refresh."
+    assert dataset.current_version == original_version
+    assert run.verification["count_status"] == "matched"
+    assert run.verification["arcgis_id_coverage"]["status"] == "matched"
+    assert (
+        run.verification["arcgis_id_coverage"]["source_membership_status"] == "changed"
+    )

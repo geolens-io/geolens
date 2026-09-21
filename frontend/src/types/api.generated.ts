@@ -7714,6 +7714,13 @@ export interface components {
              */
             token?: string | null;
             /**
+             * Verification Policy
+             * @description Verification policy for this refresh. arcgis_id_set_v1 performs the stronger ArcGIS object-ID membership check.
+             * @default standard
+             * @enum {string}
+             */
+            verification_policy: "standard" | "arcgis_id_set_v1";
+            /**
              * Accept Blocked Run Id
              * @description A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.
              */
@@ -7808,9 +7815,19 @@ export interface components {
             origin_kind: string;
             /**
              * Trigger
-             * @description manual, api, or cli
+             * @description manual, api, cli, or scheduled
              */
             trigger: string;
+            /**
+             * Scheduled For
+             * @description The scheduled occurrence time. Null for manual, API, and CLI runs.
+             */
+            scheduled_for?: string | null;
+            /**
+             * Claim Deadline
+             * @description The immutable admission deadline for a scheduled or keyed run. Null for legacy runs without an admission fence.
+             */
+            claim_deadline?: string | null;
             /**
              * Status
              * @description pending, running, succeeded, failed, cancelled, or blocked
@@ -11560,6 +11577,8 @@ export interface components {
             source_binding: {
                 [key: string]: unknown;
             };
+            /** Source Binding Fingerprint */
+            source_binding_fingerprint?: string | null;
             /** Source Count */
             source_count: number | null;
             /** Fetched Count */
@@ -11573,9 +11592,13 @@ export interface components {
              * Identity Check
              * @enum {string}
              */
-            identity_check: "unavailable" | "content_digest";
+            identity_check: "unavailable" | "content_digest" | "arcgis_id_set";
             /** Content Digest */
             content_digest?: string | null;
+            /** Arcgis Id Coverage */
+            arcgis_id_coverage?: {
+                [key: string]: unknown;
+            } | null;
             /** Staged Geometry Type */
             staged_geometry_type?: string | null;
             /** Staged Srid */
@@ -11583,7 +11606,7 @@ export interface components {
             /** Staged Coordinate Dimension */
             staged_coordinate_dimension?: number | null;
             /** Review Reasons */
-            review_reasons: ("source_count_unavailable" | "empty_result" | "destructive_schema_change")[];
+            review_reasons: ("source_count_unavailable" | "empty_result" | "destructive_schema_change" | "arcgis_id_coverage_unavailable" | "arcgis_source_membership_changed")[];
             /** Review Fingerprint */
             review_fingerprint: string | null;
             /** Accepted Blocked Run Id */

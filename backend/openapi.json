@@ -5281,6 +5281,16 @@
             "description": "Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token. Deprecated: use the auth object with method bearer.",
             "title": "Token"
           },
+          "verification_policy": {
+            "default": "standard",
+            "description": "Verification policy for this refresh. arcgis_id_set_v1 performs the stronger ArcGIS object-ID membership check.",
+            "enum": [
+              "standard",
+              "arcgis_id_set_v1"
+            ],
+            "title": "Verification Policy",
+            "type": "string"
+          },
           "accept_blocked_run_id": {
             "anyOf": [
               {
@@ -5424,9 +5434,35 @@
             "type": "string"
           },
           "trigger": {
-            "description": "manual, api, or cli",
+            "description": "manual, api, cli, or scheduled",
             "title": "Trigger",
             "type": "string"
+          },
+          "scheduled_for": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scheduled occurrence time. Null for manual, API, and CLI runs.",
+            "title": "Scheduled For"
+          },
+          "claim_deadline": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The immutable admission deadline for a scheduled or keyed run. Null for legacy runs without an admission fence.",
+            "title": "Claim Deadline"
           },
           "status": {
             "description": "pending, running, succeeded, failed, cancelled, or blocked",
@@ -14246,6 +14282,17 @@
             "title": "Source Binding",
             "type": "object"
           },
+          "source_binding_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Binding Fingerprint"
+          },
           "source_count": {
             "anyOf": [
               {
@@ -14280,7 +14327,8 @@
           "identity_check": {
             "enum": [
               "unavailable",
-              "content_digest"
+              "content_digest",
+              "arcgis_id_set"
             ],
             "title": "Identity Check",
             "type": "string"
@@ -14295,6 +14343,18 @@
               }
             ],
             "title": "Content Digest"
+          },
+          "arcgis_id_coverage": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arcgis Id Coverage"
           },
           "staged_geometry_type": {
             "anyOf": [
@@ -14334,7 +14394,9 @@
               "enum": [
                 "source_count_unavailable",
                 "empty_result",
-                "destructive_schema_change"
+                "destructive_schema_change",
+                "arcgis_id_coverage_unavailable",
+                "arcgis_source_membership_changed"
               ],
               "type": "string"
             },

@@ -162,7 +162,10 @@ class TestRefreshRequest:
         )
 
         assert result.exit_code == 0, result.output
-        assert captured["body"].to_dict() == {"accept_blocked_run_id": str(RUN_ID)}
+        assert captured["body"].to_dict() == {
+            "accept_blocked_run_id": str(RUN_ID),
+            "verification_policy": "standard",
+        }
 
     def test_dispatch_exposes_the_client_created_by_reauthentication(
         self, monkeypatch
@@ -265,7 +268,10 @@ class TestRefreshRequest:
         )
 
         assert result.exit_code == 0, result.output
-        assert captured["body"].to_dict() == {"token": secret}
+        assert captured["body"].to_dict() == {
+            "token": secret,
+            "verification_policy": "standard",
+        }
         assert secret not in result.output
         assert json.loads(result.output)["trigger"] == "cli"
 
@@ -287,7 +293,10 @@ class TestRefreshRequest:
 
         assert result.exit_code == 0, result.output
         assert "Service token:" in result.output
-        assert captured["body"].to_dict() == {"token": secret}
+        assert captured["body"].to_dict() == {
+            "token": secret,
+            "verification_policy": "standard",
+        }
         assert secret not in result.output
 
     def test_bare_token_can_prompt_before_wait_flag(
@@ -308,7 +317,10 @@ class TestRefreshRequest:
         )
 
         assert result.exit_code == 0, result.output
-        assert captured["body"].to_dict() == {"token": secret}
+        assert captured["body"].to_dict() == {
+            "token": secret,
+            "verification_policy": "standard",
+        }
         assert secret not in result.output
 
     def test_timeout_without_wait_is_rejected_before_dispatch(

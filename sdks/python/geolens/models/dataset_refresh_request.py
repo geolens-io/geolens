@@ -8,6 +8,12 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.dataset_refresh_request_verification_policy import (
+    check_dataset_refresh_request_verification_policy,
+)
+from ..models.dataset_refresh_request_verification_policy import (
+    DatasetRefreshRequestVerificationPolicy,
+)
 from typing import cast
 from uuid import UUID
 
@@ -31,6 +37,8 @@ class DatasetRefreshRequest:
             token (None | str | Unset): Transient credential for a protected service. Used for this refresh only and never
                 persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A
                 retry needs a new token. Deprecated: use the auth object with method bearer.
+            verification_policy (DatasetRefreshRequestVerificationPolicy | Unset): Verification policy for this refresh.
+                arcgis_id_set_v1 performs the stronger ArcGIS object-ID membership check. Default: 'standard'.
             accept_blocked_run_id (None | Unset | UUID): A blocked run whose reviewed source and staged content may be
                 accepted once. A different result blocks again.
             auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
@@ -38,6 +46,7 @@ class DatasetRefreshRequest:
     """
 
     token: None | str | Unset = UNSET
+    verification_policy: DatasetRefreshRequestVerificationPolicy | Unset = "standard"
     accept_blocked_run_id: None | Unset | UUID = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -50,6 +59,10 @@ class DatasetRefreshRequest:
             token = UNSET
         else:
             token = self.token
+
+        verification_policy: str | Unset = UNSET
+        if not isinstance(self.verification_policy, Unset):
+            verification_policy = self.verification_policy
 
         accept_blocked_run_id: None | str | Unset
         if isinstance(self.accept_blocked_run_id, Unset):
@@ -72,6 +85,8 @@ class DatasetRefreshRequest:
         field_dict.update({})
         if token is not UNSET:
             field_dict["token"] = token
+        if verification_policy is not UNSET:
+            field_dict["verification_policy"] = verification_policy
         if accept_blocked_run_id is not UNSET:
             field_dict["accept_blocked_run_id"] = accept_blocked_run_id
         if auth is not UNSET:
@@ -93,6 +108,15 @@ class DatasetRefreshRequest:
             return cast(None | str | Unset, data)
 
         token = _parse_token(d.pop("token", UNSET))
+
+        _verification_policy = d.pop("verification_policy", UNSET)
+        verification_policy: DatasetRefreshRequestVerificationPolicy | Unset
+        if isinstance(_verification_policy, Unset):
+            verification_policy = UNSET
+        else:
+            verification_policy = check_dataset_refresh_request_verification_policy(
+                _verification_policy
+            )
 
         def _parse_accept_blocked_run_id(data: object) -> None | Unset | UUID:
             if data is None:
@@ -132,6 +156,7 @@ class DatasetRefreshRequest:
 
         dataset_refresh_request = cls(
             token=token,
+            verification_policy=verification_policy,
             accept_blocked_run_id=accept_blocked_run_id,
             auth=auth,
         )

@@ -652,6 +652,39 @@ async def run_terminal_job_purges() -> None:
         await _purge_terminal_jobs_safely()
 
 
+# Scheduled refreshes use an immutable short claim deadline rather than the
+# hour-long generic ingest timeout. This neutral core sweep releases the
+# active-run reservation if an optional overlay scheduler enqueued work that no
+# live subscriber ever claims.
+SCHEDULED_REFRESH_EXPIRY_SWEEP_INTERVAL_SECONDS = 60
+
+
+async def _expire_unclaimed_scheduled_refreshes_safely() -> None:
+    """Settle expired pending scheduled runs without depending on an overlay."""
+    from app.core.db import async_session
+    from app.platform.refresh.service import expire_unclaimed_admitted_runs
+
+    try:
+        async with async_session() as session:
+            expired = await expire_unclaimed_admitted_runs(session)
+            await session.commit()
+        if expired:
+            log.warning(
+                "scheduled_refresh_claims_expired",
+                count=len(expired),
+                run_ids=[str(run_id) for run_id in expired],
+            )
+    except Exception:  # broad: a recovery sweep must not take down the job worker
+        log.exception("scheduled_refresh_expiry_sweep_failed")
+
+
+async def run_scheduled_refresh_expiry_sweeps() -> None:
+    """Sweep expired unclaimed scheduled admissions for the worker lifetime."""
+    while True:
+        await asyncio.sleep(SCHEDULED_REFRESH_EXPIRY_SWEEP_INTERVAL_SECONDS)
+        await _expire_unclaimed_scheduled_refreshes_safely()
+
+
 async def run_health_server() -> None:
     """Run the worker health server on port 8001."""
     config = uvicorn.Config(
@@ -671,12 +704,17 @@ async def main() -> None:
     import app.modules.auth.models  # noqa: F401
     import app.modules.audit.models  # noqa: F401
     import app.modules.catalog.datasets.domain.models  # noqa: F401
+    import app.modules.catalog.collections.models  # noqa: F401
     import app.processing.embeddings.models  # noqa: F401
 
     from app.observability.metrics.jobs import update_job_metrics
     from app.observability.metrics.memory import update_memory_metrics
     from app.observability.metrics.pool import update_pool_metrics
     from app.platform.refresh.credentials import renew_credentials_periodically
+    from app.platform.extensions import get_scheduled_refresh_lifecycle
+    from app.platform.extensions.scheduled_refresh import (
+        supervised_scheduled_refresh_lifecycle,
+    )
     from app.processing.ingest.tasks import task_app
 
     # MIG-02: fail closed if the schema heads are skewed from this image's
@@ -774,31 +812,45 @@ async def main() -> None:
             # fix(#1778): early, before the jobs-by-events join this query
             # builds has a large table to sort.
             await _purge_terminal_jobs_safely()
+            await _expire_unclaimed_scheduled_refreshes_safely()
             sweep_task = asyncio.create_task(run_stalled_queue_sweeps())
             purge_task = asyncio.create_task(run_terminal_job_purges())
+            scheduled_expiry_task = asyncio.create_task(
+                run_scheduled_refresh_expiry_sweeps()
+            )
             try:
-                await task_app.run_worker_async(
-                    queues=queues,
-                    concurrency=settings.worker_concurrency,
-                    listen_notify=not settings.db_use_external_pooler,
-                    install_signal_handlers=True,
-                    delete_jobs="successful",
-                    shutdown_graceful_timeout=shutdown_timeout,
-                    # fix(#624): MUST match the sweep's own window.
-                    # worker_id is ON DELETE SET NULL, and
-                    # select_stalled_jobs_by_heartbeat treats a NULL
-                    # worker_id as stalled OUTRIGHT — at the 30s default, a
-                    # merely-stalled live worker gets pruned and its
-                    # in-flight jobs fail despite our cushion. Equal windows
-                    # mean NULL worker_id can only be a genuinely dead worker.
-                    stalled_worker_timeout=stalled_worker_seconds(),
-                )
+                lifecycle = get_scheduled_refresh_lifecycle()
+                async with supervised_scheduled_refresh_lifecycle(
+                    lifecycle, task_app=task_app
+                ):
+                    await task_app.run_worker_async(
+                        queues=queues,
+                        concurrency=settings.worker_concurrency,
+                        listen_notify=not settings.db_use_external_pooler,
+                        install_signal_handlers=True,
+                        delete_jobs="successful",
+                        shutdown_graceful_timeout=shutdown_timeout,
+                        # fix(#624): MUST match the sweep's own window.
+                        # worker_id is ON DELETE SET NULL, and
+                        # select_stalled_jobs_by_heartbeat treats a NULL
+                        # worker_id as stalled OUTRIGHT — at the 30s default, a
+                        # merely-stalled live worker gets pruned and its
+                        # in-flight jobs fail despite our cushion. Equal windows
+                        # mean NULL worker_id can only be a genuinely dead worker.
+                        stalled_worker_timeout=stalled_worker_seconds(),
+                    )
             finally:
                 # Cancel inside the connector context — a sweep mid-query when
                 # the pool closes would raise on the way out.
                 sweep_task.cancel()
                 purge_task.cancel()
-                await asyncio.gather(sweep_task, purge_task, return_exceptions=True)
+                scheduled_expiry_task.cancel()
+                await asyncio.gather(
+                    sweep_task,
+                    purge_task,
+                    scheduled_expiry_task,
+                    return_exceptions=True,
+                )
     finally:
         # 7. Clean up background tasks after worker exits
         metrics_task.cancel()

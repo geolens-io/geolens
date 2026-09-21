@@ -1,8 +1,11 @@
 from typing import Literal, cast
 
-RefreshVerificationIdentityCheck = Literal["content_digest", "unavailable"]
+RefreshVerificationIdentityCheck = Literal[
+    "arcgis_id_set", "content_digest", "unavailable"
+]
 
 REFRESH_VERIFICATION_IDENTITY_CHECK_VALUES: set[RefreshVerificationIdentityCheck] = {
+    "arcgis_id_set",
     "content_digest",
     "unavailable",
 }

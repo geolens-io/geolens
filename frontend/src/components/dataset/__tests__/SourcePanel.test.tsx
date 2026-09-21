@@ -156,7 +156,8 @@ function mockActiveAndTerminalRuns() {
           dataset_version_id: 'version-2',
           ingest_job_id: 'job-done',
           origin_kind: 'service',
-          trigger: 'api',
+          trigger: 'scheduled',
+          scheduled_for: '2026-08-06T02:00:00Z',
           status: 'succeeded',
           triggered_by: 'user-1',
           triggered_by_username: 'jdoe',
@@ -278,7 +279,8 @@ describe('SourcePanel', () => {
           dataset_version_id: null,
           ingest_job_id: 'job-1',
           origin_kind: 'service',
-          trigger: 'api',
+          trigger: 'scheduled',
+          scheduled_for: '2026-08-06T02:00:00Z',
           status: 'succeeded',
           triggered_by: 'user-1',
           triggered_by_username: 'jdoe',
@@ -863,13 +865,21 @@ describe('SourcePanel', () => {
         service_type: 'wfs',
         url: 'https://user:secret@example.com/wfs?token=hidden#private',
         layer_id: 'roads',
+        verification_policy: 'arcgis_id_set_v1',
       },
       source_count: 0,
       fetched_count: 0,
       count_status: 'matched',
-      identity_check: 'content_digest',
+      identity_check: 'arcgis_id_set',
       content_digest: 'sha256:content-digest',
-      review_reasons: ['empty_result'],
+      arcgis_id_coverage: {
+        status: 'matched',
+        source_membership_status: 'changed',
+      },
+      review_reasons: [
+        'arcgis_id_coverage_unavailable',
+        'arcgis_source_membership_changed',
+      ],
       review_fingerprint: 'fingerprint',
       accepted_blocked_run_id: null,
     };
@@ -881,7 +891,8 @@ describe('SourcePanel', () => {
           dataset_version_id: null,
           ingest_job_id: 'job-1',
           origin_kind: 'service',
-          trigger: 'api',
+          trigger: 'scheduled',
+          scheduled_for: '2026-08-06T02:00:00Z',
           status: 'blocked',
           triggered_by: 'user-1',
           triggered_by_username: 'jdoe',
@@ -923,11 +934,21 @@ describe('SourcePanel', () => {
       'text-warning',
     );
     expect(screen.getByText('Source: 0 · fetched: 0')).toBeInTheDocument();
+    expect(screen.getByText(/Scheduled for/)).toBeInTheDocument();
     expect(screen.getByText('Source used: https://example.com/wfs')).toBeInTheDocument();
+    expect(
+      screen.getByText('GeoLens could not verify ArcGIS object ID coverage.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('The ArcGIS source changed while this refresh was running.'),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/secret|hidden|private/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Load older runs' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Review and retry' }));
-    expect(onAcceptBlockedRun).toHaveBeenCalledWith('run-blocked');
+    expect(onAcceptBlockedRun).toHaveBeenCalledWith({
+      id: 'run-blocked',
+      verificationPolicy: 'arcgis_id_set_v1',
+    });
   });
 
   it('disables blocked-run retry while a refresh is busy', () => {

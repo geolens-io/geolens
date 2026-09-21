@@ -257,7 +257,7 @@ describe('SourceRefreshAction', () => {
       <SourceRefreshAction
         dataset={makeDataset()}
         watch={makeWatch()}
-        acceptBlockedRunId="blocked-run-1"
+        acceptBlockedRun={{ id: "blocked-run-1" }}
         onAcceptHandled={onAcceptHandled}
       />,
     );
@@ -272,6 +272,37 @@ describe('SourceRefreshAction', () => {
       auth: undefined,
       acceptBlockedRunId: 'blocked-run-1',
     });
+  });
+
+  it('preserves the blocked run’s strong ArcGIS verification policy on review retry', async () => {
+    mutateAsync.mockResolvedValue({
+      run_id: 'run-44',
+      job_id: 'job-44',
+      dataset_id: 'dataset-1',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the stored source',
+    });
+    const user = userEvent.setup();
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset()}
+        watch={makeWatch()}
+        acceptBlockedRun={{ id: 'blocked-run-strong', verificationPolicy: 'arcgis_id_set_v1' }}
+      />,
+    );
+
+    await screen.findByRole('dialog');
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({
+      datasetId: 'dataset-1',
+      token: undefined,
+      auth: undefined,
+      acceptBlockedRunId: 'blocked-run-strong',
+      verificationPolicy: 'arcgis_id_set_v1',
+    }));
   });
 
   it('sends no token when the field is left blank', async () => {
@@ -468,7 +499,7 @@ describe('SourceRefreshAction', () => {
       <SourceRefreshAction
         dataset={makeDataset()}
         watch={makeWatch()}
-        acceptBlockedRunId="run-blocked"
+        acceptBlockedRun={{ id: "run-blocked" }}
         onAcceptHandled={onAcceptHandled}
       />,
     );
@@ -485,7 +516,7 @@ describe('SourceRefreshAction', () => {
       <SourceRefreshAction
         dataset={makeDataset()}
         watch={makeWatch({ isBusy: true })}
-        acceptBlockedRunId="run-blocked"
+        acceptBlockedRun={{ id: "run-blocked" }}
         onAcceptHandled={onAcceptHandled}
       />,
     );
@@ -502,7 +533,7 @@ describe('SourceRefreshAction', () => {
       <SourceRefreshAction
         dataset={makeDataset()}
         watch={makeWatch()}
-        acceptBlockedRunId="run-blocked"
+        acceptBlockedRun={{ id: "run-blocked" }}
         onAcceptHandled={onAcceptHandled}
       />,
     );
@@ -512,7 +543,7 @@ describe('SourceRefreshAction', () => {
       <SourceRefreshAction
         dataset={makeDataset()}
         watch={makeWatch({ isBusy: true })}
-        acceptBlockedRunId="run-blocked"
+        acceptBlockedRun={{ id: "run-blocked" }}
         onAcceptHandled={onAcceptHandled}
       />,
     );
@@ -529,7 +560,7 @@ describe('SourceRefreshAction', () => {
       <SourceRefreshAction
         dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
         watch={makeWatch()}
-        acceptBlockedRunId="run-blocked"
+        acceptBlockedRun={{ id: "run-blocked" }}
         onAcceptHandled={onAcceptHandled}
       />,
     );
@@ -542,7 +573,7 @@ describe('SourceRefreshAction', () => {
       <SourceRefreshAction
         dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
         watch={makeWatch()}
-        acceptBlockedRunId="run-blocked"
+        acceptBlockedRun={{ id: "run-blocked" }}
         onAcceptHandled={onAcceptHandled}
       />,
     );

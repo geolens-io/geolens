@@ -897,6 +897,7 @@
         "empty": "Noch keine Aktualisierungen.",
         "featureDelta": "{{before}} → {{after}} Features",
         "triggeredBy": "Gestartet von {{username}}",
+        "scheduledFor": "Geplant für {{time}}",
         "mechanismLabel": "Methode: {{mechanism}}",
         "mechanismTooltip": "Wie dieser Lauf ausgeführt wurde, nicht die Herkunft des Datensatzes",
         "status": {
@@ -917,11 +918,139 @@
         "reason": {
           "source_count_unavailable": "GeoLens konnte die abgerufenen Zeilen nicht mit der Quelle vergleichen; die Veröffentlichung muss geprüft werden.",
           "empty_result": "Die Aktualisierung würde einen nicht leeren Datensatz durch ein leeres Ergebnis ersetzen.",
-          "destructive_schema_change": "Die Aktualisierung entfernt Spalten oder ändert deren Typen."
+          "destructive_schema_change": "Die Aktualisierung entfernt Spalten oder ändert deren Typen.",
+          "arcgis_id_coverage_unavailable": "GeoLens konnte die Abdeckung der ArcGIS-Objekt-IDs nicht überprüfen.",
+          "arcgis_source_membership_changed": "Die ArcGIS-Quelle hat sich während dieser Aktualisierung geändert."
         },
         "reviewAndRetry": "Prüfen und wiederholen",
         "loadMore": "Ältere Läufe laden"
       }
+    },
+    "sync": {
+      "title": "Geplante Synchronisierung",
+      "description": "Halten Sie diese ArcGIS-Quelle nach einem UTC-Zeitplan aktuell.",
+      "loading": "Geplante Synchronisierung wird geladen",
+      "unavailable": "Die geplante Synchronisierung ist verfügbar, wenn die Enterprise-Planungsfunktion aktiv ist.",
+      "unsupportedSource": "Diese Quelle kann nicht geplant werden. Unterstützt werden ArcGIS-FeatureServer-Layer mit ganzzahliger Layer-ID.",
+      "reader": "Sie können die Quelle dieses Datensatzes anzeigen. Ein Eigentümer oder Administrator kann die geplante Synchronisierung einrichten.",
+      "notConfigured": "Es ist kein Zeitplan eingerichtet. Erstellen Sie einen Entwurf, führen Sie die Prüfung aus und aktivieren Sie ihn anschließend ausdrücklich.",
+      "setup": "Zeitplan einrichten",
+      "setupTitle": "Geplante Synchronisierung einrichten",
+      "editTitle": "Geplante Synchronisierung bearbeiten",
+      "dialogDescription": "Die Quellenbindung bleibt fest. Zeiten verwenden UTC.",
+      "replacementWarningTitle": "Die geplante Aktualisierung ersetzt lokale Daten",
+      "replacementWarning": "Jede geplante Aktualisierung ersetzt die lokale Kopie des Datensatzes. Lokale Änderungen können überschrieben werden.",
+      "createDraft": "Entwurf erstellen",
+      "save": "Zeitplan speichern",
+      "edit": "Bearbeiten",
+      "runNow": "Prüfung ausführen",
+      "pause": "Pausieren",
+      "enable": "Zeitplan aktivieren",
+      "detach": "Trennen",
+      "detachTitle": "Geplante Synchronisierung trennen?",
+      "detachDescription": "Zukünftige nicht übernommene Arbeiten werden abgebrochen. Bereits übernommene Läufe werden fortgesetzt und bleiben im Verlauf.",
+      "enableTitle": "Geplante Synchronisierung aktivieren?",
+      "enableDescription": "Jede geplante Aktualisierung ersetzt die lokale Kopie des Datensatzes. Lokale Änderungen können überschrieben werden. Aktivieren Sie sie nur, wenn dies erwartet wird.",
+      "runAccepted": "Prüflauf eingereiht.",
+      "paused": "Geplante Synchronisierung pausiert.",
+      "enabled": "Geplante Synchronisierung aktiviert.",
+      "detached": "Geplante Synchronisierung getrennt.",
+      "cadenceLabel": "Zeitplan",
+      "nextDue": "Nächste Fälligkeit",
+      "credential": "Anmeldung",
+      "publicSource": "Öffentliche Quelle",
+      "lastRun": "Letzter Synchronisierungslauf",
+      "noRuns": "Noch keine geplanten Läufe",
+      "verificationRun": "Verifizierungslauf",
+      "occurrenceState": {
+        "planned": "In Warteschlange",
+        "admitted": "Zugelassen",
+        "delivered": "Übergeben",
+        "claimed": "Wird ausgeführt",
+        "completed": "Abgeschlossen",
+        "failed": "Fehlgeschlagen",
+        "cancelled": "Abgebrochen",
+        "expired": "Abgelaufen"
+      },
+      "status": {
+        "draft": "Entwurf",
+        "enabled": "Aktiv",
+        "paused": "Pausiert"
+      },
+      "cadence": {
+        "hourly": "Stündlich",
+        "daily": "Täglich",
+        "weekly": "Wöchentlich",
+        "hourlyAt": "Stündlich um {{time}}",
+        "dailyAt": "Täglich um {{time}}",
+        "weeklyAt": "{{weekday}} um {{time}}"
+      },
+      "weekday": {
+        "0": "Montag",
+        "1": "Dienstag",
+        "2": "Mittwoch",
+        "3": "Donnerstag",
+        "4": "Freitag",
+        "5": "Samstag",
+        "6": "Sonntag"
+      },
+      "form": {
+        "cadence": "Intervall",
+        "weekday": "Wochentag",
+        "hour": "Stunde",
+        "minute": "Minute",
+        "utc": "Alle Zeitplanzeiten verwenden UTC.",
+        "credential": "Anmeldung",
+        "publicSource": "Keine Anmeldung (öffentliche Quelle)",
+        "newCredential": "Neue Anmeldung speichern",
+        "credentialName": "Name der Anmeldung",
+        "token": "ArcGIS-Token",
+        "tokenHint": "Das Token wird einmal gesendet und in diesem Browser weder angezeigt noch gespeichert.",
+        "replaceToken": "Gespeichertes Token ersetzen",
+        "cancelReplace": "Aktuelles Token behalten",
+        "credentialRequired": "Geben Sie einen Namen und ein Token ein.",
+        "tokenRequired": "Geben Sie ein Token ein.",
+        "invalidTime": "Geben Sie eine gültige UTC-Zeit ein."
+      },
+      "eligibility": {
+        "qualifying_run_required": "Führen Sie eine erfolgreiche Prüfung aus, bevor Sie diesen Zeitplan aktivieren.",
+        "verification_policy_changed": "Die Prüfungsrichtlinie wurde geändert. Führen Sie die Prüfung erneut aus, bevor Sie diesen Zeitplan aktivieren.",
+        "source_or_credential_changed": "Die Quelle oder Anmeldung wurde geändert. Führen Sie die Prüfung erneut aus, bevor Sie diesen Zeitplan aktivieren."
+      },
+      "pauseReason": {
+        "qualification_required": "Ein qualifizierender Prüflauf ist erforderlich.",
+        "review_required": "Prüfen Sie die letzte Aktualisierung, bevor Sie diesen Zeitplan aktivieren.",
+        "transient_failures": "Der Zeitplan wurde nach wiederholten vorübergehenden Fehlern pausiert.",
+        "credential_invalid": "Die gespeicherte Anmeldung ist nicht mehr gültig.",
+        "authorization_changed": "Die Quellautorisierung wurde geändert.",
+        "source_changed": "Die Quellenbindung wurde geändert und muss geprüft werden.",
+        "source_or_credential_changed": "Die Quelle oder Anmeldung wurde geändert und muss geprüft werden.",
+        "database_restored": "Der Zeitplan wurde nach einer Datenbankwiederherstellung pausiert.",
+        "restored": "Der Zeitplan wurde im pausierten Zustand wiederhergestellt.",
+        "manual": "Der Zeitplan wurde manuell pausiert."
+      },
+      "errors": {
+        "loadFailed": "Die geplante Synchronisierung konnte nicht geladen werden.",
+        "credentialsUnavailable": "Gespeicherte Zugangsdaten konnten nicht geladen werden. Sie können weiterhin eine öffentliche Quelle planen oder neue Zugangsdaten speichern.",
+        "saveFailed": "Die geplante Synchronisierung konnte nicht gespeichert werden.",
+        "revisionConflict": "Dieser Zeitplan wurde auf dem Server geändert. Prüfen Sie die aktuellen Details und versuchen Sie es erneut.",
+        "notEligible": "Diese Quelle ist nicht für einen Prüflauf geeignet.",
+        "runFailed": "Der Prüflauf konnte nicht gestartet werden.",
+        "qualificationRequired": "Führen Sie eine erfolgreiche Prüfung aus, bevor Sie diesen Zeitplan aktivieren.",
+        "statusFailed": "Der Zeitplanstatus konnte nicht geändert werden.",
+        "detachFailed": "Die geplante Synchronisierung konnte nicht getrennt werden.",
+        "occurrenceError": {
+          "admissionMetadataError": "Der Zeitplan konnte nicht zugelassen werden, weil sich die Quellmetadaten geändert haben. Prüfen Sie die Quelle und versuchen Sie es erneut.",
+          "admissionInvalid": "Der Zeitplan konnte nicht zugelassen werden. Prüfen Sie Quelle und Zeitplaneinstellungen und versuchen Sie es erneut.",
+          "admissionFailed": "Der Zeitplan konnte nicht zugelassen werden. Versuchen Sie es erneut oder prüfen Sie die Quelleneinstellungen.",
+          "sourceChanged": "Die Quelle wurde geändert. Prüfen Sie die Quelle und führen Sie die Prüfung erneut aus, bevor Sie den Zeitplan aktivieren.",
+          "localEditsChanged": "Lokale Änderungen haben den Datensatz geändert. Prüfen und beheben Sie lokale Änderungen vor dem nächsten Lauf.",
+          "credentialExpired": "Die gespeicherten Zugangsdaten sind abgelaufen. Aktualisieren Sie sie und führen Sie die Prüfung erneut aus.",
+          "failed": "Dieser geplante Lauf wurde nicht abgeschlossen. Prüfen Sie den Zeitplan und versuchen Sie es erneut.",
+          "expired": "Dieser geplante Lauf ist abgelaufen, bevor er starten konnte. Er wird zum nächsten geplanten Zeitpunkt erneut versucht."
+        }
+      },
+      "verificationHelp": "Die Prüfung kontrolliert, dass jede Quell-ID abgerufen wurde und die ID-Menge unverändert blieb. Quellattribute können sich während der Aktualisierung dennoch ändern."
     },
     "vrt": {
       "title": "VRT-Mitglieder",

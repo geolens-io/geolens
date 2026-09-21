@@ -226,11 +226,12 @@ async def _run_for(session, dataset_id: uuid.UUID) -> DatasetRefreshRun | None:
 
 class TestRequestCarriesNoPointer:
     def test_the_request_model_has_no_source_fields(self) -> None:
-        """The request accepts credentials and review, never a source pointer."""
+        """The request accepts credentials and verification, never a source pointer."""
         assert set(DatasetRefreshRequest.model_fields) == {
             "token",
             "auth",
             "accept_blocked_run_id",
+            "verification_policy",
         }
 
     def test_unknown_source_fields_are_not_silently_accepted(self) -> None:

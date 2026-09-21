@@ -1218,6 +1218,7 @@ async def refresh_dataset(
             triggered_by=user_id,
             ingest_job_id=job.id,
             feature_count_before=dataset.feature_count,
+            verification_policy=body.verification_policy,
         )
     except DatasetBusyError as exc:
         # The job row rolls back with the refusal, so a busy dataset leaves no
@@ -1325,6 +1326,7 @@ async def refresh_dataset(
         "layer_id": origin.layer_id,
         "source_type": "service_url",
         "object_id_field": object_id_field,
+        "verification_policy": body.verification_policy,
         # Records that this job's credential was request-scoped, so a
         # retry cannot reproduce the authenticated fetch. Same marker the
         # commit door writes; the value is a boolean, never the token.
@@ -1416,6 +1418,7 @@ async def refresh_dataset(
             # ordinary service reupload. Procrastinate fails the unknown task;
             # the abandoned-run sweep then releases the pending run.
             credential_ref=credential_ref,
+            verification_policy=body.verification_policy,
         )
 
     await defer_with_orphan_guard(_defer_refresh, rollback=_rollback, db=db, job=job)
