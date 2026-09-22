@@ -313,7 +313,6 @@ async def _fetch_arcgis_import_page_info(
         fetch_arcgis_pagination_info,
     )
     from app.platform.security import make_safe_client
-    from app.processing.ingest.ogr import IngestionError
 
     try:
         async with make_safe_client(timeout=30.0) as client:
@@ -328,8 +327,8 @@ async def _fetch_arcgis_import_page_info(
                 source_url, layer_id, client, token=token
             )
             return feature_count, max_record_count, supports_pagination, order_field
-    except ArcGISTokenError as exc:
-        raise IngestionError(str(exc)) from exc
+    except ArcGISTokenError:
+        raise
     except Exception as exc:  # broad: count is an optimization; import can fall back
         structlog.get_logger().warning(
             "arcgis_import_page_info_fetch_failed",
