@@ -12,7 +12,7 @@ import type { SwatchStyle } from '@/components/map/LegendEntries';
 import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
+import { parseStepOrInterpolate, resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { Pencil, Check } from 'lucide-react';
@@ -293,6 +293,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
     const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
     // ENH-06: per-entry legendLabel override wins over display/dataset name.
     const entryName = legendEntryName(layer);
+    const heatmapRamp = resolveHeatmapRamp(layer.paint, layer.style_config);
 
     return (
       <div>
@@ -300,7 +301,8 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
           {layer.style_config?.render_mode === 'heatmap' ? (
             <HeatmapLegend
               name={entryName}
-              rampName={(layer.paint?.['_heatmap-ramp'] as string) ?? 'YlOrRd'}
+              rampName={heatmapRamp.rampName}
+              reversed={heatmapRamp.reversed}
               weightColumn={weightCol}
               opacity={opacity}
               lowLabel={t('plugins.legend.low')}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { ColorizedGeometryIcon, LayerTypeIcon, extractStyleHints, type LayerTypeIconLayer } from '../layer-icons';
+import { ColorizedGeometryIcon, LayerTypeIcon, extractStyleHints, getLayerColors, type LayerTypeIconLayer } from '../layer-icons';
+import type { MapLayerResponse } from '@/types/api';
 
 // Guards the contract LegendPlugin + StackRow both depend on: callers pass the
 // capability KIND ('raster'/'vrt'), not the raw layer_type ('raster_geolens').
@@ -453,5 +454,20 @@ describe('ColorizedGeometryIcon line gradients (fix #1494)', () => {
 
     expect(container.querySelector('linearGradient')).toBeNull();
     expect(container.querySelector('line')).toHaveAttribute('stroke', '#ef4444');
+  });
+});
+
+describe('getLayerColors heatmap ramp direction', () => {
+  it('reverses the sampled ramp when _heatmap-reversed is set', () => {
+    const layerWithRamp = (reversed: boolean): Parameters<typeof getLayerColors>[0] => ({
+      dataset_geometry_type: null,
+      paint: { '_heatmap-ramp': 'YlOrRd', '_heatmap-reversed': reversed },
+      style_config: { render_mode: 'heatmap', ramp: 'YlOrRd' } as MapLayerResponse['style_config'],
+    });
+
+    const forward = getLayerColors(layerWithRamp(false));
+    const reversed = getLayerColors(layerWithRamp(true));
+    expect(reversed).toEqual([...forward].reverse());
+    expect(reversed[0]).not.toBe(forward[0]);
   });
 });

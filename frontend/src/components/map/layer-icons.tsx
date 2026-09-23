@@ -4,6 +4,7 @@ import { getColorProperty, getRampColors } from '@/lib/color-ramps';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { fillPatternFromPaint, fillPatternTint, patternPreviewStyle } from '@/lib/fill-pattern-preview';
+import { resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import type { MapLayerResponse } from '@/types/api';
 
 /** Darken a hex color by reducing each channel by ~30% for outline contrast */
@@ -338,8 +339,8 @@ export function ColorizedGeometryIcon({
 export function getLayerColors(layer: Pick<MapLayerResponse, 'dataset_geometry_type' | 'paint' | 'style_config'>): string[] {
   // Heatmap: extract from ramp name
   if (layer.style_config?.render_mode === 'heatmap') {
-    const rampName = (layer.paint?.['_heatmap-ramp'] as string) ?? layer.style_config.ramp ?? 'YlOrRd';
-    return getRampColors(rampName, 5);
+    const { rampName, reversed } = resolveHeatmapRamp(layer.paint, layer.style_config);
+    return getRampColors(rampName, 5, reversed);
   }
   const colorKey = getColorProperty(layer.dataset_geometry_type);
   const value = layer.paint?.[colorKey];

@@ -167,6 +167,24 @@ function normalizeBuilderStyleConfig(
   return Object.keys(builder).length > 0 ? builder : undefined;
 }
 
+/**
+ * Resolve the heatmap ramp name and direction that a legend/icon swatch should
+ * draw. Reuses normalizeBuilderStyleConfig so the paint mirror (live edits)
+ * and the persisted builder value (post-reload, once normalizeLayerStyleState
+ * strips that mirror from paint) reconcile the same way everywhere, with the
+ * same default ramp heatmap-adapter.ts falls back to.
+ */
+export function resolveHeatmapRamp(
+  paint: Record<string, unknown> | null | undefined,
+  styleConfig: StyleConfig | null | undefined,
+): { rampName: string; reversed: boolean } {
+  const builder = normalizeBuilderStyleConfig(styleConfig, paint);
+  return {
+    rampName: builder?.heatmapRamp ?? styleConfig?.ramp ?? 'YlOrRd',
+    reversed: builder?.heatmapReversed ?? false,
+  };
+}
+
 function normalizeRenderMode(raw: Record<string, unknown> | null | undefined): StyleConfig['render_mode'] | undefined {
   const direct = raw?.render_mode;
   if (typeof direct === 'string' && RENDER_MODES.has(direct)) {

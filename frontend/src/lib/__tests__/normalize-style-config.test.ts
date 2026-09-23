@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeLayerStyleState, normalizeStyleConfig, parseStepOrInterpolate, RENDER_MODES } from '../normalize-style-config';
+import { normalizeLayerStyleState, normalizeStyleConfig, parseStepOrInterpolate, resolveHeatmapRamp, RENDER_MODES } from '../normalize-style-config';
 
 describe('normalizeLayerStyleState', () => {
   it('moves legacy builder paint metadata into style_config.builder and returns clean paint', () => {
@@ -330,6 +330,30 @@ describe('normalizeLayerStyleState — heatmap reversal extraction (#828)', () =
       'Point',
     );
     expect(style_config?.builder?.heatmapReversed).toBe(false);
+  });
+});
+
+describe('resolveHeatmapRamp', () => {
+  it('prefers the live paint mirror over a stale builder value', () => {
+    const resolved = resolveHeatmapRamp(
+      { '_heatmap-ramp': 'Blues', '_heatmap-reversed': true },
+      { render_mode: 'heatmap', ramp: 'YlOrRd', builder: { heatmapRamp: 'YlOrRd', heatmapReversed: false } },
+    );
+    expect(resolved).toEqual({ rampName: 'Blues', reversed: true });
+  });
+
+  it('reads builder.heatmapRamp once the paint mirror is gone (post-reload)', () => {
+    // normalizeLayerStyleState strips _heatmap-ramp/_heatmap-reversed from paint on
+    // load, leaving builder.heatmapRamp/heatmapReversed as the only surviving copy.
+    const resolved = resolveHeatmapRamp(
+      {},
+      { render_mode: 'heatmap', ramp: 'Blues', builder: { heatmapRamp: 'Blues', heatmapReversed: true } },
+    );
+    expect(resolved).toEqual({ rampName: 'Blues', reversed: true });
+  });
+
+  it('defaults to YlOrRd and not reversed with no ramp information at all', () => {
+    expect(resolveHeatmapRamp(null, null)).toEqual({ rampName: 'YlOrRd', reversed: false });
   });
 });
 
