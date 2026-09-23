@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 from datetime import datetime, timezone
-from functools import partial, wraps
+from functools import wraps
 from pathlib import Path
 
 import structlog
@@ -17,7 +17,6 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
-    lock_catalog_rows,
 )
 from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.platform.jobs.heartbeat import (
@@ -31,19 +30,20 @@ from app.platform.jobs.heartbeat import (
 from app.processing.raster.cog import sha256_file
 
 from app.platform.jobs.models import owned_presigned_staging_key
-from app.platform.refresh.credentials import (
-    CredentialExpiredError,
-    CredentialStoreUnavailable,
-    resolve_worker_credential,
-)
+from app.platform.refresh.credentials import resolve_worker_credential
 from app.platform.refresh.service import (
     claim_run_for_job,
-    drift_status_from_diff,
-    record_refresh_blocked,
     record_refresh_failure,
     record_refresh_success,
 )
-from app.platform.refresh import verification as refresh_policy
+from app.processing.ingest.publication import (
+    PublicationOutcome,
+    PublicationPostCommitFailure,
+    PublicationSettlementCommand,
+    PublicationSettlementFailure,
+    _service_refresh_error_code,
+    settle_publication,
+)
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
@@ -75,14 +75,6 @@ from app.processing.ingest.tasks_staging import (
 # deadline ends at the pending -> running CAS; it must not terminate a
 # legitimate fetch that started before that deadline.
 _KEYED_REFRESH_EXECUTION_TIMEOUT_SECONDS = 1_800.0
-
-
-class RefreshPublicationFenceError(RuntimeError):
-    """A durable source or local-edit publication fence refused the swap."""
-
-    def __init__(self, code: str, message: str):
-        self.code = code
-        super().__init__(message)
 
 
 def require_scheduled_execution_claim(fn):
@@ -814,31 +806,6 @@ def _file_refresh_error_code(exc: BaseException) -> str:
     return "file_refresh_failed"
 
 
-def _service_refresh_error_code(exc: BaseException) -> str:
-    """Map a service-refresh failure onto its run ``error_code``.
-
-    Four codes, because they send the reader to four different places: the
-    holder of a contended catalog row, a fresh token, an operator for an
-    unreachable credential store, or the origin. ``error_code`` is a closed
-    vocabulary the history UI reads, so the mapping lives in one function.
-    """
-    if isinstance(exc, CatalogLockConflict):
-        return CATALOG_LOCK_CONFLICT_CODE
-    if isinstance(exc, CredentialExpiredError):
-        return "credential_expired"
-    if isinstance(exc, CredentialStoreUnavailable):
-        return "credential_store_unavailable"
-    if isinstance(exc, RefreshPublicationFenceError):
-        return exc.code
-    # The catalog adapter exposes ArcGIS's 498/499 challenge as a typed
-    # exception across the ProcessingPort. Keep processing independent of
-    # that adapter while preserving the established refresh outcome for a
-    # token rejected by the source itself.
-    if getattr(exc, "code", None) in (498, 499):
-        return "credential_expired"
-    return "service_refresh_failed"
-
-
 async def _resolve_service_token(
     token: str | None, credential_ref: str | None
 ) -> str | None:
@@ -982,94 +949,6 @@ async def _fetch_service_layer_with_paging_guard(
     return feature_count, id_plan
 
 
-async def _enforce_service_refresh_verification(
-    session,
-    *,
-    is_refresh: bool,
-    job_uuid: uuid.UUID,
-    attempt_uuid: uuid.UUID,
-    dataset,
-    source_binding: dict,
-    schema_diff: dict,
-    expected_feature_count: int | None,
-    fetched_feature_count: int | None,
-    content_digest: str | None,
-    staged_geometry_type: str | None,
-    staged_srid: int | None,
-    staged_coordinate_dimension: int | None,
-    accepted_fingerprint: str | None,
-    accepted_run_id: str | None,
-) -> tuple[dict | None, bool]:
-    """Record the verification result and stop unsafe publication."""
-    if not is_refresh:
-        return None, True
-    assert content_digest is not None
-    verification = refresh_policy.verify_service_refresh(
-        source_binding=source_binding,
-        schema_diff=schema_diff,
-        expected_feature_count=expected_feature_count,
-        fetched_feature_count=fetched_feature_count,
-        content_digest=content_digest,
-        staged_geometry_type=staged_geometry_type,
-        staged_srid=staged_srid,
-        staged_coordinate_dimension=staged_coordinate_dimension,
-        accepted_fingerprint=accepted_fingerprint,
-        accepted_run_id=accepted_run_id,
-    )
-    if verification["decision"] == "allowed":
-        return verification, True
-
-    rejected = verification["decision"] == "rejected"
-    if rejected:
-        error_code, message = refresh_policy.refresh_rejection_diagnostic(verification)
-    else:
-        error_code = "review_required"
-        message = "Review the detected changes before publication."
-    await require_ingest_job_update(
-        session,
-        job_uuid,
-        attempt_uuid,
-        values={
-            "status": "failed",
-            "error_message": redact_failure_reason(message),
-            "completed_at": datetime.now(timezone.utc),
-        },
-    )
-    from app.platform.extensions import get_processing_port
-
-    port = get_processing_port()
-    await lock_catalog_rows(
-        session,
-        dataset_cls=port.get_dataset_orm_class(),
-        record_cls=port.get_record_orm_class(),
-        dataset_id=dataset.id,
-        record_id=dataset.record_id,
-    )
-    dataset.last_checked_at = datetime.now(timezone.utc)
-    dataset.schema_drift_status = drift_status_from_diff(schema_diff)
-    if rejected:
-        await record_refresh_failure(
-            session,
-            ingest_job_id=job_uuid,
-            error_code=error_code,
-            error_message=message,
-            contacted_origin=False,
-            feature_count_after=fetched_feature_count,
-            schema_diff=schema_diff,
-            verification=verification,
-        )
-    else:
-        await record_refresh_blocked(
-            session,
-            ingest_job_id=job_uuid,
-            feature_count_after=fetched_feature_count,
-            schema_diff=schema_diff,
-            verification=verification,
-        )
-    await session.commit()
-    return verification, False
-
-
 async def _arcgis_id_coverage_evidence(
     session,
     *,
@@ -1115,65 +994,6 @@ async def _arcgis_id_coverage_evidence(
     return coverage
 
 
-async def _enforce_refresh_publication_fence(
-    session,
-    *,
-    job_uuid: uuid.UUID,
-    dataset,
-    verification: dict | None,
-) -> None:
-    """Refuse a late swap after a scheduled source rebind or local edit."""
-    if verification is None:
-        return
-
-    from app.platform.refresh.models import DatasetRefreshRun
-    from app.platform.refresh.verification import (
-        canonical_service_source_binding_fingerprint,
-    )
-
-    run = await session.scalar(
-        select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job_uuid)
-    )
-    if run is None or run.source_binding_fingerprint is None:
-        return
-
-    from app.platform.extensions import get_processing_port
-
-    record_cls = get_processing_port().get_record_orm_class()
-    current_origin, current_record_modified_at = (
-        await session.execute(
-            select(dataset.__class__.origin_ref, record_cls.updated_at)
-            .join(record_cls, record_cls.id == dataset.record_id)
-            .where(dataset.__class__.id == dataset.id)
-        )
-    ).one()
-    if not isinstance(current_origin, dict):
-        raise RefreshPublicationFenceError(
-            "source_changed", "Refresh source changed before publication."
-        )
-    try:
-        current_fingerprint = canonical_service_source_binding_fingerprint(
-            current_origin
-        )
-    except ValueError as exc:
-        raise RefreshPublicationFenceError(
-            "source_changed", "Refresh source changed before publication."
-        ) from exc
-    if current_fingerprint != run.source_binding_fingerprint:
-        raise RefreshPublicationFenceError(
-            "source_changed", "Refresh source changed before publication."
-        )
-    if (
-        run.local_edit_baseline is not None
-        and current_record_modified_at is not None
-        and current_record_modified_at > run.local_edit_baseline
-    ):
-        raise RefreshPublicationFenceError(
-            "local_edits_changed",
-            "Dataset changed locally before refresh publication.",
-        )
-
-
 async def _staged_geometry_contract(
     session, *, schema: str, table: str
 ) -> tuple[str | None, int | None, int | None]:
@@ -1190,6 +1010,34 @@ async def _staged_geometry_contract(
     if row is None:
         return None, None, None
     return row.type, int(row.srid), int(row.coord_dimension)
+
+
+async def _defer_embedding_after_publication(
+    outcome: PublicationOutcome, Dataset, dataset_uuid: uuid.UUID
+) -> None:
+    """Keep enrichment outside settlement and skip candidates left unpublished."""
+    if outcome is not PublicationOutcome.PUBLISHED:
+        return
+
+    from app.core.db import async_session
+    from sqlalchemy.orm import joinedload
+
+    try:
+        async with async_session() as embed_session:
+            dataset_result = await embed_session.execute(
+                select(Dataset)
+                .options(joinedload(Dataset.record))
+                .where(Dataset.id == dataset_uuid)
+            )
+            embed_dataset = dataset_result.scalar_one_or_none()
+            if embed_dataset is not None:
+                from app.processing.embeddings.helpers import defer_embedding
+
+                await defer_embedding(embed_dataset)
+    except Exception:  # broad: post-commit enrichment cannot rewrite publication
+        structlog.get_logger().warning(
+            "reupload_service_embedding_defer_failed", dataset_id=str(dataset_uuid)
+        )
 
 
 def _matches_service_origin(
@@ -1571,12 +1419,6 @@ async def reupload_service(
                 if layer_id is not None
                 else source_url_value
             )
-            await require_ingest_job_update(
-                session,
-                job_uuid,
-                attempt_uuid,
-                values={"heartbeat_at": datetime.now(timezone.utc)},
-            )
             # feat(#1223): see the file path — measured against the staging
             # table before the swap overwrites the pre-swap columns. It matters
             # more here: a live service can have changed since the preview, so
@@ -1611,109 +1453,43 @@ async def reupload_service(
                 layer_id=layer_id,
                 token=token,
             )
-            verification, may_publish = await _enforce_service_refresh_verification(
-                session,
-                is_refresh=is_refresh,
-                job_uuid=job_uuid,
-                attempt_uuid=attempt_uuid,
-                dataset=dataset,
-                source_binding=source_binding,
-                schema_diff=schema_diff,
-                expected_feature_count=expected_feature_count,
-                fetched_feature_count=metadata.get("feature_count"),
-                content_digest=content_digest,
-                staged_geometry_type=staged_geometry_type,
-                staged_srid=staged_srid,
-                staged_coordinate_dimension=staged_coordinate_dimension,
-                accepted_fingerprint=accepted_refresh_fingerprint,
-                accepted_run_id=accepted_refresh_run_id,
-            )
-            verification_evidence = verification
-            if not may_publish:
-                await invalidate_catalog_cache()
-                return
-            version = await _apply_reupload_swap(
-                session,
-                dataset=dataset,
-                staging_table=staging_tn,
-                metadata=metadata,
-                sample_values=sample_values,
-                user_id=user_id,
-                source_filename=source_filename or source_layer_value,
-                source_format=source_format,
-                original_srid=metadata.get("srid"),
-                source_url=reupload_source_url,
-                # fix(#1218): base URL and layer_id (the
-                # SERVICE-NATIVE identifier) stay separate, same as first
-                # ingest — see the matching comment in
-                # tasks_vector.ingest_service for why build_gdal_source
-                # makes them mutually exclusive per service type.
-                origin_ref={
-                    "service_type": source_binding["service_type"],
-                    "url": source_binding["url"],
-                    "layer_id": source_binding["layer_id"],
-                    # fix(#1746): means "made WITH a token", not "origin
-                    # demanded one" — see tasks_vector.ingest_service.
-                    # Written on the SUCCESS path only: a failed attempt
-                    # tells you nothing new, and a token-less success
-                    # un-marks a service that went public.
-                    "auth_required": True if token else None,
-                },
-                pre_catalog_write=partial(
-                    _enforce_refresh_publication_fence,
-                    session,
-                    job_uuid=job_uuid,
+            outcome = await settle_publication(
+                PublicationSettlementCommand(
+                    session=session,
                     dataset=dataset,
-                    verification=verification,
-                ),
+                    dataset_id=dataset_uuid,
+                    job_id=job_uuid,
+                    attempt_id=attempt_uuid,
+                    staging_table=staging_tn,
+                    metadata=metadata,
+                    sample_values=sample_values,
+                    user_id=user_id,
+                    source_filename=source_filename or source_layer_value,
+                    source_format=source_format,
+                    original_srid=metadata.get("srid"),
+                    source_url=reupload_source_url,
+                    origin_ref={
+                        "service_type": source_binding["service_type"],
+                        "url": source_binding["url"],
+                        "layer_id": source_binding["layer_id"],
+                        "auth_required": True if token else None,
+                    },
+                    schema_diff=schema_diff,
+                    source_binding=source_binding,
+                    is_refresh=is_refresh,
+                    expected_feature_count=expected_feature_count,
+                    content_digest=content_digest,
+                    staged_geometry_type=staged_geometry_type,
+                    staged_srid=staged_srid,
+                    staged_coordinate_dimension=staged_coordinate_dimension,
+                    accepted_fingerprint=accepted_refresh_fingerprint,
+                    accepted_run_id=accepted_refresh_run_id,
+                    origin_binding=reupload_bound,
+                    failure_contacted_origin=origin_contact_attempted,
+                    credential_for_error_scrubbing=token,
+                )
             )
-            # Captured pre-commit: the ORM attribute may be expired after commit.
-            live_table_name = dataset.table_name
-
-            await require_ingest_job_update(
-                session,
-                job_uuid,
-                attempt_uuid,
-                values={
-                    "status": "complete",
-                    "completed_at": datetime.now(timezone.utc),
-                },
-            )
-            # feat(#1219, #1223): contacted_origin=True here — this path DID
-            # reach the remote service, which is exactly what last_checked_at
-            # records. source_health stays untouched on every path: the health
-            # vocabulary and its classifier belong to the probe work (#1222),
-            # and a second classifier here would be the weaker of the two.
-            await record_refresh_success(
-                session,
-                ingest_job_id=job_uuid,
-                dataset=dataset,
-                dataset_version_id=version.id,
-                feature_count_after=metadata.get("feature_count"),
-                schema_diff=schema_diff,
-                verification=verification,
-                contacted_origin=True,
-            )
-            await session.commit()
-
-        await invalidate_catalog_cache()
-        # fix(#394) B-019/VT-01: purge cached MVT tiles after the swap (see the
-        # file-reupload path above).
-        await invalidate_tile_cache_for_table(live_table_name)
-
-        # Generate embedding (non-fatal). Fresh session — both phase 1 and
-        # phase 2 sessions are closed by now.
-        async with async_session() as embed_session:
-            dataset_result = await embed_session.execute(
-                select(Dataset)
-                .options(joinedload(Dataset.record))
-                .where(Dataset.id == dataset_uuid)
-            )
-            embed_dataset = dataset_result.scalar_one_or_none()
-            if embed_dataset is not None:
-                from app.processing.embeddings.helpers import defer_embedding
-
-                await defer_embedding(embed_dataset)
+        await _defer_embedding_after_publication(outcome, Dataset, dataset_uuid)
 
     except (
         Exception
@@ -1725,6 +1501,10 @@ async def reupload_service(
         # recognise as a URL. Mutated in place so the class survives for
         # the error-code handlers below and every reader sees the scrub.
         scrub_secret_from_exception(exc, token)
+        if isinstance(
+            exc, (PublicationSettlementFailure, PublicationPostCommitFailure)
+        ):
+            raise
         # Phase 1/2 sessions are already closed by the time we get here.
         async with async_session() as err_session:
             # fix(#1950): arms the budget, loads the row, and

@@ -1590,10 +1590,8 @@ class TestCredentialHandoff:
         A Valkey blip used to reach the run row as `credential_expired`,
         telling the reader to re-issue a token that was never the problem.
         """
-        from app.processing.ingest.tasks_reupload import (
-            _resolve_service_token,
-            _service_refresh_error_code,
-        )
+        from app.processing.ingest.publication import _service_refresh_error_code
+        from app.processing.ingest.tasks_reupload import _resolve_service_token
 
         class _DownBackend:
             async def put(self, key, value, ttl_seconds):
@@ -1846,7 +1844,7 @@ class TestWorkerCredentialClaim:
         origin or the pipeline, and collapsing either credential case into it
         sends someone to investigate a service that is working fine.
         """
-        from app.processing.ingest.tasks_reupload import _service_refresh_error_code
+        from app.processing.ingest.publication import _service_refresh_error_code
 
         assert (
             _service_refresh_error_code(creds.CredentialExpiredError("x"))

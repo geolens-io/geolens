@@ -398,18 +398,9 @@ async def test_in_memory_worker_cache_would_not_have_evicted_anything(
 
 
 def test_every_worker_swap_path_purges_the_tile_cache():
-    """All three post-swap paths call the purge (acceptance (c)).
-
-    A fourth swap path added without a purge, or one of these three losing it,
-    fails here rather than in production tiles.
-
-    ``test_mvt_audit_fixes.test_reupload_tasks_invalidate_tile_cache_after_commit``
-    overlaps on the two reupload sites. It is left alone deliberately: that one
-    is fix(#394)'s guard over its own two call sites, this one is #1315's over
-    the set that has to reach a live provider, and the PostGIS site only exists
-    in the second.
-    """
+    """Every worker swap path reaches the tile purge after publication."""
     from app.processing.ingest import (
+        publication,
         tasks_postgis_refresh,
         tasks_reupload,
     )
@@ -417,11 +408,19 @@ def test_every_worker_swap_path_purges_the_tile_cache():
     call = "await invalidate_tile_cache_for_table(live_table_name)"
     counts = {
         "tasks_reupload": inspect.getsource(tasks_reupload).count(call),
+        "publication": inspect.getsource(publication._invalidate_after_commit).count(
+            call
+        ),
         "tasks_postgis_refresh": inspect.getsource(tasks_postgis_refresh).count(call),
     }
-    assert counts == {"tasks_reupload": 2, "tasks_postgis_refresh": 1}, (
-        f"fix(#1315) acceptance (c): expected the three post-swap purge call "
-        f"sites (reupload_file, reupload_service, refresh_postgis); got {counts}"
+    assert counts == {
+        "tasks_reupload": 1,
+        "publication": 1,
+        "tasks_postgis_refresh": 1,
+    }
+    assert (
+        "return await _invalidate_after_commit(PublicationOutcome.PUBLISHED, live_table_name)"
+        in inspect.getsource(publication.settle_publication)
     )
 
 

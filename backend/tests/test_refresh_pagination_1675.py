@@ -24,7 +24,11 @@ from app.platform.refresh.verification import (
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.jobs.models import IngestJob
 from app.platform.dataset_origin import set_dataset_origin
-from app.processing.ingest import tasks_reupload, tasks_vector
+from app.processing.ingest import tasks_vector
+from app.processing.ingest.publication import (
+    RefreshPublicationFenceError,
+    _enforce_refresh_publication_fence,
+)
 from app.processing.ingest.tasks_common import _ARCGIS_GDAL_GET_URL_MAX_BYTES
 from app.processing.ingest.tasks_reupload import reupload_service
 
@@ -195,11 +199,11 @@ async def test_finalization_fence_blocks_a_local_edit_after_the_run_baseline(
         lock_timeout=None,
     )
     with pytest.raises(
-        tasks_reupload.RefreshPublicationFenceError, match="Dataset changed locally"
+        RefreshPublicationFenceError, match="Dataset changed locally"
     ) as refused:
-        await tasks_reupload._enforce_refresh_publication_fence(
+        await _enforce_refresh_publication_fence(
             test_db_session,
-            job_uuid=job.id,
+            job_id=job.id,
             dataset=dataset,
             verification={"decision": "allowed"},
         )
@@ -259,11 +263,11 @@ async def test_finalization_fence_blocks_a_source_rebind_before_publication(
         lock_timeout=None,
     )
     with pytest.raises(
-        tasks_reupload.RefreshPublicationFenceError, match="Refresh source changed"
+        RefreshPublicationFenceError, match="Refresh source changed"
     ) as refused:
-        await tasks_reupload._enforce_refresh_publication_fence(
+        await _enforce_refresh_publication_fence(
             test_db_session,
-            job_uuid=job.id,
+            job_id=job.id,
             dataset=dataset,
             verification={"decision": "allowed"},
         )
@@ -651,10 +655,12 @@ async def test_post_verification_failure_preserves_evidence_and_live_dataset(
         raise RuntimeError("publication failed")
 
     monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
-    monkeypatch.setattr(tasks_reupload, "record_refresh_success", _fail_after_swap)
+    monkeypatch.setattr(
+        "app.processing.ingest.publication.record_refresh_success", _fail_after_swap
+    )
     task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset_id)
 
-    with pytest.raises(RuntimeError, match="publication failed"):
+    with pytest.raises(RuntimeError, match="Publication settlement failed"):
         await _execute_with_fake(task_kwargs, _fake_ogr2ogr([], lambda i: 10))
 
     test_db_session.expire_all()
