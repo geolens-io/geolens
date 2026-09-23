@@ -12,7 +12,7 @@ import {
   BLANK_BASEMAP_ID,
   FALLBACK_BASEMAP_STYLE_URL,
 } from '@/lib/basemap-utils';
-import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
@@ -31,12 +31,12 @@ import {
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import i18n from '@/i18n/i18n';
-import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
+import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { resolveAdapterType, prefixed, getDataDrivenColumnsForLayer, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration } from '@/components/builder/map-sync';
+import { resolveAdapterType, prefixed, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
@@ -947,72 +947,6 @@ export const ViewerMap = memo(function ViewerMap({
     runSync(map);
   // Note: visibleLayers intentionally excluded — the dedicated visibility effect below handles it
   }, [layers, mapReady, tileConfigReady, tileConfig?.cdn_base_url, tileConfig?.mvt_source_layer_prefix, tokenMap, showBasemapLabels, runSync, embedToken, geojsonVersion]);
-
-  // Update tile URLs in-place when vector tokens refresh (token rotation).
-  // Narrow the dep to the single primitive the effect actually reads so the
-  // hook only re-runs when the CDN base URL changes (not on any tileConfig
-  // object identity churn).
-  //
-  // IMPORTANT: raster sources also expose `setTiles`, so the old
-  // `'setTiles' in source` check matched both vector and raster sources
-  // indiscriminately — and `buildSignedTileUrl` always produces a vector
-  // URL. That meant on every token refresh we were overwriting raster
-  // sources' correct `/raster-tiles/.../tiles/{z}/{x}/{y}.png` URLs with
-  // broken vector `.pbf` URLs, which the server rejects and the raster
-  // never renders again.
-  // Gate on `source.type === 'vector'` and on the token also being the
-  // vector kind so rasters (which have stable URLs and no expiration) are
-  // left untouched.
-  // NOTE: The setTiles call intentionally duplicates what syncLayersToMap does —
-  // this effect fires on token refresh alone without triggering a full layer sync.
-  const cdnBaseUrl = tileConfig?.cdn_base_url;
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || (!embedToken && tokenMap.size === 0)) return;
-    const tileBaseUrl = resolveTileBaseUrl({ cdn_base_url: cdnBaseUrl });
-
-    let rearmed = false;
-    for (const { layer, key } of layerEntries) {
-      const token = tokenMap.get(layer.dataset_id) ?? null;
-      // Skip rasters — their tile_url is stable, no refresh needed.
-      if (token && token.kind !== 'vector') continue;
-      const sourceId = prefixed('source', key, VIEWER_PREFIX);
-      const source = map.getSource(sourceId);
-      // Only vector sources need query-param URL refreshes.
-      if (source && source.type === 'vector') {
-        if (!rearmed) {
-          markMapLoading();
-          rearmed = true;
-        }
-        const strategy = getClusterSourceStrategy(layer);
-        const builder = layer.style_config?.builder;
-        // Per-layer source in viewer context (no dedupe by table_name), so
-        // the column set comes from THIS layer only. fix(#403): the
-        // server-cluster path needs the cols= opt-in too — its unclustered
-        // features are styled/popup-inspected like plain vector features.
-        const cols = getDataDrivenColumnsForLayer({
-          style_config: layer.style_config ?? null,
-          paint: (layer.paint as Record<string, unknown> | undefined) ?? {},
-          label_config: layer.label_config ?? null,
-          // codex P2 on fix(#403): include filter-only columns, or a layer
-          // whose filter references a column unused by paint/labels/popups
-          // loses it from cols= on the first token refresh (parity with the
-          // initial getDataDrivenColumnsForSource build).
-          filter: layer.filter ?? null,
-          popup_config: layer.popup_config ?? null,
-        });
-        // fix(#394) VT-02 (codex P2): keep the `_v=` cache-buster on
-        // token-refresh rebuilds (parity with the initial source build).
-        const newUrl = strategy.kind === 'server-tile'
-          ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, layer.tile_version ?? undefined, {
-              clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
-              clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
-            }, cols)
-          : buildSignedTileUrl(layer.table_name, token, tileBaseUrl, layer.tile_version ?? undefined, cols);
-        (source as VectorTileSource).setTiles([newUrl]);
-      }
-    }
-  }, [tokenMap, layerEntries, mapReady, cdnBaseUrl, embedToken, markMapLoading]);
 
   // Toggle visibility when visibleLayers set changes.
   // Note: runSync also calls syncVisibility via syncLayersToMap, but this
