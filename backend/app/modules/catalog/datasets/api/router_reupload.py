@@ -1106,7 +1106,8 @@ async def reupload_commit(
     async def rollback(defer_exc: BaseException) -> None:
         if not await inner_rollback(defer_exc):
             return
-        # The worker will never come for it, and the run is already terminal.
+        # Only a landed job write means no worker will redeem it. After a
+        # miss, the credential's TTL is the real guarantee.
         await discard_service_credential(credential_ref)
 
     await _dispatch_reupload_task(

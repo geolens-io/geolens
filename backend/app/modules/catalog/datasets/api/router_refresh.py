@@ -215,7 +215,7 @@ async def _release_blocked_refresh_acceptance(
     blocked_run_id: uuid.UUID | None,
     new_run_id: uuid.UUID,
 ) -> None:
-    """Make an acceptance reusable when its dispatch never reached the queue."""
+    """Make an acceptance reusable after a failed dispatch no worker will run."""
     if blocked_run_id is None:
         return
     await db.execute(
@@ -255,8 +255,8 @@ def _lease_releasing_rollback(
         await _release_blocked_refresh_acceptance(
             db, blocked_run_id=blocked_run_id, new_run_id=new_run_id
         )
-        # The worker will never come for it, and the run is already terminal.
-        # Best-effort; the TTL is the real guarantee.
+        # Only a landed job write means no worker will redeem it. After a
+        # miss, the credential's TTL is the real guarantee.
         await discard_service_credential(credential_ref)
 
     return _rollback
