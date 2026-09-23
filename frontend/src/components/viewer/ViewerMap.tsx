@@ -35,8 +35,8 @@ import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
-import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { resolveAdapterType, prefixed, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration } from '@/components/builder/map-sync';
+import { adapterInputFor, describeLayers } from '@/components/builder/layer-description';
+import { getSourceIdForLayer, prefixed, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
@@ -47,7 +47,6 @@ import {
   isTerrainBackingLiveVisible,
 } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
-import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { AccessibleMapDataPanel } from '@/components/viewer/AccessibleMapDataPanel';
 import {
   toAccessibleMapFeatures,
@@ -131,35 +130,6 @@ export function toViewerSyncInput(
     // fix(#394) VT-02: thread the dataset content version through so the
     // viewer's tile URLs carry the same `_v=` cache-buster as the builder.
     tile_version: layer.tile_version,
-  };
-}
-
-/** Build an AdapterLayerInput for viewer visibility syncing (no tile URL needed). */
-function toAdapterInput(
-  layer: SharedLayerResponse,
-  layerKey: string,
-  visibleLayers: Set<string>,
-  mvtSourceLayerPrefix?: string | null,
-): AdapterLayerInput {
-  return {
-    id: layerKey,
-    dataset_table_name: layer.table_name,
-    dataset_geometry_type: layer.geometry_type,
-    opacity: layer.opacity ?? 1,
-    visible: visibleLayers.has(layerKey),
-    paint: layer.paint ?? {},
-    layout: layer.layout ?? {},
-    filter: layer.filter ?? null,
-    label_config: layer.label_config,
-    style_config: layer.style_config,
-    is_dem: layer.is_dem,
-    sourceId: prefixed('source', layerKey, VIEWER_PREFIX),
-    layerId: prefixed('layer', layerKey, VIEWER_PREFIX),
-    // fix(#394) VT-03: derive via the shared helper instead of a hand-rolled
-    // template — the URL path and source-layer name must come from one place
-    // or a drift is a silent empty layer (see tile-utils parity test, VT-04).
-    sourceLayer: getMvtSourceLayerName(layer.table_name, mvtSourceLayerPrefix),
-    tileUrl: '',
   };
 }
 
@@ -958,22 +928,21 @@ export const ViewerMap = memo(function ViewerMap({
 
     const applyVisibilityDiff = () => {
       const prev = prevVisibleRef.current;
+      const context = { idPrefix: VIEWER_PREFIX, boundedGeoJson: geojsonDataRef.current };
       for (const { layer, key } of layerEntries) {
         const wasVisible = prev.has(key);
         const isVisible = visibleLayers.has(key);
         if (wasVisible === isVisible) continue;
 
-        const type = layer.is_dem === true && effectiveDemRenderMode(layer.style_config, layer.is_dem) === 'hillshade'
-          ? 'hillshade'
-          : resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
-        const adapter = getAdapter(type);
-        const adapterInput = toAdapterInput(
-          layer,
-          key,
-          visibleLayers,
-          tileConfig?.mvt_source_layer_prefix,
-        );
-        adapter.syncVisibility(map, adapterInput);
+        const input = toViewerSyncInput(layer, key, visibleLayers);
+        const [described] = describeLayers([input], context).layers;
+        if (described) {
+          getAdapter(described.drawsAs).syncVisibility(map, adapterInputFor(input, described, {
+            sourceId: getSourceIdForLayer(input, VIEWER_PREFIX),
+            sourceLayer: getMvtSourceLayerName(layer.table_name, tileConfig?.mvt_source_layer_prefix),
+            tileUrl: '',
+          }));
+        }
 
         const labelId = prefixed('label', key, VIEWER_PREFIX);
         if (map.getLayer(labelId)) {

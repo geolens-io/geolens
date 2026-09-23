@@ -29,9 +29,12 @@ vi.mock('@/components/builder/layer-adapters/registry', () => ({
   getAdapter: vi.fn(() => mockAdapter),
 }));
 
-vi.mock('@/components/builder/map-sync', () => ({
+vi.mock('@/components/builder/map-sync', async () => ({
   getLayerType: vi.fn(() => 'circle'),
   getSourceIdForLayer: vi.fn((layer: { id: string }) => `source-${layer.id}`),
+  toSyncInput: (
+    await vi.importActual<typeof import('@/components/builder/map-sync')>('@/components/builder/map-sync')
+  ).toSyncInput,
 }));
 
 // Identity sanitizer — the exact filter value passed through is asserted below.
