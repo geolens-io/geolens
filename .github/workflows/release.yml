@@ -192,11 +192,13 @@ jobs:
       # CI-1 (see geolens-io/getgeolens.com#108): the site repo listens for
       # this dispatch to run release-drift immediately and to open its
       # docs-contract sync PR (getgeolens.com#108, release-sync.yml).
-      # #1609: geolens-examples listens for the same event. It pins every
-      # published client (geolens, @geolens/sdk, geolens-mcp, geolens-cli)
-      # to one version across a dozen files, and otherwise hears about a
-      # release only from a weekly ci/check-pins.py line that warns and
-      # passes. On this event it opens a "bump the pins and re-sweep" issue.
+      # geolens-examples listens for the same event. It pins every published
+      # client (geolens, @geolens/sdk, geolens-mcp, geolens-cli) to one version
+      # across a dozen files. On this event it bumps those pins on its
+      # chore/pins-auto branch, opens a pull request for the branch (an issue
+      # linking it while the organisation bars Actions from opening pull
+      # requests), and runs its full sweep there once PyPI and npm serve the
+      # release. Without the event, its daily pin check only warns.
       #
       # The third target is the Buttondown newsletter. It lives here rather
       # than in its own step so it inherits this one's latest-release guard
@@ -244,7 +246,7 @@ jobs:
         # The release is already published by this point in the job. A failed
         # dispatch must never fail the release on a downstream repo's account —
         # worst case, the site's own nightly release-drift check catches the
-        # gap, the examples repo's weekly pin check warns, and the manual sync
+        # gap, the examples repo's daily pin check warns, and the manual sync
         # step still exists as a fallback for both.
         continue-on-error: true
         timeout-minutes: 5
@@ -308,7 +310,7 @@ jobs:
             -f "client_payload[version]=${TAG}"; then
             summary "examples: notified geolens-examples of ${TAG}"
           else
-            echo "::warning title=Examples dispatch failed::Could not notify geolens-io/geolens-examples of release ${TAG}. The GeoLens release itself published fine; the examples repo's weekly ci/check-pins.py run will still warn that the demo has moved past its pins."
+            echo "::warning title=Examples dispatch failed::Could not notify geolens-io/geolens-examples of release ${TAG}. The GeoLens release itself published fine; the examples repo's daily ci/check-pins.py run will still warn that the demo has moved past its pins."
             summary "examples: FAILED for ${TAG} (see the warning above)"
             failed=1
           fi
