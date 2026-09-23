@@ -2042,9 +2042,7 @@ class TestSourcelessCommitDoesNotReserve:
 
 
 class TestArchiveRunsAfterTheSwapCommit:
-    """fix(#2175): the swap holds ACCESS EXCLUSIVE on the live table until its
-    commit; the original file is archived to storage after that commit, not
-    before it."""
+    """A re-upload archives the original file after the swap commits."""
 
     @staticmethod
     async def _seed(session, *, table_name: str, local_file: Path):

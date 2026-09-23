@@ -634,14 +634,9 @@ async def reupload_file(
             )
             await session.commit()
 
-            # 10. Archive original file to storage provider, after the swap
-            # commit above so the upload doesn't run under the rename's
-            # exclusive lock on the live table.
-            #
-            # Best-effort: a failed archive does not fail the reupload (data
-            # is already in PostGIS) — the helper records archive_failed on
-            # job.user_metadata and commits that itself. Refreshed first so
-            # that read-modify-write sees the row as committed just above.
+            # 10. Archive the original after the commit, so the upload never
+            # runs under the rename's exclusive lock. The helper records a
+            # failure on the job itself; the refresh reloads the committed row.
             await session.refresh(job)
             await _archive_original_file(
                 session,
