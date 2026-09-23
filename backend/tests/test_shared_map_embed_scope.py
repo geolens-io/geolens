@@ -13,6 +13,7 @@ Covers:
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 
@@ -76,7 +77,10 @@ class TestSharedMapEmbedScope:
     ):
         admin_id = await get_user_id(test_db_session, "admin")
         public_ds = await create_dataset(
-            test_db_session, created_by=admin_id, visibility="public"
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            spatial_extent_wkt="POLYGON((-10 40, -10 45, -5 45, -5 40, -10 40))",
         )
         private_ds = await create_dataset(
             test_db_session, created_by=admin_id, visibility="public"
@@ -88,9 +92,16 @@ class TestSharedMapEmbedScope:
 
         resp = await client.get(f"/maps/shared/{share_token}")
         assert resp.status_code == 200
-        dataset_ids = {layer["dataset_id"] for layer in resp.json()["layers"]}
+        layers = resp.json()["layers"]
+        dataset_ids = {layer["dataset_id"] for layer in layers}
         assert str(public_ds.id) in dataset_ids
         assert str(private_ds.id) not in dataset_ids
+        public_layer = next(
+            layer for layer in layers if layer["dataset_id"] == str(public_ds.id)
+        )
+        assert public_layer["dataset_extent_bbox"] == pytest.approx(
+            [-10.0, 40.0, -5.0, 45.0]
+        )
 
     async def test_valid_embed_token_includes_scoped_private_layer(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -100,7 +111,10 @@ class TestSharedMapEmbedScope:
             test_db_session, created_by=admin_id, visibility="public"
         )
         private_ds = await create_dataset(
-            test_db_session, created_by=admin_id, visibility="public"
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            spatial_extent_wkt="POLYGON((-10 40, -10 45, -5 45, -5 40, -10 40))",
         )
         map_id, share_token, _ = await _make_public_shared_map(
             client, admin_auth_header, [str(public_ds.id), str(private_ds.id)]
@@ -123,6 +137,14 @@ class TestSharedMapEmbedScope:
         # Layers stay sort-ordered after the embed-scope union.
         sort_orders = [layer["sort_order"] for layer in data["layers"]]
         assert sort_orders == sorted(sort_orders)
+        private_layer = next(
+            layer
+            for layer in data["layers"]
+            if layer["dataset_id"] == str(private_ds.id)
+        )
+        assert private_layer["dataset_extent_bbox"] == pytest.approx(
+            [-10.0, 40.0, -5.0, 45.0]
+        )
 
     async def test_revoked_embed_token_excludes_private_layer(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -180,6 +202,74 @@ class TestSharedMapEmbedScope:
             test_db_session, raw_token, uuid.UUID(map_a)
         )
         assert scope_a == {ds_a.id}
+
+
+class TestDatasetExtentBboxField:
+    async def test_the_shared_layer_carries_the_records_extent_as_a_bbox(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            spatial_extent_wkt="POLYGON((-10 40, -10 45, -5 45, -5 40, -10 40))",
+        )
+        _map_id, share_token, _ = await _make_public_shared_map(
+            client, admin_auth_header, [str(ds.id)]
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}")
+        assert resp.status_code == 200
+        assert resp.json()["layers"][0]["dataset_extent_bbox"] == pytest.approx(
+            [-10.0, 40.0, -5.0, 45.0]
+        )
+
+    async def test_a_layer_with_no_recorded_extent_returns_a_null_bbox(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        _map_id, share_token, _ = await _make_public_shared_map(
+            client, admin_auth_header, [str(ds.id)]
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}")
+        assert resp.status_code == 200
+        assert resp.json()["layers"][0]["dataset_extent_bbox"] is None
+
+    async def test_an_antimeridian_crossing_bbox_matches_the_builder_layer(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """west > east on a crossing extent, and both response shapes agree."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            spatial_extent_wkt=(
+                "MULTIPOLYGON(((150 -10,180 -10,180 10,150 10,150 -10)),"
+                "((-180 -10,-110 -10,-110 10,-180 10,-180 -10)))"
+            ),
+        )
+        map_id, share_token, _ = await _make_public_shared_map(
+            client, admin_auth_header, [str(ds.id)]
+        )
+
+        builder_resp = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert builder_resp.status_code == 200
+        builder_bbox = builder_resp.json()["layers"][0]["dataset_extent_bbox"]
+
+        shared_resp = await client.get(f"/maps/shared/{share_token}")
+        assert shared_resp.status_code == 200
+        shared_bbox = shared_resp.json()["layers"][0]["dataset_extent_bbox"]
+
+        expected = pytest.approx([150.0, -10.0, -110.0, 10.0])
+        assert builder_bbox == expected
+        assert shared_bbox == expected
+        assert shared_bbox[0] > shared_bbox[2]
 
 
 class TestBatchTokensEmbedFallback:

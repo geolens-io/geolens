@@ -1229,6 +1229,9 @@ class SharedLayerResponse(BaseModel):
     # shared/embed viewer is the surface a license's display obligation most
     # needs to reach, since it is the one shown to people outside the instance.
     dataset_attribution: str | None = None
+    # Viewer parity with MapLayerResponse.dataset_extent_bbox: an RFC 7946
+    # bbox, with west > east on an antimeridian crossing.
+    dataset_extent_bbox: list[float] | None = None
 
 
 class SharedMapResponse(BaseModel):

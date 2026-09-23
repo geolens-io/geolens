@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import func, nulls_last, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.tile_scope import tile_template_query
@@ -354,6 +355,7 @@ def _build_shared_layer_dict(
     ds_tile_version: int | None,
     ds_publication_version: int | None,
     ds_attribution: str | None,
+    ds_extent: object | None,
 ) -> tuple[dict, bool]:
     """Build a shared-layer response dict from a joined layer row.
 
@@ -407,6 +409,9 @@ def _build_shared_layer_dict(
         # `is_public` — a layer reaching this builder is already
         # authorized, and the source's display obligation applies regardless.
         "dataset_attribution": ds_attribution,
+        # Viewer parity with MapLayerResponse.dataset_extent_bbox. Not gated
+        # on `is_public` either — same reasoning as dataset_attribution above.
+        "dataset_extent_bbox": extent_to_bbox(ds_extent),
     }, not is_public
 
 
@@ -480,6 +485,7 @@ async def get_shared_map(
             Dataset.tile_cache_version,
             Dataset.publication_version,
             Record.attribution,
+            Record.spatial_extent,
         )
         .join(Map, Map.id == MapLayer.map_id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
@@ -552,6 +558,7 @@ async def get_shared_map(
         ds_tile_version,
         ds_publication_version,
         ds_attribution,
+        ds_extent,
     ) in layer_rows:
         layer_dict, is_non_public = _build_shared_layer_dict(
             layer,
@@ -568,6 +575,7 @@ async def get_shared_map(
             ds_tile_version,
             ds_publication_version,
             ds_attribution,
+            ds_extent,
         )
         if is_non_public:
             has_non_public = True

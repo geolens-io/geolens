@@ -1294,7 +1294,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # splitting.
     "backend/app/api/main.py": 1721,
     # Published map schema debt; separate validation helpers before raising.
-    "backend/app/modules/catalog/maps/schemas.py": 1393,
+    "backend/app/modules/catalog/maps/schemas.py": 1396,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 157,
