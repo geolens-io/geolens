@@ -1,6 +1,6 @@
 // DatasetPage offers its feature-table and map-layer actions only for record
 // types whose capabilities include them.
-import { act } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router';
 import { render, screen } from '@/test/test-utils';
@@ -56,11 +56,23 @@ vi.mock('@/stores/drawing-store', () => ({
     selector({ isDrawing: false, isEditDirty: false, setDrawing: vi.fn(), clearDrawing: vi.fn() }),
 }));
 
-vi.mock('@/components/dataset/DatasetMap', () => ({
-  DatasetMap: ({ canEdit }: { canEdit?: boolean }) => (
-    <div data-testid="dataset-map" data-can-edit={String(Boolean(canEdit))} />
-  ),
-}));
+const mapInstances = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock('@/components/dataset/DatasetMap', async () => {
+  const { useState } = await import('react');
+  return {
+    DatasetMap: ({ canEdit }: { canEdit?: boolean }) => {
+      const [instance] = useState(() => ++mapInstances.count);
+      return (
+        <div
+          data-testid="dataset-map"
+          data-can-edit={String(Boolean(canEdit))}
+          data-instance={instance}
+        />
+      );
+    },
+  };
+});
 
 vi.mock('@/components/dataset/ReuploadDialog', () => ({
   ReuploadDialog: () => <div data-testid="reupload-dialog" />,
@@ -275,5 +287,24 @@ describe('DatasetPage actions by record type', () => {
     await openMoreActions();
     expect(screen.queryByRole('menuitem', { name: 'Re-Upload' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('reupload-dialog')).not.toBeInTheDocument();
+  });
+
+  it('gives an unknown record type its own map after a vector dataset', async () => {
+    vi.mocked(useDataset).mockImplementation(((id: string) => ({
+      data: id === 'dataset-2'
+        ? { ...makeDataset('point_cloud_dataset'), id: 'dataset-2' }
+        : makeDataset('vector_dataset'),
+      isLoading: false,
+      error: null,
+    })) as unknown as typeof useDataset);
+    const { rerender } = render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    const vectorMap = (await screen.findByTestId('dataset-map')).getAttribute('data-instance');
+
+    vi.mocked(useParams).mockReturnValue({ id: 'dataset-2' });
+    rerender(<DatasetPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dataset-map')).not.toHaveAttribute('data-instance', vectorMap);
+    });
   });
 });

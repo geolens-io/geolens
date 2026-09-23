@@ -380,7 +380,7 @@ export function DatasetPage() {
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
   const isTable = dataset.record_type === 'table';
-  const { featureTable, mapLayerType } = recordTypeCapabilities(dataset.record_type);
+  const { featureTable, mapLayerType, tileToken: tileKind } = recordTypeCapabilities(dataset.record_type);
   const canAddToMap = !isTable && mapLayerType !== null;
   const canReupload = featureTable || isRaster;
   // DetailPanel renders a raster/VRT deep link to Data or Structure as the
@@ -622,7 +622,9 @@ export function DatasetPage() {
                     gates the drawing toolbar so generic sketch layers keep
                     every draw mode. */}
                 <DatasetMap
-                  key={isRasterOrVrt ? mapKey : undefined}
+                  // A map keeps every source it was given, so each tile kind
+                  // gets its own instance.
+                  key={isRasterOrVrt ? mapKey : tileKind ?? 'no-tiles'}
                   bbox={bbox}
                   tableName={dataset.table_name}
                   geometryType={dataset.geometry_type}

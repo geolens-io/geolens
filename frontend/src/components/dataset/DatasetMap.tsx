@@ -145,9 +145,8 @@ export const DatasetMap = memo(function DatasetMap({
   // the current tile config without re-registering (same pattern as ViewerMap).
   const tileConfigRef = useRef(tileConfig);
   tileConfigRef.current = tileConfig;
-  const { data: rawTileToken } = useTileToken(
-    recordTypeCapabilities(recordType).tileToken ? datasetId : undefined,
-  );
+  const tileKind = recordTypeCapabilities(recordType).tileToken;
+  const { data: rawTileToken } = useTileToken(tileKind ? datasetId : undefined);
   // Narrow to the vector-tile shape expected by downstream hooks.
   // Raster tokens are a separate payload with a preformatted tile_url and
   // are consumed via the rasterTileUrl prop path instead.
@@ -245,7 +244,9 @@ export const DatasetMap = memo(function DatasetMap({
   const drawGeometryType = hasGenericGeometry ? 'GEOMETRY' : geometryType;
 
   const { addVectorLayers, addRasterLayers, addOverlaySource } = useMapLayers({
-    tableName,
+    // The hook also adds the vector source after load, once the tile config
+    // settles, so only a type with vector tiles hands it a table.
+    tableName: tileKind === 'vector' ? tableName : null,
     geometryType: drawGeometryType,
     rasterTileUrl,
     tileVersion,
@@ -748,7 +749,6 @@ export const DatasetMap = memo(function DatasetMap({
       };
       map.on('error', tileAuthErrorHandlerRef.current);
 
-      const tileKind = recordTypeCapabilities(recordType).tileToken;
       if (tileKind === 'raster') {
         addRasterLayers(map);
 
@@ -840,7 +840,7 @@ export const DatasetMap = memo(function DatasetMap({
         fireReadyOnce(false);
       }
     },
-    [recordType, addRasterLayers, addVectorLayers, addOverlaySource, onMapReady, onTileError, recoverTileAuth],
+    [tileKind, addRasterLayers, addVectorLayers, addOverlaySource, onMapReady, onTileError, recoverTileAuth],
   );
 
   const finishDrawingSession = useCallback(() => {

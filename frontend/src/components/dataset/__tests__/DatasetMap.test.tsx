@@ -88,10 +88,14 @@ vi.mock('@/components/theme-provider', () => ({
   useTheme: () => ({ resolvedTheme: 'light' }),
 }));
 
+const tileConfigState = vi.hoisted(() => ({
+  data: null as { mvt_source_layer_prefix: string | null } | null,
+}));
+
 vi.mock('@/hooks/use-settings', () => ({
   useBasemaps: () => ({ data: [] }),
   useMapDefaults: () => ({ data: null }),
-  useTileConfig: () => ({ data: null }),
+  useTileConfig: () => ({ data: tileConfigState.data }),
 }));
 
 vi.mock('@/hooks/use-tile-token', () => ({
@@ -867,6 +871,33 @@ describe('DatasetMap record types', () => {
 
   afterEach(() => {
     mapSpy.reset();
+    tileConfigState.data = null;
+  });
+
+  // The map loads first; the re-render stands in for the tile-config query settling.
+  function loadThenSettleTileConfig(recordType: string) {
+    const props = {
+      bbox: [-10, -10, 10, 10] as [number, number, number, number],
+      tableName: 'cloud',
+      geometryType: 'Point',
+      datasetId: 'dataset-1',
+      recordType,
+    };
+    const { rerender } = render(<DatasetMap {...props} />);
+    tileConfigState.data = { mvt_source_layer_prefix: '' };
+    rerender(<DatasetMap {...props} tileVersion="settled" />);
+  }
+
+  it('adds the vector source once the tile config settles after load for a vector dataset', () => {
+    loadThenSettleTileConfig('vector_dataset');
+
+    expect(fakeMap.addSource).toHaveBeenCalledWith('vector-tile-source', expect.anything());
+  });
+
+  it('adds no vector source for an unknown record type when the tile config settles after load', () => {
+    loadThenSettleTileConfig('point_cloud_dataset');
+
+    expect(fakeMap.addSource).not.toHaveBeenCalledWith('vector-tile-source', expect.anything());
   });
 
   it('adds no tile or overlay source for an unknown record type and still reports ready', () => {
