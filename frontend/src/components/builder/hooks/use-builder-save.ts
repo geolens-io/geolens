@@ -1390,15 +1390,6 @@ export function useBuilderSave(state: SaveState) {
                 undefined,
                 layer.style_config,
               );
-              // A stroke the user turned off lives in builder.strokeDisabled (which
-              // leaves a stale circle-stroke-color in paint) or a zeroed width, but
-              // extractStyleHints only honors paint['_stroke-disabled']. Resolve it the
-              // way the map adapters do so the export doesn't reintroduce a hidden ring.
-              const builder = layer.style_config?.builder;
-              const strokeHidden =
-                (builder?.strokeDisabled ?? !!layer.paint?.['_stroke-disabled']) ||
-                layer.paint?.['circle-stroke-width'] === 0 ||
-                layer.paint?.['_outline-width'] === 0;
               const rowY = cursorY + (legendRowH - swatchSize) / 2;
               const solidFill = colors.find((c) => !!c) || MAP_COLORS.icon.fallback;
               let filled = false;
@@ -1415,7 +1406,7 @@ export function useBuilderSave(state: SaveState) {
               }
               if (!filled) ctx.fillStyle = solidFill;
               ctx.fillRect(pad, rowY, swatchSize, swatchSize);
-              ctx.strokeStyle = (!strokeHidden && hints.strokeColor) || MAP_COLORS.previewOutline;
+              ctx.strokeStyle = (!hints.strokeDisabled && hints.strokeColor) || MAP_COLORS.previewOutline;
               ctx.lineWidth = Math.max(1, dpr);
               ctx.strokeRect(pad, rowY, swatchSize, swatchSize);
               ctx.fillStyle = MAP_COLORS.exportImage.text;
