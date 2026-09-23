@@ -23,7 +23,7 @@ from app.core.async_io import (
     run_in_thread_draining_capture_cancel,
 )
 from app.core.config import settings
-from app.core.failure_reason import prefixed_failure_reason
+from app.core.failure_reason import coded_failure_reason, prefixed_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.identity import Identity
@@ -32,11 +32,15 @@ from app.platform.extensions import get_catalog_port, get_processing_port
 from app.platform.extensions.entitlement import enforce_limit
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
-    make_ingest_job_failed_rollback,
     reset_session_for_settlement,
     settle_ingest_job_failed,
 )
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
+from app.platform.refresh.service import (
+    DatasetBusyError,
+    create_pending_run,
+    record_refresh_failure,
+)
 
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.manifest_reservation import (
@@ -641,6 +645,53 @@ async def _classify_dataset(
     return "create", prepared, None, None, fingerprint
 
 
+async def _admit_refresh_run(
+    db: AsyncSession, job: IngestJob, dataset_id: uuid.UUID, user: Identity
+) -> None:
+    """Take the dataset's one active-run slot for this update.
+
+    Raises ``DatasetBusyError`` while another refresh or re-upload of the
+    dataset is active. ``trigger`` is ``api``, as the refresh endpoints record.
+    """
+    Dataset = get_processing_port().get_dataset_orm_class()
+    dataset = (
+        await db.execute(select(Dataset.feature_count).where(Dataset.id == dataset_id))
+    ).one_or_none()
+    if dataset is None:
+        raise ManifestSourceError(
+            "The dataset this entry updates was deleted while its source was "
+            "being staged."
+        )
+    await create_pending_run(
+        db,
+        dataset_id=dataset_id,
+        origin_kind="upload",
+        trigger="api",
+        triggered_by=user.id,
+        ingest_job_id=job.id,
+        feature_count_before=dataset.feature_count,
+    )
+
+
+async def _fail_unqueued_job(
+    db: AsyncSession, job: IngestJob, exc: BaseException
+) -> None:
+    """Fail a staged job the queue never took, and the run admitted with it.
+
+    The run follows only a job write that landed: a miss means a worker or a
+    cancel owns both rows, and a run the worker claimed must stay its own.
+    """
+    prefix = "Failed to queue manifest job"
+    if await settle_ingest_job_failed(job, exc, message_prefix=prefix):
+        await record_refresh_failure(
+            db,
+            ingest_job_id=job.id,
+            error_code="dispatch_failed",
+            error_message=coded_failure_reason(prefix, exc),
+            contacted_origin=False,
+        )
+
+
 async def _queue_reupload_job(
     db: AsyncSession,
     job: IngestJob,
@@ -665,7 +716,7 @@ async def _queue_reupload_job(
 
     await defer_with_orphan_guard(
         _defer_reupload,
-        rollback=make_ingest_job_failed_rollback(job),
+        rollback=lambda exc: _fail_unqueued_job(db, job, exc),
         db=db,
         job=job,
     )
@@ -885,9 +936,7 @@ async def _settle_staged_entry(
         if not await release_manifest_reservation(
             db, job, prefixed_failure_reason("Failed to stage manifest source", exc)
         ):
-            await settle_ingest_job_failed(
-                job, exc, message_prefix="Failed to queue manifest job"
-            )
+            await _fail_unqueued_job(db, job, exc)
         failed = await _settled_failed(db, job_id)
 
     committed = await _settle_under_reset(db, job, _decide_and_settle, job_id=job_id)
@@ -945,6 +994,10 @@ async def _finalize_reserved_entry(
                     db, job, file_path=file_path
                 ):
                     raise ManifestSourceError(RESERVATION_LOST_MESSAGE)
+                # After the bind: the job row is locked before the run insert
+                # reaches the dataset row, the order a dataset delete takes.
+                if reserved.dataset_id is not None:
+                    await _admit_refresh_run(db, job, reserved.dataset_id, user)
                 await _commit_staged_bind(db)
         except TimeoutError as exc:
             raise ManifestSourceError(
@@ -996,6 +1049,19 @@ def _error_result(dataset: ManifestDataset, exc: Exception) -> ManifestApplyEntr
         action="error",
         message=message,
         errors=[message],
+    )
+
+
+def _dataset_busy_result(dataset: ManifestDataset) -> ManifestApplyEntryResult:
+    """The other doors' 409 ``dataset_busy``, with the code in ``errors``."""
+    return ManifestApplyEntryResult(
+        dataset_key=dataset.key,
+        action="error",
+        message=(
+            "A refresh is already running for this dataset. Wait for it to "
+            "finish, then apply the manifest again."
+        ),
+        errors=["dataset_busy"],
     )
 
 
@@ -1152,6 +1218,9 @@ async def apply_manifest(
             # entry that raised while still holding it.
             await db.rollback()
             results.append(_error_result(dataset, exc))
+        except DatasetBusyError:
+            await db.rollback()
+            results.append(_dataset_busy_result(dataset))
         except Exception as exc:  # broad: per-entry isolation — any unexpected failure is recorded as that entry's error
             await db.rollback()
             results.append(_error_result(dataset, exc))
