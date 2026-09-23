@@ -1,11 +1,4 @@
-"""Worker startup recovery must not fail a running job the queue still holds.
-
-The periodic sweep (``fail_stale_jobs``) exempts a running row from its lease
-reap while a `todo` Procrastinate entry means no worker has adopted it yet
-(``no_unclaimed_queue_entry``). The worker's own startup recovery pass ran
-the same running-row query without that predicate, so a job still sitting in
-a startup backlog could be failed by the very restart meant to recover it.
-"""
+"""Worker startup recovery applies the sweep's unclaimed-queue exemption."""
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -55,12 +48,7 @@ class TestStartupRecoverySparesAQueuedRunningJob:
     async def test_a_todo_queue_entry_survives_startup_recovery(
         self, test_db_session: AsyncSession
     ) -> None:
-        """No worker has claimed the lease yet, so recovery must leave it.
-
-        Counterfactual: without `no_unclaimed_queue_entry()` in the worker's
-        own running-row query, this job is failed on the very restart meant
-        to recover it.
-        """
+        """A stale running job whose queue entry is still todo stays running."""
         job = await _stale_running_job(test_db_session)
         await _queue_todo_entry(test_db_session, job.id)
 
@@ -73,7 +61,7 @@ class TestStartupRecoverySparesAQueuedRunningJob:
     async def test_the_same_row_without_a_queue_entry_is_failed(
         self, test_db_session: AsyncSession
     ) -> None:
-        """The exemption is for never-claimed work only."""
+        """The same stale job with no queue entry is failed."""
         job = await _stale_running_job(test_db_session)
 
         await recover_stale_jobs()
