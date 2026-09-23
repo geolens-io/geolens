@@ -9,6 +9,11 @@ and releases use semantic versioning.
 
 ### Added
 
+- `/api/health/ready` is a readiness probe that checks only the database, so
+  an orchestrator no longer takes every API replica out of service during a
+  cache or object-store outage. `/api/health` remains the full dependency
+  report.
+
 - ArcGIS refreshes can opt into exact object-ID coverage verification. Missing,
   duplicate, unexpected, or changing source IDs block publication; successful
   coverage verifies layer membership without claiming an atomic source snapshot.
@@ -21,6 +26,12 @@ and releases use semantic versioning.
 - Extension API 11 adds bounded ArcGIS ID planning and a supervised scheduled
   refresh lifecycle. Keyed refresh admissions fence duplicate queue deliveries,
   expire unclaimed work, and block publication after concurrent local edits.
+
+### Fixed
+
+- `/api/health` reports the database as degraded when the catalog schema is
+  missing. Its probe looked the table up but ignored the NULL PostgreSQL
+  returns for a relation that is not there.
 
 ## [1.20.0] - 2026-09-18
 

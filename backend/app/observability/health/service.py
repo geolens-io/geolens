@@ -62,10 +62,12 @@ async def _check_database() -> None:
     async with engine.connect() as conn:
         # Cheap connectivity check
         await conn.execute(text("SELECT 1"))
-        # Exercise the search_path and catalog schema. Using `to_regclass`
-        # returns NULL without error if the table is missing, so this stays
-        # a fast read that still validates the schema is accessible.
-        await conn.execute(text("SELECT to_regclass('catalog.datasets')"))
+        # Exercise the search_path and catalog schema. `to_regclass` returns
+        # NULL rather than raising for a missing table, so the value itself
+        # decides whether the catalog is there.
+        result = await conn.execute(text("SELECT to_regclass('catalog.datasets')"))
+        if result.scalar() is None:
+            raise LookupError("catalog.datasets is missing")
 
 
 async def _check_storage() -> None:
@@ -109,6 +111,17 @@ async def check_health(*, include_errors: bool = False) -> dict[str, Any]:
             "cache": cache,
         },
     }
+
+
+async def check_readiness() -> dict[str, str]:
+    """Readiness: whether this process can reach the database.
+
+    The cache has an in-memory fallback and the object store is shared by
+    every replica, so neither decides whether one API process can take
+    traffic; ``check_health`` still reports both.
+    """
+    database = await _probe("database", _check_database())
+    return {"status": "ready" if database["status"] == "ok" else "not_ready"}
 
 
 async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
