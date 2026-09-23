@@ -42,6 +42,7 @@ from sqlalchemy import select, text, update
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.service import claim_fan_out_parent, create_fan_out_jobs
 from tests.factories import get_user_id
+from tests.stale_settlers import STALE_SETTLERS
 
 pytestmark = pytest.mark.anyio
 
@@ -395,8 +396,9 @@ class TestChildlessFannedOutSweep:
         await session.refresh(parent)
         return parent
 
+    @STALE_SETTLERS
     async def test_crashed_dispatch_settles_failed_with_a_retry_refusal(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, settle
     ):
         """fix(#1709 review r8 A): the recovered parent must never silently
         import. Generic /jobs/{id}/retry re-queues a job as ONE
@@ -408,14 +410,11 @@ class TestChildlessFannedOutSweep:
         a pending parent into the same generic retryable-failed shape.)"""
         from app.platform.jobs.models import FAN_OUT_INTERRUPTED_METADATA_KEY
         from app.platform.jobs.router import get_retry_capability
-        from app.platform.jobs.sweep import (
-            FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE,
-            fail_stale_jobs,
-        )
+        from app.platform.jobs.sweep import FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE
 
         parent = await self._seed_fanned_out(test_db_session, age_seconds=600)
 
-        await fail_stale_jobs(test_db_session)
+        await settle(test_db_session)
         await test_db_session.refresh(parent)
         assert parent.status == "failed"
         assert parent.error_message == FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE

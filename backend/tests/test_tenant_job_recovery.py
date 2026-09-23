@@ -366,3 +366,53 @@ async def test_worker_recovery_preserves_single_tenant_one_shot():
 
     recover_current_scope.assert_awaited_once_with()
     tenant_registry.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_both_callers_run_the_settlement_pass_under_the_tenant_guc(
+    test_db_session, monkeypatch
+):
+    """Recovery and the sweep run `settle_stale_jobs` under the same tenant GUC."""
+    from sqlalchemy import text
+
+    import app.core.db as core_db
+    from app.core.db import async_session
+    from app.core.db.tenant_session import (
+        install_tenant_session_hook,
+        tenant_job_context,
+    )
+    from app.platform.jobs import sweep as sweep_module
+    from app.platform.jobs import worker as worker_module
+
+    class _Observed(Exception):
+        pass
+
+    # The production begin hook, which the test engine does not carry.
+    install_tenant_session_hook(core_db.engine)
+    tenant_id = str(uuid.uuid4())
+    seen: list[str | None] = []
+
+    async def read_the_guc_and_stop(db, now):
+        seen.append(
+            await db.scalar(text("SELECT current_setting('app.current_tenant', true)"))
+        )
+        raise _Observed
+
+    monkeypatch.setattr(sweep_module, "settle_stale_jobs", read_the_guc_and_stop)
+    with (
+        patch("app.core.tenancy.is_multi_tenant", return_value=True),
+        patch.object(
+            worker_module,
+            "_registered_tenant_ids_for_recovery",
+            AsyncMock(return_value=[tenant_id]),
+        ),
+        patch.object(worker_module, "log"),
+    ):
+        # The tenant loop logs a failing tenant and carries on.
+        await worker_module.recover_stale_jobs()
+        # The lifespan sweep's per-tenant step in sweep_stale_jobs_once.
+        with tenant_job_context(tenant_id), pytest.raises(_Observed):
+            async with async_session() as session:
+                await sweep_module.fail_stale_jobs(session)
+
+    assert seen == [tenant_id, tenant_id]

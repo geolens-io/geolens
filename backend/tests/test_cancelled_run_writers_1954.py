@@ -25,6 +25,7 @@ from app.platform.refresh.service import (
     sweep_abandoned_refresh_runs,
 )
 from tests.factories import create_dataset, get_user_id
+from tests.stale_settlers import STALE_SETTLERS
 
 pytestmark = pytest.mark.anyio
 
@@ -108,6 +109,22 @@ class TestBothWritersAreDistinguishableByErrorCode:
             )
         ).scalar_one()
         assert stored.error_code == USER_CANCELLED_ERROR_CODE
+
+
+@STALE_SETTLERS
+async def test_every_settler_cancels_an_abandoned_run(test_db_session, settle) -> None:
+    """Both settlers run the abandoned-run pass and write its own code."""
+    _, _job, run = await _seed(test_db_session)
+    run.started_at = datetime.now(timezone.utc) - timedelta(
+        seconds=ABANDONED_RUN_CUTOFF_SECONDS + 60
+    )
+    await test_db_session.commit()
+
+    await settle(test_db_session)
+
+    await test_db_session.refresh(run)
+    assert run.status == "cancelled"
+    assert run.error_code == ABANDONED_ERROR_CODE
 
 
 class TestTheGuardCommentMatchesTheModule:

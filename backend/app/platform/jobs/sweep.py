@@ -123,16 +123,6 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
 ABANDONED_UPLOAD_MESSAGE = "Abandoned: upload was never completed"
 
 
-def is_abandoned_upload(user_metadata: dict | None) -> bool:
-    """Python twin of ``abandoned_upload``, over one loaded row.
-
-    Used only by worker startup recovery, which mirrors the UPDATE onto its
-    ORM instances — a plain ``job.status = "failed"`` there would overwrite
-    the status the database just computed.
-    """
-    return not (user_metadata or {}).get(COMMIT_ATTEMPTED_METADATA_KEY)
-
-
 def abandoned_upload():
     """Predicate: nothing was ever dispatched for this row.
 
@@ -238,6 +228,13 @@ class StaleCleanupOutcome:
     # fix(#1778): analysis output tables named on the job rows this pass
     # settled, dropped after the settling commit under the same rule.
     _unadopted_analysis_tables: tuple[tuple[uuid.UUID, str], ...] = field(
+        default=(), repr=False, compare=False
+    )
+    # The job rows this pass settled, for a caller that logs each one.
+    _settled_running_ids: tuple[uuid.UUID, ...] = field(
+        default=(), repr=False, compare=False
+    )
+    _settled_pending: tuple[tuple[uuid.UUID, str], ...] = field(
         default=(), repr=False, compare=False
     )
 
@@ -825,24 +822,6 @@ def _stale_generation_storage_keys(
     )
 
 
-async def _reap_stale_generation_storage(keys: tuple[str, ...]) -> None:
-    """Best-effort delete of already-resolved, already-committed keys.
-
-    fix(#1322): must run strictly after the caller's commit — a "dead"
-    worker is declared by heartbeat, not proof, and a rolled-back
-    reconciliation could still publish a generation whose objects this
-    already deleted. Deleting a never-written key is a documented no-op.
-    """
-    if not keys:
-        return
-
-    # Function-local: platform may not import processing eagerly
-    # (test_platform_processing_imports_stay_deferred).
-    from app.processing.ingest.tasks_raster import _cleanup_orphaned_storage_keys
-
-    await _cleanup_orphaned_storage_keys(list(keys), job_id="vrt-stale-sweep")
-
-
 # fix(#1322): does the PUBLISHED member set (built_from) still
 # match the CATALOG's (vrt_source_links)? Count-match + subset proves it.
 # `jsonb_typeof = 'object'`, not IS NOT NULL — a JSON `null` scalar raises.
@@ -1034,8 +1013,8 @@ async def sweep_stale_vrt_assets(
 def publish_refresh_reconciliation(outcome: StaleCleanupOutcome) -> None:
     """Publish the sweep's reconciliation counter, AFTER its commit landed.
 
-    fix(#1277): a counter incremented inside the transaction survives a
-    rollback, and the overcount is permanent. Both commit sites call this.
+    A counter incremented inside the transaction survives a rollback, and the
+    overcount is permanent. Every commit site calls this.
     """
     if outcome._refresh_runs_reconciled:
         refresh_sweep_reconciled_total.inc(outcome._refresh_runs_reconciled)
@@ -1103,48 +1082,22 @@ async def purge_terminal_job_tokens(db: AsyncSession) -> None:
     await db.commit()
 
 
-@overload
-async def fail_stale_jobs(
-    db: AsyncSession,
-    *,
-    commit: bool = True,
-    detailed: Literal[False] = False,
-) -> tuple[int, int]: ...
+async def settle_stale_jobs(db: AsyncSession, now: datetime) -> StaleCleanupOutcome:
+    """Settle stale jobs, VRT regenerations and refresh runs, without committing.
 
-
-@overload
-async def fail_stale_jobs(
-    db: AsyncSession,
-    *,
-    commit: bool = True,
-    detailed: Literal[True],
-) -> StaleCleanupOutcome: ...
-
-
-async def fail_stale_jobs(
-    db: AsyncSession,
-    *,
-    commit: bool = True,
-    detailed: bool = False,
-) -> tuple[int, int] | StaleCleanupOutcome:
-    """Mark stale jobs failed and reap retained staging artifacts.
-
-    The default two-item tuple preserves the background-sweeper contract.
-    ``detailed=True`` returns the complete operational outcome for the admin
-    endpoint and its audit event.
-
-    Stale rules:
+    The one settlement pass the lifespan sweep and worker startup recovery
+    share. Stale rules:
       - pending: older than ``stale_pending_cutoff_seconds`` AND no live
         Procrastinate job (a true orphan, never queued)
       - running: heartbeat_at/started_at older than JOB_TIMEOUT_SECONDS
         (worker lease expired)
+      - fanned_out: still childless past ``FAN_OUT_CHILDLESS_GRACE_SECONDS``
 
-    Also sweeps VRT RasterAsset rows stuck 'regenerating' past
-    JOB_TIMEOUT_SECONDS (GAP-002) via ``sweep_stale_vrt_assets``, using the
-    same stale_cutoff.
+    VRT RasterAsset rows stuck 'regenerating' use the running cutoff. Two
+    concurrent callers settle each row once: running candidates skip locked
+    rows, and every other UPDATE re-checks its row's status under the lock.
+    The outcome carries no purge or reap counts.
     """
-    now = datetime.now(timezone.utc)
-
     # fix(#1234): the 1h policy applies only to rows that never bound bytes.
     # The guard is FALSY, not IS NULL — every creator writes "" for file_path.
     unbound_result = await db.execute(
@@ -1186,19 +1139,6 @@ async def fail_stale_jobs(
     bound_pending_rows = list(bound_pending_result.all())
     pending_rows += bound_pending_rows
     pending_job_ids += [row[0] for row in bound_pending_rows]
-
-    # fix(#1778): "still names an unreaped artifact" — the purge
-    # refuses these rows too. A string test on the JSONB blob, never a
-    # throwing cast.
-    from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
-    from app.processing.ingest.tasks_raster_common import (
-        UNPUBLISHED_STORAGE_KEYS_FIELD,
-    )
-
-    carries_unreaped_artifacts = or_(
-        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(None),
-        IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].is_not(None),
-    )
 
     running_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
     # fix(#1778): candidates come through their own `FOR UPDATE
@@ -1304,12 +1244,61 @@ async def fail_stale_jobs(
     if cancelled_runs:
         log.info("abandoned_refresh_runs_cancelled", count=cancelled_runs)
 
+    return StaleCleanupOutcome(
+        pending_failed=len(pending_job_ids) - pending_cancelled,
+        pending_cancelled=pending_cancelled,
+        running_failed=len(running_job_ids),
+        vrt_assets_recovered=vrt_assets_recovered,
+        vrt_generations_failed=vrt_generations_failed,
+        terminal_jobs_purged=0,
+        staged_paths_considered=0,
+        local_files_reaped=0,
+        storage_objects_reaped=0,
+        staged_paths_skipped=0,
+        staged_cleanup_failures=0,
+        _refresh_runs_reconciled=cancelled_runs,
+        _stale_generation_storage_keys=stale_generation_storage_keys,
+        _settled_running_ids=tuple(running_job_ids),
+        _settled_pending=tuple((row[0], row[3]) for row in unbound_rows)
+        + tuple((row[0], "failed") for row in bound_pending_rows),
+    )
+
+
+@overload
+async def fail_stale_jobs(
+    db: AsyncSession,
+    *,
+    commit: bool = True,
+    detailed: Literal[False] = False,
+) -> tuple[int, int]: ...
+
+
+@overload
+async def fail_stale_jobs(
+    db: AsyncSession,
+    *,
+    commit: bool = True,
+    detailed: Literal[True],
+) -> StaleCleanupOutcome: ...
+
+
+async def fail_stale_jobs(
+    db: AsyncSession,
+    *,
+    commit: bool = True,
+    detailed: bool = False,
+) -> tuple[int, int] | StaleCleanupOutcome:
+    """Settle stale jobs, purge terminal jobs past retention, and reap artifacts.
+
+    The default two-item tuple preserves the background-sweeper contract.
+    ``detailed=True`` returns the complete operational outcome for the admin
+    endpoint and its audit event. ``settle_stale_jobs`` holds the stale rules.
+    """
+    now = datetime.now(timezone.utc)
+    settled = await settle_stale_jobs(db, now)
+
     terminal_jobs_purged = 0
     staged_paths_considered = 0
-    local_files_reaped = 0
-    storage_objects_reaped = 0
-    staged_paths_skipped = 0
-    staged_cleanup_failures = 0
     deleted_paths: set[str] = set()
     deleted_presigned_keys: set[str] = set()
 
@@ -1374,7 +1363,7 @@ async def fail_stale_jobs(
         # (#434) so retry can't flip a candidate mid-way.
         deleted = await db.execute(
             delete(IngestJob)
-            .where(*purge_clauses, not_(carries_unreaped_artifacts))
+            .where(*purge_clauses, not_(_carries_unreaped_artifacts()))
             .returning(IngestJob.id, IngestJob.file_path, IngestJob.user_metadata)
         )
         deleted_rows = deleted.all()
@@ -1407,48 +1396,15 @@ async def fail_stale_jobs(
             deleted_paths -= set(survivors.scalars())
         staged_paths_considered = len(deleted_paths)
 
-    # fix(#1778): ONE collection — terminal, still carrying a record,
-    # regardless of age or exemption; bounded so a pass can't hold its
-    # session open.
-    artifact_rows = await db.execute(
-        select(IngestJob.id, IngestJob.user_metadata)
-        .where(
-            IngestJob.status.not_in(("pending", "running")),
-            carries_unreaped_artifacts,
-        )
-        .limit(_ARTIFACT_REAP_BATCH)
-    )
-    unpublished_storage_keys: list[str] = []
-    # The row id rides along so the drop can refuse a name that isn't this
-    # job's, without a second read to re-derive ownership.
-    unadopted_analysis_tables: list[tuple[uuid.UUID, str]] = []
-    for artifact_id, artifact_metadata in artifact_rows.all():
-        unpublished_storage_keys.extend(
-            unpublished_storage_keys_from_metadata(artifact_metadata)
-        )
-        unadopted_analysis_tables.extend(
-            (artifact_id, name)
-            for name in unadopted_analysis_tables_from_metadata(artifact_metadata)
-        )
-
-    outcome = StaleCleanupOutcome(
-        pending_failed=len(pending_job_ids) - pending_cancelled,
-        pending_cancelled=pending_cancelled,
-        running_failed=len(running_job_ids),
-        vrt_assets_recovered=vrt_assets_recovered,
-        vrt_generations_failed=vrt_generations_failed,
-        terminal_jobs_purged=terminal_jobs_purged,
-        staged_paths_considered=staged_paths_considered,
-        local_files_reaped=local_files_reaped,
-        storage_objects_reaped=storage_objects_reaped,
-        staged_paths_skipped=staged_paths_skipped,
-        staged_cleanup_failures=staged_cleanup_failures,
-        _staged_paths=tuple(sorted(deleted_paths)),
-        _staged_presigned_keys=tuple(sorted(deleted_presigned_keys)),
-        _refresh_runs_reconciled=cancelled_runs,
-        _stale_generation_storage_keys=stale_generation_storage_keys,
-        _unpublished_storage_keys=tuple(sorted(set(unpublished_storage_keys))),
-        _unadopted_analysis_tables=tuple(sorted(set(unadopted_analysis_tables))),
+    outcome = await collect_unreaped_artifacts(
+        db,
+        replace(
+            settled,
+            terminal_jobs_purged=terminal_jobs_purged,
+            staged_paths_considered=staged_paths_considered,
+            _staged_paths=tuple(sorted(deleted_paths)),
+            _staged_presigned_keys=tuple(sorted(deleted_presigned_keys)),
+        ),
     )
     if commit:
         # Never remove an external artifact before a DELETE that may still
@@ -1464,6 +1420,58 @@ async def fail_stale_jobs(
     if detailed:
         return outcome
     return outcome.pending_failed, outcome.running_failed
+
+
+def _carries_unreaped_artifacts():
+    """Predicate: the row still names an artifact nothing has reaped.
+
+    Such a row is the pending-reap record, so the retention purge keeps it. A
+    string test on the JSONB blob, never a throwing cast.
+    """
+    from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
+    from app.processing.ingest.tasks_raster_common import (
+        UNPUBLISHED_STORAGE_KEYS_FIELD,
+    )
+
+    return or_(
+        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(None),
+        IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].is_not(None),
+    )
+
+
+async def collect_unreaped_artifacts(
+    db: AsyncSession, outcome: StaleCleanupOutcome
+) -> StaleCleanupOutcome:
+    """Add the artifacts terminal job rows still name, for the post-commit reap.
+
+    Every terminal row carrying a record counts, whatever its age or
+    exemption; bounded so a pass can't hold its session open.
+    """
+    artifact_rows = await db.execute(
+        select(IngestJob.id, IngestJob.user_metadata)
+        .where(
+            IngestJob.status.not_in(("pending", "running")),
+            _carries_unreaped_artifacts(),
+        )
+        .limit(_ARTIFACT_REAP_BATCH)
+    )
+    unpublished_storage_keys: list[str] = []
+    # The row id rides along so the drop can refuse a name that isn't this
+    # job's, without a second read to re-derive ownership.
+    unadopted_analysis_tables: list[tuple[uuid.UUID, str]] = []
+    for artifact_id, artifact_metadata in artifact_rows.all():
+        unpublished_storage_keys.extend(
+            unpublished_storage_keys_from_metadata(artifact_metadata)
+        )
+        unadopted_analysis_tables.extend(
+            (artifact_id, name)
+            for name in unadopted_analysis_tables_from_metadata(artifact_metadata)
+        )
+    return replace(
+        outcome,
+        _unpublished_storage_keys=tuple(sorted(set(unpublished_storage_keys))),
+        _unadopted_analysis_tables=tuple(sorted(set(unadopted_analysis_tables))),
+    )
 
 
 async def audit_settled_embedding_backfill(

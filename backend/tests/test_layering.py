@@ -1310,8 +1310,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1415,
     # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1175,
-    # Reconciliation and reapers serve startup, workers and admin cleanup consistently.
-    "backend/app/platform/jobs/sweep.py": 1537,
+    # One settlement pass and its reapers serve startup recovery, the lifespan sweep
+    # and admin cleanup.
+    "backend/app/platform/jobs/sweep.py": 1545,
     # Refresh admission, claim fencing and terminal transitions stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1273,
     # Central settings and boot-validation debt; split by configuration domain before

@@ -540,10 +540,9 @@ class TestStagedRowClassification:
         commit.
 
         Counterfactual: carrying the marker through the transition makes
-        `is_abandoned_upload` False and the sweep reports the same row failed.
+        `abandoned_upload()` False and the sweep reports the same row failed.
         """
         from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY
-        from app.platform.jobs.sweep import is_abandoned_upload
 
         monkeypatch.setattr(
             "app.platform.security.validate_url_for_ssrf", _accept_any_url()
@@ -565,7 +564,6 @@ class TestStagedRowClassification:
         await test_db_session.refresh(job)
         assert job.status == "pending"
         assert COMMIT_ATTEMPTED_METADATA_KEY not in (job.user_metadata or {})
-        assert is_abandoned_upload(job.user_metadata)
 
 
 class TestNoTransactionAcrossTheDownload:

@@ -46,30 +46,22 @@ from app.platform.jobs.schemas import (
 )
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
-    ABANDONED_UPLOAD_MESSAGE,  # noqa: F401 -- re-exported, see __all__
     JOB_TIMEOUT_SECONDS,
     no_unclaimed_queue_entry,
     _READY_WORTHY_SQL,
     audit_settled_embedding_backfill,
     STALE_PENDING_BOUND_MESSAGE,
-    STALE_PENDING_UNBOUND_MESSAGE,  # noqa: F401 -- re-exported, see __all__
     StaleCleanupOutcome,  # noqa: F401 -- re-exported, see __all__
     _RECHECK_TRANSFER_MARGIN_SECONDS,  # noqa: F401 -- re-exported, see __all__
     _reap_committed_staged_paths,
-    _reap_stale_generation_storage,  # noqa: F401 -- re-exported, see __all__
     _sweep_expired_presigned_staging,
     fail_stale_jobs,
     post_expiry_sweep_after_seconds,  # noqa: F401 -- re-exported, see __all__
     publish_refresh_reconciliation,
-    is_abandoned_upload,  # noqa: F401 -- re-exported, see __all__
     stale_pending_clauses,
     stale_pending_cutoff_seconds,
     stale_pending_unbound_values,
     sweep_stale_vrt_assets,  # noqa: F401 -- re-exported, see __all__
-    unadopted_analysis_tables_from_metadata,  # noqa: F401 -- re-exported, see __all__
-    unpublished_storage_keys_from_metadata,  # noqa: F401 -- re-exported, see __all__
-    _reap_unadopted_analysis_outputs,  # noqa: F401 -- re-exported, see __all__
-    reap_unpublished_storage_keys,  # noqa: F401 -- re-exported, see __all__
 )
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
@@ -1299,30 +1291,17 @@ async def cancel_job(
 
 
 __all__ = [
-    "ABANDONED_UPLOAD_MESSAGE",
     "JOB_TIMEOUT_SECONDS",
     "STALE_PENDING_BOUND_MESSAGE",
-    "STALE_PENDING_UNBOUND_MESSAGE",
     "StaleCleanupOutcome",
     "TemporalParseKey",
     "_RECHECK_TRANSFER_MARGIN_SECONDS",
-    "_reap_stale_generation_storage",
-    # fix(#1556): the worker's startup recovery settles the same rows this
-    # module's sweep does, so it needs the same helper through the same façade.
-    "audit_settled_embedding_backfill",
     "fail_stale_jobs",
     "get_retry_capability",
-    "is_abandoned_upload",
     "post_expiry_sweep_after_seconds",
     "router",
     "stale_pending_clauses",
     "stale_pending_cutoff_seconds",
     "stale_pending_unbound_values",
     "sweep_stale_vrt_assets",
-    # fix(#1778): the startup recovery pass reaps the same pre-commit raster
-    # objects and analysis outputs the periodic sweep does, via the same façade.
-    "_reap_unadopted_analysis_outputs",
-    "reap_unpublished_storage_keys",
-    "unadopted_analysis_tables_from_metadata",
-    "unpublished_storage_keys_from_metadata",
 ]

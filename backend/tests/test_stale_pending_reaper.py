@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.platform.jobs.models import IngestJob
 from tests.factories import get_user_id
+from tests.stale_settlers import STALE_SETTLERS
 from app.platform.jobs.router import (
     fail_stale_jobs,
     get_job_status,
@@ -656,18 +657,17 @@ class TestAbandonedUploadsAreCancelled:
         assert job.status == "failed"
         assert "never queued" in (job.error_message or "")
 
-    async def test_the_bound_half_is_untouched(self, test_db_session) -> None:
+    @STALE_SETTLERS
+    async def test_the_bound_half_is_untouched(self, test_db_session, settle) -> None:
         """The 24h backstop keeps writing `failed` with its own message: a
         completion that bound bytes and then stalled IS a failure."""
-        from app.platform.jobs.router import fail_stale_jobs
-
         job = await _make_pending_job(
             test_db_session,
             age_seconds=90000,
             file_path="staging/x/frozen/roads.geojson",
         )
 
-        await fail_stale_jobs(test_db_session)
+        await settle(test_db_session)
 
         await test_db_session.refresh(job)
         assert job.status == "failed"
@@ -699,13 +699,11 @@ class TestAbandonedUploadsAreCancelled:
         assert job.status == "failed"
         assert "running for over" in (job.error_message or "")
 
-    async def test_the_worker_startup_recovery_cancels_it_too(
-        self, test_db_session
+    @STALE_SETTLERS
+    async def test_every_settler_cancels_it_and_fails_a_dispatched_row(
+        self, test_db_session, settle
     ) -> None:
-        """The third site. It settles the same rows with the same clauses, and
-        it is the pass that actually reaches a row after a hard restart."""
-        from app.platform.jobs.worker import recover_stale_jobs
-
+        """Both settlers cancel the abandoned upload and fail the dispatched one."""
         abandoned = await _make_pending_job(
             test_db_session, age_seconds=7200, file_path=""
         )
@@ -717,9 +715,8 @@ class TestAbandonedUploadsAreCancelled:
             commit_attempted=True,
         )
 
-        await recover_stale_jobs()
+        await settle(test_db_session)
 
-        test_db_session.expire_all()
         await test_db_session.refresh(abandoned)
         await test_db_session.refresh(dispatched)
         assert abandoned.status == "cancelled", (
@@ -804,22 +801,27 @@ class TestAbandonedUploadsAreCancelled:
             ({"commit_attempted_at": None}, True),
         ],
     )
-    def test_the_python_twin_agrees_with_the_sql_predicate(
-        self, user_metadata, abandoned
+    async def test_the_predicate_reads_every_metadata_shape(
+        self, test_db_session, user_metadata, abandoned
     ) -> None:
-        """The worker mirrors the UPDATE onto ORM instances, so the two
-        expressions of one rule must not drift. Enumerated over every shape a
-        pending row can carry, not just the reported one.
+        """`abandoned_upload()` treats a missing or empty stamp as never dispatched."""
+        from sqlalchemy import select
 
-        fix(#1744): the shapes that matter are now what the metadata says,
-        not what `file_path` looks like, so the empty and absent stamps are
-        enumerated alongside the present one. Both expressions coalesce a
-        missing or empty value to "no dispatch was attempted", which is the
-        conservative reading for a row that never got a real timestamp.
-        """
-        from app.platform.jobs.router import is_abandoned_upload
+        from app.platform.jobs.sweep import abandoned_upload
 
-        assert is_abandoned_upload(user_metadata) is abandoned
+        job = IngestJob(
+            source_filename="shape.geojson",
+            status="pending",
+            user_metadata=user_metadata,
+        )
+        test_db_session.add(job)
+        await test_db_session.flush()
+        classified = await test_db_session.scalar(
+            select(abandoned_upload()).where(IngestJob.id == job.id)
+        )
+        await test_db_session.rollback()
+
+        assert classified is abandoned
 
 
 def test_the_published_cleanup_response_drops_the_new_count_without_raising() -> None:
@@ -865,21 +867,13 @@ def test_the_published_cleanup_response_drops_the_new_count_without_raising() ->
 
 
 def test_every_unbound_pending_site_uses_the_shared_action() -> None:
-    """fix(#1556): the census again, for the ACTION this time.
-
-    The clause helper stopped a fifth site from reconstructing the predicates.
-    The same argument applies to what a site WRITES: three of them settle an
-    unbound pending row, and a split applied at one while the others keep
-    writing `failed` makes the same abandoned upload report two different
-    terminal states depending on which actor reached it first.
-    """
+    """Every site that settles an unbound pending row writes the shared action."""
     import inspect
 
     from app.platform.jobs import router as jobs_router
     from app.platform.jobs import sweep as jobs_sweep
-    from app.platform.jobs import worker as jobs_worker
 
-    for module in (jobs_router, jobs_sweep, jobs_worker):
+    for module in (jobs_router, jobs_sweep):
         assert "stale_pending_unbound_values" in inspect.getsource(module), (
             f"{module.__name__} settles unbound pending rows without the "
             "shared action helper"
@@ -887,23 +881,17 @@ def test_every_unbound_pending_site_uses_the_shared_action() -> None:
 
 
 def test_every_pending_fail_site_uses_the_shared_clauses() -> None:
-    """fix(#1235 review r2): the census, pinned.
+    """No site that fails a timed-out pending row rebuilds the predicates inline.
 
-    Four sites flip pending -> failed on a timeout and #1234 guarded two. This
-    asserts no site reconstructs the predicates inline, so a fifth cannot be
-    added past the guard by being written carefully.
-
-    KNOWN BLIND SPOT: this greps source, so it catches a NEW inline predicate
-    set but not a call that is present-yet-unreachable. The behavioural tests
-    above are what fail in that case.
+    This greps source, so it misses a call that is present but unreachable;
+    the behavioural tests above catch that.
     """
     import inspect
 
     from app.platform.jobs import router as jobs_router
     from app.platform.jobs import sweep as jobs_sweep
-    from app.platform.jobs import worker as jobs_worker
 
-    for module in (jobs_router, jobs_sweep, jobs_worker):
+    for module in (jobs_router, jobs_sweep):
         source = inspect.getsource(module)
         # The only legitimate definition site is the helper itself — moved
         # from router.py into sweep.py by #1335's recovery/sweep split.
@@ -1184,14 +1172,9 @@ class TestAbandonedDirectUploadsAreCancelled:
         assert job.status == "cancelled"
         assert job.error_message == "Abandoned: upload was never completed"
 
-    async def test_the_worker_startup_recovery_cancels_it_too(
-        self, test_db_session
-    ) -> None:
-        """The third site. After a hard restart it is the pass that reaches the
-        row, and once it has made the row terminal no later sweep looks at it
-        again."""
-        from app.platform.jobs.worker import recover_stale_jobs
-
+    @STALE_SETTLERS
+    async def test_every_settler_cancels_it(self, test_db_session, settle) -> None:
+        """Both settlers cancel an abandoned direct upload."""
         job = await _make_pending_job(
             test_db_session,
             age_seconds=7200,
@@ -1199,9 +1182,8 @@ class TestAbandonedDirectUploadsAreCancelled:
             presigned=False,
         )
 
-        await recover_stale_jobs()
+        await settle(test_db_session)
 
-        test_db_session.expire_all()
         await test_db_session.refresh(job)
         assert job.status == "cancelled"
         assert job.error_message == "Abandoned: upload was never completed"

@@ -33,7 +33,7 @@ from sqlalchemy.exc import (
     PendingRollbackError,
 )
 
-from app.platform.jobs.sweep import is_abandoned_upload
+from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY
 
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parents[1]
 APP_ROOT = BACKEND_ROOT / "app"
@@ -402,7 +402,7 @@ async def test_a_failed_marker_write_resets_the_session_before_settling() -> Non
     # The marker never landed, so `pending` is precisely the state that would
     # have been misread. Being terminal is what keeps the row out of the
     # sweep's pending class.
-    assert is_abandoned_upload(job.user_metadata), (
+    assert not (job.user_metadata or {}).get(COMMIT_ATTEMPTED_METADATA_KEY), (
         "the marker is expected NOT to have landed; if it did, this test is "
         "no longer exercising the failure it was written for"
     )
@@ -479,7 +479,7 @@ async def test_a_failed_marker_write_settles_the_real_row_without_a_reload(
     ).scalar_one()
     assert settled.status == "failed"
     assert "Failed to queue ingest task" in (settled.error_message or "")
-    assert is_abandoned_upload(settled.user_metadata), (
+    assert not (settled.user_metadata or {}).get(COMMIT_ATTEMPTED_METADATA_KEY), (
         "the marker is expected NOT to have landed; if it did, this test is "
         "no longer exercising the failure it was written for"
     )

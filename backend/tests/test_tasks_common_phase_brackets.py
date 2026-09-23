@@ -37,6 +37,7 @@ from app.platform.jobs.models import IngestJob
 from app.processing.ingest.tasks_common import _job_phase_session
 
 from tests.factories import get_user_id
+from tests.stale_settlers import STALE_SETTLERS
 
 APP = Path(__file__).resolve().parents[1] / "app"
 
@@ -334,8 +335,9 @@ def test_every_phase2_site_requires_running() -> None:
 
 
 @pytest.mark.anyio
+@STALE_SETTLERS
 async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
-    test_db_session,
+    test_db_session, settle
 ) -> None:
     """fix(#1778 audit r12): the pin for the TOCTOU round 11 left open. A
     plain SELECT is not a lock, so the sweep could still fail a row in the
@@ -355,7 +357,6 @@ async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
     from datetime import datetime, timedelta, timezone
 
     from app.core.db import async_session
-    from app.platform.jobs.router import fail_stale_jobs
 
     job_id = await _create_pending_job(test_db_session)
     async with _job_phase_session(job_id, phase="phase1") as (session, job):
@@ -377,7 +378,7 @@ async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
         assert locked_job is not None
 
         async with async_session() as sweep_session:
-            await fail_stale_jobs(sweep_session, detailed=True)
+            await settle(sweep_session)
 
         # Still running: SKIP LOCKED excluded this row from that pass
         # instead of blocking on it or failing the pass outright.
@@ -386,24 +387,6 @@ async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
     # The lock is released once phase 2's own session closes. A later sweep
     # pass now sees the row (still past its cutoff) and settles it.
     async with async_session() as sweep_session:
-        await fail_stale_jobs(sweep_session, detailed=True)
+        await settle(sweep_session)
 
     assert await _select_status(test_db_session, job_id) == "failed"
-
-
-def test_both_running_job_transitions_use_skip_locked() -> None:
-    """fix(#1778 audit r12): the sweep side of the fix has two independent
-    copies -- ``fail_stale_jobs`` (the periodic sweeper) and the worker's own
-    startup recovery pass -- and both had the identical bulk-UPDATE race, so
-    both need the identical fix. The interleaving test above exercises
-    ``fail_stale_jobs`` end to end; this pins that ``worker.py``'s mirror
-    was not left on the old bare ``UPDATE ... WHERE status = 'running'``,
-    which would still block (or, with a `lock_timeout`, abort the WHOLE
-    batch) on a row a live phase 2 holds locked."""
-    needle = ".with_for_update(skip_locked=True)"
-    for rel in (
-        "platform/jobs/sweep.py",
-        "platform/jobs/worker.py",
-    ):
-        source = (APP / rel).read_text()
-        assert needle in source, rel

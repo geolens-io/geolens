@@ -1,4 +1,4 @@
-"""Worker startup recovery applies the sweep's unclaimed-queue exemption."""
+"""Both stale-job settlers apply the unclaimed-queue exemption."""
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
-from app.platform.jobs.worker import recover_stale_jobs
+from tests.stale_settlers import STALE_SETTLERS
 
 pytestmark = pytest.mark.anyio
 
@@ -44,29 +44,28 @@ async def _queue_todo_entry(session: AsyncSession, job_id: UUID) -> None:
     await session.commit()
 
 
-class TestStartupRecoverySparesAQueuedRunningJob:
-    async def test_a_todo_queue_entry_survives_startup_recovery(
-        self, test_db_session: AsyncSession
+@STALE_SETTLERS
+class TestSettlementSparesAQueuedRunningJob:
+    async def test_a_todo_queue_entry_survives_settlement(
+        self, test_db_session: AsyncSession, settle
     ) -> None:
         """A stale running job whose queue entry is still todo stays running."""
         job = await _stale_running_job(test_db_session)
         await _queue_todo_entry(test_db_session, job.id)
 
-        await recover_stale_jobs()
+        await settle(test_db_session)
 
-        test_db_session.expire_all()
         await test_db_session.refresh(job)
         assert job.status == "running", job.error_message
 
     async def test_the_same_row_without_a_queue_entry_is_failed(
-        self, test_db_session: AsyncSession
+        self, test_db_session: AsyncSession, settle
     ) -> None:
         """The same stale job with no queue entry is failed."""
         job = await _stale_running_job(test_db_session)
 
-        await recover_stale_jobs()
+        await settle(test_db_session)
 
-        test_db_session.expire_all()
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert "Stale: running" in (job.error_message or "")

@@ -336,14 +336,21 @@ class TestReconciliationCounterPublishesOnlyAfterCommit:
         """
         import inspect
 
-        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs import sweep as jobs_sweep
+        from app.platform.jobs import worker as jobs_worker
 
-        source = inspect.getsource(jobs_router.fail_stale_jobs)
-        assert "refresh_sweep_reconciled_total.inc" not in source
-        assert "_refresh_runs_reconciled=cancelled_runs" in source
-        assert source.index("await db.commit()") < source.index(
-            "publish_refresh_reconciliation"
-        )
+        settle = inspect.getsource(jobs_sweep.settle_stale_jobs)
+        assert "refresh_sweep_reconciled_total.inc" not in settle
+        assert "_refresh_runs_reconciled=cancelled_runs" in settle
+        for commit_site in (
+            jobs_sweep.fail_stale_jobs,
+            jobs_worker._recover_stale_jobs_for_current_scope,
+        ):
+            source = inspect.getsource(commit_site)
+            assert "refresh_sweep_reconciled_total.inc" not in source
+            assert source.index("commit()") < source.index(
+                "publish_refresh_reconciliation(outcome)"
+            )
 
     def test_the_admin_path_publishes_after_its_own_commit(self) -> None:
         """commit=False hands the publish to the caller that owns the commit."""

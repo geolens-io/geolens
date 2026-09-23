@@ -46,6 +46,7 @@ from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings.models import RecordEmbedding
 
 from tests.factories import create_dataset, get_user_id
+from tests.stale_settlers import STALE_SETTLERS
 
 _URL = "/admin/backfill-embeddings/"
 _FORCE_URL = "/admin/backfill-embeddings/?force=true"
@@ -2174,36 +2175,30 @@ async def test_a_lost_ack_does_not_claim_a_failure_another_actor_wrote(
     "job_status,error_code",
     [("running", "worker_lost"), ("pending", "never_started")],
 )
-async def test_the_worker_startup_recovery_closes_the_trail_it_settles(
+@STALE_SETTLERS
+async def test_every_settler_closes_the_trail_it_settles(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session: AsyncSession,
     job_status: str,
     error_code: str,
+    settle,
 ):
-    """A hard kill's recovery is the restarted worker's, not the 5-minute sweep.
-
-    Both settle the row; only one of them was closing the trail. Whichever gets
-    there first is the last actor the run will ever have, because a terminal row
-    drops out of every other sweep's predicate — so the trail sits at
-    `requested` forever, over a force run that may have deleted every vector.
-    """
-    from app.platform.jobs.worker import recover_stale_jobs
-
+    """Each settler closes the audit trail of a backfill row it settles."""
     upload = await _stale_job(test_db_session, status=job_status, backfill=False)
     backfill = await _stale_job(test_db_session, status=job_status, backfill=True)
     upload_id, backfill_id = str(upload.id), str(backfill.id)
 
     assert (
         await _terminal_audit_entries(client, admin_auth_header, backfill_id) == []
-    ), "the run already had a terminal entry before the recovery — vacuous"
+    ), "the run already had a terminal entry before the settler ran, so vacuous"
 
-    await recover_stale_jobs()
+    await settle(test_db_session)
 
-    # Non-vacuity: the recovery genuinely settled both rows. If the advisory
-    # lock was held elsewhere it skips the pass entirely, and this says so.
+    # Non-vacuity: recovery skips the whole pass when another worker holds its
+    # lock, and this says so.
     assert (await _load_job(test_db_session, backfill_id)).status == "failed", (
-        "the startup recovery did not settle the row — nothing to close a trail for"
+        "the settler did not settle the row, so there was no trail to close"
     )
     assert (await _load_job(test_db_session, upload_id)).status == "failed"
 
@@ -2214,7 +2209,7 @@ async def test_the_worker_startup_recovery_closes_the_trail_it_settles(
     # The same discrimination the shared sweep owes: the ordinary upload
     # settled in the same pass gets no entry of any kind.
     assert await _audit_entries_naming(test_db_session, upload_id) == 0, (
-        "the startup recovery wrote an audit entry for an ordinary upload"
+        "the settler wrote an audit entry for an ordinary upload"
     )
 
 
