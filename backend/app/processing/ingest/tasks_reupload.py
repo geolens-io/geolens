@@ -606,21 +606,7 @@ async def reupload_file(
             # Captured pre-commit: the ORM attribute may be expired after commit.
             live_table_name = dataset.table_name
 
-            # 9. Archive original file to storage provider.
-            # Best-effort: failure does NOT fail the reupload (data is already
-            # in PostGIS). Suppress the helper's inline commit so the
-            # archive_failed flag rides along with the status=complete commit
-            # below, avoiding a second round trip (CLEANUP-4).
-            await _archive_original_file(
-                session,
-                job=job,
-                dataset_id=dataset.id,
-                file_path=file_path,
-                log_message="Failed to archive re-uploaded file to storage",
-                commit=False,
-            )
-
-            # 10. Update job status to complete
+            # 9. Update job status to complete
             await require_ingest_job_update(
                 session,
                 job_uuid,
@@ -647,6 +633,23 @@ async def reupload_file(
                 contacted_origin=False,
             )
             await session.commit()
+
+            # 10. Archive original file to storage provider, after the swap
+            # commit above so the upload doesn't run under the rename's
+            # exclusive lock on the live table.
+            #
+            # Best-effort: a failed archive does not fail the reupload (data
+            # is already in PostGIS) — the helper records archive_failed on
+            # job.user_metadata and commits that itself. Refreshed first so
+            # that read-modify-write sees the row as committed just above.
+            await session.refresh(job)
+            await _archive_original_file(
+                session,
+                job=job,
+                dataset_id=dataset.id,
+                file_path=file_path,
+                log_message="Failed to archive re-uploaded file to storage",
+            )
 
         final_status = "complete"
         await invalidate_catalog_cache()
