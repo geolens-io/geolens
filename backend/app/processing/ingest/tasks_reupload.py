@@ -1022,17 +1022,22 @@ async def _defer_embedding_after_publication(
     from app.core.db import async_session
     from sqlalchemy.orm import joinedload
 
-    async with async_session() as embed_session:
-        dataset_result = await embed_session.execute(
-            select(Dataset)
-            .options(joinedload(Dataset.record))
-            .where(Dataset.id == dataset_uuid)
-        )
-        embed_dataset = dataset_result.scalar_one_or_none()
-        if embed_dataset is not None:
-            from app.processing.embeddings.helpers import defer_embedding
+    try:
+        async with async_session() as embed_session:
+            dataset_result = await embed_session.execute(
+                select(Dataset)
+                .options(joinedload(Dataset.record))
+                .where(Dataset.id == dataset_uuid)
+            )
+            embed_dataset = dataset_result.scalar_one_or_none()
+            if embed_dataset is not None:
+                from app.processing.embeddings.helpers import defer_embedding
 
-            await defer_embedding(embed_dataset)
+                await defer_embedding(embed_dataset)
+    except Exception:  # broad: post-commit enrichment cannot rewrite publication
+        structlog.get_logger().warning(
+            "reupload_service_embedding_defer_failed", dataset_id=str(dataset_uuid)
+        )
 
 
 def _matches_service_origin(
