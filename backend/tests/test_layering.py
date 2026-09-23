@@ -1307,7 +1307,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_reupload.py": 1576,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1457,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1471,
     # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1175,
     # Reconciliation and reapers serve startup, workers and admin cleanup consistently.

@@ -235,6 +235,17 @@ async def _release_blocked_refresh_acceptance(
     )
 
 
+async def _ended_unpublished(db: AsyncSession, run_id: uuid.UUID) -> bool:
+    """Whether a run is terminal without having published: cancelled or failed.
+
+    A blocked run is the worker's verdict on the acceptance, so it counts as used.
+    """
+    status_now = await db.scalar(
+        select(DatasetRefreshRun.status).where(DatasetRefreshRun.id == run_id)
+    )
+    return status_now in ("cancelled", "failed")
+
+
 def _lease_releasing_rollback(
     inner_rollback,
     *,
@@ -245,19 +256,22 @@ def _lease_releasing_rollback(
 ) -> RollbackCallable:
     """A refresh door's defer rollback: the job and run, then what it leased.
 
-    The acceptance and credential are released only when the job write
-    landed; a worker that claimed the job still needs both.
+    The credential is discarded only when the job write landed. On a miss, the
+    acceptance still comes back if the accepting run ended unpublished.
     """
 
     async def _rollback(defer_exc: BaseException) -> None:
-        if not await inner_rollback(defer_exc):
-            return
-        await _release_blocked_refresh_acceptance(
-            db, blocked_run_id=blocked_run_id, new_run_id=new_run_id
-        )
-        # Only a landed job write means no worker will redeem it. After a
-        # miss, the credential's TTL is the real guarantee.
-        await discard_service_credential(credential_ref)
+        landed = await inner_rollback(defer_exc)
+        if blocked_run_id is not None and (
+            landed or await _ended_unpublished(db, new_run_id)
+        ):
+            await _release_blocked_refresh_acceptance(
+                db, blocked_run_id=blocked_run_id, new_run_id=new_run_id
+            )
+        if landed:
+            # Only a landed job write means no worker will redeem it. After a
+            # miss, the credential's TTL is the real guarantee.
+            await discard_service_credential(credential_ref)
 
     return _rollback
 

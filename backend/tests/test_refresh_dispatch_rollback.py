@@ -1,15 +1,14 @@
-"""A failed dispatch's rollback compensates only when it failed the job itself."""
+"""A failed dispatch's rollback never takes back what a worker has claimed."""
 
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from datetime import datetime, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
-from app.modules.catalog.datasets.api import router_refresh
 from app.platform.jobs.defer_guard import (
     DeferFailed,
     defer_with_orphan_guard,
@@ -20,6 +19,7 @@ from app.platform.jobs.models import IngestJob
 from app.platform.refresh import credentials as creds
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
+    cancel_active_run_for_job,
     claim_run_for_job,
     create_pending_run,
     make_refresh_run_failed_rollback,
@@ -65,6 +65,52 @@ def _failing_defer(*, claimed: bool, claims_run: bool = True):
         raise RuntimeError("connection dropped after the insert")
 
     return _defer
+
+
+def _cancelling_defer():
+    """A defer that raises after a cancel settled its job and run."""
+    import app.core.db as db_module
+
+    async def _defer(**kwargs) -> None:
+        job_id = uuid.UUID(kwargs["job_id"])
+        async with db_module.async_session() as other:
+            cancelled = await other.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id, IngestJob.status == "pending")
+                .values(status="cancelled", error_message="Cancelled by user")
+            )
+            assert cancelled.rowcount == 1
+            assert await cancel_active_run_for_job(other, job_id) is not None
+            await other.commit()
+        raise RuntimeError("connection dropped after the insert")
+
+    return _defer
+
+
+async def _blocked_run(session, dataset_id: uuid.UUID) -> uuid.UUID:
+    """A blocked service refresh the next dispatch can accept."""
+    now = datetime.now(timezone.utc)
+    run = DatasetRefreshRun(
+        dataset_id=dataset_id,
+        origin_kind="service",
+        trigger="api",
+        status="blocked",
+        started_at=now,
+        created_at=now,
+        finished_at=now,
+        error_code="review_required",
+        verification={"review_fingerprint": "fp", "review_reasons": ["empty_result"]},
+    )
+    session.add(run)
+    await session.commit()
+    return run.id
+
+
+async def _consumed_by(session, run_id: uuid.UUID) -> str | None:
+    verification = await session.scalar(
+        select(DatasetRefreshRun.verification).where(DatasetRefreshRun.id == run_id)
+    )
+    return (verification or {}).get("acceptance_consumed_by_run_id")
 
 
 async def _committed_dispatch(session) -> tuple[IngestJob, uuid.UUID]:
@@ -179,38 +225,57 @@ async def _statuses(session, job_id: uuid.UUID) -> tuple[str, str | None]:
 
 
 class TestDoorCompensation:
-    @_CLAIMED
+    @pytest.mark.parametrize("scenario", ["worker-claimed", "cancelled", "unclaimed"])
     async def test_the_service_refresh_door(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
         credential_backend,  # noqa: F811
-        claimed: bool,
+        scenario: str,
     ):
-        """Its credential and blocked-run acceptance are released only when unclaimed."""
+        """The acceptance comes back unless a worker holds it, the credential only when unclaimed."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
-        release = AsyncMock(wraps=router_refresh._release_blocked_refresh_acceptance)
+        dataset_id = dataset.id
+        blocked_id = await _blocked_run(test_db_session, dataset_id)
+        defer = {
+            "worker-claimed": _failing_defer(claimed=True),
+            "cancelled": _cancelling_defer(),
+            "unclaimed": _failing_defer(claimed=False),
+        }[scenario]
 
         async with _service_harness() as task:
-            task.defer_async.side_effect = _failing_defer(claimed=claimed)
-            with patch.object(
-                router_refresh, "_release_blocked_refresh_acceptance", release
-            ):
-                resp = await client.post(
-                    f"/datasets/{dataset.id}/refresh",
-                    json={"token": "tok-" + uuid.uuid4().hex},
-                    headers=admin_auth_header,
-                )
+            task.defer_async.side_effect = defer
+            resp = await client.post(
+                f"/datasets/{dataset_id}/refresh",
+                json={
+                    "token": "tok-" + uuid.uuid4().hex,
+                    "accept_blocked_run_id": str(blocked_id),
+                },
+                headers=admin_auth_header,
+            )
 
         assert resp.status_code == 503, resp.text
         kwargs = task.defer_async.call_args.kwargs
-        await _assert_credential(kwargs["credential_ref"], kept=claimed)
-        assert release.await_count == (0 if claimed else 1)
-        status = "running" if claimed else "failed"
+        await _assert_credential(kwargs["credential_ref"], kept=scenario != "unclaimed")
+        status = {
+            "worker-claimed": "running",
+            "cancelled": "cancelled",
+            "unclaimed": "failed",
+        }[scenario]
         job_id = uuid.UUID(kwargs["job_id"])
         assert await _statuses(test_db_session, job_id) == (status, status)
+
+        released = scenario != "worker-claimed"
+        assert (await _consumed_by(test_db_session, blocked_id) is None) is released
+        async with _service_harness():
+            again = await client.post(
+                f"/datasets/{dataset_id}/refresh",
+                json={"accept_blocked_run_id": str(blocked_id)},
+                headers=admin_auth_header,
+            )
+        assert again.status_code == (202 if released else 422), again.text
 
     @_CLAIMED
     async def test_the_stac_refresh_door(
