@@ -168,24 +168,14 @@ function normalizeBuilderStyleConfig(
 }
 
 /**
- * Resolve the heatmap ramp name and direction that a legend/icon swatch should
- * draw. Reuses normalizeBuilderStyleConfig so the paint mirror (live edits)
- * and the persisted builder value (post-reload, once normalizeLayerStyleState
- * strips that mirror from paint) reconcile the same way everywhere, with the
- * same default ramp heatmap-adapter.ts falls back to.
+ * The heatmap ramp a legend swatch draws: paint mirror, then builder, then the
+ * legacy top-level `ramp`, then the adapter's default.
  */
 export function resolveHeatmapRamp(
   paint: Record<string, unknown> | null | undefined,
   styleConfig: StyleConfig | null | undefined,
 ): { rampName: string; reversed: boolean } {
-  // normalizeBuilderStyleConfig prefers a heatmap-mode raw.ramp over
-  // normalizedRawBuilder.heatmapRamp — right when raw is a fresh config
-  // straight off the API, but styleConfig here can already be normalized,
-  // where top-level `ramp` was set once and can go stale relative to a
-  // builder.heatmapRamp a later ramp change wrote. Hide `ramp` from that call
-  // so it falls through to the builder value, and apply the same top-level
-  // ramp only as our own last-resort fallback, for the legacy shape that
-  // never got a builder object at all.
+  // The normalizer ranks a heatmap `ramp` above the builder, and it can be stale.
   const { ramp: _ramp, ...styleConfigWithoutRamp } = styleConfig ?? {};
   const builder = normalizeBuilderStyleConfig(styleConfigWithoutRamp, paint);
   return {
