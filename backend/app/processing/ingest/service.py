@@ -1367,9 +1367,10 @@ async def queue_ingest_job(
             )
 
         async def _rollback_service(defer_exc: BaseException) -> None:
-            await job_failed(defer_exc)
-            # Best-effort: the TTL is the real guarantee, this just shortens
-            # a window nothing will use.
+            if not await job_failed(defer_exc):
+                return
+            # Only a landed job write means no worker will redeem it. After a
+            # miss, the credential's TTL is the real guarantee.
             await discard_service_credential(credential_ref)
 
         await defer_with_orphan_guard(

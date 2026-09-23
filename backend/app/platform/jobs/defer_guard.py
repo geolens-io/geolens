@@ -48,14 +48,14 @@ logger = structlog.get_logger()
 DeferCallable = Callable[[], Awaitable[Any]]
 """0-arg async callable that invokes ``task.defer_async(...)``."""
 
-RollbackCallable = Callable[[BaseException], Awaitable[None]]
+RollbackCallable = Callable[[BaseException], Awaitable[object]]
 """Async callable that reverts committed DB state after a defer failure.
 
 Receives the defer exception so the rollback can name its type in the
 stored reason (fix(#1953): ``coded_failure_reason``, never ``str(exc)``,
 which ADR-002 Decision 3 keeps out of a stored reason). Must *not* commit
 the session — ``defer_with_orphan_guard`` commits after invoking the
-rollback.
+rollback. The guard ignores its result.
 """
 
 
@@ -358,7 +358,7 @@ def make_ingest_job_failed_rollback(
     *,
     message_prefix: str = "Failed to queue ingest task",
     expected_status: str = "pending",
-) -> RollbackCallable:
+) -> Callable[[BaseException], Awaitable[bool]]:
     """Build a rollback closure that marks an ``IngestJob`` failed.
 
     Convenience for the common case (reupload, vanilla ingest) where the
@@ -368,11 +368,12 @@ def make_ingest_job_failed_rollback(
     ``message_prefix`` is embedded before the exception so
     ``job.error_message`` matches ``test_queue_ingest_job_*``'s expected format.
 
-    fix(#1709): fenced — see ``settle_ingest_job_failed``.
+    fix(#1709): fenced — see ``settle_ingest_job_failed``. The closure
+    returns whether its write landed, so a wrapper compensates only then.
     """
 
-    async def _rollback(defer_exc: BaseException) -> None:
-        await settle_ingest_job_failed(
+    async def _rollback(defer_exc: BaseException) -> bool:
+        return await settle_ingest_job_failed(
             job,
             defer_exc,
             message_prefix=message_prefix,

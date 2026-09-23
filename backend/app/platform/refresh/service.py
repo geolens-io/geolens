@@ -1028,13 +1028,18 @@ def make_refresh_run_failed_rollback(
     both the job's failure and the run's land in one transaction — the run
     can never say `pending` for a dispatch that provably never happened.
 
+    ``inner`` returns whether its fenced job write landed, and only then is
+    the run failed: a worker that claimed the job owns its run too. The
+    same answer is returned, for callers with more to compensate.
+
     Finalized AFTER the inner rollback, so a raise from the inner closure
     keeps the pre-existing behaviour (still returns 503) instead of being
     masked by this wrapper.
     """
 
-    async def _rollback(defer_exc: BaseException) -> None:
-        await inner(defer_exc)
+    async def _rollback(defer_exc: BaseException) -> bool:
+        if not await inner(defer_exc):
+            return False
         await record_refresh_failure(
             db,
             ingest_job_id=ingest_job_id,
@@ -1044,6 +1049,7 @@ def make_refresh_run_failed_rollback(
             ),
             contacted_origin=False,
         )
+        return True
 
     return _rollback
 

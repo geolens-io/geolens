@@ -56,6 +56,7 @@ from app.modules.catalog.sources.origin_probe import (
 from app.platform.dataset_origin import classify_origin, service_auth_required
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
+    RollbackCallable,
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
@@ -214,7 +215,7 @@ async def _release_blocked_refresh_acceptance(
     blocked_run_id: uuid.UUID | None,
     new_run_id: uuid.UUID,
 ) -> None:
-    """Make an acceptance reusable when its dispatch never reached the queue."""
+    """Make an acceptance reusable after a failed dispatch no worker will run."""
     if blocked_run_id is None:
         return
     await db.execute(
@@ -232,6 +233,47 @@ async def _release_blocked_refresh_acceptance(
             "new_run_id": str(new_run_id),
         },
     )
+
+
+async def _ended_unpublished(db: AsyncSession, run_id: uuid.UUID) -> bool:
+    """Whether a run is terminal without having published: cancelled or failed.
+
+    A blocked run is the worker's verdict on the acceptance, so it counts as used.
+    """
+    status_now = await db.scalar(
+        select(DatasetRefreshRun.status).where(DatasetRefreshRun.id == run_id)
+    )
+    return status_now in ("cancelled", "failed")
+
+
+def _lease_releasing_rollback(
+    inner_rollback,
+    *,
+    db: AsyncSession,
+    new_run_id: uuid.UUID,
+    credential_ref: str | None,
+    blocked_run_id: uuid.UUID | None = None,
+) -> RollbackCallable:
+    """A refresh door's defer rollback: the job and run, then what it leased.
+
+    The credential is discarded only when the job write landed. On a miss, the
+    acceptance still comes back if the accepting run ended unpublished.
+    """
+
+    async def _rollback(defer_exc: BaseException) -> None:
+        landed = await inner_rollback(defer_exc)
+        if blocked_run_id is not None and (
+            landed or await _ended_unpublished(db, new_run_id)
+        ):
+            await _release_blocked_refresh_acceptance(
+                db, blocked_run_id=blocked_run_id, new_run_id=new_run_id
+            )
+        if landed:
+            # Only a landed job write means no worker will redeem it. After a
+            # miss, the credential's TTL is the real guarantee.
+            await discard_service_credential(credential_ref)
+
+    return _rollback
 
 
 def _resolve_service_origin(dataset) -> _ServiceOrigin:
@@ -958,11 +1000,9 @@ async def _dispatch_stac_refresh(
         ingest_job_id=job_id,
     )
 
-    async def _rollback(defer_exc: BaseException) -> None:
-        await inner_rollback(defer_exc)
-        # The worker will never come for it, and the run is already terminal.
-        # Best-effort; the TTL is the real guarantee.
-        await discard_service_credential(credential_ref)
+    _rollback = _lease_releasing_rollback(
+        inner_rollback, db=db, new_run_id=run_id, credential_ref=credential_ref
+    )
 
     async def _defer_refresh() -> None:
         await defer_async_with_tenant(
@@ -1389,16 +1429,13 @@ async def refresh_dataset(
         ingest_job_id=job_id,
     )
 
-    async def _rollback(defer_exc: BaseException) -> None:
-        await inner_rollback(defer_exc)
-        await _release_blocked_refresh_acceptance(
-            db,
-            blocked_run_id=body.accept_blocked_run_id,
-            new_run_id=run_id,
-        )
-        # The worker will never come for it, and the run is already terminal.
-        # Best-effort; the TTL is the real guarantee.
-        await discard_service_credential(credential_ref)
+    _rollback = _lease_releasing_rollback(
+        inner_rollback,
+        db=db,
+        new_run_id=run_id,
+        credential_ref=credential_ref,
+        blocked_run_id=body.accept_blocked_run_id,
+    )
 
     async def _defer_refresh() -> None:
         task = get_catalog_port().verified_refresh_service_task()
