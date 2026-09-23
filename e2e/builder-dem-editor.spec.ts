@@ -67,8 +67,13 @@ async function getMapDetails(request: APIRequestContext, mapId: string): Promise
 }
 
 async function saveMap(page: Page, mapId: string) {
+  // A save PATCHes the layers, then PUTs the map-level fields (terrain_config
+  // among them), so wait for that PUT. Match the path exactly: a thumbnail PUT
+  // to /api/maps/{id}/thumbnail/ follows a save.
   const saved = page.waitForResponse(
-    (response) => response.url().includes(`/api/maps/${mapId}/layers`) && response.request().method() === 'PATCH',
+    (response) =>
+      new URL(response.url()).pathname === `/api/maps/${mapId}` &&
+      response.request().method() === 'PUT',
   );
   await page.getByRole('button', { name: /save/i }).first().click();
   expect((await saved).ok()).toBe(true);
