@@ -568,7 +568,7 @@ PINNED_DATASET_TITLES = (
 # for every builder except build_sentinel2 means create_map() beside the row that
 # is already there (build_sentinel2 deletes the stale rows under the same name
 # first, so there the old row and its links do go). The surviving row keeps the
-# uuid and the share token the links above use until someone prunes or deletes
+# uuid and the share token the examples use until someone prunes or deletes
 # it by hand. An operator who uses the flag therefore has to move the references
 # in geolens-examples (ci/fixtures.json, index.html) onto the new ids, or keep
 # the old row and let the new one sit beside it.
@@ -6270,9 +6270,6 @@ def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
                 continue
             print(f"  map     {name}: {map_id}")
 
-        # The other three pinned maps are deep-linked by id and normally carry
-        # no share link at all, so only the token-embedded one is worth
-        # reading and flagging here.
         embedded_id = maps_by_name.get(PINNED_MAP_EMBEDDED_BY_TOKEN)
         if embedded_id is not None and api.map_share_token(embedded_id) is None:
             print(
@@ -6295,9 +6292,6 @@ def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
             "-f event_type=demo-reseeded"
         )
     except httpx.HTTPError as e:
-        # A stale login token (main()'s access token is short-lived) or any
-        # other request failure here must not turn a good seed into a
-        # traceback - the ids are a courtesy, not part of the seed itself.
         print(f"\nSkipped the pinned-ids summary: {e}")
 
 
