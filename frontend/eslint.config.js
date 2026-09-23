@@ -54,6 +54,16 @@ export default defineConfig([
       // selector (requires 'Literal' type). This catches accidental/cargo-cult regression,
       // not motivated evasion. See docs-internal/audits/security-lessons.md for rationale
       // and the medium-term httpOnly-cookie migration plan.
+      // Browsers expose crypto.randomUUID only in secure contexts, so it throws
+      // on a deployment served over plain HTTP; randomId() falls back.
+      'no-restricted-properties': [
+        'error',
+        {
+          object: 'crypto',
+          property: 'randomUUID',
+          message: 'crypto.randomUUID is missing on plain-HTTP origins; use randomId() from @/lib/random-id.',
+        },
+      ],
       'no-restricted-syntax': [
         'error',
         {

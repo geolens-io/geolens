@@ -9,6 +9,7 @@ import {
   clearPersistedFolderGroup,
   pruneEmptyFolderGroups,
 } from '@/components/builder/folder-groups';
+import { randomId } from '@/lib/random-id';
 
 // STATE-02: folder-group handlers, relocated verbatim out of the useBuilderLayers
 // god-hook. PURE RELOCATION — handler bodies are unchanged; the shared layers
@@ -34,10 +35,10 @@ export function useFolderGroupLayers({
   const { t } = useTranslation('builder');
   const handleCreateGroupWithLayer = useCallback((layerId: string) => {
     // Generate id OUTSIDE the updater so both setters share the same value.
-    // Phase 1051 WR-01: crypto.randomUUID is collision-safe across bulk +
+    // randomId() is collision-safe across bulk +
     // single create paths firing in the same millisecond. The prior
     // `group-${Date.now()}` form collided under rapid bulk operations.
-    const groupId = `group-${crypto.randomUUID()}`;
+    const groupId = `group-${randomId()}`;
 
     setLocalLayers((prev) => {
       const idx = prev.findIndex((l) => l.id === layerId);

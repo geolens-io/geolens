@@ -36,6 +36,7 @@ import { BulkReviewList } from './BulkReviewList';
 import { BulkTrackingList } from './BulkTrackingList';
 import type { FileEntry, BatchPhase, CommitImportRequest } from '@/types/api';
 import { ApiError } from '@/api/client';
+import { randomId } from '@/lib/random-id';
 
 
 function getErrorHint(errorMsg: string, t: (key: string) => string): string | null {
@@ -326,7 +327,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     if (unique.length === 0) return;
 
     const newEntries: FileEntry[] = unique.map((file) => ({
-      id: crypto.randomUUID(),
+      id: randomId(),
       file,
       fileName: file.name,
       status: 'uploading' as const,
@@ -595,7 +596,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     // fix(#2034): every layer takes the previewed layer's kind (best proxy available) — a mixed container needs per-layer geometry_type on LayerPreview to do better.
     const previewedLayerKind = entry.previewData.geometry_type ? ('vector' as const) : ('table' as const);
     const queuedEntries = queuedLayers.map((layer) => ({
-      id: crypto.randomUUID(),
+      id: randomId(),
       file: null,
       fileName: `${fileBase}: ${layer.layer_name}`,
       status: 'tracking' as const,
