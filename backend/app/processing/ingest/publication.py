@@ -9,7 +9,7 @@ from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.failure_reason import redact_failure_reason
 from app.core.url_redaction import scrub_secret_from_exception
@@ -67,6 +67,7 @@ class PublicationSettlementCommand:
 
     session: AsyncSession
     dataset: Any
+    dataset_id: uuid.UUID
     job_id: uuid.UUID
     attempt_id: uuid.UUID
     staging_table: str
@@ -89,7 +90,7 @@ class PublicationSettlementCommand:
     accepted_fingerprint: str | None
     accepted_run_id: str | None
     origin_binding: tuple[str | None, dict[str, Any] | None, str | None] | None
-    contacted_origin: bool = True
+    failure_contacted_origin: bool
     credential_for_error_scrubbing: str | None = None
 
 
@@ -275,15 +276,30 @@ async def _record_settlement_failure(
             ingest_job_id=command.job_id,
             error_code=_service_refresh_error_code(exc),
             error_message=exc,
-            contacted_origin=(
-                command.contacted_origin and command.origin_binding is not None
-            ),
-            origin_binding=command.origin_binding,
+            contacted_origin=False,
             feature_count_after=command.metadata.get("feature_count"),
             schema_diff=command.schema_diff,
             verification=verification,
         )
+        contact_stamped = False
+        if command.failure_contacted_origin and command.origin_binding is not None:
+            bound_uri, bound_ref, bound_format = command.origin_binding
+            outcome = await session.execute(
+                update(type(command.dataset))
+                .where(
+                    type(command.dataset).id == command.dataset_id,
+                    type(command.dataset).origin_uri.is_not_distinct_from(bound_uri),
+                    type(command.dataset).origin_ref.is_not_distinct_from(bound_ref),
+                    type(command.dataset).source_format.is_not_distinct_from(
+                        bound_format
+                    ),
+                )
+                .values(last_checked_at=datetime.now(timezone.utc))
+            )
+            contact_stamped = bool(outcome.rowcount)
         await session.commit()
+    if contact_stamped:
+        await invalidate_catalog_cache()
 
 
 async def _invalidate_after_commit(
@@ -360,7 +376,7 @@ async def settle_publication(
             feature_count_after=command.metadata.get("feature_count"),
             schema_diff=command.schema_diff,
             verification=verification,
-            contacted_origin=command.contacted_origin,
+            contacted_origin=True,
         )
         await command.session.commit()
     except PublicationPostCommitFailure:

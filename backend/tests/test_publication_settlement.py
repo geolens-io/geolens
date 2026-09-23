@@ -17,6 +17,10 @@ from app.platform.jobs.heartbeat import attempt_scoped_staging_table
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.service import claim_run_for_job, create_pending_run
 from app.platform.refresh.models import DatasetRefreshRun
+from app.platform.refresh.verification import (
+    canonical_service_source_binding_fingerprint,
+)
+from app.platform.dataset_origin import set_dataset_origin
 from app.processing.ingest.publication import (
     PublicationOutcome,
     PublicationPostCommitFailure,
@@ -99,6 +103,7 @@ def _command(session, dataset, job, staging, admin_id, *, refresh: bool):
     return PublicationSettlementCommand(
         session=session,
         dataset=dataset,
+        dataset_id=dataset.id,
         job_id=job.id,
         attempt_id=job.attempt_id,
         staging_table=staging,
@@ -121,6 +126,7 @@ def _command(session, dataset, job, staging, admin_id, *, refresh: bool):
         accepted_fingerprint=None,
         accepted_run_id=None,
         origin_binding=None,
+        failure_contacted_origin=False,
     )
 
 
@@ -323,6 +329,65 @@ async def test_superseded_attempt_is_fenced_before_its_swap(test_db_session):
     assert name == "original"
 
 
+async def test_source_rebind_is_fenced_through_settlement_before_swap(
+    test_db_session,
+):
+    dataset, job, staging, admin_id = await _prepared_candidate(
+        test_db_session, refresh=True
+    )
+    dataset_id = dataset.id
+    live_table = dataset.table_name
+    source_binding = {
+        "service_type": "wfs",
+        "url": "https://services.example.test/wfs",
+        "layer_id": "roads",
+    }
+    set_dataset_origin(
+        dataset,
+        "service",
+        uri=source_binding["url"],
+        **source_binding,
+    )
+    run = await test_db_session.scalar(
+        select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job.id)
+    )
+    run.source_binding_fingerprint = canonical_service_source_binding_fingerprint(
+        source_binding
+    )
+    await test_db_session.commit()
+    set_dataset_origin(
+        dataset,
+        "service",
+        uri="https://services.example.test/rebound",
+        service_type="wfs",
+        url="https://services.example.test/rebound",
+        layer_id="roads",
+    )
+    await test_db_session.commit()
+    dataset = (
+        await test_db_session.execute(
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.id == dataset_id)
+        )
+    ).scalar_one()
+
+    with pytest.raises(PublicationSettlementFailure):
+        await settle_publication(
+            replace(
+                _command(
+                    test_db_session, dataset, job, staging, admin_id, refresh=True
+                ),
+                expected_feature_count=1,
+            )
+        )
+
+    live_name = await test_db_session.scalar(
+        sa.text(f'SELECT name FROM data."{live_table}"')
+    )
+    assert live_name == "original"
+
+
 async def test_settlement_failure_scrubs_credential_before_durable_writes(
     test_db_session, monkeypatch
 ):
@@ -362,3 +427,95 @@ async def test_settlement_failure_scrubs_credential_before_durable_writes(
     assert live_name == "original"
     assert secret not in (failed_job.error_message or "")
     assert secret not in (failed_run.error_message or "")
+
+
+async def test_different_service_failure_does_not_stamp_stored_origin(
+    test_db_session, monkeypatch
+):
+    dataset, job, staging, admin_id = await _prepared_candidate(
+        test_db_session, refresh=False
+    )
+    dataset_id = dataset.id
+    set_dataset_origin(
+        dataset,
+        "service",
+        uri="https://services.example.test/stored",
+        service_type="wfs",
+        url="https://services.example.test/stored",
+        layer_id="roads",
+    )
+    bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+    await test_db_session.commit()
+    dataset = (
+        await test_db_session.execute(
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.id == dataset_id)
+        )
+    ).scalar_one()
+
+    async def fail_swap(*args, **kwargs):
+        raise RuntimeError("swap failed")
+
+    monkeypatch.setattr(
+        "app.processing.ingest.publication._apply_reupload_swap", fail_swap
+    )
+    with pytest.raises(PublicationSettlementFailure):
+        await settle_publication(
+            replace(
+                _command(
+                    test_db_session, dataset, job, staging, admin_id, refresh=False
+                ),
+                failure_contacted_origin=False,
+                origin_binding=bound,
+            )
+        )
+
+    test_db_session.expire_all()
+    assert (await test_db_session.get(Dataset, dataset_id)).last_checked_at is None
+
+
+async def test_matching_service_failure_stamps_contact_without_a_refresh_run(
+    test_db_session, monkeypatch
+):
+    dataset, job, staging, admin_id = await _prepared_candidate(
+        test_db_session, refresh=False
+    )
+    dataset_id = dataset.id
+    set_dataset_origin(
+        dataset,
+        "service",
+        uri="https://services.example.test/wfs",
+        service_type="wfs",
+        url="https://services.example.test/wfs",
+        layer_id="roads",
+    )
+    bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+    await test_db_session.commit()
+    dataset = (
+        await test_db_session.execute(
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.id == dataset_id)
+        )
+    ).scalar_one()
+
+    async def fail_swap(*args, **kwargs):
+        raise RuntimeError("swap failed")
+
+    monkeypatch.setattr(
+        "app.processing.ingest.publication._apply_reupload_swap", fail_swap
+    )
+    with pytest.raises(PublicationSettlementFailure):
+        await settle_publication(
+            replace(
+                _command(
+                    test_db_session, dataset, job, staging, admin_id, refresh=False
+                ),
+                origin_binding=bound,
+                failure_contacted_origin=True,
+            )
+        )
+
+    test_db_session.expire_all()
+    assert (await test_db_session.get(Dataset, dataset_id)).last_checked_at is not None

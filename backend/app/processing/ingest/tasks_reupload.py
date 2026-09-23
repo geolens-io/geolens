@@ -1452,6 +1452,7 @@ async def reupload_service(
                 PublicationSettlementCommand(
                     session=session,
                     dataset=dataset,
+                    dataset_id=dataset_uuid,
                     job_id=job_uuid,
                     attempt_id=attempt_uuid,
                     staging_table=staging_tn,
@@ -1479,6 +1480,7 @@ async def reupload_service(
                     accepted_fingerprint=accepted_refresh_fingerprint,
                     accepted_run_id=accepted_refresh_run_id,
                     origin_binding=reupload_bound,
+                    failure_contacted_origin=origin_contact_attempted,
                     credential_for_error_scrubbing=token,
                 )
             )
