@@ -2832,6 +2832,7 @@ describe('SHARE-09 export PNG composition', () => {
   let fillTextSpy: ReturnType<typeof vi.fn>;
   let fillRectSpy: ReturnType<typeof vi.fn>;
   let strokeStyleAtStroke: string[];
+  let fillAtFillRect: { style: unknown; alpha: unknown }[];
   let createGradientSpy: ReturnType<typeof vi.fn>;
   let addColorStopSpy: ReturnType<typeof vi.fn>;
   let toBlobSpy: ReturnType<typeof vi.fn>;
@@ -2853,7 +2854,8 @@ describe('SHARE-09 export PNG composition', () => {
     mockEdition.isEnterprise = false;
 
     fillTextSpy = vi.fn();
-    fillRectSpy = vi.fn();
+    fillAtFillRect = [];
+    fillRectSpy = vi.fn(() => { fillAtFillRect.push({ style: ctx2d.fillStyle, alpha: ctx2d.globalAlpha }); });
     strokeStyleAtStroke = [];
     // Mimic the browser: CanvasGradient.addColorStop throws on an unparseable color.
     addColorStopSpy = vi.fn((_offset: number, color: unknown) => {
@@ -2880,6 +2882,7 @@ describe('SHARE-09 export PNG composition', () => {
     const ctx2d = {
       fillStyle: '' as string | CanvasGradient,
       strokeStyle: '',
+      globalAlpha: 1,
       font: '',
       textBaseline: '',
       lineWidth: 1,
@@ -3076,22 +3079,12 @@ describe('SHARE-09 export PNG composition', () => {
     });
   });
 
-  it('swatch border uses the layer stroke color for hollow-circle styles', () => {
+  it('draws each legend swatch with the stroke and opacities from its facts', () => {
     const mockMap = makeExportMap();
-    // Light fill + colored stroke (hollow circle). The old export drew the near-white
-    // fill with a faint 0.15 border, so the swatch was effectively invisible.
-    const hollow = makeLayer({
-      id: 'layer-eruptions',
-      display_name: 'Eruptions',
-      dataset_geometry_type: 'MULTIPOINT',
-      paint: { 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c' },
-      visible: true,
-      show_in_legend: true,
-    });
     const state = makeSaveState({
       localName: '',
       localDescription: '',
-      localLayers: [hollow],
+      localLayers: [SAVED_LAYERS.point, SAVED_LAYERS.ringlessPoint, SAVED_LAYERS.polygon],
       mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
     });
     const { result } = renderHook(() => useBuilderSave(state));
@@ -3099,73 +3092,19 @@ describe('SHARE-09 export PNG composition', () => {
     act(() => { result.current.handleExportPNG(); });
     act(() => { fireRenderCallback(mockMap); });
 
-    // The swatch border is the visible stroke color, not the transparent fallback.
-    expect(strokeStyleAtStroke).toContain('#ea580c');
-  });
-
-  it('does not draw the stroke-color border when the stroke is disabled', () => {
-    const mockMap = makeExportMap();
-    // Stroke turned off in the builder leaves a stale circle-stroke-color in paint;
-    // the export must not reintroduce it as a border (mirrors the map, which hides it).
-    const disabled = makeLayer({
-      id: 'layer-eruptions-off',
-      display_name: 'Eruptions (no ring)',
-      dataset_geometry_type: 'MULTIPOINT',
-      paint: { 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c', 'circle-stroke-width': 0 },
-      style_config: { builder: { strokeDisabled: true } } as MapLayerResponse['style_config'],
-      visible: true,
-      show_in_legend: true,
-    });
-    const state = makeSaveState({
-      localName: '',
-      localDescription: '',
-      localLayers: [disabled],
-      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
-    });
-    const { result } = renderHook(() => useBuilderSave(state));
-
-    act(() => { result.current.handleExportPNG(); });
-    act(() => { fireRenderCallback(mockMap); });
-
-    expect(strokeStyleAtStroke).not.toContain('#ea580c');
-    expect(strokeStyleAtStroke).toContain('rgba(0,0,0,0.35)');
-  });
-
-  it('keeps the stroke for a point layer with a stale builder.strokeDisabled (#2148)', () => {
-    const mockMap = makeExportMap();
-    // builder.strokeDisabled only applies to the polygon builder-adapter path; the
-    // circle adapter draws circle-stroke-width directly and ignores builder state,
-    // so a flag left stale from another edit must not hide a stroke the map draws.
-    const stale = makeLayer({
-      id: 'layer-stale-stroke-disabled',
-      display_name: 'Stale flag',
-      dataset_geometry_type: 'MULTIPOINT',
-      paint: { 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c', 'circle-stroke-width': 2 },
-      style_config: { builder: { strokeDisabled: true } } as MapLayerResponse['style_config'],
-      visible: true,
-      show_in_legend: true,
-    });
-    const state = makeSaveState({
-      localName: '',
-      localDescription: '',
-      localLayers: [stale],
-      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
-    });
-    const { result } = renderHook(() => useBuilderSave(state));
-
-    act(() => { result.current.handleExportPNG(); });
-    act(() => { fireRenderCallback(mockMap); });
-
-    expect(strokeStyleAtStroke).toContain('#ea580c');
+    // The ring, the neutral edge where the map draws no stroke, then the polygon's default outline.
+    expect(strokeStyleAtStroke).toEqual(['#1d4ed8', MAP_COLORS.previewOutline, MAP_COLORS.default.stroke]);
+    expect(fillAtFillRect).toContainEqual({ style: '#f59e0b', alpha: 1 });
+    expect(fillAtFillRect).toContainEqual({ style: '#3b82f6', alpha: 0.3 });
   });
 
   it('draws a gradient swatch for a multi-stop ramp layer', () => {
     const mockMap = makeExportMap();
-    // Empty paint + style_config.colors makes getLayerColors return the ramp array.
+    // A data-driven fill-color leaves the swatch no constant colour, so the export draws the ramp.
     const graduated = makeLayer({
       id: 'layer-graduated',
       display_name: 'Graduated',
-      paint: {},
+      paint: { 'fill-color': ['step', ['get', 'v'], '#111111', 10, '#999999'] },
       style_config: { colors: ['#111111', '#999999'] } as MapLayerResponse['style_config'],
       visible: true,
       show_in_legend: true,
@@ -3193,7 +3132,7 @@ describe('SHARE-09 export PNG composition', () => {
     const badRamp = makeLayer({
       id: 'layer-bad-ramp',
       display_name: 'Bad ramp',
-      paint: {},
+      paint: { 'fill-color': ['step', ['get', 'v'], '#111111', 10, '#222222'] },
       style_config: { colors: ['#111111', ''] } as MapLayerResponse['style_config'],
       visible: true,
       show_in_legend: true,

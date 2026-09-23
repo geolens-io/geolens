@@ -92,7 +92,6 @@ export const MAP_COLORS = {
   icon: {
     fallback: LIGHT_THEME_TOKEN_COLORS.viz[7],
     outline: '#666666',
-    invalidColor: '#333333',
   },
   /** Fixed colors for the exported map-image title, legend, attribution and
    *  branding footer. Deliberately a fixed LIGHT palette: an exported artifact
@@ -132,8 +131,6 @@ export const MAP_COLORS = {
   previewOutline: 'rgba(0,0,0,0.35)',
   /** Data-driven style fallback color */
   fallback: '#cccccc',
-  /** Legend outline fallback when no explicit outline-color is set */
-  legendOutline: 'rgba(0,0,0,0.15)',
   /** Select mode handle/midpoint colors */
   handle: {
     point: '#ffffff',

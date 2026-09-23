@@ -1,4 +1,5 @@
 import type { FillExtrusionLayerSpecification, Map as MaplibreMap } from 'maplibre-gl';
+import type { StyleConfig } from '@/types/api';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import {
   simplifyPaint,
@@ -120,6 +121,43 @@ function getExtrusionOptions(input: AdapterLayerInput) {
   };
 }
 
+/** The fill paint the adapter adds: the stored fill keys, or the default fill when none are stored. */
+export function resolveFillPaint(paint: Record<string, unknown>): Record<string, unknown> {
+  const fillPaint = filterPaintForLayerType(paint, 'fill');
+  return Object.keys(fillPaint).length > 0
+    ? fillPaint
+    : { 'fill-color': MAP_COLORS.default.fill, 'fill-opacity': MAP_COLORS.default.fillOpacity };
+}
+
+export interface PolygonStroke {
+  disabled: boolean;
+  /** The outline colour the style sets, if any. */
+  authoredColor: string | undefined;
+  /** The colour the outline layer draws: the authored colour, else the default stroke. */
+  color: string;
+  width: number;
+}
+
+/**
+ * The outline a polygon layer draws with its line companion. Builder state wins
+ * over the paint mirrors, so an explicit `strokeDisabled: false` beats a stale
+ * `_stroke-disabled`.
+ */
+export function resolvePolygonStroke(
+  paint: Record<string, unknown>,
+  builder: NonNullable<StyleConfig['builder']>,
+): PolygonStroke {
+  const color = builder.outlineColor ?? paint['_outline-color'] ?? paint['outline-color'];
+  const width = builder.outlineWidth ?? paint['_outline-width'] ?? paint['outline-width'];
+  const authoredColor = typeof color === 'string' ? color : undefined;
+  return {
+    disabled: builder.strokeDisabled ?? !!paint['_stroke-disabled'],
+    authoredColor,
+    color: authoredColor ?? MAP_COLORS.default.stroke,
+    width: typeof width === 'number' ? width : 1,
+  };
+}
+
 export const fillAdapter: LayerAdapter = {
   type: 'fill',
 
@@ -132,16 +170,10 @@ export const fillAdapter: LayerAdapter = {
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-      const fillPaint = filterPaintForLayerType(basePaint, 'fill');
-      const strokeDisabled = builder.strokeDisabled ?? !!(rawPaint['_stroke-disabled']);
-      const effectiveFillPaint: Record<string, unknown> = Object.keys(fillPaint).length
-        ? { ...fillPaint }
-        : {
-            'fill-color': MAP_COLORS.default.fill,
-            'fill-opacity': MAP_COLORS.default.fillOpacity,
-          };
+      const stroke = resolvePolygonStroke(rawPaint, builder);
+      const effectiveFillPaint = resolveFillPaint(basePaint);
       // Suppress native 1px fill outline when stroke is disabled
-      if (strokeDisabled) {
+      if (stroke.disabled) {
         effectiveFillPaint['fill-outline-color'] = MAP_COLORS.transparent;
       }
       const tintedFillPaint = withTintedFillPattern(map, rawPaint, builder, effectiveFillPaint);
@@ -166,22 +198,14 @@ export const fillAdapter: LayerAdapter = {
       });
       finalizeLayer(map, layerId, rawPaint, 'fill', opacity ?? 1, filter, hasExpressions);
 
-      const outlineColor =
-        builder.outlineColor
-        ?? (rawPaint['_outline-color'] as string | undefined)
-        ?? (rawPaint['outline-color'] as string | undefined);
-      const outlineWidth =
-        builder.outlineWidth
-        ?? (rawPaint['_outline-width'] as number | undefined)
-        ?? (rawPaint['outline-width'] as number | undefined);
       map.addLayer({
         id: outlineId,
         type: 'line',
         source: sourceId,
         ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
         paint: {
-          'line-color': (typeof outlineColor === 'string' ? outlineColor : null) ?? MAP_COLORS.default.stroke,
-          'line-width': outlineWidth ?? 1,
+          'line-color': stroke.color,
+          'line-width': stroke.width,
         },
         ...(visible === false ? { layout: { visibility: 'none' as const } } : {}),
       });
@@ -190,7 +214,7 @@ export const fillAdapter: LayerAdapter = {
       // When the layer is hidden we leave the outline hidden too (it cannot be
       // visible while its parent is none); when the layer is visible, we
       // restore the outline to follow the stroke-disabled rule.
-      if (strokeDisabled) {
+      if (stroke.disabled) {
         map.setLayoutProperty(outlineId, 'visibility', 'none');
       }
       syncLayerFilter(map, outlineId, filter);
@@ -224,6 +248,7 @@ export const fillAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     const builder = getBuilderStyleConfig(input);
+    const stroke = resolvePolygonStroke(rawPaint, builder);
     ensureFillPatternImages(map);
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
@@ -233,24 +258,19 @@ export const fillAdapter: LayerAdapter = {
       });
       applyMasterOpacity(map, layerId, rawPaint, 'fill', opacity ?? 1);
       syncLayerFilter(map, layerId, filter);
-      const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
-      const outlineColor = (builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
-      setLayerProperty(map, layerId, 'fill-outline-color', strokeDisabled ? MAP_COLORS.transparent : (outlineColor ?? MAP_COLORS.transparent));
+      setLayerProperty(map, layerId, 'fill-outline-color', stroke.disabled ? MAP_COLORS.transparent : (stroke.authoredColor ?? MAP_COLORS.transparent));
     }
     // Sync outline companion layer
     if (map.getLayer(outlineId)) {
-      const outlineStrokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
-      const outlineColor = builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color'];
-      const outlineWidth = builder.outlineWidth ?? rawPaint['_outline-width'] ?? rawPaint['outline-width'];
       syncOwnedPaintProperties(map, outlineId, {
-        'line-color': typeof outlineColor === 'string' ? outlineColor : MAP_COLORS.default.stroke,
-        'line-width': typeof outlineWidth === 'number' ? outlineWidth : 1,
+        'line-color': stroke.color,
+        'line-width': stroke.width,
         'line-layer-opacity': opacity ?? 1,
       }, {
         geomType: 'line',
         ownedProperties: OUTLINE_OWNED_PAINT_PROPERTIES,
       });
-      map.setLayoutProperty(outlineId, 'visibility', outlineStrokeDisabled ? 'none' : 'visible');
+      map.setLayoutProperty(outlineId, 'visibility', stroke.disabled ? 'none' : 'visible');
       syncLayerFilter(map, outlineId, filter);
     }
     // Sync fill-extrusion companion layer
@@ -294,8 +314,8 @@ export const fillAdapter: LayerAdapter = {
       // here resurrects a 1px outline that the user disabled (render-as 'Fill
       // only' sets strokeDisabled without zeroing outlineWidth). Gate it on the
       // same strokeDisabled flag syncPaint reads so the map stays in sync.
-      const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
-      map.setLayoutProperty(outlineId, 'visibility', visible && !strokeDisabled ? 'visible' : 'none');
+      const { disabled } = resolvePolygonStroke(rawPaint, builder);
+      map.setLayoutProperty(outlineId, 'visibility', visible && !disabled ? 'visible' : 'none');
     }
     if (map.getLayer(extrusionId)) {
       map.setLayoutProperty(extrusionId, 'visibility', vis);

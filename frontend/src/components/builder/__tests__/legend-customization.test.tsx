@@ -1,4 +1,4 @@
-/** Both legends draw the map's custom title and each entry's name from legendFacts. */
+/** Both legends draw the map's custom title, each entry's name and its swatches from legendFacts. */
 
 import { render, screen } from '@/test/test-utils';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,7 +6,8 @@ import { LegendPlugin } from '@/components/map-plugins/builtin/LegendPlugin';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { legendFacts } from '@/components/map/legend-facts';
 import type { PluginContext } from '@/components/map-plugins/types';
-import { savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
+import { MAP_COLORS } from '@/lib/map-colors';
+import { SAVED_LAYERS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -33,17 +34,31 @@ function makeCtx(overrides: Partial<PluginContext> = {}): PluginContext {
   };
 }
 
-function renderViewerLegend(legendTitle?: string) {
+function renderViewerLegend(legendTitle?: string, layer = labelledLayer) {
   return render(
     <LayerLegend
-      layers={[toSharedLayer(labelledLayer)]}
-      visibleLayers={new Set([labelledLayer.id])}
+      layers={[toSharedLayer(layer)]}
+      visibleLayers={new Set([layer.id])}
       onToggleVisibility={vi.fn()}
       isOpen
       onToggle={vi.fn()}
       legendTitle={legendTitle}
     />,
   );
+}
+
+/** A CSS colour as the DOM reports it back. */
+function cssColor(color: string): string {
+  const probe = document.createElement('div');
+  probe.style.color = color;
+  return probe.style.color;
+}
+
+// Zoning is a categorical polygon layer with no stored stroke.
+const zoning = SAVED_LAYERS.categorical;
+
+function classSwatchBorders(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('div[aria-hidden="true"]'), (chip) => chip.style.borderColor);
 }
 
 describe('builder legend (LegendPlugin)', () => {
@@ -59,6 +74,14 @@ describe('builder legend (LegendPlugin)', () => {
 
     expect(screen.queryByTestId('legend-title')).not.toBeInTheDocument();
   });
+
+  it('outlines class swatches with the default outline the map draws when no stroke is stored', () => {
+    const { container } = render(<LegendPlugin ctx={makeCtx({ layers: [zoning] })} />);
+
+    const borders = classSwatchBorders(container);
+    expect(borders).toHaveLength(3);
+    expect(new Set(borders)).toEqual(new Set([cssColor(MAP_COLORS.default.stroke)]));
+  });
 });
 
 describe('viewer legend (LayerLegend)', () => {
@@ -73,5 +96,13 @@ describe('viewer legend (LayerLegend)', () => {
     renderViewerLegend();
 
     expect(screen.queryByTestId('viewer-legend-title')).not.toBeInTheDocument();
+  });
+
+  it('outlines class swatches with the default outline the map draws when no stroke is stored', () => {
+    const { container } = renderViewerLegend(undefined, zoning);
+
+    const borders = classSwatchBorders(container);
+    expect(borders).toHaveLength(3);
+    expect(new Set(borders)).toEqual(new Set([cssColor(MAP_COLORS.default.stroke)]));
   });
 });

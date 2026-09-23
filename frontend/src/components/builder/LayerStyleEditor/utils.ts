@@ -1,5 +1,4 @@
 import { MAP_COLORS } from '@/lib/map-colors';
-import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig } from '@/types/api';
 
 // ---------------------------------------------------------------------------
@@ -117,43 +116,6 @@ export function withBuilderConfig(styleConfig: StyleConfig | null | undefined, p
   if (nextBuilder) nextConfig.builder = nextBuilder;
   else delete nextConfig.builder;
   return Object.keys(nextConfig).length > 0 ? nextConfig : null;
-}
-
-export function stylePreviewStyle(layer: MapLayerResponse) {
-  const paint = layer.paint ?? {};
-  const gt = (layer.dataset_geometry_type ?? '').toUpperCase();
-  if (gt.includes('POLYGON')) {
-    return {
-      // fix(#1288): builder.outlineColor wins over the flat paint mirror, which
-      // can go stale — the map itself renders from style_config.builder.
-      outlineColor: layer.style_config?.builder?.outlineColor
-        ?? (typeof paint['_outline-color'] === 'string' ? paint['_outline-color'] as string : undefined),
-      strokeDisabled: Boolean(layer.style_config?.builder?.strokeDisabled ?? paint['_stroke-disabled']),
-      opacity: layer.opacity,
-      fillOpacity: typeof paint['fill-opacity'] === 'number' ? paint['fill-opacity'] as number : undefined,
-      fillPattern: fillPatternFromPaint(paint),
-      fillPatternColor: fillPatternTint(paint, layer.style_config?.builder),
-      strokeWidth: typeof layer.style_config?.builder?.outlineWidth === 'number'
-        ? layer.style_config.builder.outlineWidth
-        : typeof paint['_outline-width'] === 'number'
-          ? paint['_outline-width'] as number
-          : undefined,
-    };
-  }
-  if (gt.includes('POINT')) {
-    return {
-      outlineColor: typeof paint['circle-stroke-color'] === 'string' ? paint['circle-stroke-color'] as string : undefined,
-      strokeDisabled: Boolean(layer.style_config?.builder?.strokeDisabled ?? paint['_stroke-disabled']),
-      opacity: layer.opacity,
-      fillOpacity: typeof paint['circle-opacity'] === 'number' ? paint['circle-opacity'] as number : undefined,
-      strokeWidth: typeof paint['circle-stroke-width'] === 'number' ? paint['circle-stroke-width'] as number : undefined,
-    };
-  }
-  return {
-    opacity: layer.opacity,
-    fillOpacity: typeof paint['line-opacity'] === 'number' ? paint['line-opacity'] as number : undefined,
-    strokeWidth: typeof paint['line-width'] === 'number' ? paint['line-width'] as number : undefined,
-  };
 }
 
 export function hasUnsupportedBuilderState(layer: MapLayerResponse, geomType: string): boolean {

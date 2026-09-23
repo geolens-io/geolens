@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { ColorizedGeometryIcon, LayerTypeIcon, extractStyleHints, getLayerColors, type LayerTypeIconLayer } from '../layer-icons';
+import { ColorizedGeometryIcon, LayerTypeIcon, getLayerColors, type LayerTypeIconLayer } from '../layer-icons';
+import type { LegendSwatch } from '../legend-facts';
+import { MAP_COLORS } from '@/lib/map-colors';
+import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
 import type { MapLayerResponse } from '@/types/api';
+
+function legendSwatch(overrides: Partial<LegendSwatch> = {}): LegendSwatch {
+  return { fill: null, fillOpacity: 1, opacity: 1, stroke: null, pattern: null, ...overrides };
+}
 
 // Guards the contract LegendPlugin + StackRow both depend on: callers pass the
 // capability KIND ('raster'/'vrt'), not the raw layer_type ('raster_geolens').
@@ -83,15 +90,9 @@ describe('discrete bands for categorical styles (ux #840)', () => {
   });
 });
 
-// fix(#452): replacement for the deleted StackRow.guard04.test.tsx. The
-// extractStyleHints memo moved verbatim into LayerTypeIcon, where a vi.spyOn
-// seam can no longer observe the (now intra-module) call. Instead, count
-// property READS on the paint object — extractStyleHints touches
-// `_stroke-disabled` on every compute and nothing else in the render path
-// does, so the read count is a spy-free recomputation counter. Guards the
-// `eslint-disable react-hooks/exhaustive-deps` memo: keying it on the local
-// `paint`/`layout` fallbacks (fresh objects per render) would silently kill
-// memoization for every stack row.
+// LayerTypeIcon memoizes its hint and swatch extraction. A spy cannot see the
+// in-module calls, so these count property READS: only the swatch reads a
+// polygon's `_stroke-disabled`, and a line's hints read `layout['line-dasharray']`.
 describe('LayerTypeIcon style-hint memoization (GUARD-04)', () => {
   function countingPaint() {
     let reads = 0;
@@ -167,8 +168,7 @@ describe('LayerTypeIcon style-hint memoization (GUARD-04)', () => {
   });
 });
 
-// fix(#951): the layer-list swatch showed a solid pentagon for a patterned
-// polygon layer. extractStyleHints now carries fill-pattern through.
+// The map draws a fill-pattern instead of the fill, so a patterned polygon's icon draws the pattern.
 describe('patterned polygon swatch (fix #951)', () => {
   it('renders the pattern preview instead of the solid pentagon', () => {
     const { container } = render(
@@ -176,7 +176,7 @@ describe('patterned polygon swatch (fix #951)', () => {
         geometryType="POLYGON"
         colors={['#ff5a5f']}
         layerId="x"
-        styleHints={{ fillPattern: 'geolens-fill-dots' }}
+        swatch={legendSwatch({ pattern: { id: 'geolens-fill-dots', tint: null } })}
       />,
     );
     expect(container.querySelector('.lucide-pentagon')).toBeNull();
@@ -194,7 +194,7 @@ describe('patterned polygon swatch (fix #951)', () => {
         geometryType="POLYGON"
         colors={['#ff5a5f']}
         layerId="x"
-        styleHints={{ fillPattern: 'geolens-fill-dots', fillPatternColor: '#1d4ed8' }}
+        swatch={legendSwatch({ pattern: { id: 'geolens-fill-dots', tint: '#1d4ed8' } })}
       />,
     );
     const chip = container.firstElementChild!.firstElementChild as HTMLElement;
@@ -209,7 +209,11 @@ describe('patterned polygon swatch (fix #951)', () => {
         geometryType="POLYGON"
         colors={['#ff5a5f']}
         layerId="x"
-        styleHints={{ fillPattern: 'geolens-fill-dots', fillOpacity: 0, strokeColor: '#ec4b7f' }}
+        swatch={legendSwatch({
+          pattern: { id: 'geolens-fill-dots', tint: null },
+          fillOpacity: 0,
+          stroke: { color: '#ec4b7f', width: 1 },
+        })}
       />,
     );
     const outer = container.firstElementChild as HTMLElement;
@@ -219,58 +223,13 @@ describe('patterned polygon swatch (fix #951)', () => {
     expect(inner.style.opacity).toBe('0');
   });
 
-  it('extractStyleHints resolves the tint from the fillColorSaved stash', () => {
-    // A pattern deletes fill-color from paint (EDIT-05), so the stash is the only
-    // place the layer's colour survives.
-    expect(
-      extractStyleHints({ 'fill-pattern': 'geolens-fill-grid' }, {}, 'POLYGON', 1, {
-        builder: { fillColorSaved: '#1d4ed8' },
-      }).fillPatternColor,
-    ).toBe('#1d4ed8');
-    // A layer that still carries both keys (older clients) tints from paint.
-    expect(
-      extractStyleHints({ 'fill-pattern': 'geolens-fill-grid', 'fill-color': '#ff0000' }, {}, 'POLYGON')
-        .fillPatternColor,
-    ).toBe('#ff0000');
-    // Nothing to tint with -> undefined, and every consumer falls back to grey.
-    expect(
-      extractStyleHints({ 'fill-pattern': 'geolens-fill-grid' }, {}, 'POLYGON').fillPatternColor,
-    ).toBeUndefined();
-  });
-
-  it('extractStyleHints picks fill-pattern up from polygon paint', () => {
-    expect(
-      extractStyleHints({ 'fill-pattern': 'geolens-fill-grid' }, {}, 'POLYGON').fillPattern,
-    ).toBe('geolens-fill-grid');
-    expect(extractStyleHints({ 'fill-color': '#fff' }, {}, 'POLYGON').fillPattern).toBeUndefined();
-  });
-
-  it('ignores a fill-pattern id that has no built-in preview', () => {
-    // An imported layer can carry any sprite id; taking the patterned branch for
-    // one we cannot draw would render an empty chip instead of the solid colour.
-    expect(extractStyleHints({ 'fill-pattern': 'custom-sprite' }, {}, 'POLYGON').fillPattern).toBeUndefined();
-    const { container } = render(
-      <ColorizedGeometryIcon
-        geometryType="POLYGON"
-        colors={['#ff5a5f']}
-        layerId="x"
-        styleHints={extractStyleHints({ 'fill-pattern': 'custom-sprite' }, {}, 'POLYGON')}
-      />,
-    );
-    expect(container.querySelector('.lucide-pentagon')).not.toBeNull();
-  });
-
-  it('carries the pattern through generic GEOMETRY layers (mixed adapter)', () => {
-    for (const gt of ['GEOMETRY', 'GEOMETRYCOLLECTION']) {
-      expect(extractStyleHints({ 'fill-pattern': 'geolens-fill-grid' }, {}, gt).fillPattern)
-        .toBe('geolens-fill-grid');
-    }
+  it('draws the pattern for generic GEOMETRY layers (mixed adapter)', () => {
     const { container } = render(
       <ColorizedGeometryIcon
         geometryType="GEOMETRY"
         colors={['#ff5a5f']}
         layerId="x"
-        styleHints={{ fillPattern: 'geolens-fill-grid' }}
+        swatch={legendSwatch({ pattern: { id: 'geolens-fill-grid', tint: null } })}
       />,
     );
     expect(container.querySelector('.lucide-pentagon')).toBeNull();
@@ -294,7 +253,7 @@ describe('stroke-only polygon swatch (fix #1288)', () => {
         geometryType="POLYGON"
         colors={['#3b82f6']}
         layerId="x"
-        styleHints={{ fillOpacity: 0, strokeColor: '#ec4b7f' }}
+        swatch={legendSwatch({ fillOpacity: 0, stroke: { color: '#ec4b7f', width: 1 } })}
       />,
     );
     const span = container.firstElementChild as HTMLElement;
@@ -326,90 +285,6 @@ describe('stroke-only polygon swatch (fix #1288)', () => {
     );
     const span = container.firstElementChild as HTMLElement;
     expect(span.style.opacity).toBe('0.4');
-  });
-
-  it('extractStyleHints prefers builder.outlineColor over a stale paint mirror', () => {
-    // The renderer draws from style_config.builder, so a swatch reading only the
-    // flat paint mirror can show a color the map no longer draws.
-    const hints = extractStyleHints(
-      { 'fill-opacity': 0, '_outline-color': '#0058ac' },
-      {},
-      'POLYGON',
-      1,
-      { builder: { outlineColor: '#ec4b7f' } },
-    );
-    expect(hints.strokeColor).toBe('#ec4b7f');
-    expect(hints.fillOpacity).toBe(0);
-  });
-
-  // fix(#1288 codex): with fill-opacity now revealing the outline instead of
-  // hiding the whole swatch, a stroke the user turned off via the builder (which
-  // can leave a stale/absent paint['_stroke-disabled']) must not draw as visible.
-  it('extractStyleHints prefers builder.strokeDisabled over a stale paint mirror', () => {
-    const hints = extractStyleHints(
-      { 'fill-opacity': 0, '_outline-color': '#ec4b7f' },
-      {},
-      'POLYGON',
-      1,
-      { builder: { strokeDisabled: true, outlineColor: '#ec4b7f' } },
-    );
-    expect(hints.strokeDisabled).toBe(true);
-    expect(hints.strokeColor).toBeUndefined();
-  });
-
-  // fix(#1288 codex): an explicit outline width of 0 draws nothing on the map
-  // (distinct from strokeDisabled, which is a separate private flag) — the
-  // swatch must not draw ShapeIcon's fixed-width outline for it regardless.
-  it('extractStyleHints treats an explicit zero outline width as a disabled stroke', () => {
-    const hints = extractStyleHints(
-      { 'fill-opacity': 0, '_outline-color': '#ec4b7f', '_outline-width': 0 },
-      {},
-      'POLYGON',
-    );
-    expect(hints.strokeDisabled).toBe(true);
-    expect(hints.strokeColor).toBeUndefined();
-  });
-
-  it('extractStyleHints prefers builder.outlineWidth over a stale paint mirror', () => {
-    const hints = extractStyleHints(
-      { 'fill-opacity': 0, '_outline-color': '#ec4b7f', '_outline-width': 2 },
-      {},
-      'POLYGON',
-      1,
-      { builder: { outlineWidth: 0, outlineColor: '#ec4b7f' } },
-    );
-    expect(hints.strokeDisabled).toBe(true);
-    expect(hints.strokeColor).toBeUndefined();
-  });
-
-  // fix(#1288 codex): a retained circle-stroke-color with an explicit
-  // circle-stroke-width of 0 draws nothing on the map — the point swatch must
-  // not draw ShapeIcon's fixed-width stroke for it regardless.
-  it('extractStyleHints treats an explicit zero circle stroke width as a disabled stroke', () => {
-    const hints = extractStyleHints(
-      { 'circle-opacity': 0, 'circle-stroke-color': '#ec4b7f', 'circle-stroke-width': 0 },
-      {},
-      'POINT',
-    );
-    expect(hints.strokeDisabled).toBe(true);
-    expect(hints.strokeColor).toBeUndefined();
-  });
-
-  // fix(#1288 codex): circle-adapter.ts (the real point renderer) applies
-  // circle paint properties directly and never reads style_config.builder — a
-  // stale builder.strokeDisabled left over from before an Advanced JSON/API
-  // edit restored a real circle-stroke-width must not suppress a stroke the
-  // map still draws. Builder precedence is polygon-only.
-  it('extractStyleHints ignores builder.strokeDisabled for points with a real stroke width', () => {
-    const hints = extractStyleHints(
-      { 'circle-opacity': 1, 'circle-stroke-color': '#ec4b7f', 'circle-stroke-width': 3 },
-      {},
-      'POINT',
-      1,
-      { builder: { strokeDisabled: true } },
-    );
-    expect(hints.strokeDisabled).toBeUndefined();
-    expect(hints.strokeColor).toBe('#ec4b7f');
   });
 });
 
@@ -460,14 +335,35 @@ describe('ColorizedGeometryIcon line gradients (fix #1494)', () => {
 describe('getLayerColors heatmap ramp direction', () => {
   it('reverses the sampled ramp when _heatmap-reversed is set', () => {
     const layerWithRamp = (reversed: boolean): Parameters<typeof getLayerColors>[0] => ({
-      dataset_geometry_type: null,
       paint: { '_heatmap-ramp': 'YlOrRd', '_heatmap-reversed': reversed },
       style_config: { render_mode: 'heatmap', ramp: 'YlOrRd' } as MapLayerResponse['style_config'],
     });
 
-    const forward = getLayerColors(layerWithRamp(false));
-    const reversed = getLayerColors(layerWithRamp(true));
+    const forward = getLayerColors(layerWithRamp(false), null);
+    const reversed = getLayerColors(layerWithRamp(true), null);
     expect(reversed).toEqual([...forward].reverse());
     expect(reversed[0]).not.toBe(forward[0]);
+  });
+});
+
+describe('LayerTypeIcon swatch', () => {
+  it('outlines a polygon with no stored stroke in the default outline the map draws', () => {
+    const { container } = render(<LayerTypeIcon layer={SAVED_LAYERS.polygon} iconId="parcels" />);
+    const icon = container.querySelector('.lucide-pentagon');
+    expect(icon).toHaveAttribute('stroke', MAP_COLORS.default.stroke);
+    expect(icon).toHaveAttribute('fill-opacity', '0.3');
+  });
+
+  it('rings a point only where circle-stroke-width draws a ring', () => {
+    const hollow = { ...SAVED_LAYERS.ringlessPoint, paint: { 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c' } };
+    const { container } = render(
+      <>
+        <LayerTypeIcon layer={SAVED_LAYERS.point} iconId="wells" />
+        <LayerTypeIcon layer={hollow} iconId="hollow" />
+      </>,
+    );
+    const [ringed, ringless] = Array.from(container.querySelectorAll('.lucide-circle'));
+    expect(ringed).toHaveAttribute('stroke', '#1d4ed8');
+    expect(ringless).toHaveAttribute('stroke-width', '0');
   });
 });

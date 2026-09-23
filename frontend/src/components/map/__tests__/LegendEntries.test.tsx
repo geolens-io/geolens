@@ -1,6 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { CategoricalLegend } from '../LegendEntries';
+import type { LegendSwatch } from '../legend-facts';
+
+function legendSwatch(overrides: Partial<LegendSwatch> = {}): LegendSwatch {
+  return { fill: null, fillOpacity: 1, opacity: 1, stroke: null, pattern: null, ...overrides };
+}
 
 describe('CategoricalLegend', () => {
   it('uses category labels when saved map metadata provides them', () => {
@@ -32,7 +37,7 @@ describe('GeometrySwatch — patterned polygons', () => {
       <CategoricalLegend
         geometryType="Polygon"
         categories={[{ value: 'a', label: 'A', color: '#ff5a5f' }]}
-        style={{ fillPattern: 'geolens-fill-hatch' }}
+        style={legendSwatch({ pattern: { id: 'geolens-fill-hatch', tint: null } })}
       />,
     );
     const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
@@ -50,7 +55,7 @@ describe('GeometrySwatch — patterned polygons', () => {
       <CategoricalLegend
         geometryType="Polygon"
         categories={[{ value: 'a', label: 'A', color: '#ff5a5f' }]}
-        style={{ fillPattern: 'geolens-fill-hatch', fillPatternColor: '#1d4ed8' }}
+        style={legendSwatch({ pattern: { id: 'geolens-fill-hatch', tint: '#1d4ed8' } })}
       />,
     );
     const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
@@ -79,7 +84,7 @@ describe('GeometrySwatch — patterned polygons', () => {
       <CategoricalLegend
         geometryType="Polygon"
         categories={[{ value: 'a', label: 'A', color: 'rgb(255, 90, 95)' }]}
-        style={{ fillPattern: 'geolens-fill-hatch', fillOpacity: 0, outlineColor: '#ec4b7f' }}
+        style={legendSwatch({ pattern: { id: 'geolens-fill-hatch', tint: null }, fillOpacity: 0, stroke: { color: '#ec4b7f', width: 1 } })}
       />,
     );
     const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
@@ -98,7 +103,7 @@ describe('GeometrySwatch — stroke-only polygons (fix #1288)', () => {
       <CategoricalLegend
         geometryType="Polygon"
         categories={[{ value: 'a', label: 'A', color: '#3b82f6' }]}
-        style={{ fillOpacity: 0, outlineColor: '#ec4b7f' }}
+        style={legendSwatch({ fillOpacity: 0, stroke: { color: '#ec4b7f', width: 1 } })}
       />,
     );
     const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
@@ -117,7 +122,7 @@ describe('GeometrySwatch — stroke-only polygons (fix #1288)', () => {
       <CategoricalLegend
         geometryType="Polygon"
         categories={[{ value: 'a', label: 'A', color: '#f00' }]}
-        style={{ fillOpacity: 0.3 }}
+        style={legendSwatch({ fillOpacity: 0.3 })}
       />,
     );
     const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
@@ -144,25 +149,61 @@ describe('GeometrySwatch — stroke-only polygons (fix #1288)', () => {
       <CategoricalLegend
         geometryType="Polygon"
         categories={[{ value: 'a', label: 'A', color: '#3b82f6' }]}
-        style={{ opacity: 0.5 }}
+        style={legendSwatch({ opacity: 0.5 })}
       />,
     );
     const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
     expect(swatch.style.opacity).toBe('0.5');
   });
 
-  // fix(#1288 codex): a truthy check on strokeWidth dropped an EXPLICIT 0,
-  // falling back to the default 1px border even though the map draws no
-  // outline at width 0.
-  it('honors an explicit zero-width outline as no border', () => {
+  it('draws the stroke as the border at its width', () => {
     const { container } = render(
       <CategoricalLegend
         geometryType="Polygon"
         categories={[{ value: 'a', label: 'A', color: '#3b82f6' }]}
-        style={{ strokeWidth: 0, outlineColor: '#ec4b7f' }}
+        style={legendSwatch({ stroke: { color: '#ec4b7f', width: 2 } })}
       />,
     );
-    const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
-    expect(swatch.style.borderWidth).toBe('0px');
+    const chip = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(chip).toHaveClass('border');
+    expect(chip.style.borderColor).toBe('rgb(236, 75, 127)');
+    expect(chip.style.borderWidth).toBe('2px');
+  });
+
+  it('draws no border when the swatch has no stroke', () => {
+    const { container } = render(
+      <CategoricalLegend
+        geometryType="Polygon"
+        categories={[{ value: 'a', label: 'A', color: '#3b82f6' }]}
+        style={legendSwatch()}
+      />,
+    );
+    const chip = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(chip).not.toHaveClass('border');
+    expect(chip.style.borderColor).toBe('');
+  });
+});
+
+describe('GeometrySwatch — points', () => {
+  it('draws the ring the swatch has, and none without one', () => {
+    const { container } = render(
+      <>
+        <CategoricalLegend
+          geometryType="Point"
+          categories={[{ value: 'a', label: 'A', color: '#fff7ed' }]}
+          style={legendSwatch({ stroke: { color: '#ea580c', width: 2 } })}
+        />
+        <CategoricalLegend
+          geometryType="Point"
+          categories={[{ value: 'b', label: 'B', color: '#fff7ed' }]}
+          style={legendSwatch()}
+        />
+      </>,
+    );
+    const [ringed, ringless] = Array.from(container.querySelectorAll('circle'));
+    expect(ringed).toHaveAttribute('stroke', '#ea580c');
+    expect(ringed).toHaveAttribute('stroke-width', '2');
+    expect(ringless).not.toHaveAttribute('stroke');
+    expect(ringless).toHaveAttribute('stroke-width', '0');
   });
 });
