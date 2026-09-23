@@ -550,32 +550,14 @@ PINNED_DATASET_TITLES = (
     "Meteorite Landings (Meteoritical Society)",
 )
 
-# Pinned titles the seeder did NOT create and expects a VISITOR to own.
-# fix(#1487): MNMAP_PLUTO is hand-uploaded on the demo, and the geolens-examples
-# MCP transcripts quote it, so a prune that deletes it breaks a published
-# walkthrough - the dry run behind #1487 listed it for deletion, which is what
-# this tuple exists to prevent. A separate tuple rather than an entry above because
-# the two classes carry OPPOSITE ownership expectations: the three above are
-# admin-created, so a foreign copy is by definition a title-squatter and is
-# reported as one; for these, foreign ownership IS the expected state, and no
-# ownership signal can tell the genuine visitor upload from a squatting one -
-# so every dataset bearing the title is hard-kept and counted as pinned, and
-# over-keeping a squatter is the accepted cost (deleting the real one breaks
-# the walkthrough; keeping a fake one frees nothing).
-PINNED_FOREIGN_DATASET_TITLES = ("MNMAP_PLUTO",)
-
-# fix(#1607): maps the examples address by an id THIS seeder minted, so the row
-# itself has to survive - a map of the same name built beside it is not the same
-# map. geolens-examples deep-links three from its gallery and embeds the fourth
-# by share token:
-#
-#   Restless Earth                    /m/NDuwpSJc3yx4Exic5Na48xO-8bpjWiaIofJefpjqfbU
-#   Manhattan - A Century of Skyline  /maps/dcae16bd-40bd-494e-bf2f-cfb378735257
-#   The Matterhorn in 3D              /maps/1c5e021a-8ede-4ebe-a06c-92322208de45
-#   New York From Orbit               /maps/1c4207ab-b1c0-4309-9924-c1ea355003a3
+# Maps the examples address by an id THIS seeder minted, so the row itself
+# has to survive - a map of the same name built beside it is not the same
+# map. geolens-examples deep-links three from its gallery and embeds the
+# fourth by share token. Their ids change on every reseed; a seed run that
+# builds or keeps these maps prints the current ones at the end.
 #
 # Building one of these again mints a fresh uuid and leaves the share tokens on
-# the row they were minted against, so every link above keeps resolving to the
+# the row they were minted against, so every such link keeps resolving to the
 # OLD map while the seeder's later passes work on the new one - and nothing
 # inside this repo can see that. So: --force KEEPS a pinned map that already
 # exists (_keep_existing_map), --prune and --prune-userdata hard-keep it, and no
@@ -586,7 +568,7 @@ PINNED_FOREIGN_DATASET_TITLES = ("MNMAP_PLUTO",)
 # for every builder except build_sentinel2 means create_map() beside the row that
 # is already there (build_sentinel2 deletes the stale rows under the same name
 # first, so there the old row and its links do go). The surviving row keeps the
-# uuid and the share token the links above use until someone prunes or deletes
+# uuid and the share token the examples use until someone prunes or deletes
 # it by hand. An operator who uses the flag therefore has to move the references
 # in geolens-examples (ci/fixtures.json, index.html) onto the new ids, or keep
 # the old row and let the new one sit beside it.
@@ -596,6 +578,11 @@ PINNED_MAP_NAMES = (
     "The Matterhorn in 3D",
     "New York From Orbit - Sentinel-2, by Reference",
 )
+
+# The one pinned map geolens-examples embeds by share token rather than
+# deep-linking by id; the other three normally have no share link at all, so
+# only this one's is worth reading and flagging in the end-of-run summary.
+PINNED_MAP_EMBEDDED_BY_TOKEN = "Restless Earth"
 
 # --- globe projection ---------------------------------------------------------
 # The showcase maps whose story is GLOBAL, where Mercator actively misleads:
@@ -968,6 +955,13 @@ class Api:
             f"{self.base}/api/maps/{map_id}/layers/{layer_id}", headers=self.h
         )
         r.raise_for_status()
+
+    def map_share_token(self, map_id: str) -> dict | None:
+        """The active share token for *map_id*, via the endpoint the Share
+        dialog reads - null if the map has none."""
+        r = self.client.get(f"{self.base}/api/maps/{map_id}/share/", headers=self.h)
+        r.raise_for_status()
+        return r.json()
 
     def list_all_maps(self) -> list[dict]:
         """EVERY map on the instance, not just this account's - the prune report
@@ -2181,7 +2175,7 @@ def prune(api: Api) -> None:
         print(f"  - map: {name}")
     for d in api.list_own_datasets():
         if d["title"] in RETIRED_DATASETS:
-            if d["title"] in PINNED_DATASET_TITLES + PINNED_FOREIGN_DATASET_TITLES:
+            if d["title"] in PINNED_DATASET_TITLES:
                 print(f"  = kept, externally pinned (dataset): {d['title']}")
                 continue
             try:
@@ -2412,7 +2406,6 @@ def _showcase_dataset_titles() -> set[str]:
     hand-uploaded dataset on a list that reads like a deletion candidate.
     """
     titles = set(SHOWCASE_METADATA) | set(PINNED_DATASET_TITLES) | set(RETIRED_DATASETS)
-    titles |= set(PINNED_FOREIGN_DATASET_TITLES)
     titles |= {QUAKES_TITLE, QUAKES_TITLE_LEGACY, QUAKES_HEAT_TITLE}
     titles |= {
         "World States & Provinces (Natural Earth 1:50m)",
@@ -2490,18 +2483,7 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
     foreign_datasets, stray_datasets, pinned, pinned_impostors = [], [], [], []
     ownerless_datasets = []
     for d in api.list_all_datasets():
-        if d.get("title") in PINNED_FOREIGN_DATASET_TITLES:
-            # Hard-kept whoever owns it, and counted as genuinely pinned even
-            # though the owner is not the admin: foreign ownership is this
-            # class's EXPECTED state (see the tuple), so the impostor split
-            # below would misfile the real dataset as a squatter and invite
-            # the manual deletion the pin exists to prevent.
-            # fix(#1487 review): deliberately BEFORE the null-owner branch - a
-            # pinned dataset whose creator account was deleted must not land in
-            # the ownerless "review by hand" list, which reads as a deletion
-            # candidate. The report labels the null owner honestly instead.
-            pinned.append(d)
-        elif d.get("title") in PINNED_DATASET_TITLES:
+        if d.get("title") in PINNED_DATASET_TITLES:
             # Never in the delete set, whoever owns it. A title is not proof of
             # identity though: titles are explicitly non-unique here, so a
             # visitor can upload something called "NYC Subway Lines (MTA)" and
@@ -2577,11 +2559,9 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
     * Pinned MAPS are hard-kept whoever owns them: PINNED_MAP_NAMES, which the
       examples repo deep-links by uuid and embeds by share token. Deleting one
       breaks a published page in a way nothing in this repo can see.
-    * Pinned datasets are hard-kept whoever owns them: PINNED_DATASET_TITLES
-      (referenced from outside this repo by id or by the table name their title
-      derives) and PINNED_FOREIGN_DATASET_TITLES (visitor-uploaded content that
-      published walkthroughs quote; foreign ownership is their expected state,
-      so they count as pinned rather than as impostors).
+    * Pinned datasets are hard-kept whoever owns them: PINNED_DATASET_TITLES,
+      referenced from outside this repo by id or by the table name their title
+      derives.
     * Collections are reported only, never deleted - a collection is a label
       over datasets, so deleting one destroys curation while freeing nothing.
 
@@ -4328,7 +4308,7 @@ def build_meteorites(api: Api, force: bool = False, force_pinned: bool = False) 
         met_title,
         "meteorite_landings.geojson",
         meteorites_bytes,
-        "Every meteorite recovery with coordinates: name, classification, "
+        "Every meteorite recovery: name, classification, "
         "mass, year, and whether it was seen falling ('Fell') or found "
         "later. Source: NASA Open Data / The Meteoritical Society (public "
         "domain).",
@@ -4338,7 +4318,7 @@ def build_meteorites(api: Api, force: bool = False, force_pinned: bool = False) 
 
     map_id = api.create_map(
         name,
-        "All ~32,000 located meteorites humanity has ever recovered, from "
+        "All ~32,000 meteorites humanity has ever recovered, from "
         "gram-scale chondrites to the 60-tonne Hoba iron. Clusters split "
         "apart as you zoom; amber dots were SEEN falling, gray ones found "
         "later - note the Antarctic collection-expedition stripes and the "
@@ -5771,7 +5751,7 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
     ),
     "Everything That Fell From the Sky": (
         "Recovery type",
-        "Every meteorite recovery with coordinates, about 32,000 of them. "
+        "Every meteorite recovery, about 32,000 of them. "
         "Above 5,000 features the viewer switches to server-side cluster "
         "tiles, which is what the clustering here demonstrates. Source: NASA "
         "open data / The Meteoritical Society.",
@@ -6275,6 +6255,46 @@ def _backfill_thumbnails(base_url: str, username: str, password: str) -> None:
         )
 
 
+def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
+    """Print each pinned map/dataset's current id, for the geolens-examples
+    handoff. Best-effort: logs in fresh and never fails the seed.
+    """
+    try:
+        api = Api.login(base_url, username, password)
+        print("\nPinned ids (for geolens-examples):")
+        maps_by_name = api.list_maps()
+        for name in PINNED_MAP_NAMES:
+            map_id = maps_by_name.get(name)
+            if map_id is None:
+                print(f"  ! map {name!r} not found this run")
+                continue
+            print(f"  map     {name}: {map_id}")
+
+        embedded_id = maps_by_name.get(PINNED_MAP_EMBEDDED_BY_TOKEN)
+        if embedded_id is not None and api.map_share_token(embedded_id) is None:
+            print(
+                f"  !! {PINNED_MAP_EMBEDDED_BY_TOKEN!r} has no active share link "
+                "- mint one from the Share dialog"
+            )
+
+        datasets_by_title = api.datasets_by_title()
+        for title in PINNED_DATASET_TITLES:
+            dataset_id = datasets_by_title.get(title)
+            if dataset_id is None:
+                print(f"  ! dataset {title!r} not found this run")
+                continue
+            print(f"  dataset {title}: {dataset_id}")
+
+        print(
+            "\nAfter reseeding the public demo, notify geolens-examples from a "
+            "machine with GitHub credentials:\n"
+            "  gh api repos/geolens-io/geolens-examples/dispatches "
+            "-f event_type=demo-reseeded"
+        )
+    except httpx.HTTPError as e:
+        print(f"\nSkipped the pinned-ids summary: {e}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Seed GeoLens showcase maps.")
     ap.add_argument(
@@ -6509,6 +6529,7 @@ def main() -> int:
 
     if not args.no_thumbnails:
         _backfill_thumbnails(args.base_url, args.username, args.password)
+    _print_pinned_summary(args.base_url, args.username, args.password)
     return 0
 
 
