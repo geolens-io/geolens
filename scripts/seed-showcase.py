@@ -4304,7 +4304,7 @@ def build_meteorites(api: Api, force: bool = False, force_pinned: bool = False) 
         met_title,
         "meteorite_landings.geojson",
         meteorites_bytes,
-        "Every meteorite recovery with coordinates: name, classification, "
+        "Every meteorite recovery: name, classification, "
         "mass, year, and whether it was seen falling ('Fell') or found "
         "later. Source: NASA Open Data / The Meteoritical Society (public "
         "domain).",
@@ -4314,7 +4314,7 @@ def build_meteorites(api: Api, force: bool = False, force_pinned: bool = False) 
 
     map_id = api.create_map(
         name,
-        "All ~32,000 located meteorites humanity has ever recovered, from "
+        "All ~32,000 meteorites humanity has ever recovered, from "
         "gram-scale chondrites to the 60-tonne Hoba iron. Clusters split "
         "apart as you zoom; amber dots were SEEN falling, gray ones found "
         "later - note the Antarctic collection-expedition stripes and the "
@@ -5747,7 +5747,7 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
     ),
     "Everything That Fell From the Sky": (
         "Recovery type",
-        "Every meteorite recovery with coordinates, about 32,000 of them. "
+        "Every meteorite recovery, about 32,000 of them. "
         "Above 5,000 features the viewer switches to server-side cluster "
         "tiles, which is what the clustering here demonstrates. Source: NASA "
         "open data / The Meteoritical Society.",
