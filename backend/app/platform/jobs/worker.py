@@ -69,6 +69,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
     from app.platform.jobs.router import (
         JOB_TIMEOUT_SECONDS,
         audit_settled_embedding_backfill,
+        no_unclaimed_queue_entry,
     )
 
     now = datetime.now(timezone.utc)
@@ -85,7 +86,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             log.info("Stale job recovery skipped — another worker holds the lock")
             return
 
-        # Mirrors fail_stale_jobs (router.py:39), which the lifespan sweeper
+        # Mirrors fail_stale_jobs (sweep.py), which the lifespan sweeper
         # runs every 5 minutes for the same purpose; the advisory lock keeps
         # startup recovery and the sweeper from colliding.
         #
@@ -99,6 +100,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
                 IngestJob.status == "running",
                 func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
                 < stale_cutoff,
+                no_unclaimed_queue_entry(),
             )
             .with_for_update(skip_locked=True)
         )
