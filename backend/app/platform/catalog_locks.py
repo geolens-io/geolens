@@ -24,6 +24,10 @@ from app.core.db.sqlstate import is_lock_conflict, sqlstate
 # and this budget would fail an ingest on contention it must wait out.
 REQUEST_LOCK_TIMEOUT = "2s"
 
+# The budget a WORKER spends waiting for the pair: long enough to wait out
+# contention, but bounded so a stuck holder does not hang the job forever.
+WORKER_LOCK_TIMEOUT = "60s"
+
 # Resolved at call time, not bound as a default, so the constant above stays
 # the single source of truth.
 _USE_REQUEST_DEFAULT: Any = object()
