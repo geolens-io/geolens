@@ -14,7 +14,7 @@ from starlette.background import BackgroundTask
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
-from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.record_types import capabilities
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.auth.permissions import get_effective_permissions
 from app.core.dependencies import get_db
@@ -385,7 +385,7 @@ async def export_dataset_endpoint(
     # 5. Reject raster/VRT: no tabular feature table. Keyed on record_type,
     # NOT geometry_type (a non-spatial TABLE dataset also has
     # geometry_type=None but IS CSV-exportable).
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(

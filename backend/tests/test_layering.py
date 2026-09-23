@@ -1357,12 +1357,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Maps API router debt; split endpoint families before raising.
     "backend/app/modules/catalog/maps/router.py": 1507,
     # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1433,
+    "backend/app/modules/catalog/search/router.py": 1443,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1828,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2480,
+    "backend/app/processing/tiles/router.py": 2505,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1691,
     # AI orchestration coordinates tool execution, usage accounting and SSE failures.

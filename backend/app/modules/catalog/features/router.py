@@ -32,7 +32,7 @@ from app.platform.catalog_locks import (
     CatalogLockConflict,
     bump_tile_cache_version_on,
 )
-from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.record_types import capabilities
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user_fail_open,
@@ -81,9 +81,6 @@ logger = structlog.get_logger()
 
 features_router = APIRouter(prefix="/datasets", tags=["Features"])
 
-# Datasets with no PostGIS data table behind them. Any feature write 42P01s.
-_NON_FEATURE_RECORD_TYPES = RASTER_FAMILY_RECORD_TYPES
-
 
 def _require_feature_table(dataset) -> None:
     """Reject feature writes to datasets with no writable feature geometry.
@@ -93,7 +90,7 @@ def _require_feature_table(dataset) -> None:
     (`geometry_type is None`), whose table has no `geom`/`geom_4326` column
     (#463).
     """
-    if dataset.record.record_type in _NON_FEATURE_RECORD_TYPES:
+    if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="This dataset has no feature table.",
@@ -236,7 +233,7 @@ async def get_features_geojson_z_endpoint(
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table —
     # a feature query would raise UndefinedTableError -> 500 (and hold a DB
     # connection). Fast 404 before any feature query is attempted.
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -330,7 +327,7 @@ async def list_features(
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table —
     # fast 404 before any query. The ProgrammingError->503 catch below stays
     # a backstop for genuinely-missing tables on non-raster datasets.
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -501,7 +498,7 @@ async def get_single_feature(
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table —
     # get_feature_by_id would raise UndefinedTableError -> unhandled 500 (a
     # DoS reachable by any authenticated user). Fast 404 before any query.
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(

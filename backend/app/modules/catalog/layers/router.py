@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.db.sqlstate import is_operational, sqlstate
 from app.core.identity import Identity
+from app.core.record_types import capabilities
 from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_db
 from app.modules.catalog.authorization import (
@@ -49,6 +50,14 @@ async def _invalidate_tiles(table_name: str) -> None:
 
 
 logger = structlog.stdlib.get_logger(__name__)
+
+
+def _require_data_table(dataset) -> None:
+    if not capabilities(dataset.record.record_type).feature_table:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This dataset has no data table",
+        )
 
 
 async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) -> None:
@@ -154,6 +163,7 @@ async def add_column_endpoint(
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
     await require_dataset_editing_enabled(db)
+    _require_data_table(dataset)
 
     try:
         columns = await add_column(db, dataset, body.column.name, body.column.type)
@@ -216,6 +226,7 @@ async def rename_column_endpoint(
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
     await require_dataset_editing_enabled(db)
+    _require_data_table(dataset)
 
     try:
         columns = await rename_column(db, dataset, column_name, body.new_name)
@@ -278,6 +289,7 @@ async def alter_column_type_endpoint(
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
     await require_dataset_editing_enabled(db)
+    _require_data_table(dataset)
 
     try:
         columns = await alter_column_type(db, dataset, column_name, body.new_type)
@@ -338,6 +350,7 @@ async def drop_column_endpoint(
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
     await require_dataset_editing_enabled(db)
+    _require_data_table(dataset)
 
     try:
         columns = await drop_column(db, dataset, column_name)

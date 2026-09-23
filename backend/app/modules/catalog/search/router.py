@@ -15,7 +15,11 @@ from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.record_types import (
+    RASTER_FAMILY_RECORD_TYPES,
+    RECORD_TYPES,
+    capabilities,
+)
 from app.platform.assets.keys import is_public_asset_key
 from app.platform.extensions import get_catalog_port
 from app.modules.auth.dependencies import get_optional_user
@@ -805,6 +809,11 @@ async def list_collections(
     ds_base = (
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
+        .where(
+            Record.record_type.in_(
+                [t for t in RECORD_TYPES if capabilities(t).ogc_item_type is not None]
+            )
+        )
         .options(_jl(Dataset.record))
     )
     ds_base = apply_visibility_filter(ds_base, user, user_roles, Record, DatasetGrant)
@@ -852,7 +861,8 @@ async def list_collections(
         # fix(#315): raster/VRT have no feature table -> mirror the detail
         # endpoint (coverage, no rel=items, add rel=tiles) so crawlers skip
         # the dead /items and still find the data.
-        is_raster = ds.record.record_type in RASTER_FAMILY_RECORD_TYPES
+        item_type = capabilities(ds.record.record_type).ogc_item_type
+        is_coverage = item_type == "coverage"
 
         links: list[dict] = [
             {
@@ -864,7 +874,7 @@ async def list_collections(
                 "type": "application/json",
             },
         ]
-        if not is_raster:
+        if not is_coverage:
             links.append(
                 {
                     "rel": "items",
@@ -903,7 +913,7 @@ async def list_collections(
             "id": str(ds.id),
             "title": ds.record.title,
             "description": ds.record.summary,
-            "itemType": "coverage" if is_raster else "feature",
+            "itemType": item_type,
             "crs": ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
             "links": links,
         }

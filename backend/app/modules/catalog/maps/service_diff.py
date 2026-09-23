@@ -55,11 +55,11 @@ def _prepare_layer_storage(
     dataset_id = layer_data["dataset_id"]
     record_type, geometry_type, is_dem = ds_meta.get(dataset_id, (None, None, None))
 
+    # Asked even when the caller names a layer type, so a dataset that cannot
+    # be a layer is refused either way.
+    dataset_layer_type = _infer_layer_type(record_type)
     explicit_lt = layer_data.get("layer_type")
-    if explicit_lt is not None:
-        resolved_layer_type = explicit_lt
-    else:
-        resolved_layer_type = _infer_layer_type(record_type)
+    resolved_layer_type = explicit_lt if explicit_lt is not None else dataset_layer_type
 
     paint = layer_data.get("paint")
     layout = layer_data.get("layout")
