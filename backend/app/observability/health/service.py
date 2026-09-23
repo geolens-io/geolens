@@ -62,10 +62,12 @@ async def _check_database() -> None:
     async with engine.connect() as conn:
         # Cheap connectivity check
         await conn.execute(text("SELECT 1"))
-        # Exercise the search_path and catalog schema. Using `to_regclass`
-        # returns NULL without error if the table is missing, so this stays
-        # a fast read that still validates the schema is accessible.
-        await conn.execute(text("SELECT to_regclass('catalog.datasets')"))
+        # Exercise the search_path and catalog schema. `to_regclass` returns
+        # NULL rather than raising for a missing table, so the value itself
+        # decides whether the catalog is there.
+        result = await conn.execute(text("SELECT to_regclass('catalog.datasets')"))
+        if result.scalar() is None:
+            raise LookupError("catalog.datasets is missing")
 
 
 async def _check_storage() -> None:

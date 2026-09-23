@@ -27,6 +27,12 @@ and releases use semantic versioning.
   refresh lifecycle. Keyed refresh admissions fence duplicate queue deliveries,
   expire unclaimed work, and block publication after concurrent local edits.
 
+### Fixed
+
+- `/api/health` reports the database as degraded when the catalog schema is
+  missing. Its probe looked the table up but ignored the NULL PostgreSQL
+  returns for a relation that is not there.
+
 ## [1.20.0] - 2026-09-18
 
 ### Added

@@ -1534,7 +1534,7 @@ not interchangeable:
 | Probe | Endpoint | Answers | Fails when |
 |---|---|---|---|
 | Liveness | `/api/health/live` | Is the process up and its event loop turning? | The API process is wedged or gone |
-| Readiness | `/api/health/ready` | Can this process reach the database? | The database is unreachable |
+| Readiness | `/api/health/ready` | Can this process reach the database? | The database is unreachable or its catalog schema is missing |
 | Dependency report | `/api/health` | Did every dependency answer? (JSON `status`, `version`, `build`, per-provider latencies) | The database, object store **or cache** is degraded |
 
 Point an orchestrator's `livenessProbe`, an uptime monitor, and any

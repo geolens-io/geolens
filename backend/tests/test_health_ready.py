@@ -53,6 +53,57 @@ async def test_not_ready_when_the_database_is_unreachable(monkeypatch):
     assert resp.json() == {"status": "not_ready"}
 
 
+class _Result:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar(self):
+        return self._value
+
+
+class _Connection:
+    def __init__(self, regclass):
+        self._regclass = regclass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+    async def execute(self, statement):
+        return _Result(self._regclass if "to_regclass" in str(statement) else 1)
+
+
+class _Engine:
+    """Answers queries, with `to_regclass` resolving to ``regclass``."""
+
+    def __init__(self, regclass):
+        self._regclass = regclass
+
+    def connect(self):
+        return _Connection(self._regclass)
+
+
+@pytest.mark.anyio
+async def test_not_ready_when_the_catalog_table_is_missing(monkeypatch):
+    """PostgreSQL returns NULL, not an error, for a relation that is gone."""
+    import app.core.db as db
+
+    monkeypatch.setattr(db, "engine", _Engine(None))
+
+    assert await service.check_readiness() == {"status": "not_ready"}
+
+
+@pytest.mark.anyio
+async def test_ready_when_the_catalog_table_resolves(monkeypatch):
+    import app.core.db as db
+
+    monkeypatch.setattr(db, "engine", _Engine("catalog.datasets"))
+
+    assert await service.check_readiness() == {"status": "ready"}
+
+
 def test_health_ready_stays_out_of_the_published_contract():
     """Infrastructure surface, like /health/live, so no SDK regeneration."""
     from app.api.main import app
