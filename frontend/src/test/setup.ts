@@ -19,6 +19,13 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   };
 }
 
+// jsdom has no object URL lifecycle. Vitest's compatibility implementation
+// previously depended on jsdom-private Blob internals, so keep export tests
+// focused on their browser-facing behavior rather than that implementation.
+let nextObjectUrl = 0
+URL.createObjectURL = () => `blob:geolens-test-${nextObjectUrl++}`
+URL.revokeObjectURL = () => {}
+
 // Provide a reliable localStorage implementation for tests.
 // Node 25 ships a built-in localStorage that conflicts with jsdom's when
 // --localstorage-file is not configured, causing storage.setItem errors in
