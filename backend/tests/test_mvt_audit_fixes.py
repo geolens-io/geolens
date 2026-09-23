@@ -286,17 +286,29 @@ async def test_invalidate_tile_cache_for_table_noop_without_provider(monkeypatch
 
 
 def test_reupload_tasks_invalidate_tile_cache_after_commit():
-    """Both reupload task bodies call the tile-cache purge after their commit.
-
-    Guards the fix(#394) B-019 call sites the way the audit found them missing:
-    the swap replaces table contents, so each task must purge post-commit.
-    """
+    """File and service swaps purge tiles only after their durable commit."""
     import inspect
 
-    from app.processing.ingest import tasks_reupload
+    from app.processing.ingest import publication, tasks_reupload
 
-    source = inspect.getsource(tasks_reupload)
-    assert source.count("await invalidate_tile_cache_for_table(live_table_name)") == 2
+    task_source = inspect.getsource(tasks_reupload)
+    settlement_source = inspect.getsource(publication._invalidate_after_commit)
+    publish_source = inspect.getsource(publication.settle_publication)
+
+    assert (
+        task_source.count("await invalidate_tile_cache_for_table(live_table_name)") == 1
+    )
+    assert (
+        settlement_source.count(
+            "await invalidate_tile_cache_for_table(live_table_name)"
+        )
+        == 1
+    )
+    assert publish_source.index(
+        "await command.session.commit()"
+    ) < publish_source.index(
+        "return await _invalidate_after_commit(PublicationOutcome.PUBLISHED, live_table_name)"
+    )
 
 
 # ---------------------------------------------------------------------------
