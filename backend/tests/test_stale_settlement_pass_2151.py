@@ -286,10 +286,34 @@ async def test_every_caller_fails_a_childless_fan_out_parent(
     assert (parent.user_metadata or {}).get(FAN_OUT_INTERRUPTED_METADATA_KEY) is True
 
 
-async def test_polling_a_healthy_job_runs_only_its_read(test_db_session) -> None:
-    """A poll of a job the pass would leave alone issues one statement."""
+async def _record_poll(session: AsyncSession, job: IngestJob) -> tuple[list[str], int]:
+    """Poll ``job`` and return the statements it issued and the commits it made."""
     import app.core.db as core_db
 
+    engine = core_db.engine.sync_engine
+    statements: list[str] = []
+    commits: list[object] = []
+
+    def record(_conn, _cursor, statement, *_rest) -> None:
+        # A transaction's `SET LOCAL` setup is the engine's, not the poll's.
+        if not statement.lstrip().upper().startswith("SET "):
+            statements.append(statement)
+
+    def record_commit(conn) -> None:
+        commits.append(conn)
+
+    event.listen(engine, "before_cursor_execute", record)
+    event.listen(engine, "commit", record_commit)
+    try:
+        await _poll(session, job)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+        event.remove(engine, "commit", record_commit)
+    return statements, len(commits)
+
+
+async def test_polling_a_healthy_job_runs_only_its_read(test_db_session) -> None:
+    """A poll of a job the pass would leave alone issues one statement."""
     healthy = [
         await _add(
             test_db_session,
@@ -305,33 +329,62 @@ async def test_polling_a_healthy_job_runs_only_its_read(test_db_session) -> None
             user_metadata={"analysis": {"operation": "buffer"}},
         ),
         await _add(test_db_session, status="pending", file_path=""),
+        await _add(
+            test_db_session,
+            status="pending",
+            file_path="staging/settle/frozen/roads.geojson",
+            created_at=_ago(stale_pending_cutoff_seconds(completion_bound=False) + 60),
+        ),
         await _add(test_db_session, status="fanned_out", completed_at=_ago(10)),
         await _add(test_db_session, status="complete", completed_at=_ago(10)),
     ]
     stale = await _stale_running(test_db_session)
 
-    async def statements_during_poll(job: IngestJob) -> list[str]:
-        seen: list[str] = []
-
-        def record(_conn, _cursor, statement, *_rest) -> None:
-            # A transaction's `SET LOCAL` setup is the engine's, not the poll's.
-            if not statement.lstrip().upper().startswith("SET "):
-                seen.append(statement)
-
-        event.listen(core_db.engine.sync_engine, "before_cursor_execute", record)
-        try:
-            await _poll(test_db_session, job)
-        finally:
-            event.remove(core_db.engine.sync_engine, "before_cursor_execute", record)
-        return seen
-
     for job in healthy:
         status = job.status
-        seen = await statements_during_poll(job)
-        assert len(seen) == 1, (status, seen)
-        assert seen[0].lstrip().upper().startswith("SELECT"), (status, seen)
+        statements, commits = await _record_poll(test_db_session, job)
+        assert len(statements) == 1, (status, statements)
+        assert statements[0].lstrip().upper().startswith("SELECT"), (status, statements)
+        assert commits == 0, status
     # The recorder sees a settling poll, so its silence above is not blindness.
-    assert len(await statements_during_poll(stale)) > 1
+    statements, commits = await _record_poll(test_db_session, stale)
+    assert len(statements) > 2
+    assert commits == 1
+
+
+@pytest.mark.parametrize("held_by", ["todo pending", "todo running", "child"])
+async def test_polling_a_stale_job_something_holds_runs_one_read_more(
+    test_db_session, held_by
+) -> None:
+    """A poll of a stale job its queue or children hold reads it, checks, and stops."""
+    if held_by == "child":
+        job = await _add(
+            test_db_session,
+            status="fanned_out",
+            completed_at=_ago(FAN_OUT_CHILDLESS_GRACE_SECONDS + 60),
+        )
+        await _add(
+            test_db_session,
+            status="running",
+            started_at=_ago(30),
+            heartbeat_at=_ago(30),
+            user_metadata={"fan_out_parent_id": str(job.id)},
+        )
+    else:
+        job = (
+            await _stale_pending(test_db_session, bound=False)
+            if held_by == "todo pending"
+            else await _stale_running(test_db_session)
+        )
+        await _queue_todo_entry(test_db_session, job.id)
+    status = job.status
+
+    statements, commits = await _record_poll(test_db_session, job)
+
+    assert len(statements) == 2, statements
+    assert commits == 0
+    await test_db_session.refresh(job)
+    assert job.status == status
 
 
 async def test_a_poll_settles_only_its_own_job(test_db_session) -> None:

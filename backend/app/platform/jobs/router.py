@@ -52,6 +52,7 @@ from app.platform.jobs.sweep import (
     _reap_committed_staged_paths,
     _sweep_expired_presigned_staging,
     fail_stale_jobs,
+    is_held_back,
     may_be_stale,
     post_expiry_sweep_after_seconds,  # noqa: F401 -- re-exported, see __all__
     publish_refresh_reconciliation,
@@ -314,9 +315,9 @@ async def get_job_status(
         )
 
     now = datetime.now(timezone.utc)
-    # Clients poll every few seconds; a job the pass would leave alone costs no
-    # statement here.
-    if may_be_stale(job, now):
+    # Clients poll every few seconds. A job inside its lease costs no statement
+    # here, and a stale one its queue or children still hold costs one read.
+    if may_be_stale(job, now) and not await is_held_back(db, job):
         outcome = await settle_stale_jobs(db, now, job_ids=(job.id,))
         await db.commit()
         publish_refresh_reconciliation(outcome)

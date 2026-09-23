@@ -1093,11 +1093,33 @@ def _stale_running_message(lease_seconds: float) -> str:
     return f"Stale: running for over {int(lease_seconds) // 60} minutes"
 
 
+def _childless_fan_out_parent():
+    """Predicate: no job names this row as its fan-out parent."""
+    return text(
+        "NOT EXISTS (SELECT 1 FROM catalog.ingest_jobs c"
+        " WHERE c.user_metadata->>'fan_out_parent_id' = ingest_jobs.id::text)"
+    )
+
+
+def _pending_age_basis(job: IngestJob) -> datetime | None:
+    """What the pass ages a pending job from: ``staged_at``, else ``created_at``.
+
+    An unreadable or naive stamp falls back to ``created_at``, which is never
+    later, so the fallback can only make a job look older.
+    """
+    try:
+        staged_at = datetime.fromisoformat((job.user_metadata or {})["staged_at"])
+    except (KeyError, TypeError, ValueError):
+        return job.created_at
+    return staged_at if staged_at.tzinfo is not None else job.created_at
+
+
 def may_be_stale(job: IngestJob, now: datetime) -> bool:
     """Whether ``settle_stale_jobs`` could settle this loaded job at ``now``.
 
     A free precheck for a caller that settles one job: a job it rejects is one
     the pass would leave alone, and the pass re-checks everything it accepts.
+    ``is_held_back`` covers the queue and child rows this cannot see.
     """
     if job.status == "running":
         liveness = job.heartbeat_at or job.started_at
@@ -1108,12 +1130,11 @@ def may_be_stale(job: IngestJob, now: datetime) -> bool:
         )
         return liveness is not None and (now - liveness).total_seconds() > lease
     if job.status == "pending":
-        # The pass ages from staged_at, which is never earlier than created_at.
-        cutoff = stale_pending_cutoff_seconds(completion_bound=False)
-        return (
-            job.created_at is not None
-            and (now - job.created_at).total_seconds() > cutoff
+        basis = _pending_age_basis(job)
+        cutoff = stale_pending_cutoff_seconds(
+            completion_bound=(job.file_path or "").startswith("staging/")
         )
+        return basis is not None and (now - basis).total_seconds() > cutoff
     if job.status == "fanned_out":
         return (
             job.completed_at is not None
@@ -1121,6 +1142,22 @@ def may_be_stale(job: IngestJob, now: datetime) -> bool:
             > FAN_OUT_CHILDLESS_GRACE_SECONDS
         )
     return False
+
+
+async def is_held_back(db: AsyncSession, job: IngestJob) -> bool:
+    """Whether the row that makes the pass leave this job alone still exists.
+
+    One read of the pass's own predicate for the job's status: a live queue
+    row for a pending job, an unclaimed one for a running job, and a child for
+    a fan-out parent. Meant for a job ``may_be_stale`` accepted.
+    """
+    if job.status == "pending":
+        free = no_live_procrastinate_job()
+    elif job.status == "running":
+        free = no_unclaimed_queue_entry()
+    else:
+        free = _childless_fan_out_parent()
+    return not await db.scalar(select(free).where(IngestJob.id == job.id))
 
 
 async def settle_stale_jobs(
@@ -1255,10 +1292,7 @@ async def settle_stale_jobs(
         IngestJob.completed_at.is_not(None),
         IngestJob.completed_at
         < now - timedelta(seconds=FAN_OUT_CHILDLESS_GRACE_SECONDS),
-        text(
-            "NOT EXISTS (SELECT 1 FROM catalog.ingest_jobs c"
-            " WHERE c.user_metadata->>'fan_out_parent_id' = ingest_jobs.id::text)"
-        ),
+        _childless_fan_out_parent(),
         *scope,
     ]
     if settings.ingest_jobs_retention_days > 0:
