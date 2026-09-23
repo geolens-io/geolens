@@ -26,7 +26,7 @@ vi.mock('@/lib/tile-utils', async (importOriginal) => {
   };
 });
 
-type SourceRecord = { type: string; setTiles?: ReturnType<typeof vi.fn> };
+type SourceRecord = { type: string; tiles?: string[]; setTiles?: ReturnType<typeof vi.fn> };
 
 const mapState = vi.hoisted(() => {
   const handlers = new Map<string, Set<(payload?: unknown) => void>>();
@@ -63,11 +63,17 @@ const mapState = vi.hoisted(() => {
     triggerRepaint: vi.fn(),
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
-    // Vector sources get a real setTiles spy, mirroring MapLibre, so the
-    // resync path under test (refreshVectorSourceTiles) has something to call.
+    // Vector sources adopt the URLs passed to setTiles, as MapLibre does, so
+    // refreshVectorSourceTiles's adoption poll ends on its first check.
     getSource: vi.fn((id: string) => sources.get(id) ?? null),
-    addSource: vi.fn((id: string, spec: { type: string }) => {
-      sources.set(id, spec.type === 'vector' ? { type: spec.type, setTiles: vi.fn() } : { type: spec.type });
+    addSource: vi.fn((id: string, spec: { type: string; tiles?: string[] }) => {
+      if (spec.type !== 'vector') {
+        sources.set(id, { type: spec.type });
+        return;
+      }
+      const source: SourceRecord = { type: spec.type, tiles: spec.tiles };
+      source.setTiles = vi.fn((tiles: string[]) => { source.tiles = tiles; });
+      sources.set(id, source);
     }),
     removeSource: vi.fn((id: string) => { sources.delete(id); }),
     addLayer: vi.fn((layer: { id: string }) => { layerIds.add(layer.id); }),
