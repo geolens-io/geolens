@@ -644,8 +644,9 @@ class TestRunLifecycle:
 
         inner_calls: list[BaseException] = []
 
-        async def _inner(exc: BaseException) -> None:
+        async def _inner(exc: BaseException) -> bool:
             inner_calls.append(exc)
+            return True
 
         rollback = make_refresh_run_failed_rollback(
             _inner, db=test_db_session, ingest_job_id=job.id
