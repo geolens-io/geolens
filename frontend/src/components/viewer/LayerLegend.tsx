@@ -376,7 +376,7 @@ export function LayerLegend({
                 )}
 
                 {/* Data-driven legend entries */}
-                {sc?.column && isVisible && (
+                {isVisible && (
                   sc?.render_mode === 'heatmap' ? (
                     <div className="mt-1.5 ms-6">
                       <HeatmapLegend
@@ -388,7 +388,7 @@ export function LayerLegend({
                         highLabel={t('viewer.heatmapHigh')}
                       />
                     </div>
-                  ) : (
+                  ) : sc?.column ? (
                     <div className="mt-1.5 ms-6">
                       {sc.mode === 'categorical' && sc.categories && (
                         <CategoricalLegend categories={sc.categories} geometryType={layer.geometry_type} style={viewerSwatchStyle(layer)} />
@@ -401,7 +401,7 @@ export function LayerLegend({
                         />
                       )}
                     </div>
-                  )
+                  ) : null
                 )}
               </li>
             );

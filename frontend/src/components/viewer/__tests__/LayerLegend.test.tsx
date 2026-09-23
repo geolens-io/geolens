@@ -483,7 +483,8 @@ describe('LayerLegend heatmap ramp direction', () => {
     dataset_name: 'Heat',
     display_name: 'Heat',
     paint: { '_heatmap-ramp': 'YlOrRd', ...paintOverrides },
-    style_config: { render_mode: 'heatmap', column: 'weight', ramp: 'YlOrRd' } as SharedLayerResponse['style_config'],
+    // normalizeLayerStyleState always sets column to '' for a heatmap style_config.
+    style_config: { render_mode: 'heatmap', column: '', ramp: 'YlOrRd' } as SharedLayerResponse['style_config'],
   });
 
   function swatchStyleAttr(reversed: boolean): string {
