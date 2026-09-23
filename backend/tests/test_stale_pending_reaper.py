@@ -180,13 +180,7 @@ class TestStalePendingReaper:
 
 
 class TestStatusPollDoesNotReapQueuedJobs:
-    """fix(#724 review): the poll path is the one that actually fires.
-
-    get_job_status() runs its own age-only pending auto-fail, and the frontend
-    polls it every 2s (useJobStatus / AnalysisJobWatcher). Fixing only the
-    periodic sweeper left the whole failure reachable: the first poll after the
-    one-hour mark still killed a correctly-queued job.
-    """
+    """The poll spares a job its queue still holds and settles a true orphan."""
 
     async def test_poll_spares_a_job_the_queue_still_holds(
         self, test_db_session: AsyncSession
@@ -209,7 +203,7 @@ class TestStatusPollDoesNotReapQueuedJobs:
 
         await test_db_session.refresh(job)
         assert job.status == "failed"
-        assert "without being processed" in (job.error_message or "")
+        assert "never queued" in (job.error_message or "")
 
 
 async def _make_pending_job(
@@ -516,8 +510,7 @@ class TestPollingPathHonoursTheSameGuard:
     async def test_a_poll_still_fails_an_unbound_non_presigned_job(
         self, client, admin_auth_header, test_db_session
     ) -> None:
-        """The poll keeps its own elapsed-seconds wording for everything that
-        is not an abandoned upload."""
+        """The poll fails a dispatched unbound job with the sweep's wording."""
         job = await _make_pending_job(
             test_db_session,
             age_seconds=7200,
@@ -531,7 +524,7 @@ class TestPollingPathHonoursTheSameGuard:
         assert resp.status_code == 200, resp.text
         await test_db_session.refresh(job)
         assert job.status == "failed"
-        assert "without being processed" in (job.error_message or "")
+        assert "never queued" in (job.error_message or "")
 
     async def test_a_poll_still_fails_a_local_path_bound_job_at_1h(
         self, client, admin_auth_header, test_db_session
@@ -557,7 +550,7 @@ class TestPollingPathHonoursTheSameGuard:
         assert resp.status_code == 200, resp.text
         await test_db_session.refresh(job)
         assert job.status == "failed"
-        assert "without being processed" in (job.error_message or "")
+        assert "never queued" in (job.error_message or "")
 
     async def test_a_poll_fails_a_bound_pending_job_after_24h(
         self, client, admin_auth_header, test_db_session
@@ -864,44 +857,6 @@ def test_the_published_cleanup_response_drops_the_new_count_without_raising() ->
     response = StaleCleanupResponse(**details)
     assert response.pending_failed == 1
     assert not hasattr(response, "pending_cancelled")
-
-
-def test_every_unbound_pending_site_uses_the_shared_action() -> None:
-    """Every site that settles an unbound pending row writes the shared action."""
-    import inspect
-
-    from app.platform.jobs import router as jobs_router
-    from app.platform.jobs import sweep as jobs_sweep
-
-    for module in (jobs_router, jobs_sweep):
-        assert "stale_pending_unbound_values" in inspect.getsource(module), (
-            f"{module.__name__} settles unbound pending rows without the "
-            "shared action helper"
-        )
-
-
-def test_every_pending_fail_site_uses_the_shared_clauses() -> None:
-    """No site that fails a timed-out pending row rebuilds the predicates inline.
-
-    This greps source, so it misses a call that is present but unreachable;
-    the behavioural tests above catch that.
-    """
-    import inspect
-
-    from app.platform.jobs import router as jobs_router
-    from app.platform.jobs import sweep as jobs_sweep
-
-    for module in (jobs_router, jobs_sweep):
-        source = inspect.getsource(module)
-        # The only legitimate definition site is the helper itself — moved
-        # from router.py into sweep.py by #1335's recovery/sweep split.
-        inline = source.count('IngestJob.status == "pending",')
-        allowed = 1 if module is jobs_sweep else 0
-        assert inline == allowed, (
-            f"{module.__name__} builds the pending-fail predicates inline "
-            f"({inline} occurrences, expected {allowed}) — route it through "
-            "stale_pending_clauses instead"
-        )
 
 
 class TestUrlExpiryAnchorsToTheJobDeadline:
@@ -1229,7 +1184,7 @@ class TestAbandonedDirectUploadsAreCancelled:
             "a commit whose dispatch died was reported as an abandoned upload"
         )
         message = job.error_message or ""
-        assert "never queued" in message or "without being processed" in message
+        assert "never queued" in message
         can_retry, reason = await get_retry_capability(job)
         assert can_retry, f"the retry path was lost: {reason}"
 

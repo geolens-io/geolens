@@ -222,7 +222,7 @@ class TestGetJobStatus:
         resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
-        assert "heartbeat expired" in resp.json()["error_message"]
+        assert resp.json()["error_message"] == "Stale: running for over 60 minutes"
 
     async def test_get_job_auto_fails_analysis_job_at_materialize_lease(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -258,7 +258,7 @@ class TestGetJobStatus:
         resp = await client.get(f"/jobs/{analysis.id}", headers=admin_auth_header)
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
-        assert "heartbeat expired" in resp.json()["error_message"]
+        assert resp.json()["error_message"] == "Stale: running for over 5 minutes"
 
         resp = await client.get(f"/jobs/{ingest.id}", headers=admin_auth_header)
         assert resp.status_code == 200

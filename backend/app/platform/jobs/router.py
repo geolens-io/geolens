@@ -6,7 +6,7 @@ there for backward compatibility.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, cast
 
@@ -17,7 +17,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.failure_reason import redact_failure_reason
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
@@ -29,7 +28,6 @@ from app.modules.auth.dependencies import (
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
-from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
@@ -46,21 +44,19 @@ from app.platform.jobs.schemas import (
 )
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
-    JOB_TIMEOUT_SECONDS,
-    no_unclaimed_queue_entry,
+    JOB_TIMEOUT_SECONDS,  # noqa: F401 -- re-exported, see __all__
     _READY_WORTHY_SQL,
     audit_settled_embedding_backfill,
-    STALE_PENDING_BOUND_MESSAGE,
     StaleCleanupOutcome,  # noqa: F401 -- re-exported, see __all__
     _RECHECK_TRANSFER_MARGIN_SECONDS,  # noqa: F401 -- re-exported, see __all__
     _reap_committed_staged_paths,
     _sweep_expired_presigned_staging,
     fail_stale_jobs,
+    may_be_stale,
     post_expiry_sweep_after_seconds,  # noqa: F401 -- re-exported, see __all__
     publish_refresh_reconciliation,
-    stale_pending_clauses,
-    stale_pending_cutoff_seconds,
-    stale_pending_unbound_values,
+    settle_stale_jobs,
+    stale_pending_cutoff_seconds,  # noqa: F401 -- re-exported, see __all__
     sweep_stale_vrt_assets,  # noqa: F401 -- re-exported, see __all__
 )
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -318,115 +314,16 @@ async def get_job_status(
         )
 
     now = datetime.now(timezone.utc)
-
-    # Auto-fail jobs whose worker lease has expired. Fall back to started_at
-    # for jobs created before heartbeat support was deployed.
-    #
-    # fix(#691): analysis materialize jobs use the short materialize lease,
-    # not the 60-minute backstop — the frontend polls this route, so a
-    # hard-killed analysis job flips to failed within the lease window and
-    # the Create button re-enables at the same moment the server would admit
-    # a new materialize.
-    liveness_at = job.heartbeat_at or job.started_at
-    if job.status == "running" and liveness_at is not None:
-        is_analysis = "analysis" in (job.user_metadata or {})
-        lease_seconds = (
-            ANALYSIS_MATERIALIZE_LEASE_SECONDS if is_analysis else JOB_TIMEOUT_SECONDS
-        )
-        elapsed = (now - liveness_at).total_seconds()
-        if elapsed > lease_seconds:
-            lease_result = await db.execute(
-                update(IngestJob)
-                .where(
-                    IngestJob.id == job.id,
-                    IngestJob.attempt_id == job.attempt_id,
-                    IngestJob.status == "running",
-                    func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
-                    < now - timedelta(seconds=lease_seconds),
-                    # fix(#1710): a row whose task is still queued has no
-                    # worker lease to expire; see the predicate's docstring.
-                    no_unclaimed_queue_entry(),
-                )
-                .values(
-                    status="failed",
-                    error_message=f"Worker heartbeat expired after {int(elapsed)}s",
-                    completed_at=now,
-                )
-            )
-            # fix(#1550): gated on the UPDATE landing, as the
-            # stale-pending branch below already is. The predicate is
-            # conditional — a renewal or the worker's own finalize committing
-            # between read and write makes it match zero rows, and auditing
-            # anyway would put "worker_lost" over a still-running job.
-            #
-            # Same transaction as the status change, so the two can't disagree.
-            if lease_result.rowcount:
-                await audit_settled_embedding_backfill(
-                    db,
-                    job_id=job.id,
-                    user_metadata=job.user_metadata,
-                    created_by=job.created_by,
-                    error_code="worker_lost",
-                )
-            await db.commit()
-            await db.refresh(job)
-
-    # Auto-fail jobs stuck 'pending' beyond the timeout (orphaned/never
-    # queued). fix(#724): gated on the same live-queue predicate the
-    # sweeper uses — this is the path that fires, since the frontend polls
-    # every 2s for any job it is tracking.
-    if job.status == "pending" and job.created_at is not None:
-        elapsed = (now - job.created_at).total_seconds()
-        # fix(#1235): both halves, through the shared clauses — this
-        # is the path that fires, so old predicates left the completion race
-        # intact: a poll blocked on a completing job's lock resumes
-        # post-commit and fails the row it waited for.
-        for completion_bound, message in (
-            (False, f"Stale: pending for {int(elapsed)}s without being processed"),
-            (True, STALE_PENDING_BOUND_MESSAGE),
-        ):
-            # fix(#1235): a fast-path skip, not a correctness gate —
-            # the SQL clauses below re-check the same age and stay the
-            # authority. Restores the outer `elapsed` check the r2 rewrite
-            # dropped: without it, every 2s poll of every pending job issued
-            # both UPDATEs.
-            if elapsed <= stale_pending_cutoff_seconds(
-                completion_bound=completion_bound
-            ):
-                continue
-            # fix(#1556): the unbound half takes the shared ACTION (settles a
-            # never-bound presigned upload as `cancelled`); the bound half
-            # writes `failed` outright — same split the background sweep and
-            # the worker's startup recovery apply.
-            values = (
-                {
-                    "status": "failed",
-                    "error_message": redact_failure_reason(message),
-                    "completed_at": now,
-                }
-                if completion_bound
-                else stale_pending_unbound_values(now, message=message)
-            )
-            result = await db.execute(
-                update(IngestJob)
-                .where(
-                    IngestJob.id == job.id,
-                    IngestJob.attempt_id == job.attempt_id,
-                    *stale_pending_clauses(now, completion_bound=completion_bound),
-                )
-                .values(**values)
-            )
-            if result.rowcount:
-                await audit_settled_embedding_backfill(
-                    db,
-                    job_id=job.id,
-                    user_metadata=job.user_metadata,
-                    created_by=job.created_by,
-                    error_code="never_started",
-                )
-                await db.commit()
-                await db.refresh(job)
-                break
+    # Clients poll every few seconds; a job the pass would leave alone costs no
+    # statement here.
+    if may_be_stale(job, now):
+        outcome = await settle_stale_jobs(db, now, job_ids=(job.id,))
+        await db.commit()
+        publish_refresh_reconciliation(outcome)
+        # Only after the commit: a reap before it could delete what a
+        # rolled-back settlement still owns.
+        await _reap_committed_staged_paths(outcome)
+        await db.refresh(job)
 
     # fix(#1860): this handler already refused non-creators without policy
     # access, so every caller here is entitled to the full payload.
@@ -1292,7 +1189,6 @@ async def cancel_job(
 
 __all__ = [
     "JOB_TIMEOUT_SECONDS",
-    "STALE_PENDING_BOUND_MESSAGE",
     "StaleCleanupOutcome",
     "TemporalParseKey",
     "_RECHECK_TRANSFER_MARGIN_SECONDS",
@@ -1300,8 +1196,6 @@ __all__ = [
     "get_retry_capability",
     "post_expiry_sweep_after_seconds",
     "router",
-    "stale_pending_clauses",
     "stale_pending_cutoff_seconds",
-    "stale_pending_unbound_values",
     "sweep_stale_vrt_assets",
 ]

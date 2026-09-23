@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
+from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
@@ -885,6 +886,8 @@ _NO_LIVE_GENERATION_JOB_SQL = """
 async def sweep_stale_vrt_assets(
     db: AsyncSession,
     stale_cutoff: datetime,
+    *,
+    dataset_ids=None,
 ) -> tuple[int, int, tuple[str, ...]]:
     """Reconcile RasterAsset rows stuck in status='regenerating' past ``stale_cutoff``.
 
@@ -905,6 +908,8 @@ async def sweep_stale_vrt_assets(
     Args:
         db: Active async session; must NOT be committed before returning.
         stale_cutoff: Generations started before this are stale.
+        dataset_ids: When given (ids, or a select of them), only these VRT
+            datasets' generations are considered.
 
     Returns:
         ``(assets_recovered, gens_failed, storage_keys)``; assets_recovered
@@ -925,6 +930,8 @@ async def sweep_stale_vrt_assets(
 
         generation_scope.append(VrtGeneration.vrt_dataset_id.in_(select(Dataset.id)))
         asset_scope.append(RasterAsset.dataset_id.in_(select(Dataset.id)))
+    if dataset_ids is not None:
+        generation_scope.append(VrtGeneration.vrt_dataset_id.in_(dataset_ids))
 
     # fix(#1322): 'running' trusts its own stale heartbeat (procrastinate
     # may still read 'doing'); 'pending' also needs proof of no live queue row.
@@ -1082,27 +1089,66 @@ async def purge_terminal_job_tokens(db: AsyncSession) -> None:
     await db.commit()
 
 
-async def settle_stale_jobs(db: AsyncSession, now: datetime) -> StaleCleanupOutcome:
+def _stale_running_message(lease_seconds: float) -> str:
+    return f"Stale: running for over {int(lease_seconds) // 60} minutes"
+
+
+def may_be_stale(job: IngestJob, now: datetime) -> bool:
+    """Whether ``settle_stale_jobs`` could settle this loaded job at ``now``.
+
+    A free precheck for a caller that settles one job: a job it rejects is one
+    the pass would leave alone, and the pass re-checks everything it accepts.
+    """
+    if job.status == "running":
+        liveness = job.heartbeat_at or job.started_at
+        lease = (
+            ANALYSIS_MATERIALIZE_LEASE_SECONDS
+            if "analysis" in (job.user_metadata or {})
+            else JOB_TIMEOUT_SECONDS
+        )
+        return liveness is not None and (now - liveness).total_seconds() > lease
+    if job.status == "pending":
+        # The pass ages from staged_at, which is never earlier than created_at.
+        cutoff = stale_pending_cutoff_seconds(completion_bound=False)
+        return (
+            job.created_at is not None
+            and (now - job.created_at).total_seconds() > cutoff
+        )
+    if job.status == "fanned_out":
+        return (
+            job.completed_at is not None
+            and (now - job.completed_at).total_seconds()
+            > FAN_OUT_CHILDLESS_GRACE_SECONDS
+        )
+    return False
+
+
+async def settle_stale_jobs(
+    db: AsyncSession, now: datetime, *, job_ids: Sequence[uuid.UUID] | None = None
+) -> StaleCleanupOutcome:
     """Settle stale jobs, VRT regenerations and refresh runs, without committing.
 
-    The one settlement pass the lifespan sweep and worker startup recovery
-    share. Stale rules:
+    The one settlement pass the lifespan sweep, worker startup recovery and
+    the job status poll share. Stale rules:
       - pending: older than ``stale_pending_cutoff_seconds`` AND no live
         Procrastinate job (a true orphan, never queued)
-      - running: heartbeat_at/started_at older than JOB_TIMEOUT_SECONDS
-        (worker lease expired)
+      - running: heartbeat_at/started_at older than the job's lease:
+        ANALYSIS_MATERIALIZE_LEASE_SECONDS for an analysis job, else
+        JOB_TIMEOUT_SECONDS
       - fanned_out: still childless past ``FAN_OUT_CHILDLESS_GRACE_SECONDS``
 
-    VRT RasterAsset rows stuck 'regenerating' use the running cutoff. Two
+    VRT RasterAsset rows stuck 'regenerating' use JOB_TIMEOUT_SECONDS. Two
     concurrent callers settle each row once: running candidates skip locked
     rows, and every other UPDATE re-checks its row's status under the lock.
-    The outcome carries no purge or reap counts.
+    ``job_ids`` limits the pass to those jobs and their VRT generations and
+    refresh runs. The outcome carries no purge or reap counts.
     """
+    scope = () if job_ids is None else (IngestJob.id.in_(job_ids),)
     # fix(#1234): the 1h policy applies only to rows that never bound bytes.
     # The guard is FALSY, not IS NULL — every creator writes "" for file_path.
     unbound_result = await db.execute(
         update(IngestJob)
-        .where(*stale_pending_clauses(now, completion_bound=False))
+        .where(*stale_pending_clauses(now, completion_bound=False), *scope)
         .values(
             **stale_pending_unbound_values(now, message=STALE_PENDING_UNBOUND_MESSAGE)
         )
@@ -1128,7 +1174,7 @@ async def settle_stale_jobs(db: AsyncSession, now: datetime) -> StaleCleanupOutc
     # only takes terminal rows, so it is immortal without this backstop.
     bound_pending_result = await db.execute(
         update(IngestJob)
-        .where(*stale_pending_clauses(now, completion_bound=True))
+        .where(*stale_pending_clauses(now, completion_bound=True), *scope)
         .values(
             status="failed",
             error_message=STALE_PENDING_BOUND_MESSAGE,
@@ -1141,6 +1187,8 @@ async def settle_stale_jobs(db: AsyncSession, now: datetime) -> StaleCleanupOutc
     pending_job_ids += [row[0] for row in bound_pending_rows]
 
     running_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
+    is_analysis = IngestJob.user_metadata.has_key("analysis")
+    liveness = func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
     # fix(#1778): candidates come through their own `FOR UPDATE
     # SKIP LOCKED` subquery — a phase-2 write holds `FOR NO KEY UPDATE`, and
     # a lock_timeout on a set-based UPDATE would cancel the WHOLE statement.
@@ -1148,9 +1196,16 @@ async def settle_stale_jobs(db: AsyncSession, now: datetime) -> StaleCleanupOutc
         select(IngestJob.id)
         .where(
             IngestJob.status == "running",
-            func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
-            < running_cutoff,
+            or_(
+                liveness < running_cutoff,
+                and_(
+                    is_analysis,
+                    liveness
+                    < now - timedelta(seconds=ANALYSIS_MATERIALIZE_LEASE_SECONDS),
+                ),
+            ),
             no_unclaimed_queue_entry(),
+            *scope,
         )
         .with_for_update(skip_locked=True)
     )
@@ -1159,8 +1214,12 @@ async def settle_stale_jobs(db: AsyncSession, now: datetime) -> StaleCleanupOutc
         .where(IngestJob.id.in_(running_candidates))
         .values(
             status="failed",
-            error_message=(
-                f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
+            error_message=case(
+                (
+                    is_analysis,
+                    _stale_running_message(ANALYSIS_MATERIALIZE_LEASE_SECONDS),
+                ),
+                else_=_stale_running_message(JOB_TIMEOUT_SECONDS),
             ),
             completed_at=now,
         )
@@ -1200,6 +1259,7 @@ async def settle_stale_jobs(db: AsyncSession, now: datetime) -> StaleCleanupOutc
             "NOT EXISTS (SELECT 1 FROM catalog.ingest_jobs c"
             " WHERE c.user_metadata->>'fan_out_parent_id' = ingest_jobs.id::text)"
         ),
+        *scope,
     ]
     if settings.ingest_jobs_retention_days > 0:
         childless_fanout_clauses.append(
@@ -1236,11 +1296,17 @@ async def settle_stale_jobs(db: AsyncSession, now: datetime) -> StaleCleanupOutc
         vrt_assets_recovered,
         vrt_generations_failed,
         stale_generation_storage_keys,
-    ) = await sweep_stale_vrt_assets(db, running_cutoff)
+    ) = await sweep_stale_vrt_assets(
+        db,
+        running_cutoff,
+        dataset_ids=None
+        if job_ids is None
+        else select(IngestJob.dataset_id).where(IngestJob.id.in_(job_ids)),
+    )
 
     # feat(#1219): AFTER the two job sweeps, which supply one of the facts the
     # run sweep requires. Not folded into StaleCleanupOutcome (published shape).
-    cancelled_runs = await sweep_abandoned_refresh_runs(db, now)
+    cancelled_runs = await sweep_abandoned_refresh_runs(db, now, job_ids=job_ids)
     if cancelled_runs:
         log.info("abandoned_refresh_runs_cancelled", count=cancelled_runs)
 
