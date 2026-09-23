@@ -11,6 +11,7 @@ import {
 import { downloadExport } from '@/api/datasets';
 import { CopyButton } from '@/components/ui/copy-button';
 import { Download, Loader2 } from 'lucide-react';
+import { recordTypeCapabilities } from '@/lib/record-types';
 import type { RecordType } from '@/types/api';
 
 interface ExportButtonProps {
@@ -64,6 +65,8 @@ export function ExportButton({ datasetId, datasetName, recordType }: ExportButto
       setLoading(false);
     }
   };
+
+  if (recordType !== undefined && !recordTypeCapabilities(recordType).featureTable) return null;
 
   return (
     <div className="space-y-3">

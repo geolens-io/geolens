@@ -34,6 +34,7 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { recordTypeCapabilities } from '@/lib/record-types';
 import { Globe, Loader2, CheckCircle2, AlertCircle, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { probeService } from '@/api/ingest';
@@ -139,9 +140,8 @@ export function ReuploadDialog({
   onReplaceComplete,
 }: ReuploadDialogProps) {
   const { t } = useTranslation('dataset');
-  // #1289: raster datasets now reach this dialog (DatasetPage relaxes its
-  // gate to canEdit && !isVrt); this flag drives the upload -> commit
-  // shortcut below and the raster-specific copy in the preview/tracking steps.
+  // Raster datasets take the upload -> commit shortcut below and get
+  // raster-specific copy in the preview/tracking steps.
   const isRaster = dataset.record_type === 'raster_dataset';
   const [step, setStep] = useState<ReuploadStep>('source-select');
   const [sourceType, setSourceType] = useState<ReuploadSourceType | null>(null);
@@ -678,6 +678,8 @@ export function ReuploadDialog({
     : selectedFileLayer !== null
       ? selectedFileLayer
       : selectedFile?.name;
+
+  if (!isRaster && !recordTypeCapabilities(dataset.record_type).featureTable) return null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

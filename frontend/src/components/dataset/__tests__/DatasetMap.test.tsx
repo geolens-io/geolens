@@ -854,3 +854,35 @@ describe('DatasetMap attribute-edit dialog respects handleEditAttributeSubmit re
     expect(screen.queryByText('Edit Feature Attributes')).not.toBeInTheDocument();
   });
 });
+
+describe('DatasetMap record types', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = false;
+    drawingState.activeMode = null;
+    mapSpy.reset();
+    mapSpy.attachMapInstance = true;
+    (fakeMap.getSource as ReturnType<typeof vi.fn>).mockReset();
+    (fakeMap.addSource as ReturnType<typeof vi.fn>).mockClear();
+  });
+
+  afterEach(() => {
+    mapSpy.reset();
+  });
+
+  it('adds no tile or overlay source for an unknown record type and still reports ready', () => {
+    const onMapReady = vi.fn();
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="cloud"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="point_cloud_dataset"
+        onMapReady={onMapReady}
+      />,
+    );
+
+    expect(fakeMap.addSource).not.toHaveBeenCalled();
+    expect(onMapReady).toHaveBeenCalled();
+  });
+});

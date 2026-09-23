@@ -76,6 +76,7 @@ import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { recordTypeCapabilities } from '@/lib/record-types';
 import { ingestionStatusColors, visibilityColors } from '@/lib/status-colors';
 import type { DatasetResponse } from '@/types/api';
 import { downloadCog } from '@/api/datasets';
@@ -379,6 +380,9 @@ export function DatasetPage() {
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
   const isTable = dataset.record_type === 'table';
+  const { featureTable, mapLayerType } = recordTypeCapabilities(dataset.record_type);
+  const canAddToMap = !isTable && mapLayerType !== null;
+  const canReupload = featureTable || isRaster;
   // DetailPanel renders a raster/VRT deep link to Data or Structure as the
   // Overview tab. Keep the page-level map in that same effective layout so
   // the tab fallback never leaves the preview in its compact task-tab state.
@@ -447,7 +451,7 @@ export function DatasetPage() {
   // in the header is the "works with your existing GIS tools" affordance
   // (psql, QGIS, ogr2ogr can hit it directly). Raster/VRT data lives in
   // object storage, not a queryable table, so those skip the readout.
-  const showTableReadout = !isRaster && !isVrt && Boolean(dataset.table_name);
+  const showTableReadout = featureTable && Boolean(dataset.table_name);
 
   const statsLine = (
     <>
@@ -500,7 +504,7 @@ export function DatasetPage() {
       // #1289: raster now has a reupload flow too (upload -> commit,
       // skipping the vector schema-preview step); VRT stays excluded — VRT
       // datasets keep the regenerate action instead.
-      visible: canEdit && !isVrt,
+      visible: canEdit && canReupload,
       variant: 'outline',
     },
     {
@@ -538,11 +542,11 @@ export function DatasetPage() {
         statsLine={statsLine}
         leadingContent={
           <div className="flex items-center gap-2">
-            {!isTable && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
-            {!token && (
+            {canAddToMap && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
+            {!token && (canAddToMap || isTable) && (
               <AuthPrompt
                 action={
-                  !isTable
+                  canAddToMap
                     ? t('actions.addToMap', { defaultValue: 'add to a map' })
                     : t('actions.edit', { defaultValue: 'edit' })
                 }
@@ -626,7 +630,7 @@ export function DatasetPage() {
                   datasetId={id}
                   columnInfo={dataset.column_info}
                   containerRef={mapContainerRef}
-                  canEdit={canEditData && !isRaster && !isVrt && !isTable}
+                  canEdit={canEditData && featureTable && !isTable}
                   recordType={dataset.record_type}
                   rasterTileUrl={dataset.raster?.tile_url}
                   tileVersion={dataset.updated_at}
@@ -708,7 +712,7 @@ export function DatasetPage() {
       {/* Dataset-scoped AI chat (dataset-chat v1) — vector/table datasets only,
           mirroring the backend record_type gate; the panel further self-gates
           on AI availability + use_ai_chat, so anonymous visitors see nothing. */}
-      {token && !isRaster && !isVrt && (
+      {token && featureTable && (
         <DatasetChatPanel
           datasetId={dataset.id}
           datasetTitle={dataset.title}
@@ -726,7 +730,7 @@ export function DatasetPage() {
         />
       )}
 
-      {canEdit && !isVrt && (
+      {canEdit && canReupload && (
         <Suspense fallback={null}>
           <ReuploadDialog
             dataset={dataset}

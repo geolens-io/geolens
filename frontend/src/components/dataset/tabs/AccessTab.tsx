@@ -34,6 +34,7 @@ import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 import { getVisibilityLabel } from '@/i18n/labels';
 import { DistributionsList } from '@/components/dataset/DistributionsList';
 import { ExportButton } from '@/components/dataset/ExportButton';
+import { recordTypeCapabilities } from '@/lib/record-types';
 import { cn } from '@/lib/utils';
 
 // Syntax highlight tokens — mapped to CSS custom properties in index.css
@@ -348,8 +349,7 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
     }
     applyVisibility(visibility);
   }
-  const isRaster = dataset.record_type === 'raster_dataset';
-  const isVrt = dataset.record_type === 'vrt_dataset';
+  const { featureTable, tileToken } = recordTypeCapabilities(dataset.record_type);
 
   return (
     <>
@@ -367,7 +367,7 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
             </p>
           )}
           {/* XYZ Tile URL for raster/VRT datasets */}
-          {(isRaster || isVrt) && dataset.raster?.connect?.tile_url && (
+          {tileToken === 'raster' && dataset.raster?.connect?.tile_url && (
             <TileUrlSection tileUrl={dataset.raster.connect.tile_url} />
           )}
           <p className="text-xs text-muted-foreground mt-4">
@@ -380,7 +380,7 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
       </Card>
 
       {/* API access snippet */}
-      {!isRaster && !isVrt && endpoints.ogcFeaturesUrl && publicApiBaseUrl && (
+      {featureTable && endpoints.ogcFeaturesUrl && publicApiBaseUrl && (
         <ApiSnippet
           apiBaseUrl={publicApiBaseUrl}
           collectionId={dataset.id}
@@ -390,7 +390,7 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
       )}
 
       {/* Export -- vector datasets only */}
-      {!isRaster && !isVrt && (
+      {featureTable && (
         <Card>
           <CardHeader>
             <CardTitle level={2} className="text-base">{t('page.export')}</CardTitle>
