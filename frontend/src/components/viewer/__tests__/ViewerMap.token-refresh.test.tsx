@@ -1,13 +1,10 @@
-// ViewerMap used to also run its own token-refresh effect, which looked up
-// `viewer-source-<key>` — never matching the deduped `viewer-source-data-
-// <table>` sources non-cluster vector layers share. It only ever found
-// per-layer server-cluster sources, and re-signed those a second time on top
-// of the reactive sync pass (which resigns both source kinds already). These
-// tests exercise the real map-sync pipeline (no mocking of syncLayersToMap /
-// syncMapComposition) so a token rotation's resign count is the real one.
+// A token rotation re-signs each vector source exactly once, through the
+// composition sync. These tests run the real map-sync pipeline, with
+// syncLayersToMap and syncMapComposition unmocked, so the count is the real one.
 import type { ReactNode } from 'react';
 import { render, waitFor } from '@/test/test-utils';
 import { ViewerMap } from '../ViewerMap';
+import { BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 import type { SharedLayerResponse } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
 
@@ -205,7 +202,7 @@ function viewerElement() {
   return (
     <ViewerMap
       layers={LAYERS}
-      basemapStyle="openfreemap-positron"
+      basemapStyle={BLANK_BASEMAP_ID}
       basemapConfig={null}
       showBasemapLabels={true}
       terrainConfig={null}
@@ -249,7 +246,7 @@ describe('ViewerMap token rotation resigns each vector source once', () => {
     await waitFor(() => expect(parcels.setTiles).toHaveBeenCalledTimes(1));
   });
 
-  it('re-signs the server-cluster source exactly once (fails on origin/main: the deleted effect re-signs it a second time)', async () => {
+  it('re-signs the server-cluster source exactly once', async () => {
     const { rerender } = render(viewerElement());
     const sensors = await findVectorSource('sensors-layer');
     sensors.setTiles!.mockClear();
