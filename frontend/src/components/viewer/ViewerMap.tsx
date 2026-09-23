@@ -202,8 +202,8 @@ export const ViewerMap = memo(function ViewerMap({
 
   // Tile token management (fetch, auto-refresh, error toast)
   const { tokenMap, refreshTokens } = useViewerTokens({ layers, apiKey, embedToken });
-  // fix(#621): shared tile-auth recovery — a vector tile 401/403 kicks one
-  // throttled token re-mint; the token-refresh effect below re-signs sources.
+  // Shared tile-auth recovery: a vector tile 401/403 kicks one throttled token
+  // re-mint, and the sync pass re-signs the sources once the new token lands.
   // fix(#890): report every mint the recovery path actually kicks (suppressed),
   // so a tab-return recovery still leaves a trace now that it no longer arrives
   // wrapped in a 403 burst.
@@ -475,11 +475,10 @@ export const ViewerMap = memo(function ViewerMap({
           });
           return;
         }
-        // fix(#621): a first-party tile 401/403 means the signed tile URL has
-        // gone stale (expired sig / stranded session). Kick one throttled
-        // token re-mint — the token-refresh effect re-signs the sources when
-        // it lands, and a conclusively dead session surfaces through the
-        // global signed-out handling (#628) via the mint request itself.
+        // A first-party tile 401/403 means the signed tile URL has gone stale
+        // (expired signature or stranded session). Kick one throttled token
+        // re-mint: the sync pass re-signs the sources when it lands, and a dead
+        // session surfaces through the global signed-out handling via the mint.
         if ((status === 401 || status === 403) && !isThirdPartyUrl(e.error?.url)) {
           // audit(w3-maps A2): recoverTileAuth() returning false is
           // contractual — a recent re-mint didn't cure the error (revoked
