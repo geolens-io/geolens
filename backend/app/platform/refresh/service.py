@@ -531,6 +531,36 @@ async def transition_run(
     return False
 
 
+# Scoped through each accepting run's dataset, so only that dataset's blocked
+# runs are read, not the whole history table.
+_RELEASE_CONSUMED_ACCEPTANCES_SQL = text(
+    """
+    UPDATE catalog.dataset_refresh_runs AS blocked
+    SET verification = blocked.verification - 'acceptance_consumed_by_run_id'
+    FROM catalog.dataset_refresh_runs AS accepting
+    WHERE accepting.id = ANY(CAST(:run_ids AS uuid[]))
+      AND blocked.dataset_id = accepting.dataset_id
+      AND blocked.status = 'blocked'
+      AND blocked.verification->>'acceptance_consumed_by_run_id' = accepting.id::text
+    """
+)
+
+
+async def _release_consumed_acceptances(
+    session: AsyncSession, run_ids: list[uuid.UUID]
+) -> None:
+    """Make the blocked runs these runs accepted acceptable again.
+
+    Every writer that ends a run ``cancelled`` or ``failed`` calls this in its
+    own transaction, after it holds the run's row.
+    """
+    if run_ids:
+        await session.execute(
+            _RELEASE_CONSUMED_ACCEPTANCES_SQL,
+            {"run_ids": [str(run_id) for run_id in run_ids]},
+        )
+
+
 async def claim_run_for_job(
     session: AsyncSession, ingest_job_id: uuid.UUID
 ) -> uuid.UUID | None:
@@ -640,6 +670,7 @@ async def reject_pending_admitted_refresh(
     run.finished_at = now
     run.error_code = error_code
     run.error_message = safe_message
+    await _release_consumed_acceptances(session, [run.id])
     await _emit_refresh_failed(session, run.id)
     return run.id
 
@@ -687,6 +718,7 @@ async def fail_claimed_admitted_refresh(
     run.finished_at = now
     run.error_code = error_code[:64]
     run.error_message = safe_message
+    await _release_consumed_acceptances(session, [run.id])
     await _emit_refresh_failed(session, run.id)
     return run.id
 
@@ -769,6 +801,7 @@ async def cancel_active_run_for_job(
     )
     if not won:
         return None
+    await _release_consumed_acceptances(session, [run_id])
     await _emit_refresh_cancelled(session, run_id, cancelled_by=cancelled_by)
     return run_id
 
@@ -917,6 +950,7 @@ async def record_refresh_failure(
     )
     if not won:
         return None
+    await _release_consumed_acceptances(session, [row.id])
     await _emit_refresh_failed(session, row.id)
     if contacted_origin:
         await _stamp_guarded_contact(
@@ -1197,6 +1231,7 @@ async def sweep_abandoned_refresh_runs(
     # usable `.rowcount`, and the ids are needed anyway.
     recovered = list(completed.scalars())
     cancelled = list(result.scalars())
+    await _release_consumed_acceptances(session, cancelled)
     # feat(#1268): these are the only terminal transitions no worker
     # reports, so without an event here the audit log shows a dispatch and
     # then nothing. Emitted per run, not as one summary row: the audit log
