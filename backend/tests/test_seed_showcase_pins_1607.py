@@ -27,6 +27,7 @@ import importlib.util
 import subprocess
 import sys
 
+import httpx
 import pytest
 
 from tests.repo_paths import repo_root
@@ -680,7 +681,7 @@ def test_a_map_id_reports_nothing_and_counts_as_built():
     assert seeder._builder_outcome_line("collections", "(none)") is None
 
 
-# --- the pinned-ids summary (#2142) --------------------------------------------
+# --- the pinned-ids summary -----------------------------------------------------
 
 
 class _SummaryApi:
@@ -701,16 +702,18 @@ class _SummaryApi:
         return self._share_tokens.get(map_id)
 
 
-def test_pinned_summary_flags_a_map_with_no_share_link_and_never_prints_a_token(
-    capsys, monkeypatch
-):
-    """A pinned map with no active share link is flagged; one that has a link
-    reports only that it has one, never the token value itself."""
+def test_the_token_embedded_map_is_one_of_the_pinned_names():
+    assert seeder.PINNED_MAP_EMBEDDED_BY_TOKEN in seeder.PINNED_MAP_NAMES
+
+
+def test_pinned_summary_flags_only_the_token_embedded_map(capsys, monkeypatch):
+    """The other pinned maps are deep-linked by id and normally have no link."""
     monkeypatch.setattr(
         seeder,
         "PINNED_MAP_NAMES",
         ("Restless Earth", "Manhattan - A Century of Skyline"),
     )
+    monkeypatch.setattr(seeder, "PINNED_MAP_EMBEDDED_BY_TOKEN", "Restless Earth")
     monkeypatch.setattr(
         seeder, "PINNED_DATASET_TITLES", ("Meteorite Landings (Meteoritical Society)",)
     )
@@ -719,18 +722,57 @@ def test_pinned_summary_flags_a_map_with_no_share_link_and_never_prints_a_token(
             "Restless Earth": "m-restless",
             "Manhattan - A Century of Skyline": "m-manhattan",
         },
-        datasets={"Meteorite Landings (Meteoritical Society)": "d-meteorites"},
-        share_tokens={
-            "m-manhattan": {"token": "SECRET-DO-NOT-PRINT", "is_active": True}
-        },
+        datasets={},  # the pinned dataset is missing this run
+        share_tokens={},  # neither map has an active link
     )
+    monkeypatch.setattr(seeder.Api, "login", lambda *a, **k: api)
 
-    seeder._print_pinned_summary(api)
+    seeder._print_pinned_summary("http://x", "admin", "pw")
 
     out = capsys.readouterr().out
     assert "m-restless" in out
-    assert "no active share link" in out
+    assert "'Restless Earth' has no active share link" in out
     assert "m-manhattan" in out
-    assert "d-meteorites" in out
-    assert "SECRET-DO-NOT-PRINT" not in out
+    assert out.count("no active share link") == 1
+    assert "! dataset 'Meteorite Landings (Meteoritical Society)' not found" in out
     assert "gh api repos/geolens-io/geolens-examples/dispatches" in out
+
+
+def test_pinned_summary_never_prints_the_share_token_itself(capsys, monkeypatch):
+    """Keep this even though the real endpoint returns only a token hint."""
+    monkeypatch.setattr(seeder, "PINNED_MAP_NAMES", ("Restless Earth",))
+    monkeypatch.setattr(seeder, "PINNED_MAP_EMBEDDED_BY_TOKEN", "Restless Earth")
+    monkeypatch.setattr(seeder, "PINNED_DATASET_TITLES", ())
+    api = _SummaryApi(
+        maps={"Restless Earth": "m-restless"},
+        datasets={},
+        share_tokens={
+            "m-restless": {"token": "SECRET-DO-NOT-PRINT", "is_active": True}
+        },
+    )
+    monkeypatch.setattr(seeder.Api, "login", lambda *a, **k: api)
+
+    seeder._print_pinned_summary("http://x", "admin", "pw")
+
+    out = capsys.readouterr().out
+    assert "no active share link" not in out
+    assert "SECRET-DO-NOT-PRINT" not in out
+
+
+class _ExpiredLoginApi:
+    """list_maps() 401s, as it would on a token that expired mid-seed."""
+
+    def list_maps(self):
+        request = httpx.Request("GET", "http://x/api/maps")
+        raise httpx.HTTPStatusError(
+            "401", request=request, response=httpx.Response(401, request=request)
+        )
+
+
+def test_pinned_summary_is_best_effort_on_an_http_failure(capsys, monkeypatch):
+    """A stale token or network hiccup here must not fail an otherwise-good seed."""
+    monkeypatch.setattr(seeder.Api, "login", lambda *a, **k: _ExpiredLoginApi())
+
+    seeder._print_pinned_summary("http://x", "admin", "pw")
+
+    assert "skipped" in capsys.readouterr().out.lower()

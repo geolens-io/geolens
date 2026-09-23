@@ -550,15 +550,14 @@ PINNED_DATASET_TITLES = (
     "Meteorite Landings (Meteoritical Society)",
 )
 
-# fix(#1607): maps the examples address by an id THIS seeder minted, so the row
-# itself has to survive - a map of the same name built beside it is not the same
-# map. geolens-examples deep-links three from its gallery and embeds the fourth
-# by share token. Both go stale on every reseed, so this comment no longer
-# lists them - a seed run that builds or keeps these maps prints each one's
-# current id at the end.
+# Maps the examples address by an id THIS seeder minted, so the row itself
+# has to survive - a map of the same name built beside it is not the same
+# map. geolens-examples deep-links three from its gallery and embeds the
+# fourth by share token. Their ids change on every reseed; a seed run that
+# builds or keeps these maps prints the current ones at the end.
 #
 # Building one of these again mints a fresh uuid and leaves the share tokens on
-# the row they were minted against, so every link above keeps resolving to the
+# the row they were minted against, so every such link keeps resolving to the
 # OLD map while the seeder's later passes work on the new one - and nothing
 # inside this repo can see that. So: --force KEEPS a pinned map that already
 # exists (_keep_existing_map), --prune and --prune-userdata hard-keep it, and no
@@ -579,6 +578,11 @@ PINNED_MAP_NAMES = (
     "The Matterhorn in 3D",
     "New York From Orbit - Sentinel-2, by Reference",
 )
+
+# The one pinned map geolens-examples embeds by share token rather than
+# deep-linking by id; the other three normally have no share link at all, so
+# only this one's is worth reading and flagging in the end-of-run summary.
+PINNED_MAP_EMBEDDED_BY_TOKEN = "Restless Earth"
 
 # --- globe projection ---------------------------------------------------------
 # The showcase maps whose story is GLOBAL, where Mercator actively misleads:
@@ -6251,45 +6255,50 @@ def _backfill_thumbnails(base_url: str, username: str, password: str) -> None:
         )
 
 
-def _print_pinned_summary(api: Api) -> None:
-    """Print each pinned map/dataset's current id, for the geolens-examples handoff.
-
-    Ids and the Restless Earth share token go stale on every reseed, and this
-    container has no GitHub credentials to notify geolens-examples itself, so
-    this is what turns that follow-up into a copy-paste instead of a fresh
-    trawl through the API. Never prints a share token - only whether one exists.
+def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
+    """Print each pinned map/dataset's current id, for the geolens-examples
+    handoff. Best-effort: logs in fresh and never fails the seed.
     """
-    print("\nPinned ids (for geolens-examples):")
-    maps_by_name = api.list_maps()
-    for name in PINNED_MAP_NAMES:
-        map_id = maps_by_name.get(name)
-        if map_id is None:
-            print(f"  ! map {name!r} not found this run")
-            continue
-        try:
-            has_link = api.map_share_token(map_id) is not None
-        except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
-            print(f"  ? map {name!r} {map_id} - could not read its share link: {e}")
-            continue
-        print(f"  map     {name}: {map_id}  (share links: {1 if has_link else 0})")
-        if not has_link:
+    try:
+        api = Api.login(base_url, username, password)
+        print("\nPinned ids (for geolens-examples):")
+        maps_by_name = api.list_maps()
+        for name in PINNED_MAP_NAMES:
+            map_id = maps_by_name.get(name)
+            if map_id is None:
+                print(f"  ! map {name!r} not found this run")
+                continue
+            print(f"  map     {name}: {map_id}")
+
+        # The other three pinned maps are deep-linked by id and normally carry
+        # no share link at all, so only the token-embedded one is worth
+        # reading and flagging here.
+        embedded_id = maps_by_name.get(PINNED_MAP_EMBEDDED_BY_TOKEN)
+        if embedded_id is not None and api.map_share_token(embedded_id) is None:
             print(
-                "          !! no active share link - mint one from the Share "
-                "dialog if geolens-examples embeds this map by token"
+                f"  !! {PINNED_MAP_EMBEDDED_BY_TOKEN!r} has no active share link "
+                "- mint one from the Share dialog"
             )
 
-    datasets_by_title = api.datasets_by_title()
-    for title in PINNED_DATASET_TITLES:
-        dataset_id = datasets_by_title.get(title)
-        if dataset_id is not None:
+        datasets_by_title = api.datasets_by_title()
+        for title in PINNED_DATASET_TITLES:
+            dataset_id = datasets_by_title.get(title)
+            if dataset_id is None:
+                print(f"  ! dataset {title!r} not found this run")
+                continue
             print(f"  dataset {title}: {dataset_id}")
 
-    print(
-        "\nNotify geolens-examples of this reseed from a workstation with "
-        "GitHub credentials (this container has none):\n"
-        "  gh api repos/geolens-io/geolens-examples/dispatches "
-        "-f event_type=demo-reseeded"
-    )
+        print(
+            "\nAfter reseeding the public demo, notify geolens-examples from a "
+            "machine with GitHub credentials:\n"
+            "  gh api repos/geolens-io/geolens-examples/dispatches "
+            "-f event_type=demo-reseeded"
+        )
+    except httpx.HTTPError as e:
+        # A stale login token (main()'s access token is short-lived) or any
+        # other request failure here must not turn a good seed into a
+        # traceback - the ids are a courtesy, not part of the seed itself.
+        print(f"\nSkipped the pinned-ids summary: {e}")
 
 
 def main() -> int:
@@ -6526,7 +6535,7 @@ def main() -> int:
 
     if not args.no_thumbnails:
         _backfill_thumbnails(args.base_url, args.username, args.password)
-    _print_pinned_summary(api)
+    _print_pinned_summary(args.base_url, args.username, args.password)
     return 0
 
 
