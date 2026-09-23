@@ -6,6 +6,7 @@ GeoLens uses a single-context domain-documentation layout.
 
 - `CONTEXT.md` at the repository root
 - Relevant ADRs under `docs/adr/`
+- Relevant ADRs under `docs-internal/decisions/`. The directory is gitignored, so only maintainer checkouts have it; it holds the refresh and record-model decisions that `docs/adr/` does not.
 
 If these files do not exist, proceed silently. Do not suggest creating them upfront. The domain-modeling workflow creates them lazily when terminology or decisions are resolved.
 
