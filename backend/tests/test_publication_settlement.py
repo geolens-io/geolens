@@ -429,6 +429,41 @@ async def test_settlement_failure_scrubs_credential_before_durable_writes(
     assert secret not in (failed_run.error_message or "")
 
 
+async def test_commit_failure_rolls_back_swap_and_records_durable_failure(
+    test_db_session, monkeypatch
+):
+    dataset, job, staging, admin_id = await _prepared_candidate(
+        test_db_session, refresh=True
+    )
+    dataset_id, job_id, live_table = dataset.id, job.id, dataset.table_name
+    failed_commit = AsyncMock(side_effect=RuntimeError("commit unavailable"))
+    monkeypatch.setattr(test_db_session, "commit", failed_commit)
+
+    with pytest.raises(PublicationSettlementFailure):
+        await settle_publication(
+            replace(
+                _command(
+                    test_db_session, dataset, job, staging, admin_id, refresh=True
+                ),
+                expected_feature_count=1,
+            )
+        )
+
+    failed_commit.assert_awaited_once()
+    test_db_session.expire_all()
+    failed_job = await test_db_session.get(IngestJob, job_id)
+    failed_run = await test_db_session.scalar(
+        select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job_id)
+    )
+    live_name = await test_db_session.scalar(
+        sa.text(f'SELECT name FROM data."{live_table}"')
+    )
+    assert failed_job.status == "failed"
+    assert failed_run.status == "failed"
+    assert live_name == "original"
+    assert (await test_db_session.get(Dataset, dataset_id)).current_version == 1
+
+
 async def test_different_service_failure_does_not_stamp_stored_origin(
     test_db_session, monkeypatch
 ):
