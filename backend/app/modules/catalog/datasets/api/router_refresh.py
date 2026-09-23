@@ -56,6 +56,7 @@ from app.modules.catalog.sources.origin_probe import (
 from app.platform.dataset_origin import classify_origin, service_auth_required
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
+    RollbackCallable,
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
@@ -232,6 +233,33 @@ async def _release_blocked_refresh_acceptance(
             "new_run_id": str(new_run_id),
         },
     )
+
+
+def _lease_releasing_rollback(
+    inner_rollback,
+    *,
+    db: AsyncSession,
+    new_run_id: uuid.UUID,
+    credential_ref: str | None,
+    blocked_run_id: uuid.UUID | None = None,
+) -> RollbackCallable:
+    """A refresh door's defer rollback: the job and run, then what it leased.
+
+    The acceptance and credential are released only when the job write
+    landed; a worker that claimed the job still needs both.
+    """
+
+    async def _rollback(defer_exc: BaseException) -> None:
+        if not await inner_rollback(defer_exc):
+            return
+        await _release_blocked_refresh_acceptance(
+            db, blocked_run_id=blocked_run_id, new_run_id=new_run_id
+        )
+        # The worker will never come for it, and the run is already terminal.
+        # Best-effort; the TTL is the real guarantee.
+        await discard_service_credential(credential_ref)
+
+    return _rollback
 
 
 def _resolve_service_origin(dataset) -> _ServiceOrigin:
@@ -958,11 +986,9 @@ async def _dispatch_stac_refresh(
         ingest_job_id=job_id,
     )
 
-    async def _rollback(defer_exc: BaseException) -> None:
-        await inner_rollback(defer_exc)
-        # The worker will never come for it, and the run is already terminal.
-        # Best-effort; the TTL is the real guarantee.
-        await discard_service_credential(credential_ref)
+    _rollback = _lease_releasing_rollback(
+        inner_rollback, db=db, new_run_id=run_id, credential_ref=credential_ref
+    )
 
     async def _defer_refresh() -> None:
         await defer_async_with_tenant(
@@ -1389,16 +1415,13 @@ async def refresh_dataset(
         ingest_job_id=job_id,
     )
 
-    async def _rollback(defer_exc: BaseException) -> None:
-        await inner_rollback(defer_exc)
-        await _release_blocked_refresh_acceptance(
-            db,
-            blocked_run_id=body.accept_blocked_run_id,
-            new_run_id=run_id,
-        )
-        # The worker will never come for it, and the run is already terminal.
-        # Best-effort; the TTL is the real guarantee.
-        await discard_service_credential(credential_ref)
+    _rollback = _lease_releasing_rollback(
+        inner_rollback,
+        db=db,
+        new_run_id=run_id,
+        credential_ref=credential_ref,
+        blocked_run_id=body.accept_blocked_run_id,
+    )
 
     async def _defer_refresh() -> None:
         task = get_catalog_port().verified_refresh_service_task()

@@ -1307,7 +1307,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_reupload.py": 1576,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1434,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1457,
     # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1175,
     # Reconciliation and reapers serve startup, workers and admin cleanup consistently.
@@ -1324,7 +1324,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 933,
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1472,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1473,
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1690,
     # Raster conversion, verification and fenced publication share one failure
@@ -1345,7 +1345,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging and job settlement share one orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1437,
+    "backend/app/processing/ingest/service.py": 1438,
     # PostGIS refresh coordinates geometry repair, measurement and fenced catalog
     # updates.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 979,

@@ -1104,7 +1104,8 @@ async def reupload_commit(
     )
 
     async def rollback(defer_exc: BaseException) -> None:
-        await inner_rollback(defer_exc)
+        if not await inner_rollback(defer_exc):
+            return
         # The worker will never come for it, and the run is already terminal.
         await discard_service_credential(credential_ref)
 

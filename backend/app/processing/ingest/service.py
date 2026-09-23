@@ -1367,7 +1367,8 @@ async def queue_ingest_job(
             )
 
         async def _rollback_service(defer_exc: BaseException) -> None:
-            await job_failed(defer_exc)
+            if not await job_failed(defer_exc):
+                return
             # Best-effort: the TTL is the real guarantee, this just shortens
             # a window nothing will use.
             await discard_service_credential(credential_ref)
