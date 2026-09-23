@@ -1269,8 +1269,9 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 # Caps equal current LOC. Lower them when modules shrink; split or explain growth.
 # Full paths cover oversized modules beyond the router glob.
 _MODULE_LOC_CAPS: dict[str, int] = {
-    # Manifest reservation, staging and fenced settlement share one apply workflow.
-    "backend/app/processing/ingest/manifest_service.py": 1163,
+    # Manifest reservation, staging, run admission and fenced settlement share one
+    # apply workflow.
+    "backend/app/processing/ingest/manifest_service.py": 1232,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1360,
@@ -1312,7 +1313,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Reconciliation and reapers serve startup, workers and admin cleanup consistently.
     "backend/app/platform/jobs/sweep.py": 1537,
     # Refresh admission, claim fencing and terminal transitions stay domain-neutral.
-    "backend/app/platform/refresh/service.py": 1233,
+    "backend/app/platform/refresh/service.py": 1232,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1496,

@@ -375,15 +375,14 @@ async def create_pending_run(
         {"dataset_id": dataset_id},
     )
 
-    # fix(#1274): a reupload enqueued by a still-draining PRE-migration API
-    # pod has a live task but no run row, so the unique index can't referee
-    # it — refuse admission while one exists. Predicate is deliberately
-    # narrow (a LIVE task AND a job with no run row) since post-migration
-    # dispatch creates the run in the same transaction, so only legacy work
-    # matches and the check goes inert once those pods drain. Accepted gap
-    # (r8): an old pod that committed its job but hasn't yet inserted the
-    # task row is invisible here for those milliseconds; closing it needs a
-    # deployment barrier between API generations.
+    # A reupload queued by an API pod older than run admission (pre-migration,
+    # or a manifest apply from before it created runs) has a live task but no
+    # run row, so the unique index can't referee it. Every current door
+    # creates its run in the dispatch transaction, so only that older work
+    # matches and the check goes inert once those pods drain. Accepted gap:
+    # an old pod that committed its job but hasn't yet inserted the task row
+    # is invisible here for those milliseconds; closing it needs a deployment
+    # barrier between API generations.
     legacy_live = await session.scalar(
         text(
             """
