@@ -111,6 +111,17 @@ async def check_health(*, include_errors: bool = False) -> dict[str, Any]:
     }
 
 
+async def check_readiness() -> dict[str, str]:
+    """Readiness: whether this process can reach the database.
+
+    The cache has an in-memory fallback and the object store is shared by
+    every replica, so neither decides whether one API process can take
+    traffic; ``check_health`` still reports both.
+    """
+    database = await _probe("database", _check_database())
+    return {"status": "ready" if database["status"] == "ok" else "not_ready"}
+
+
 async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
     """Probe all enabled OIDC providers and return status dict keyed by slug."""
     from app.platform.config_ops.service import check_oidc_endpoint

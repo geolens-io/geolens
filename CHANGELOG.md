@@ -9,6 +9,11 @@ and releases use semantic versioning.
 
 ### Added
 
+- `/api/health/ready` is a readiness probe that checks only the database, so
+  an orchestrator no longer takes every API replica out of service during a
+  cache or object-store outage. `/api/health` remains the full dependency
+  report.
+
 - ArcGIS refreshes can opt into exact object-ID coverage verification. Missing,
   duplicate, unexpected, or changing source IDs block publication; successful
   coverage verifies layer membership without claiming an atomic source snapshot.
