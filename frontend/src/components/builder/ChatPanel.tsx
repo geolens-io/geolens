@@ -18,6 +18,7 @@ import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, Sty
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import { ChatInput } from './ChatInput';
 import { getSmartSuggestions, type ChatSuggestion, type ViewportContext } from './chat-suggestions';
+import { randomId } from '@/lib/random-id';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -914,7 +915,7 @@ export function ChatPanel({
           setMessages((prev) => [
             ...prev,
             {
-              id: crypto.randomUUID(),
+              id: randomId(),
               role: 'assistant',
               content: finalText,
               actions: pendingActions.length > 0 ? pendingActions : undefined,
@@ -959,7 +960,7 @@ export function ChatPanel({
       setMessages((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: randomId(),
           role: 'assistant',
           content: response.explanation,
           // fix(#392): attach the filtered pendingActions (what actually applied), not the
@@ -979,7 +980,7 @@ export function ChatPanel({
         setMessages((prev) => [
           ...prev,
           {
-            id: crypto.randomUUID(),
+            id: randomId(),
             role: 'error',
             content: mapApiErrorToMessage(fallbackErr),
             retryMessage: opts.userMsg,
@@ -999,7 +1000,7 @@ export function ChatPanel({
     const history = buildHistory();
     setMessages((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), role: 'user', content: userMsg },
+      { id: randomId(), role: 'user', content: userMsg },
     ]);
     setIsLoading(true);
     const controller = new AbortController();
@@ -1025,12 +1026,12 @@ export function ChatPanel({
             ...prev,
             pendingActions.length > 0
               ? {
-                  id: crypto.randomUUID(),
+                  id: randomId(),
                   role: 'assistant',
                   content: streamState.text || t('chat.cancelled'),
                   actions: pendingActions,
                 }
-              : { id: crypto.randomUUID(), role: 'assistant', content: t('chat.cancelled') },
+              : { id: randomId(), role: 'assistant', content: t('chat.cancelled') },
           ]);
           return;
         case 'partial':
@@ -1038,7 +1039,7 @@ export function ChatPanel({
           setMessages((prev) => [
             ...prev,
             {
-              id: crypto.randomUUID(),
+              id: randomId(),
               role: 'assistant',
               content: streamState.text || t('chat.streamInterrupted'),
               actions: pendingActions,
@@ -1054,7 +1055,7 @@ export function ChatPanel({
           setMessages((prev) => [
             ...prev,
             {
-              id: crypto.randomUUID(),
+              id: randomId(),
               role: 'error',
               content: mapApiErrorToMessage(err),
               retryMessage: userMsg,

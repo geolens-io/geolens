@@ -13,6 +13,7 @@ import {
   FilterValidationError,
   NUMERIC_COMPARISON_OPERATORS,
 } from '@/lib/maplibre-filter-utils';
+import { randomId } from '@/lib/random-id';
 
 interface FilterCondition {
   id: string;
@@ -200,7 +201,7 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
     kind: 'editable',
     combinator: canonical.combinator,
     conditions: canonical.conditions.map((c) => ({
-      id: crypto.randomUUID(),
+      id: randomId(),
       field: c.field,
       operator: c.operator,
       value: c.value,
@@ -291,7 +292,7 @@ export function LayerFilterEditor({
     const field = columnInfo[0]?.name ?? '';
     const operator = OPERATORS_BY_TYPE[getFieldType(field)][0]?.value ?? '==';
     const newCond: FilterCondition = {
-      id: crypto.randomUUID(),
+      id: randomId(),
       field,
       operator,
       value: getFieldType(field) === 'boolean' && BOOLEAN_VALUE_OPERATORS.has(operator) ? 'true' : '',

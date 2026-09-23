@@ -32,6 +32,10 @@ and releases use semantic versioning.
 - `/api/health` reports the database as degraded when the catalog schema is
   missing. Its probe looked the table up but ignored the NULL PostgreSQL
   returns for a relation that is not there.
+- The web UI works on deployments served over plain HTTP. Imports, the map
+  builder and AI chat generated ids with `crypto.randomUUID`, which browsers
+  expose only on HTTPS or localhost, so dropping a file on the import page did
+  nothing there.
 
 ## [1.20.0] - 2026-09-18
 

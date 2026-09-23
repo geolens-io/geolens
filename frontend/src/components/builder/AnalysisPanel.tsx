@@ -33,6 +33,7 @@ import type { LayerActions } from '@/components/builder/ChatPanel';
 import { isAnalysableLayer } from '@/components/builder/analysis-eligibility';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { AnalysisOperation, MapLayerResponse } from '@/types/api';
+import { randomId } from '@/lib/random-id';
 
 const MAX_BUFFER_METERS = 100_000;
 // shadcn Select items can't carry an empty value — sentinels for "none".
@@ -543,7 +544,7 @@ export function AnalysisPanel({
         td.start();
         td.addFeatures([
           {
-            id: crypto.randomUUID(),
+            id: randomId(),
             type: 'Feature',
             geometry: maskGeometry,
             properties: { mode: 'polygon' },

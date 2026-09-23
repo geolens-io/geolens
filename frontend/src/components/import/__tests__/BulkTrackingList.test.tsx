@@ -2,6 +2,7 @@ import { render, screen } from '@/test/test-utils';
 import { useQueries } from '@tanstack/react-query';
 import { BulkTrackingList } from '../BulkTrackingList';
 import type { FileEntry } from '@/types/api';
+import { randomId } from '@/lib/random-id';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -41,7 +42,7 @@ const mockUseQueries = vi.mocked(useQueries);
 
 function makeEntry(overrides: Partial<FileEntry> = {}): FileEntry {
   return {
-    id: crypto.randomUUID(),
+    id: randomId(),
     file: null,
     fileName: 'sample.geojson',
     status: 'tracking',

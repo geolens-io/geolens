@@ -30,6 +30,7 @@ import {
   applyCopiedStyleToLayer,
   type CopiedStyle,
 } from '@/lib/builder/layer-style-clipboard';
+import { randomId } from '@/lib/random-id';
 
 type SyncStyleConfigToMap = (
   map: MaplibreMap,
@@ -336,9 +337,9 @@ export function useBulkLayerActions({
       return false;
     }
 
-    // Phase 1051 WR-01: crypto.randomUUID is collision-safe — see
+    // randomId() is collision-safe — see
     // handleCreateGroupWithLayer for the bulk + single race rationale.
-    const groupId = `group-${crypto.randomUUID()}`;
+    const groupId = `group-${randomId()}`;
     const existingGroupCount = current.filter(
       (l) => (l as GroupedLayer).layer_type === 'group:folder',
     ).length;

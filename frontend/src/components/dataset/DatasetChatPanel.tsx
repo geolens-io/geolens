@@ -13,6 +13,7 @@ import { stashChatResult, toChatResultHandoff, type ChatResultHandoff } from '@/
 import { chatOverlayCompleteness, overlayFeatureCount } from '@/lib/chat-result-completeness';
 import { cn } from '@/lib/utils';
 import type { ChatAction, ChatHistoryMessage } from '@/types/api';
+import { randomId } from '@/lib/random-id';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -120,7 +121,7 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .slice(-20)
       .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
-    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'user', content: userMsg }]);
+    setMessages((prev) => [...prev, { id: randomId(), role: 'user', content: userMsg }]);
     setIsLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -160,7 +161,7 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
           }
         } else if (event === 'done') {
           const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || streamed;
-          setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: finalText, queryResult, spatialResult }]);
+          setMessages((prev) => [...prev, { id: randomId(), role: 'assistant', content: finalText, queryResult, spatialResult }]);
         } else if (event === 'error') {
           // A pre-flight HTTP status (403/503) rides the SSE error event; surface it
           // as ApiError so it classifies honestly rather than as a generic failure.
@@ -174,12 +175,12 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
       if (controller.signal.aborted) {
         setMessages((prev) => [
           ...prev,
-          { id: crypto.randomUUID(), role: 'assistant', content: streamed || t('common:viewer.ai.cancelled') },
+          { id: randomId(), role: 'assistant', content: streamed || t('common:viewer.ai.cancelled') },
         ]);
       } else {
         setMessages((prev) => [
           ...prev,
-          { id: crypto.randomUUID(), role: 'error', content: t('common:viewer.ai.error'), retryMessage: userMsg },
+          { id: randomId(), role: 'error', content: t('common:viewer.ai.error'), retryMessage: userMsg },
         ]);
       }
     } finally {

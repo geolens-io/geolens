@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import { randomId } from '@/lib/random-id';
 
 export type SyncCadence =
   | { kind: 'hourly'; minute: number }
@@ -133,7 +134,7 @@ export async function runDatasetSync(
 ): Promise<SyncRunResponse> {
   return apiFetch<SyncRunResponse>(`/datasets/${datasetId}/sync/run`, {
     method: 'POST',
-    headers: { 'Idempotency-Key': crypto.randomUUID() },
+    headers: { 'Idempotency-Key': randomId() },
     body: JSON.stringify(revision === undefined ? {} : { revision }),
   });
 }

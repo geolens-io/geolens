@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useAuthStore } from '@/stores/auth-store';
+import { randomId } from '@/lib/random-id';
 
 export interface TrackedAnalysisJob {
   jobId: string;
@@ -79,7 +80,7 @@ export const ANALYSIS_JOB_STORAGE_KEY = 'geolens-analysis-job';
 
 /** Identifies this tab for the lifetime of the document. */
 const TAB_ID =
-  globalThis.crypto?.randomUUID?.() ?? `tab-${Math.random().toString(36).slice(2)}`;
+  randomId();
 
 /** Web Locks name serializing every read-modify-write on this record. */
 const ANALYSIS_JOB_LOCK = 'geolens-analysis-job-write';

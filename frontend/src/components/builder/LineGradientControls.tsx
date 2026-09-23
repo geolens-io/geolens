@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { walkExpressionPairs } from '@/lib/zoom-expressions';
 import { Textarea } from '@/components/ui/textarea';
+import { randomId } from '@/lib/random-id';
 
 // Seed endpoints come from the shared categorical palette (blue -> pink) so
 // user-editable gradient defaults trace to MAP_COLORS, not fresh literals.
@@ -30,7 +31,7 @@ function ensureStopIds(
   return stops.map((s) => ({
     position: s.position,
     color: s.color,
-    id: s.id ?? crypto.randomUUID(),
+    id: s.id ?? randomId(),
   }));
 }
 
@@ -338,7 +339,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     // canonical interpolate-linear-line-progress expression renders correctly.
     const next: WorkingStop[] = [
       ...sorted,
-      { position: newPosition, color: after.color, id: crypto.randomUUID() },
+      { position: newPosition, color: after.color, id: randomId() },
     ].sort((a, b) => a.position - b.position);
     commitStops(next);
   }
