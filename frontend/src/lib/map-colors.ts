@@ -119,6 +119,12 @@ export const MAP_COLORS = {
      *  whenever the on-screen space backdrop is active. It is the sRGB form of
      *  the `--map-space` token, held to it by map-colors.test.ts. */
     globeBackground: '#030713',
+    /** The raster glyph chip the builder legend draws for its terrain row, as the
+     *  sRGB forms of the light `--type-raster-bg` and `--type-raster` tokens. */
+    rasterChip: {
+      background: '#ffe3cc',
+      glyph: '#9a3e00',
+    },
   },
   /** Transparent MapLibre paint value. */
   transparent: 'rgba(0,0,0,0)',

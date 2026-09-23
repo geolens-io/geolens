@@ -93,6 +93,15 @@ describe('MAP_COLORS design-token parity', () => {
     );
   });
 
+  it('keeps the export raster chip synchronized with the light --type-raster tokens', () => {
+    expect(MAP_COLORS.exportImage.rasterChip.background).toBe(
+      oklchToSrgbHex(readOklchToken(root, '--type-raster-bg')),
+    );
+    expect(MAP_COLORS.exportImage.rasterChip.glyph).toBe(
+      oklchToSrgbHex(readOklchToken(root, '--type-raster')),
+    );
+  });
+
   it('keeps non-frozen categorical colors synchronized with light --viz-2..8', () => {
     const tokenColors = Array.from({ length: 7 }, (_, index) =>
       oklchToSrgbHex(readOklchToken(root, `--viz-${index + 2}`)),

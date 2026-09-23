@@ -16,8 +16,9 @@ import { renderHook } from '@/test/test-utils';
 import { buildLayerDiff, reconcileLayerDiffWithServer, useBuilderSave, __resetThumbnailDebounceForTests } from '@/components/builder/hooks/use-builder-save';
 import { stampPersistedFolderGroupExpanded } from '@/components/builder/folder-groups';
 import { usePluginStore } from '@/stores/map-plugin-store';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
+import { demChipGlyph } from '@/components/map/layer-icons';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
 
@@ -3014,22 +3015,65 @@ describe('SHARE-09 export PNG composition', () => {
     expect(calls.some((text) => text === 'Transit group')).toBe(false);
   });
 
-  it('leaves a terrain-mode DEM out of the exported legend', () => {
-    const mockMap = makeExportMap();
-    const state = makeSaveState({
-      localName: '',
-      localDescription: '',
-      localLayers: [SAVED_LAYERS.terrainDem, SAVED_LAYERS.line],
-      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+  describe('terrain row', () => {
+    const terrainGlyph = demChipGlyph('terrain');
+    const demName = SAVED_LAYERS.terrainDem.display_name;
+    const roadsName = SAVED_LAYERS.line.display_name;
+
+    function terrainOn(dem: MapLayerResponse): MapTerrainConfig {
+      return { enabled: true, source_dataset_id: dem.dataset_id, exaggeration: 1.5 };
+    }
+
+    function exportedTexts(localLayers: MapLayerResponse[], terrainConfig: MapTerrainConfig): string[] {
+      const mockMap = makeExportMap();
+      const state = makeSaveState({
+        localName: '',
+        localDescription: '',
+        localLayers,
+        terrainConfig,
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+
+      act(() => { result.current.handleExportPNG(); });
+      act(() => { fireRenderCallback(mockMap); });
+
+      return fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    }
+
+    it('draws one terrain row, named after the DEM and pinned first, while terrain is on', () => {
+      const texts = exportedTexts([SAVED_LAYERS.line, SAVED_LAYERS.terrainDem], terrainOn(SAVED_LAYERS.terrainDem));
+
+      expect(texts.filter((text) => text === terrainGlyph)).toHaveLength(1);
+      expect(texts.filter((text) => text === demName)).toHaveLength(1);
+      expect(texts.indexOf(demName ?? '')).toBeLessThan(texts.indexOf(roadsName ?? ''));
     });
-    const { result } = renderHook(() => useBuilderSave(state));
 
-    act(() => { result.current.handleExportPNG(); });
-    act(() => { fireRenderCallback(mockMap); });
+    it('leaves out both the terrain-mode DEM and the terrain row while terrain is off', () => {
+      const texts = exportedTexts(
+        [SAVED_LAYERS.terrainDem, SAVED_LAYERS.line],
+        { ...terrainOn(SAVED_LAYERS.terrainDem), enabled: false },
+      );
 
-    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
-    expect(calls).toContain(SAVED_LAYERS.line.display_name);
-    expect(calls).not.toContain(SAVED_LAYERS.terrainDem.display_name);
+      expect(texts).toContain(roadsName);
+      expect(texts).not.toContain(demName);
+      expect(texts).not.toContain(terrainGlyph);
+    });
+
+    it('draws no terrain row when the terrain DEM has a row of its own', () => {
+      const relief = SAVED_LAYERS.hillshadeDem;
+      const texts = exportedTexts([relief, SAVED_LAYERS.line], terrainOn(relief));
+
+      expect(texts.filter((text) => text === relief.display_name)).toHaveLength(1);
+      expect(texts).not.toContain(terrainGlyph);
+    });
+
+    it('names the terrain row with its translated label when the DEM has no name', () => {
+      const unnamed = { ...SAVED_LAYERS.terrainDem, display_name: null, dataset_name: '' };
+      const texts = exportedTexts([unnamed], terrainOn(unnamed));
+
+      expect(texts).toContain('plugins.legend.terrain3d');
+    });
   });
 
   it('swatch border uses the layer stroke color for hollow-circle styles', () => {

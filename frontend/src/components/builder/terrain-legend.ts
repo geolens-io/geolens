@@ -100,3 +100,18 @@ export function terrainSourceIsShownAsLayer(
   const src = terrainConfig?.enabled === true ? terrainConfig.source_dataset_id : null;
   return !!src && shownLayers.some((l) => l.dataset_id === src);
 }
+
+/**
+ * The synthetic terrain entry for a legend whose per-layer rows are
+ * `shownLayers`: deriveTerrainLegendEntry's entry, unless the terrain source
+ * already has a row of its own.
+ */
+export function syntheticTerrainEntry(
+  terrainConfig: MapTerrainConfig | null | undefined,
+  layers: readonly TerrainBackingLayer[] | null | undefined,
+  shownLayers: readonly { dataset_id?: string | null }[],
+  opts: DeriveTerrainLegendEntryOptions,
+): TerrainLegendEntry | null {
+  const entry = deriveTerrainLegendEntry(terrainConfig, layers, opts);
+  return entry && !terrainSourceIsShownAsLayer(terrainConfig, shownLayers) ? entry : null;
+}
