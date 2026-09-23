@@ -22,10 +22,8 @@ from app.platform.catalog_locks import (
     CatalogLockConflict,
 )
 from app.processing.ingest import tasks_common
-from app.processing.ingest.tasks_reupload import (
-    _file_refresh_error_code,
-    _service_refresh_error_code,
-)
+from app.processing.ingest.publication import _service_refresh_error_code
+from app.processing.ingest.tasks_reupload import _file_refresh_error_code
 
 from tests.test_reupload_swap_lock_retry import _minimal_metadata
 from tests.test_swap_lock_timeout_scope_1917 import (

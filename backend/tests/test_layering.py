@@ -1302,8 +1302,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/router.py": 1827,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 2105,
-    # Reupload coordinates verified publication and bounded, attempt-fenced timeout settlement.
-    "backend/app/processing/ingest/tasks_reupload.py": 1795,
+    # Reupload retains retrieval, staging, cleanup and enrichment adapters.
+    "backend/app/processing/ingest/tasks_reupload.py": 1568,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1434,

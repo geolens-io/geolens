@@ -1813,23 +1813,24 @@ class TestCommitTimeRecompute:
                 and isinstance(call.func, ast.Attribute)
                 and call.func.attr == "compute_schema_diff"
             ]
-            swap_lines = [
+            settlement_lines = [
                 call.lineno
                 for call in ast.walk(node)
                 if isinstance(call, ast.Call)
                 and isinstance(call.func, ast.Name)
-                and call.func.id == "_apply_reupload_swap"
+                and call.func.id in {"_apply_reupload_swap", "settle_publication"}
             ]
-            if not diff_lines or not swap_lines:
+            if not diff_lines or not settlement_lines:
                 continue
             checked += 1
-            assert max(diff_lines) < min(swap_lines), (
+            assert max(diff_lines) < min(settlement_lines), (
                 f"{node.name}: compute_schema_diff must run BEFORE "
-                "_apply_reupload_swap overwrites dataset.column_info"
+                "publication settlement overwrites dataset.column_info"
             )
 
         assert checked == 2, (
-            f"expected both reupload tasks to recompute the diff; found {checked}"
+            f"expected both reupload tasks to recompute the diff before settlement; "
+            f"found {checked}"
         )
 
 
