@@ -1606,6 +1606,8 @@ export interface SharedLayerResponse {
   /** feat(#1472): the backing dataset's required credit line (viewer parity
    * with MapLayerResponse.dataset_attribution). */
   dataset_attribution?: string | null;
+  /** Viewer parity with MapLayerResponse.dataset_extent_bbox. */
+  dataset_extent_bbox?: number[] | null;
 }
 
 export interface SharedMapResponse {

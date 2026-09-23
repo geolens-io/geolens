@@ -58,6 +58,7 @@ class SharedLayerResponse:
         feature_count (int | None | Unset):
         tile_version (int | None | Unset):
         dataset_attribution (None | str | Unset):
+        dataset_extent_bbox (list[float] | None | Unset):
     """
 
     id: str
@@ -86,6 +87,7 @@ class SharedLayerResponse:
     feature_count: int | None | Unset = UNSET
     tile_version: int | None | Unset = UNSET
     dataset_attribution: None | str | Unset = UNSET
+    dataset_extent_bbox: list[float] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -217,6 +219,15 @@ class SharedLayerResponse:
         else:
             dataset_attribution = self.dataset_attribution
 
+        dataset_extent_bbox: list[float] | None | Unset
+        if isinstance(self.dataset_extent_bbox, Unset):
+            dataset_extent_bbox = UNSET
+        elif isinstance(self.dataset_extent_bbox, list):
+            dataset_extent_bbox = self.dataset_extent_bbox
+
+        else:
+            dataset_extent_bbox = self.dataset_extent_bbox
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -264,6 +275,8 @@ class SharedLayerResponse:
             field_dict["tile_version"] = tile_version
         if dataset_attribution is not UNSET:
             field_dict["dataset_attribution"] = dataset_attribution
+        if dataset_extent_bbox is not UNSET:
+            field_dict["dataset_extent_bbox"] = dataset_extent_bbox
 
         return field_dict
 
@@ -498,6 +511,25 @@ class SharedLayerResponse:
             d.pop("dataset_attribution", UNSET)
         )
 
+        def _parse_dataset_extent_bbox(data: object) -> list[float] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                dataset_extent_bbox_type_0 = cast(list[float], data)
+
+                return dataset_extent_bbox_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[float] | None | Unset, data)
+
+        dataset_extent_bbox = _parse_dataset_extent_bbox(
+            d.pop("dataset_extent_bbox", UNSET)
+        )
+
         shared_layer_response = cls(
             id=id,
             dataset_id=dataset_id,
@@ -525,6 +557,7 @@ class SharedLayerResponse:
             feature_count=feature_count,
             tile_version=tile_version,
             dataset_attribution=dataset_attribution,
+            dataset_extent_bbox=dataset_extent_bbox,
         )
 
         shared_layer_response.additional_properties = d

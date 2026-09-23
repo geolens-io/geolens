@@ -12372,6 +12372,8 @@ export interface components {
             tile_version?: number | null;
             /** Dataset Attribution */
             dataset_attribution?: string | null;
+            /** Dataset Extent Bbox */
+            dataset_extent_bbox?: number[] | null;
         };
         /** SharedMapResponse */
         SharedMapResponse: {

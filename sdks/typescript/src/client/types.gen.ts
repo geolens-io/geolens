@@ -9449,6 +9449,10 @@ export type SharedLayerResponse = {
      * Dataset Attribution
      */
     dataset_attribution?: string | null;
+    /**
+     * Dataset Extent Bbox
+     */
+    dataset_extent_bbox?: Array<number> | null;
 };
 
 /**

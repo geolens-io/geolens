@@ -91,6 +91,7 @@ class TestSharedLayerTileUrlVersion:
             ds_tile_version=tile_version,
             ds_publication_version=publication_version,
             ds_attribution=None,
+            ds_extent=None,
         )
         return layer, layer_dict
 

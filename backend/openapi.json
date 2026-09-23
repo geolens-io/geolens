@@ -16198,6 +16198,20 @@
               }
             ],
             "title": "Dataset Attribution"
+          },
+          "dataset_extent_bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Extent Bbox"
           }
         },
         "required": [
