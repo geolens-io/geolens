@@ -5301,7 +5301,7 @@
                 "type": "null"
               }
             ],
-            "description": "A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.",
+            "description": "A blocked run whose reviewed source and staged content may be accepted. The refresh that uses the acceptance holds it until it ends, and a cancelled or failed refresh gives it back. A different result blocks again.",
             "title": "Accept Blocked Run Id"
           },
           "auth": {

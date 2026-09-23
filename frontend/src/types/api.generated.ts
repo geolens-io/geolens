@@ -7722,7 +7722,7 @@ export interface components {
             verification_policy: "standard" | "arcgis_id_set_v1";
             /**
              * Accept Blocked Run Id
-             * @description A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.
+             * @description A blocked run whose reviewed source and staged content may be accepted. The refresh that uses the acceptance holds it until it ends, and a cancelled or failed refresh gives it back. A different result blocks again.
              */
             accept_blocked_run_id?: string | null;
             /** @description Structured credential for a protected service. Mutually exclusive with the token field. */

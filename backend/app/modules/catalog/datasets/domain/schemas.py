@@ -842,7 +842,9 @@ class DatasetRefreshRequest(BaseModel):
         default=None,
         description=(
             "A blocked run whose reviewed source and staged content may be "
-            "accepted once. A different result blocks again."
+            "accepted. The refresh that uses the acceptance holds it until it "
+            "ends, and a cancelled or failed refresh gives it back. A different "
+            "result blocks again."
         ),
     )
     auth: ServiceAuthRequest | None = Field(
