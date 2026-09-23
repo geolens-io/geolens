@@ -19,13 +19,12 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.db.sqlstate import is_lock_conflict, sqlstate
 
-# The budget a REQUEST spends waiting for the pair. A worker passes
-# ``lock_timeout=None``: ``SET LOCAL`` applies for the rest of the transaction,
+# The budget a REQUEST spends waiting for the pair. A worker passes its own
+# (``WORKER_LOCK_TIMEOUT``, or None): ``SET LOCAL`` lasts the whole transaction,
 # and this budget would fail an ingest on contention it must wait out.
 REQUEST_LOCK_TIMEOUT = "2s"
 
-# The budget a WORKER spends waiting for the pair: long enough to wait out
-# contention, but bounded so a stuck holder does not hang the job forever.
+# Long enough to wait out contention, bounded so a stuck holder fails the job.
 WORKER_LOCK_TIMEOUT = "60s"
 
 # Resolved at call time, not bound as a default, so the constant above stays

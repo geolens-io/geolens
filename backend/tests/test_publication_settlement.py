@@ -265,22 +265,12 @@ async def test_blocked_cache_failure_keeps_blocked_diagnostic(
 async def _hold_dataset_row_then_release(
     dataset_id: uuid.UUID, ready: asyncio.Event, hold_seconds: float
 ) -> None:
-    """Lock ``dataset_id`` on its own session, signal `ready`, hold for
-    `hold_seconds`, then commit. A separate connection from the test's own
-    session, so it genuinely contends with a concurrent acquisition. Commits
-    in `finally` so a failing settlement can't leave the row locked for the
-    next test.
-
-    FOR KEY SHARE, not the default FOR UPDATE: an UPDATE of the ingest job's
-    unrelated columns still fires Postgres's FK check against this dataset row
-    (its FK column is unchanged, but the check still runs), which needs only
-    KEY SHARE and would otherwise queue behind a held FOR UPDATE before
-    settlement even reaches its own acquisition. KEY SHARE is compatible with
-    itself, so that FK check still passes straight through, and the
-    acquisition under test (a real FOR UPDATE) still queues behind this hold.
-    """
+    """Hold a lock on the dataset row from a second session, then commit."""
     async with db_module.async_session() as holder:
         try:
+            # KEY SHARE: the job row was inserted in this test's transaction, so
+            # updating it re-checks its foreign key against this row. Key share
+            # lets that check through and still blocks lock_catalog_rows.
             await holder.execute(
                 select(Dataset.id)
                 .where(Dataset.id == dataset_id)
