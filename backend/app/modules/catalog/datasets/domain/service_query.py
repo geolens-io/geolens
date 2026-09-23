@@ -403,13 +403,13 @@ async def get_dataset_rows(
 
         next_cursor = rows[-1]["gid"] if rows and len(rows) == limit else None
     except DBAPIError as exc:
-        # Only an absent backing table degrades to an empty page, as for raster/VRT
-        # synthetic table names. Operational failures must reach the 503 handler.
+        # Only an absent backing table degrades to an empty page. Operational
+        # failures must reach the 503 handler.
         if sqlstate(exc) not in TABLE_ABSENT:
             raise
         await db.rollback()  # transaction aborted; read-only, so safe
         # A missing schema reports 42P01 too, so the code alone
-        # can't tell a synthetic raster table from a never-provisioned
+        # can't tell an absent table from a never-provisioned
         # tenant schema. Only the second is drift and must not read as empty.
         if not await schema_exists(db, _schema):
             logger.error("Data schema %s does not exist", _schema)

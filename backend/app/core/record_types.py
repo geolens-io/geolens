@@ -6,9 +6,15 @@ where the next "forgot vrt_dataset" bug hides, so it's defined once here in
 ``core``, the only layer every other layer may import.
 
 A tuple (not a frozenset) so SQLAlchemy ``.in_()`` renders deterministically.
+
+``capabilities`` answers what a record type supports. A value missing from its
+table gets none of the capabilities, so a new record type is refused everywhere
+until it is added here.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 # Datasets backed by raster assets rather than a PostGIS feature table.
 # Membership means: tiles come from TiTiler, feature reads/writes 404, and
@@ -19,3 +25,57 @@ RASTER_FAMILY_RECORD_TYPES: tuple[str, ...] = ("raster_dataset", "vrt_dataset")
 def is_raster_family(record_type: str | None) -> bool:
     """Return True when *record_type* is a member of the raster family."""
     return record_type in RASTER_FAMILY_RECORD_TYPES
+
+
+@dataclass(frozen=True, slots=True)
+class RecordTypeCapabilities:
+    """What the catalog serves for a dataset of one record type."""
+
+    # A PostGIS table backs feature reads and writes, OGC items, export, rows
+    # and column changes.
+    feature_table: bool
+    # "vector_geolens" or "raster_geolens"; None when it cannot be a map layer.
+    map_layer_type: str | None
+    # "vector" or "raster"; None when the dataset has no tiles.
+    tile_token: str | None
+    # "feature" or "coverage"; None when it is not an OGC API Features collection.
+    ogc_item_type: str | None
+
+
+_VECTOR = RecordTypeCapabilities(
+    feature_table=True,
+    map_layer_type="vector_geolens",
+    tile_token="vector",
+    ogc_item_type="feature",
+)
+_RASTER = RecordTypeCapabilities(
+    feature_table=False,
+    map_layer_type="raster_geolens",
+    tile_token="raster",
+    ogc_item_type="coverage",
+)
+_UNSUPPORTED = RecordTypeCapabilities(
+    feature_table=False, map_layer_type=None, tile_token=None, ogc_item_type=None
+)
+
+# Mirrors chk_records_record_type. `map`, `service` and `collection` have no
+# dataset writer; they keep the vector answers that every "not raster" branch
+# gave them.
+_CAPABILITIES: dict[str, RecordTypeCapabilities] = {
+    "vector_dataset": _VECTOR,
+    "raster_dataset": _RASTER,
+    "vrt_dataset": _RASTER,
+    "map": _VECTOR,
+    "service": _VECTOR,
+    "collection": _VECTOR,
+    "table": _VECTOR,
+}
+
+RECORD_TYPES: tuple[str, ...] = tuple(_CAPABILITIES)
+
+
+def capabilities(record_type: str | None) -> RecordTypeCapabilities:
+    """Return *record_type*'s capabilities; an unknown value has none."""
+    if record_type is None:
+        return _UNSUPPORTED
+    return _CAPABILITIES.get(record_type, _UNSUPPORTED)

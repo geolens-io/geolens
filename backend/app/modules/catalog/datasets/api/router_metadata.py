@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
-from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.record_types import capabilities
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
@@ -324,7 +324,7 @@ async def get_column_values(
     # fix(#315): raster/VRT datasets have a synthetic table_name with no
     # backing data.<table>, so a column query would raise
     # UndefinedTableError -> 500. Return a fast 404 first instead.
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(

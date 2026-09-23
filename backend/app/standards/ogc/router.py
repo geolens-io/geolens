@@ -9,7 +9,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.record_types import capabilities
 from app.core.db.tenant_session import current_tenant_var
 from app.core.db.sqlstate import is_caller_type_fault
 from app.core.dependencies import get_db
@@ -337,6 +337,12 @@ async def get_dataset_collection(
     _validate_f_param(f)
     public_api_url = await get_public_api_url(db, request=request)
     dataset = await _get_visible_dataset(db, user, dataset_id)
+    item_type = capabilities(dataset.record.record_type).ogc_item_type
+    if item_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Collection '{dataset_id}' is not an OGC API Features collection.",
+        )
 
     extent = {}
     bbox = extent_to_bbox(dataset.record.spatial_extent)
@@ -366,7 +372,7 @@ async def get_dataset_collection(
     # feature items. Advertise itemType=coverage and omit the rel=items link so
     # clients are not led into the dead /items endpoint (which 404s, see
     # get_collection_items).
-    is_raster = dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES
+    is_coverage = item_type == "coverage"
 
     links = [
         OGCLink(
@@ -379,7 +385,7 @@ async def get_dataset_collection(
             title="This collection",
         ),
     ]
-    if not is_raster:
+    if not is_coverage:
         links.append(
             OGCLink(
                 rel="items",
@@ -445,7 +451,7 @@ async def get_dataset_collection(
         title=dataset.record.title,
         description=dataset.record.summary,
         extent=extent if extent else None,
-        itemType="coverage" if is_raster else "feature",
+        itemType=item_type,
         links=links,
     )
 
@@ -483,7 +489,7 @@ async def get_collection_queryables(
     dataset = await _get_visible_dataset(db, user, dataset_id)
 
     # Mirrors get_collection_items: raster collections have no feature table.
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -711,7 +717,7 @@ async def get_collection_items(
     # Raster/VRT datasets have no backing PostGIS feature table, so a feature
     # query would raise UndefinedTableError -> 500 (and hold a DB connection).
     # Return a fast 404 before any feature query is attempted.
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -1020,7 +1026,7 @@ async def get_collection_item_feature(
     # Raster/VRT datasets have no backing PostGIS feature table, so a
     # feature-by-id query would raise UndefinedTableError -> 500. Return 404
     # before any query is attempted.
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(

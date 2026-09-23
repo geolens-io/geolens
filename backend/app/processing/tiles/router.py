@@ -34,7 +34,7 @@ from app.core.geo import (
     wkt_is_geographic,
 )
 from app.core.identity import Identity
-from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import (
     TILE_PUBLICATION_VERSION_PARAM,
     tile_template_params,
@@ -209,6 +209,8 @@ _titiler_client = httpx.AsyncClient(
 
 # In-memory TTL cache for dataset metadata: one DB read per TTL, not per tile.
 _DATASET_CACHE_TTL = 60  # seconds
+
+_NO_TILES_DETAIL = "This dataset has no tiles"
 
 
 class _DatasetMeta(NamedTuple):
@@ -1306,14 +1308,16 @@ async def raster_tile_proxy(
 def _build_tile_token_for_dataset(
     dataset: "Any",
     raster_asset: RasterAsset | None = None,
-) -> VectorTileToken | RasterTileToken:
+) -> VectorTileToken | RasterTileToken | None:
     """Build a tile token response for a single already-authorized dataset.
 
     Extracted so both the single-dataset and batch endpoints share the same
     token-generation logic. Does NOT perform auth — caller must
-    ensure the dataset is visible to the current user.
+    ensure the dataset is visible to the current user. Returns None for a
+    record type that has no tiles.
     """
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    tile_token = capabilities(dataset.record.record_type).tile_token
+    if tile_token == "raster":
         bounds = None
         lon_span = None
         if dataset.record.spatial_extent is not None:
@@ -1372,6 +1376,9 @@ def _build_tile_token_for_dataset(
             tile_size=256,
             format="png",
         )
+
+    if tile_token != "vector":
+        return None
 
     # In multi_tenant the scope is bound to the active tenant, so a token
     # minted for tenant A cannot be replayed in tenant B even when both share a
@@ -1468,13 +1475,18 @@ async def get_tile_token(
     await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
 
     raster_asset = None
-    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+    if capabilities(dataset.record.record_type).tile_token == "raster":
         raster_asset_result = await db.execute(
             select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
         )
         raster_asset = raster_asset_result.scalar_one_or_none()
 
-    return _build_tile_token_for_dataset(dataset, raster_asset)
+    token = _build_tile_token_for_dataset(dataset, raster_asset)
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_NO_TILES_DETAIL
+        )
+    return token
 
 
 @router.post("/tokens/", response_model=TileTokenBatchResponse)
@@ -1521,7 +1533,7 @@ async def get_tile_tokens_batch(
     raster_dataset_ids = [
         ds.id
         for ds in datasets_by_id.values()
-        if ds.record.record_type in RASTER_FAMILY_RECORD_TYPES
+        if capabilities(ds.record.record_type).tile_token == "raster"
     ]
     raster_assets_by_dataset_id: dict[uuid.UUID, RasterAsset] = {}
     if raster_dataset_ids:
@@ -1557,10 +1569,11 @@ async def get_tile_tokens_batch(
                 continue
             capability_authorized = True
 
-        tokens[key] = _build_tile_token_for_dataset(
+        token = _build_tile_token_for_dataset(
             dataset,
             raster_assets_by_dataset_id.get(dataset.id),
         )
+        tokens[key] = token if token is not None else {"error": _NO_TILES_DETAIL}
 
     # fix(#1518): the flag above is only set on the FALLBACK arm, which a
     # batch of public datasets never reaches, so the question is asked again
@@ -1906,6 +1919,14 @@ async def _authorize_vector_tile_request(
 
 def _is_point_geometry(geometry_type: str | None) -> bool:
     return "POINT" in (geometry_type or "").upper()
+
+
+def _ensure_vector_tile_dataset(meta: _DatasetMeta) -> None:
+    if capabilities(meta.record_type).tile_token != "vector":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This dataset has no vector tiles",
+        )
 
 
 def _ensure_clusterable_dataset(meta: _DatasetMeta) -> None:
@@ -2316,7 +2337,8 @@ async def tile_endpoint(
     public dataset that is not yet published is readable by its owner, by an
     admin, with an embed token, or with valid signature parameters, and answers
     404 to other callers, so a refusal keeps its existence undisclosed. An
-    unknown table is 404 too.
+    unknown table is 404 too, and so is a dataset without vector tiles, such as
+    a raster, once the caller is authorized to see it.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -2353,6 +2375,9 @@ async def tile_endpoint(
         user=user,
     )
     cache_scope = _demote_prewarmed_cache_scope(request, meta, cache_scope)
+    # After authorization, as in the cluster route, so the refusal never
+    # describes a dataset the caller cannot see.
+    _ensure_vector_tile_dataset(meta)
 
     columns = meta.column_info
 

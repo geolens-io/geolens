@@ -57,7 +57,10 @@ async def add_layer(
     record_type = meta.record_type if meta else None
     geometry_type = meta.geometry_type if meta else None
 
-    resolved_layer_type = body.layer_type or _infer_layer_type(record_type)
+    # Asked even when the caller names a layer type, so a dataset that cannot
+    # be a layer is refused either way.
+    dataset_layer_type = _infer_layer_type(record_type)
+    resolved_layer_type = body.layer_type or dataset_layer_type
 
     paint = body.paint
     layout = body.layout

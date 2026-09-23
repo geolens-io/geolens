@@ -5,12 +5,13 @@ from datetime import datetime
 from typing import NamedTuple
 
 import structlog
+from fastapi import HTTPException, status
 from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.identity import Identity
-from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.record_types import capabilities
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
@@ -370,8 +371,11 @@ def _apply_map_visibility_filter(
 
 
 def _infer_layer_type(record_type: str | None) -> str:
-    return (
-        "raster_geolens"
-        if record_type in RASTER_FAMILY_RECORD_TYPES
-        else "vector_geolens"
-    )
+    """Return the layer type a dataset renders as; 400 if it cannot be a layer."""
+    layer_type = capabilities(record_type).map_layer_type
+    if layer_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This dataset cannot be added to a map",
+        )
+    return layer_type

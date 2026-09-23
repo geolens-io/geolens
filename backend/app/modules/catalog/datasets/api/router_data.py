@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
+from app.core.record_types import capabilities
 from app.modules.auth.dependencies import (
     get_optional_user,
     require_permission,
@@ -119,6 +120,11 @@ async def get_dataset_rows_endpoint(
         )
 
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    if not capabilities(dataset.record.record_type).feature_table:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This dataset has no data table",
+        )
 
     filters: dict[str, str] = {}
     for key, value in request.query_params.items():
