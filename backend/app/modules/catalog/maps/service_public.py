@@ -409,8 +409,7 @@ def _build_shared_layer_dict(
         # `is_public` — a layer reaching this builder is already
         # authorized, and the source's display obligation applies regardless.
         "dataset_attribution": ds_attribution,
-        # Viewer parity with MapLayerResponse.dataset_extent_bbox. Not gated
-        # on `is_public` either — same reasoning as dataset_attribution above.
+        # Not gated on `is_public`, for the same reason as dataset_attribution.
         "dataset_extent_bbox": extent_to_bbox(ds_extent),
     }, not is_public
 
