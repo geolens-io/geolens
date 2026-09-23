@@ -30,6 +30,26 @@ export const CIRCLE_OWNED_PAINT_PROPERTIES = [
   'circle-stroke-opacity',
 ] as const;
 
+/** The circle paint the adapter adds: the stored circle keys, or the default circle paint when none are stored. */
+export function resolveCirclePaint(paint: Record<string, unknown>): Record<string, unknown> {
+  const circlePaint = filterPaintForLayerType(paint, 'circle');
+  return Object.keys(circlePaint).length > 0 ? circlePaint : { ...DEFAULT_CIRCLE_PAINT };
+}
+
+/**
+ * The ring a point layer draws, from the circle paint it adds with expressions at
+ * their add-time values: null at a zero or unset width, MapLibre's default. Circle
+ * paint applies as stored, so builder state and `_stroke-disabled` play no part.
+ */
+export function resolvePointStroke(paint: Record<string, unknown>): { color: string; width: number } | null {
+  const circlePaint = resolveCirclePaint(simplifyPaint(paint));
+  const width = circlePaint['circle-stroke-width'];
+  if (typeof width !== 'number' || width <= 0) return null;
+  const color = circlePaint['circle-stroke-color'];
+  // MapLibre's default circle-stroke-color.
+  return { color: typeof color === 'string' ? color : '#000000', width };
+}
+
 export const circleAdapter: LayerAdapter = {
   type: 'circle',
 
@@ -38,7 +58,6 @@ export const circleAdapter: LayerAdapter = {
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-      const circlePaint = filterPaintForLayerType(basePaint, 'circle');
       // BUG-01: honor input.visible at initial add — see fill-adapter for rationale.
       const initialLayout = visible === false
         ? { ...layout, visibility: 'none' as const }
@@ -48,7 +67,7 @@ export const circleAdapter: LayerAdapter = {
         type: 'circle',
         source: sourceId,
         ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-        paint: Object.keys(circlePaint).length ? circlePaint : { ...DEFAULT_CIRCLE_PAINT },
+        paint: resolveCirclePaint(basePaint),
         layout: initialLayout,
       });
       finalizeLayer(map, layerId, rawPaint, 'circle', opacity ?? 1, filter, hasExpressions);

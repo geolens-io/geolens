@@ -13,7 +13,7 @@ import { ApiError } from '@/api/client';
 import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
 import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
-import { demChipGlyph, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
+import { demChipGlyph, getLayerColors } from '@/components/map/layer-icons';
 import { getMap, uploadThumbnail, uploadOgImage } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
@@ -1408,18 +1408,11 @@ export function useBuilderSave(state: SaveState) {
               cursorY += legendRowH;
             }
             for (const { layer, facts } of legendRows) {
-              // fix(#424): mirror the on-screen legend swatch — draw a gradient for
-              // multi-stop ramps (graduated/categorical/heatmap) and use the real
-              // stroke color as the border so hollow-circle styles (light fill +
-              // colored ring, e.g. #fff7ed fill / #ea580c stroke) don't export blank.
-              const colors = getLayerColors(layer);
-              const hints = extractStyleHints(
-                layer.paint ?? {},
-                layer.layout ?? {},
-                layer.dataset_geometry_type,
-                undefined,
-                layer.style_config,
-              );
+              // Mirror the on-screen swatch: a gradient for multi-stop ramps, and the
+              // stroke the map draws as the border, so a hollow circle (light fill,
+              // coloured ring) doesn't export blank.
+              const { swatch } = facts;
+              const colors = getLayerColors(layer, swatch);
               const rowY = cursorY + (legendRowH - swatchSize) / 2;
               const solidFill = colors.find((c) => !!c) || MAP_COLORS.icon.fallback;
               let filled = false;
@@ -1435,10 +1428,14 @@ export function useBuilderSave(state: SaveState) {
                 }
               }
               if (!filled) ctx.fillStyle = solidFill;
+              const layerAlpha = swatch?.opacity ?? 1;
+              ctx.globalAlpha = layerAlpha * (swatch?.fillOpacity ?? 1);
               ctx.fillRect(pad, rowY, swatchSize, swatchSize);
-              ctx.strokeStyle = (!hints.strokeDisabled && hints.strokeColor) || MAP_COLORS.previewOutline;
+              ctx.globalAlpha = layerAlpha;
+              ctx.strokeStyle = swatch?.stroke?.color ?? MAP_COLORS.previewOutline;
               ctx.lineWidth = Math.max(1, dpr);
               ctx.strokeRect(pad, rowY, swatchSize, swatchSize);
+              ctx.globalAlpha = 1;
               ctx.fillStyle = MAP_COLORS.exportImage.text;
               ctx.fillText(
                 facts.name,

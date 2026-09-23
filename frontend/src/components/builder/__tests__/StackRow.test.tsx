@@ -581,9 +581,9 @@ describe('DEM type icon', () => {
     });
     const { container } = render(<StackRow {...defaultProps({ layer })} />);
 
-    // Real ColorizedGeometryIcon output for a single-color POLYGON: a filled
-    // Pentagon SVG (the centralized map-icon fallback) — and no raster glyph chip.
-    expect(container.querySelector(`svg[fill="${MAP_COLORS.icon.fallback}"]`)).toBeInTheDocument();
+    // Real ColorizedGeometryIcon output for an unstyled POLYGON: a Pentagon SVG
+    // filled with the colour the map draws it in, and no raster glyph chip.
+    expect(container.querySelector(`svg[fill="${MAP_COLORS.default.fill}"]`)).toBeInTheDocument();
     expect(screen.queryByText('▦')).not.toBeInTheDocument();
   });
 

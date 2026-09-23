@@ -13,15 +13,15 @@ import {
 } from './shared';
 // builder-audit #338 ADAPT-03 precedent (cluster-adapter): sibling sublayers reuse
 // the standalone adapters' owned-property sets and defaults instead of duplicating them.
-import { CIRCLE_OWNED_PAINT_PROPERTIES } from './circle-adapter';
+import { CIRCLE_OWNED_PAINT_PROPERTIES, resolveCirclePaint } from './circle-adapter';
 import {
   FILL_OWNED_PAINT_PROPERTIES,
   OUTLINE_OWNED_PAINT_PROPERTIES,
   withTintedFillPattern,
 } from './fill-adapter';
 import { ensureFillPatternImages } from './fill-pattern-images';
-import { LINE_OWNED_LAYOUT_PROPERTIES, LINE_OWNED_PAINT_PROPERTIES } from './line-adapter';
-import { DEFAULT_CIRCLE_PAINT, DEFAULT_FILL_PAINT } from './builder-defaults';
+import { LINE_OWNED_LAYOUT_PROPERTIES, LINE_OWNED_PAINT_PROPERTIES, resolveLinePaint } from './line-adapter';
+import { DEFAULT_FILL_PAINT } from './builder-defaults';
 
 /**
  * fix(#430 codex r23): renderer for the generic GEOMETRY sentinel.
@@ -88,40 +88,44 @@ export function mixedFamilyFilter(
   return ['all', base, expressionFilter] as FilterSpecification;
 }
 
-const DEFAULT_MIXED_LINE_PAINT = {
-  'line-color': MAP_COLORS.default.fill,
-  'line-width': 2,
-} as const;
+/** The fill paint a mixed layer's polygon family adds, before the pattern tint. */
+export function resolveMixedFillPaint(paint: Record<string, unknown>): Record<string, unknown> {
+  const fillPaint = filterPaintForLayerType(paint, 'fill');
+  return Object.keys(fillPaint).length > 0 ? fillPaint : { ...DEFAULT_FILL_PAINT };
+}
 
 // ADAPT-04 pattern: each family's effective paint is built ONCE and consumed by
 // both the add-time and sync-time paths. The layer's stored paint typically only
 // carries fill-* keys (GEOMETRY seeds as the polygon family), so the line/point
 // sublayers fall back to defaults until family-specific keys are authored.
 function mixedFillPaint(map: MaplibreMap, input: AdapterLayerInput): Record<string, unknown> {
-  const paint = filterPaintForLayerType(input.paint, 'fill');
-  const effective = Object.keys(paint).length > 0 ? paint : { ...DEFAULT_FILL_PAINT };
   // fix(#914): the same tint swap the fill adapter makes. A patterned mixed layer
   // would otherwise be the one surface still drawing the fixed grey.
-  return withTintedFillPattern(map, input.paint, getBuilderStyleConfig(input), effective);
+  return withTintedFillPattern(map, input.paint, getBuilderStyleConfig(input), resolveMixedFillPaint(input.paint));
 }
 
 function mixedLinePaint(input: AdapterLayerInput): Record<string, unknown> {
-  const paint = filterPaintForLayerType(input.paint, 'line');
-  return Object.keys(paint).length > 0 ? paint : { ...DEFAULT_MIXED_LINE_PAINT };
+  return resolveLinePaint(input.paint);
 }
 
 function mixedPointPaint(input: AdapterLayerInput): Record<string, unknown> {
-  const paint = filterPaintForLayerType(input.paint, 'circle');
-  return Object.keys(paint).length > 0 ? paint : { ...DEFAULT_CIRCLE_PAINT };
+  return resolveCirclePaint(input.paint);
 }
 
-// The polygon outline is deliberately minimal (token stroke, 1px, master
-// opacity). Render-As polygon options (stroke toggles, outline overrides) are
-// not offered for mixed layers, so none of that builder state is read here.
+/**
+ * The outline under a mixed layer's polygons: the default stroke at 1px.
+ * Render-As offers no stroke toggles or outline overrides for mixed layers, so
+ * no builder state is read.
+ */
+export function resolveMixedOutline(): { color: string; width: number } {
+  return { color: MAP_COLORS.default.stroke, width: 1 };
+}
+
 function mixedOutlinePaint(input: AdapterLayerInput): Record<string, unknown> {
+  const outline = resolveMixedOutline();
   return {
-    'line-color': MAP_COLORS.default.stroke,
-    'line-width': 1,
+    'line-color': outline.color,
+    'line-width': outline.width,
     'line-layer-opacity': input.opacity ?? 1,
   };
 }

@@ -14,7 +14,7 @@ import {
 import { MAP_COLORS } from '@/lib/map-colors';
 // builder-audit #338 DRY-06: arrow render-mode defaults come from the single builder-defaults
 // source of truth (shared with renderAs + backend mirror) instead of bare 14/80 literals.
-import { DEFAULT_ARROW_SIZE, DEFAULT_ARROW_SPACING } from './builder-defaults';
+import { DEFAULT_ARROW_SIZE, DEFAULT_ARROW_SPACING, DEFAULT_LINE_PAINT } from './builder-defaults';
 
 const ARROW_IMAGE_ID = 'geolens-line-arrow';
 /** SVG base pixel size at which icon-size renders 1:1 — NOT the default arrow size
@@ -162,6 +162,12 @@ function syncArrowLayer(map: MaplibreMap, input: AdapterLayerInput) {
   syncLayerFilter(map, id, input.filter);
 }
 
+/** The line paint the adapter adds: the stored line keys, or the default line paint when none are stored. */
+export function resolveLinePaint(paint: Record<string, unknown>): Record<string, unknown> {
+  const linePaint = filterPaintForLayerType(paint, 'line');
+  return Object.keys(linePaint).length > 0 ? linePaint : { ...DEFAULT_LINE_PAINT };
+}
+
 export const lineAdapter: LayerAdapter = {
   type: 'line',
 
@@ -174,19 +180,15 @@ export const lineAdapter: LayerAdapter = {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
       // Legacy maps may still carry line-dasharray in layout; MapLibre expects it in paint.
       const { 'line-dasharray': legacyDasharray, ...restLayout } = storedLayout;
-      const linePaint = filterPaintForLayerType(basePaint, 'line');
       // line-gradient REQUIRES an expression that consumes ['line-progress'] — there is no
       // valid scalar fallback. simplifyPaint flattens arrays to scalar fallbacks (e.g.
       // `interpolate`'s value[4] color stop), which produces a plain string that MapLibre
       // rejects on addLayer. Drop it here and let finalizeLayer's replayExpressions install
       // the real expression after addLayer succeeds. See REVIEW.md WR-02.
-      if (hasExpressions && Array.isArray(rawPaint['line-gradient'])) {
-        delete linePaint['line-gradient'];
-      }
-      if (Object.keys(linePaint).length === 0) {
-        linePaint['line-color'] = MAP_COLORS.default.fill;
-        linePaint['line-width'] = 2;
-      }
+      const { 'line-gradient': _gradientFallback, ...basePaintWithoutGradient } = basePaint;
+      const linePaint = resolveLinePaint(
+        hasExpressions && Array.isArray(rawPaint['line-gradient']) ? basePaintWithoutGradient : basePaint,
+      );
       if (legacyDasharray && linePaint['line-dasharray'] == null) {
         linePaint['line-dasharray'] = legacyDasharray;
       }

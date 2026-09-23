@@ -8,63 +8,15 @@ import {
   GraduatedWidthLegend,
   HeatmapLegend,
 } from '@/components/map/LegendEntries';
-import type { SwatchStyle } from '@/components/map/LegendEntries';
-import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate, resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
 import { legendEntryName, legendFacts } from '@/components/map/legend-facts';
+import type { LegendSwatch } from '@/components/map/legend-facts';
 import { Pencil, Check } from 'lucide-react';
 import { syntheticTerrainEntry } from '@/components/builder/terrain-legend';
 import type { PluginContext } from '../types';
-
-/** Extract swatch style properties from layer paint based on geometry type. */
-export function getSwatchStyleFromPaint(
-  paint: Record<string, unknown> | undefined,
-  geometryType: string | null | undefined,
-  masterOpacity: number,
-  // fix(#914): the builder block carries the fill-pattern tint stash.
-  // fix(#1288): also carries outlineColor/strokeDisabled/outlineWidth — the map
-  // renders from builder state, so the legend must prefer it over the paint
-  // mirror below, which can go stale (toggling a stroke off leaves paint's
-  // _stroke-disabled/_outline-width unchanged).
-  builder?: { fillColorSaved?: string; outlineColor?: string; strokeDisabled?: boolean; outlineWidth?: number },
-): SwatchStyle {
-  const gt = (inferGeometryType(paint, geometryType) ?? '').toUpperCase();
-  const isPoint = gt.includes('POINT');
-
-  const rawStrokeW = isPoint ? paint?.['circle-stroke-width'] : (builder?.outlineWidth ?? paint?.['_outline-width']);
-  const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
-
-  // fix(#1288 codex): an explicit zero-width outline draws nothing on the map,
-  // same "treat explicit zero as disabled" precedence as extractStyleHints.
-  const strokeDisabled = isPoint
-    ? !!paint?.['_stroke-disabled']
-    : Boolean(builder?.strokeDisabled ?? paint?.['_stroke-disabled']) || strokeWidth === 0;
-
-  const rawOutline = isPoint
-    ? paint?.['circle-stroke-color']
-    : (builder?.outlineColor ?? paint?.['_outline-color']);
-  const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
-
-  const rawFillOp = isPoint
-    ? paint?.['circle-opacity']
-    : gt.includes('LINE')
-      ? paint?.['line-opacity']
-      : paint?.['fill-opacity'];
-  const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
-
-  return {
-    outlineColor,
-    strokeDisabled,
-    opacity: masterOpacity,
-    fillOpacity,
-    strokeWidth,
-    fillPattern: fillPatternFromPaint(paint),
-    fillPatternColor: fillPatternTint(paint, builder),
-  };
-}
 
 /** Extract colors and breaks from a paint color expression for the legend. */
 function parsePaintColors(paintColorValue: unknown): { colors: string[]; breaks: number[] } | null {
@@ -238,14 +190,13 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
   isLast: boolean;
 }) {
   const { t } = useTranslation('builder');
-  const entryName = legendFacts(layer)?.name ?? '';
+  const facts = legendFacts(layer);
+  const entryName = facts?.name ?? '';
 
   try {
     const opacity = layer.opacity ?? 1;
     const effectiveGeom = inferGeometryType(layer.paint, layer.dataset_geometry_type);
-    const swatchStyle = getSwatchStyleFromPaint(
-      layer.paint, effectiveGeom, opacity, layer.style_config?.builder,
-    );
+    const swatch = facts?.swatch ?? null;
     const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
     const heatmapRamp = resolveHeatmapRamp(layer.paint, layer.style_config);
 
@@ -273,7 +224,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
                 <CategoricalLegend
                   categories={layer.style_config.categories}
                   geometryType={effectiveGeom}
-                  style={swatchStyle}
+                  style={swatch}
                 />
               )}
 
@@ -282,7 +233,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
                   <GraduatedLegendSwitch
                     styleConfig={layer.style_config}
                     paint={layer.paint ?? {}}
-                    style={swatchStyle}
+                    style={swatch}
                     geometryType={effectiveGeom}
                   />
                 )}
@@ -332,7 +283,7 @@ function GraduatedLegendSwitch({
 }: {
   styleConfig: StyleConfig;
   paint: Record<string, unknown>;
-  style: SwatchStyle;
+  style: LegendSwatch | null;
   geometryType?: string | null;
 }) {
   const { t } = useTranslation('common');
@@ -346,7 +297,7 @@ function GraduatedLegendSwitch({
   const colorColumn = expressionColumn(rawCircleColor);
 
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
-    const circleColor = (typeof rawCircleColor === 'string' ? rawCircleColor : undefined) ?? MAP_COLORS.fallback;
+    const circleColor = style?.fill ?? MAP_COLORS.fallback;
     return (
       <div className="space-y-1">
         <div className="text-mini font-medium text-muted-foreground">
@@ -378,8 +329,7 @@ function GraduatedLegendSwitch({
   }
 
   if (styleConfig.target === 'width' && styleConfig.sizes) {
-    const raw = paint['line-color'];
-    const lineColor = (typeof raw === 'string' ? raw : undefined) ?? MAP_COLORS.fallback;
+    const lineColor = style?.fill ?? MAP_COLORS.fallback;
     return (
       <div className="space-y-1">
         <div className="text-mini font-medium text-muted-foreground">

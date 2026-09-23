@@ -3,7 +3,6 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { LABEL_FONT_STACK } from '../label-layer-utils';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import {
-  filterPaintForLayerType,
   finalizeLayer,
   getBuilderStyleConfig,
   applyMasterOpacity,
@@ -13,8 +12,7 @@ import {
 } from './shared';
 // builder-audit #338 ADAPT-03: the unclustered point mirrors the standalone circle adapter —
 // reuse its exact owned-property set and default paint instead of duplicating them.
-import { CIRCLE_OWNED_PAINT_PROPERTIES } from './circle-adapter';
-import { DEFAULT_CIRCLE_PAINT } from './builder-defaults';
+import { CIRCLE_OWNED_PAINT_PROPERTIES, resolveCirclePaint } from './circle-adapter';
 
 export function clusterCircleLayerId(layerId: string) {
   return `${layerId}-cluster`;
@@ -133,10 +131,7 @@ function clusterStyle(input: AdapterLayerInput) {
 }
 
 function unclusteredPointPaint(input: AdapterLayerInput) {
-  const circlePaint = filterPaintForLayerType(input.paint, 'circle');
-  return Object.keys(circlePaint).length > 0
-    ? circlePaint
-    : { ...DEFAULT_CIRCLE_PAINT };
+  return resolveCirclePaint(input.paint);
 }
 
 // builder-audit #338 ADAPT-04: the cluster-circle paint, cluster-count layout, and

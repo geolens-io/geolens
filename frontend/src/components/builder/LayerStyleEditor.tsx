@@ -10,7 +10,7 @@ import type { EditorDispatchKey } from './LayerStyleEditor/RenderModeSwitch';
 import { buildBuilderControlPaint, routeBuilderPaintProp } from './LayerStyleEditor/builder-paint-map';
 import {
   FILL_DEFAULTS, LINE_DEFAULTS, CIRCLE_DEFAULTS, getPaintValue,
-  withBuilderConfig, compactBuilder, stylePreviewStyle, hasUnsupportedBuilderState,
+  withBuilderConfig, compactBuilder, hasUnsupportedBuilderState,
   hasUnsavedStyleChanges as hasUnsavedStyleChangesImpl,
 } from './LayerStyleEditor/utils';
 import { LazyLoadErrorBoundary } from '@/components/error';
@@ -19,6 +19,7 @@ import { isNumericColumn } from '@/lib/column-utils';
 import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { GeometrySwatch } from '@/components/map/LegendEntries';
 import { getLayerColors } from '@/components/map/layer-icons';
+import { legendFacts } from '@/components/map/legend-facts';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 
@@ -80,12 +81,12 @@ function StyleControlSection({
 
 function StylePreview({ layer, onRevert }: { layer: MapLayerResponse; onRevert: () => void }) {
   const { t } = useTranslation('builder');
-  const colors = getLayerColors(layer);
-  const swatchColor = colors[0] ?? MAP_COLORS.icon.fallback;
+  const swatch = legendFacts(layer)?.swatch ?? null;
+  const swatchColor = getLayerColors(layer, swatch)[0] ?? MAP_COLORS.icon.fallback;
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border bg-background p-2">
       <div className="flex min-w-0 items-center gap-2">
-        <GeometrySwatch geometryType={layer.dataset_geometry_type} color={swatchColor} style={stylePreviewStyle(layer)} />
+        <GeometrySwatch geometryType={layer.dataset_geometry_type} color={swatchColor} style={swatch} />
         <div className="min-w-0">
           <div className="truncate text-xs font-medium">{t('style.preview.title')}</div>
           <p className="truncate text-mini text-muted-foreground">{t('style.preview.description')}</p>

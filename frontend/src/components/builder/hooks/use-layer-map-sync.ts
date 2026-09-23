@@ -9,6 +9,7 @@ import {
 } from '@/components/builder/layer-adapters/shared';
 import type { PaintPropertyName } from '@/components/builder/layer-adapters/shared';
 import { mixedFamilyFilter } from '@/components/builder/layer-adapters/mixed-adapter';
+import { resolvePolygonStroke } from '@/components/builder/layer-adapters/fill-adapter';
 import { coalesceFrame, flushCoalescedFrame } from '@/lib/builder/raf-coalesce';
 // fix(#394) VT-03/VT-04: single source of truth for the MVT source-layer name.
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
@@ -57,10 +58,8 @@ export function applyLayerVisibilityToMap(
   // the user turned off (render-as 'Fill only'). Gate the outline on
   // strokeDisabled — mirror of fillAdapter.syncVisibility.
   if (map.getLayer(ids.outline)) {
-    const builder = getBuilderStyleConfig(layer);
-    const rawPaint = (layer.paint ?? {}) as Record<string, unknown>;
-    const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
-    map.setLayoutProperty(ids.outline, 'visibility', nextVisible && !strokeDisabled ? 'visible' : 'none');
+    const { disabled } = resolvePolygonStroke(layer.paint ?? {}, getBuilderStyleConfig(layer));
+    map.setLayoutProperty(ids.outline, 'visibility', nextVisible && !disabled ? 'visible' : 'none');
   }
   if (map.getLayer(ids.label)) map.setLayoutProperty(ids.label, 'visibility', newVis);
   if (map.getLayer(ids.extrusion)) map.setLayoutProperty(ids.extrusion, 'visibility', newVis);

@@ -76,6 +76,12 @@ export const DEFAULT_FILL_PAINT = {
   'fill-outline-color': MAP_COLORS.default.stroke,
 } as const;
 
+/** Line paint a line layer, or a mixed layer's line family, adds when no line keys are stored. */
+export const DEFAULT_LINE_PAINT = {
+  'line-color': MAP_COLORS.default.fill,
+  'line-width': 2,
+} as const;
+
 /** builder-audit #338 DRY-06: arrow render-mode defaults (size 14, spacing 80 px). */
 export const DEFAULT_ARROW_SIZE = 14;
 export const DEFAULT_ARROW_SPACING = 80;

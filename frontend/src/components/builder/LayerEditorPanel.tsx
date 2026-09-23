@@ -12,6 +12,7 @@ import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { getRenderAsOptions, getCurrentRenderAs, hasCustomizedRenderAsStyle, type RenderAsId } from './renderAs';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints, isDiscreteColorStyle } from '@/components/map/layer-icons';
+import { legendFacts } from '@/components/map/legend-facts';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 
@@ -177,7 +178,8 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   const caps = useMemo(() => getLayerCapabilities(layer), [layer]);
   const isRaster = caps.kind !== 'vector';
   const isHeatmap = layer.style_config?.render_mode === 'heatmap';
-  const layerColors = useMemo(() => getLayerColors(layer), [layer]);
+  const swatch = useMemo(() => legendFacts(layer)?.swatch ?? null, [layer]);
+  const layerColors = useMemo(() => getLayerColors(layer, swatch), [layer, swatch]);
   const styleHints = useMemo(
     () => extractStyleHints(
       layer.paint ?? {},
@@ -373,6 +375,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               layerId={layer.id}
               layerType={caps.kind}
               styleHints={styleHints}
+              swatch={swatch}
               discrete={isDiscreteColorStyle(layer.style_config)}
             />
           )}

@@ -9,8 +9,6 @@ import {
   GraduatedWidthLegend,
   HeatmapLegend,
 } from '@/components/map/LegendEntries';
-import type { SwatchStyle } from '@/components/map/LegendEntries';
-import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
 import { parseStepOrInterpolate, resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import { MAP_COLORS } from '@/lib/map-colors';
@@ -20,6 +18,7 @@ import {
   terrainSourceIsShownAsLayer,
 } from '@/components/builder/terrain-legend';
 import { legendFacts } from '@/components/map/legend-facts';
+import type { LegendSwatch } from '@/components/map/legend-facts';
 import { getClusterSourceStrategy, isClusterRenderMode } from '@/components/builder/cluster-source';
 
 interface LayerLegendProps {
@@ -36,48 +35,6 @@ interface LayerLegendProps {
    * the default heading.
    */
   legendTitle?: string | null;
-}
-
-/** Build SwatchStyle from viewer layer paint for consistent legend rendering. */
-export function viewerSwatchStyle(layer: SharedLayerResponse): SwatchStyle {
-  const gt = (layer.geometry_type ?? '').toUpperCase();
-  const isPoint = gt.includes('POINT');
-  const builder = layer.style_config?.builder;
-
-  const rawStrokeW = isPoint
-    ? layer.paint?.['circle-stroke-width']
-    : (builder?.outlineWidth ?? layer.paint?.['_outline-width']);
-  const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
-
-  // fix(#1288 codex): builder.strokeDisabled/outlineWidth win over the paint
-  // mirror, matching extractStyleHints/getSwatchStyleFromPaint — a stroke the
-  // user turned off through the builder can leave paint's
-  // _stroke-disabled/_outline-width unchanged, and a zero-width outline draws
-  // nothing on the map either way.
-  const strokeDisabled = isPoint
-    ? !!layer.paint?.['_stroke-disabled']
-    : Boolean(builder?.strokeDisabled ?? layer.paint?.['_stroke-disabled']) || strokeWidth === 0;
-
-  // fix(#1288): builder.outlineColor wins over the flat paint mirror, which can
-  // go stale — the map itself renders from style_config.builder.
-  const rawOutline = isPoint
-    ? layer.paint?.['circle-stroke-color']
-    : (builder?.outlineColor ?? layer.paint?.['_outline-color']);
-  const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
-
-  const rawFillOp = isPoint
-    ? layer.paint?.['circle-opacity']
-    : gt.includes('LINE') ? layer.paint?.['line-opacity'] : layer.paint?.['fill-opacity'];
-  const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
-  return {
-    outlineColor,
-    strokeDisabled,
-    opacity: layer.opacity ?? 1,
-    fillOpacity,
-    strokeWidth,
-    fillPattern: fillPatternFromPaint(layer.paint ?? undefined),
-    fillPatternColor: fillPatternTint(layer.paint ?? undefined, layer.style_config?.builder),
-  };
 }
 
 function parsePaintColors(paintColorValue: unknown): { colors: string[]; breaks: number[] } | null {
@@ -112,33 +69,24 @@ function clusterLegendKind(layer: SharedLayerResponse) {
   return strategy.kind;
 }
 
-function colorPaintKey(geometryType: string | null | undefined): string {
-  const gt = (geometryType ?? '').toUpperCase();
-  if (gt.includes('POINT')) return 'circle-color';
-  if (gt.includes('LINE')) return 'line-color';
-  return 'fill-color';
-}
-
 function GraduatedLegend({
   layer,
   styleConfig,
-  swatchStyle,
+  swatch,
 }: {
   layer: SharedLayerResponse;
   styleConfig: StyleConfig;
-  swatchStyle: SwatchStyle;
+  swatch: LegendSwatch | null;
 }) {
   const { t } = useTranslation('common');
   const paint = layer.paint ?? {};
   const breaks = styleConfig.breaks ?? [];
   const metricLabel = styleConfig.sizeLabel ?? displayColumn(styleConfig.column);
-  const rawColor = paint[colorPaintKey(layer.geometry_type)];
+  // Only the radius target carries a second colour legend, and radius sizes circles.
+  const rawColor = paint['circle-color'];
   const parsedColor = parsePaintColors(rawColor);
   const colorColumn = expressionColumn(rawColor);
-  // parsePaintColors only handles data-driven expressions; a constant fill is a
-  // plain string, so fall back to it (the layer's real color) before gray.
-  const constantColor =
-    (typeof rawColor === 'string' ? rawColor : undefined) ?? MAP_COLORS.fallback;
+  const constantColor = swatch?.fill ?? MAP_COLORS.fallback;
 
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
     return (
@@ -150,7 +98,7 @@ function GraduatedLegend({
           sizes={styleConfig.sizes}
           breaks={breaks}
           circleColor={parsedColor?.colors[0] ?? constantColor}
-          style={swatchStyle}
+          style={swatch}
         />
         {parsedColor && colorColumn && colorColumn !== styleConfig.column && (
           <>
@@ -163,7 +111,7 @@ function GraduatedLegend({
               colors={parsedColor.colors}
               breaks={parsedColor.breaks}
               geometryType={layer.geometry_type}
-              style={swatchStyle}
+              style={swatch}
             />
           </>
         )}
@@ -172,7 +120,6 @@ function GraduatedLegend({
   }
 
   if (styleConfig.target === 'width' && styleConfig.sizes) {
-    const rawLineColor = paint['line-color'];
     return (
       <div className="space-y-1">
         <div className="text-mini font-medium text-muted-foreground">
@@ -181,8 +128,8 @@ function GraduatedLegend({
         <GraduatedWidthLegend
           sizes={styleConfig.sizes}
           breaks={breaks}
-          lineColor={(typeof rawLineColor === 'string' ? rawLineColor : undefined) ?? MAP_COLORS.fallback}
-          style={swatchStyle}
+          lineColor={constantColor}
+          style={swatch}
         />
       </div>
     );
@@ -194,7 +141,7 @@ function GraduatedLegend({
       colors={styleConfig.colors}
       breaks={breaks}
       geometryType={layer.geometry_type}
-      style={swatchStyle}
+      style={swatch}
     />
   );
 }
@@ -380,13 +327,13 @@ export function LayerLegend({
                   ) : sc?.column ? (
                     <div className="mt-1.5 ms-6">
                       {sc.mode === 'categorical' && sc.categories && (
-                        <CategoricalLegend categories={sc.categories} geometryType={layer.geometry_type} style={viewerSwatchStyle(layer)} />
+                        <CategoricalLegend categories={sc.categories} geometryType={layer.geometry_type} style={facts.swatch} />
                       )}
                       {sc.mode === 'graduated' && (sc.colors || sc.sizes) && (
                         <GraduatedLegend
                           layer={layer}
                           styleConfig={sc}
-                          swatchStyle={viewerSwatchStyle(layer)}
+                          swatch={facts.swatch}
                         />
                       )}
                     </div>
