@@ -320,6 +320,7 @@ async def test_reupload_swap_stamps_actor_and_emits_reupload_commit_audit(
             staging_table=staging_table,
             metadata=metadata,
             sample_values={"name": ["A"]},
+            three_d={},
             user_id=str(admin_id),
             source_filename="reupload.geojson",
             source_format="geojson",

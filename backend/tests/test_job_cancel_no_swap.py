@@ -158,6 +158,7 @@ async def _drive_finalize_verbatim(
             "column_info": [{"name": "name", "type": "character varying"}],
         },
         sample_values={},
+        three_d={},
         user_id=str(dataset.record.created_by),
         source_filename="parcels.gpkg",
         source_format="gpkg",

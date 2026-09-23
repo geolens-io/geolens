@@ -1206,6 +1206,29 @@ async def _generate_quicklook(
         )
 
 
+async def _detect_3d_and_promote_elev(
+    session, table_name: str, metadata: dict, *, schema: str
+) -> dict:
+    """Return the table's 3D facts and give a 3D point table its ``elev`` column.
+
+    Re-reads ``metadata["column_info"]`` when ``elev`` is added.
+    """
+    from app.processing.ingest.metadata import (
+        detect_3d_metadata,
+        get_column_info,
+        promote_z_to_elev,
+    )
+
+    three_d = await detect_3d_metadata(session, table_name, schema=schema)
+    if three_d.get("is_3d") and await promote_z_to_elev(
+        session, table_name, metadata.get("geometry_type"), schema=schema
+    ):
+        metadata["column_info"] = await get_column_info(
+            session, table_name, schema=schema
+        )
+    return three_d
+
+
 async def _finalize_ingest(ctx: IngestContext):
     """Shared post-ogr2ogr pipeline for both file and service ingestion.
 
@@ -1223,12 +1246,10 @@ async def _finalize_ingest(ctx: IngestContext):
         add_4326_column,
         clip_to_mercator_bounds,
         compute_quality_score,
-        detect_3d_metadata,
         ensure_geom_column,
         extract_metadata,
         get_sample_values,
         grant_reader_access,
-        promote_z_to_elev,
     )
 
     port = get_processing_port()
@@ -1272,22 +1293,9 @@ async def _finalize_ingest(ctx: IngestContext):
     # Extract metadata (CR-03: pass per-tenant schema so catalog queries target
     # data_t_{tid} in multi_tenant, not the shared 'data' schema)
     metadata = await extract_metadata(session, table_name, schema=_schema)
-
-    # Detect 3D geometry properties (per Phase 999.2)
-    three_d = await detect_3d_metadata(session, table_name, schema=_schema)
-
-    # Attribute promotion: extract ST_Z into elev column for 3D points
-    if three_d.get("is_3d"):
-        elev_promoted = await promote_z_to_elev(
-            session, table_name, metadata.get("geometry_type"), schema=_schema
-        )
-        if elev_promoted:
-            # Re-extract column_info so elev appears in the column list
-            from app.processing.ingest.metadata import get_column_info
-
-            metadata["column_info"] = await get_column_info(
-                session, table_name, schema=_schema
-            )
+    three_d = await _detect_3d_and_promote_elev(
+        session, table_name, metadata, schema=_schema
+    )
 
     # ArcGIS column_info fallback: if the DB-based extraction returned empty
     # column_info (e.g., non-spatial table where ogr2ogr only created a gid column),
@@ -1722,6 +1730,7 @@ async def _apply_reupload_swap(
     staging_table: str,
     metadata: dict,
     sample_values: dict,
+    three_d: dict,
     user_id: str,
     source_filename: str | None,
     source_format: str | None,
@@ -1732,6 +1741,9 @@ async def _apply_reupload_swap(
     pre_catalog_write: Callable[[], Awaitable[None]] | None = None,
 ) -> Any:
     """Apply shared atomic swap + version invariants for all reupload sources.
+
+    ``three_d`` is what ``_detect_3d_and_promote_elev`` returned for the
+    staging table.
 
     ``origin_ref`` carries the typed per-origin payload for the bytes this
     swap installs, minus the ``kind`` discriminator (derived from
@@ -1978,6 +1990,10 @@ async def _apply_reupload_swap(
         )
     dataset.column_info = metadata["column_info"]
     dataset.sample_values = sample_values
+    dataset.is_3d = three_d.get("is_3d")
+    dataset.n_dims = three_d.get("n_dims")
+    dataset.z_min = three_d.get("z_min")
+    dataset.z_max = three_d.get("z_max")
 
     await refresh_attribute_metadata(
         session,

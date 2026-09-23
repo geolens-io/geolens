@@ -25,6 +25,7 @@ from app.processing.ingest.tasks_common import (
     _append_job_warning,
     _current_tenant_role,
     _current_tenant_schema,
+    _detect_3d_and_promote_elev,
     _detect_and_override_geometry,
 )
 
@@ -280,12 +281,10 @@ async def _run_staging_pipeline(
     from app.processing.ingest.metadata import (
         add_4326_column,
         clip_to_mercator_bounds,
-        detect_3d_metadata,
         ensure_geom_column,
         extract_metadata,
         get_sample_values,
         grant_reader_access,
-        promote_z_to_elev,
     )
 
     _schema = _current_tenant_schema()
@@ -309,18 +308,9 @@ async def _run_staging_pipeline(
     )
 
     metadata = await extract_metadata(session, table_name, schema=_schema)
-    three_d = await detect_3d_metadata(session, table_name, schema=_schema)
-
-    if three_d.get("is_3d"):
-        elev_promoted = await promote_z_to_elev(
-            session, table_name, metadata.get("geometry_type"), schema=_schema
-        )
-        if elev_promoted:
-            from app.processing.ingest.metadata import get_column_info
-
-            metadata["column_info"] = await get_column_info(
-                session, table_name, schema=_schema
-            )
+    three_d = await _detect_3d_and_promote_elev(
+        session, table_name, metadata, schema=_schema
+    )
 
     sample_values = await get_sample_values(
         session, table_name, metadata.get("column_info", []), schema=_schema
