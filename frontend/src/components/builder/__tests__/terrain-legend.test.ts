@@ -3,6 +3,7 @@ import type { MapTerrainConfig } from '@/types/api';
 import {
   deriveTerrainLegendEntry,
   isDemTerrainVisualSuppressed,
+  syntheticTerrainEntry,
   terrainSourceIsShownAsLayer,
 } from '../terrain-legend';
 
@@ -149,6 +150,29 @@ describe('terrain-legend helper', () => {
         { labelKey },
       );
       expect(entry?.sourceName).toBe('Visible relief');
+    });
+
+    it('names the entry after the dataset when the display name is blank', () => {
+      const entry = deriveTerrainLegendEntry(
+        { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+        [{ ...backingDemLayer, display_name: '   ', dataset_name: 'swissALTI3D' }],
+        { labelKey },
+      );
+      expect(entry?.sourceName).toBe('swissALTI3D');
+    });
+  });
+
+  describe('syntheticTerrainEntry', () => {
+    const labelKey = 'plugins.legend.terrain3d';
+    const active: MapTerrainConfig = { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 };
+    const dem = { dataset_id: 'dem-1', is_dem: true, dataset_record_type: 'raster_dataset', display_name: 'Relief' };
+
+    it('returns the derived entry while the terrain DEM has no row of its own', () => {
+      expect(syntheticTerrainEntry(active, [dem], [], { labelKey })?.sourceName).toBe('Relief');
+    });
+
+    it('returns null once the terrain DEM has a row of its own', () => {
+      expect(syntheticTerrainEntry(active, [dem], [dem], { labelKey })).toBeNull();
     });
   });
 

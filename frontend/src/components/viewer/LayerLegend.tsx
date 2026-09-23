@@ -17,9 +17,9 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import {
   deriveTerrainLegendEntry,
-  isDemTerrainVisualSuppressed,
   terrainSourceIsShownAsLayer,
 } from '@/components/builder/terrain-legend';
+import { legendFacts } from '@/components/map/legend-facts';
 import { getClusterSourceStrategy, isClusterRenderMode } from '@/components/builder/cluster-source';
 
 interface LayerLegendProps {
@@ -36,18 +36,6 @@ interface LayerLegendProps {
    * the default heading.
    */
   legendTitle?: string | null;
-}
-
-/**
- * ENH-06: effective viewer legend entry name. A non-empty per-entry
- * style_config.legendLabel override wins, else the layer's display name, else
- * the dataset name. Mirrors LegendPlugin.legendEntryName for builder/viewer
- * parity.
- */
-function viewerLegendEntryName(layer: SharedLayerResponse): string {
-  const override = layer.style_config?.legendLabel;
-  if (typeof override === 'string' && override.trim() !== '') return override;
-  return layer.display_name || layer.dataset_name;
 }
 
 /** Build SwatchStyle from viewer layer paint for consistent legend rendering. */
@@ -224,15 +212,16 @@ export function LayerLegend({
   const panelRef = useRef<HTMLDivElement>(null);
   const customTitle = legendTitle?.trim() ? legendTitle.trim() : null;
 
-  // D-02: exclude terrain-suppressed DEM layers (render_mode:"terrain") using
-  // the SAME shared predicate as the stack/builder — never re-derived. The
-  // synthetic entry is injected only here in LayerLegend's local derivation, so
-  // the shared createViewerLayerEntries output (also consumed by ViewerMap for
-  // real map-layer wiring) is never polluted with a non-paintable entry.
+  // The synthetic terrain entry below stays local to this legend: ViewerMap
+  // also reads createViewerLayerEntries and must not see a row that draws nothing.
   const sorted = useMemo(
     () =>
       createViewerLayerEntries(layers)
-        .filter(({ layer }) => layer.show_in_legend !== false && !isDemTerrainVisualSuppressed(layer))
+        .flatMap((entry) => {
+          if (entry.layer.show_in_legend === false) return [];
+          const facts = legendFacts(entry.layer);
+          return facts ? [{ ...entry, facts }] : [];
+        })
         .sort((a, b) => a.layer.sort_order - b.layer.sort_order),
     [layers],
   );
@@ -326,10 +315,10 @@ export function LayerLegend({
               </div>
             </li>
           )}
-          {sorted.map(({ layer, key }) => {
+          {sorted.map(({ layer, key, facts }) => {
             const isVisible = visibleLayers.has(key);
             const sc = layer.style_config;
-            const layerName = viewerLegendEntryName(layer);
+            const layerName = facts.name;
             const clusterKind = clusterLegendKind(layer);
             const heatmapRamp = resolveHeatmapRamp(layer.paint, sc);
             return (

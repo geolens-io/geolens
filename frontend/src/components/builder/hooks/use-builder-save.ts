@@ -13,16 +13,15 @@ import { ApiError } from '@/api/client';
 import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
 import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
-import { getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
+import { demChipGlyph, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import { getMap, uploadThumbnail, uploadOgImage } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
-// D5: the PNG export legend must render the same effective entry names as the
-// on-screen legend (per-entry legendLabel override > display name > dataset name).
-import { legendEntryName } from '@/components/map-plugins/builtin/LegendPlugin';
+import { legendFacts } from '@/components/map/legend-facts';
+import { syntheticTerrainEntry } from '@/components/builder/terrain-legend';
 import { getPersistedFolderGroup, prepareLayersForPersistence, stampPersistedFolderGroupExpanded, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
@@ -39,7 +38,7 @@ import {
 } from '@/lib/map-image-attribution';
 // fix(#430 V-01): capability gate used to detect fields the builder has no editor
 // for on a given layer type (see unmanagedNullableFields below).
-import { getLayerCapabilities, isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { getLayerCapabilities } from '@/lib/layer-capabilities';
 
 /** Center-crop `srcCanvas` to the given target dimensions and return the
  *  resulting offscreen canvas. Crops from the center without distortion
@@ -1278,17 +1277,23 @@ export function useBuilderSave(state: SaveState) {
           const descFontPx = 14 * dpr;
           const titleBlockH = title ? (description ? 84 * dpr : 56 * dpr) : 0;
 
-          // fix(#769): synthetic group:folder rows inherit visible/show_in_legend
-          // from their first child — exclude them or the exported PNG ships a
-          // phantom legend row per folder group (mirrors LegendPlugin's filter).
-          const legendLayers = state.localLayers.filter(
-            (l) => l.visible && l.show_in_legend !== false && !isFolderGroupLayer(l),
+          const legendRows = state.localLayers.flatMap((layer) => {
+            if (!layer.visible || layer.show_in_legend === false) return [];
+            const facts = legendFacts(layer);
+            return facts ? [{ layer, facts }] : [];
+          });
+          const terrainEntry = syntheticTerrainEntry(
+            state.terrainConfig,
+            state.localLayers,
+            legendRows.map(({ layer }) => layer),
+            { labelKey: 'plugins.legend.terrain3d' },
           );
-          const legendHeaderH = legendLayers.length > 0 ? 32 * dpr : 0;
+          const legendRowCount = legendRows.length + (terrainEntry ? 1 : 0);
+          const legendHeaderH = legendRowCount > 0 ? 32 * dpr : 0;
           const legendRowH = 22 * dpr;
           const legendBlockH =
-            legendLayers.length > 0
-              ? 12 * dpr + legendHeaderH + legendLayers.length * legendRowH + 12 * dpr
+            legendRowCount > 0
+              ? 12 * dpr + legendHeaderH + legendRowCount * legendRowH + 12 * dpr
               : 0;
 
           const showBranding = !isEnterprise;
@@ -1364,7 +1369,7 @@ export function useBuilderSave(state: SaveState) {
           ctx.drawImage(srcCanvas, 0, cursorY);
           cursorY += mapHeight;
 
-          if (legendLayers.length > 0) {
+          if (legendRowCount > 0) {
             cursorY += 12 * dpr;
             ctx.fillStyle = MAP_COLORS.exportImage.text;
             ctx.font = `600 ${14 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
@@ -1375,9 +1380,34 @@ export function useBuilderSave(state: SaveState) {
               : t('export.legendHeader', { defaultValue: 'Legend' });
             ctx.fillText(legendHeaderText, pad, cursorY);
             cursorY += legendHeaderH;
-            ctx.font = `400 ${13 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+            const rowFont = `400 ${13 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+            ctx.font = rowFont;
             const swatchSize = 14 * dpr;
-            for (const layer of legendLayers) {
+            if (terrainEntry) {
+              // The builder legend pins this row first and draws its icon as the
+              // raster glyph chip.
+              const rowY = cursorY + (legendRowH - swatchSize) / 2;
+              const glyph = demChipGlyph('terrain');
+              const glyphPx = 11 * dpr;
+              ctx.fillStyle = MAP_COLORS.exportImage.rasterChip.background;
+              ctx.fillRect(pad, rowY, swatchSize, swatchSize);
+              ctx.font = `600 ${glyphPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+              ctx.fillStyle = MAP_COLORS.exportImage.rasterChip.glyph;
+              ctx.fillText(
+                glyph,
+                pad + (swatchSize - ctx.measureText(glyph).width) / 2,
+                rowY + (swatchSize - glyphPx) / 2,
+              );
+              ctx.font = rowFont;
+              ctx.fillStyle = MAP_COLORS.exportImage.text;
+              ctx.fillText(
+                terrainEntry.sourceName ?? t(terrainEntry.labelKey),
+                pad + swatchSize + 10 * dpr,
+                cursorY + (legendRowH - 13 * dpr) / 2,
+              );
+              cursorY += legendRowH;
+            }
+            for (const { layer, facts } of legendRows) {
               // fix(#424): mirror the on-screen legend swatch — draw a gradient for
               // multi-stop ramps (graduated/categorical/heatmap) and use the real
               // stroke color as the border so hollow-circle styles (light fill +
@@ -1410,10 +1440,8 @@ export function useBuilderSave(state: SaveState) {
               ctx.lineWidth = Math.max(1, dpr);
               ctx.strokeRect(pad, rowY, swatchSize, swatchSize);
               ctx.fillStyle = MAP_COLORS.exportImage.text;
-              // D5: was `display_name || dataset_name`, which dropped the
-              // per-entry legendLabel override the on-screen legend renders.
               ctx.fillText(
-                legendEntryName(layer),
+                facts.name,
                 pad + swatchSize + 10 * dpr,
                 cursorY + (legendRowH - 13 * dpr) / 2,
               );
