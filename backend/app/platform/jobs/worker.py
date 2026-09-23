@@ -14,7 +14,7 @@ from pathlib import Path
 
 import structlog
 import uvicorn
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, text
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
@@ -51,33 +51,25 @@ RECOVERY_LOCK_KEY = 224_001
 
 
 async def _recover_stale_jobs_for_current_scope() -> None:
-    """Mark stale jobs as failed using an advisory lock + heartbeat lease.
+    """Settle stale jobs once, before this worker takes its first delivery.
 
-    Running workers renew ``heartbeat_at``; recovery falls back to
-    ``started_at`` for pre-migration rows and only fails jobs whose liveness
-    signal is older than ``JOB_TIMEOUT_SECONDS``.
-
-    Handles two cases: (1) a worker killed mid-job, reclaimed on the next
-    worker's startup; (2) a job created but never queued (e.g. the defer
-    request got a 502), pending with no procrastinate task.
-
-    An advisory lock keeps recovery single-flight across a rolling restart;
-    a worker that fails to acquire it skips recovery.
+    Runs the lifespan sweep's settlement pass (``settle_stale_jobs``) and the
+    same post-commit artifact reap. The retention purge and the staging
+    housekeeping stay with the sweep. A worker that fails to take the
+    advisory lock skips recovery.
     """
     from app.core.db import async_session
-    from app.platform.jobs.models import IngestJob
-    from app.platform.jobs.router import (
-        JOB_TIMEOUT_SECONDS,
-        audit_settled_embedding_backfill,
-        no_unclaimed_queue_entry,
+    from app.platform.jobs.sweep import (
+        _reap_committed_staged_paths,
+        collect_unreaped_artifacts,
+        publish_refresh_reconciliation,
+        settle_stale_jobs,
     )
 
-    now = datetime.now(timezone.utc)
-    stale_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
-
     async with async_session() as session:
-        # pg_try_advisory_xact_lock releases automatically when the
-        # transaction ends, so no explicit unlock is needed.
+        # The lock only keeps two workers' recoveries apart. The lifespan
+        # sweep never takes it; the pass's own row locks keep the two from
+        # settling one row twice. Released when the transaction ends.
         lock_result = await session.execute(
             text("SELECT pg_try_advisory_xact_lock(:key)"),
             {"key": RECOVERY_LOCK_KEY},
@@ -86,164 +78,27 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             log.info("Stale job recovery skipped — another worker holds the lock")
             return
 
-        # Mirrors fail_stale_jobs (sweep.py), which the lifespan sweeper
-        # runs every 5 minutes for the same purpose; the advisory lock keeps
-        # startup recovery and the sweeper from colliding.
-        #
-        # fix(#1778): candidate set read via its own `FOR UPDATE SKIP
-        # LOCKED` subquery, mirroring fail_stale_jobs's fix for the same race
-        # — a `lock_timeout` on this set-based UPDATE would abort the WHOLE
-        # batch on one busy row instead of skipping just that row.
-        stale_candidates = (
-            select(IngestJob.id)
-            .where(
-                IngestJob.status == "running",
-                func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
-                < stale_cutoff,
-                no_unclaimed_queue_entry(),
-            )
-            .with_for_update(skip_locked=True)
-        )
-        stale_result = await session.execute(
-            update(IngestJob)
-            .where(IngestJob.id.in_(stale_candidates))
-            .values(
-                status="failed",
-                error_message=(
-                    f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
-                ),
-                completed_at=now,
-            )
-            .returning(IngestJob)
-        )
-        stale_jobs = list(stale_result.scalars())
-        for job in stale_jobs:
-            # RETURNING refreshes these in production; the explicit
-            # assignment also keeps lightweight session doubles representative.
-            job.status = "failed"
-            job.error_message = (
-                f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
-            )
-            job.completed_at = now
-            log.warning(
-                "Recovered stale running job",
-                job_id=str(job.id),
-            )
-            # fix(#1556): the fourth actor that can settle an embedding
-            # backfill row (#1550 taught the other three). Matters most
-            # after a hard kill, when this startup pass reaches the row
-            # before any later sweep would. No-op for every other job kind.
-            await audit_settled_embedding_backfill(
-                session,
-                job_id=job.id,
-                user_metadata=job.user_metadata,
-                created_by=job.created_by,
-                error_code="worker_lost",
-            )
-
-        # fix(#1235): recover orphaned pending jobs (never queued) through
-        # the shared clauses — this site was missing both the live-queue
-        # predicate (#724) and the bound/unbound split (#1234).
-        from app.platform.jobs.router import (
-            ABANDONED_UPLOAD_MESSAGE,
-            STALE_PENDING_UNBOUND_MESSAGE,
-            is_abandoned_upload,
-            stale_pending_clauses,
-            stale_pending_unbound_values,
-        )
-
-        orphaned_result = await session.execute(
-            update(IngestJob)
-            .where(*stale_pending_clauses(now, completion_bound=False))
-            .values(
-                **stale_pending_unbound_values(
-                    now, message=STALE_PENDING_UNBOUND_MESSAGE
-                )
-            )
-            .returning(IngestJob)
-        )
-        orphaned_jobs = list(orphaned_result.scalars())
-        for job in orphaned_jobs:
-            # fix(#1556): must reproduce the CASE the database just
-            # evaluated, not a constant — a flat `job.status = "failed"`
-            # here would push `failed` back over the `cancelled` the UPDATE wrote.
-            abandoned = is_abandoned_upload(job.user_metadata)
-            job.status = "cancelled" if abandoned else "failed"
-            job.error_message = (
-                ABANDONED_UPLOAD_MESSAGE if abandoned else STALE_PENDING_UNBOUND_MESSAGE
-            )
-            job.completed_at = now
-            log.warning(
-                "Recovered orphaned pending job",
-                job_id=str(job.id),
-                status=job.status,
-            )
-            # fix(#1556): the other half. A backfill whose dispatch never
-            # landed is `pending` with no queue row — the unique index
-            # counts it, holding the single active-backfill slot while its
-            # trail still reads `requested`.
-            await audit_settled_embedding_backfill(
-                session,
-                job_id=job.id,
-                user_metadata=job.user_metadata,
-                created_by=job.created_by,
-                error_code="never_started",
-            )
-
-        # GAP-002: sweep VRT assets stuck `regenerating` past the timeout,
-        # using the same stale_cutoff as the running-jobs sweep above.
-        from app.platform.jobs.router import (
-            _reap_stale_generation_storage,
-            _reap_unadopted_analysis_outputs,
-            reap_unpublished_storage_keys,
-            sweep_stale_vrt_assets,
-            unadopted_analysis_tables_from_metadata,
-            unpublished_storage_keys_from_metadata,
-        )
-
-        (
-            vrt_assets_recovered,
-            vrt_gens_failed,
-            stale_generation_storage_keys,
-        ) = await sweep_stale_vrt_assets(session, stale_cutoff)
-
+        outcome = await settle_stale_jobs(session, datetime.now(timezone.utc))
+        outcome = await collect_unreaped_artifacts(session, outcome)
         await session.commit()
-        # fix(#1322): reap only after the commit above lands — deleting
-        # before ownership-restoring reconciliation is durable can orphan a
-        # 'ready' asset against bytes a rolled-back commit never freed.
-        await _reap_stale_generation_storage(stale_generation_storage_keys)
-        # fix(#1778): the same treatment for a killed raster
-        # ingest/replace's pre-commit objects, through the shared reaper
-        # (survivor check + tenant resolution) so this pass can't delete a
-        # key a live row still names. Matters more than the periodic sweep:
-        # an OOM-killed worker's restart runs this before any lifespan sweeper.
-        await reap_unpublished_storage_keys(
-            tuple(
-                key
-                for job in stale_jobs
-                for key in unpublished_storage_keys_from_metadata(job.user_metadata)
-            )
+
+    publish_refresh_reconciliation(outcome)
+    # Only after the commit: a reap before it could delete an artifact that a
+    # rolled-back settlement still owns.
+    outcome = await _reap_committed_staged_paths(outcome)
+    for job_id in outcome._settled_running_ids:
+        log.warning("Recovered stale running job", job_id=str(job_id))
+    for job_id, status in outcome._settled_pending:
+        log.warning("Recovered orphaned pending job", job_id=str(job_id), status=status)
+    if outcome.total_affected or outcome._refresh_runs_reconciled:
+        log.info(
+            "Stale job recovery complete",
+            running_recovered=outcome.running_failed,
+            pending_recovered=len(outcome._settled_pending),
+            vrt_assets_recovered=outcome.vrt_assets_recovered,
+            vrt_gens_failed=outcome.vrt_generations_failed,
+            refresh_runs_reconciled=outcome._refresh_runs_reconciled,
         )
-        # fix(#1778): the analysis peer, same pass/ordering.
-        # (job, table) pairs so a drop can refuse a table the job it's
-        # reaping didn't create; ALL names a row records, since it
-        # accumulates across attempts.
-        await _reap_unadopted_analysis_outputs(
-            tuple(
-                (job.id, name)
-                for job in stale_jobs
-                for name in unadopted_analysis_tables_from_metadata(job.user_metadata)
-            )
-        )
-        total = len(stale_jobs) + len(orphaned_jobs)
-        if total or vrt_assets_recovered:
-            log.info(
-                "Stale job recovery complete",
-                running_recovered=len(stale_jobs),
-                pending_recovered=len(orphaned_jobs),
-                vrt_assets_recovered=vrt_assets_recovered,
-                vrt_gens_failed=vrt_gens_failed,
-            )
 
 
 # fix(#624): a worker killed mid-job leaves its queue row in `doing` forever.
