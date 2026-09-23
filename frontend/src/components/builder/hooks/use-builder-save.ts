@@ -20,9 +20,7 @@ import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatc
 import { usePluginStore } from '@/stores/map-plugin-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
-// D5: the PNG export legend must render the same effective entry names as the
-// on-screen legend (per-entry legendLabel override > display name > dataset name).
-import { legendEntryName } from '@/components/map-plugins/builtin/LegendPlugin';
+import { legendFacts } from '@/components/map/legend-facts';
 import { getPersistedFolderGroup, prepareLayersForPersistence, stampPersistedFolderGroupExpanded, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
@@ -39,7 +37,7 @@ import {
 } from '@/lib/map-image-attribution';
 // fix(#430 V-01): capability gate used to detect fields the builder has no editor
 // for on a given layer type (see unmanagedNullableFields below).
-import { getLayerCapabilities, isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { getLayerCapabilities } from '@/lib/layer-capabilities';
 
 /** Center-crop `srcCanvas` to the given target dimensions and return the
  *  resulting offscreen canvas. Crops from the center without distortion
@@ -1278,17 +1276,16 @@ export function useBuilderSave(state: SaveState) {
           const descFontPx = 14 * dpr;
           const titleBlockH = title ? (description ? 84 * dpr : 56 * dpr) : 0;
 
-          // fix(#769): synthetic group:folder rows inherit visible/show_in_legend
-          // from their first child — exclude them or the exported PNG ships a
-          // phantom legend row per folder group (mirrors LegendPlugin's filter).
-          const legendLayers = state.localLayers.filter(
-            (l) => l.visible && l.show_in_legend !== false && !isFolderGroupLayer(l),
-          );
-          const legendHeaderH = legendLayers.length > 0 ? 32 * dpr : 0;
+          const legendRows = state.localLayers.flatMap((layer) => {
+            if (!layer.visible || layer.show_in_legend === false) return [];
+            const facts = legendFacts(layer);
+            return facts ? [{ layer, facts }] : [];
+          });
+          const legendHeaderH = legendRows.length > 0 ? 32 * dpr : 0;
           const legendRowH = 22 * dpr;
           const legendBlockH =
-            legendLayers.length > 0
-              ? 12 * dpr + legendHeaderH + legendLayers.length * legendRowH + 12 * dpr
+            legendRows.length > 0
+              ? 12 * dpr + legendHeaderH + legendRows.length * legendRowH + 12 * dpr
               : 0;
 
           const showBranding = !isEnterprise;
@@ -1364,7 +1361,7 @@ export function useBuilderSave(state: SaveState) {
           ctx.drawImage(srcCanvas, 0, cursorY);
           cursorY += mapHeight;
 
-          if (legendLayers.length > 0) {
+          if (legendRows.length > 0) {
             cursorY += 12 * dpr;
             ctx.fillStyle = MAP_COLORS.exportImage.text;
             ctx.font = `600 ${14 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
@@ -1377,7 +1374,7 @@ export function useBuilderSave(state: SaveState) {
             cursorY += legendHeaderH;
             ctx.font = `400 ${13 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
             const swatchSize = 14 * dpr;
-            for (const layer of legendLayers) {
+            for (const { layer, facts } of legendRows) {
               // fix(#424): mirror the on-screen legend swatch — draw a gradient for
               // multi-stop ramps (graduated/categorical/heatmap) and use the real
               // stroke color as the border so hollow-circle styles (light fill +
@@ -1410,10 +1407,8 @@ export function useBuilderSave(state: SaveState) {
               ctx.lineWidth = Math.max(1, dpr);
               ctx.strokeRect(pad, rowY, swatchSize, swatchSize);
               ctx.fillStyle = MAP_COLORS.exportImage.text;
-              // D5: was `display_name || dataset_name`, which dropped the
-              // per-entry legendLabel override the on-screen legend renders.
               ctx.fillText(
-                legendEntryName(layer),
+                facts.name,
                 pad + swatchSize + 10 * dpr,
                 cursorY + (legendRowH - 13 * dpr) / 2,
               );

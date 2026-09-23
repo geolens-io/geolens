@@ -14,11 +14,10 @@ import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate, resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
-import { isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { legendEntryName, legendFacts } from '@/components/map/legend-facts';
 import { Pencil, Check } from 'lucide-react';
 import {
   deriveTerrainLegendEntry,
-  isDemTerrainVisualSuppressed,
   terrainSourceIsShownAsLayer,
 } from '@/components/builder/terrain-legend';
 import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
@@ -105,17 +104,6 @@ type LegendLabelStyleConfig = StyleConfig & {
   colorLabel?: string;
 };
 
-/**
- * Effective legend entry name (ENH-06): a non-empty per-entry
- * style_config.legendLabel override wins, else the layer's display name, else
- * the dataset name. Shared by the plugin and the viewer for parity.
- */
-export function legendEntryName(layer: MapLayerResponse): string {
-  const override = layer.style_config?.legendLabel;
-  if (typeof override === 'string' && override.trim() !== '') return override;
-  return layer.display_name ?? layer.dataset_name;
-}
-
 export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
   const { t } = useTranslation('builder');
   const [isEditing, setIsEditing] = useState(false);
@@ -125,16 +113,9 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
   // callbacks (the builder); read-only contexts (viewer/tests) hide it.
   const canEdit = Boolean(ctx.onLegendTitleChange || ctx.onLegendLabelChange);
 
-  // D-02: exclude terrain-suppressed DEM layers (render_mode:"terrain") — they
-  // have no stack row and paint nothing, so they must not appear as per-layer
-  // legend entries. Consume the shared predicate, never re-derive it.
-  // fix(#769): synthetic group:folder rows are built by spreading the group's
-  // first child, so they inherit visible/show_in_legend/paint — without this
-  // predicate every folder group renders a phantom legend entry.
   const legendLayers = useMemo(
     () => ctx.layers.filter(
-      (l) => l.visible && l.show_in_legend !== false && !isFolderGroupLayer(l)
-        && !isDemTerrainVisualSuppressed(l),
+      (l) => l.visible && l.show_in_legend !== false && legendFacts(l) !== null,
     ),
     [ctx.layers],
   );
@@ -217,26 +198,26 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
             />
           )}
           {ctx.onLegendLabelChange &&
-            legendLayers.map((layer) => (
-              <input
-                key={layer.id}
-                type="text"
-                defaultValue={
-                  typeof layer.style_config?.legendLabel === 'string'
-                    ? layer.style_config.legendLabel
-                    : ''
-                }
-                maxLength={120}
-                placeholder={t('plugins.legend.entryLabelPlaceholder', {
-                  name: layer.display_name ?? layer.dataset_name,
-                })}
-                aria-label={t('plugins.legend.entryLabelPlaceholder', {
-                  name: layer.display_name ?? layer.dataset_name,
-                })}
-                className="w-full rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs"
-                onBlur={(e) => ctx.onLegendLabelChange?.(layer.id, e.target.value.trim())}
-              />
-            ))}
+            legendLayers.map((layer) => {
+              // The name the entry falls back to once the override is cleared.
+              const name = legendEntryName({ display_name: layer.display_name, dataset_name: layer.dataset_name }) ?? '';
+              return (
+                <input
+                  key={layer.id}
+                  type="text"
+                  defaultValue={
+                    typeof layer.style_config?.legendLabel === 'string'
+                      ? layer.style_config.legendLabel
+                      : ''
+                  }
+                  maxLength={120}
+                  placeholder={t('plugins.legend.entryLabelPlaceholder', { name })}
+                  aria-label={t('plugins.legend.entryLabelPlaceholder', { name })}
+                  className="w-full rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs"
+                  onBlur={(e) => ctx.onLegendLabelChange?.(layer.id, e.target.value.trim())}
+                />
+              );
+            })}
         </div>
       )}
 
@@ -283,6 +264,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
   isLast: boolean;
 }) {
   const { t } = useTranslation('builder');
+  const entryName = legendFacts(layer)?.name ?? '';
 
   try {
     const opacity = layer.opacity ?? 1;
@@ -291,8 +273,6 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
       layer.paint, effectiveGeom, opacity, layer.style_config?.builder,
     );
     const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
-    // ENH-06: per-entry legendLabel override wins over display/dataset name.
-    const entryName = legendEntryName(layer);
     const heatmapRamp = resolveHeatmapRamp(layer.paint, layer.style_config);
 
     return (
@@ -352,12 +332,12 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
       </div>
     );
   } catch (err) {
-    if (import.meta.env.DEV) console.error(`[LegendPlugin] Failed to render layer "${layer.display_name ?? layer.dataset_name}":`, err);
+    if (import.meta.env.DEV) console.error(`[LegendPlugin] Failed to render layer "${entryName}":`, err);
     return (
       <div>
         <div className="p-1 text-xs">
           <span className="font-medium text-foreground truncate">
-            {legendEntryName(layer)}
+            {entryName}
           </span>
           <span className="text-muted-foreground italic ms-1">
             {t('plugins.legend.unavailable', { defaultValue: '(legend unavailable)' })}

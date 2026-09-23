@@ -17,6 +17,7 @@ import { buildLayerDiff, reconcileLayerDiffWithServer, useBuilderSave, __resetTh
 import { stampPersistedFolderGroupExpanded } from '@/components/builder/folder-groups';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { MapLayerResponse } from '@/types/api';
+import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
 
@@ -3011,6 +3012,24 @@ describe('SHARE-09 export PNG composition', () => {
     const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
     expect(calls.some((text) => text === 'Streets')).toBe(true);
     expect(calls.some((text) => text === 'Transit group')).toBe(false);
+  });
+
+  it('leaves a terrain-mode DEM out of the exported legend', () => {
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [SAVED_LAYERS.terrainDem, SAVED_LAYERS.line],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(calls).toContain(SAVED_LAYERS.line.display_name);
+    expect(calls).not.toContain(SAVED_LAYERS.terrainDem.display_name);
   });
 
   it('swatch border uses the layer stroke color for hollow-circle styles', () => {

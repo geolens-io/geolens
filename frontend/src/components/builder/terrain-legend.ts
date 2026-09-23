@@ -1,4 +1,5 @@
-import type { MapTerrainConfig } from '@/types/api';
+import type { MapTerrainConfig, StyleConfig } from '@/types/api';
+import { legendEntryName } from '@/components/map/legend-facts';
 import { isDemTerrainVisualSuppressed } from './map-sync';
 import { resolveTerrainSourceLayer } from './map-stack';
 
@@ -25,10 +26,10 @@ export interface TerrainLegendEntry {
   /** i18n key the caller resolves in its own namespace. */
   labelKey: string;
   /**
-   * fix(HT-08): the bound DEM layer's display name, so the legend keeps the
-   * dataset identity ("swissALTI3D relief") instead of degrading to a generic
-   * "3D terrain" row the moment the overlay is off. Null when the backing
-   * layer carries no name; callers then fall back to t(labelKey).
+   * The bound DEM layer's legend entry name, so the legend keeps the dataset
+   * identity ("swissALTI3D relief") instead of a generic "3D terrain" row once
+   * the overlay is off. Null when the layer has no name; callers then fall back
+   * to t(labelKey).
    */
   sourceName: string | null;
 }
@@ -45,6 +46,7 @@ type TerrainBackingLayer = {
   dataset_record_type?: string | null;
   display_name?: string | null;
   dataset_name?: string | null;
+  style_config?: Pick<StyleConfig, 'legendLabel'> | null;
   visible?: boolean | null;
 };
 
@@ -78,7 +80,7 @@ export function deriveTerrainLegendEntry(
     id: 'relief:terrain',
     role: 'surface-terrain',
     labelKey: opts.labelKey,
-    sourceName: backingLayer.display_name ?? backingLayer.dataset_name ?? null,
+    sourceName: legendEntryName(backingLayer),
   };
 }
 

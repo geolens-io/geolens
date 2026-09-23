@@ -150,6 +150,15 @@ describe('terrain-legend helper', () => {
       );
       expect(entry?.sourceName).toBe('Visible relief');
     });
+
+    it('names the entry after the dataset when the display name is blank', () => {
+      const entry = deriveTerrainLegendEntry(
+        { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+        [{ ...backingDemLayer, display_name: '   ', dataset_name: 'swissALTI3D' }],
+        { labelKey },
+      );
+      expect(entry?.sourceName).toBe('swissALTI3D');
+    });
   });
 
   describe('terrainSourceIsShownAsLayer (dedup guard)', () => {
