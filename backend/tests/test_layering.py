@@ -1307,13 +1307,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_reupload.py": 1576,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1471,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1415,
     # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1175,
     # Reconciliation and reapers serve startup, workers and admin cleanup consistently.
     "backend/app/platform/jobs/sweep.py": 1537,
     # Refresh admission, claim fencing and terminal transitions stay domain-neutral.
-    "backend/app/platform/refresh/service.py": 1238,
+    "backend/app/platform/refresh/service.py": 1273,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1496,
@@ -1350,7 +1350,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # updates.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 979,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1552,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1554,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1421,

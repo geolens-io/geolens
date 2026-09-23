@@ -1242,7 +1242,7 @@ def refresh(
         Optional[str],
         typer.Option(
             "--accept-blocked-run",
-            help="UUID of a blocked run to approve its matching source and changes once.",
+            help="UUID of a blocked run to approve its matching source and changes for this refresh.",
         ),
     ] = None,
     wait: Annotated[

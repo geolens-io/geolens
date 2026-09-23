@@ -40,7 +40,8 @@ class DatasetRefreshRequest:
             verification_policy (DatasetRefreshRequestVerificationPolicy | Unset): Verification policy for this refresh.
                 arcgis_id_set_v1 performs the stronger ArcGIS object-ID membership check. Default: 'standard'.
             accept_blocked_run_id (None | Unset | UUID): A blocked run whose reviewed source and staged content may be
-                accepted once. A different result blocks again.
+                accepted. The refresh that uses the acceptance holds it until it ends, and a cancelled or failed refresh gives
+                it back. A different result blocks again.
             auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
                 the token field.
     """

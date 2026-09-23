@@ -3175,7 +3175,7 @@ export type DatasetRefreshRequest = {
     /**
      * Accept Blocked Run Id
      *
-     * A blocked run whose reviewed source and staged content may be accepted once. A different result blocks again.
+     * A blocked run whose reviewed source and staged content may be accepted. The refresh that uses the acceptance holds it until it ends, and a cancelled or failed refresh gives it back. A different result blocks again.
      */
     accept_blocked_run_id?: string | null;
     /**
