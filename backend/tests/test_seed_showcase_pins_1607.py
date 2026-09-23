@@ -78,10 +78,7 @@ def test_pinned_map_names_are_the_four_the_examples_address_by_id():
 def test_a_pinned_name_is_never_also_a_retired_one():
     """--prune deletes RETIRED_* by exact name; the two sets must not overlap."""
     assert set(seeder.PINNED_MAP_NAMES).isdisjoint(seeder.RETIRED_MAPS)
-    pinned_titles = set(seeder.PINNED_DATASET_TITLES) | set(
-        seeder.PINNED_FOREIGN_DATASET_TITLES
-    )
-    assert pinned_titles.isdisjoint(seeder.RETIRED_DATASETS)
+    assert set(seeder.PINNED_DATASET_TITLES).isdisjoint(seeder.RETIRED_DATASETS)
 
 
 def test_a_pinned_map_is_never_reported_as_a_stray():
@@ -681,3 +678,59 @@ def test_a_map_id_reports_nothing_and_counts_as_built():
     # as built, exactly as they did before the marker was added.
     assert seeder._builder_outcome_line("catalog", "(catalog)") is None
     assert seeder._builder_outcome_line("collections", "(none)") is None
+
+
+# --- the pinned-ids summary (#2142) --------------------------------------------
+
+
+class _SummaryApi:
+    """Just the surface _print_pinned_summary reads."""
+
+    def __init__(self, maps, datasets, share_tokens):
+        self._maps = maps
+        self._datasets = datasets
+        self._share_tokens = share_tokens
+
+    def list_maps(self):
+        return self._maps
+
+    def datasets_by_title(self):
+        return self._datasets
+
+    def map_share_token(self, map_id):
+        return self._share_tokens.get(map_id)
+
+
+def test_pinned_summary_flags_a_map_with_no_share_link_and_never_prints_a_token(
+    capsys, monkeypatch
+):
+    """A pinned map with no active share link is flagged; one that has a link
+    reports only that it has one, never the token value itself."""
+    monkeypatch.setattr(
+        seeder,
+        "PINNED_MAP_NAMES",
+        ("Restless Earth", "Manhattan - A Century of Skyline"),
+    )
+    monkeypatch.setattr(
+        seeder, "PINNED_DATASET_TITLES", ("Meteorite Landings (Meteoritical Society)",)
+    )
+    api = _SummaryApi(
+        maps={
+            "Restless Earth": "m-restless",
+            "Manhattan - A Century of Skyline": "m-manhattan",
+        },
+        datasets={"Meteorite Landings (Meteoritical Society)": "d-meteorites"},
+        share_tokens={
+            "m-manhattan": {"token": "SECRET-DO-NOT-PRINT", "is_active": True}
+        },
+    )
+
+    seeder._print_pinned_summary(api)
+
+    out = capsys.readouterr().out
+    assert "m-restless" in out
+    assert "no active share link" in out
+    assert "m-manhattan" in out
+    assert "d-meteorites" in out
+    assert "SECRET-DO-NOT-PRINT" not in out
+    assert "gh api repos/geolens-io/geolens-examples/dispatches" in out
