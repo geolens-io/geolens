@@ -476,3 +476,37 @@ describe('viewerSwatchStyle — builder stroke precedence (fix #1288)', () => {
     expect(style.strokeWidth).toBe(2);
   });
 });
+
+describe('LayerLegend heatmap ramp direction', () => {
+  const heatmapLayer = (paintOverrides: Record<string, unknown> = {}) => layer({
+    id: 'heat-1',
+    dataset_name: 'Heat',
+    display_name: 'Heat',
+    paint: { '_heatmap-ramp': 'YlOrRd', ...paintOverrides },
+    // normalizeLayerStyleState always sets column to '' for a heatmap style_config.
+    style_config: { render_mode: 'heatmap', column: '', ramp: 'YlOrRd' } as SharedLayerResponse['style_config'],
+  });
+
+  function swatchStyleAttr(reversed: boolean): string {
+    const { container } = render(
+      <LayerLegend
+        layers={[heatmapLayer({ '_heatmap-reversed': reversed })]}
+        visibleLayers={new Set(['heat-1'])}
+        onToggleVisibility={vi.fn()}
+        isOpen
+        onToggle={vi.fn()}
+      />,
+    );
+    return container.querySelector('.h-3.rounded-sm.w-full')?.getAttribute('style') ?? '';
+  }
+
+  it('reverses the gradient direction when _heatmap-reversed is set', () => {
+    const forward = swatchStyleAttr(false);
+    const reversed = swatchStyleAttr(true);
+    // YlOrRd's first (#ffffcc, jsdom renders it rgb(255, 255, 204)) and last
+    // (#800026 / rgb(128, 0, 38)) stops always sit at the ends of the sampled
+    // gradient, regardless of sample count.
+    expect(forward.indexOf('rgb(255, 255, 204)')).toBeLessThan(forward.indexOf('rgb(128, 0, 38)'));
+    expect(reversed.indexOf('rgb(128, 0, 38)')).toBeLessThan(reversed.indexOf('rgb(255, 255, 204)'));
+  });
+});

@@ -222,6 +222,7 @@ export const GraduatedWidthLegend = memo(function GraduatedWidthLegend({ sizes, 
 interface HeatmapLegendProps {
   name: string;
   rampName: string;
+  reversed?: boolean;
   weightColumn?: string;
   opacity?: number;
   lowLabel: string;
@@ -232,6 +233,7 @@ interface HeatmapLegendProps {
 export const HeatmapLegend = memo(function HeatmapLegend({
   name,
   rampName,
+  reversed = false,
   weightColumn,
   opacity = 1,
   lowLabel,
@@ -239,9 +241,9 @@ export const HeatmapLegend = memo(function HeatmapLegend({
   weightedByLabel,
 }: HeatmapLegendProps) {
   const gradient = useMemo(() => {
-    const colors = getRampColors(rampName, 6);
+    const colors = getRampColors(rampName, 6, reversed);
     return `linear-gradient(to right, ${colors.join(', ')})`;
-  }, [rampName]);
+  }, [rampName, reversed]);
 
   return (
     <div style={opacity < 1 ? { opacity } : undefined}>

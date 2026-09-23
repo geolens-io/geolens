@@ -3068,6 +3068,34 @@ describe('SHARE-09 export PNG composition', () => {
     expect(strokeStyleAtStroke).toContain('rgba(0,0,0,0.35)');
   });
 
+  it('keeps the stroke for a point layer with a stale builder.strokeDisabled (#2148)', () => {
+    const mockMap = makeExportMap();
+    // builder.strokeDisabled only applies to the polygon builder-adapter path; the
+    // circle adapter draws circle-stroke-width directly and ignores builder state,
+    // so a flag left stale from another edit must not hide a stroke the map draws.
+    const stale = makeLayer({
+      id: 'layer-stale-stroke-disabled',
+      display_name: 'Stale flag',
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c', 'circle-stroke-width': 2 },
+      style_config: { builder: { strokeDisabled: true } } as MapLayerResponse['style_config'],
+      visible: true,
+      show_in_legend: true,
+    });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [stale],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(strokeStyleAtStroke).toContain('#ea580c');
+  });
+
   it('draws a gradient swatch for a multi-stop ramp layer', () => {
     const mockMap = makeExportMap();
     // Empty paint + style_config.colors makes getLayerColors return the ramp array.

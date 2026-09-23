@@ -12,7 +12,7 @@ import {
 import type { SwatchStyle } from '@/components/map/LegendEntries';
 import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
-import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
+import { parseStepOrInterpolate, resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import {
@@ -331,6 +331,7 @@ export function LayerLegend({
             const sc = layer.style_config;
             const layerName = viewerLegendEntryName(layer);
             const clusterKind = clusterLegendKind(layer);
+            const heatmapRamp = resolveHeatmapRamp(layer.paint, sc);
             return (
               <li key={key} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
@@ -375,18 +376,19 @@ export function LayerLegend({
                 )}
 
                 {/* Data-driven legend entries */}
-                {sc?.column && isVisible && (
+                {isVisible && (
                   sc?.render_mode === 'heatmap' ? (
                     <div className="mt-1.5 ms-6">
                       <HeatmapLegend
                         name=""
-                        rampName={(layer.paint?.['_heatmap-ramp'] as string) ?? sc.ramp ?? 'YlOrRd'}
+                        rampName={heatmapRamp.rampName}
+                        reversed={heatmapRamp.reversed}
                         opacity={layer.opacity ?? 1}
                         lowLabel={t('viewer.heatmapLow')}
                         highLabel={t('viewer.heatmapHigh')}
                       />
                     </div>
-                  ) : (
+                  ) : sc?.column ? (
                     <div className="mt-1.5 ms-6">
                       {sc.mode === 'categorical' && sc.categories && (
                         <CategoricalLegend categories={sc.categories} geometryType={layer.geometry_type} style={viewerSwatchStyle(layer)} />
@@ -399,7 +401,7 @@ export function LayerLegend({
                         />
                       )}
                     </div>
-                  )
+                  ) : null
                 )}
               </li>
             );
