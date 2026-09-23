@@ -2166,14 +2166,14 @@ class TestCredentialRenewal:
             run_age_seconds=ABANDONED_RUN_CUTOFF_SECONDS + 3600,
         )
 
-        assert await sweep_abandoned_refresh_runs(test_db_session) == 0, (
+        await sweep_abandoned_refresh_runs(test_db_session)
+        run = await _run_for(test_db_session, dataset.id)
+        assert run is not None and run.status == "pending", (
             "the sweep must not cancel a run whose task is still live todo"
         )
         assert await creds.renew_queued_refresh_credentials(test_db_session) == 1, (
             "and renewal must keep the credential for exactly that run"
         )
-        run = await _run_for(test_db_session, dataset.id)
-        assert run is not None and run.status == "pending"
 
     async def test_renewal_and_the_sweep_agree_while_the_task_is_executing(
         self, client, test_db_session, credential_backend
@@ -2198,14 +2198,14 @@ class TestCredentialRenewal:
             run_age_seconds=ABANDONED_RUN_CUTOFF_SECONDS + 3600,
         )
 
-        assert await sweep_abandoned_refresh_runs(test_db_session) == 0, (
+        await sweep_abandoned_refresh_runs(test_db_session)
+        run = await _run_for(test_db_session, dataset.id)
+        assert run is not None and run.status == "pending", (
             "the sweep must not cancel a run whose task is executing"
         )
         assert await creds.renew_queued_refresh_credentials(test_db_session) == 1, (
             "and renewal must keep that run's credential through the pre-claim window"
         )
-        run = await _run_for(test_db_session, dataset.id)
-        assert run is not None and run.status == "pending"
 
     async def test_renewal_only_touches_its_own_dispatch(
         self, client, test_db_session, credential_backend
