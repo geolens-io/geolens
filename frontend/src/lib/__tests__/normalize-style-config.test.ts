@@ -352,6 +352,17 @@ describe('resolveHeatmapRamp', () => {
     expect(resolved).toEqual({ rampName: 'Blues', reversed: true });
   });
 
+  it('prefers builder.heatmapRamp over a stale top-level ramp with no paint mirror', () => {
+    // A ramp change writes builder.heatmapRamp but not the top-level `ramp` field,
+    // so the two can diverge once the paint mirror that would otherwise settle it
+    // is gone. builder.heatmapRamp must win — it is what the map actually draws.
+    const resolved = resolveHeatmapRamp(
+      {},
+      { render_mode: 'heatmap', ramp: 'YlOrRd', builder: { heatmapRamp: 'Viridis' } },
+    );
+    expect(resolved.rampName).toBe('Viridis');
+  });
+
   it('defaults to YlOrRd and not reversed with no ramp information at all', () => {
     expect(resolveHeatmapRamp(null, null)).toEqual({ rampName: 'YlOrRd', reversed: false });
   });
