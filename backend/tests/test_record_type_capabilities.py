@@ -1,6 +1,9 @@
 """The record-type capability table, and the closed answer for unknown types."""
 
+import json
 import re
+from dataclasses import asdict
+from pathlib import Path
 
 import pytest
 
@@ -21,6 +24,10 @@ _RASTER = RecordTypeCapabilities(
 )
 _NONE = RecordTypeCapabilities(
     feature_table=False, map_layer_type=None, tile_token=None, ogc_item_type=None
+)
+_FRONTEND_SNAPSHOT = (
+    Path(__file__).resolve().parents[2]
+    / "frontend/src/lib/__tests__/record-type-capabilities.cases.json"
 )
 
 
@@ -52,3 +59,13 @@ def test_the_table_covers_exactly_the_checked_vocabulary() -> None:
     )
     admitted = set(re.findall(r"'([a-z_]+)'", str(constraint.sqltext)))
     assert admitted == set(RECORD_TYPES)
+
+
+def test_the_frontend_snapshot_equals_the_table() -> None:
+    """The snapshot the frontend mirror is tested against matches capabilities()."""
+    if not _FRONTEND_SNAPSHOT.is_file():
+        pytest.skip("frontend tree not present in this checkout")
+    spec = json.loads(_FRONTEND_SNAPSHOT.read_text(encoding="utf-8"))
+    assert spec["unknown"] not in RECORD_TYPES
+    live = {t: asdict(capabilities(t)) for t in (*RECORD_TYPES, spec["unknown"])}
+    assert spec["capabilities"] == live

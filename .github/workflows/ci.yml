@@ -178,6 +178,7 @@ jobs:
               - 'frontend/src/types/api.ts'
               - 'frontend/src/lib/basemap-utils.ts'
               - 'frontend/src/lib/capabilities.ts'
+              - 'frontend/src/lib/__tests__/record-type-capabilities.cases.json'
               - 'frontend/src/components/builder/layer-adapters/shared.ts'
               # fix(#1778): more frontend files (plus one
               # e2e spec below) that backend tests reference by literal path
