@@ -1,6 +1,14 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getLayerType, getSourceIdForLayer, resolveAdapterType, applyMasterOpacity, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
+import { getLayerType, getSourceIdForLayer, resolveAdapterType, applyMasterOpacity, isDemTerrainVisualSuppressed, toSyncInput } from '@/components/builder/map-sync';
+import type { SyncLayerInput } from '@/components/builder/map-sync';
+import {
+  FULL_ZOOM_RANGE,
+  adapterInputFor,
+  describeLayers,
+  type DescribedLayer,
+  type RenderContext,
+} from '@/components/builder/layer-description';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import {
   getBuilderStyleConfig,
@@ -36,6 +44,33 @@ function resolveLayerAdapterType(layer: MapLayerResponse, paint: Record<string, 
       : 'raster';
   }
   return resolveAdapterType(layer.dataset_geometry_type, styleConfig ?? layer.style_config, paint);
+}
+
+// The handlers have no cluster GeoJSON, so they pick adapters with
+// resolveLayerAdapterType rather than the description's drawsAs.
+const HANDLER_CONTEXT: RenderContext = { idPrefix: '', boundedGeoJson: new Map() };
+
+function describeBuilderLayer(input: SyncLayerInput): DescribedLayer | undefined {
+  return describeLayers([input], HANDLER_CONTEXT).layers[0];
+}
+
+/**
+ * The input a builder handler hands its adapter, or null when the map draws
+ * nothing for the layer. A `pending` paint or opacity stands in for the layer's own.
+ */
+export function builderAdapterInput(
+  layer: MapLayerResponse,
+  mvtSourceLayerPrefix: string | null | undefined,
+  { tileUrl = '', ...pending }: { tileUrl?: string; paint?: Record<string, unknown>; opacity?: number } = {},
+): AdapterLayerInput | null {
+  const input = toSyncInput(layer);
+  const described = describeBuilderLayer(input);
+  if (!described) return null;
+  return adapterInputFor(input, described, {
+    sourceId: getSourceIdForLayer(layer),
+    sourceLayer: getMvtSourceLayerName(layer.dataset_table_name, mvtSourceLayerPrefix),
+    tileUrl,
+  }, pending);
 }
 
 // STATE-01 / SYNC-04: the canonical per-layer visibility map side-effect. The
@@ -95,24 +130,12 @@ export function applyLayerOpacityToMap(
   const paint = layer.paint ?? {};
   const adapterType = resolveLayerAdapterType(layer, paint, layer.style_config);
 
-  if (adapterType === 'hillshade') {
-    const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-      id: layer.id,
-      dataset_table_name: layer.dataset_table_name,
-      dataset_geometry_type: layer.dataset_geometry_type,
-      opacity,
-      visible: layer.visible,
-      paint,
-      layout: layer.layout ?? {},
-      filter: layer.filter ?? null,
-      sourceId: getSourceIdForLayer(layer),
-      layerId: mapLayerId,
-      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name, mvtSourceLayerPrefix),
-      tileUrl: '',
-      style_config: layer.style_config ?? null,
-      is_dem: layer.is_dem,
-    };
-    getAdapter('hillshade').syncPaint(map, input);
+  if (adapterType === 'hillshade' || adapterType === 'cluster' || adapterType === 'mixed') {
+    // A hillshade has no raster-opacity, and the cluster and mixed-geometry
+    // adapters spread opacity over their companion layers, so these repaint
+    // through the adapter rather than one paint property.
+    const input = builderAdapterInput(layer, mvtSourceLayerPrefix, { opacity });
+    if (input) getAdapter(adapterType).syncPaint(map, input);
   } else if (layer.layer_type === 'raster_geolens') {
     if (map.getLayer(mapLayerId)) {
       map.setPaintProperty(mapLayerId, 'raster-opacity', opacity);
@@ -122,47 +145,6 @@ export function applyLayerOpacityToMap(
       const storedHeatmapOpacity = (paint['heatmap-opacity'] as number) ?? 0.8;
       map.setPaintProperty(mapLayerId, 'heatmap-opacity', opacity * storedHeatmapOpacity);
     }
-  } else if (adapterType === 'cluster') {
-    const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-      id: layer.id,
-      dataset_table_name: layer.dataset_table_name,
-      dataset_geometry_type: layer.dataset_geometry_type,
-      opacity,
-      visible: layer.visible,
-      paint,
-      layout: layer.layout ?? {},
-      filter: layer.filter ?? null,
-      // SF-04: cluster layers keep their per-layer source id; the helper routes
-      // them through the cluster branch.
-      sourceId: getSourceIdForLayer(layer),
-      layerId: mapLayerId,
-      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name, mvtSourceLayerPrefix),
-      tileUrl: '',
-      style_config: layer.style_config ?? null,
-      is_dem: layer.is_dem,
-    };
-    getAdapter('cluster').syncPaint(map, input);
-  } else if (adapterType === 'mixed') {
-    // fix(#430 codex r23): mixed-geometry layers spread opacity across four
-    // family sublayers — route through the adapter like the cluster branch so
-    // the slider affects points/lines too, not just the fill primary.
-    const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-      id: layer.id,
-      dataset_table_name: layer.dataset_table_name,
-      dataset_geometry_type: layer.dataset_geometry_type,
-      opacity,
-      visible: layer.visible,
-      paint,
-      layout: layer.layout ?? {},
-      filter: layer.filter ?? null,
-      sourceId: getSourceIdForLayer(layer),
-      layerId: mapLayerId,
-      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name, mvtSourceLayerPrefix),
-      tileUrl: '',
-      style_config: layer.style_config ?? null,
-      is_dem: layer.is_dem,
-    };
-    getAdapter('mixed').syncPaint(map, input);
   } else if (adapterType === 'fill' || adapterType === 'line' || adapterType === 'circle') {
     if (map.getLayer(mapLayerId)) {
       // fix(#1625): same split as the adapters' syncPaint — fill/line put the
@@ -574,36 +556,14 @@ export function useLayerMapSync(
         layerId,
         (l) => ({ ...l, paint: newPaint }),
         (map, layer) => {
-          const mapLayerId = `layer-${layerId}`;
           // fix(#910/#918, codex P2): the EDIT-05 normalization happens at the commit
           // boundary, so the winning paint is `layer.paint` — NOT the raw `newPaint`
           // this handler was called with. Feeding the adapter the raw object would
           // repaint the very key the commit just dropped.
-          const effectivePaint = layer.paint ?? {};
-          const adapterType = resolveLayerAdapterType(layer, effectivePaint);
+          const adapterType = resolveLayerAdapterType(layer, layer.paint ?? {});
           const adapter = getAdapter(adapterType);
-
-          const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-            id: layer.id,
-            dataset_table_name: layer.dataset_table_name,
-            dataset_geometry_type: layer.dataset_geometry_type,
-            opacity: layer.opacity ?? 1,
-            visible: layer.visible,
-            paint: effectivePaint,
-            layout: layer.layout ?? {},
-            filter: layer.filter ?? null,
-            // SF-04 dedupe: source id is per-dataset for non-cluster vector
-            // layers, per-layer for cluster/raster/hillshade.
-            sourceId: getSourceIdForLayer(layer),
-            layerId: mapLayerId,
-            sourceLayer: getMvtSourceLayerName(
-              layer.dataset_table_name,
-              mvtSourceLayerPrefix,
-            ),
-            tileUrl: '',
-            is_dem: layer.is_dem,
-          };
-          input.style_config = layer.style_config ?? null;
+          const input = builderAdapterInput(layer, mvtSourceLayerPrefix);
+          if (!input) return;
 
           // Paint writes coalesce via rAF (PERF-04); visibility/filter/order remain
           // synchronous because they're idempotent and cheap, and synchronous
@@ -644,25 +604,8 @@ export function useLayerMapSync(
       const tileUrl = rawTileUrl.startsWith(window.location.origin)
         ? rawTileUrl.slice(window.location.origin.length)
         : rawTileUrl;
-      const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-        id: layer.id,
-        dataset_table_name: layer.dataset_table_name,
-        dataset_geometry_type: layer.dataset_geometry_type,
-        opacity: layer.opacity ?? 1,
-        visible: layer.visible,
-        paint,
-        layout: layer.layout ?? {},
-        filter: layer.filter ?? null,
-        sourceId,
-        layerId: mapLayerId,
-        sourceLayer: getMvtSourceLayerName(
-          layer.dataset_table_name,
-          mvtSourceLayerPrefix,
-        ),
-        tileUrl,
-        is_dem: layer.is_dem,
-      };
-      input.style_config = nextConfig;
+      const input = builderAdapterInput(layer, mvtSourceLayerPrefix, { paint, tileUrl });
+      if (!input) return;
 
       if (layer.layer_type === 'raster_geolens' && tileUrl) {
         removeColorReliefLayer(map, mapLayerId);
@@ -766,14 +709,13 @@ export function useLayerMapSync(
       applyLayerUpdate(
         layerId,
         (l) => ({ ...l, layout: newLayout }),
-        (map) => {
+        (map, layer) => {
           const ids = getCompanionLayerIds(layerId);
           const mapLayerId = ids.layer;
           if (!map.getLayer(mapLayerId)) return;
 
           // Apply layer zoom range from custom layout props (main + outline companion)
-          const minzoom = (newLayout['_minzoom'] as number) ?? 0;
-          const maxzoom = (newLayout['_maxzoom'] as number) ?? 22;
+          const { minzoom, maxzoom } = describeBuilderLayer(toSyncInput(layer))?.zoom ?? FULL_ZOOM_RANGE;
           map.setLayerZoomRange(mapLayerId, minzoom, maxzoom);
           if (map.getLayer(ids.outline)) {
             map.setLayerZoomRange(ids.outline, minzoom, maxzoom);

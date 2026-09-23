@@ -17,12 +17,20 @@ import {
   isLandLayer,
   isWaterLayer,
 } from '@/lib/basemap-utils';
-import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { toMapLibreAttribution } from '@/lib/attribution-safety';
-import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
+import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
+import {
+  FULL_ZOOM_RANGE,
+  adapterInputFor,
+  describeLayers,
+  isRasterLikeLayer,
+  type DescribedLayer,
+  type RenderContext,
+  type ZoomRange,
+} from './layer-description';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
@@ -35,7 +43,6 @@ import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import {
   getLayerType,
-  resolveAdapterType,
   normalizeRasterBounds,
   setDynamicLayoutProperty,
   setDynamicPaintProperty,
@@ -57,6 +64,7 @@ export {
   stripCustomProps,
   filterPaintForLayerType,
 } from './layer-adapters/shared';
+export { isDemTerrainVisualSuppressed } from './layer-description';
 
 export const TERRAIN_SOURCE_ID = 'terrain-dem';
 export const TERRAIN_EXAGGERATION_MIN = 0;
@@ -68,14 +76,6 @@ export const MAP_STACK_Z_ORDER_POLICY = [
   'basemap labels',
   'user data labels',
 ] as const;
-
-export function isDemTerrainVisualSuppressed(layer: {
-  is_dem?: boolean | null;
-  style_config?: Pick<StyleConfig, 'render_mode'> | null;
-}) {
-  return layer.is_dem === true
-    && (layer.style_config as { render_mode?: unknown } | null | undefined)?.render_mode === 'terrain';
-}
 
 export function normalizeTerrainExaggeration(value: number | null | undefined) {
   if (!Number.isFinite(value)) return 1;
@@ -293,13 +293,6 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     // downstream could use it.
     bounds: layer.dataset_extent_bbox ?? null,
   };
-}
-
-function isRasterLikeLayer(layer: SyncLayerInput) {
-  return layer.is_dem === true
-    || layer.layer_type === 'raster_geolens'
-    || layer.dataset_record_type === 'raster_dataset'
-    || layer.dataset_record_type === 'vrt_dataset';
 }
 
 function rasterTokenFromLayer(layer: SyncLayerInput): UnsignedRasterTileTemplate | null {
@@ -628,22 +621,12 @@ function removeKnownVectorLayers(map: MaplibreMap, layerId: string, id: string, 
   }
 }
 
-function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], minzoom: number, maxzoom: number) {
+function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], zoom: ZoomRange) {
   for (const id of layerIds) {
     if (map.getLayer(id)) {
-      map.setLayerZoomRange(id, minzoom, maxzoom);
+      map.setLayerZoomRange(id, zoom.minzoom, zoom.maxzoom);
     }
   }
-}
-
-/** fix(#403): drop builder-private (underscore-prefixed) keys from a stored
- *  layout dict before it reaches MapLibre. `_minzoom`/`_maxzoom` are read by
- *  syncLayerZoomRange and applied via setLayerZoomRange; MapLibre's addLayer
- *  validation rejects unknown layout properties outright, so passing them
- *  through used to abort the add and drop the whole layer on reload. */
-export function stripPrivateLayoutKeys(layout: Record<string, unknown>): Record<string, unknown> {
-  if (!Object.keys(layout).some((k) => k.startsWith('_'))) return layout;
-  return Object.fromEntries(Object.entries(layout).filter(([k]) => !k.startsWith('_')));
 }
 
 // builder-audit #338 SYNC-05: the cluster signature and the tile-url signature are
@@ -989,6 +972,7 @@ export function isHillshadeTerrainBound(
 function syncRasterLayer(
   map: MaplibreMap,
   adapterInput: AdapterLayerInput,
+  drawsAs: DescribedLayer['drawsAs'],
   // fix(#688): either shape. This reads only the URL, zoom, size and bounds —
   // never the signature — so the locally-built unsigned template is as good
   // here as a fetched one.
@@ -996,8 +980,7 @@ function syncRasterLayer(
   desiredSources: Set<string>,
 ) {
   adapterInput.style_config = normalizeDemStyleConfig(adapterInput.style_config, adapterInput.is_dem);
-  const renderMode = effectiveDemRenderMode(adapterInput.style_config, adapterInput.is_dem);
-  const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
+  const useHillshade = drawsAs === 'hillshade';
 
   // fix(HT-05): a terrain-bound hillshade always paints alongside the 3D mesh
   // on its own per-layer source (`source-${layer.id}` via getSourceIdForLayer,
@@ -1089,25 +1072,25 @@ interface VectorSourceMode {
   desiredClusterSignature: string | null;
 }
 
-/** SYNC-05 unit 1 (resolveSourceMode): decide adapter type, cluster eligibility,
- *  geojson-vs-vector, and the signed tile URL. Sets `adapterInput.tileUrl`. */
+/** Cluster eligibility, GeoJSON or vector tiles, and the signed tile URL for the
+ *  adapter the description chose. Sets `adapterInput.tileUrl`. */
 function resolveVectorSourceMode(
   layer: SyncLayerInput,
   allLayers: SyncLayerInput[],
   adapterInput: AdapterLayerInput,
+  drawsAs: DescribedLayer['drawsAs'],
   tileBaseUrl: string | undefined,
   token: VectorTileToken | null,
   geojsonDataMap: Map<string, GeoJSON.FeatureCollection> | undefined,
   prefix: string | undefined,
 ): VectorSourceMode {
-  const resolvedType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
-  const wantsCluster = resolvedType === 'cluster';
   const clusterStrategy = getClusterSourceStrategy(layer);
   const hasBoundedGeoJson = geojsonDataMap?.has(layer.id) === true;
-  const canUseBoundedCluster = wantsCluster && clusterStrategy.kind === 'bounded-geojson' && hasBoundedGeoJson;
-  const canUseServerCluster = wantsCluster && clusterStrategy.kind === 'server-tile';
-  const canUseCluster = canUseBoundedCluster || canUseServerCluster;
-  const type = wantsCluster && !canUseCluster ? 'circle' : resolvedType;
+  // The description already turned a cluster it cannot draw into circles.
+  const canUseCluster = drawsAs === 'cluster';
+  const canUseBoundedCluster = canUseCluster && clusterStrategy.kind === 'bounded-geojson';
+  const canUseServerCluster = canUseCluster && clusterStrategy.kind === 'server-tile';
+  const type = drawsAs;
   const adapter = getAdapter(type);
   const clusterOptions = getClusterSourceOptions(adapterInput);
   // Gather data-driven columns from every layer sharing this source. The tile
@@ -1168,6 +1151,7 @@ function ensureVectorSource(
   allLayers: SyncLayerInput[],
   adapterInput: AdapterLayerInput,
   mode: VectorSourceMode,
+  zoom: ZoomRange,
   geojsonDataMap: Map<string, GeoJSON.FeatureCollection> | undefined,
   prefix: string | undefined,
 ): boolean {
@@ -1197,10 +1181,6 @@ function ensureVectorSource(
     // guard — the lifecycle is structural, not comment-enforced.
     clusterStore.delete(sourceId);
   }
-
-  const layerLayout = layer.layout ?? {};
-  const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
-  const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
 
   // fix(#1472 review): hoisted above the GeoJSON branch so BOTH source kinds
   // this function can create read one definition. It was declared inside the
@@ -1251,7 +1231,7 @@ function ensureVectorSource(
       else adapter.syncPaint(map, adapterInput);
     }
     adapter.syncVisibility(map, adapterInput);
-    syncLayerZoomRange(map, adapter.getLayerIds(layerId), layerMinzoom, layerMaxzoom);
+    syncLayerZoomRange(map, adapter.getLayerIds(layerId), zoom);
     return true;
   }
 
@@ -1330,6 +1310,7 @@ function syncLabelCompanion(
 function syncVectorLayer(
   map: MaplibreMap,
   layer: SyncLayerInput,
+  described: DescribedLayer,
   allLayers: SyncLayerInput[],
   adapterInput: AdapterLayerInput,
   tileBaseUrl: string | undefined,
@@ -1340,15 +1321,12 @@ function syncVectorLayer(
 ) {
   const { sourceId, layerId } = adapterInput;
   desiredSources.add(sourceId);
+  const zoom = described.zoom ?? FULL_ZOOM_RANGE;
 
-  const mode = resolveVectorSourceMode(layer, allLayers, adapterInput, tileBaseUrl, token, geojsonDataMap, prefix);
-  const handledGeoJson = ensureVectorSource(map, layer, allLayers, adapterInput, mode, geojsonDataMap, prefix);
+  const mode = resolveVectorSourceMode(layer, allLayers, adapterInput, described.drawsAs, tileBaseUrl, token, geojsonDataMap, prefix);
+  const handledGeoJson = ensureVectorSource(map, layer, allLayers, adapterInput, mode, zoom, geojsonDataMap, prefix);
   if (handledGeoJson) return;
 
-  // Per-layer zoom range from custom layout props (main + companions).
-  const layerLayout = layer.layout ?? {};
-  const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
-  const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
   const outlineLayerId = prefixed('outline', layer.id, prefix);
   const extrusionLayerId = prefixed('extrusion', layer.id, prefix);
   const arrowLayerId = prefixed('arrow', layer.id, prefix);
@@ -1357,8 +1335,7 @@ function syncVectorLayer(
   syncLayerZoomRange(
     map,
     [...new Set([...mode.adapter.getLayerIds(layerId), outlineLayerId, extrusionLayerId, arrowLayerId])],
-    layerMinzoom,
-    layerMaxzoom,
+    zoom,
   );
 
   syncLabelCompanion(map, layer, adapterInput, mode, prefix);
@@ -1478,18 +1455,17 @@ export function syncLayersToMap(
 
   const currentSources = new Set(managedSourcesRef.current);
   const desiredSources = new Set<string>();
+  const context: RenderContext = { idPrefix: prefix ?? '', boundedGeoJson: geojsonDataMap ?? new Map() };
 
   for (const layer of renderableLayers) {
     try {
-      if (isDemTerrainVisualSuppressed(layer)) {
-        continue;
-      }
+      const [described] = describeLayers([layer], context).layers;
+      if (!described) continue;
 
       // SF-04 dedupe: non-cluster vector layers sharing a dataset_table_name
       // now resolve to one shared source id; cluster + raster/DEM layers stay
       // per-layer. Layer ids (per-layer paint/visibility) remain unchanged.
       const sourceId = getSourceIdForLayer(layer, prefix);
-      const layerId = prefixed('layer', layer.id, prefix);
       // builder-audit #338 P1-01: one MVT source-layer-name helper shared with tile signing.
       const sourceLayer = getMvtSourceLayerName(
         layer.dataset_table_name,
@@ -1497,33 +1473,15 @@ export function syncLayersToMap(
       );
       const token = tokenMap.get(layer.dataset_id) ?? null;
 
-      const adapterInput: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-        id: layer.id,
-        dataset_table_name: layer.dataset_table_name,
-        dataset_geometry_type: layer.dataset_geometry_type,
-        opacity: layer.opacity ?? 1,
-        visible: layer.visible,
-        paint: layer.paint ?? {},
-        // fix(#403): builder-private underscore layout keys (_minzoom/_maxzoom)
-        // are consumed by syncLayerZoomRange from the SyncLayerInput, never by
-        // MapLibre — passing them through addLayer fails style validation and
-        // silently kills the whole layer on reload.
-        layout: stripPrivateLayoutKeys(layer.layout ?? {}),
-        filter: sanitizeNullableNumericFilter(layer.filter),
-        label_config: layer.label_config,
-        is_dem: layer.is_dem,
-        sourceId,
-        layerId,
-        sourceLayer,
-        tileUrl: '',
-        style_config: layer.style_config ?? null,
+      const adapterInput: AdapterLayerInput = {
+        ...adapterInputFor(layer, described, { sourceId, sourceLayer, tileUrl: '' }),
         // fix(#1472 review): reaches the raster / raster-dem source specs.
         attribution: layer.attribution ?? null,
       };
 
       const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);
       if (rasterToken) {
-        syncRasterLayer(map, adapterInput, rasterToken, desiredSources);
+        syncRasterLayer(map, adapterInput, described.drawsAs, rasterToken, desiredSources);
         // EDITOR-DEM-05: sync companion color-relief layer (hillshade-gated) for DEM layers.
         // Called after syncRasterLayer so the raster-dem source already exists.
         // Layer id: ${layerId}-colorrelief — reuses the existing raster-dem source.
@@ -1532,30 +1490,18 @@ export function syncLayersToMap(
         if (adapterInput.is_dem === true) {
           syncColorReliefLayer(map, adapterInput);
         }
-        // fix(HT-07): apply the saved custom zoom range to raster/hillshade
-        // layers too (plus the color-relief companion). Only the vector paths
-        // called syncLayerZoomRange, so saved _minzoom/_maxzoom silently
-        // stopped applying after a reload.
-        // codex(#451): gate on a custom range ACTUALLY being present. A plain
-        // raster/imagery layer has no zoom editor and never carries these keys,
-        // so an unconditional (0, 22) fallback would force setLayerZoomRange(…,
-        // 0, 22) and hide the layer at the max zoom stop — a behavior change for
-        // layers that never had a saved range. maplibre's default (uncapped)
-        // must stand unless the user saved one.
-        const rasterLayout = layer.layout ?? {};
-        const rasterMin = rasterLayout['_minzoom'];
-        const rasterMax = rasterLayout['_maxzoom'];
-        if (typeof rasterMin === 'number' || typeof rasterMax === 'number') {
+        // A raster without a saved range keeps MapLibre's uncapped default,
+        // which FULL_ZOOM_RANGE would cut off at z22.
+        if (described.zoom) {
           syncLayerZoomRange(
             map,
-            [layerId, getCompanionLayerIds(layer.id, prefix).colorRelief],
-            typeof rasterMin === 'number' ? rasterMin : 0,
-            typeof rasterMax === 'number' ? rasterMax : 22,
+            [described.id, getCompanionLayerIds(layer.id, prefix).colorRelief],
+            described.zoom,
           );
         }
       } else {
         const vectorToken = token?.kind === 'vector' ? token : null;
-        syncVectorLayer(map, layer, renderableLayers, adapterInput, tileBaseUrl, vectorToken, desiredSources, geojsonDataMap, prefix);
+        syncVectorLayer(map, layer, described, renderableLayers, adapterInput, tileBaseUrl, vectorToken, desiredSources, geojsonDataMap, prefix);
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error('[map-sync] layer sync failed', layer.id, err);

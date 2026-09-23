@@ -46,6 +46,9 @@ vi.mock('@/components/builder/map-sync', async () => ({
   getSourceIdForLayer: vi.fn((layer: { id: string }) => `source-${layer.id}`),
   isDemTerrainVisualSuppressed: vi.fn((layer: { is_dem?: boolean | null; style_config?: { render_mode?: unknown } | null }) =>
     layer.is_dem === true && layer.style_config?.render_mode === 'terrain'),
+  toSyncInput: (
+    await vi.importActual<typeof import('@/components/builder/map-sync')>('@/components/builder/map-sync')
+  ).toSyncInput,
 }));
 
 vi.mock('@/lib/maplibre-filter-utils', () => ({

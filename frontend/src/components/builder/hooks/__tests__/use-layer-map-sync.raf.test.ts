@@ -28,7 +28,10 @@ vi.mock('@/components/builder/layer-adapters/registry', () => ({
 
 // We need resolveAdapterType + applyMasterOpacity from map-sync to return something
 // consistent. Mock map-sync for the parts use-layer-map-sync imports.
-vi.mock('@/components/builder/map-sync', () => ({
+vi.mock('@/components/builder/map-sync', async () => ({
+  toSyncInput: (
+    await vi.importActual<typeof import('@/components/builder/map-sync')>('@/components/builder/map-sync')
+  ).toSyncInput,
   getLayerType: vi.fn(() => 'fill'),
   resolveAdapterType: vi.fn(() => 'fill'),
   applyMasterOpacity: vi.fn(),
