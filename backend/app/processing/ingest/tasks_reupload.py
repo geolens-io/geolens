@@ -51,6 +51,7 @@ from app.processing.ingest.tasks_common import (
     _append_mercator_clip_warning,
     _apply_reupload_swap,
     _bind_task_log_context,
+    _detect_3d_and_promote_elev,
     load_job_for_error_write,
     _current_tenant_role,
     _current_tenant_schema,
@@ -554,7 +555,6 @@ async def reupload_file(
             )
             metadata = staging_result.metadata
             sample_values = staging_result.sample_values
-            three_d = staging_result.three_d
 
             # fix(#888): tell the user when the Web Mercator clamp destroyed
             # geometry instead of leaving them to discover it downstream.
@@ -585,6 +585,7 @@ async def reupload_file(
                 staging_table=staging_tn,
                 metadata=metadata,
                 sample_values=sample_values,
+                three_d=staging_result.three_d,
                 user_id=user_id,
                 source_filename=source_filename,
                 source_format=source_format,
@@ -604,12 +605,6 @@ async def reupload_file(
 
             # Captured pre-commit: the ORM attribute may be expired after commit.
             live_table_name = dataset.table_name
-
-            # Persist 3D fields on dataset record
-            dataset.is_3d = three_d.get("is_3d")
-            dataset.n_dims = three_d.get("n_dims")
-            dataset.z_min = three_d.get("z_min")
-            dataset.z_max = three_d.get("z_max")
 
             # 9. Archive original file to storage provider.
             # Best-effort: failure does NOT fail the reupload (data is already
@@ -1390,6 +1385,11 @@ async def reupload_service(
             )
 
             metadata = await extract_metadata(session, staging_tn, schema=_schema)
+            # Before the samples, schema diff and content digest, so all three
+            # describe the table first ingest builds, `elev` included.
+            three_d = await _detect_3d_and_promote_elev(
+                session, staging_tn, metadata, schema=_schema
+            )
             staged_geometry_type, staged_srid, staged_coordinate_dimension = (
                 await _staged_geometry_contract(
                     session, schema=_schema, table=staging_tn
@@ -1463,6 +1463,7 @@ async def reupload_service(
                     staging_table=staging_tn,
                     metadata=metadata,
                     sample_values=sample_values,
+                    three_d=three_d,
                     user_id=user_id,
                     source_filename=source_filename or source_layer_value,
                     source_format=source_format,

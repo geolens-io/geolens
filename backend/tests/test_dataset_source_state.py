@@ -1568,6 +1568,7 @@ async def _run_reupload_swap(
             staging_table=staging_table,
             metadata=_SWAP_METADATA if metadata is None else metadata,
             sample_values={"name": ["A"]},
+            three_d={},
             user_id=str(admin_id),
             original_srid=4326,
             **kwargs,

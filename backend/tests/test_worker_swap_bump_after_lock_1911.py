@@ -164,6 +164,7 @@ class TestTheReuploadSwapPublishesTheNextVersion:
                         staging_table=staging,
                         metadata=_SWAP_METADATA,
                         sample_values={"name": ["A"]},
+                        three_d={},
                         user_id=str(admin_id),
                         source_filename="again.geojson",
                         source_format="geojson",

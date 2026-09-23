@@ -109,6 +109,7 @@ def _command(session, dataset, job, staging, admin_id, *, refresh: bool):
         staging_table=staging,
         metadata=_metadata(),
         sample_values={},
+        three_d={},
         user_id=str(admin_id),
         source_filename="roads",
         source_format="wfs",

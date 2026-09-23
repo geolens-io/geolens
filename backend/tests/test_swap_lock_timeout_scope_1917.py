@@ -128,6 +128,7 @@ async def _run_swap(session, stub, staging):
         staging_table=staging,
         metadata=_minimal_metadata(),
         sample_values={},
+        three_d={},
         user_id=str(uuid.uuid4()),
         source_filename="x.csv",
         source_format="csv",

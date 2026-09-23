@@ -73,6 +73,7 @@ class PublicationSettlementCommand:
     staging_table: str
     metadata: dict[str, Any]
     sample_values: dict[str, Any]
+    three_d: dict[str, Any]
     user_id: str
     source_filename: str | None
     source_format: str
@@ -344,6 +345,7 @@ async def settle_publication(
             staging_table=command.staging_table,
             metadata=command.metadata,
             sample_values=command.sample_values,
+            three_d=command.three_d,
             user_id=command.user_id,
             source_filename=command.source_filename,
             source_format=command.source_format,
