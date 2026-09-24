@@ -2,9 +2,13 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import type { LabelConfig } from '@/types/api';
 import type { AddLayerObject, Map as MaplibreMap } from 'maplibre-gl';
 import {
+  filterSpec,
+  getLayerType,
   setDynamicLayoutProperty,
   setDynamicPaintProperty,
+  sourceLayerSpec,
 } from './layer-adapters/shared';
+import type { AdapterLayerInput, LayerDrawing, LayerSpec } from './layer-adapters/types';
 
 export const LABEL_FONT_STACK = [
   'Noto Sans Regular',
@@ -126,4 +130,83 @@ export function syncLabelLayer(
     setDynamicPaintProperty(map, labelId, prop, value);
   }
   map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 22);
+}
+
+/** The label companion's id for a layer, matching the arrow companion's own
+ *  `${layerId}-arrow` convention (both equal what `getCompanionLayerIds`
+ *  derives, since `input.layerId` is already that function's prefixed `layer` id). */
+export function labelLayerId(layerId: string): string {
+  return `${layerId}-label`;
+}
+
+// 'visibility' is deliberately absent: syncPaint's owned-layout reconciliation
+// runs from an input that a coalesced write can carry stale, and visibility
+// must not roll back to it. writeDescribedVisibility is the only writer of
+// this layer's visibility after the initial add, matching every other family
+// (none of which owns 'visibility' either).
+const LABEL_OWNED_LAYOUT_PROPERTIES = [
+  'text-field',
+  'text-size',
+  'symbol-placement',
+  'text-allow-overlap',
+  'text-font',
+  'text-max-width',
+  'text-anchor',
+  'text-offset',
+  'symbol-avoid-edges',
+] as const;
+
+const LABEL_OWNED_PAINT_PROPERTIES = [
+  'text-color',
+  'text-halo-color',
+  'text-halo-width',
+  'text-opacity',
+] as const;
+
+/**
+ * The label companion spec for a layer, or null when it has none. Symbol
+ * carries its own inline text and heatmap has no per-feature labels, so
+ * neither calls `withLabelCompanion`. The zoom range comes from the label
+ * config through the writer's minzoom/maxzoom.
+ */
+export function labelSpec(input: AdapterLayerInput): LayerSpec | null {
+  const lc = input.label_config;
+  if (!lc?.column) return null;
+  const geomType = getLayerType(input.dataset_geometry_type);
+  const { layout, paint } = buildLabelStyle(lc, geomType, input.visible ? 'visible' : 'none');
+  return {
+    layer: {
+      id: labelLayerId(input.layerId),
+      type: 'symbol',
+      source: input.sourceId,
+      ...sourceLayerSpec(input),
+      ...filterSpec(input.filter),
+      layout,
+      paint,
+      minzoom: lc.minZoom ?? 0,
+      maxzoom: lc.maxZoom ?? 22,
+    },
+    ownedPaint: LABEL_OWNED_PAINT_PROPERTIES,
+    ownedLayout: LABEL_OWNED_LAYOUT_PROPERTIES,
+  };
+}
+
+/** Append a labelled family's label spec to its own drawing, or return the
+ *  drawing unchanged when the layer has none. Call as the last step of a
+ *  labelled family's `describe()`, so the label renders on top (bottom-first
+ *  spec order) and `addLayers`/`syncPaint`/`syncVisibility` carry it for free. */
+export function withLabelCompanion(input: AdapterLayerInput, drawing: LayerDrawing): LayerDrawing {
+  const spec = labelSpec(input);
+  return spec ? { specs: [...drawing.specs, spec], images: drawing.images } : drawing;
+}
+
+/** Remove a labelled family's label companion when the input no longer carries
+ *  one. The writer never removes layers, so every labelled adapter calls this
+ *  from its own `syncPaint`, the way the line adapter drops a stale arrow. */
+export function removeLabelCompanionIfCleared(
+  map: Pick<MaplibreMap, 'getLayer' | 'removeLayer'>,
+  input: AdapterLayerInput,
+): void {
+  const id = labelLayerId(input.layerId);
+  if (!input.label_config?.column && map.getLayer(id)) map.removeLayer(id);
 }

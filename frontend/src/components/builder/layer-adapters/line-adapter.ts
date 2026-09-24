@@ -9,6 +9,7 @@ import {
 } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
+import { labelLayerId, removeLabelCompanionIfCleared, withLabelCompanion } from '../label-layer-utils';
 // builder-audit #338 DRY-06: arrow render-mode defaults come from the single builder-defaults
 // source of truth (shared with renderAs + backend mirror) instead of bare 14/80 literals.
 import { DEFAULT_ARROW_SIZE, DEFAULT_ARROW_SPACING, DEFAULT_LINE_PAINT } from './builder-defaults';
@@ -196,8 +197,10 @@ function lineSpec(input: AdapterLayerInput): LayerSpec {
 }
 
 function describeLine(input: AdapterLayerInput): LayerDrawing {
-  if (!isArrowMode(input)) return { specs: [lineSpec(input)], images: [] };
-  return { specs: [lineSpec(input), arrowSpec(input)], images: [ARROW_IMAGE] };
+  const drawing = isArrowMode(input)
+    ? { specs: [lineSpec(input), arrowSpec(input)], images: [ARROW_IMAGE] }
+    : { specs: [lineSpec(input)], images: [] };
+  return withLabelCompanion(input, drawing);
 }
 
 export const lineAdapter: LayerAdapter = {
@@ -215,6 +218,7 @@ export const lineAdapter: LayerAdapter = {
     if (!isArrowMode(input) && map.getLayer(arrowLayerId(input.layerId))) {
       map.removeLayer(arrowLayerId(input.layerId));
     }
+    removeLabelCompanionIfCleared(map, input);
     writeDescribedLayer(map, describeLine(input));
   },
 
@@ -223,6 +227,6 @@ export const lineAdapter: LayerAdapter = {
   },
 
   getLayerIds(layerId: string): string[] {
-    return [layerId, arrowLayerId(layerId)];
+    return [layerId, arrowLayerId(layerId), labelLayerId(layerId)];
   },
 };

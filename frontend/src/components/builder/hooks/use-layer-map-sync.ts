@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getLayerType, getSourceIdForLayer, resolveAdapterType, applyMasterOpacity, isDemTerrainVisualSuppressed, toSyncInput } from '@/components/builder/map-sync';
+import { getSourceIdForLayer, resolveAdapterType, applyMasterOpacity, isDemTerrainVisualSuppressed, toSyncInput } from '@/components/builder/map-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { FULL_ZOOM_RANGE } from '@/components/builder/layer-adapters/builder-defaults';
 import {
@@ -19,13 +19,12 @@ import type { PaintPropertyName } from '@/components/builder/layer-adapters/shar
 import { mixedFamilyFilter } from '@/components/builder/layer-adapters/mixed-adapter';
 import { resolvePolygonStroke } from '@/components/builder/layer-adapters/fill-adapter';
 import { coalesceFrame, flushCoalescedFrame } from '@/lib/builder/raf-coalesce';
-// fix(#394) VT-03/VT-04: single source of truth for the MVT source-layer name.
-import { getMvtSourceLayerName } from '@/lib/tile-utils';
 import { reconcileColorClassification } from '@/lib/color-ramps';
 import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
 import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
+import { labelLayerId, labelSpec, removeLabelCompanionIfCleared } from '@/components/builder/label-layer-utils';
+import { writeDescribedLayer } from '@/components/builder/layer-writer';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from '@/components/builder/companion-ids';
@@ -839,67 +838,29 @@ export function useLayerMapSync(
       if (config && !config.column) {
         config = null;
       }
-      const layer = layersRef.current.find((l) => l.id === layerId);
-      if (!layer) return;
-      const geomType = getLayerType(layer.dataset_geometry_type);
 
       applyLayerUpdate(
         layerId,
         (l) => ({ ...l, label_config: config }),
-        (map) => {
-          const ids = getCompanionLayerIds(layerId);
-          const labelLayerId = ids.label;
+        (map, normalized) => {
+          const input = builderAdapterInput(normalized, mvtSourceLayerPrefix);
+          if (!input) return;
 
-          // B-008/B-009: symbol-mode point layers carry their text in the
-          // PRIMARY symbol layer (synced by syncLayersToMap on the state change
-          // above); a companion *-label layer would duplicate it for one sync
+          // Symbol-mode point layers carry their text in the PRIMARY symbol
+          // layer; a companion label layer would duplicate it for one sync
           // cycle (flicker). Heatmaps carry no feature labels at all — the UI
-          // gates the Labels tab, but the AI `set_label` action can bypass that
-          // gate. In both modes tear down any stale companion and let
-          // syncLayersToMap own the primary-layer text.
-          const renderMode = (layer.style_config as { render_mode?: string } | null)
-            ?.render_mode;
-          if (renderMode === 'symbol' || renderMode === 'heatmap') {
-            if (map.getLayer(labelLayerId)) {
-              map.removeLayer(labelLayerId);
-            }
+          // gates the Labels tab, but the AI `set_label` action can bypass
+          // that gate. Neither family's describe() ever includes a label
+          // spec, so a companion from a PRIOR mode is stale.
+          const adapterType = resolveAdapterType(normalized.dataset_geometry_type, normalized.style_config, normalized.paint);
+          if (adapterType === 'symbol' || adapterType === 'heatmap') {
+            if (map.getLayer(labelLayerId(input.layerId))) map.removeLayer(labelLayerId(input.layerId));
             return;
           }
 
-          // Remove label layer if config is null or column is empty
-          if (!config || !config.column) {
-            if (map.getLayer(labelLayerId)) {
-              map.removeLayer(labelLayerId);
-            }
-            return;
-          }
-
-          // Update existing label layer
-          if (map.getLayer(labelLayerId)) {
-            syncLabelLayer(map, labelLayerId, config, geomType);
-            return;
-          }
-
-          // Add new label layer
-          if (!layer) return;
-
-          // SF-04 dedupe: read from the shared per-dataset source.
-          const sourceId = getSourceIdForLayer(layer);
-          if (!map.getSource(sourceId)) return;
-
-          const sourceLayer = getMvtSourceLayerName(
-            layer.dataset_table_name,
-            mvtSourceLayerPrefix,
-          );
-          const parentVis = (map.getLayer(ids.layer)
-            ? (map.getLayoutProperty(ids.layer, 'visibility') ?? 'visible')
-            : 'visible') as 'visible' | 'none';
-          map.addLayer(buildLabelLayerSpec({ labelId: labelLayerId, sourceId, sourceLayer, lc: config, geomType, visibility: parentVis }));
-
-          // Apply parent filter if any
-          if (layer.filter) {
-            map.setFilter(labelLayerId, sanitizeNullableNumericFilter(layer.filter));
-          }
+          removeLabelCompanionIfCleared(map, input);
+          const spec = labelSpec(input);
+          if (spec) writeDescribedLayer(map, { specs: [spec], images: [] });
         },
       );
     },

@@ -83,6 +83,48 @@ function outline(layer: MapLayerResponse, paint: Record<string, unknown> = OUTLI
   };
 }
 
+/** The label companion a polygon/GEOMETRY layer draws: forced to point
+ *  placement (fill geometry never places labels along a line). */
+function label(layer: MapLayerResponse, overrides: Overrides = {}): LayerSpec {
+  return {
+    layer: {
+      id: `layer-${layer.id}-label`,
+      type: 'symbol',
+      ...tableSource(layer),
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-size': 12,
+        'symbol-placement': 'point',
+        'text-allow-overlap': false,
+        'text-font': ['Noto Sans Regular'],
+        'text-max-width': 10,
+        'text-anchor': 'center',
+        'text-offset': [0, 0],
+        'symbol-avoid-edges': true,
+        visibility: 'visible',
+      },
+      paint: {
+        'text-color': MAP_COLORS.label.color,
+        'text-halo-color': MAP_COLORS.label.halo,
+        'text-halo-width': 1.5,
+        'text-opacity': 1,
+      },
+      minzoom: 0,
+      maxzoom: 22,
+      ...overrides,
+    },
+    ownedPaint: ['text-color', 'text-halo-color', 'text-halo-width', 'text-opacity'],
+    // 'visibility' is not owned: writeDescribedVisibility is the label's only
+    // visibility writer after the initial add, so a stale syncPaint input
+    // cannot roll it back.
+    ownedLayout: [
+      'text-field', 'text-size', 'symbol-placement', 'text-allow-overlap',
+      'text-font', 'text-max-width', 'text-anchor', 'text-offset',
+      'symbol-avoid-edges',
+    ],
+  };
+}
+
 function extrusion(layer: MapLayerResponse, paint: Record<string, unknown>, overrides: Overrides = {}): LayerSpec {
   return {
     layer: {
@@ -401,6 +443,16 @@ const rows: Row[] = [
       lines: { 'line-color': '#ff0000', 'line-opacity': 0.6, 'line-layer-opacity': 0.5 },
       points: { 'circle-color': '#00ff00', 'circle-opacity': 0.4 },
     }, { visibility: 'none' })),
+  ],
+  [
+    'a polygon with a label',
+    { ...polygon, label_config: { column: 'name' } },
+    drawing([fill(polygon, PARCELS), outline(polygon), label(polygon)]),
+  ],
+  [
+    'a GEOMETRY layer with a label',
+    { ...sketches, label_config: { column: 'name' } },
+    drawing(mixed(sketches, { fill: SKETCHES, outline: OUTLINE, lines: MIXED_LINES, points: MIXED_POINTS }).concat(label(sketches))),
   ],
 ];
 

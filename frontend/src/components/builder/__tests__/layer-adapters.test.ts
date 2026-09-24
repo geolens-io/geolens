@@ -216,8 +216,8 @@ describe('lineAdapter', () => {
     expect(call.paint).toHaveProperty('line-width', 2);
   });
 
-  it('getLayerIds includes the arrow companion cleanup id', () => {
-    expect(lineAdapter.getLayerIds('layer-l1')).toEqual(['layer-l1', 'layer-l1-arrow']);
+  it('getLayerIds includes the arrow and label companion cleanup ids', () => {
+    expect(lineAdapter.getLayerIds('layer-l1')).toEqual(['layer-l1', 'layer-l1-arrow', 'layer-l1-label']);
   });
 
   it('addLayers creates line layer type', () => {

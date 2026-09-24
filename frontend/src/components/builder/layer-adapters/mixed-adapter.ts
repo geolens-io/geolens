@@ -21,6 +21,7 @@ import { FILL_PATTERN_IMAGES } from './fill-pattern-images';
 import { LINE_OWNED_LAYOUT_PROPERTIES, LINE_OWNED_PAINT_PROPERTIES, resolveLinePaint } from './line-adapter';
 import { DEFAULT_FILL_PAINT } from './builder-defaults';
 import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
+import { labelLayerId, removeLabelCompanionIfCleared, withLabelCompanion } from '../label-layer-utils';
 
 /**
  * fix(#430 codex r23): renderer for the generic GEOMETRY sentinel.
@@ -143,7 +144,7 @@ function describeMixed(input: AdapterLayerInput): LayerDrawing {
   const visibility = input.visible ? 'visible' : 'none';
   const source = { source: input.sourceId, ...sourceLayerSpec(input) };
   const fill = tintFillPattern(resolveMixedFillPaint(paint), paint, getBuilderStyleConfig(input));
-  return {
+  return withLabelCompanion(input, {
     specs: [
       {
         layer: {
@@ -196,7 +197,7 @@ function describeMixed(input: AdapterLayerInput): LayerDrawing {
       },
     ],
     images: [...FILL_PATTERN_IMAGES, ...fill.images],
-  };
+  });
 }
 
 export const mixedAdapter: LayerAdapter = {
@@ -210,6 +211,7 @@ export const mixedAdapter: LayerAdapter = {
   // Self-heals missing sublayers (cluster-adapter pattern) so a partial
   // teardown never leaves a family invisible until remount.
   syncPaint(map, input) {
+    removeLabelCompanionIfCleared(map, input);
     writeDescribedLayer(map, describeMixed(input));
   },
 
@@ -223,6 +225,7 @@ export const mixedAdapter: LayerAdapter = {
       `${layerId}-outline`,
       mixedLinesLayerId(layerId),
       mixedPointsLayerId(layerId),
+      labelLayerId(layerId),
     ];
   },
 };

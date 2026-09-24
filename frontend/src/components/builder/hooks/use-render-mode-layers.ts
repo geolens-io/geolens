@@ -2,10 +2,8 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { getLayerType, getSourceIdForLayer } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
-import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 import { builderAdapterInput } from '@/components/builder/hooks/use-layer-map-sync';
@@ -89,7 +87,6 @@ export function useRenderModeLayers({
     // SYNC-04: companion ids from the single source of truth.
     const ids = getCompanionLayerIds(layer.id);
     const mapLayerId = ids.layer;
-    const sourceId = getSourceIdForLayer(layer);
     const labelId = ids.label;
     const colorReliefId = ids.colorRelief;
 
@@ -115,10 +112,18 @@ export function useRenderModeLayers({
     if (map.getLayer(ids.mixedPoints)) {
       map.removeLayer(ids.mixedPoints);
     }
+    // The label companion is removed unconditionally too, the way every other
+    // companion above is: the new adapter's own addLayers (below) re-adds it,
+    // filter and all, when the new family is labelled and label_config is set.
+    // Heatmap and symbol never re-add it, since neither's describe() carries
+    // one — this is why heatmap now drops an existing label instead of only
+    // hiding it (documented visible change).
+    if (map.getLayer(labelId)) {
+      map.removeLayer(labelId);
+    }
 
     const adapterInput = builderAdapterInput(layer, mvtSourceLayerPrefix, { paint: updatedPaint });
     if (!adapterInput) return;
-    const { sourceLayer } = adapterInput;
 
     try {
       const adapter = getAdapter(adapterType);
@@ -126,7 +131,7 @@ export function useRenderModeLayers({
       // BUG-01: explicitly re-assert visibility after addLayers. The adapter
       // contract honors `input.visible` at initial add (defense-in-depth in
       // each adapter), and calling syncVisibility here also covers companion
-      // layers (e.g. fill outline / cluster count) so the freshly-swapped
+      // layers (e.g. fill outline / cluster count / label) so the freshly-swapped
       // layer cannot become a "ghost visible" layer when the user is on a
       // hidden render-mode source.
       adapter.syncVisibility(map, adapterInput);
@@ -134,34 +139,6 @@ export function useRenderModeLayers({
       toast.error(t('toasts.renderModeSwitchFailed'));
       if (import.meta.env.DEV) console.error('[builder] swapLayerOnMap failed:', e);
       return;
-    }
-
-    // Manage companion label layer: heatmap hides labels, symbol consolidates
-    // icon/text in the primary symbol layer, points restore companion labels.
-    if (adapterType === 'heatmap') {
-      if (map.getLayer(labelId)) {
-        map.setLayoutProperty(labelId, 'visibility', 'none');
-      }
-    } else if (adapterType === 'symbol') {
-      if (map.getLayer(labelId)) {
-        map.removeLayer(labelId);
-      }
-    } else if (layer.label_config?.column) {
-      const vis = layer.visible ? 'visible' : 'none';
-      if (!map.getLayer(labelId) && map.getSource(sourceId)) {
-        const geomType = getLayerType(layer.dataset_geometry_type);
-        map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc: layer.label_config, geomType }));
-        // fix(#392): carry the parent layer's filter onto the re-added label so filtered-out features stay excluded (audit LB-02)
-        map.setFilter(labelId, adapterInput.filter);
-        map.setLayoutProperty(labelId, 'visibility', vis);
-      } else if (map.getLayer(labelId)) {
-        // fix(#394) LB-10: mirror the fresh-add branch's setFilter — restoring
-        // an EXISTING hidden companion label re-asserted visibility but not
-        // the filter, so filtered-out features flashed labels until the next
-        // reactive sync self-corrected.
-        map.setFilter(labelId, adapterInput.filter);
-        map.setLayoutProperty(labelId, 'visibility', vis);
-      }
     }
   }, [mapInstanceRef, mvtSourceLayerPrefix, t]);
 

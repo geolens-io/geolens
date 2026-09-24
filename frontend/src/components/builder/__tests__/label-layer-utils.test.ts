@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildLabelLayerSpec, buildLabelStyle, syncLabelLayer } from '../label-layer-utils';
+import { circleAdapter } from '../layer-adapters/circle-adapter';
+import type { AdapterLayerInput } from '../layer-adapters/types';
+import { RecordingMap } from '@/test/recording-map';
 import type { LabelConfig } from '@/types/api';
 
 // The helper returns a MapLibre `AddLayerObject`, which is a discriminated
@@ -243,5 +246,46 @@ describe('syncLabelLayer', () => {
     }) as unknown as SpecRecord;
     expect(spec.layout).toEqual(layout);
     expect(spec.paint).toEqual(paint);
+  });
+});
+
+describe('withLabelCompanion — visibility is not an owned layout property (#2154)', () => {
+  function makeInput(overrides: Partial<AdapterLayerInput> = {}): AdapterLayerInput {
+    return {
+      id: 'layer-1',
+      dataset_table_name: 'trees',
+      dataset_geometry_type: 'POINT',
+      opacity: 1,
+      visible: true,
+      paint: { 'circle-color': '#ff0000' },
+      layout: {},
+      filter: null,
+      label_config: { column: 'name' },
+      style_config: null,
+      sourceId: 'source-1',
+      layerId: 'layer-1',
+      sourceLayer: 'data.trees',
+      sourceType: 'vector',
+      tileUrl: '/tiles/{z}/{x}/{y}',
+      ...overrides,
+    };
+  }
+
+  it('a stale visible=true on syncPaint does not re-show a label syncVisibility hid', () => {
+    const map = new RecordingMap();
+    map.addSource('source-1', { type: 'vector', tiles: ['http://localhost/tiles/{z}/{x}/{y}.pbf'] });
+    const input = makeInput();
+
+    circleAdapter.addLayers(map.map, input);
+    expect(map.layer('layer-1-label')?.layout.visibility).toBe('visible');
+
+    circleAdapter.syncVisibility(map.map, { ...input, visible: false });
+    expect(map.layer('layer-1-label')?.layout.visibility).toBe('none');
+
+    // The queued paint write is stale: it still carries visible: true, as it
+    // would if it were built before the visibility toggle and applied after.
+    circleAdapter.syncPaint(map.map, { ...input, visible: true, paint: { 'circle-color': '#0000ff' } });
+
+    expect(map.layer('layer-1-label')?.layout.visibility).toBe('none');
   });
 });

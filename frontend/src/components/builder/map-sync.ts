@@ -32,15 +32,14 @@ import {
   type RenderContext,
   type ZoomRange,
 } from './layer-description';
-import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
 import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
+import { labelLayerId } from './label-layer-utils';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import {
-  getLayerType,
   normalizeRasterBounds,
   setDynamicLayoutProperty,
   setDynamicPaintProperty,
@@ -935,41 +934,10 @@ function ensureVectorSource(
   return false;
 }
 
-/** SYNC-05 unit 4 (syncLabelCompanion): add / update / remove the companion
- *  label symbol layer for the layer. */
-function syncLabelCompanion(
-  map: MaplibreMap,
-  layer: SyncLayerInput,
-  adapterInput: AdapterLayerInput,
-  mode: VectorSourceMode,
-  prefix: string | undefined,
-) {
-  const { sourceId, sourceLayer } = adapterInput;
-  const filter = adapterInput.filter;
-  const labelId = prefixed('label', layer.id, prefix);
-  const isHeatmap = mode.type === 'heatmap';
-  const isSymbol = mode.type === 'symbol';
-  if (!map.getSource(sourceId)) return;
-  if (layer.label_config?.column && !isHeatmap && !isSymbol) {
-    const lc = layer.label_config;
-    const geomType = getLayerType(layer.dataset_geometry_type);
-    const vis = layer.visible ? 'visible' : 'none';
-    if (!map.getLayer(labelId)) {
-      map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc, geomType, visibility: vis }));
-      if (filter) map.setFilter(labelId, filter);
-    } else {
-      syncLabelLayer(map, labelId, lc, geomType);
-      map.setFilter(labelId, filter ?? null);
-    }
-  } else if (map.getLayer(labelId)) {
-    if (isHeatmap) map.setLayoutProperty(labelId, 'visibility', 'none');
-    else map.removeLayer(labelId);
-  }
-}
-
-/** Add or update a vector (MVT / GeoJSON) layer, including labels and visibility.
- *  builder-audit #338 SYNC-05: orchestrates resolveVectorSourceMode → ensureVectorSource
- *  → syncLabelCompanion so each concern is an isolated, testable unit. */
+/** Add or update a vector (MVT / GeoJSON) layer. Each labelled adapter's own
+ *  `describe()` carries its label companion, so addLayers/syncPaint/
+ *  syncVisibility already cover it — this orchestrates only source resolution
+ *  and zoom range. */
 function syncVectorLayer(
   map: MaplibreMap,
   layer: SyncLayerInput,
@@ -999,13 +967,21 @@ function syncVectorLayer(
     described.specs,
   );
 
-  syncLabelCompanion(map, layer, adapterInput, mode, prefix);
-
   mode.adapter.syncVisibility(map, adapterInput);
-  const labelId = prefixed('label', layer.id, prefix);
-  if (map.getLayer(labelId) && mode.type !== 'heatmap' && mode.type !== 'symbol') {
-    map.setLayoutProperty(labelId, 'visibility', layer.visible ? 'visible' : 'none');
-  }
+}
+
+/** Remove a layer's label companion when the family it now draws as has no
+ *  label spec. A state-only family change (bulk style apply, restore) doesn't
+ *  go through `swapLayerOnMap`, which removes it on a UI switch. */
+function removeOrphanedLabelCompanion(
+  map: MaplibreMap,
+  drawsAs: DescribedLayer['drawsAs'],
+  adapterInput: AdapterLayerInput,
+): void {
+  const labelId = labelLayerId(adapterInput.layerId);
+  if (!map.getLayer(labelId)) return;
+  const hasLabelSpec = getAdapter(drawsAs).describe?.(adapterInput).specs.some((spec) => spec.layer.id === labelId) ?? false;
+  if (!hasLabelSpec) map.removeLayer(labelId);
 }
 
 /** Remove every map layer whose `source` references `sourceId`. builder-audit
@@ -1175,6 +1151,7 @@ export function syncLayersToMap(
         }
       } else if (source.type === 'vector' || source.type === 'geojson') {
         syncVectorLayer(map, layer, described, source, adapterInput, desiredSources, prefix);
+        removeOrphanedLabelCompanion(map, described.drawsAs, adapterInput);
       }
     } catch (err) {
       reportLayerSyncFailure(layer, err);
