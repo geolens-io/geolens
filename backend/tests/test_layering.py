@@ -1328,7 +1328,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1459,
     # VRT creation and regeneration share publication and superseded-object cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1705,
+    "backend/app/processing/ingest/tasks_vrt.py": 1696,
     # Raster conversion, verification and fenced publication share one failure
     # lifecycle.
     "backend/app/processing/ingest/tasks_raster_replace.py": 966,

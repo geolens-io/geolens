@@ -1536,26 +1536,17 @@ async def regenerate_vrt(
                     publish_committed = True
                     absorb_cancellation(exc)
                     if observation is PublishObservation.LANDED:
-                        # fix(#1778): standing down from the FAILURE
-                        # handler is not standing down from the success work.
-                        # This is the only deletion of the superseded
-                        # generation's objects, and a CONFIRMED publish means
-                        # the asset already names the new ones, so returning
-                        # without it strands bytes no row references and no
-                        # quota counts. No guard: the reaper swallows a
-                        # missing provider and every per-key error, so it
-                        # cannot turn a durable publish back into a failure.
+                        # The only reap of the superseded generation. The asset
+                        # names the new objects once the publish is confirmed,
+                        # and the reaper swallows every per-key error.
                         await _reap_superseded_generation_objects(
                             prior_storage_keys=prior_storage_keys,
                             written_storage_keys=written_storage_keys,
                             job_id=job_id,
                         )
                     else:
-                        # UNKNOWN: the probe itself failed, so whether the
-                        # swap landed is genuinely unknown. Deleting the
-                        # prior generation's objects on that guess can strand
-                        # the live VRT with nothing to read; a leaked object
-                        # is recoverable. Logged once so an operator can find it.
+                        # The probe failed, so the prior generation may still be
+                        # live. A leaked object is recoverable; a deleted one isn't.
                         structlog.get_logger().warning(
                             "vrt_regenerate_reap_skipped_unknown_publish",
                             job_id=job_id,

@@ -5550,15 +5550,7 @@ def _ack_lost_on_publish(job_id: uuid.UUID, *, failure: BaseException):
 
 @contextlib.contextmanager
 def _publish_commit_never_lands_and_the_probe_fails(job_id):
-    """Unlike ``_ack_lost_on_publish``, the publishing COMMIT never applies.
-
-    Targets the commit that follows the ``status="complete"`` write for
-    ``job_id`` specifically, rather than counting a task's commits — a task
-    can commit any number of times before that write. Once that commit
-    raises, every later ``async_session()`` call also raises, so the
-    fresh-session probe ``observe_publish_commit`` runs is unreadable too —
-    the double failure needed to reproduce the bug.
-    """
+    """Fail the commit after ``job_id``'s complete write, then every new session."""
     from sqlalchemy.ext.asyncio import AsyncSession
 
     import app.core.db as db_module
@@ -6118,11 +6110,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
     async def test_an_unconfirmed_vrt_publish_keeps_both_generations_objects(
         self, client, admin_auth_header, test_db_session, raster_storage, monkeypatch
     ) -> None:
-        """The commit never lands AND the probe that would tell landed from
-        not-landed can't read either. Reaping the prior generation on that
-        guess can strand the live VRT with nothing to read, so both
-        generations' objects survive and the job reports neither success
-        nor failure."""
+        """A publish neither acknowledged nor observed keeps both generations' objects."""
         from app.processing.ingest.tasks_vrt import regenerate_vrt
         from app.processing.raster.models import VrtGeneration
 
@@ -6445,9 +6433,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 for inner in ast.walk(node)
             )
 
-        # observe_publish_commit is the same probe, called directly by a
-        # handler that needs its UNKNOWN outcome told apart from LANDED
-        # rather than the collapsed publish_commit_landed boolean.
+        # regenerate_vrt calls the probe directly to tell UNKNOWN from LANDED.
         probe_names = ("publish_commit_landed", "observe_publish_commit")
 
         checked = 0
