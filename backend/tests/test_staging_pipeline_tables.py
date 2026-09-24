@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from app.processing.ingest import metadata as ingest_metadata
+from app.processing.ingest.ogr import IngestionError
 from app.processing.ingest.tasks_staging import _run_staging_pipeline
 
 pytestmark = pytest.mark.anyio
@@ -85,6 +86,16 @@ async def test_a_non_spatial_table_skips_the_geometry_steps(
     assert result.mercator_clip is None
     assert "geom_4326" not in await _columns(session, table)
     assert result.metadata["feature_count"] == 1
+
+
+async def test_a_table_the_caller_calls_spatial_must_have_geometry(session) -> None:
+    """A caller that knows the source is spatial gets an error for a table without geometry."""
+    table = await _table(session, "name text", ["(name) VALUES ('a')"])
+
+    with pytest.raises(IngestionError, match="has no geometry column"):
+        await _run_staging_pipeline(
+            session, table_name=table, has_geometry=True, effective_srid=4326
+        )
 
 
 async def test_the_render_column_comes_from_the_given_srid(session) -> None:

@@ -268,12 +268,13 @@ async def _run_staging_pipeline(
 ) -> StagingResult:
     """Post-process a table ogr2ogr just loaded.
 
-    ``has_geometry`` is what the caller knows: None detects it, and False
-    skips the geometry steps. ``effective_srid`` is the SRID ``geom`` is in.
-    Normalizes the geometry column, clips it to Web Mercator bounds and adds
-    ``geom_4326``, then grants the reader and reads the metadata, the 3D
-    facts (a 3D point table gains ``elev``) and the samples. Returns the clip
-    accounting for the caller to warn with. Does not commit.
+    ``has_geometry`` is what the caller knows: None detects it, True
+    requires a geometry column and False skips the geometry steps.
+    ``effective_srid`` is the SRID ``geom`` is in. Normalizes the geometry
+    column, clips it to Web Mercator bounds and adds ``geom_4326``, then
+    grants the reader and reads the metadata, the 3D facts (a 3D point
+    table gains ``elev``) and the samples. Returns the clip accounting for
+    the caller to warn with. Does not commit.
     """
     from app.processing.ingest.metadata import (
         add_4326_column,
@@ -283,11 +284,18 @@ async def _run_staging_pipeline(
         get_sample_values,
         grant_reader_access,
     )
+    from app.processing.ingest.ogr import IngestionError
 
     _schema = _current_tenant_schema()
     mercator_clip = None
     if has_geometry is not False:
-        has_geometry = await ensure_geom_column(session, table_name, schema=_schema)
+        found = await ensure_geom_column(session, table_name, schema=_schema)
+        if has_geometry and not found:
+            raise IngestionError(
+                "The source has geometry, but the imported table has no geometry "
+                "column. Check the file and upload it again."
+            )
+        has_geometry = found
     if has_geometry:
         assert effective_srid is not None, "a spatial table needs its source SRID"
         mercator_clip = await clip_to_mercator_bounds(
