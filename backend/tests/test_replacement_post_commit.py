@@ -561,6 +561,7 @@ _STEPS = {
         "tile cache": (
             "app.processing.ingest.tasks_reupload.invalidate_tile_cache_for_table"
         ),
+        "archive": "app.processing.ingest.tasks_reupload._archive_original_file",
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "service": {

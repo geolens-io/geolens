@@ -41,6 +41,7 @@ from app.processing.ingest.publication import (
     PublicationSettlementCommand,
     PublicationSettlementFailure,
     _service_refresh_error_code,
+    commit_publication,
     settle_publication,
 )
 from app.processing.ingest.source_format import derive_source_format
@@ -277,33 +278,6 @@ async def _detect_reupload_crs(
         else (srid if srid is not None else 4326)
     )
     return info, effective_srid
-
-
-async def _archive_after_commit(
-    session, *, job, dataset_id: uuid.UUID, file_path: str, job_id: str
-) -> None:
-    """Refresh the job and archive its original file; log, never raise.
-
-    The swap, the completed job and the run are already durable by the time
-    this runs, so a failure here (the refresh included) must not fail an
-    otherwise-successful reupload.
-    """
-    try:
-        await session.refresh(job)
-        await _archive_original_file(
-            session,
-            job=job,
-            dataset_id=dataset_id,
-            file_path=file_path,
-            log_message="Failed to archive re-uploaded file to storage",
-        )
-    except Exception:  # broad: bookkeeping must not fail an already-committed reupload
-        structlog.get_logger().warning(
-            "Post-commit archive bookkeeping failed",
-            job_id=job_id,
-            dataset_id=str(dataset_id),
-            exc_info=True,
-        )
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
@@ -658,38 +632,42 @@ async def reupload_file(
                 schema_diff=schema_diff,
                 contacted_origin=False,
             )
-            await session.commit()
+            acknowledged = await commit_publication(
+                session,
+                job_id=job_uuid,
+                attempt_id=attempt_uuid,
+                task="reupload_file",
+            )
+            # A publish seen only through the probe keeps the upload: a probe
+            # that cannot read the job row also answers "landed".
+            if acknowledged:
+                final_status = "complete"
 
-            final_status = "complete"
-            await invalidate_catalog_cache()
+            # The swap is published, so each step below logs its own failure
+            # instead of failing the reupload.
+            async with cleanup_step("reupload_file catalog cache", job_id=job_id):
+                await invalidate_catalog_cache()
             # fix(#394) B-019/VT-01: the swap replaced the table's contents under the
             # same name — purge cached MVT tiles or they 304-serve stale data for up
             # to tile_cache_ttl. Post-commit, mirroring the feature-edit path.
-            await invalidate_tile_cache_for_table(live_table_name)
+            async with cleanup_step("reupload_file tile cache", job_id=job_id):
+                await invalidate_tile_cache_for_table(live_table_name)
 
             # 10. Archive the original after the commit, so the upload never
             # runs under the rename's exclusive lock.
-            await _archive_after_commit(
-                session,
-                job=job,
-                dataset_id=dataset.id,
-                file_path=file_path,
-                job_id=job_id,
-            )
+            async with cleanup_step("reupload_file archive", job_id=job_id):
+                await session.refresh(job)
+                await _archive_original_file(
+                    session,
+                    job=job,
+                    dataset_id=dataset.id,
+                    file_path=file_path,
+                    log_message="Failed to archive re-uploaded file to storage",
+                )
 
-        # Generate embedding (non-fatal). Use a fresh session to load the
-        # dataset since both phase 1 and phase 2 sessions are now closed.
-        async with async_session() as embed_session:
-            dataset_result = await embed_session.execute(
-                select(Dataset)
-                .options(joinedload(Dataset.record))
-                .where(Dataset.id == dataset_uuid)
-            )
-            embed_dataset = dataset_result.scalar_one_or_none()
-            if embed_dataset is not None:
-                from app.processing.embeddings.helpers import defer_embedding
-
-                await defer_embedding(embed_dataset)
+        await _defer_embedding_after_publication(
+            PublicationOutcome.PUBLISHED, Dataset, dataset_uuid
+        )
 
     except (
         Exception
@@ -1053,7 +1031,7 @@ async def _defer_embedding_after_publication(
                 await defer_embedding(embed_dataset)
     except Exception:  # broad: post-commit enrichment cannot rewrite publication
         structlog.get_logger().warning(
-            "reupload_service_embedding_defer_failed", dataset_id=str(dataset_uuid)
+            "reupload_embedding_defer_failed", dataset_id=str(dataset_uuid)
         )
 
 
