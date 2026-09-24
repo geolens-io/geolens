@@ -720,12 +720,10 @@ async def _get_admin_id_for_ingest(session):
 
 
 # ---------------------------------------------------------------------------
-# A non-spatial ArcGIS service load keeps its attribute columns (#2200)
+# A non-spatial ArcGIS service load keeps its attribute columns
 # ---------------------------------------------------------------------------
 
-# A Table layer's query response: attributes only, no "geometry" key and no
-# top-level "geometryType" -- the shape run_ogr2ogr_service's is_non_spatial
-# branch is built for.
+# An ArcGIS Table layer's query response: attributes, with no geometry.
 _NONSPATIAL_ESRIJSON = """{
   "objectIdFieldName": "OBJECTID",
   "fields": [
@@ -748,12 +746,7 @@ _NONSPATIAL_ESRIJSON = """{
 async def test_nonspatial_arcgis_service_load_keeps_attribute_columns(
     test_db_session, tmp_path
 ):
-    """A non-spatial ArcGIS Table layer keeps its fields, not just gid.
-
-    #2200: ogr2ogr once needed a column_info fallback for this shape because
-    it produced a gid-only table. Current GDAL does not; this pins that so a
-    future regression is caught directly instead of relying on a fallback.
-    """
+    """A non-spatial ArcGIS table keeps its attribute columns, not only gid."""
     from app.processing.ingest.metadata import get_column_info
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr_service
 
