@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LayerLegend } from '../LayerLegend';
-import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
+import type { DrawnLayer } from '@/components/map/legend-facts';
+import { SAVED_LAYERS, toSharedLayer } from '@/test/fixtures/saved-layers';
+import type { MapLayerResponse, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 
 function layer(overrides: Partial<SharedLayerResponse> = {}): SharedLayerResponse {
   return {
@@ -114,6 +116,41 @@ describe('LayerLegend', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Hide Second copy' }));
 
     expect(onToggleVisibility).toHaveBeenCalledWith('layer-b');
+  });
+});
+
+describe('LayerLegend notes under an entry', () => {
+  function renderLegend(saved: MapLayerResponse[], drawn?: ReadonlyMap<string, DrawnLayer>) {
+    render(
+      <LayerLegend
+        layers={saved.map(toSharedLayer)}
+        visibleLayers={new Set(saved.map((layer) => layer.id))}
+        onToggleVisibility={vi.fn()}
+        isOpen
+        onToggle={vi.fn()}
+        drawn={drawn}
+      />,
+    );
+  }
+  const clusters = [SAVED_LAYERS.boundedCluster, SAVED_LAYERS.serverCluster, SAVED_LAYERS.fallbackCluster];
+  const entry = (name: string) => within(screen.getByText(name).closest('li')!);
+
+  it('names each cluster by its saved strategy when the map has reported nothing', () => {
+    renderLegend(clusters);
+
+    expect(entry('Bike racks').getByText('Bounded cluster')).toBeInTheDocument();
+    expect(entry('Street trees').getByText('Server cluster')).toBeInTheDocument();
+    expect(entry('Survey points').getByText('Point fallback')).toBeInTheDocument();
+  });
+
+  it('names a bounded cluster the map drew as single points a point fallback', () => {
+    renderLegend(clusters, new Map([
+      [SAVED_LAYERS.boundedCluster.id, { drawsAs: 'circle' }],
+      [SAVED_LAYERS.serverCluster.id, { drawsAs: 'cluster' }],
+    ]));
+
+    expect(entry('Bike racks').getByText('Point fallback')).toBeInTheDocument();
+    expect(entry('Street trees').getByText('Server cluster')).toBeInTheDocument();
   });
 });
 

@@ -8,6 +8,7 @@ const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap }))
 );
 import { LayerLegend } from '@/components/viewer/LayerLegend';
+import type { DrawnLayer } from '@/components/map/legend-facts';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { Clock, MapPinOff } from 'lucide-react';
@@ -65,6 +66,7 @@ export function PublicViewerPage() {
     useViewerLayers(data?.layers, { showLegend: effectiveShowLegend });
 
   const [basemapId, setBasemapId] = useState<string | null>(null);
+  const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
   // fix(#553): every branch shows the site banner (except embeds), including
@@ -171,6 +173,7 @@ export function PublicViewerPage() {
             apiKey={apiKey}
             embedToken={embedToken}
             showInlineBranding={isEmbed}
+            onDrawnChange={setDrawnLayers}
           />
         </Suspense>
       </MapErrorBoundary>
@@ -187,6 +190,7 @@ export function PublicViewerPage() {
           onToggle={handleLegendToggle}
           terrainConfig={data.terrain_config ?? null}
           legendTitle={data.legend_title ?? null}
+          drawn={drawnLayers}
         />
       )}
 

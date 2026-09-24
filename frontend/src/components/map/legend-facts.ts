@@ -1,3 +1,4 @@
+import { getClusterSourceStrategy, isClusterRenderMode, type ClusterSourceStrategyKind } from '@/components/builder/cluster-source';
 import { resolveCirclePaint, resolvePointStroke } from '@/components/builder/layer-adapters/circle-adapter';
 import { resolveFillPaint, resolvePolygonStroke } from '@/components/builder/layer-adapters/fill-adapter';
 import { resolveHeatmapColor } from '@/components/builder/layer-adapters/heatmap-adapter';
@@ -24,11 +25,16 @@ export interface LegendLayer {
   display_name?: string | null;
   dataset_name?: string | null;
   layer_type?: string | null;
+  dataset_record_type?: string | null;
   is_dem?: boolean | null;
   /** The builder shape's geometry. */
   dataset_geometry_type?: string | null;
   /** The viewer shape's geometry. */
   geometry_type?: string | null;
+  /** The builder shape's feature count. */
+  dataset_feature_count?: number | null;
+  /** The viewer shape's feature count. */
+  feature_count?: number | null;
   paint?: Record<string, unknown> | null;
   opacity?: number | null;
   style_config?: StyleConfig | null;
@@ -87,6 +93,16 @@ export interface LegendFacts {
   ramp: LegendRamp | null;
   /** The column a heatmap weights its points by; null when unweighted or not a heatmap. */
   weightColumn: string | null;
+  /**
+   * Where a cluster layer's clusters come from: the browser over bounded GeoJSON,
+   * the tile server, or nowhere when it draws single points. Null for other layers.
+   */
+  cluster: { kind: ClusterSourceStrategyKind } | null;
+}
+
+/** What the map drew a layer as, when the caller knows. */
+export interface DrawnLayer {
+  drawsAs: LayerAdapter['type'];
 }
 
 function nonBlank(value: unknown): string | null {
@@ -445,14 +461,21 @@ function weightColumnFor(layer: LegendLayer, kind: LayerAdapter['type']): string
   return kind === 'heatmap' ? plainColumn(layer.paint?.['heatmap-weight']) : null;
 }
 
+function clusterFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts['cluster'] {
+  if (!isClusterRenderMode(layer)) return null;
+  // A cluster layer the map drew as anything else is drawing its single points.
+  return { kind: kind === 'cluster' ? getClusterSourceStrategy(layer).kind : 'fallback' };
+}
+
 /**
  * Legend facts for one saved layer, or null when the map draws nothing for it.
  * Folder rows copy their first child's fields but render nothing, and a DEM in
- * terrain mode shapes the terrain mesh instead of drawing a layer.
+ * terrain mode shapes the terrain mesh instead of drawing a layer. `drawn` is
+ * what the map drew the layer as; without it the facts follow the saved style.
  */
-export function legendFacts(layer: LegendLayer): LegendFacts | null {
+export function legendFacts(layer: LegendLayer, drawn?: DrawnLayer): LegendFacts | null {
   if (isFolderGroupLayer(layer) || isDemTerrainVisualSuppressed(layer)) return null;
-  const kind = drawsAs(layer);
+  const kind = drawn?.drawsAs ?? drawsAs(layer);
   const swatch = swatchFor(layer, kind);
   return {
     name: legendEntryName(layer) ?? '',
@@ -461,5 +484,6 @@ export function legendFacts(layer: LegendLayer): LegendFacts | null {
     classes: classesFor(layer, kind, swatch),
     ramp: rampFor(layer, kind),
     weightColumn: weightColumnFor(layer, kind),
+    cluster: clusterFor(layer, kind),
   };
 }

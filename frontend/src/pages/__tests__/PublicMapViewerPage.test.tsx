@@ -1,14 +1,18 @@
 import type { ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
-import { render, screen } from '@/test/test-utils';
+import { act, render, screen } from '@/test/test-utils';
 import { PublicMapViewerPage } from '../PublicMapViewerPage';
 import { useMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
+import type { LayerLegend } from '@/components/viewer/LayerLegend';
 import type { MapResponse } from '@/types/api';
 
 const viewerMapMock = vi.hoisted(() => ({
   props: null as React.ComponentProps<typeof ViewerMap> | null,
+}));
+const legendMock = vi.hoisted(() => ({
+  props: null as React.ComponentProps<typeof LayerLegend> | null,
 }));
 
 vi.mock('@/hooks/use-maps', () => ({
@@ -31,7 +35,10 @@ vi.mock('@/components/viewer/ViewerMap', () => ({
 }));
 
 vi.mock('@/components/viewer/LayerLegend', () => ({
-  LayerLegend: () => <div data-testid="layer-legend">legend</div>,
+  LayerLegend: (props: React.ComponentProps<typeof LayerLegend>) => {
+    legendMock.props = props;
+    return <div data-testid="layer-legend">legend</div>;
+  },
 }));
 
 vi.mock('@/components/map/MapTitlePill', () => ({
@@ -127,6 +134,7 @@ function renderPage(route = '/maps/map-1/view') {
 describe('PublicMapViewerPage', () => {
   beforeEach(() => {
     viewerMapMock.props = null;
+    legendMock.props = null;
 
     mockedUseMap.mockReturnValue({
       data: PUBLIC_MAP,
@@ -141,6 +149,16 @@ describe('PublicMapViewerPage', () => {
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),
     } as ReturnType<typeof useViewerLayers>);
+  });
+
+  it('hands the legend what the viewer map reports drawing', async () => {
+    renderPage();
+    await screen.findByTestId('viewer-map');
+    const drawn = new Map([['layer-1', { drawsAs: 'hillshade' as const }]]);
+
+    act(() => viewerMapMock.props?.onDrawnChange?.(drawn));
+
+    expect(legendMock.props?.drawn).toBe(drawn);
   });
 
   it('forwards persisted basemap appearance into the viewer map', async () => {

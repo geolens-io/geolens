@@ -9,8 +9,7 @@ import {
   deriveTerrainLegendEntry,
   terrainSourceIsShownAsLayer,
 } from '@/components/builder/terrain-legend';
-import { legendFacts } from '@/components/map/legend-facts';
-import { getClusterSourceStrategy, isClusterRenderMode } from '@/components/builder/cluster-source';
+import { legendFacts, type DrawnLayer } from '@/components/map/legend-facts';
 
 interface LayerLegendProps {
   layers: SharedLayerResponse[];
@@ -26,12 +25,8 @@ interface LayerLegendProps {
    * the default heading.
    */
   legendTitle?: string | null;
-}
-
-function clusterLegendKind(layer: SharedLayerResponse) {
-  if (!isClusterRenderMode(layer)) return null;
-  const strategy = getClusterSourceStrategy(layer);
-  return strategy.kind;
+  /** What the map drew each layer as, by layer key. A layer missing from it follows its saved style. */
+  drawn?: ReadonlyMap<string, DrawnLayer>;
 }
 
 export function LayerLegend({
@@ -42,6 +37,7 @@ export function LayerLegend({
   onToggle,
   terrainConfig = null,
   legendTitle = null,
+  drawn,
 }: LayerLegendProps) {
   const { t } = useTranslation('common');
   const panelRef = useRef<HTMLDivElement>(null);
@@ -54,11 +50,11 @@ export function LayerLegend({
       createViewerLayerEntries(layers)
         .flatMap((entry) => {
           if (entry.layer.show_in_legend === false) return [];
-          const facts = legendFacts(entry.layer);
+          const facts = legendFacts(entry.layer, drawn?.get(entry.key));
           return facts ? [{ ...entry, facts }] : [];
         })
         .sort((a, b) => a.layer.sort_order - b.layer.sort_order),
-    [layers],
+    [layers, drawn],
   );
 
   // D-01: single synthetic "3D terrain" entry driven by terrain_config — only
@@ -154,7 +150,7 @@ export function LayerLegend({
             const isVisible = visibleLayers.has(key);
             const sc = layer.style_config;
             const layerName = facts.name;
-            const clusterKind = clusterLegendKind(layer);
+            const clusterKind = facts.cluster?.kind;
             return (
               <li key={key} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">

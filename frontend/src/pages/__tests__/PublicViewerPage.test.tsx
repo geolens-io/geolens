@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
-import { render, screen } from '@/test/test-utils';
+import { act, render, screen } from '@/test/test-utils';
 import { PublicViewerPage } from '../PublicViewerPage';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
@@ -8,10 +8,14 @@ import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
 import { ApiError } from '@/api/client';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
+import type { LayerLegend } from '@/components/viewer/LayerLegend';
 import type { SharedMapResponse } from '@/types/api';
 
 const viewerMapMock = vi.hoisted(() => ({
   props: null as React.ComponentProps<typeof ViewerMap> | null,
+}));
+const legendMock = vi.hoisted(() => ({
+  props: null as React.ComponentProps<typeof LayerLegend> | null,
 }));
 
 vi.mock('@/hooks/use-maps', () => ({
@@ -42,7 +46,10 @@ vi.mock('@/components/viewer/ViewerMap', () => ({
 }));
 
 vi.mock('@/components/viewer/LayerLegend', () => ({
-  LayerLegend: () => <div data-testid="layer-legend">legend</div>,
+  LayerLegend: (props: React.ComponentProps<typeof LayerLegend>) => {
+    legendMock.props = props;
+    return <div data-testid="layer-legend">legend</div>;
+  },
 }));
 
 vi.mock('@/components/map/MapTitlePill', () => ({
@@ -124,6 +131,7 @@ function renderPage(route = '/m/share-token') {
 describe('PublicViewerPage', () => {
   beforeEach(() => {
     viewerMapMock.props = null;
+    legendMock.props = null;
 
     mockedUseSharedMap.mockReturnValue({
       data: SHARED_MAP,
@@ -169,6 +177,16 @@ describe('PublicViewerPage', () => {
     renderPage('/m/share-token?embed=true');
 
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+  });
+
+  it('hands the legend what the viewer map reports drawing', async () => {
+    renderPage();
+    await screen.findByTestId('viewer-map');
+    const drawn = new Map([['shared-layer-1', { drawsAs: 'circle' as const }]]);
+
+    act(() => viewerMapMock.props?.onDrawnChange?.(drawn));
+
+    expect(legendMock.props?.drawn).toBe(drawn);
   });
 
   it('forwards persisted basemap appearance into the viewer map', async () => {
