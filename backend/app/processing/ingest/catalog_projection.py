@@ -221,8 +221,12 @@ async def _declared_geometry_type(
     """The type the ``geom`` column is declared as; None when there is no column.
 
     Unlike a sampled row, the declaration still answers for an empty table.
+    Normalized the same way as a sampled type, so a measured (XYM) or
+    abstract declaration still satisfies chk_datasets_geometry_type.
     """
-    return await session.scalar(
+    from app.processing.ingest.metadata import _normalize_geometry_type
+
+    declared = await session.scalar(
         text(
             "SELECT type FROM geometry_columns "
             "WHERE f_table_schema = :schema AND f_table_name = :table "
@@ -230,6 +234,7 @@ async def _declared_geometry_type(
         ),
         {"schema": schema, "table": table},
     )
+    return _normalize_geometry_type(declared)
 
 
 async def _three_d_without_rows(
@@ -241,20 +246,26 @@ async def _three_d_without_rows(
     unconstrained column keeps the stored ones. The z range is cleared, as the
     extent of an empty table is.
     """
-    dims = await session.scalar(
-        text(
-            "SELECT postgis_typmod_dims(a.atttypmod) FROM pg_attribute a "
-            "JOIN pg_class c ON c.oid = a.attrelid "
-            "JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE n.nspname = :schema AND c.relname = :table "
-            "AND a.attname = 'geom' AND NOT a.attisdropped"
-        ),
-        {"schema": schema, "table": table},
-    )
-    if dims is None:
+    row = (
+        await session.execute(
+            text(
+                "SELECT postgis_typmod_dims(a.atttypmod) AS dims, "
+                "postgis_typmod_type(a.atttypmod) AS type FROM pg_attribute a "
+                "JOIN pg_class c ON c.oid = a.attrelid "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = :schema AND c.relname = :table "
+                "AND a.attname = 'geom' AND NOT a.attisdropped"
+            ),
+            {"schema": schema, "table": table},
+        )
+    ).one_or_none()
+    if row is None or row.dims is None:
         is_3d, n_dims = dataset.is_3d, dataset.n_dims
     else:
-        is_3d, n_dims = dims > 2, dims
+        # postgis_typmod_type appends Z, M or ZM; a lone M means measured,
+        # not elevated, so the dimension count alone can't decide is_3d.
+        is_3d = row.type is not None and "Z" in row.type.upper()
+        n_dims = row.dims
     return {"is_3d": is_3d, "n_dims": n_dims, "z_min": None, "z_max": None}
 
 

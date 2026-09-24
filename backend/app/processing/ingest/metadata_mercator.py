@@ -223,30 +223,53 @@ async def clip_to_mercator_bounds(
     Two CRS quirks the SQL handles: (1) the envelope is SRID 4326 and gets
     transformed to match the column's SRID, else PostGIS raises `coveredby:
     Operation on mixed SRID geometries`; (2) the envelope is always 2D, so a
-    3D column (e.g. `MultiPointZ`) needs `ST_Force3D` after
-    `ST_Intersection` or the UPDATE fails with `Column has Z dimension but
-    geometry does not` (clipped vertices land at z=0).
+    Z or M column needs that dimension forced back after `ST_Intersection`
+    or the UPDATE fails with `Column has Z/M dimension but geometry does
+    not`. For Z this lands the clipped vertices at 0; GEOS cannot
+    interpolate a measure the same way, so a measured feature that actually
+    crosses the envelope raises instead of silently zeroing its M values. A
+    feature entirely outside the envelope still drops, since it has no
+    measure left to lose.
 
     fix(#888): returns the clip accounting (``dropped_features``,
     ``clipped_features``) so the caller can surface loss at the point it
-    happens. Returns None when the table has no registered ``geom`` metadata.
+    happens. Returns None when the table has no registered ``geom``
+    metadata. Raises ``ValueError`` when a measured feature crosses the
+    envelope; the ingest task's failure handling turns this into a job
+    failure naming the count.
     """
     _validate_table_name(table_name)
     _validate_table_name(schema)
 
     geom_meta = await session.execute(
         text(
-            "SELECT srid, coord_dimension FROM geometry_columns "
-            "WHERE f_table_schema = :schema "
-            "  AND f_table_name = :table_name "
-            "  AND f_geometry_column = 'geom'"
+            "SELECT gc.srid, postgis_typmod_type(a.atttypmod) AS typmod_type "
+            "FROM geometry_columns gc "
+            "JOIN pg_class c ON c.relname = gc.f_table_name "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "  AND n.nspname = gc.f_table_schema "
+            "JOIN pg_attribute a ON a.attrelid = c.oid "
+            "  AND a.attname = gc.f_geometry_column AND NOT a.attisdropped "
+            "WHERE gc.f_table_schema = :schema "
+            "  AND gc.f_table_name = :table_name "
+            "  AND gc.f_geometry_column = 'geom'"
         ).bindparams(schema=schema, table_name=table_name)
     )
     row = geom_meta.first()
     if row is None:
         return None  # column has no registered metadata — nothing safe to clip
     src_srid = int(row[0])
-    column_is_3d = int(row[1]) >= 3
+    # Restore the dimensions the column declares; ST_Force3D on an XYM column
+    # would invent a Z instead of keeping the M.
+    typmod = (row[1] or "").upper()
+    if typmod.endswith("ZM"):
+        force_dims = "ST_Force4D"
+    elif typmod.endswith("Z"):
+        force_dims = "ST_Force3D"
+    elif typmod.endswith("M"):
+        force_dims = "ST_Force3DM"
+    else:
+        force_dims = None
 
     shifted = await _shift_zero_to_360_longitudes(session, table_name, schema, src_srid)
 
@@ -272,9 +295,30 @@ async def clip_to_mercator_bounds(
                 "clip_skipped": True,
             }
 
+    if typmod.endswith("M"):  # PointM and PointZM both end in M
+        # See the docstring: a measured feature that crosses the envelope
+        # cannot be clipped without losing its M values.
+        crossing = await session.scalar(
+            text(
+                f"SELECT count(*) FROM {_qtable(table_name, schema=schema)} "
+                f"WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) "
+                f"  AND ST_Intersects(geom, {envelope}) "
+                f"  AND NOT ST_CoveredBy(geom, {envelope})"
+            )
+        )
+        if crossing:
+            noun, verb = (
+                ("feature", "extends") if crossing == 1 else ("features", "extend")
+            )
+            raise ValueError(
+                f"{crossing} {noun} in this measured (M) layer {verb} past Web "
+                "Mercator's latitude limit (±85.06°), and clipping would lose the "
+                "measure values. Trim the data to that limit, then import again."
+            )
+
     clipped = f"ST_CollectionExtract(ST_Intersection(geom, {envelope}), ST_Dimension(geom) + 1)"
-    if column_is_3d:
-        clipped = f"ST_Force3D({clipped})"
+    if force_dims is not None:
+        clipped = f"{force_dims}({clipped})"
 
     # fix(#888): count what the clip destroyed in the same statement that
     # destroys it. Rows that were already empty are excluded from the WHERE so

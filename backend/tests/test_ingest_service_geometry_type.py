@@ -308,3 +308,18 @@ class TestNormalizeGeometryType:
 
         # Hypothetical novel type (e.g. a future PostGIS extension)
         assert _normalize_geometry_type("custom_type") == "CUSTOM_TYPE"
+
+    def test_measured_suffix_stripped_before_concrete_lookup(self) -> None:
+        """A measured (XYM) type name loses its M suffix."""
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        assert _normalize_geometry_type("POINTM") == "POINT"
+        assert _normalize_geometry_type("pointm") == "POINT"
+        assert _normalize_geometry_type("MULTILINESTRINGM") == "MULTILINESTRING"
+        assert _normalize_geometry_type("GEOMETRYCOLLECTIONM") == "GEOMETRYCOLLECTION"
+
+    def test_measured_abstract_type_normalized_to_concrete(self) -> None:
+        """A measured abstract type strips its M suffix, then maps to concrete."""
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        assert _normalize_geometry_type("MULTISURFACEM") == "MULTIPOLYGON"

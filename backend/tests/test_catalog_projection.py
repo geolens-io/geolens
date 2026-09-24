@@ -366,6 +366,99 @@ async def test_a_table_that_gains_geometry_becomes_a_vector_dataset(
         await _drop(session, dataset.table_name)
 
 
+_POINTS_M = ["POINTM(1 1 5)", "POINTM(2 3 9)"]
+
+
+@pytest.mark.parametrize("wkts", [_POINTS_M, []], ids=["rows", "empty"])
+async def test_a_measured_point_column_records_the_plain_point_type(
+    test_db_session, wkts: list[str]
+) -> None:
+    """A PointM column, sampled or declared-only, records POINT, not POINTM.
+
+    The M ordinate is not a Z: is_3d stays False and n_dims stays 3.
+    """
+    session = test_db_session
+    dataset = await _dataset(session, geometry_type=None, record_type="table")
+    await _table(session, dataset.table_name, geometry="PointM", wkts=wkts)
+    try:
+        await _measure_and_project(session, dataset, dataset.table_name)
+
+        projected = await _reload(session, dataset.id)
+        assert projected.geometry_type == "POINT"
+        assert projected.record.record_type == "vector_dataset"
+        assert (projected.is_3d, projected.n_dims) == (False, 3)
+    finally:
+        await _drop(session, dataset.table_name)
+
+
+async def test_a_measured_point_table_gets_no_elev_column(test_db_session) -> None:
+    """Promoting a 3D point's Z to elev leaves a PointM table's M alone.
+
+    ``_detect_3d_and_promote_elev`` only adds ``elev`` when is_3d is True;
+    an XYM table is not, so ST_Z (which reads NULL off an M-only point)
+    never runs.
+    """
+    from app.processing.ingest.tasks_common import _detect_3d_and_promote_elev
+
+    session = test_db_session
+    dataset = await _dataset(session, geometry_type=None, record_type="table")
+    await _table(session, dataset.table_name, geometry="PointM", wkts=["POINTM(1 1 5)"])
+    try:
+        metadata = {"geometry_type": "POINT", "column_info": []}
+
+        three_d = await _detect_3d_and_promote_elev(
+            session, dataset.table_name, metadata, schema="data"
+        )
+
+        assert (three_d["is_3d"], three_d["n_dims"]) == (False, 3)
+        columns = await session.scalars(
+            sa.text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'data' AND table_name = :t"
+            ),
+            {"t": dataset.table_name},
+        )
+        assert "elev" not in set(columns)
+    finally:
+        await _drop(session, dataset.table_name)
+
+
+async def test_an_empty_measured_multilinestring_column_maps_to_the_plain_type(
+    test_db_session,
+) -> None:
+    """An empty MultiLineStringM column records MULTILINESTRING, not the M suffix."""
+    session = test_db_session
+    dataset = await _dataset(session, geometry_type=None, record_type="table")
+    await _table(session, dataset.table_name, geometry="MultiLineStringM")
+    try:
+        await _measure_and_project(session, dataset, dataset.table_name)
+
+        projected = await _reload(session, dataset.id)
+        assert projected.geometry_type == "MULTILINESTRING"
+        assert projected.record.record_type == "vector_dataset"
+    finally:
+        await _drop(session, dataset.table_name)
+
+
+async def test_an_empty_pointzm_column_stays_a_point_dataset(
+    test_db_session,
+) -> None:
+    """An empty PointZM column keeps recording POINT and its 3D dims."""
+    session = test_db_session
+    dataset = await _dataset(
+        session, geometry_type="POINT", record_type="vector_dataset"
+    )
+    await _table(session, dataset.table_name, geometry="PointZM")
+    try:
+        await _measure_and_project(session, dataset, dataset.table_name)
+
+        projected = await _reload(session, dataset.id)
+        assert projected.geometry_type == "POINT"
+        assert (projected.is_3d, projected.n_dims) == (True, 4)
+    finally:
+        await _drop(session, dataset.table_name)
+
+
 async def _assert_refused_without_a_write(
     session,
     dataset: Dataset,
