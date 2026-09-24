@@ -35,6 +35,8 @@ from app.processing.ingest.publication import (
 )
 from app.processing.raster.models import RasterAsset
 from tests.factories import create_dataset, get_user_id
+from tests.test_feature_lock_order_1847 import _published_version
+from tests.test_worker_swap_bump_after_lock_1911 import _message, _overlap
 
 pytestmark = pytest.mark.anyio
 
@@ -650,3 +652,17 @@ async def test_a_rejection_that_loses_its_acknowledgement_still_notifies(
     assert state["job"] == "failed"
     assert state["run"] == ("failed", "refresh_rejected")
     assert _events(notifications) == ["ingest_failed"]
+
+
+async def test_a_publication_parked_on_the_dataset_row_bumps_past_the_edit(
+    seed,
+) -> None:
+    """The bump follows the catalog rows, so it publishes past an edit that held them."""
+    async with (
+        db_module.async_session() as holder,
+        db_module.async_session() as probe,
+    ):
+        before, _ = await _overlap(holder, probe, seed.dataset_id, _settle(_Fake(seed)))
+
+    published = await _published_version(seed.dataset_id)
+    assert published == before + 2, _message(before, published)
