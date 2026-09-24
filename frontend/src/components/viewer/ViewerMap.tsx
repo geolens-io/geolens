@@ -403,8 +403,14 @@ export const ViewerMap = memo(function ViewerMap({
   // for the fetch to settle and reports a fallback only when it stays.
   const onDrawnChangeRef = useRef(onDrawnChange);
   onDrawnChangeRef.current = onDrawnChange;
+  const hasReportedRef = useRef(false);
   useEffect(() => {
-    if (!tileConfigReady || !boundedGeoJsonReady) return;
+    if (!tileConfigReady || !boundedGeoJsonReady) {
+      // The last report describes the last request, so withdraw it while this one loads.
+      if (hasReportedRef.current) onDrawnChangeRef.current?.(new Map());
+      hasReportedRef.current = false;
+      return;
+    }
     const context = syncRenderContext(new Map(), undefined, geojsonDataRef.current, {
       idPrefix: VIEWER_PREFIX,
       mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
@@ -415,6 +421,7 @@ export const ViewerMap = memo(function ViewerMap({
       if (described) drawn.set(key, { drawsAs: described.drawsAs });
     }
     onDrawnChangeRef.current?.(drawn);
+    hasReportedRef.current = drawn.size > 0;
   }, [layerEntries, visibleLayers, geojsonVersion, tileConfigReady, boundedGeoJsonReady, tileConfig?.mvt_source_layer_prefix]);
 
   const handleLoad = useCallback(
