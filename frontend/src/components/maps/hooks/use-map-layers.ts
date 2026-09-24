@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { getEnvConfig } from '@/lib/env';
-import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { toMapLibreAttribution } from '@/lib/attribution-safety';
-import type { Map as MaplibreMap, VectorTileSource } from 'maplibre-gl';
+import type { Map as MaplibreMap, VectorSourceSpecification, VectorTileSource } from 'maplibre-gl';
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
+import type { VectorTileToken } from '@/api/tiles';
+import { getCompanionLayerIds } from '@/components/builder/companion-ids';
+import { mixedLinesLayerId, mixedPointsLayerId } from '@/components/builder/layer-adapters/mixed-adapter';
+import { describeLayers, getSourceIdForLayer } from '@/components/builder/layer-description';
+import type { SyncLayerInput } from '@/components/builder/map-sync';
 
 /** Empty GeoJSON FeatureCollection */
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -13,15 +17,88 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 // silent-drift class the source-layer parity test pins down.
 const getSourceLayerName = getMvtSourceLayerName;
 
+/** The prefix of the ids the preview gives its dataset's source and layers. */
+export const PREVIEW_ID_PREFIX = 'preview-';
+/** The preview draws its dataset as one default layer with this id. */
+const PREVIEW_LAYER_KEY = 'dataset';
+const PREVIEW_IDS = getCompanionLayerIds(PREVIEW_LAYER_KEY, PREVIEW_ID_PREFIX);
+
+/** The preview layers that draw the dataset's features. */
+export const PREVIEW_FEATURE_LAYER_IDS = [
+  PREVIEW_IDS.layer,
+  PREVIEW_IDS.mixedLines,
+  PREVIEW_IDS.mixedPoints,
+  PREVIEW_IDS.extrusion,
+];
+/** Every layer the preview draws its dataset with. */
+export const PREVIEW_LAYER_IDS = [...PREVIEW_FEATURE_LAYER_IDS, PREVIEW_IDS.outline];
+
+/** The source the preview draws a dataset table from. */
+export function previewSourceId(tableName: string) {
+  return getSourceIdForLayer({ id: PREVIEW_LAYER_KEY, dataset_table_name: tableName }, PREVIEW_ID_PREFIX);
+}
+
+/** What the preview knows about its dataset. */
+export interface PreviewDataset {
+  datasetId?: string;
+  tableName: string;
+  geometryType: string;
+  tileVersion?: string | null;
+  attribution?: string | null;
+  elevationColumn?: string | null;
+}
+
+/** The one layer the preview draws: the whole dataset in the default style. */
+export function toPreviewSyncInput(dataset: PreviewDataset): SyncLayerInput {
+  return {
+    id: PREVIEW_LAYER_KEY,
+    dataset_id: dataset.datasetId ?? '',
+    dataset_table_name: dataset.tableName,
+    dataset_geometry_type: dataset.geometryType,
+    opacity: 1,
+    visible: true,
+    paint: {},
+    layout: {},
+    filter: null,
+    style_config: dataset.elevationColumn
+      ? { builder: { heightColumn: dataset.elevationColumn, extrusionMinZoom: 0 } }
+      : null,
+    attribution: toMapLibreAttribution(dataset.attribution),
+    tile_version: dataset.tileVersion,
+    // No bounds: a source keeps the bounds it was added with, and a feature
+    // drawn outside the stored extent still has to draw.
+  };
+}
+
+/** The preview's layer and the source it draws from, as the layer description gives them. */
+export function describePreview(
+  dataset: PreviewDataset,
+  tiles: {
+    token: VectorTileToken | null;
+    tileBaseUrl: string | undefined;
+    sourceLayerPrefix: string | null | undefined;
+  },
+) {
+  const layer = toPreviewSyncInput(dataset);
+  const { sources, layers: [described] } = describeLayers([layer], {
+    idPrefix: PREVIEW_ID_PREFIX,
+    origin: window.location.origin,
+    tileBaseUrl: tiles.tileBaseUrl,
+    sourceLayerPrefix: tiles.sourceLayerPrefix,
+    tokens: new Map(tiles.token ? [[layer.dataset_id, tiles.token]] : []),
+    boundedGeoJson: new Map(),
+  });
+  return { layer: described, source: sources.get(described.sourceId) as VectorSourceSpecification };
+}
+
 interface UseMapLayersOptions {
+  datasetId?: string;
   tableName: string | null;
   geometryType: string | null;
   rasterTileUrl?: string | null;
   tileVersion?: string | null;
-  // Matches ``buildSignedTileUrl``'s parameter type — the hook previously
-  // typed this as ``string | null`` which was incompatible with the
-  // signed-token object shape it's actually passing through.
-  tileToken: { sig: string; exp: number; scope: string } | null;
+  /** Signs the vector tile URLs; without one they go unsigned. */
+  tileToken: VectorTileToken | null;
   tileConfigCdnBaseUrl?: string;
   mvtSourceLayerPrefix?: string | null;
   /** Whether the tenant-aware source-layer prefix has finished resolving. */
@@ -37,6 +114,7 @@ interface UseMapLayersOptions {
 }
 
 export function useMapLayers({
+  datasetId,
   tableName,
   geometryType,
   rasterTileUrl,
@@ -51,44 +129,40 @@ export function useMapLayers({
 }: UseMapLayersOptions) {
   const vectorLayersAdded = useRef(false);
   const rasterLayersAdded = useRef(false);
-  // fix(#1472 review): escaped once for both source specs below — MapLibre
-  // renders attribution as innerHTML. See lib/attribution-safety.
+  // MapLibre renders attribution as innerHTML. See lib/attribution-safety.
   const safeAttribution = toMapLibreAttribution(attribution);
+
+  // Describing needs the resolved tenant prefix for its MVT layer names.
+  const preview = useMemo(() => {
+    if (!mvtSourceLayerReady || mvtSourceLayerPrefix === null || !tableName || !geometryType) return null;
+    return describePreview(
+      { datasetId, tableName, geometryType, tileVersion, attribution, elevationColumn },
+      {
+        token: tileToken,
+        tileBaseUrl: getEnvConfig().TILE_BASE_URL || tileConfigCdnBaseUrl,
+        sourceLayerPrefix: mvtSourceLayerPrefix,
+      },
+    );
+  }, [datasetId, tableName, geometryType, tileVersion, attribution, elevationColumn, tileToken, tileConfigCdnBaseUrl, mvtSourceLayerPrefix, mvtSourceLayerReady]);
 
   const addVectorLayers = useCallback(
     (map: MaplibreMap) => {
-      if (!mvtSourceLayerReady) return;
-      if (!tableName || vectorLayersAdded.current) return;
-      if (!geometryType) return;
-      if (map.getSource('vector-tile-source')) return;
+      if (!preview || vectorLayersAdded.current) return;
+      const { id, sourceId, sourceLayer, drawsAs } = preview.layer;
+      if (map.getSource(sourceId)) return;
 
       try {
-        const sourceLayer = getSourceLayerName(tableName, mvtSourceLayerPrefix);
-        const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfigCdnBaseUrl;
+        map.addSource(sourceId, preview.source);
 
-        map.addSource('vector-tile-source', {
-          type: 'vector',
-          tiles: [buildSignedTileUrl(tableName, tileToken, tileBaseUrl, tileVersion)],
-          minzoom: 1,
-          maxzoom: 22,
-          ...(safeAttribution ? { attribution: safeAttribution } : {}),
-        });
-
-        const upperType = geometryType.toUpperCase();
-        const isPoint = upperType.includes('POINT');
-        const isLine = upperType.includes('LINE');
         // fix(#430 codex r21): a generic sketch dataset (GEOMETRY sentinel /
         // GEOMETRYCOLLECTION) can hold every family at once — install all
         // three renderers with $type filters so no family disappears when the
         // display type degrades to generic after a cross-family draw.
-        const isGeneric =
-          upperType === 'GEOMETRY' || upperType === 'GEOMETRYCOLLECTION';
-
-        if (isGeneric) {
+        if (drawsAs === 'mixed') {
           map.addLayer({
-            id: 'vector-fill',
+            id,
             type: 'fill',
-            source: 'vector-tile-source',
+            source: sourceId,
             'source-layer': sourceLayer,
             filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
             paint: {
@@ -97,9 +171,9 @@ export function useMapLayers({
             },
           });
           map.addLayer({
-            id: 'vector-outline',
+            id: `${id}-outline`,
             type: 'line',
-            source: 'vector-tile-source',
+            source: sourceId,
             'source-layer': sourceLayer,
             filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
             paint: {
@@ -108,9 +182,9 @@ export function useMapLayers({
             },
           });
           map.addLayer({
-            id: 'vector-lines',
+            id: mixedLinesLayerId(id),
             type: 'line',
-            source: 'vector-tile-source',
+            source: sourceId,
             'source-layer': sourceLayer,
             filter: ['in', ['geometry-type'], ['literal', ['LineString', 'MultiLineString']]],
             paint: {
@@ -119,9 +193,9 @@ export function useMapLayers({
             },
           });
           map.addLayer({
-            id: 'vector-points',
+            id: mixedPointsLayerId(id),
             type: 'circle',
-            source: 'vector-tile-source',
+            source: sourceId,
             'source-layer': sourceLayer,
             filter: ['in', ['geometry-type'], ['literal', ['Point', 'MultiPoint']]],
             paint: {
@@ -131,11 +205,11 @@ export function useMapLayers({
               'circle-stroke-width': 1,
             },
           });
-        } else if (isPoint) {
+        } else if (drawsAs === 'circle') {
           map.addLayer({
-            id: 'vector-points',
+            id,
             type: 'circle',
-            source: 'vector-tile-source',
+            source: sourceId,
             'source-layer': sourceLayer,
             paint: {
               'circle-radius': 4,
@@ -144,11 +218,11 @@ export function useMapLayers({
               'circle-stroke-width': 1,
             },
           });
-        } else if (isLine) {
+        } else if (drawsAs === 'line') {
           map.addLayer({
-            id: 'vector-lines',
+            id,
             type: 'line',
-            source: 'vector-tile-source',
+            source: sourceId,
             'source-layer': sourceLayer,
             paint: {
               'line-color': MAP_COLORS.default.fill,
@@ -158,9 +232,9 @@ export function useMapLayers({
         } else if (elevationColumn) {
           // 3D extruded polygons driven by the elevation/height column
           map.addLayer({
-            id: 'vector-extrusion',
+            id: `${id}-extrusion`,
             type: 'fill-extrusion',
-            source: 'vector-tile-source',
+            source: sourceId,
             'source-layer': sourceLayer,
             paint: {
               'fill-extrusion-color': MAP_COLORS.default.fill,
@@ -185,9 +259,9 @@ export function useMapLayers({
           });
         } else {
           map.addLayer({
-            id: 'vector-fill',
+            id,
             type: 'fill',
-            source: 'vector-tile-source',
+            source: sourceId,
             'source-layer': sourceLayer,
             paint: {
               'fill-color': MAP_COLORS.default.fill,
@@ -195,9 +269,9 @@ export function useMapLayers({
             },
           });
           map.addLayer({
-            id: 'vector-outline',
+            id: `${id}-outline`,
             type: 'line',
-            source: 'vector-tile-source',
+            source: sourceId,
             'source-layer': sourceLayer,
             paint: {
               'line-color': MAP_COLORS.default.stroke,
@@ -211,7 +285,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addVectorLayers: failed to add sources/layers', e);
       }
     },
-    [tableName, geometryType, tileConfigCdnBaseUrl, mvtSourceLayerPrefix, mvtSourceLayerReady, tileToken, tileVersion, elevationColumn, safeAttribution],
+    [preview, elevationColumn],
   );
 
   // DatasetMap's load event can precede the settings request. Re-run the
@@ -337,16 +411,16 @@ export function useMapLayers({
   }, [rasterTileUrl]);
 
   // Update tile URLs in-place when token refreshes
+  const vectorSourceId = preview?.layer.sourceId;
+  const vectorTileUrl = preview?.source.tiles?.[0];
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !tileToken || !tableName) return;
-    const source = map.getSource('vector-tile-source');
+    if (!map || !tileToken || !vectorSourceId || !vectorTileUrl) return;
+    const source = map.getSource(vectorSourceId);
     if (source && 'setTiles' in source) {
-      const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfigCdnBaseUrl;
-      const newUrl = buildSignedTileUrl(tableName, tileToken, tileBaseUrl, tileVersion);
-      (source as VectorTileSource).setTiles([newUrl]);
+      (source as VectorTileSource).setTiles([vectorTileUrl]);
     }
-  }, [tileToken, tableName, tileConfigCdnBaseUrl, tileVersion, mapRef]);
+  }, [tileToken, vectorSourceId, vectorTileUrl, mapRef]);
 
   return { addVectorLayers, addRasterLayers, addOverlaySource };
 }

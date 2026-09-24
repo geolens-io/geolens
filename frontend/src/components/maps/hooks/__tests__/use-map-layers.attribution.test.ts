@@ -10,7 +10,7 @@
  */
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useMapLayers } from '../use-map-layers';
+import { previewSourceId, useMapLayers } from '../use-map-layers';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
 vi.mock('@/lib/env', () => ({
@@ -20,6 +20,7 @@ vi.mock('@/lib/env', () => ({
 vi.mock('maplibre-gl', () => ({ default: {} }));
 
 const SWISSTOPO = '© swisstopo — swissALTI3D';
+const VECTOR_SOURCE = previewSourceId('alti3d');
 
 function fakeMap() {
   return {
@@ -71,7 +72,7 @@ function runRaster(attribution?: string | null) {
 
 describe('useMapLayers dataset attribution (#1472)', () => {
   it('puts the credit on the vector source', () => {
-    const spec = addedSource(runVector(SWISSTOPO), 'vector-tile-source');
+    const spec = addedSource(runVector(SWISSTOPO), VECTOR_SOURCE);
     expect(spec?.attribution).toBe(SWISSTOPO);
   });
 
@@ -81,7 +82,7 @@ describe('useMapLayers dataset attribution (#1472)', () => {
   });
 
   it('omits the property entirely when the dataset requires no credit', () => {
-    expect(addedSource(runVector(null), 'vector-tile-source')).not.toHaveProperty(
+    expect(addedSource(runVector(null), VECTOR_SOURCE)).not.toHaveProperty(
       'attribution',
     );
     expect(addedSource(runRaster(null), 'raster-tile-source')).not.toHaveProperty(
@@ -92,7 +93,7 @@ describe('useMapLayers dataset attribution (#1472)', () => {
   it('omits the property when the caller passes nothing at all', () => {
     // Every other caller of this shared hook does exactly this, so the absent
     // case has to leave their source specs byte-identical to before.
-    expect(addedSource(runVector(), 'vector-tile-source')).not.toHaveProperty(
+    expect(addedSource(runVector(), VECTOR_SOURCE)).not.toHaveProperty(
       'attribution',
     );
   });

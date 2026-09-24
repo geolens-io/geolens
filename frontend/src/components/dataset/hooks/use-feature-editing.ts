@@ -14,11 +14,13 @@ import { getModeName, extractSingleGeometry, isMultiPartGeometry } from '@/compo
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { formatMutationError } from '@/lib/error-map';
 import { getEnvConfig } from '@/lib/env';
+import {
+  PREVIEW_FEATURE_LAYER_IDS,
+  PREVIEW_LAYER_IDS,
+  previewSourceId,
+} from '@/components/maps/hooks/use-map-layers';
 import type { Map as MaplibreMap, GeoJSONSource, Point, VectorTileSource } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
-
-/** Vector tile layer IDs used for querying and filtering */
-const VECTOR_TILE_LAYERS = ['vector-points', 'vector-lines', 'vector-fill', 'vector-outline', 'vector-extrusion'];
 
 /** Empty GeoJSON FeatureCollection for overlay reset */
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -46,7 +48,7 @@ function _baseFilter(map: MaplibreMap, layerId: string): unknown {
 }
 
 function hideFeatureFromTiles(map: MaplibreMap, gid: number) {
-  for (const layerId of VECTOR_TILE_LAYERS) {
+  for (const layerId of PREVIEW_LAYER_IDS) {
     if (map.getLayer(layerId)) {
       const base = _baseFilter(map, layerId);
       const gidFilter = ['all', ['has', 'id'], ['!=', ['id'], gid]];
@@ -61,7 +63,7 @@ function hideFeatureFromTiles(map: MaplibreMap, gid: number) {
 
 /** Restore vector tile layers to their creation-time (base) filters */
 export function showAllFeaturesInTiles(map: MaplibreMap) {
-  for (const layerId of VECTOR_TILE_LAYERS) {
+  for (const layerId of PREVIEW_LAYER_IDS) {
     if (map.getLayer(layerId)) {
       // Capture-on-first-touch also covers the cancel-before-any-hide path.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -153,7 +155,7 @@ export function useFeatureEditing({
   const reloadTiles = useCallback(() => {
     const map = mapRef.current;
     if (!map || !tableName) return;
-    const source = map.getSource('vector-tile-source');
+    const source = map.getSource(previewSourceId(tableName));
     if (source && 'setTiles' in source) {
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url;
       const freshUrl = buildSignedTileUrl(tableName, tileToken ?? null, tileBaseUrl, String(Date.now()));
@@ -239,8 +241,9 @@ export function useFeatureEditing({
             src?.setData(EMPTY_FC);
             overlayCleanupRef.current = null;
           };
+          const sourceId = previewSourceId(tableName);
           const onSourceData = (e: { sourceId?: string; isSourceLoaded?: boolean }) => {
-            if (e.sourceId === 'vector-tile-source' && e.isSourceLoaded) {
+            if (e.sourceId === sourceId && e.isSourceLoaded) {
               map.off('sourcedata', onSourceData);
               clearTimeout(fallbackTimer);
               clearOverlay();
@@ -484,9 +487,7 @@ export function useFeatureEditing({
       if (useDrawingStore.getState().selectedFeature) return;
       if (!datasetId) return;
 
-      const queryLayers = ['vector-points', 'vector-lines', 'vector-fill', 'vector-extrusion'].filter(
-        (id) => map.getLayer(id),
-      );
+      const queryLayers = PREVIEW_FEATURE_LAYER_IDS.filter((id) => map.getLayer(id));
       if (queryLayers.length === 0) return;
 
       const features = map.queryRenderedFeatures(point, { layers: queryLayers });

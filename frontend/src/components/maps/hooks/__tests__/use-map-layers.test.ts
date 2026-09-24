@@ -1,6 +1,7 @@
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useMapLayers } from '../use-map-layers';
+import type { VectorTileToken } from '@/api/tiles';
+import { previewSourceId, useMapLayers } from '../use-map-layers';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
 vi.mock('@/lib/env', () => ({
@@ -23,7 +24,7 @@ function addedLayers(map: MaplibreMap) {
   );
 }
 
-function runHook(geometryType: string) {
+function runHook(geometryType: string, elevationColumn?: string) {
   const mapRef = { current: null };
   const { result } = renderHook(() =>
     useMapLayers({
@@ -31,6 +32,7 @@ function runHook(geometryType: string) {
       geometryType,
       tileToken: null,
       mapRef,
+      elevationColumn,
     }),
   );
   const map = fakeMap();
@@ -43,10 +45,10 @@ describe('useMapLayers generic-geometry rendering (fix #430 codex r21)', () => {
     const map = runHook('GEOMETRY');
     const layers = addedLayers(map);
     expect(layers.map((l) => l.id)).toEqual([
-      'vector-fill',
-      'vector-outline',
-      'vector-lines',
-      'vector-points',
+      'preview-layer-dataset',
+      'preview-layer-dataset-outline',
+      'preview-layer-dataset-lines',
+      'preview-layer-dataset-points',
     ]);
     // Every generic layer filters by geometry family so no feature renders
     // through the wrong adapter.
@@ -57,24 +59,27 @@ describe('useMapLayers generic-geometry rendering (fix #430 codex r21)', () => {
 
   it('does the same for GEOMETRYCOLLECTION display types', () => {
     const map = runHook('GEOMETRYCOLLECTION');
-    expect(addedLayers(map).map((l) => l.id)).toContain('vector-points');
-    expect(addedLayers(map).map((l) => l.id)).toContain('vector-lines');
-    expect(addedLayers(map).map((l) => l.id)).toContain('vector-fill');
+    expect(addedLayers(map).map((l) => l.id)).toContain('preview-layer-dataset-points');
+    expect(addedLayers(map).map((l) => l.id)).toContain('preview-layer-dataset-lines');
+    expect(addedLayers(map).map((l) => l.id)).toContain('preview-layer-dataset');
   });
 
   it('keeps the single-renderer behavior for concrete types', () => {
     const point = runHook('MULTIPOINT');
-    expect(addedLayers(point).map((l) => l.id)).toEqual(['vector-points']);
+    expect(addedLayers(point).map((l) => l.id)).toEqual(['preview-layer-dataset']);
     expect(addedLayers(point)[0].filter).toBeUndefined();
 
     const line = runHook('LINESTRING');
-    expect(addedLayers(line).map((l) => l.id)).toEqual(['vector-lines']);
+    expect(addedLayers(line).map((l) => l.id)).toEqual(['preview-layer-dataset']);
 
     const polygon = runHook('POLYGON');
     expect(addedLayers(polygon).map((l) => l.id)).toEqual([
-      'vector-fill',
-      'vector-outline',
+      'preview-layer-dataset',
+      'preview-layer-dataset-outline',
     ]);
+
+    const extruded = runHook('POLYGON', 'height_m');
+    expect(addedLayers(extruded).map((l) => l.id)).toEqual(['preview-layer-dataset-extrusion']);
   });
 
   it('waits for an async tenant prefix before installing immutable source-layer names', () => {
@@ -104,6 +109,41 @@ describe('useMapLayers generic-geometry rendering (fix #430 codex r21)', () => {
     expect(map.addSource).toHaveBeenCalledOnce();
     expect(addedLayers(map)).toHaveLength(1);
     expect(addedLayers(map)[0]?.['source-layer']).toBe('tenant_acme.roads');
+  });
+});
+
+describe('useMapLayers vector source', () => {
+  function vectorToken(sig: string): VectorTileToken {
+    return { kind: 'vector', sig, exp: 2000000000, scope: 'scope-1', expires_in: 900 };
+  }
+
+  it('requests tiles from z0 and overzooms z14 tiles past z14', () => {
+    const map = runHook('POLYGON');
+    expect(map.addSource).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ type: 'vector', minzoom: 0, maxzoom: 14 }),
+    );
+  });
+
+  it('re-signs the source in place when the token changes', () => {
+    const setTiles = vi.fn();
+    const map = {
+      ...fakeMap(),
+      getSource: vi.fn((id: string) => (id === previewSourceId('roads') ? { setTiles } : undefined)),
+    } as unknown as MaplibreMap;
+    const mapRef = { current: map };
+    const { rerender } = renderHook(
+      ({ tileToken }: { tileToken: VectorTileToken }) =>
+        useMapLayers({ tableName: 'roads', geometryType: 'LINESTRING', tileToken, mapRef }),
+      { initialProps: { tileToken: vectorToken('first') } },
+    );
+    setTiles.mockClear();
+
+    rerender({ tileToken: vectorToken('second') });
+
+    expect(setTiles).toHaveBeenCalledExactlyOnceWith([
+      'http://tiles.test/tiles/data.roads/{z}/{x}/{y}.pbf?sig=second&exp=2000000000&scope=scope-1',
+    ]);
   });
 });
 

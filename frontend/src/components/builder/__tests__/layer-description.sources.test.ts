@@ -5,6 +5,7 @@ import type { MapLayerResponse, PopupConfig, StyleConfig } from '@/types/api';
 import { SAVED_LAYERS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
 import { FIXTURE_ORIGIN, FIXTURE_TOKENS, RENDER_CONTEXTS, fixtureToken } from '@/test/fixtures/render-contexts';
 import { toViewerSyncInput } from '@/components/viewer/ViewerMap';
+import { PREVIEW_ID_PREFIX, describePreview } from '@/components/maps/hooks/use-map-layers';
 import { toSyncInput } from '../map-sync';
 import { describeLayers, type RenderContext } from '../layer-description';
 
@@ -41,7 +42,7 @@ function onTable(base: MapLayerResponse, id: string, overrides: Partial<MapLayer
   });
 }
 
-const { polygon, categorical, line, serverCluster, boundedCluster, fallbackCluster, raster, hillshadeDem } = SAVED_LAYERS;
+const { polygon, categorical, line, point, mixedGeometry, extrusion, serverCluster, boundedCluster, fallbackCluster, raster, hillshadeDem } = SAVED_LAYERS;
 const zoningLabels = onTable(categorical, 'layer-zoning-labels', {
   filter: ['>', ['get', 'pop'], 100] as FilterSpecification,
   popup_config: { enabled: true, expression: null, visible_fields: ['owner'] } satisfies PopupConfig,
@@ -223,6 +224,39 @@ function withoutAttribution(spec: SourceSpecification): SourceSpecification {
   return rest as SourceSpecification;
 }
 
+function withoutBounds(spec: SourceSpecification): SourceSpecification {
+  const { bounds: _previewEditsMoveTheExtent, ...rest } = spec as SourceSpecification & { bounds?: number[] };
+  return rest as SourceSpecification;
+}
+
+function unprefixed(id: string) {
+  return id.replace(PREVIEW_ID_PREFIX, '');
+}
+
+/** The dataset preview's description of the dataset a saved layer draws. */
+function previewOf(layer: MapLayerResponse, elevationColumn?: string) {
+  const token = fixtureToken(layer);
+  return describePreview(
+    {
+      datasetId: layer.dataset_id,
+      tableName: layer.dataset_table_name,
+      geometryType: layer.dataset_geometry_type!,
+      tileVersion: layer.tile_version == null ? null : String(layer.tile_version),
+      attribution: layer.dataset_attribution,
+      elevationColumn,
+    },
+    { token: token.kind === 'vector' ? token : null, tileBaseUrl: undefined, sourceLayerPrefix: 'data' },
+  );
+}
+
+const previewCases: [label: string, layer: MapLayerResponse, elevationColumn?: string][] = [
+  ['a point dataset', point],
+  ['a line dataset', line],
+  ['a polygon dataset', { ...polygon, tile_version: 7, dataset_attribution: CREDIT }],
+  ['a GEOMETRY dataset', mixedGeometry],
+  ['a 3D polygon dataset with an extrusion', extrusion, 'height_m'],
+];
+
 describe('describeLayers sources', () => {
   it.each(rows)('describes the sources of %s', (_label, layers, context, expected) => {
     expect(Object.fromEntries(describeLayers(layers.map(toSyncInput), context).sources)).toEqual(expected);
@@ -238,6 +272,15 @@ describe('describeLayers sources', () => {
     expect(builder.get('source-data-alti3d')).toHaveProperty('attribution', CREDIT);
     expect(Object.fromEntries([...viewer].map(([id, spec]) => [id.replace(/^viewer-/, ''), spec])))
       .toEqual(Object.fromEntries([...builder].map(([id, spec]) => [id, withoutAttribution(spec)])));
+  });
+
+  it.each(previewCases)('gives the preview of %s the builder source apart from the id prefix and extent', (_label, layer, elevationColumn) => {
+    const builder = describeLayers([toSyncInput(layer)], { ...RENDER_CONTEXTS.builder, origin: window.location.origin });
+    const preview = previewOf(layer, elevationColumn);
+    expect({ ...preview.layer, id: undefined, sourceId: unprefixed(preview.layer.sourceId) })
+      .toEqual({ ...builder.layers[0], id: undefined });
+    expect({ [unprefixed(preview.layer.sourceId)]: preview.source })
+      .toEqual(Object.fromEntries([...builder.sources].map(([id, spec]) => [id, withoutBounds(spec)])));
   });
 
   it('draws a raster layer without a token from its saved tile URL', () => {
