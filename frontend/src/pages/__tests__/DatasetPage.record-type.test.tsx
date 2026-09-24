@@ -307,4 +307,43 @@ describe('DatasetPage actions by record type', () => {
       expect(screen.getByTestId('dataset-map')).not.toHaveAttribute('data-instance', vectorMap);
     });
   });
+
+  it('gives a cached vector dataset its own map after another vector dataset', async () => {
+    vi.mocked(useDataset).mockImplementation(((id: string) => ({
+      data: id === 'dataset-2'
+        ? { ...makeDataset('vector_dataset'), id: 'dataset-2', table_name: 'other_table' }
+        : makeDataset('vector_dataset'),
+      isLoading: false,
+      error: null,
+    })) as unknown as typeof useDataset);
+    const { rerender } = render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    const firstMap = (await screen.findByTestId('dataset-map')).getAttribute('data-instance');
+
+    vi.mocked(useParams).mockReturnValue({ id: 'dataset-2' });
+    rerender(<DatasetPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dataset-map')).not.toHaveAttribute('data-instance', firstMap);
+    });
+  });
+
+  it('keeps the same map instance across a re-render of the same dataset, such as a query refetch', async () => {
+    vi.mocked(useDataset).mockReturnValue({
+      data: makeDataset('vector_dataset'),
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+    const { rerender } = render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    const instance = (await screen.findByTestId('dataset-map')).getAttribute('data-instance');
+
+    // A refetch hands back a new dataset object with the same id and fields.
+    vi.mocked(useDataset).mockReturnValue({
+      data: makeDataset('vector_dataset'),
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+    rerender(<DatasetPage />);
+
+    expect(screen.getByTestId('dataset-map')).toHaveAttribute('data-instance', instance);
+  });
 });
