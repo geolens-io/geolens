@@ -1421,6 +1421,10 @@ async def _finalize_ingest(ctx: IngestContext):
     return dataset
 
 
+class SourceURLRefused(RuntimeError):
+    """The fetch-time safety check refused a service URL."""
+
+
 def resolve_service_type(raw: str) -> tuple[str, str]:
     """Map raw service_type string to (service_type, source_format)."""
     from app.processing.ingest.ogr import IngestionError

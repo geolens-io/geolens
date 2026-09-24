@@ -39,6 +39,7 @@ from app.processing.ingest.publication import (
 )
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
+    SourceURLRefused,
     _append_job_warning,
     cleanup_step,
     _append_mercator_clip_warning,
@@ -765,10 +766,6 @@ class RefreshPublicationFenceError(RuntimeError):
     def __init__(self, code: str, message: str):
         self.code = code
         super().__init__(message)
-
-
-class SourceURLRefused(RuntimeError):
-    """The fetch-time safety check refused the service URL."""
 
 
 def _service_refresh_error_code(exc: BaseException) -> str:

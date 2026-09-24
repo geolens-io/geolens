@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from app.core.failure_reason import redact_failure_reason
 from app.platform.security import SSRFError
 
 
@@ -151,6 +152,9 @@ class TestIngestServiceWorkerRevalidatesSourceUrl:
                 )
 
         assert "safety check at worker fetch time" in str(exc.value)
+        assert redact_failure_reason(exc.value).startswith(
+            "source_url failed safety check at worker fetch time: "
+        )
 
 
 async def _queued_service_reupload(session, *, source_url: str, user_metadata: dict):
