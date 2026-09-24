@@ -143,6 +143,15 @@ describe('writeDescribedLayer', () => {
     expect(recording.layer('points')).not.toHaveProperty('filter');
   });
 
+  it('adds a spec the map lacks below the next spec of its drawing already on the map', () => {
+    const recording = mapWithSource();
+    writeDescribedLayer(recording.map, drawn([circleSpec({ id: 'top' })]));
+
+    writeDescribedLayer(recording.map, drawn([circleSpec({ id: 'bottom' }), circleSpec({ id: 'middle' }), circleSpec({ id: 'top' })]));
+
+    expect(recording.layerIds()).toEqual(['bottom', 'middle', 'top']);
+  });
+
   it('makes no further writes for a spec MapLibre refuses', () => {
     const recording = new RecordingMap();
 

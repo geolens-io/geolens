@@ -69,9 +69,9 @@ function reconcilePaint(map: LayerWriteTarget, spec: LayerSpec): void {
  * the layer. It goes on with scalar stand-ins, and the arrays and the filter
  * follow as separate writes that can fail on their own.
  */
-function addSpec(map: LayerWriteTarget, spec: LayerSpec): void {
+function addSpec(map: LayerWriteTarget, spec: LayerSpec, beforeId: string | undefined): void {
   const { filter, ...layer } = spec.layer;
-  map.addLayer({ ...layer, paint: standInPaint(layer.paint) } as AddLayerObject);
+  map.addLayer({ ...layer, paint: standInPaint(layer.paint) } as AddLayerObject, beforeId);
   if (!map.getLayer(layer.id)) return;
   const owned = new Set<string>(spec.ownedPaint);
   for (const [key, value] of Object.entries(layer.paint)) {
@@ -101,15 +101,24 @@ function updateSpec(map: LayerWriteTarget, spec: LayerSpec): void {
   }
 }
 
-function writeSpecs(map: LayerWriteTarget, drawing: LayerDrawing, write: (spec: LayerSpec) => void): void {
+/**
+ * Write each spec in order. A spec the map lacks goes below the next spec of the
+ * drawing already on the map, so a layer added back keeps its place in the drawing.
+ */
+function writeSpecs(
+  map: LayerWriteTarget,
+  drawing: LayerDrawing,
+  write: (spec: LayerSpec, beforeId: string | undefined) => void,
+): void {
   for (const image of drawing.images) registerImage(map, image);
-  for (const spec of drawing.specs) {
+  drawing.specs.forEach((spec, index) => {
+    const beforeId = drawing.specs.slice(index + 1).find(({ layer }) => map.getLayer(layer.id))?.layer.id;
     try {
-      write(spec);
+      write(spec, beforeId);
     } catch (e) {
       if (import.meta.env.DEV) console.warn(`[map-sync] writing ${spec.layer.id} failed:`, e);
     }
-  }
+  });
 }
 
 /**
@@ -117,12 +126,12 @@ function writeSpecs(map: LayerWriteTarget, drawing: LayerDrawing, write: (spec: 
  * owned keys and filter of every other spec in step with it.
  */
 export function writeDescribedLayer(map: LayerWriteTarget, drawing: LayerDrawing): void {
-  writeSpecs(map, drawing, (spec) => (map.getLayer(spec.layer.id) ? updateSpec(map, spec) : addSpec(map, spec)));
+  writeSpecs(map, drawing, (spec, beforeId) => (map.getLayer(spec.layer.id) ? updateSpec(map, spec) : addSpec(map, spec, beforeId)));
 }
 
 /** Register the drawing's images and add every spec, for a caller that has removed the old layers. */
 export function addDescribedLayer(map: LayerWriteTarget, drawing: LayerDrawing): void {
-  writeSpecs(map, drawing, (spec) => addSpec(map, spec));
+  writeSpecs(map, drawing, (spec, beforeId) => addSpec(map, spec, beforeId));
 }
 
 /** Set the visibility of each spec already on the map, leaving the rest of the layer alone. */
