@@ -1,9 +1,9 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { AdapterLayerInput, LayerAdapter } from './types';
-import { syncOwnedLayoutProperties, syncOwnedPaintProperties, syncSingleLayerVisibility, syncLayerFilter } from './shared';
+import type { AdapterLayerInput, ImageSpec, LayerAdapter, LayerDrawing } from './types';
+import { filterSpec, sourceLayerSpec } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { StyleConfig, SymbolStyleConfig } from '@/types/api';
 import { DEFAULT_POINT_LABEL_OFFSET, LABEL_FONT_STACK } from '../label-layer-utils';
+import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 
 const DEFAULT_ICON = 'marker';
 const GEOLENS_SPRITE_ID = 'geolens';
@@ -15,7 +15,7 @@ const GEOLENS_SPRITE_PATH = '/api/maps/sprites/geolens';
 // text-justify/transform/letter-spacing/variable-anchor, *-rotation-alignment, *-translate,
 // text-halo-blur, etc.) are intentionally out of scope. symbolLayout() spreads ...input.layout
 // first, so any such stored property survives round-trip even though it has no authoring UI.
-const SYMBOL_OWNED_LAYOUT_PROPERTIES = [
+export const SYMBOL_OWNED_LAYOUT_PROPERTIES = [
   'icon-image',
   'icon-size',
   'icon-rotate',
@@ -31,7 +31,7 @@ const SYMBOL_OWNED_LAYOUT_PROPERTIES = [
   'text-allow-overlap',
   'text-max-width',
 ] as const;
-const SYMBOL_OWNED_PAINT_PROPERTIES = [
+export const SYMBOL_OWNED_PAINT_PROPERTIES = [
   'icon-opacity',
   'text-color',
   'text-halo-color',
@@ -69,23 +69,7 @@ function spriteIconId(icon: string): string {
   return icon.includes(':') ? icon : `${GEOLENS_SPRITE_ID}:${icon}`;
 }
 
-function getGeolensSpriteUrl(): string {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return new URL(GEOLENS_SPRITE_PATH, window.location.origin).toString();
-  }
-  return GEOLENS_SPRITE_PATH;
-}
-
-function ensureGeolensSprite(map: MaplibreMap): void {
-  try {
-    const sprites = map.getSprite?.() ?? [];
-    if (!sprites.some((sprite) => sprite.id === GEOLENS_SPRITE_ID)) {
-      map.addSprite(GEOLENS_SPRITE_ID, getGeolensSpriteUrl());
-    }
-  } catch (e) {
-    if (import.meta.env.DEV) console.warn('[map-sync] GeoLens sprite registration failed:', e);
-  }
-}
+const GEOLENS_SPRITE: ImageSpec = { kind: 'sprite', id: GEOLENS_SPRITE_ID, url: GEOLENS_SPRITE_PATH };
 
 function iconImageExpression(symbol: SymbolStyleConfig): string | unknown[] {
   const fallback = symbol.iconImage || DEFAULT_ICON;
@@ -161,44 +145,40 @@ function symbolPaint(input: AdapterLayerInput): Record<string, unknown> {
   };
 }
 
-export const symbolAdapter: LayerAdapter = {
-  type: 'symbol',
-
-  addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    try {
-      ensureGeolensSprite(map);
-      map.addLayer({
+function describeSymbol(input: AdapterLayerInput): LayerDrawing {
+  return {
+    specs: [{
+      layer: {
         id: input.layerId,
         type: 'symbol',
         source: input.sourceId,
-        ...(input.sourceType !== 'geojson' && { 'source-layer': input.sourceLayer }),
+        ...sourceLayerSpec(input),
+        ...filterSpec(input.filter),
         layout: symbolLayout(input),
         paint: symbolPaint(input),
-      });
-      if (input.filter && Array.isArray(input.filter) && input.filter.length > 0) {
-        syncLayerFilter(map, input.layerId, input.filter);
-      }
-    } catch (e) {
-      if (import.meta.env.DEV) console.warn(`[map-sync] addLayer failed for ${input.layerId}:`, e);
-    }
+      },
+      ownedPaint: SYMBOL_OWNED_PAINT_PROPERTIES,
+      ownedLayout: SYMBOL_OWNED_LAYOUT_PROPERTIES,
+    }],
+    images: [GEOLENS_SPRITE],
+  };
+}
+
+export const symbolAdapter: LayerAdapter = {
+  type: 'symbol',
+  describe: describeSymbol,
+
+  addLayers(map, input) {
+    addDescribedLayer(map, describeSymbol(input));
   },
 
-  syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
+  syncPaint(map, input) {
     if (!map.getLayer(input.layerId)) return;
-    ensureGeolensSprite(map);
-    const layout = symbolLayout(input);
-    syncOwnedLayoutProperties(map, input.layerId, layout, {
-      ownedProperties: SYMBOL_OWNED_LAYOUT_PROPERTIES,
-    });
-    const paint = symbolPaint(input);
-    syncOwnedPaintProperties(map, input.layerId, paint, {
-      ownedProperties: SYMBOL_OWNED_PAINT_PROPERTIES,
-    });
-    syncLayerFilter(map, input.layerId, input.filter);
+    writeDescribedLayer(map, describeSymbol(input));
   },
 
-  syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    syncSingleLayerVisibility(map, input.layerId, input.visible);
+  syncVisibility(map, input) {
+    writeDescribedVisibility(map, describeSymbol(input));
   },
 
   getLayerIds(layerId: string): string[] {

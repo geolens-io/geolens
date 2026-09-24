@@ -962,8 +962,11 @@ export const ViewerMap = memo(function ViewerMap({
 
         const input = toViewerSyncInput(layer, key, visibleLayers);
         const [described] = describeLayers([input], context).layers;
-        if (described) {
-          getAdapter(described.drawsAs).syncVisibility(map, adapterInputFor(input, described));
+        try {
+          if (described) getAdapter(described.drawsAs).syncVisibility(map, adapterInputFor(input, described));
+        } catch (e) {
+          // An adapter can throw on a saved style it cannot read; the sync pass never drew that layer.
+          if (import.meta.env.DEV) console.warn(`[viewer] setting the visibility of ${described?.id} failed:`, e);
         }
 
         const labelId = prefixed('label', key, VIEWER_PREFIX);

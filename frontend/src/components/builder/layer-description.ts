@@ -20,7 +20,7 @@ import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 import { getAdapter } from './layer-adapters/registry';
 import { normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
 import { resolveSymbolConfig } from './layer-adapters/symbol-adapter';
-import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
+import type { AdapterLayerInput, ImageSpec, LayerAdapter, LayerSpec } from './layer-adapters/types';
 import type { SyncLayerInput } from './map-sync';
 
 /** What describing layers depends on besides the layers themselves. */
@@ -63,6 +63,10 @@ export interface DescribedLayer {
   layout: Record<string, unknown>;
   /** From the layout's `_minzoom` and `_maxzoom`; null when it saves neither. */
   zoom: ZoomRange | null;
+  /** The map layers drawn for the layer, bottom first. Empty while its adapter still adds its own layers. */
+  specs: readonly LayerSpec[];
+  /** The images those map layers use. */
+  images: readonly ImageSpec[];
 }
 
 export interface Description {
@@ -337,13 +341,28 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
       filter: sanitizeNullableNumericFilter(layer.filter),
       layout: stripPrivateLayoutKeys(layout),
       zoom: zoomRange(layout),
+      specs: [],
+      images: [],
     };
     described.push(entry);
-    if (sources.has(entry.sourceId)) continue;
-    const source = entry.drawsAs === 'raster' || entry.drawsAs === 'hillshade'
-      ? rasterSource(layer, entry.drawsAs === 'hillshade', ctx)
-      : vectorSource(layer, entry, drawn, ctx);
-    if (source) sources.set(entry.sourceId, source);
+    if (!sources.has(entry.sourceId)) {
+      const source = entry.drawsAs === 'raster' || entry.drawsAs === 'hillshade'
+        ? rasterSource(layer, entry.drawsAs === 'hillshade', ctx)
+        : vectorSource(layer, entry, drawn, ctx);
+      if (source) sources.set(entry.sourceId, source);
+    }
+    const sourceType = sources.get(entry.sourceId)?.type === 'geojson' ? 'geojson' : 'vector';
+    // An adapter can throw on a saved style it cannot read. That layer draws
+    // nothing, and every other layer is still described.
+    try {
+      const drawing = getAdapter(entry.drawsAs).describe?.({ ...adapterInputFor(layer, entry), sourceType });
+      if (drawing) {
+        entry.specs = drawing.specs;
+        entry.images = drawing.images;
+      }
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn(`[map-sync] describing ${entry.id} failed:`, e);
+    }
   }
   return { sources, layers: described };
 }

@@ -239,6 +239,35 @@ describe('ViewerMap visibility idle-retry (BUG-037)', () => {
     expect(mapState.fakeMap.setLayoutProperty).not.toHaveBeenCalled();
   });
 
+  it("applies the other layers' toggles when an adapter cannot read one layer's style", async () => {
+    const brokenHeatmap = {
+      ...LAYER,
+      id: 'heat-layer',
+      style_config: { render_mode: 'heatmap', builder: { heatmapRamp: 42 } },
+    } as unknown as SharedLayerResponse;
+    const viewer = (visibleLayers: Set<string>) => (
+      <ViewerMap
+        layers={[brokenHeatmap, LAYER]}
+        basemapStyle="openfreemap-positron"
+        basemapConfig={null}
+        showBasemapLabels={true}
+        terrainConfig={null}
+        initialViewState={{ center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 }}
+        visibleLayers={visibleLayers}
+      />
+    );
+    mapState.fakeMap.isStyleLoaded.mockReturnValue(true);
+    const { rerender } = render(viewer(new Set(['heat-layer', 'pt-layer'])));
+    await waitFor(() => expect(mapState.fakeMap.isStyleLoaded).toHaveBeenCalled());
+    mapState.fakeMap.setLayoutProperty.mockClear();
+
+    rerender(viewer(new Set()));
+
+    await waitFor(() => {
+      expect(mapState.fakeMap.setLayoutProperty).toHaveBeenCalledWith('viewer-layer-pt-layer', 'visibility', 'none');
+    });
+  });
+
   it('registers an idle retry when a toggle arrives while the style is transitioning', async () => {
     // Initial render with the style LOADED so the visibility effect advances
     // prevVisibleRef to {pt-layer} (the layer is shown and the baseline is set).

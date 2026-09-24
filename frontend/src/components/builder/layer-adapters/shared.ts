@@ -443,6 +443,16 @@ export function syncLayerFilter(
   }
 }
 
+/** The `source-layer` key of a layer spec. A GeoJSON source has no layers to name. */
+export function sourceLayerSpec(input: { sourceType?: 'vector' | 'geojson'; sourceLayer: string }): { 'source-layer'?: string } {
+  return input.sourceType === 'geojson' ? {} : { 'source-layer': input.sourceLayer };
+}
+
+/** The `filter` key of a layer spec, left out when the layer has no filter. */
+export function filterSpec(filter: FilterSpecification | null | undefined): { filter?: FilterSpecification } {
+  return Array.isArray(filter) && filter.length > 0 ? { filter } : {};
+}
+
 /** Infer adapter type from paint property key prefixes (fallback for null geometry). */
 function inferTypeFromPaint(paint?: Record<string, unknown>): string | null {
   if (!paint) return null;
@@ -541,7 +551,7 @@ function debugPropertySyncFailure(
 
 /** Reconcile an explicit paint ownership set against the live MapLibre layer. */
 export function syncOwnedPaintProperties(
-  map: MaplibreMap,
+  map: Pick<MaplibreMap, 'getLayer' | 'getPaintProperty' | 'setPaintProperty'>,
   layerId: string,
   rawPaint: Record<string, unknown>,
   options: OwnedPaintSyncOptions,
@@ -587,7 +597,7 @@ export function syncOwnedPaintProperties(
 
 /** Reconcile an explicit layout ownership set against the live MapLibre layer. */
 export function syncOwnedLayoutProperties(
-  map: MaplibreMap,
+  map: Pick<MaplibreMap, 'getLayer' | 'getLayoutProperty' | 'setLayoutProperty'>,
   layerId: string,
   layout: Record<string, unknown>,
   options: OwnedLayoutSyncOptions,
