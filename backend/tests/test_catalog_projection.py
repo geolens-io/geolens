@@ -403,6 +403,7 @@ async def test_a_record_without_a_feature_table_is_refused_before_anything_is_wr
     """A dataset without a feature table is refused, and nothing about it changes."""
     session = test_db_session
     dataset = await _dataset(session, geometry_type="POINT", record_type=record_type)
+    record_id = dataset.record_id
     await _table(session, dataset.table_name, geometry=None)
     try:
         row, geom_current = await _assert_refused_without_a_write(
@@ -412,6 +413,11 @@ async def test_a_record_without_a_feature_table_is_refused_before_anything_is_wr
         assert geom_current is True
     finally:
         await _drop(session, dataset.table_name)
+        # A committed tiles3d_dataset record blocks the downgrade past 0065.
+        await session.execute(
+            sa.text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+        )
+        await session.commit()
 
 
 async def test_a_record_type_missing_from_the_table_is_refused(
