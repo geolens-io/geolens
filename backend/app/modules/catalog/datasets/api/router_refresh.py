@@ -20,7 +20,7 @@ run ledger, varying only the binding unpacked and the task deferred.
 Registered PostGIS differs most (no URL, no SSRF check, no credential)
 and still goes through the same
 ``create_pending_run``/``defer_with_orphan_guard``/
-``make_refresh_run_failed_rollback`` -- parts that must not have two
+``make_ingest_job_failed_rollback`` -- parts that must not have two
 implementations.
 """
 
@@ -68,11 +68,7 @@ from app.platform.refresh.credentials import (
     stash_service_credential,
 )
 from app.platform.refresh.models import DatasetRefreshRun
-from app.platform.refresh.service import (
-    DatasetBusyError,
-    create_pending_run,
-    make_refresh_run_failed_rollback,
-)
+from app.platform.refresh.service import DatasetBusyError, create_pending_run
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
@@ -630,12 +626,8 @@ async def _dispatch_postgis_refresh(
     run_id = run.id
     await db.commit()
 
-    rollback = make_refresh_run_failed_rollback(
-        make_ingest_job_failed_rollback(
-            job, message_prefix="Failed to queue refresh task"
-        ),
-        db=db,
-        ingest_job_id=job_id,
+    rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue refresh task"
     )
 
     async def _defer_refresh() -> None:
@@ -944,12 +936,8 @@ async def _dispatch_stac_refresh(
     run_id = run.id
     await db.commit()
 
-    inner_rollback = make_refresh_run_failed_rollback(
-        make_ingest_job_failed_rollback(
-            job, message_prefix="Failed to queue refresh task"
-        ),
-        db=db,
-        ingest_job_id=job_id,
+    inner_rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue refresh task"
     )
 
     _rollback = _lease_releasing_rollback(inner_rollback, credential_ref=credential_ref)
@@ -1371,12 +1359,8 @@ async def refresh_dataset(
     run_id = run.id
     await db.commit()
 
-    inner_rollback = make_refresh_run_failed_rollback(
-        make_ingest_job_failed_rollback(
-            job, message_prefix="Failed to queue refresh task"
-        ),
-        db=db,
-        ingest_job_id=job_id,
+    inner_rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue refresh task"
     )
 
     _rollback = _lease_releasing_rollback(inner_rollback, credential_ref=credential_ref)

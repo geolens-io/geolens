@@ -1271,7 +1271,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow.
-    "backend/app/processing/ingest/manifest_service.py": 1232,
+    "backend/app/processing/ingest/manifest_service.py": 1221,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1360,
@@ -1300,22 +1300,22 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/metadata.py": 157,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising.
-    "backend/app/processing/ingest/router.py": 1827,
+    "backend/app/processing/ingest/router.py": 1805,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 2121,
     # Reupload retains retrieval, staging, cleanup and enrichment adapters.
     "backend/app/processing/ingest/tasks_reupload.py": 1599,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1415,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1399,
     # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup and the job status poll.
-    "backend/app/platform/jobs/sweep.py": 1645,
+    "backend/app/platform/jobs/sweep.py": 1648,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
-    "backend/app/platform/refresh/service.py": 1291,
+    "backend/app/platform/refresh/service.py": 1237,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1496,
@@ -1326,7 +1326,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 933,
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1474,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1459,
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1690,
     # Raster conversion, verification and fenced publication share one failure

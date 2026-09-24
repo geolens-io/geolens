@@ -554,6 +554,24 @@ async def test_backfill_still_requires_admin(
 # actively lies about what happened.
 
 
+async def _requested_audit_entry(
+    client: AsyncClient, headers: dict, job_id: str
+) -> dict:
+    """The `requested` audit entry for one backfill run."""
+    resp = await client.get(
+        "/admin/audit-logs/",
+        params={"action": "embedding.backfill"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return next(
+        entry
+        for entry in resp.json()["logs"]
+        if entry["details"].get("job_id") == job_id
+        and entry["details"]["outcome"] == "requested"
+    )
+
+
 async def _terminal_audit_entries(
     client: AsyncClient, headers: dict, job_id: str
 ) -> list[dict]:
@@ -622,6 +640,50 @@ async def test_a_dispatch_failure_closes_the_audit_trail(
     assert terminal[0]["details"]["outcome"] == "failed"
     assert terminal[0]["details"]["error_code"] == "dispatch_failed"
     assert terminal[0]["details"]["force"] is True
+    # The request behind the failure is named on its end as on its start.
+    assert terminal[0]["ip_address"] is not None
+    assert (
+        terminal[0]["ip_address"]
+        == (await _requested_audit_entry(client, admin_auth_header, job_id))[
+            "ip_address"
+        ]
+    )
+
+
+@pytest.mark.anyio
+async def test_a_dispatch_a_worker_claimed_leaves_the_trail_to_the_worker(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """A defer that fails after a worker claimed the run writes no terminal entry."""
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    async def _claimed_then_the_connection_dropped(_task, /, **kwargs):
+        from app.core.db import async_session
+
+        async with async_session() as worker:
+            await worker.execute(
+                update(IngestJob)
+                .where(IngestJob.id == uuid.UUID(kwargs["job_id"]))
+                .values(status="running", heartbeat_at=datetime.now(timezone.utc))
+            )
+            await worker.commit()
+        raise RuntimeError("connection dropped after the insert")
+
+    with patch.object(
+        admin_router,
+        "defer_async_with_tenant",
+        AsyncMock(side_effect=_claimed_then_the_connection_dropped),
+    ):
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+
+    assert resp.status_code == 503, resp.text
+    live = await _latest_backfill_row(test_db_session)
+    assert live.status == "running"
+    terminal = await _terminal_audit_entries(client, admin_auth_header, str(live.id))
+    assert terminal == [], f"the request closed a run a worker holds: {terminal}"
 
 
 @pytest.mark.anyio
@@ -1948,9 +2010,9 @@ async def test_a_lost_ack_on_the_dispatch_settle_still_closes_the_trail(
     real_fail = backfill_jobs._fail_undispatched_pending_row
     calls = {"n": 0}
 
-    async def _commits_then_loses_the_answer(job_uuid):
+    async def _commits_then_loses_the_answer(job_uuid, **kwargs):
         calls["n"] += 1
-        await real_fail(job_uuid)  # the row really does become `failed`...
+        await real_fail(job_uuid, **kwargs)  # the row really does become `failed`...
         raise asyncio.CancelledError()  # ...and the caller never learns it
 
     monkeypatch.setattr(
@@ -2009,7 +2071,7 @@ async def test_a_dispatch_settle_that_lost_its_answer_and_its_write_audits_nothi
 
     calls = {"n": 0}
 
-    async def _the_worker_took_it_first(job_uuid):
+    async def _the_worker_took_it_first(job_uuid, **_kwargs):
         # The fenced UPDATE matches nothing because the row is already running,
         # and then the answer is lost as well.
         calls["n"] += 1
@@ -2103,9 +2165,9 @@ async def test_a_lost_ack_does_not_claim_a_failure_another_actor_wrote(
     settles = {"n": 0}
     real_fail = backfill_jobs._fail_undispatched_pending_row
 
-    async def _matches_nothing_then_loses_the_answer(job_uuid):
+    async def _matches_nothing_then_loses_the_answer(job_uuid, **kwargs):
         settles["n"] += 1
-        applied = await real_fail(job_uuid)
+        applied = await real_fail(job_uuid, **kwargs)
         assert applied is False, "the row was still pending — wrong arrangement"
         raise asyncio.CancelledError()
 

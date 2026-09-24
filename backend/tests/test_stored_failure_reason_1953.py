@@ -379,8 +379,8 @@ class TestEverySinkGoesThroughTheOneDoor:
 
     def test_the_dispatch_rollback_no_longer_interpolates_the_exception(self) -> None:
         fn = _function(
-            _APP / "platform" / "refresh" / "service.py",
-            "make_refresh_run_failed_rollback",
+            _APP / "platform" / "jobs" / "defer_guard.py",
+            "settle_ingest_job_failed",
         )
         assert "coded_failure_reason" in _call_names(fn)
         assert not [node for node in ast.walk(fn) if isinstance(node, ast.JoinedStr)], (
@@ -461,12 +461,17 @@ class TestEverySinkGoesThroughTheOneDoor:
                 for t in node.targets
             )
         ]
-        assert len(writes) == 3, "the job/generation reason writers moved"
-        for write in writes:
-            assert isinstance(write.value, (ast.Name, ast.Call))
-            if isinstance(write.value, ast.Call):
-                assert isinstance(write.value.func, ast.Name)
-                assert write.value.func.id == "coded_failure_reason"
+        assert writes == [], "the job ledger stores the reason the guard composes"
+        reasons = [
+            kw.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "abort"
+            for kw in node.keywords
+            if kw.arg == "reason"
+        ]
+        assert len(reasons) == 1, "the guard's reason is composed elsewhere now"
+        assert isinstance(reasons[0], ast.Call)
+        assert getattr(reasons[0].func, "id", None) == "coded_failure_reason"
 
 
 @pytest.mark.anyio

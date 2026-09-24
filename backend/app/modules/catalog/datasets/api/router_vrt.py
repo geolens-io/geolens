@@ -424,7 +424,7 @@ async def regenerate_vrt_endpoint(
     """Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds."""
     from app.platform.jobs.defer_guard import (
         defer_with_orphan_guard,
-        make_vrt_regeneration_failed_rollback,
+        make_ingest_job_failed_rollback,
     )
 
     RasterAsset = get_catalog_port().raster_asset_orm_class()
@@ -476,10 +476,6 @@ async def regenerate_vrt_endpoint(
     db.add(generation)
     await db.flush()
 
-    # Capture pre-mutation values so the orphan guard rollback can restore
-    # them if Procrastinate is unreachable.
-    previous_status = vrt_asset.status
-    previous_generation_id = vrt_asset.current_generation_id
     vrt_asset.status = "regenerating"
     vrt_asset.current_generation_id = generation.id
 
@@ -502,15 +498,11 @@ async def regenerate_vrt_endpoint(
             triggered_by=str(user.id),
         )
 
-    # The VrtGeneration row was already committed via db.flush + db.commit
-    # above; rollback marks it failed and reverts vrt_asset to its
-    # pre-mutation values (captured before that commit).
-    rollback = make_vrt_regeneration_failed_rollback(
-        vrt_asset,
-        generation,
-        job,
-        previous_status=previous_status,
-        previous_generation_id=previous_generation_id,
+    # The VrtGeneration row was already committed above. Failing the job
+    # fails that generation too, and restores the asset by the rule the
+    # cancel and the stale sweep use.
+    rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue VRT regeneration"
     )
     await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 

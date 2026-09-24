@@ -259,6 +259,7 @@ async def test_a_content_rejection_keeps_this_surface_s_failed_job_trail(
     await test_db_session.refresh(job)
     assert job.status == "failed"
     assert "'.gif'" in (job.error_message or "")
+    assert job.completed_at is not None
 
 
 async def test_a_rejected_presigned_reupload_removes_both_objects(

@@ -26,8 +26,8 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.failure_reason import coded_failure_reason, redact_failure_reason
-from app.platform.jobs.models import IngestJob
+from app.core.failure_reason import redact_failure_reason
+from app.platform.jobs.ledger import Outcome, abort, hold
 from app.platform.refresh.models import DatasetRefreshRun
 
 logger = structlog.get_logger(__name__)
@@ -642,38 +642,14 @@ async def reject_pending_admitted_refresh(
     A worker that already claimed the run wins the race and this function leaves
     both rows unchanged; callers must never use it to stop running work.
     """
-    job = await session.scalar(
-        select(IngestJob).where(IngestJob.id == ingest_job_id).with_for_update()
+    return await _abort_admitted_refresh(
+        session,
+        ingest_job_id=ingest_job_id,
+        execution_key=execution_key,
+        run_status="pending",
+        error_code=error_code,
+        reason=error_message,
     )
-    if job is None or job.status != "pending":
-        return None
-    run = await session.scalar(
-        select(DatasetRefreshRun)
-        .where(
-            DatasetRefreshRun.ingest_job_id == ingest_job_id,
-            DatasetRefreshRun.execution_key == execution_key,
-            DatasetRefreshRun.status == "pending",
-        )
-        .with_for_update()
-    )
-    if run is None:
-        return None
-    now = await session.scalar(text("SELECT CURRENT_TIMESTAMP"))
-    if now is None:
-        raise RuntimeError(
-            "database did not return a timestamp for admission rejection"
-        )
-    safe_message = redact_run_error(error_message)
-    job.status = "failed"
-    job.completed_at = now
-    job.error_message = safe_message
-    run.status = "failed"
-    run.finished_at = now
-    run.error_code = error_code
-    run.error_message = safe_message
-    await _release_consumed_acceptances(session, [run.id])
-    await _emit_refresh_failed(session, run.id)
-    return run.id
 
 
 async def fail_claimed_admitted_refresh(
@@ -690,38 +666,46 @@ async def fail_claimed_admitted_refresh(
     task starts. Locking the job first prevents that pre-task failure from
     leaving a retryable job beside a terminal refresh run.
     """
-    job = await session.scalar(
-        select(IngestJob).where(IngestJob.id == ingest_job_id).with_for_update()
+    return await _abort_admitted_refresh(
+        session,
+        ingest_job_id=ingest_job_id,
+        execution_key=execution_key,
+        run_status="running",
+        error_code=error_code,
+        reason=error_message,
     )
-    if job is None or job.status != "pending":
+
+
+async def _abort_admitted_refresh(
+    session: AsyncSession,
+    *,
+    ingest_job_id: uuid.UUID,
+    execution_key: uuid.UUID,
+    run_status: str,
+    error_code: str,
+    reason: str | BaseException,
+) -> uuid.UUID | None:
+    """End a keyed run in ``run_status`` and its pending job, or neither.
+
+    The ledger aborts the job, and its run hook fails this run, which is the
+    job's one active run, with ``error_code`` and the same redacted reason.
+    """
+    job = await hold(session, ingest_job_id, expect="pending")
+    if job is None:
         return None
-    run = await session.scalar(
-        select(DatasetRefreshRun)
+    run_id = await session.scalar(
+        select(DatasetRefreshRun.id)
         .where(
             DatasetRefreshRun.ingest_job_id == ingest_job_id,
             DatasetRefreshRun.execution_key == execution_key,
-            DatasetRefreshRun.status == "running",
+            DatasetRefreshRun.status == run_status,
         )
         .with_for_update()
     )
-    if run is None:
+    if run_id is None:
         return None
-    now = await session.scalar(text("SELECT CURRENT_TIMESTAMP"))
-    if now is None:
-        raise RuntimeError(
-            "database did not return a timestamp for admitted refresh failure"
-        )
-    safe_message = redact_run_error(error_message)
-    job.status = "failed"
-    job.completed_at = now
-    job.error_message = safe_message
-    run.status = "failed"
-    run.finished_at = now
-    run.error_code = error_code[:64]
-    run.error_message = safe_message
-    await _release_consumed_acceptances(session, [run.id])
-    await _emit_refresh_failed(session, run.id)
-    return run.id
+    ended = await abort(session, job, code=error_code, reason=reason)
+    return run_id if ended is Outcome.ENDED else None
 
 
 async def expire_unclaimed_admitted_runs(session: AsyncSession) -> list[uuid.UUID]:
@@ -1049,44 +1033,6 @@ async def _stamp_guarded_contact(
 
     await invalidate_catalog_cache()
     return True
-
-
-def make_refresh_run_failed_rollback(
-    inner: Any,
-    *,
-    db: AsyncSession,
-    ingest_job_id: uuid.UUID,
-) -> Any:
-    """Wrap a defer-guard rollback so it also finalizes the run as ``failed``.
-
-    ``defer_with_orphan_guard`` invokes the rollback and then commits, so
-    both the job's failure and the run's land in one transaction — the run
-    can never say `pending` for a dispatch that provably never happened.
-
-    ``inner`` returns whether its fenced job write landed, and only then is
-    the run failed: a worker that claimed the job owns its run too. The
-    same answer is returned, for callers with more to compensate.
-
-    Finalized AFTER the inner rollback, so a raise from the inner closure
-    keeps the pre-existing behaviour (still returns 503) instead of being
-    masked by this wrapper.
-    """
-
-    async def _rollback(defer_exc: BaseException) -> bool:
-        if not await inner(defer_exc):
-            return False
-        await record_refresh_failure(
-            db,
-            ingest_job_id=ingest_job_id,
-            error_code="dispatch_failed",
-            error_message=coded_failure_reason(
-                "Failed to queue refresh task", defer_exc
-            ),
-            contacted_origin=False,
-        )
-        return True
-
-    return _rollback
 
 
 # fix(#1274): guards the pathological legacy DOUBLE — the old system had no

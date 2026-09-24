@@ -23,7 +23,7 @@ from app.core.async_io import (
     run_in_thread_draining_capture_cancel,
 )
 from app.core.config import settings
-from app.core.failure_reason import coded_failure_reason, prefixed_failure_reason
+from app.core.failure_reason import prefixed_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.identity import Identity
@@ -36,11 +36,7 @@ from app.platform.jobs.defer_guard import (
     settle_ingest_job_failed,
 )
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
-from app.platform.refresh.service import (
-    DatasetBusyError,
-    create_pending_run,
-    record_refresh_failure,
-)
+from app.platform.refresh.service import DatasetBusyError, create_pending_run
 
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.manifest_reservation import (
@@ -673,23 +669,16 @@ async def _admit_refresh_run(
     )
 
 
-async def _fail_unqueued_job(
-    db: AsyncSession, job: IngestJob, exc: BaseException
-) -> None:
+async def _fail_unqueued_job(job: IngestJob, exc: BaseException) -> None:
     """Fail a staged job the queue never took, and the run admitted with it.
 
-    The run follows only a job write that landed: a miss means a worker or a
-    cancel owns both rows, and a run the worker claimed must stay its own.
+    The job ledger fails the run only when the job write lands: a miss means
+    a worker or a cancel owns both rows, and a run the worker claimed must
+    stay its own.
     """
-    prefix = "Failed to queue manifest job"
-    if await settle_ingest_job_failed(job, exc, message_prefix=prefix):
-        await record_refresh_failure(
-            db,
-            ingest_job_id=job.id,
-            error_code="dispatch_failed",
-            error_message=coded_failure_reason(prefix, exc),
-            contacted_origin=False,
-        )
+    await settle_ingest_job_failed(
+        job, exc, message_prefix="Failed to queue manifest job"
+    )
 
 
 async def _queue_reupload_job(
@@ -716,7 +705,7 @@ async def _queue_reupload_job(
 
     await defer_with_orphan_guard(
         _defer_reupload,
-        rollback=lambda exc: _fail_unqueued_job(db, job, exc),
+        rollback=lambda exc: _fail_unqueued_job(job, exc),
         db=db,
         job=job,
     )
@@ -936,7 +925,7 @@ async def _settle_staged_entry(
         if not await release_manifest_reservation(
             db, job, prefixed_failure_reason("Failed to stage manifest source", exc)
         ):
-            await _fail_unqueued_job(db, job, exc)
+            await _fail_unqueued_job(job, exc)
         failed = await _settled_failed(db, job_id)
 
     committed = await _settle_under_reset(db, job, _decide_and_settle, job_id=job_id)

@@ -1303,131 +1303,53 @@ async def test_archive_original_file_failure_truncates_long_error(
 
 
 @pytest.mark.anyio
-async def test_queue_ingest_job_file_defer_failure_marks_job_failed(tmp_path):
-    """Procrastinate outage during file ingest defer → job marked failed + 503."""
-    import uuid as _uuid
+@pytest.mark.parametrize("kind", ["file", "service", "raster"])
+async def test_queue_ingest_job_defer_failure_marks_job_failed(
+    test_db_session, tmp_path, kind
+):
+    """A queue outage at each ingest task fails the committed job and answers 503."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from fastapi import HTTPException
 
+    from app.platform.jobs.models import IngestJob
     from app.processing.ingest.service import queue_ingest_job
 
-    # Real file on disk so queue_ingest_job's size probe runs.
-    upload_file = tmp_path / "cities.geojson"
-    upload_file.write_text('{"type":"FeatureCollection","features":[]}')
+    upload = tmp_path / ("dem.tif" if kind == "raster" else "cities.geojson")
+    upload.write_text('{"type":"FeatureCollection","features":[]}')
+    job = IngestJob(
+        source_filename=upload.name,
+        status="pending",
+        file_path=None if kind == "service" else str(upload),
+        source_url=(
+            "https://example.com/services/arcgis/0" if kind == "service" else None
+        ),
+        source_layer="parcels" if kind == "service" else None,
+        user_metadata={"file_type": "raster"} if kind == "raster" else None,
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    job_id = job.id
 
-    mock_db = AsyncMock()
-    mock_db.commit = AsyncMock()
+    task = MagicMock()
+    task.defer_async = AsyncMock(side_effect=RuntimeError("procrastinate unreachable"))
+    # A small vector file goes to the priority queue through `configure`.
+    task.configure = MagicMock(return_value=task)
+    target = {
+        "file": "ingest_file",
+        "service": "ingest_service",
+        "raster": "ingest_raster",
+    }
 
-    job = MagicMock()
-    job.id = _uuid.uuid4()
-    job.source_url = None
-    job.file_path = str(upload_file)
-    job.user_metadata = None
-    job.status = "pending"
-    job.error_message = None
-    job.completed_at = None
-
-    failing_defer = AsyncMock(side_effect=RuntimeError("procrastinate unreachable"))
-
-    with patch("app.processing.ingest.tasks.ingest_file") as mock_task:
-        # Small file path routes to configure("priority").defer_async
-        priority_task = MagicMock()
-        priority_task.defer_async = failing_defer
-        mock_task.configure.return_value = priority_task
-        mock_task.defer_async = failing_defer
-
+    with patch(f"app.processing.ingest.tasks.{target[kind]}", task):
         with pytest.raises(HTTPException) as exc_info:
-            await queue_ingest_job(job, "user-id", db=mock_db)
+            await queue_ingest_job(job, "user-id", db=test_db_session)
 
     assert exc_info.value.status_code == 503
-    assert job.status == "failed"
-    assert job.error_message is not None
-    # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
-    assert "(RuntimeError)" in job.error_message
-    assert "procrastinate unreachable" not in job.error_message
-    assert job.completed_at is not None
-    mock_db.commit.assert_awaited()
-
-
-@pytest.mark.anyio
-async def test_queue_ingest_job_service_defer_failure_marks_job_failed():
-    """Procrastinate outage during service ingest defer → job marked failed + 503."""
-    import uuid as _uuid
-    from unittest.mock import AsyncMock, MagicMock, patch
-
-    from fastapi import HTTPException
-
-    from app.processing.ingest.service import queue_ingest_job
-
-    mock_db = AsyncMock()
-    mock_db.commit = AsyncMock()
-
-    job = MagicMock()
-    job.id = _uuid.uuid4()
-    job.source_url = "https://example.com/services/arcgis/0"
-    job.source_layer = "parcels"
-    job.file_path = None
-    job.user_metadata = None
-    job.status = "pending"
-    job.error_message = None
-    job.completed_at = None
-
-    failing_defer = AsyncMock(side_effect=RuntimeError("queue down"))
-
-    with patch(
-        "app.processing.ingest.tasks.ingest_service",
-        defer_async=failing_defer,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            await queue_ingest_job(job, "user-id", db=mock_db)
-
-    assert exc_info.value.status_code == 503
-    assert job.status == "failed"
-    # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
-    assert "(RuntimeError)" in job.error_message
-    assert "queue down" not in job.error_message
-
-
-@pytest.mark.anyio
-async def test_queue_ingest_job_raster_defer_failure_marks_job_failed(tmp_path):
-    """Procrastinate outage during raster ingest defer → job marked failed + 503."""
-    import uuid as _uuid
-    from unittest.mock import AsyncMock, MagicMock, patch
-
-    from fastapi import HTTPException
-
-    from app.processing.ingest.service import queue_ingest_job
-
-    raster_file = tmp_path / "dem.tif"
-    raster_file.write_bytes(b"fake-raster")
-
-    mock_db = AsyncMock()
-    mock_db.commit = AsyncMock()
-
-    job = MagicMock()
-    job.id = _uuid.uuid4()
-    job.source_url = None
-    job.file_path = str(raster_file)
-    job.user_metadata = {"file_type": "raster"}
-    job.status = "pending"
-    job.error_message = None
-    job.completed_at = None
-
-    failing_defer = AsyncMock(side_effect=RuntimeError("raster queue dead"))
-
-    with patch(
-        "app.processing.ingest.tasks.ingest_raster",
-        defer_async=failing_defer,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            await queue_ingest_job(job, "user-id", db=mock_db)
-
-    assert exc_info.value.status_code == 503
-    assert job.status == "failed"
-    # fix(#1953): the type, never the message ADR-002 Decision 3 excludes.
-    assert "(RuntimeError)" in job.error_message
-    assert "raster queue dead" not in job.error_message
+    row = await test_db_session.get(IngestJob, job_id, populate_existing=True)
+    assert row.status == "failed"
+    assert row.error_message == "Failed to queue ingest task (RuntimeError)"
+    assert row.completed_at is not None
 
 
 class TestCommitImportDispatch:

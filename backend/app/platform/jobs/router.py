@@ -28,6 +28,10 @@ from app.modules.auth.dependencies import (
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
+from app.platform.jobs.ledger import (
+    VRT_REGENERATE_JOB_FILENAME,
+    release_vrt_regeneration,
+)
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
@@ -45,7 +49,6 @@ from app.platform.jobs.schemas import (
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
     JOB_TIMEOUT_SECONDS,  # noqa: F401 -- re-exported, see __all__
-    _READY_WORTHY_SQL,
     audit_settled_embedding_backfill,
     StaleCleanupOutcome,  # noqa: F401 -- re-exported, see __all__
     _RECHECK_TRANSFER_MARGIN_SECONDS,  # noqa: F401 -- re-exported, see __all__
@@ -849,96 +852,6 @@ def _is_lock_conflict(exc: DBAPIError) -> bool:
     return is_lock_conflict(exc)
 
 
-# The three VRT regeneration dispatch sites (regenerate_vrt_endpoint,
-# add_vrt_source, remove_vrt_source) all create their IngestJob with this
-# source_filename literal, and nothing else does.
-_VRT_REGENERATE_JOB_FILENAME = "vrt_regenerate"
-
-
-async def _reconcile_cancelled_vrt_regeneration(
-    db: AsyncSession, dataset_id: uuid.UUID, now: datetime
-) -> None:
-    """Release the VRT state a cancelled ``vrt_regenerate`` job would strand.
-
-    fix(#1709): VRT dispatch commits a ``pending`` VrtGeneration
-    and flips the RasterAsset to ``regenerating`` BEFORE deferring the job;
-    that status 409-blocks every later regenerate/add/remove-source call.
-    The worker only unwinds it on its ``except Exception`` path — a task the
-    cancel beat to the claim never reaches it, and a delivered abort raises
-    CancelledError, a BaseException that handler never sees — so without
-    this, a cancelled regeneration stays blocked until
-    ``sweep_stale_vrt_assets``'s JOB_TIMEOUT_SECONDS cutoff.
-
-    Runs inside the cancel transaction, after the job CAS won, as guarded
-    conditional updates so the fence-wins discipline holds:
-
-    - The generation flips to ``failed`` only from ``pending``/``running``
-      (no ``cancelled`` literal in the CHECK constraint; same convention the
-      stale sweep writes). A terminal row means another actor finished
-      first, and nothing here is touched.
-    - The asset restore reuses the sweep's ``_READY_WORTHY_SQL`` branches:
-      ``ready`` only when composition still matches the catalog and the
-      prior attempt didn't fail, else ``failed``. Either branch clears
-      ``current_generation_id`` so the 409 block lifts immediately.
-    - A worker that publishes cannot lose to this: its publish carries the
-      fenced job-complete update, so it either committed before the cancel's
-      job CAS (cancel then 409s, never reaches here) or rolls back at the
-      fence. Late arrival on either side is a zero-row no-op, never a clobber.
-
-    Lock order (fix(#1709)): the caller already holds the
-    RasterAsset row lock, taken FIRST to match the worker's publish order
-    (asset FOR UPDATE -> generation -> job); everything here stays within it.
-    """
-    # Deferred by design: platform -> processing imports stay function-local
-    # (D-17), mirroring the worker/task_app imports elsewhere in this module.
-    from app.processing.raster.models import RasterAsset, VrtGeneration
-
-    pointer = await db.scalar(
-        select(RasterAsset.current_generation_id).where(
-            RasterAsset.dataset_id == dataset_id,
-            RasterAsset.status == "regenerating",
-        )
-    )
-    if pointer is None:
-        # Nothing in flight: already published, already reconciled, or the
-        # dispatch's orphan-guard rollback restored the asset itself.
-        return
-    generation_cas = await db.execute(
-        update(VrtGeneration)
-        .where(
-            VrtGeneration.id == pointer,
-            VrtGeneration.status.in_(("pending", "running")),
-        )
-        .values(
-            status="failed",
-            completed_at=now,
-            error_message="Cancelled by user",
-        )
-        .returning(VrtGeneration.id)
-    )
-    if generation_cas.scalar_one_or_none() is None:
-        # The pointed-at generation is already terminal — another actor's
-        # record stands, and the asset is that actor's to reconcile.
-        return
-    asset_predicate = (
-        RasterAsset.dataset_id == dataset_id,
-        RasterAsset.status == "regenerating",
-        RasterAsset.current_generation_id == pointer,
-    )
-    restored = await db.execute(
-        update(RasterAsset)
-        .where(*asset_predicate, text(_READY_WORTHY_SQL))
-        .values(status="ready", current_generation_id=None)
-        .returning(RasterAsset.dataset_id)
-    )
-    if restored.scalar_one_or_none() is None:
-        await db.execute(
-            update(RasterAsset)
-            .where(*asset_predicate, text(f"NOT ({_READY_WORTHY_SQL})"))
-            .values(status="failed", current_generation_id=None)
-        )
-
-
 async def _may_cancel_job(
     request: Request,
     db: AsyncSession,
@@ -1056,7 +969,7 @@ async def cancel_job(
         else IngestJob.attempt_id.is_(None)
     )
     is_vrt_job = (
-        job.source_filename == _VRT_REGENERATE_JOB_FILENAME
+        job.source_filename == VRT_REGENERATE_JOB_FILENAME
         and job.dataset_id is not None
     )
     try:
@@ -1102,7 +1015,9 @@ async def cancel_job(
             # fix(#1709): same transaction as the job CAS, so the
             # VRT state this job stranded and the job's terminal status land
             # together.
-            await _reconcile_cancelled_vrt_regeneration(db, job.dataset_id, now)
+            await release_vrt_regeneration(
+                db, job.dataset_id, now, message="Cancelled by user"
+            )
         # fix(#1709): an embedding backfill's dispatch commits an
         # `embedding.backfill` audit event at outcome="requested"; sweep.py's
         # rule is that the job row and audit trail settle together by

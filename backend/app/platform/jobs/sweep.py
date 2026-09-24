@@ -1582,13 +1582,15 @@ async def audit_settled_embedding_backfill(
     created_by: uuid.UUID | None,
     error_code: str,
     settled_by: uuid.UUID | None = None,
+    ip_address: str | None = None,
 ) -> None:
     """Close an embedding backfill's audit trail when a sweeper settles its row.
 
     fix(#1550): the job row and audit trail are written together by
     whichever actor settles the job — after a hard kill, that's the sweeper.
     Emitted on the caller's session so both commit or roll back as one. A
-    no-op for any other kind of job.
+    no-op for any other kind of job. ``ip_address`` is the request behind the
+    settlement; a sweep has none.
     """
     marker = (user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY)
     if not marker:
@@ -1600,7 +1602,7 @@ async def audit_settled_embedding_backfill(
     try:
         async with session.begin_nested():
             await _emit_terminal_backfill_event(
-                session, marker, job_id, actor, error_code
+                session, marker, job_id, actor, error_code, ip_address
             )
     except IntegrityError:
         log.info(
@@ -1616,6 +1618,7 @@ async def _emit_terminal_backfill_event(
     job_id: uuid.UUID,
     actor: uuid.UUID | None,
     error_code: str,
+    ip_address: str | None,
 ) -> None:
     """Write the one terminal entry; ``actor`` is whoever settled the run."""
     # Deferred by design to preserve the platform -> modules layer boundary,
@@ -1638,8 +1641,8 @@ async def _emit_terminal_backfill_event(
                 "outcome": "failed",
                 "error_code": error_code,
             },
-            # No request behind a sweep, and inventing one would be a fiction
-            # in a record whose purpose is attribution.
-            ip_address=None,
+            # None for a sweep: no request is behind it, and inventing one
+            # would be a fiction in a record whose purpose is attribution.
+            ip_address=ip_address,
         ),
     )
