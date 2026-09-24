@@ -6,7 +6,6 @@ import {
   getBuilderStyleConfig,
   getFeatureOpacity,
   resolveAdapterType,
-  simplifyPaint,
 } from '@/components/builder/layer-adapters/shared';
 import type { LayerAdapter } from '@/components/builder/layer-adapters/types';
 import { isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
@@ -102,10 +101,47 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-// Expressions count at the value the adapter adds them with.
+/** Where an expression's branches put their outputs: step and interpolate stops, match and case arms, coalesce arguments. */
+function expressionOutputs(expr: unknown[]): unknown[] {
+  switch (expr[0]) {
+    case 'step':
+      return expr.filter((_, i) => i >= 2 && i % 2 === 0);
+    case 'interpolate':
+    case 'interpolate-hcl':
+    case 'interpolate-lab':
+      return expr.filter((_, i) => i >= 4 && i % 2 === 0);
+    case 'match':
+      return expr.filter((_, i) => i >= 3 && (i % 2 === 1 || i === expr.length - 1));
+    case 'case':
+      return expr.filter((_, i) => i >= 2 && (i % 2 === 0 || i === expr.length - 1));
+    case 'coalesce':
+      return expr.slice(1);
+    default:
+      return [];
+  }
+}
+
+/** The largest number an expression outputs, through nested expressions; null when it outputs none. */
+function largestOutput(value: unknown): number | null {
+  if (typeof value === 'number') return value;
+  if (!Array.isArray(value)) return null;
+  return expressionOutputs(value).reduce<number | null>((largest, output) => {
+    const candidate = largestOutput(output);
+    return candidate !== null && (largest === null || candidate > largest) ? candidate : largest;
+  }, null);
+}
+
+// A zoom or data expression counts at the largest value it reaches: the swatch
+// shows the layer as it looks once it fades in, and an unreadable one shows at 1.
 function featureOpacity(paint: Record<string, unknown>, family: 'fill' | 'line' | 'circle'): number {
-  const value = getFeatureOpacity(simplifyPaint(paint), family);
-  return typeof value === 'number' ? value : 1;
+  const value = getFeatureOpacity(paint, family);
+  return typeof value === 'number' ? value : largestOutput(value) ?? 1;
+}
+
+/** The paint with an expression on `key` replaced by the largest value it reaches, else 1. */
+function atLargestOutput(paint: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = paint[key];
+  return Array.isArray(value) ? { ...paint, [key]: largestOutput(value) ?? 1 } : paint;
 }
 
 function patternOf(
@@ -155,7 +191,7 @@ function swatchFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendSwatch
         fill: stringOrNull(resolveCirclePaint(paint)['circle-color']),
         fillOpacity: featureOpacity(paint, 'circle'),
         opacity,
-        stroke: resolvePointStroke(paint),
+        stroke: resolvePointStroke(atLargestOutput(paint, 'circle-stroke-width')),
         pattern: null,
       };
     default:

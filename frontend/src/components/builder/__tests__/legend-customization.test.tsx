@@ -7,7 +7,7 @@ import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { legendFacts } from '@/components/map/legend-facts';
 import type { PluginContext } from '@/components/map-plugins/types';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { SAVED_LAYERS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
+import { SAVED_LAYERS, ZOOM_FADED_STATIONS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
 import type { MapLayerResponse } from '@/types/api';
 
 vi.mock('react-i18next', () => ({
@@ -152,6 +152,23 @@ describe('classes in both legends', () => {
 
     // Three width classes and the first colour class.
     expect(container.querySelectorAll('line[stroke="#bae6fd"]')).toHaveLength(4);
+  });
+
+  it.each(Object.entries(legends))('%s legend draws zoom-faded categories at the opacity they fade in to', (_legend, draw) => {
+    const container = draw(ZOOM_FADED_STATIONS);
+
+    const chips = Array.from(container.querySelectorAll('svg[viewBox="0 0 14 14"] circle'));
+    expect(chips.map((chip) => [chip.getAttribute('fill'), chip.getAttribute('fill-opacity')])).toEqual([
+      ['#22c55e', '0.95'],
+      ['#a3e635', '0.95'],
+      ['#94a3b8', '0.95'],
+    ]);
+  });
+
+  it('viewer legend icon fills zoom-faded categories at the opacity they fade in to', () => {
+    const container = legends.viewer(ZOOM_FADED_STATIONS);
+
+    expect(container.querySelector('.lucide-circle')).toHaveAttribute('fill-opacity', '0.95');
   });
 
   it('builder legend lists graduated classes that have no breaks', () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildGraduatedExpression, buildGraduatedSizeExpression } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
-import { SAVED_LAYERS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
+import { SAVED_LAYERS, ZOOM_FADED_STATIONS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
 import { legendFacts, type LegendClasses, type LegendFacts, type LegendSwatch } from '../legend-facts';
 
 type Row = [label: string, layer: MapLayerResponse, expected: LegendFacts | null];
@@ -155,9 +155,32 @@ const swatchRows: Row[] = [
     fillFacts({ fill: '#3b82f6', stroke: { color: '#1d4ed8', width: 2 } }),
   ],
   [
-    'fill opacity from an expression',
+    'fill opacity from a data step, at its largest',
     polygon({ 'fill-color': '#3b82f6', 'fill-opacity': ['step', ['get', 'v'], 0.5, 10, 0.9] }),
-    fillFacts({ fill: '#3b82f6', fillOpacity: 0.5, stroke: DEFAULT_OUTLINE }),
+    fillFacts({ fill: '#3b82f6', fillOpacity: 0.9, stroke: DEFAULT_OUTLINE }),
+  ],
+  [
+    'fill opacity from a match, at its largest output and not its labels',
+    polygon({ 'fill-color': '#3b82f6', 'fill-opacity': ['match', ['get', 'n'], 5, 0.2, 7, 0.6, 0.4] }),
+    fillFacts({ fill: '#3b82f6', fillOpacity: 0.6, stroke: DEFAULT_OUTLINE }),
+  ],
+  [
+    'fill opacity no output of which is a number',
+    polygon({ 'fill-color': '#3b82f6', 'fill-opacity': ['get', 'alpha'] }),
+    fillFacts({ fill: '#3b82f6', fillOpacity: 1, stroke: DEFAULT_OUTLINE }),
+  ],
+  [
+    'line opacity faded in by zoom',
+    savedLayer({ dataset_geometry_type: 'MULTILINESTRING', paint: { 'line-color': '#ef4444', 'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0, 10, 0.8] } }),
+    { name: 'Layer 1', drawsAs: 'line', swatch: swatch({ fill: '#ef4444', fillOpacity: 0.8 }), classes: null },
+  ],
+  [
+    'circle opacity from a zoom ramp over a data case',
+    point({
+      'circle-color': '#e2e8f0',
+      'circle-opacity': ['interpolate', ['linear'], ['zoom'], 1.5, ['case', ['>=', ['get', 'pop'], 5000000], 0.9, 0.5], 4, 0.7],
+    }),
+    circleFacts({ fill: '#e2e8f0', fillOpacity: 0.9 }),
   ],
   ['layer opacity', savedLayer({ opacity: 0.5, paint: { 'fill-color': '#3b82f6' } }), fillFacts({ fill: '#3b82f6', opacity: 0.5, stroke: DEFAULT_OUTLINE })],
   [
@@ -196,9 +219,34 @@ const swatchRows: Row[] = [
     circleFacts({ fill: '#fff7ed', stroke: { color: '#000000', width: 2 } }),
   ],
   [
-    'point ring width from an expression',
+    'point ring width from a data step, at its largest',
     point({ 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c', 'circle-stroke-width': ['step', ['get', 'v'], 2, 10, 4] }),
+    circleFacts({ fill: '#fff7ed', stroke: { color: '#ea580c', width: 4 } }),
+  ],
+  [
+    'point ring grown in by zoom',
+    point({ 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 0, 14, 2] }),
     circleFacts({ fill: '#fff7ed', stroke: ring }),
+  ],
+  [
+    'categories faded in by zoom',
+    ZOOM_FADED_STATIONS,
+    {
+      name: 'Stations (green = ADA accessible)',
+      drawsAs: 'circle',
+      swatch: swatch({ fillOpacity: 0.95, stroke: { color: '#0b0f14', width: 1 } }),
+      classes: [{
+        mode: 'categorical',
+        target: 'color',
+        title: 'ada',
+        items: [
+          { color: '#22c55e', label: 'ADA accessible' },
+          { color: '#a3e635', label: 'Partially accessible' },
+          { color: '#94a3b8', label: 'Not accessible' },
+        ],
+        breaks: [],
+      }],
+    },
   ],
   [
     'polygon with no paint',
