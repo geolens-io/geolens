@@ -2,6 +2,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { FilterSpecification, LayerSpecification } from 'maplibre-gl';
 import type { LabelConfig, StyleConfig } from '@/types/api';
 import type { LayoutPropertyName, PaintPropertyName } from './shared';
+import type { ZoomRange } from '../layer-description';
 
 type AdapterStyleConfig = Partial<StyleConfig> & {
   builder?: StyleConfig['builder'];
@@ -32,6 +33,8 @@ export interface AdapterLayerInput {
   sourceId: string;
   layerId: string;
   sourceLayer: string;
+  /** The layer's saved zoom range; null or absent when it saves none. */
+  zoom?: ZoomRange | null;
   // Source type: 'vector' (MVT, default) or 'geojson' (GeoJSON-Z)
   sourceType?: 'vector' | 'geojson';
   // Raster-specific (from TileToken)
@@ -59,7 +62,7 @@ export interface LayerSpec {
     source: string;
     'source-layer'?: string;
     filter?: FilterSpecification;
-    /** A zoom range of the spec's own. */
+    /** A range of the spec's own, set in place of the layer's. */
     minzoom?: number;
     maxzoom?: number;
     layout: Record<string, unknown>;

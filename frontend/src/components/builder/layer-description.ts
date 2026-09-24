@@ -390,6 +390,7 @@ export function adapterInputFor(
     sourceId: described.sourceId,
     layerId: described.id,
     sourceLayer: described.sourceLayer,
+    zoom: described.zoom,
     tileUrl: pending.tileUrl ?? '',
   };
 }

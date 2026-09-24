@@ -22,7 +22,7 @@ import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { getAdapter } from './layer-adapters/registry';
-import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
+import type { AdapterLayerInput, LayerAdapter, LayerSpec } from './layer-adapters/types';
 import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
 import {
   adapterInputFor,
@@ -613,11 +613,12 @@ function removeKnownVectorLayers(map: MaplibreMap, layerId: string, id: string, 
   }
 }
 
-function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], zoom: ZoomRange) {
+/** Each layer's zoom range: the range its spec sets, else the saved layer's. */
+function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], zoom: ZoomRange, specs: readonly LayerSpec[]) {
   for (const id of layerIds) {
-    if (map.getLayer(id)) {
-      map.setLayerZoomRange(id, zoom.minzoom, zoom.maxzoom);
-    }
+    if (!map.getLayer(id)) continue;
+    const own = specs.find(({ layer }) => layer.id === id)?.layer;
+    map.setLayerZoomRange(id, own?.minzoom ?? zoom.minzoom, own?.maxzoom ?? zoom.maxzoom);
   }
 }
 
@@ -857,6 +858,7 @@ function ensureVectorSource(
   mode: VectorSourceMode,
   source: VectorSourceSpecification | GeoJSONSourceSpecification,
   zoom: ZoomRange,
+  specs: readonly LayerSpec[],
   prefix: string | undefined,
 ): boolean {
   const { sourceId, layerId } = adapterInput;
@@ -909,7 +911,7 @@ function ensureVectorSource(
       else adapter.syncPaint(map, adapterInput);
     }
     adapter.syncVisibility(map, adapterInput);
-    syncLayerZoomRange(map, adapter.getLayerIds(layerId), zoom);
+    syncLayerZoomRange(map, adapter.getLayerIds(layerId), zoom, specs);
     return true;
   }
 
@@ -983,7 +985,7 @@ function syncVectorLayer(
   const zoom = described.zoom ?? FULL_ZOOM_RANGE;
 
   const mode = resolveVectorSourceMode(layer, adapterInput, described.drawsAs, source);
-  const handledGeoJson = ensureVectorSource(map, layer, adapterInput, mode, source, zoom, prefix);
+  const handledGeoJson = ensureVectorSource(map, layer, adapterInput, mode, source, zoom, described.specs, prefix);
   if (handledGeoJson) return;
 
   const outlineLayerId = prefixed('outline', layer.id, prefix);
@@ -995,6 +997,7 @@ function syncVectorLayer(
     map,
     [...new Set([...mode.adapter.getLayerIds(layerId), outlineLayerId, extrusionLayerId, arrowLayerId])],
     zoom,
+    described.specs,
   );
 
   syncLabelCompanion(map, layer, adapterInput, mode, prefix);
@@ -1176,6 +1179,7 @@ export function syncLayersToMap(
             map,
             [described.id, getCompanionLayerIds(layer.id, prefix).colorRelief],
             described.zoom,
+            described.specs,
           );
         }
       } else if (source.type === 'vector' || source.type === 'geojson') {

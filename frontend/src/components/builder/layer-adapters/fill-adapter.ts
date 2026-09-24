@@ -190,13 +190,17 @@ function extrusionSpec(
 ): LayerSpec {
   const builder = getBuilderStyleConfig(input);
   const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
+  const zoom = input.zoom ?? FULL_ZOOM_RANGE;
+  // Only the zooms both the layer's range and the extrusion minimum allow. An
+  // empty overlap collapses to minzoom === maxzoom, which draws nothing.
+  const minzoom = Math.max(zoom.minzoom, extrusionMinZoom);
   return {
     layer: {
       id: `${input.layerId}-extrusion`,
       type: 'fill-extrusion',
       ...base,
-      minzoom: extrusionMinZoom,
-      maxzoom: FULL_ZOOM_RANGE.maxzoom,
+      minzoom,
+      maxzoom: Math.max(zoom.maxzoom, minzoom),
       paint: {
         'fill-extrusion-height': buildHeightExpression(heightColumn, heightScale),
         'fill-extrusion-base': 0,

@@ -328,6 +328,24 @@ const rows: Row[] = [
     drawing([fill(buildings, BUILDINGS), outline(buildings), extrusion(buildings, { 'fill-extrusion-color': '#f97316' }, { minzoom: 13 })]),
   ],
   [
+    "an extrusion within the layer's zoom range",
+    { ...buildings, layout: { _minzoom: 15, _maxzoom: 18 } },
+    drawing([
+      fill(buildings, BUILDINGS),
+      outline(buildings),
+      extrusion(buildings, { 'fill-extrusion-color': '#f97316' }, { minzoom: 15, maxzoom: 18 }),
+    ]),
+  ],
+  [
+    'a zoom range that ends below the extrusion minimum, which leaves the extrusion no zoom to draw at',
+    { ...buildings, layout: { _maxzoom: 10 } },
+    drawing([
+      fill(buildings, BUILDINGS),
+      outline(buildings),
+      extrusion(buildings, { 'fill-extrusion-color': '#f97316' }, { minzoom: 14, maxzoom: 14 }),
+    ]),
+  ],
+  [
     'a hidden extrusion',
     { ...buildings, visible: false },
     drawing([
@@ -567,11 +585,42 @@ function syncTwice(layer: MapLayerResponse) {
   return { recording, passes };
 }
 
+function zoomRange(layers: { id: string; minzoom?: number; maxzoom?: number }[], id: string) {
+  const layer = layers.find((candidate) => candidate.id === id);
+  return [layer?.minzoom, layer?.maxzoom];
+}
+
 describe('polygon layers through syncLayersToMap', () => {
   it.each(rows)('draws %s the same on a repeat pass as on the first', (_label, layer, expected) => {
     const { recording, passes: [first, repeat] } = syncTwice(layer);
     expect(first.map(({ id }) => id).sort()).toEqual(expected.specs.map((spec) => spec.layer.id).sort());
     expect(repeat).toEqual(first);
     expect(recording.errors).toEqual([]);
+  });
+
+  it.each([
+    ['a minimum of 13 on a layer with no saved range', withBuilder(buildings, { extrusionMinZoom: 13 }), [0, 22], [13, 22]],
+    ['a minimum of 13 on a layer saved as 0-22', { ...withBuilder(buildings, { extrusionMinZoom: 13 }), layout: { _minzoom: 0, _maxzoom: 22 } }, [0, 22], [13, 22]],
+    ['the default minimum on a layer with no saved range', buildings, [0, 22], [14, 22]],
+    ['the default minimum on a layer ranged 15-18', { ...buildings, layout: { _minzoom: 15, _maxzoom: 18 } }, [15, 18], [15, 18]],
+  ] as const)("gives the extrusion for %s its own range, and the fill and outline the layer's", (_label, layer, range, extruded) => {
+    const { passes } = syncTwice(layer);
+    for (const pass of passes) {
+      expect(zoomRange(pass, 'layer-layer-buildings')).toEqual(range);
+      expect(zoomRange(pass, 'layer-layer-buildings-outline')).toEqual(range);
+      expect(zoomRange(pass, 'layer-layer-buildings-extrusion')).toEqual(extruded);
+    }
+  });
+
+  it("keeps the extrusion's range through a paint edit between sync passes", () => {
+    const zoomed = { ...buildings, layout: { _minzoom: 15, _maxzoom: 18 } };
+    const { recording } = syncTwice(zoomed);
+    const { adapter, adapterInput } = setUp({ ...zoomed, paint: { ...zoomed.paint, 'fill-color': '#654321' } });
+
+    adapter.syncPaint(recording.map, adapterInput);
+
+    const layer = recording.layer('layer-layer-buildings-extrusion');
+    expect([layer?.minzoom, layer?.maxzoom]).toEqual([15, 18]);
+    expect(layer?.paint['fill-extrusion-color']).toBe('#654321');
   });
 });
