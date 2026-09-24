@@ -36,7 +36,6 @@ import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
-import { syncColorReliefLayer } from './color-relief-sync';
 import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
@@ -1164,14 +1163,6 @@ export function syncLayersToMap(
 
       if (source.type === 'raster' || source.type === 'raster-dem') {
         syncRasterLayer(map, adapterInput, source, desiredSources);
-        // EDITOR-DEM-05: sync companion color-relief layer (hillshade-gated) for DEM layers.
-        // Called after syncRasterLayer so the raster-dem source already exists.
-        // Layer id: ${layerId}-colorrelief — reuses the existing raster-dem source.
-        // syncColorReliefLayer never calls addSource; the companion layer is auto-removed
-        // by syncColorReliefLayer when disabled or when render_mode !== hillshade.
-        if (adapterInput.is_dem === true) {
-          syncColorReliefLayer(map, adapterInput);
-        }
         // A raster without a saved range keeps MapLibre's uncapped default,
         // which FULL_ZOOM_RANGE would cut off at z22.
         if (described.zoom) {

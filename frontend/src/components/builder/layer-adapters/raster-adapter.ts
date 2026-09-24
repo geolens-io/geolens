@@ -1,11 +1,6 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { AdapterLayerInput, LayerAdapter } from './types';
-import {
-  normalizeRasterBounds,
-  paintValueChanged,
-  setDynamicPaintProperty,
-  syncSingleLayerVisibility,
-} from './shared';
+import type { AdapterLayerInput, LayerAdapter, LayerDrawing } from './types';
+import { normalizeRasterBounds } from './shared';
+import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 
 /** Default lower percentile bound for the raster stretch. Backend default is 2. */
 const STRETCH_PMIN_DEFAULT = 2;
@@ -27,6 +22,12 @@ export const RASTER_PAINT_DEFAULTS = {
 type RasterPaintProperty = keyof typeof RASTER_PAINT_DEFAULTS;
 
 const RASTER_PAINT_PROPERTIES = Object.keys(RASTER_PAINT_DEFAULTS) as RasterPaintProperty[];
+
+/**
+ * Every paint key a raster layer draws with. A write clears a key the paint
+ * drops, and MapLibre's default for it is the one above.
+ */
+export const RASTER_SPEC_PAINT_PROPERTIES = [...RASTER_PAINT_PROPERTIES, 'raster-opacity'] as const;
 
 /**
  * The 4 user-facing raster paint properties exposed in RasterLayerControls.
@@ -146,18 +147,30 @@ function getSupportedRasterPaint(paint: Record<string, unknown>): Partial<Record
   return nextPaint;
 }
 
-function hasRasterPaintValue(
-  paint: Partial<Record<RasterPaintProperty, number | string>>,
-  property: RasterPaintProperty,
-): boolean {
-  return Object.prototype.hasOwnProperty.call(paint, property);
+function describeRaster(input: AdapterLayerInput): LayerDrawing {
+  return {
+    specs: [{
+      layer: {
+        id: input.layerId,
+        type: 'raster',
+        source: input.sourceId,
+        layout: { visibility: input.visible ? 'visible' : 'none' },
+        paint: buildRasterPaint(input),
+      },
+      ownedPaint: RASTER_SPEC_PAINT_PROPERTIES,
+      // map-sync's raster path calls syncPaint with no syncVisibility after it.
+      ownedLayout: ['visibility'],
+    }],
+    images: [],
+  };
 }
 
 export const rasterAdapter: LayerAdapter = {
   type: 'raster',
+  describe: describeRaster,
 
-  addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds, attribution } = input;
+  addLayers(map, input) {
+    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, bounds, attribution } = input;
     // builder-audit #338 ADAPT-10: source construction reads input.tileUrl directly. The
     // colormap/stretch query params are applied by buildColormapTileUrl (exported from
     // THIS module) — but the call site lives in map-sync.syncRasterLayer, which mutates
@@ -182,54 +195,16 @@ export const rasterAdapter: LayerAdapter = {
       });
     }
     if (map.getLayer(layerId)) return;
-    // BUG-01: honor input.visible at initial add so callers that don't
-    // immediately follow up with syncVisibility still produce a layer in the
-    // correct visual state (mirrors fill/circle/heatmap/line adapter pattern).
-    map.addLayer({
-      id: layerId,
-      type: 'raster',
-      source: sourceId,
-      paint: buildRasterPaint(input),
-      ...(visible === false ? { layout: { visibility: 'none' as const } } : {}),
-    });
-    // Defense-in-depth: ensure visibility even if addLayer layout block is missed.
-    if (!visible) {
-      map.setLayoutProperty(layerId, 'visibility', 'none');
-    }
+    addDescribedLayer(map, describeRaster(input));
   },
 
-  syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, opacity, visible } = input;
-    if (!map.getLayer(layerId)) return;
-
-    const supportedPaint = getSupportedRasterPaint(input.paint);
-    for (const property of RASTER_PAINT_PROPERTIES) {
-      const current = map.getPaintProperty(layerId, property);
-      const desired = hasRasterPaintValue(supportedPaint, property)
-        ? supportedPaint[property]
-        : RASTER_PAINT_DEFAULTS[property];
-      if ((hasRasterPaintValue(supportedPaint, property) || current !== undefined) && paintValueChanged(current, desired)) {
-        // fix(#846): the KEY here is already narrow, but one loop body covers seven
-        // properties whose v6 value types differ (`raster-resampling` takes an enum,
-        // the rest numbers), so `desired` is their union and TypeScript cannot tie it
-        // back to the current `property`. Same untyped-style-JSON boundary as
-        // everywhere else in the adapters.
-        setDynamicPaintProperty(map, layerId, property, desired);
-      }
-    }
-
-    const currentOpacity = map.getPaintProperty(layerId, 'raster-opacity');
-    if (currentOpacity !== (opacity ?? 1)) {
-      map.setPaintProperty(layerId, 'raster-opacity', opacity ?? 1);
-    }
-    // builder-audit #338 ADAPT-09: reconcile visibility through the SAME shared helper the
-    // vector adapters use. syncRasterLayer (map-sync) calls syncPaint without a
-    // following syncVisibility, so visibility must still be reconciled here — uniformly.
-    syncSingleLayerVisibility(map, layerId, visible);
+  syncPaint(map, input) {
+    if (!map.getLayer(input.layerId)) return;
+    writeDescribedLayer(map, describeRaster(input));
   },
 
-  syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    syncSingleLayerVisibility(map, input.layerId, input.visible);
+  syncVisibility(map, input) {
+    writeDescribedVisibility(map, describeRaster(input));
   },
 
   getLayerIds(layerId: string): string[] {

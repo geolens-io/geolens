@@ -10,17 +10,6 @@ vi.mock('@/lib/tile-utils', () => ({
   buildClusterTileUrl: vi.fn(() => '/tiles/clusters/mock/{z}/{x}/{y}.pbf'),
 }));
 
-// Mock color-relief-sync so the raster sync tests can assert it is invoked for DEM layers
-// without needing a real DemSource. Use vi.hoisted so the mock factory can reference the
-// spy despite vi.mock hoisting.
-const { mockSyncColorReliefLayer } = vi.hoisted(() => ({
-  mockSyncColorReliefLayer: vi.fn(),
-}));
-vi.mock('@/components/builder/color-relief-sync', () => ({
-  syncColorReliefLayer: mockSyncColorReliefLayer,
-  buildElevationExpression: vi.fn(() => ['interpolate', ['linear'], ['elevation']]),
-}));
-
 // Mock window.location.origin for raster tile URL construction
 Object.defineProperty(window, 'location', {
   value: { origin: 'http://localhost:8080' },
@@ -173,7 +162,6 @@ describe('syncLayersToMap', () => {
   let managedSourcesRef: { current: Set<string> };
 
   beforeEach(() => {
-    mockSyncColorReliefLayer.mockClear();
     map = createMockMap();
     managedSourcesRef = { current: new Set() };
   });
@@ -392,7 +380,8 @@ describe('syncLayersToMap', () => {
 
     syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
-    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-r3', 'visibility', 'none');
+    const added = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls.map(([spec]) => spec);
+    expect(added).toEqual([expect.objectContaining({ id: 'layer-r3', layout: { visibility: 'none' } })]);
   });
 
   it('vector layer adds vector source and fill layer for Polygon', () => {
@@ -682,59 +671,6 @@ describe('syncLayersToMap', () => {
   // EDITOR-DEM-05: syncColorReliefLayer wiring
   // ---------------------------------------------------------------------------
 
-  describe('syncColorReliefLayer wiring', () => {
-    beforeEach(() => {
-      mockSyncColorReliefLayer.mockClear();
-    });
-
-    it('calls syncColorReliefLayer for is_dem=true raster layers', () => {
-      const layer = makeLayer({
-        id: 'dem-cr-test',
-        layer_type: 'raster_geolens',
-        dataset_geometry_type: null,
-        is_dem: true,
-        style_config: { mode: 'categorical', column: '', ramp: '', render_mode: 'hillshade' },
-        paint: { '_hypso-enabled': true },
-      });
-      const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
-
-      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
-
-      expect(mockSyncColorReliefLayer).toHaveBeenCalledOnce();
-      const [, calledInput] = mockSyncColorReliefLayer.mock.calls[0] as [unknown, { layerId: string; is_dem: boolean | null | undefined }];
-      expect(calledInput.layerId).toBe('layer-dem-cr-test');
-      expect(calledInput.is_dem).toBe(true);
-    });
-
-    it('does NOT call syncColorReliefLayer for non-DEM raster layers', () => {
-      const layer = makeLayer({
-        id: 'raster-regular-cr',
-        layer_type: 'raster_geolens',
-        dataset_geometry_type: null,
-        is_dem: false,
-      });
-      const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
-
-      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
-
-      expect(mockSyncColorReliefLayer).not.toHaveBeenCalled();
-    });
-
-    it('does NOT call syncColorReliefLayer for vector layers', () => {
-      const layer = makeLayer({
-        id: 'vector-cr-test',
-        layer_type: 'vector_geolens',
-        dataset_geometry_type: 'Polygon',
-        is_dem: false,
-      });
-      const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
-
-      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
-
-      expect(mockSyncColorReliefLayer).not.toHaveBeenCalled();
-    });
-  });
-
   // Regression test for WR-01: color-relief companion layer is removed when its
   // DEM layer is deleted from the layers list.
   it('WR-01 regression: color-relief companion layer is removed when DEM source becomes stale', () => {
@@ -907,7 +843,6 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
   }
 
   beforeEach(() => {
-    mockSyncColorReliefLayer.mockClear();
     map = createMockMap();
     managedSourcesRef = { current: new Set() };
   });
@@ -932,9 +867,10 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
     expect(addLayerCall.type).toBe('hillshade');
   });
 
-  it('normalizes legacy DEM image mode to hillshade before rendering', () => {
+  it('draws a DEM saved in the legacy image mode as a hillshade, with its colour relief', () => {
     const layer = makeDEMLayer({
       style_config: { render_mode: 'image' } as unknown as MapLayerResponse['style_config'],
+      paint: { '_hypso-enabled': true },
     });
     const tokenMap = new Map<string, TileToken>([
       ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
@@ -942,14 +878,8 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
 
     syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
-    const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(addLayerCall.type).toBe('hillshade');
-    expect(mockSyncColorReliefLayer).toHaveBeenCalledWith(
-      map,
-      expect.objectContaining({
-        style_config: expect.objectContaining({ render_mode: 'hillshade' }),
-      }),
-    );
+    const added = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls.map(([spec]) => spec.type);
+    expect(added).toEqual(['color-relief', 'hillshade']);
   });
 
   it('normalizes missing DEM render mode to hillshade before rendering', () => {

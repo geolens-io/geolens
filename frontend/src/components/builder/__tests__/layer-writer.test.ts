@@ -2,8 +2,11 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import { RecordingMap, TILE_ADOPTION_MS } from '@/test/recording-map';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
-import { FIXTURE_TOKENS } from '@/test/fixtures/render-contexts';
+import { FIXTURE_TOKENS, RENDER_CONTEXTS } from '@/test/fixtures/render-contexts';
+import type { RasterTileToken } from '@/api/tiles';
+import type { MapLayerResponse } from '@/types/api';
 import { getSourceIdForLayer, syncLayersToMap, toSyncInput } from '../map-sync';
+import { describeLayers } from '../layer-description';
 import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import type { ImageSpec, LayerDrawing, LayerSpec } from '../layer-adapters/types';
 
@@ -278,5 +281,49 @@ describe('a sync pass that writes a layer and a new tile URL together', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('a sync pass that replaces a raster source', () => {
+  /** A first sync pass, then a second one whose calls alone are recorded. */
+  function syncPasses(first: MapLayerResponse, second: MapLayerResponse, secondTokens = new Map(FIXTURE_TOKENS)) {
+    const recording = new RecordingMap();
+    const managed = { current: new Set<string>() };
+    const order = { current: '' };
+    syncLayersToMap(recording.map, [toSyncInput(first)], new Map(FIXTURE_TOKENS), undefined, managed, order);
+    recording.calls.length = 0;
+    syncLayersToMap(recording.map, [toSyncInput(second)], secondTokens, undefined, managed, order);
+    return recording;
+  }
+
+  function described(layer: MapLayerResponse) {
+    return describeLayers([toSyncInput(layer)], RENDER_CONTEXTS.builder).layers[0].specs.map(({ layer: spec }) => spec);
+  }
+
+  it('adds the layer back as described once a colormap changes its tiles', () => {
+    const styled = { ...SAVED_LAYERS.raster, opacity: 0.6, paint: { 'raster-contrast': 0.2 } };
+    const recolored = { ...styled, paint: { ...styled.paint, _colormap: 'magma' } };
+
+    const recording = syncPasses(styled, recolored);
+
+    const sourceId = getSourceIdForLayer(styled);
+    expect(recording.callsTo('removeSource')).toEqual([[sourceId]]);
+    expect((recording.getStyle().sources[sourceId] as { tiles: string[] }).tiles[0]).toContain('colormap_name=magma');
+    expect(recording.layerIds().map((id) => recording.layer(id))).toEqual(described(recolored));
+    expect(recording.errors).toEqual([]);
+  });
+
+  it('adds a hillshade back with its colour relief below it once the DEM tiles change', () => {
+    const dem = { ...SAVED_LAYERS.hillshadeDem, paint: { ...SAVED_LAYERS.hillshadeDem.paint, '_hypso-enabled': true } };
+    const rotated = new Map(FIXTURE_TOKENS);
+    const token = rotated.get(dem.dataset_id) as RasterTileToken;
+    rotated.set(dem.dataset_id, { ...token, tile_url: token.tile_url.replace('sig=', 'sig=rotated-') });
+
+    const recording = syncPasses(dem, dem, rotated);
+
+    expect(recording.callsTo('removeLayer')).toEqual([[`layer-${dem.id}-colorrelief`], [`layer-${dem.id}`]]);
+    expect(recording.callsTo('removeSource')).toEqual([[getSourceIdForLayer(dem)]]);
+    expect(recording.layerIds().map((id) => recording.layer(id))).toEqual(described(dem));
+    expect(recording.errors).toEqual([]);
   });
 });

@@ -413,8 +413,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                     mode="graduated"
                     rampName={getStringPaint(paint, '_hypso-ramp', 'Viridis')}
                     onChange={(name) => handlePaintValue('_hypso-ramp', name)}
-                    // Reverse checkbox was rendered inert (no props wired);
-                    // color-relief-sync consumes _hypso-reversed to flip the ramp.
+                    // The hillshade adapter's colour relief reads _hypso-reversed to flip the ramp.
                     reversed={paint['_hypso-reversed'] === true}
                     onReversedChange={(next) => handlePaintValue('_hypso-reversed', next)}
                   />
