@@ -737,6 +737,37 @@ async def _geom_column_is_generic(session: AsyncSession, table_name: str) -> boo
     return col_type is not None and col_type.strip().upper() == "GEOMETRY"
 
 
+_MEASURED_LAYER_EDIT_ERROR = (
+    "This layer stores measure (M) values, which GeoJSON can't carry, so "
+    "its geometry can't be edited here. Edit the source file and upload "
+    "it again."
+)
+
+
+async def _geom_column_is_measured(session: AsyncSession, table_name: str) -> bool:
+    """True when the table's geom column declares an M (measure) dimension.
+
+    Reads the typmod via pg_attribute, not geometry_columns.type: that
+    catalog view only adds the M suffix for XYM, so a ZM column reads
+    plain there and would be missed.
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    schema = tenant_data_schema(current_tenant_var.get())
+    result = await session.execute(
+        text(
+            "SELECT postgis_typmod_type(a.atttypmod) FROM pg_attribute a "
+            "JOIN pg_class c ON c.oid = a.attrelid "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = :schema AND c.relname = :t "
+            "AND a.attname = 'geom' AND NOT a.attisdropped"
+        ).bindparams(schema=schema, t=table_name)
+    )
+    typmod_type = result.scalar_one_or_none()
+    return typmod_type is not None and typmod_type.strip().upper().endswith("M")
+
+
 async def effective_geometry_type(session: AsyncSession, dataset) -> str:
     """Geometry type for feature-write validation and insert SQL.
 
@@ -856,6 +887,8 @@ async def insert_feature(
     that exist in column_info. Returns the full inserted feature via
     get_feature_by_id.
     """
+    if await _geom_column_is_measured(db, table_name):
+        raise ValueError(_MEASURED_LAYER_EDIT_ERROR)
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
     normalized_geom = _validate_geometry_structure(geometry)
     _reject_unknown_properties(properties, column_info)
@@ -905,6 +938,8 @@ async def replace_feature(
     Replaces geometry and sets ALL known attribute columns. Columns not
     present in properties are set to NULL.
     """
+    if await _geom_column_is_measured(db, table_name):
+        raise ValueError(_MEASURED_LAYER_EDIT_ERROR)
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
     normalized_geom = _validate_geometry_structure(geometry)
     # Replace nulls every known column, so an unwritable one makes
@@ -962,6 +997,8 @@ async def update_feature(
     params: dict = {"gid": gid}
 
     if geometry is not None:
+        if await _geom_column_is_measured(db, table_name):
+            raise ValueError(_MEASURED_LAYER_EDIT_ERROR)
         _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
         normalized_geom = _validate_geometry_structure(geometry)
         geojson_str = to_geojson(normalized_geom)
