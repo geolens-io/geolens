@@ -19,7 +19,8 @@ class TilesetMetadata:
     """A 3D Tiles dataset's published tileset.
 
     Attributes:
-        url (str): Path of the tileset's tileset.json, relative to the API base URL
+        url (str): URL path of the tileset's tileset.json on the app origin, e.g.
+            /api/datasets/{id}/tiles3d/tileset.json
         size_bytes (int | None | Unset): Unpacked size of the tileset in bytes
     """
 

@@ -2714,9 +2714,9 @@ export interface paths {
          * Get Tileset File
          * @description Serve one file of a published 3D Tiles tileset.
          *
-         *     Point a client at ``/datasets/{dataset_id}/tiles3d/tileset.json``, the
-         *     dataset's ``tileset.url``; the relative URIs inside the tileset resolve to
-         *     this same route. Send credentials in the ``X-Api-Key`` or
+         *     Point a client at the dataset's ``tileset.url``, this route's
+         *     ``tileset.json``; the relative URIs inside the tileset resolve to this
+         *     same route. Send credentials in the ``X-Api-Key`` or
          *     ``Authorization`` header. A browser client on another origin also needs
          *     that origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).
          *     A private or missing tileset and a missing file all answer 404, and a
@@ -13501,7 +13501,7 @@ export interface components {
         TilesetMetadata: {
             /**
              * Url
-             * @description Path of the tileset's tileset.json, relative to the API base URL
+             * @description URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json
              */
             url: string;
             /**
@@ -27979,7 +27979,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Unauthorized — missing or invalid credentials */
+            /** @description Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored. */
             401: {
                 headers: {
                     [name: string]: unknown;

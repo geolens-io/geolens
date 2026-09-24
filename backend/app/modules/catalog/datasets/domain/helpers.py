@@ -179,7 +179,7 @@ def dataset_to_response(
 
     tileset = (
         TilesetMetadata(
-            url=tileset_path(dataset.id), size_bytes=tileset_asset.size_bytes
+            url=f"/api{tileset_path(dataset.id)}", size_bytes=tileset_asset.size_bytes
         )
         if record_type == "tiles3d_dataset" and tileset_asset is not None
         else None

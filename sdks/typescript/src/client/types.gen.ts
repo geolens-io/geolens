@@ -10804,7 +10804,7 @@ export type TilesetMetadata = {
     /**
      * Url
      *
-     * Path of the tileset's tileset.json, relative to the API base URL
+     * URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json
      */
     url: string;
     /**
@@ -20399,7 +20399,7 @@ export type GetTilesetFileDatasetsDatasetIdTiles3dPathGetData = {
 
 export type GetTilesetFileDatasetsDatasetIdTiles3dPathGetErrors = {
     /**
-     * Unauthorized — missing or invalid credentials
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
      */
     401: ProblemDetail;
     /**

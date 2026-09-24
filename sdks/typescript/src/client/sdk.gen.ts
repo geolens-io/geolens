@@ -2918,9 +2918,9 @@ export const setTargetStatusDatasetsDatasetIdTargetStatusPatch = <ThrowOnError e
  *
  * Serve one file of a published 3D Tiles tileset.
  *
- * Point a client at ``/datasets/{dataset_id}/tiles3d/tileset.json``, the
- * dataset's ``tileset.url``; the relative URIs inside the tileset resolve to
- * this same route. Send credentials in the ``X-Api-Key`` or
+ * Point a client at the dataset's ``tileset.url``, this route's
+ * ``tileset.json``; the relative URIs inside the tileset resolve to this
+ * same route. Send credentials in the ``X-Api-Key`` or
  * ``Authorization`` header. A browser client on another origin also needs
  * that origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).
  * A private or missing tileset and a missing file all answer 404, and a

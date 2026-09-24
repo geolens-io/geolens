@@ -27,11 +27,7 @@ from app.platform.extensions import get_catalog_port
 from app.platform.ratelimit import limiter
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
-from app.standards.ogc.errors import (
-    BAD_GATEWAY_RESPONSE,
-    ERROR_RESPONSES_AUTH,
-    NOT_FOUND_RESPONSE,
-)
+from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, NOT_FOUND_RESPONSE
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -125,7 +121,6 @@ async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[by
     response_class=Response,
     responses={
         200: {"description": "The requested tileset file"},
-        401: ERROR_RESPONSES_AUTH[401],
         404: NOT_FOUND_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
@@ -141,9 +136,9 @@ async def get_tileset_file(
 ) -> Response:
     """Serve one file of a published 3D Tiles tileset.
 
-    Point a client at ``/datasets/{dataset_id}/tiles3d/tileset.json``, the
-    dataset's ``tileset.url``; the relative URIs inside the tileset resolve to
-    this same route. Send credentials in the ``X-Api-Key`` or
+    Point a client at the dataset's ``tileset.url``, this route's
+    ``tileset.json``; the relative URIs inside the tileset resolve to this
+    same route. Send credentials in the ``X-Api-Key`` or
     ``Authorization`` header. A browser client on another origin also needs
     that origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).
     A private or missing tileset and a missing file all answer 404, and a
@@ -170,15 +165,19 @@ async def get_tileset_file(
         key = resolve_current_storage_key(attempt + relative)
     except ValueError:
         raise _not_found() from None
+    # The body streams for as long as the client takes, and the session would
+    # keep its pooled connection until the last byte. Nothing was written, so
+    # the rollback discards nothing.
+    await db.rollback()
     stream = get_storage().get_stream(key)
     try:
         first = await anext(stream)
-    except FileNotFoundError:
+    except (FileNotFoundError, IsADirectoryError):
         raise _not_found() from None
     except StopAsyncIteration:
         first = b""
     except Exception:  # broad: each storage backend raises its own errors, and none may reach the client
-        logger.exception("tileset_storage_read_failed", dataset_id=str(dataset.id))
+        logger.exception("tileset_storage_read_failed", dataset_id=str(dataset_id))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="Storage unavailable"
         ) from None

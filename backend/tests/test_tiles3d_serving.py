@@ -10,11 +10,16 @@ from sqlalchemy import text
 from structlog.testing import capture_logs
 
 from app.core.tiles3d import TILESET_ASSET_KEY, tileset_prefix
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.auth.models import Role, UserRole
+from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.platform.storage.local import LocalStorageProvider
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_user, get_user_id
+from tests.test_pooled_connection_release_1848 import (  # noqa: F401
+    _holds_connection,
+    request_sessions,
+)
 
 _ROUTE_MODULE = "app.modules.catalog.datasets.api.router_tiles3d"
 _ROOT = b'{"asset": {"version": "1.1"}, "geometricError": 10}'
@@ -50,6 +55,24 @@ def storage(tmp_path, monkeypatch) -> _SpyStorage:
 async def owner(client: AsyncClient, admin_auth_header: dict):
     headers, user_id = await create_user(client, admin_auth_header, "editor")
     return headers, uuid.UUID(user_id)
+
+
+@pytest.fixture
+async def grantee(client: AsyncClient, admin_auth_header: dict, test_db_session):
+    """A user holding a role of their own, which is removed afterwards."""
+    headers, user_id = await create_user(client, admin_auth_header, "viewer")
+    role = Role(name=f"tiles3d-grant-{uuid.uuid4().hex[:8]}")
+    test_db_session.add(role)
+    await test_db_session.flush()
+    test_db_session.add(UserRole(user_id=uuid.UUID(user_id), role_id=role.id))
+    role_id = role.id
+    await test_db_session.commit()
+    yield headers, role_id
+    await test_db_session.rollback()
+    await test_db_session.execute(
+        text("DELETE FROM catalog.roles WHERE id = :id"), {"id": role_id}
+    )
+    await test_db_session.commit()
 
 
 @pytest.fixture
@@ -238,6 +261,99 @@ async def test_access_is_decided_before_any_storage_read(
     assert mine.content == _ROOT
 
 
+async def test_the_owner_reads_a_private_tileset_with_an_api_key(
+    client: AsyncClient, admin_auth_header: dict, make_tileset, storage, owner
+) -> None:
+    """The owner's API key opens a private tileset in the header and in the query."""
+    owner_id = owner[1]
+    created = await client.post(
+        "/admin/api-keys/",
+        json={"user_id": str(owner_id), "name": "tileset reader"},
+        headers=admin_auth_header,
+    )
+    assert created.status_code == 201
+    key = created.json()["key"]
+    dataset_id = await make_tileset(owner_id=owner_id, visibility="private")
+    await storage.put(f"{tileset_prefix(dataset_id)}a1/tileset.json", _ROOT)
+
+    by_header = await client.get(
+        _url(dataset_id, "tileset.json"), headers={"X-Api-Key": key}
+    )
+    by_query = await client.get(
+        _url(dataset_id, "tileset.json"), params={"api_key": key}
+    )
+
+    assert by_header.status_code == by_query.status_code == 200
+    assert by_header.content == by_query.content == _ROOT
+
+
+async def test_a_restricted_tileset_serves_a_grant_holder(
+    client: AsyncClient,
+    viewer_auth_header: dict,
+    test_db_session,
+    make_tileset,
+    storage,
+    grantee,
+) -> None:
+    """A restricted tileset is 200 to a holder of a granted role and 404 to anyone else."""
+    grantee_headers, role_id = grantee
+    dataset_id = await make_tileset(visibility="restricted")
+    test_db_session.add(DatasetGrant(dataset_id=dataset_id, role_id=role_id))
+    await test_db_session.commit()
+    await storage.put(f"{tileset_prefix(dataset_id)}a1/tileset.json", _ROOT)
+
+    granted = await client.get(
+        _url(dataset_id, "tileset.json"), headers=grantee_headers
+    )
+    stranger = await client.get(
+        _url(dataset_id, "tileset.json"), headers=viewer_auth_header
+    )
+
+    assert granted.status_code == 200
+    assert granted.content == _ROOT
+    assert stranger.status_code == 404
+
+
+async def test_an_unresolvable_credential_is_a_sandboxed_401(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """A bearer token that doesn't resolve answers 401 with the sandbox headers, uncached."""
+    dataset_id = await make_tileset()
+
+    resp = await client.get(
+        _url(dataset_id, "tileset.json"),
+        headers={"Authorization": f"Bearer {uuid.uuid4().hex}"},
+    )
+
+    assert resp.status_code == 401
+    assert resp.headers["cache-control"] == "private, no-store"
+    _assert_sandboxed(resp)
+    assert storage.read == []
+
+
+async def test_the_connection_is_released_before_storage_is_read(
+    client: AsyncClient,
+    make_tileset,
+    storage,
+    request_sessions,  # noqa: F811
+) -> None:
+    """No transaction is open on the request's session when the file starts to stream."""
+    dataset_id = await make_tileset()
+    await storage.put(f"{tileset_prefix(dataset_id)}a1/tileset.json", _ROOT)
+    held: list[bool] = []
+    read = storage.get_stream
+
+    def recording(key: str):
+        held.append(_holds_connection(request_sessions))
+        return read(key)
+
+    storage.get_stream = recording
+    resp = await client.get(_url(dataset_id, "tileset.json"))
+
+    assert resp.status_code == 200
+    assert held == [False]
+
+
 async def test_missing_and_forbidden_answer_alike(
     client: AsyncClient, make_tileset, storage, owner
 ) -> None:
@@ -334,12 +450,14 @@ async def test_every_answer_is_privately_cached(
 async def test_storage_errors_never_name_a_key_or_path(
     client: AsyncClient, make_tileset, storage, tmp_path
 ) -> None:
-    """A missing or refused key is 404 and a failing store 502, and no body names the key."""
+    """A missing, refused or directory key is 404, a failing store 502, and no body names the key."""
     dataset_id = await make_tileset()
     prefix = tileset_prefix(dataset_id)
+    await storage.put(f"{prefix}a1/textures/a.png", b"png")
 
     missing = await client.get(_url(dataset_id, "tiles/0.glb"))
     refused = await client.get(_url(dataset_id, "tiles/a..b.glb"))
+    directory = await client.get(_url(dataset_id, "textures"))
 
     async def unreadable(key: str):
         raise OSError(f"{tmp_path}/{key} is unreadable")
@@ -348,9 +466,9 @@ async def test_storage_errors_never_name_a_key_or_path(
     storage.inner.get_stream = unreadable
     failed = await client.get(_url(dataset_id, "tileset.json"))
 
-    assert missing.status_code == refused.status_code == 404
+    assert missing.status_code == refused.status_code == directory.status_code == 404
     assert failed.status_code == 502
-    for resp in (missing, refused, failed):
+    for resp in (missing, refused, directory, failed):
         assert prefix not in resp.text
         assert str(tmp_path) not in resp.text
         _assert_sandboxed(resp)

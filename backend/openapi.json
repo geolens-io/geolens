@@ -18402,7 +18402,7 @@
         "description": "A 3D Tiles dataset's published tileset.",
         "properties": {
           "url": {
-            "description": "Path of the tileset's tileset.json, relative to the API base URL",
+            "description": "URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json",
             "title": "Url",
             "type": "string"
           },
@@ -40771,7 +40771,7 @@
     },
     "/datasets/{dataset_id}/tiles3d/{path}": {
       "get": {
-        "description": "Serve one file of a published 3D Tiles tileset.\n\nPoint a client at ``/datasets/{dataset_id}/tiles3d/tileset.json``, the\ndataset's ``tileset.url``; the relative URIs inside the tileset resolve to\nthis same route. Send credentials in the ``X-Api-Key`` or\n``Authorization`` header. A browser client on another origin also needs\nthat origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).\nA private or missing tileset and a missing file all answer 404, and a\nstorage failure answers 502.",
+        "description": "Serve one file of a published 3D Tiles tileset.\n\nPoint a client at the dataset's ``tileset.url``, this route's\n``tileset.json``; the relative URIs inside the tileset resolve to this\nsame route. Send credentials in the ``X-Api-Key`` or\n``Authorization`` header. A browser client on another origin also needs\nthat origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).\nA private or missing tileset and a missing file all answer 404, and a\nstorage failure answers 502.",
         "operationId": "get_tileset_file_datasets__dataset_id__tiles3d__path__get",
         "parameters": [
           {
@@ -40806,7 +40806,7 @@
                 }
               }
             },
-            "description": "Unauthorized \u2014 missing or invalid credentials"
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
