@@ -5548,6 +5548,55 @@ def _ack_lost_on_publish(job_id: uuid.UUID, *, failure: BaseException):
         AsyncSession.commit = real_commit
 
 
+@contextlib.contextmanager
+def _publish_commit_never_lands_and_the_probe_fails(job_id):
+    """Unlike ``_ack_lost_on_publish``, the publishing COMMIT never applies.
+
+    Targets the commit that follows the ``status="complete"`` write for
+    ``job_id`` specifically, rather than counting a task's commits — a task
+    can commit any number of times before that write. Once that commit
+    raises, every later ``async_session()`` call also raises, so the
+    fresh-session probe ``observe_publish_commit`` runs is unreadable too —
+    the double failure needed to reproduce the bug.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    import app.core.db as db_module
+    from app.platform.jobs import heartbeat as heartbeat_module
+
+    real_commit = AsyncSession.commit
+    real_async_session = db_module.async_session
+    real_update = heartbeat_module.update_ingest_job_for_attempt
+    armed = {"publish_pending": False}
+
+    def _unreachable_session(*args, **kwargs):
+        raise RuntimeError("the pool is gone too")
+
+    async def _update(session, jid, attempt_id, *, values, expected_status="running"):
+        result = await real_update(
+            session, jid, attempt_id, values=values, expected_status=expected_status
+        )
+        if str(jid) == str(job_id) and values.get("status") == "complete":
+            armed["publish_pending"] = True
+        return result
+
+    async def _commit(self, *args, **kwargs):
+        if armed["publish_pending"]:
+            armed["publish_pending"] = False
+            db_module.async_session = _unreachable_session
+            raise ConnectionResetError("dropped before COMMIT reached the server")
+        return await real_commit(self, *args, **kwargs)
+
+    heartbeat_module.update_ingest_job_for_attempt = _update
+    AsyncSession.commit = _commit
+    try:
+        yield
+    finally:
+        AsyncSession.commit = real_commit
+        db_module.async_session = real_async_session
+        heartbeat_module.update_ingest_job_for_attempt = real_update
+
+
 class TestPublishCommitLandedProbe:
     """The probe reads the row, and the row is the whole answer.
 
@@ -6066,6 +6115,99 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         finally:
             await _purge_vrt(test_db_session, ids=ids)
 
+    async def test_an_unconfirmed_vrt_publish_keeps_both_generations_objects(
+        self, client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+    ) -> None:
+        """The commit never lands AND the probe that would tell landed from
+        not-landed can't read either. Reaping the prior generation on that
+        guess can strand the live VRT with nothing to read, so both
+        generations' objects survive and the job reports neither success
+        nor failure."""
+        from app.processing.ingest.tasks_vrt import regenerate_vrt
+        from app.processing.raster.models import VrtGeneration
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_vrt.get_storage",
+            lambda: raster_storage,
+            raising=True,
+        )
+        admin_id = await self._admin(test_db_session)
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent = await _make_vrt_parent(
+            test_db_session, raster_storage, created_by=admin_id, member=member
+        )
+        ids = (
+            parent.dataset.id,
+            parent.dataset.record_id,
+            member.dataset.id,
+            member.dataset.record_id,
+        )
+        parent_id = parent.dataset.id
+        prior_key = parent.cog_key
+
+        generation_id = uuid.uuid4()
+        job = IngestJob(
+            dataset_id=parent_id,
+            source_filename="regen",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"vrt_regenerate": True},
+        )
+        test_db_session.add(job)
+        test_db_session.add(
+            VrtGeneration(
+                id=generation_id,
+                vrt_dataset_id=parent_id,
+                status="pending",
+                started_at=datetime.now(timezone.utc),
+            )
+        )
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.raster_assets "
+                "SET current_generation_id = :gen, status = 'regenerating' "
+                "WHERE dataset_id = :id"
+            ),
+            {"gen": generation_id, "id": parent_id},
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        job_id = job.id
+        attempt_id = job.attempt_id
+
+        try:
+            with _publish_commit_never_lands_and_the_probe_fails(job_id):
+                await regenerate_vrt.func(
+                    job_id=str(job_id),
+                    vrt_dataset_id=str(parent_id),
+                    attempt_id=str(attempt_id),
+                    generation_id=str(generation_id),
+                )
+
+            assert await raster_storage.exists(prior_key), (
+                f"the live {prior_key} was deleted on a publish nothing confirmed"
+            )
+            new_vrt_key = f"rasters/{parent_id}/generations/{generation_id}/source.vrt"
+            assert await raster_storage.exists(new_vrt_key), (
+                f"{new_vrt_key} was deleted even though nothing confirmed "
+                "which generation is live"
+            )
+
+            test_db_session.expire_all()
+            finished = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert finished.status != "failed", (
+                "standing down on an unconfirmed publish must not write a failure"
+            )
+            assert finished.error_message is None
+        finally:
+            await _purge_vrt(test_db_session, ids=ids)
+
     async def test_vrt_creation_keeps_the_artifact_it_published(
         self, test_db_session, raster_storage
     ) -> None:
@@ -6303,6 +6445,11 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 for inner in ast.walk(node)
             )
 
+        # observe_publish_commit is the same probe, called directly by a
+        # handler that needs its UNKNOWN outcome told apart from LANDED
+        # rather than the collapsed publish_commit_landed boolean.
+        probe_names = ("publish_commit_landed", "observe_publish_commit")
+
         checked = 0
         for module in (tasks_raster, tasks_vrt):
             tree = ast.parse(inspect.getsource(module))
@@ -6313,7 +6460,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 for handler in ast.walk(func):
                     if not isinstance(handler, ast.ExceptHandler):
                         continue
-                    if not _calls(handler, "publish_commit_landed"):
+                    if not any(_calls(handler, name) for name in probe_names):
                         continue
                     where = f"{module.__name__}.{func.name}"
                     assert any(
