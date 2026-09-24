@@ -1,4 +1,4 @@
-"""The two writers of the `cancelled` run status (#1954, ADR-002 4d).
+"""The two writers of the `cancelled` run status (#1954).
 
 The sweep's guard comment claimed the status is never a stop signal while
 the module beside it wrote one for an explicit user cancel. The resolution
@@ -145,4 +145,7 @@ class TestTheGuardCommentMatchesTheModule:
         ).read_text()
 
         assert "never a stop signal" not in source
-        assert "told apart by `error_code`" in source
+        assert "two writers, told apart by `error_code`" in source
+        # The rule is stated, not credited to a record that says the sweep
+        # is the status's only writer.
+        assert "ADR-002 4d" not in source
