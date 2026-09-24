@@ -10,7 +10,6 @@ from app.processing.ingest.tasks_common import (  # noqa: F401
     IngestContext,
     _append_job_warning,
     _apply_reupload_swap,
-    _arcgis_type_to_column_type,
     _bind_task_log_context,
     _detect_and_override_geometry,
     _finalize_ingest,
