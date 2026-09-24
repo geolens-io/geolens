@@ -70,6 +70,33 @@ async def get_table_srid(
     return int(row) if row is not None else None
 
 
+async def get_declared_srid(
+    session: AsyncSession, table_name: str, schema: str = "data"
+) -> int | None:
+    """The SRID PostGIS reports for a geometry ``geom`` column the session can read.
+
+    0 when it reports none: an SRID of 0, or a column ``geometry_columns``
+    does not list, such as a domain over geometry, where
+    :func:`get_table_srid` raises. None when there is no such column or the
+    session cannot read the table.
+    """
+    _validate_table_name(table_name)
+    _validate_table_name(schema)
+    return await session.scalar(
+        text(
+            "SELECT COALESCE(gc.srid, 0) FROM pg_attribute a "
+            "JOIN pg_type t ON t.oid = a.atttypid "
+            "LEFT JOIN geometry_columns gc ON gc.f_table_schema = :schema "
+            "AND gc.f_table_name = :t AND gc.f_geometry_column = 'geom' "
+            "WHERE a.attrelid = to_regclass("
+            "format('%I.%I', CAST(:schema AS text), CAST(:t AS text))) "
+            "AND a.attname = 'geom' AND NOT a.attisdropped "
+            "AND 'geometry'::regtype IN (t.oid, t.typbasetype) "
+            "AND has_table_privilege(a.attrelid, 'SELECT')"
+        ).bindparams(schema=schema, t=table_name)
+    )
+
+
 # Phase 1057 WFS-04: map abstract OGC GML 3 geometry types (returned by
 # PostGIS GeometryType() when the source WFS stores them, e.g. GeoServer's
 # opengeo:countries) to the closest concrete subtype, since

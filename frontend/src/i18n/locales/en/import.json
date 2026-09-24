@@ -351,6 +351,10 @@
     "successToast_one": "{{count}} table registered successfully",
     "successToast_other": "{{count}} tables registered successfully",
     "registerFailed": "Failed to register tables",
+    "internalFailure": "Registration failed for a reason the server could not report safely. Ask an operator to check the server log.",
+    "refusal": {
+      "source_srid_undeclared": "Its geom column declares no SRID, so GeoLens cannot tell where its coordinates are. Set the SRID, for example with UpdateGeometrySRID, then register the table."
+    },
     "unknownError": "Unknown error",
     "searchPlaceholder": "Search tables…",
     "selectHint": "Select a table from the list to see its schema and register it.",

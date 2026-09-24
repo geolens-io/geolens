@@ -356,7 +356,7 @@ async def _repair_geom_4326(
     from app.core.db import async_session
     from app.processing.ingest.metadata import (
         ensure_geom_4326_gist_index,
-        get_table_srid,
+        get_declared_srid,
         grant_reader_access,
         probe_geom_4326,
         rederive_geom_4326,
@@ -401,18 +401,17 @@ async def _repair_geom_4326(
             if not await _relation_exists(session, schema=schema, table=table_name):
                 # Same: the "missing" verdict belongs to the measurement.
                 return _RepairReport(_REPAIR_NOT_APPLICABLE)
+            srid = await get_declared_srid(session, table_name, schema=schema)
+            if srid == 0:
+                # Phase 2 refuses a table without an SRID, so nothing about it
+                # is re-derived, indexed or granted first.
+                return _RepairReport(_REPAIR_NOT_APPLICABLE)
 
-            # fix(#1738): probed before the SRID is resolved. `get_table_srid`
-            # wraps PostGIS `Find_SRID`, which RAISES rather than returning
-            # NULL for a table with no geometry column — so a registered
-            # non-spatial table (#1359) used to hit this as an exception,
-            # reported as a repair failure every refresh, skipping the grant below.
             state = await probe_geom_4326(session, table_name, schema=schema)
             repair = None
-            if state.rederivable:
-                srid = await get_table_srid(session, table_name, schema=schema)
+            if state.rederivable and srid is not None:
                 repair = await rederive_geom_4326(
-                    session, table_name, srid or 4326, schema=schema, state=state
+                    session, table_name, srid, schema=schema, state=state
                 )
 
             # fix(#1738): index restored on the same rule as the grant below —
@@ -582,6 +581,9 @@ async def refresh_postgis(
         # REPEATABLE READ transaction would collide with it and abort the
         # run with a serialization failure. READ ONLY makes a future write
         # from this phase fail loudly instead of silently.
+        from app.processing.ingest.metadata import get_declared_srid
+        from app.processing.ingest.schemas import UNDECLARED_SRID_CODE
+
         schema = _current_tenant_schema()
 
         # Phase 1.5: REPAIR the render column, before anything measures it.
@@ -649,6 +651,14 @@ async def refresh_postgis(
                         error_code=_MISSING_VERDICT.error_code,
                         health=_MISSING_VERDICT.health,
                         detail=_MISSING_VERDICT.detail,
+                    )
+                if await get_declared_srid(session, table_name, schema=schema) == 0:
+                    raise PostgisRefreshError(
+                        "PostGIS no longer reports an SRID for the registered "
+                        "table's geom column, so GeoLens cannot tell where its "
+                        "coordinates are. The catalog entry is unchanged; give the "
+                        "column an SRID, then refresh again.",
+                        error_code=UNDECLARED_SRID_CODE,
                     )
                 measurement = await measure(
                     session, dataset, table=table_name, schema=schema

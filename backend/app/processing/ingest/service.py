@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
+from app.core.failure_reason import is_composed_exception, redact_failure_reason
 from app.core.service_tokens import (
     ServiceCredential,
     header_token_rejection_reason,
@@ -34,11 +35,13 @@ from app.processing.ingest.metadata import (
     add_4326_column,
     linearize_existing_4326,
     extract_metadata,
+    get_declared_srid,
     get_sample_values,
     get_table_srid,
     grant_reader_access,
 )
 from app.processing.ingest.schemas import (
+    UNDECLARED_SRID_CODE,
     DiscoveredTable,
     RegisterRequest,
     VrtCreateRequest,
@@ -67,6 +70,12 @@ _UPLOAD_SPOOL_MAX_BYTES: int = 16 * 1024 * 1024  # 16 MiB
 # fix(#836): lives here, not router.py, so CatalogPort (platform layer) can
 # read it without importing the API edge (which registers routes on import).
 PART_SIZE = 10 * 1024 * 1024  # 10MB per part
+
+UNDECLARED_SRID_REASON = (
+    "PostGIS reports no SRID for its geom column, so GeoLens cannot tell where "
+    "its coordinates are. Give the column an SRID, for example with "
+    "UpdateGeometrySRID on a plain geometry column, then register the table."
+)
 
 
 async def _await_provider_call_draining(awaitable: Any) -> Any:
@@ -153,7 +162,13 @@ async def discover_unregistered_tables(
             """
         ).bindparams(**bind_params)
     )
-    return [DiscoveredTable(**dict(row)) for row in result.mappings().all()]
+    return [
+        DiscoveredTable(
+            **dict(row),
+            refusal_reason=UNDECLARED_SRID_CODE if row["srid"] == 0 else None,
+        )
+        for row in result.mappings().all()
+    ]
 
 
 async def get_job_or_404(
@@ -613,6 +628,29 @@ async def create_ingest_job(
     return job
 
 
+def registration_failure_reason(exc: Exception, table_name: str) -> str:
+    """What a failed bulk registration item reports: its refusal or a code."""
+    if not is_composed_exception(exc):
+        logger.error(
+            "Unexpected error during bulk table registration",
+            table_name=table_name,
+            exc_info=exc,
+        )
+    return redact_failure_reason(exc)
+
+
+def _step_refusal(message: str, exc: Exception) -> ValueError:
+    """``message``, ending with the cause only when this codebase wrote it.
+
+    A driver's text can quote the statement or the table's rows, and this
+    message reaches the response.
+    """
+    if is_composed_exception(exc):
+        return ValueError(f"{message}: {redact_failure_reason(exc)}")
+    logger.warning("register_geom_4326_step_failed", step=message, exc_info=exc)
+    return ValueError(f"{message}.")
+
+
 async def register_existing_table(
     session: AsyncSession,
     request: RegisterRequest,
@@ -763,6 +801,11 @@ async def register_existing_table(
     # correct reader role; no-op in single_tenant ('data'/'geolens_reader').
     _grant_role = _current_tenant_role()
 
+    if has_geom and await get_declared_srid(session, table_name, schema=_schema) == 0:
+        raise ValueError(
+            f"Table '{table_name}' cannot be registered. {UNDECLARED_SRID_REASON}"
+        )
+
     if has_geom:
         if not has_4326:
             srid = await get_table_srid(session, table_name, schema=_schema)
@@ -774,8 +817,8 @@ async def register_existing_table(
                         session, table_name, srid or 4326, schema=_schema
                     )
             except Exception as exc:  # broad: ALTER TABLE/CREATE INDEX inside savepoint can fail for schema/permission reasons
-                raise ValueError(
-                    f"Failed to add geom_4326 column to '{table_name}': {exc}"
+                raise _step_refusal(
+                    f"Failed to add geom_4326 column to '{table_name}'", exc
                 ) from exc
         else:
             # fix(#1113): a table registered after migration 0034 is
@@ -787,8 +830,8 @@ async def register_existing_table(
                 async with session.begin_nested():
                     await linearize_existing_4326(session, table_name, schema=_schema)
             except Exception as exc:  # broad: UPDATE inside savepoint can fail for schema/permission reasons
-                raise ValueError(
-                    f"Failed to linearize geom_4326 on '{table_name}': {exc}"
+                raise _step_refusal(
+                    f"Failed to linearize geom_4326 on '{table_name}'", exc
                 ) from exc
 
     await grant_reader_access(session, table_name, schema=_schema, role=_grant_role)

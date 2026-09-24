@@ -6,6 +6,7 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from typing import cast
 
@@ -21,12 +22,16 @@ class DiscoveredTable:
         geometry_type (None | str): Detected geometry type, or null for non-spatial tables.
         srid (int | None): Coordinate reference system EPSG code, if defined.
         estimated_rows (int | None): PostgreSQL row count estimate from `pg_class.reltuples`.
+        refusal_reason (None | str | Unset): Why registration would refuse this table, as one of a fixed set of GeoLens
+            codes: source_srid_undeclared. Null when discovery finds none, though registration can still refuse a table for
+            a reason discovery does not check.
     """
 
     table_name: str
     geometry_type: None | str
     srid: int | None
     estimated_rows: int | None
+    refusal_reason: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -41,6 +46,12 @@ class DiscoveredTable:
         estimated_rows: int | None
         estimated_rows = self.estimated_rows
 
+        refusal_reason: None | str | Unset
+        if isinstance(self.refusal_reason, Unset):
+            refusal_reason = UNSET
+        else:
+            refusal_reason = self.refusal_reason
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -51,6 +62,8 @@ class DiscoveredTable:
                 "estimated_rows": estimated_rows,
             }
         )
+        if refusal_reason is not UNSET:
+            field_dict["refusal_reason"] = refusal_reason
 
         return field_dict
 
@@ -80,11 +93,21 @@ class DiscoveredTable:
 
         estimated_rows = _parse_estimated_rows(d.pop("estimated_rows"))
 
+        def _parse_refusal_reason(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        refusal_reason = _parse_refusal_reason(d.pop("refusal_reason", UNSET))
+
         discovered_table = cls(
             table_name=table_name,
             geometry_type=geometry_type,
             srid=srid,
             estimated_rows=estimated_rows,
+            refusal_reason=refusal_reason,
         )
 
         discovered_table.additional_properties = d

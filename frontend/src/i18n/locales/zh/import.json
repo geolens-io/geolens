@@ -351,6 +351,10 @@
     "successToast_one": "{{count}} 张表注册成功",
     "successToast_other": "{{count}} 张表注册成功",
     "registerFailed": "表注册失败",
+    "internalFailure": "注册失败的原因服务器无法安全报告。请让运维人员检查服务器日志。",
+    "refusal": {
+      "source_srid_undeclared": "其 geom 列未声明 SRID，GeoLens 无法确定其坐标所在的位置。请先设置 SRID（例如使用 UpdateGeometrySRID），然后再注册该表。"
+    },
     "unknownError": "未知错误",
     "searchPlaceholder": "搜索表…",
     "selectHint": "从列表中选择一个表以查看其字段结构并进行注册。",

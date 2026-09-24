@@ -44,6 +44,7 @@ from app.processing.ingest.metadata_extent import (
     detect_3d_metadata,  # noqa: F401
     extract_metadata,  # noqa: F401
     get_column_info,  # noqa: F401
+    get_declared_srid,  # noqa: F401
     get_extent,  # noqa: F401
     get_feature_count,  # noqa: F401
     get_geometry_type,  # noqa: F401
@@ -143,6 +144,7 @@ __all__ = [
     "extract_metadata",
     "generate_attribute_metadata",
     "get_column_info",
+    "get_declared_srid",
     "get_extent",
     "get_feature_count",
     "get_geometry_type",
