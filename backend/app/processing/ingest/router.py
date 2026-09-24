@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.failure_reason import is_composed_exception, redact_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.identity import Identity
 from app.core.async_io import (
@@ -1315,6 +1316,9 @@ async def register_table(
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
     await check_public_visibility_allowed(db, user, request.visibility)
+    # Read now: the rollback below expires the user, and a lazy reload there
+    # would fail outside the greenlet.
+    user_id = str(user.id)
 
     try:
         dataset = await register_existing_table(db, request, user)
@@ -1331,7 +1335,7 @@ async def register_table(
         logger.exception(
             "Unexpected error during table registration",
             table_name=request.table_name,
-            user_id=str(user.id),
+            user_id=user_id,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1418,10 +1422,15 @@ async def bulk_register_tables(
                 )
             except Exception as exc:  # broad: per-table registration is isolated; any failure is recorded per-item
                 await task_db.rollback()
+                if not is_composed_exception(exc):
+                    logger.exception(
+                        "Unexpected error during bulk table registration",
+                        table_name=table_req.table_name,
+                    )
                 return BulkRegisterResult(
                     table_name=table_req.table_name,
                     status="error",
-                    error=str(exc),
+                    error=redact_failure_reason(exc),
                 )
 
     results = await asyncio.gather(

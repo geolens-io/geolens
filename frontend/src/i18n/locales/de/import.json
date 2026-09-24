@@ -301,6 +301,7 @@
     "successToast_one": "{{count}} Tabelle erfolgreich registriert",
     "successToast_other": "{{count}} Tabellen erfolgreich registriert",
     "registerFailed": "Tabellen konnten nicht registriert werden",
+    "internalFailure": "Die Registrierung ist aus einem Grund fehlgeschlagen, den der Server nicht sicher melden konnte. Bitten Sie einen Betreiber, das Server-Protokoll zu prüfen.",
     "unknownError": "Unbekannter Fehler",
     "searchPlaceholder": "Tabellen suchen…",
     "selectHint": "Eine Tabelle aus der Liste auswählen, um ihr Schema zu sehen und sie zu registrieren.",

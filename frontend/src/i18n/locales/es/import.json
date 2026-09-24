@@ -301,6 +301,7 @@
     "successToast_one": "{{count}} tabla registrada correctamente",
     "successToast_other": "{{count}} tablas registradas correctamente",
     "registerFailed": "Error al registrar las tablas",
+    "internalFailure": "No se pudo registrar la tabla por un motivo que el servidor no pudo comunicar de forma segura. Pide a un operador que revise el registro del servidor.",
     "unknownError": "Error desconocido",
     "searchPlaceholder": "Buscar tablas…",
     "selectHint": "Selecciona una tabla de la lista para ver su esquema y registrarla.",

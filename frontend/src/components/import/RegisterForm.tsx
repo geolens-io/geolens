@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { CheckCircle2, XCircle, Database, Search } from 'lucide-react';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
+import { describeFailureReason } from '@/lib/failure-reason';
 
 // fix(#927/#929): `restricted` is not offered at import time — a non-admin
 // owner who picked it lost access to their own dataset, and grants have no
@@ -119,7 +120,11 @@ export function RegisterForm() {
               <div key={r.table_name} className="flex items-center gap-2 text-sm">
                 <XCircle className="h-4 w-4 text-destructive shrink-0" />
                 <span className="font-mono">{r.table_name}</span>
-                {r.error && <span className="text-xs text-muted-foreground ms-auto">{r.error}</span>}
+                {r.error && (
+                  <span className="text-xs text-muted-foreground ms-auto">
+                    {describeFailureReason(r.error, t('register.internalFailure'))}
+                  </span>
+                )}
               </div>
             ))}
           </div>

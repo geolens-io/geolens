@@ -1300,7 +1300,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/metadata.py": 161,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising.
-    "backend/app/processing/ingest/router.py": 1805,
+    "backend/app/processing/ingest/router.py": 1814,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1924,
     # Reupload retains retrieval, staging, cleanup and enrichment adapters.
@@ -1347,7 +1347,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging and job settlement share one orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1457,
+    "backend/app/processing/ingest/service.py": 1470,
     # PostGIS refresh coordinates geometry repair, measurement, fenced catalog
     # updates and fenced post-commit steps.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 849,

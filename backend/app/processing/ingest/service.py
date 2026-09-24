@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
+from app.core.failure_reason import is_composed_exception, redact_failure_reason
 from app.core.service_tokens import (
     ServiceCredential,
     header_token_rejection_reason,
@@ -627,6 +628,18 @@ async def create_ingest_job(
     return job
 
 
+def _step_refusal(message: str, exc: Exception) -> ValueError:
+    """``message``, ending with the cause only when this codebase wrote it.
+
+    A driver's text can quote the statement or the table's rows, and this
+    message reaches the response.
+    """
+    if is_composed_exception(exc):
+        return ValueError(f"{message}: {redact_failure_reason(exc)}")
+    logger.warning("register_geom_4326_step_failed", step=message, exc_info=exc)
+    return ValueError(f"{message}.")
+
+
 async def register_existing_table(
     session: AsyncSession,
     request: RegisterRequest,
@@ -793,8 +806,8 @@ async def register_existing_table(
                         session, table_name, srid or 4326, schema=_schema
                     )
             except Exception as exc:  # broad: ALTER TABLE/CREATE INDEX inside savepoint can fail for schema/permission reasons
-                raise ValueError(
-                    f"Failed to add geom_4326 column to '{table_name}': {exc}"
+                raise _step_refusal(
+                    f"Failed to add geom_4326 column to '{table_name}'", exc
                 ) from exc
         else:
             # fix(#1113): a table registered after migration 0034 is
@@ -806,8 +819,8 @@ async def register_existing_table(
                 async with session.begin_nested():
                     await linearize_existing_4326(session, table_name, schema=_schema)
             except Exception as exc:  # broad: UPDATE inside savepoint can fail for schema/permission reasons
-                raise ValueError(
-                    f"Failed to linearize geom_4326 on '{table_name}': {exc}"
+                raise _step_refusal(
+                    f"Failed to linearize geom_4326 on '{table_name}'", exc
                 ) from exc
 
     await grant_reader_access(session, table_name, schema=_schema, role=_grant_role)
