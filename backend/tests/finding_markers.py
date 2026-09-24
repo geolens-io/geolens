@@ -317,7 +317,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "platform/extensions/protocols.py": 4,
     "platform/jobs/heartbeat.py": 2,
     "platform/jobs/models.py": 4,
-    "platform/jobs/router.py": 6,
+    "platform/jobs/router.py": 5,
     "platform/jobs/schemas.py": 7,
     "platform/jobs/worker.py": 5,
     "platform/notifications/__init__.py": 5,

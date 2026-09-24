@@ -1312,7 +1312,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup and the job status poll.
-    "backend/app/platform/jobs/sweep.py": 1645,
+    "backend/app/platform/jobs/sweep.py": 1648,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1291,

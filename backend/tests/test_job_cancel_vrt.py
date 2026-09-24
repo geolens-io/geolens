@@ -32,7 +32,7 @@ from sqlalchemy import select
 
 from app.platform.jobs.heartbeat import require_ingest_job_update
 from app.platform.jobs.models import IngestJob
-from app.platform.jobs.router import _reconcile_cancelled_vrt_regeneration
+from app.platform.jobs.ledger import release_vrt_regeneration
 from app.processing.raster.models import RasterAsset, VrtGeneration, VrtSourceLink
 from tests.factories import create_dataset, get_user_id
 
@@ -276,8 +276,11 @@ class TestReconcileGuards:
         generation.error_message = "GDAL exploded"
         await test_db_session.commit()
 
-        await _reconcile_cancelled_vrt_regeneration(
-            test_db_session, asset.dataset_id, datetime.now(timezone.utc)
+        await release_vrt_regeneration(
+            test_db_session,
+            asset.dataset_id,
+            datetime.now(timezone.utc),
+            message="Cancelled by user",
         )
         await test_db_session.commit()
         await test_db_session.refresh(generation)
@@ -294,8 +297,11 @@ class TestReconcileGuards:
         generation.completed_at = datetime.now(timezone.utc)
         await test_db_session.commit()
 
-        await _reconcile_cancelled_vrt_regeneration(
-            test_db_session, asset.dataset_id, datetime.now(timezone.utc)
+        await release_vrt_regeneration(
+            test_db_session,
+            asset.dataset_id,
+            datetime.now(timezone.utc),
+            message="Cancelled by user",
         )
         await test_db_session.commit()
         await test_db_session.refresh(generation)
