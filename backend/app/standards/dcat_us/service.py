@@ -12,6 +12,7 @@ import structlog
 
 from app.standards.distributions import (
     RASTER_TILES_DISTRIBUTION_TYPE,
+    TILESET_DISTRIBUTION_TYPE,
     PublishedDistribution,
     published_distributions,
 )
@@ -32,6 +33,7 @@ SERVICE_DISTRIBUTION_TYPES = {
     "ogc_features",
     "vector_tiles",
     RASTER_TILES_DISTRIBUTION_TYPE,
+    TILESET_DISTRIBUTION_TYPE,
 }
 _EMAIL_PATTERN = re.compile(r"^mailto:[\w_~!$&'()*+,;=:.-]+@[\w.-]+\.[\w.-]+$")
 

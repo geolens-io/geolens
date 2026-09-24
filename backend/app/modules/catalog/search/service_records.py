@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import republished_tile_url, tile_template_query
-from app.core.tiles3d import TILESET_MEDIA_TYPE
+from app.core.tiles3d import TILESET_MEDIA_TYPE, tileset_path
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.source_freshness import (
     compute_source_freshness,
@@ -154,6 +154,14 @@ def build_assets(
             "type": "image/png",
             "title": "Raster tiles",
             "roles": ["visual"],
+        }
+
+    elif record_type == "tiles3d_dataset":
+        assets["tileset"] = {
+            "href": build_url(tileset_path(dataset.id), base_url=public_api_url),
+            "type": TILESET_MEDIA_TYPE,
+            "title": "3D Tiles tileset",
+            "roles": ["data"],
         }
 
     # Merge DatasetAsset rows -- takes precedence on key conflict

@@ -201,6 +201,10 @@ class RasterMetadata(BaseModel):
 class TilesetMetadata(BaseModel):
     """A 3D Tiles dataset's published tileset."""
 
+    url: str = Field(
+        description="URL path of the tileset's tileset.json on the app origin, "
+        "e.g. /api/datasets/{id}/tiles3d/tileset.json"
+    )
     size_bytes: int | None = Field(
         default=None, description="Unpacked size of the tileset in bytes"
     )

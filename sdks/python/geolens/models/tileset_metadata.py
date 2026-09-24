@@ -19,13 +19,18 @@ class TilesetMetadata:
     """A 3D Tiles dataset's published tileset.
 
     Attributes:
+        url (str): URL path of the tileset's tileset.json on the app origin, e.g.
+            /api/datasets/{id}/tiles3d/tileset.json
         size_bytes (int | None | Unset): Unpacked size of the tileset in bytes
     """
 
+    url: str
     size_bytes: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        url = self.url
+
         size_bytes: int | None | Unset
         if isinstance(self.size_bytes, Unset):
             size_bytes = UNSET
@@ -34,7 +39,11 @@ class TilesetMetadata:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "url": url,
+            }
+        )
         if size_bytes is not UNSET:
             field_dict["size_bytes"] = size_bytes
 
@@ -43,6 +52,7 @@ class TilesetMetadata:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        url = d.pop("url")
 
         def _parse_size_bytes(data: object) -> int | None | Unset:
             if data is None:
@@ -54,6 +64,7 @@ class TilesetMetadata:
         size_bytes = _parse_size_bytes(d.pop("size_bytes", UNSET))
 
         tileset_metadata = cls(
+            url=url,
             size_bytes=size_bytes,
         )
 

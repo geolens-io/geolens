@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.tile_scope import tile_template_query
+from app.core.tiles3d import tileset_path
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.source_freshness import (
     compute_source_freshness,
@@ -177,7 +178,9 @@ def dataset_to_response(
         )
 
     tileset = (
-        TilesetMetadata(size_bytes=tileset_asset.size_bytes)
+        TilesetMetadata(
+            url=f"/api{tileset_path(dataset.id)}", size_bytes=tileset_asset.size_bytes
+        )
         if record_type == "tiles3d_dataset" and tileset_asset is not None
         else None
     )

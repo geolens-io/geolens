@@ -10802,6 +10802,12 @@ export type TileTokenBatchResponse = {
  */
 export type TilesetMetadata = {
     /**
+     * Url
+     *
+     * URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json
+     */
+    url: string;
+    /**
      * Size Bytes
      *
      * Unpacked size of the tileset in bytes
@@ -20374,6 +20380,58 @@ export type SetTargetStatusDatasetsDatasetIdTargetStatusPatchResponses = {
 };
 
 export type SetTargetStatusDatasetsDatasetIdTargetStatusPatchResponse = SetTargetStatusDatasetsDatasetIdTargetStatusPatchResponses[keyof SetTargetStatusDatasetsDatasetIdTargetStatusPatchResponses];
+
+export type GetTilesetFileDatasetsDatasetIdTiles3dPathGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+        /**
+         * Path
+         */
+        path: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/tiles3d/{path}';
+};
+
+export type GetTilesetFileDatasetsDatasetIdTiles3dPathGetErrors = {
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetTilesetFileDatasetsDatasetIdTiles3dPathGetError = GetTilesetFileDatasetsDatasetIdTiles3dPathGetErrors[keyof GetTilesetFileDatasetsDatasetIdTiles3dPathGetErrors];
+
+export type GetTilesetFileDatasetsDatasetIdTiles3dPathGetResponses = {
+    /**
+     * The requested tileset file
+     */
+    200: unknown;
+};
 
 export type ValidateDatasetDatasetsDatasetIdValidateGetData = {
     body?: never;

@@ -40,6 +40,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 __all__ = [
     "get_dataset",
+    "get_tileset_href",
     "list_datasets",
     "get_datasets_list",
     "get_dataset_detail",
@@ -55,6 +56,19 @@ async def get_dataset(session: AsyncSession, dataset_id: uuid.UUID) -> Dataset |
         .where(Dataset.id == dataset_id)
     )
     return result.scalar_one_or_none()
+
+
+def _tileset_carrier(rows: list[Any]) -> Any | None:
+    """The tileset's internal pointer row among a dataset's asset rows."""
+    return next((row for row in rows if row.key == TILESET_ASSET_KEY), None)
+
+
+async def get_tileset_href(session: AsyncSession, dataset_id: uuid.UUID) -> str | None:
+    """The logical key of a tileset's live tileset.json, or None; never published."""
+    carrier = _tileset_carrier(
+        await get_catalog_port().get_dataset_assets(session, dataset_id)
+    )
+    return None if carrier is None else carrier.href
 
 
 async def list_datasets(
@@ -237,9 +251,7 @@ async def get_dataset_detail(
         source_count = sc_result.scalar()
 
     dataset_asset_rows = await get_catalog_port().get_dataset_assets(db, dataset.id)
-    tileset_asset = next(
-        (da for da in dataset_asset_rows if da.key == TILESET_ASSET_KEY), None
-    )
+    tileset_asset = _tileset_carrier(dataset_asset_rows)
     stac_assets_dict = {}
     for da in dataset_asset_rows:
         # Apply the asset allowlist before exposing href, filename, or size.

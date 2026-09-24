@@ -18401,6 +18401,11 @@
       "TilesetMetadata": {
         "description": "A 3D Tiles dataset's published tileset.",
         "properties": {
+          "url": {
+            "description": "URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json",
+            "title": "Url",
+            "type": "string"
+          },
           "size_bytes": {
             "anyOf": [
               {
@@ -18414,6 +18419,9 @@
             "title": "Size Bytes"
           }
         },
+        "required": [
+          "url"
+        ],
         "title": "TilesetMetadata",
         "type": "object"
       },
@@ -40758,6 +40766,114 @@
         "summary": "Set Target Status",
         "tags": [
           "Datasets - Data"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/tiles3d/{path}": {
+      "get": {
+        "description": "Serve one file of a published 3D Tiles tileset.\n\nPoint a client at the dataset's ``tileset.url``, this route's\n``tileset.json``; the relative URIs inside the tileset resolve to this\nsame route. Header credentials (``X-Api-Key`` or ``Authorization``)\nauthenticate every file of a private tileset. A query-string ``api_key``\nauthenticates only the request it is on, so the tileset's relative URIs\nlose it unless the client carries it over, as CesiumJS does through\n``Resource`` query parameters. A browser client on another origin also\nneeds that origin on the deployment's CORS allowlist\n(``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing\nfile all answer 404, and a storage failure answers 502.",
+        "operationId": "get_tileset_file_datasets__dataset_id__tiles3d__path__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requested tileset file"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 an upstream provider failed"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {},
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Get Tileset File",
+        "tags": [
+          "Datasets"
         ]
       }
     },

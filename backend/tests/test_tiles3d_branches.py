@@ -1,4 +1,4 @@
-"""A tiles3d dataset takes its own branch at delete, quota, the record, the response and re-upload."""
+"""A tiles3d dataset takes its own branch at delete, quota, the record, the feeds, the response and re-upload."""
 
 import uuid
 from unittest.mock import patch
@@ -10,9 +10,9 @@ from moto import mock_aws
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.tiles3d import TILESET_ASSET_KEY, tileset_prefix
+from app.core.tiles3d import TILESET_ASSET_KEY, tileset_path, tileset_prefix
 from app.modules.auth.models import User
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordContact
 from app.modules.quota.service import get_user_quota_usage
 from app.platform.storage.local import LocalStorageProvider
 from app.platform.storage.s3 import S3StorageProvider
@@ -139,23 +139,70 @@ async def test_the_detail_response_carries_the_tileset_block(
     vector_resp = await client.get(f"/datasets/{vector.id}", headers=admin_auth_header)
 
     assert tileset_resp.status_code == 200, tileset_resp.text
-    assert tileset_resp.json()["tileset"] == {"size_bytes": _UNPACKED_BYTES}
+    assert tileset_resp.json()["tileset"] == {
+        "url": f"/api{tileset_path(tileset.id)}",
+        "size_bytes": _UNPACKED_BYTES,
+    }
     assert vector_resp.status_code == 200, vector_resp.text
     assert vector_resp.json()["tileset"] is None
 
 
-async def test_the_ogc_record_lists_the_tileset_format_only(
+async def test_the_ogc_record_lists_the_tileset_only(
     client: AsyncClient, admin_auth_header: dict, tileset
 ) -> None:
-    """The OGC record lists the tileset's JSON format, and OGC Features has no collection."""
+    """The OGC record lists the tileset asset and its JSON format, and OGC Features has no collection."""
     record = await client.get(
         f"/collections/datasets/items/{tileset.id}", headers=admin_auth_header
     )
     features = await client.get(f"/collections/{tileset.id}", headers=admin_auth_header)
 
     assert record.status_code == 200, record.text
+    assets = record.json()["assets"]
+    assert assets["tileset"]["href"].endswith(tileset_path(tileset.id))
+    assert assets["tileset"]["type"] == "application/json"
     assert record.json()["properties"]["formats"] == ["application/json"]
     assert features.status_code == 404
+
+
+async def test_the_feeds_derive_the_tileset_distribution(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, tileset
+) -> None:
+    """GeoDCAT-AP and DCAT-US publish the tileset as a data service, and no row is stored."""
+    test_db_session.add(
+        RecordContact(
+            record_id=tileset.record_id,
+            role="pointOfContact",
+            name="Tiles Team",
+            email="tiles@example.com",
+        )
+    )
+    await test_db_session.commit()
+    url_suffix = tileset_path(tileset.id)
+
+    geodcat = await client.get(
+        f"/datasets/{tileset.id}/geodcat-ap/", headers=admin_auth_header
+    )
+    dcat_us = await client.get(
+        f"/datasets/{tileset.id}/dcat-us/3.0/", headers=admin_auth_header
+    )
+
+    assert geodcat.status_code == 200, geodcat.text
+    [geodcat_dist] = geodcat.json()["dcat:distribution"]
+    assert geodcat_dist["dcat:accessURL"]["@id"].endswith(url_suffix)
+    assert geodcat_dist["dcat:accessService"]["dcat:endpointURL"]["@id"].endswith(
+        url_suffix
+    )
+    assert dcat_us.status_code == 200, dcat_us.text
+    [dcat_us_dist] = dcat_us.json()["distribution"]
+    assert dcat_us_dist["accessURL"].endswith(url_suffix)
+    assert dcat_us_dist["accessService"][0]["endpointURL"] == [
+        dcat_us_dist["accessURL"]
+    ]
+    stored = await test_db_session.execute(
+        text("SELECT count(*) FROM catalog.record_distributions WHERE record_id = :id"),
+        {"id": tileset.record_id},
+    )
+    assert stored.scalar_one() == 0
 
 
 _DOORS = [

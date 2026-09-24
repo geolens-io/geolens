@@ -31,6 +31,9 @@ from app.modules.catalog.datasets.api.router_refresh import (
 from app.modules.catalog.datasets.api.router_reupload import (
     router as datasets_reupload_router,
 )
+from app.modules.catalog.datasets.api.router_tiles3d import (
+    router as datasets_tiles3d_router,
+)
 from app.modules.catalog.datasets.api.router_vrt import router as datasets_vrt_router
 from app.modules.embed_tokens.admin_router import router as embed_tokens_admin_router
 from app.modules.embed_tokens.public_router import router as embed_frame_policy_router
@@ -72,6 +75,7 @@ api_router.include_router(datasets_export_router)
 api_router.include_router(datasets_router)
 api_router.include_router(datasets_analysis_router)
 api_router.include_router(datasets_vrt_router)
+api_router.include_router(datasets_tiles3d_router)
 api_router.include_router(datasets_data_router)
 api_router.include_router(datasets_metadata_router)
 api_router.include_router(datasets_reupload_router)

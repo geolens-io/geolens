@@ -2703,6 +2703,37 @@ export interface paths {
         patch: operations["set_target_status_datasets__dataset_id__target_status__patch"];
         trace?: never;
     };
+    "/datasets/{dataset_id}/tiles3d/{path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tileset File
+         * @description Serve one file of a published 3D Tiles tileset.
+         *
+         *     Point a client at the dataset's ``tileset.url``, this route's
+         *     ``tileset.json``; the relative URIs inside the tileset resolve to this
+         *     same route. Header credentials (``X-Api-Key`` or ``Authorization``)
+         *     authenticate every file of a private tileset. A query-string ``api_key``
+         *     authenticates only the request it is on, so the tileset's relative URIs
+         *     lose it unless the client carries it over, as CesiumJS does through
+         *     ``Resource`` query parameters. A browser client on another origin also
+         *     needs that origin on the deployment's CORS allowlist
+         *     (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
+         *     file all answer 404, and a storage failure answers 502.
+         */
+        get: operations["get_tileset_file_datasets__dataset_id__tiles3d__path__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/validate/": {
         parameters: {
             query?: never;
@@ -13471,6 +13502,11 @@ export interface components {
          * @description A 3D Tiles dataset's published tileset.
          */
         TilesetMetadata: {
+            /**
+             * Url
+             * @description URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json
+             */
+            url: string;
             /**
              * Size Bytes
              * @description Unpacked size of the tileset in bytes
@@ -27909,6 +27945,81 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_tileset_file_datasets__dataset_id__tiles3d__path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested tileset file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };
