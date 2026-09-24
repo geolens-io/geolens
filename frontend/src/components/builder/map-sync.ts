@@ -970,16 +970,9 @@ function syncVectorLayer(
   mode.adapter.syncVisibility(map, adapterInput);
 }
 
-/**
- * Remove a layer's label companion when the family it now draws as has no
- * label spec for it. A layer can switch into heatmap or symbol through a
- * state-only path (bulk style apply, restore) that never calls
- * `swapLayerOnMap`'s unconditional companion removal, and neither family's
- * own `syncPaint` calls `removeLabelCompanionIfCleared` (their `describe()`
- * never produces a label spec to begin with). Called once per layer here,
- * after `syncVectorLayer`, rather than from each adapter, so it covers every
- * drawsAs value uniformly.
- */
+/** Remove a layer's label companion when the family it now draws as has no
+ *  label spec. A state-only family change (bulk style apply, restore) doesn't
+ *  go through `swapLayerOnMap`, which removes it on a UI switch. */
 function removeOrphanedLabelCompanion(
   map: MaplibreMap,
   drawsAs: DescribedLayer['drawsAs'],

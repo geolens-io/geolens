@@ -285,7 +285,7 @@ describe('a sync pass that writes a layer and a new tile URL together', () => {
   });
 });
 
-describe('a labelled layer that switches family through state only, with no swapLayerOnMap (#2154)', () => {
+describe('a labelled layer that switches family through state only, with no swapLayerOnMap', () => {
   /** Two full sync passes on the same map/tracking refs, standing in for a
    *  state-only update (bulk style apply, restore) that never calls
    *  swapLayerOnMap's own unconditional label removal. */
