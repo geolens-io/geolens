@@ -192,21 +192,28 @@ const LABEL_PAINT = {
   'text-opacity': 1,
 };
 
-/** The standalone label companion a point-placed family (circle, cluster,
- *  line) draws — LABEL_TEXT/LABEL_PAINT plus the explicit placement and zoom
- *  range every family shares, since none of them inline it the way symbol
- *  does. `source` matches whatever source that family's own spec(s) use —
- *  the shared per-dataset one by default, or a cluster's own per-layer one. */
+/** The standalone label companion a family draws — LABEL_TEXT/LABEL_PAINT plus
+ *  the explicit placement and zoom range every family shares, since none of
+ *  them inline it the way symbol does. `source` matches whatever source that
+ *  family's own spec(s) use — the shared per-dataset one by default, or a
+ *  cluster's own per-layer one. Line placement resets anchor/offset to the
+ *  neutral values line/line-center placement always carries. */
 function labelCompanionSpec(
   layer: MapLayerResponse,
   source: { source: string; 'source-layer'?: string } = tableSource(layer),
+  placement: 'point' | 'line' = 'point',
 ): LayerSpec {
   return {
     layer: {
       id: `layer-${layer.id}-label`,
       type: 'symbol',
       ...source,
-      layout: { ...LABEL_TEXT, 'symbol-placement': 'point', visibility: 'visible' },
+      layout: {
+        ...LABEL_TEXT,
+        'symbol-placement': placement,
+        ...(placement === 'line' ? { 'text-anchor': 'center', 'text-offset': [0, 0] } : {}),
+        visibility: 'visible',
+      },
       paint: LABEL_PAINT,
       minzoom: 0,
       maxzoom: 22,
@@ -556,6 +563,30 @@ const rows: Row[] = [
       [
         lineSpecRow(arrowLine, { 'line-color': '#2563eb', 'line-width': 2, 'line-opacity': 1, 'line-layer-opacity': 1 }),
         arrowSpecRow(arrowLine, { color: '#1e3a8a', size: 14, spacing: 80 }),
+      ],
+      [ARROW_IMAGE as unknown as ImageSpec],
+    ),
+  ],
+  [
+    'a line with a label',
+    { ...line, label_config: { column: 'name' } },
+    builder,
+    drawing([
+      lineSpecRow(line, { 'line-color': '#ef4444', 'line-width': 2, 'line-opacity': 1, 'line-layer-opacity': 1 }),
+      labelCompanionSpec(line, tableSource(line), 'line'),
+    ]),
+  ],
+  [
+    // Order matters: withLabelCompanion appends to whatever describeLine already
+    // built, so an arrow line's label lands after its arrow, not before.
+    'an arrow line with a label',
+    { ...arrowLine, label_config: { column: 'name' } },
+    builder,
+    drawing(
+      [
+        lineSpecRow(arrowLine, { 'line-color': '#2563eb', 'line-width': 2, 'line-opacity': 1, 'line-layer-opacity': 1 }),
+        arrowSpecRow(arrowLine, { color: '#1e3a8a', size: 14, spacing: 80 }),
+        labelCompanionSpec(arrowLine, tableSource(arrowLine), 'line'),
       ],
       [ARROW_IMAGE as unknown as ImageSpec],
     ),
