@@ -92,14 +92,17 @@ _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE: dict[str, str] = {
 
 
 def _normalize_geometry_type(value: str | None) -> str | None:
-    """Normalize abstract OGC geometry type names to concrete subtypes.
+    """Normalize a PostGIS geometry type name to the catalog's plain form.
 
-    Returns the uppercased input unchanged when it is already a concrete
-    type, ``None`` when the input is ``None`` or empty.
+    Strips the trailing ``M`` PostGIS reports for a measured (XYM) type --
+    no OGC base name ends in ``M``, and a Z or ZM column already reports
+    plain -- then maps an abstract OGC name to its closest concrete subtype.
+    Returns the uppercased input unchanged when it is already concrete,
+    ``None`` when the input is ``None`` or empty.
     """
     if not value:
         return None
-    upper = value.upper()
+    upper = value.upper().removesuffix("M")
     return _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE.get(upper, upper)
 
 

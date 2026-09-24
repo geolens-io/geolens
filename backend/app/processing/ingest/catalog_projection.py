@@ -221,8 +221,12 @@ async def _declared_geometry_type(
     """The type the ``geom`` column is declared as; None when there is no column.
 
     Unlike a sampled row, the declaration still answers for an empty table.
+    Normalized the same way as a sampled type, so a measured (XYM) or
+    abstract declaration still satisfies chk_datasets_geometry_type.
     """
-    return await session.scalar(
+    from app.processing.ingest.metadata import _normalize_geometry_type
+
+    declared = await session.scalar(
         text(
             "SELECT type FROM geometry_columns "
             "WHERE f_table_schema = :schema AND f_table_name = :table "
@@ -230,6 +234,7 @@ async def _declared_geometry_type(
         ),
         {"schema": schema, "table": table},
     )
+    return _normalize_geometry_type(declared)
 
 
 async def _three_d_without_rows(
