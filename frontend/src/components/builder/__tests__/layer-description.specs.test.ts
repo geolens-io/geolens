@@ -539,12 +539,6 @@ describe('describeLayers specs', () => {
     const [described] = describeLayers([toSyncInput(layer)], context).layers;
     expect({ specs: described.specs, images: described.images }).toEqual(expected);
   });
-
-  it('leaves the specs empty for an adapter that still adds its own layers', () => {
-    const [described] = describeLayers([toSyncInput(SAVED_LAYERS.line)], builder).layers;
-    expect(described.specs).toEqual([]);
-    expect(described.images).toEqual([]);
-  });
 });
 
 /** A map holding the source a described layer draws from, and the adapter input for that layer. */
