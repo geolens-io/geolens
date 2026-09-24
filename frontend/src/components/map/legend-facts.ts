@@ -263,6 +263,10 @@ function colorSteps(value: unknown): { colors: string[]; breaks: number[]; colum
   return { colors: parsed.values as string[], breaks: parsed.breaks, column: expressionColumn(rampInput(ramp)) };
 }
 
+function sameNumbers(a: number[], b: number[]): boolean {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
+
 // Symbol icons, heatmaps and rasters draw none of the vector colour or size classes.
 const CLASSED_KINDS = new Set<LayerAdapter['type']>(['fill', 'line', 'circle', 'cluster', 'mixed']);
 
@@ -291,18 +295,22 @@ function classesFor(
   if ((config.target === 'radius' || config.target === 'width') && config.sizes?.length) {
     const steps = colorSteps(paint[getColorProperty(geometry)]);
     const color = steps?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
+    const sizeTitle = config.sizeLabel ?? displayColumn(column);
+    // Colour steps on the size column at the size breaks colour each size class,
+    // so the legend lists one classification.
+    const colorsEachSize = steps !== null && steps.column === column && sameNumbers(steps.breaks, breaks);
     const sized: LegendClasses = {
       mode: 'graduated',
       target: config.target,
-      title: config.sizeLabel ?? displayColumn(column),
-      items: config.sizes.map((size) => ({ color, size })),
+      title: sizeTitle,
+      items: config.sizes.map((size, i) => ({ color: (colorsEachSize ? steps.colors[i] : undefined) ?? color, size })),
       breaks,
     };
-    if (!steps?.column) return [sized];
+    if (!steps?.column || colorsEachSize) return [sized];
     return [sized, {
       mode: 'graduated',
       target: 'color',
-      title: config.colorLabel ?? displayColumn(steps.column),
+      title: config.colorLabel ?? (steps.column === column ? sizeTitle : displayColumn(steps.column)),
       items: steps.colors.map((stepColor) => ({ color: stepColor })),
       breaks: steps.breaks,
     }];

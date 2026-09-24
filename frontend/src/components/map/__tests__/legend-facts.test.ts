@@ -380,9 +380,39 @@ const classRows: ClassRow[] = [
   ['radius classes painted in one colour', sizedByMagnitude('#ef4444'), [MAGNITUDE_SIZES('#ef4444')]],
   ['radius classes coloured by another column', sizedByMagnitude(depthColor), [MAGNITUDE_SIZES('#fde725'), DEPTH_COLORS]],
   [
-    'radius classes coloured by the same column',
+    'radius classes coloured by the same column at the same breaks',
     sizedByMagnitude(['step', ['get', 'mag'], '#fee8c8', 6, '#fdbb84', 7, '#e34a33']),
-    [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Depth (km)', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+    [graduated('radius', 'Magnitude', [{ color: '#fee8c8', size: 4 }, { color: '#fdbb84', size: 8 }, { color: '#e34a33', size: 14 }], [6, 7])],
+  ],
+  [
+    "the showcase's earthquakes, sized and coloured by magnitude at the same breaks",
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: {
+        'circle-radius': [
+          'interpolate', ['linear'], ['zoom'],
+          1.2, ['step', ['to-number', ['get', 'mag'], 0], 2.5, 5.0, 4.5, 6.0, 7, 7.0, 11],
+          6, ['step', ['to-number', ['get', 'mag'], 0], 5, 5.0, 9, 6.0, 14, 7.0, 22],
+        ],
+        'circle-color': ['step', ['to-number', ['get', 'mag'], 0], '#fecc5c', 5.0, '#fd8d3c', 6.0, '#f03b20', 7.0, '#bd0026'],
+      },
+      style_config: { mode: 'graduated', target: 'radius', column: 'mag', breaks: [5, 6, 7], sizes: [3, 5, 8, 12], sizeLabel: 'Magnitude' },
+    }),
+    [graduated('radius', 'Magnitude', [
+      { color: '#fecc5c', size: 3 },
+      { color: '#fd8d3c', size: 5 },
+      { color: '#f03b20', size: 8 },
+      { color: '#bd0026', size: 12 },
+    ], [5, 6, 7])],
+  ],
+  [
+    'radius classes coloured by the same column at other breaks',
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-radius': magnitudeRadius, 'circle-color': ['step', ['get', 'mag'], '#fee8c8', 5, '#fdbb84', 8, '#e34a33'] },
+      style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7], sizeLabel: 'Magnitude' },
+    }),
+    [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [5, 8])],
   ],
   [
     "radius classes over the builder's graduated colour",

@@ -140,11 +140,12 @@ describe('classes in both legends', () => {
     expect(screen.queryByText('Residential')).not.toBeInTheDocument();
   });
 
-  it.each(Object.entries(legends))('%s legend lists the colour classes a size classification is painted in', (_legend, draw) => {
+  it.each(Object.entries(legends))('%s legend draws each size in its class colour when colour and size share breaks', (_legend, draw) => {
     const container = draw(magnitudeCircles);
 
-    expect(screen.getByText(/viewer\.legend\.colorLabel/)).toBeInTheDocument();
-    expect(container.querySelectorAll('svg[viewBox="0 0 14 14"] circle')).toHaveLength(3);
+    expect(screen.queryByText(/viewer\.legend\.colorLabel/)).not.toBeInTheDocument();
+    const sizes = Array.from(container.querySelectorAll('svg[viewBox="0 0 24 24"]:not(.lucide) circle'));
+    expect(sizes.map((circle) => circle.getAttribute('fill'))).toEqual(['#fee8c8', '#fdbb84', '#e34a33']);
   });
 
   it.each(Object.entries(legends))('%s legend draws width classes in the colour the paint gives them', (_legend, draw) => {
