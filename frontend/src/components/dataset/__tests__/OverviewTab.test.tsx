@@ -70,7 +70,7 @@ describe('OverviewTab reuse details', () => {
   });
 });
 
-describe('OverviewTab Table Name row (#2225)', () => {
+describe('OverviewTab Table Name row', () => {
   it('shows the row for a vector dataset', () => {
     renderOverview(makeDataset({ record_type: 'vector_dataset', table_name: 'public_parks' }));
 
