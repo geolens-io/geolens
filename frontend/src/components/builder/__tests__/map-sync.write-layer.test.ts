@@ -45,6 +45,10 @@ function drawn(recording: RecordingMap) {
   return recording.layerIds().map((id) => recording.layer(id));
 }
 
+function zoomRanges(recording: RecordingMap) {
+  return recording.layerIds().map((id) => [id, recording.layer(id)?.minzoom, recording.layer(id)?.maxzoom]);
+}
+
 /** The layer with every field a handler edits changed, plus a paint edit of its family. */
 function changed(layer: MapLayerResponse, paint: Record<string, unknown>): MapLayerResponse {
   return {
@@ -112,6 +116,34 @@ describe('writeLayerToMap', () => {
 
     expect(written.recording.layer(`layer-${point.id}-label`)).toBeUndefined();
     expect(passed.recording.layer(`layer-${point.id}-label`)).toBeUndefined();
+  });
+
+  it.each([
+    ['raster', raster],
+    ['hillshade with a colour relief', relief],
+  ])('resets a cleared zoom range on a %s, in a pass and in a write', (_label, layer) => {
+    const ranged = { ...layer, layout: { _minzoom: 5, _maxzoom: 12 } };
+    const written = syncedMap([ranged]);
+    const passed = syncedMap([ranged]);
+    expect(zoomRanges(written.recording)).toEqual(written.recording.layerIds().map((id) => [id, 5, 12]));
+
+    writeLayerToMap(written.recording.map, toSyncInput(layer));
+    passed.sync([layer]);
+
+    for (const { recording } of [written, passed]) {
+      expect(zoomRanges(recording)).toEqual(recording.layerIds().map((id) => [id, 0, 24]));
+    }
+  });
+
+  it.each([
+    ['raster', raster],
+    ['hillshade with a colour relief', relief],
+  ])('leaves the zoom range of an unranged %s to MapLibre', (_label, layer) => {
+    const { recording, sync } = syncedMap([layer]);
+    sync([layer]);
+    writeLayerToMap(recording.map, toSyncInput(layer));
+
+    expect(recording.callsTo('setLayerZoomRange')).toEqual([]);
   });
 
   it('writes nothing to a map no pass has drawn', () => {

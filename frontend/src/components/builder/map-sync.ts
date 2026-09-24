@@ -37,6 +37,7 @@ import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-ad
 import { getClusterSourceStrategy } from './cluster-source';
 import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
 import { labelLayerId } from './label-layer-utils';
+import { DEFAULT_LAYER_MAXZOOM } from './layer-writer';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import {
@@ -620,6 +621,16 @@ function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], zoom: ZoomRang
   }
 }
 
+/** Put a layer still held to a range its saved layer dropped back on MapLibre's defaults. */
+function resetLayerZoomRange(map: MaplibreMap, layerIds: string[]) {
+  for (const id of layerIds) {
+    const layer = map.getLayer(id);
+    if (layer && ((layer.minzoom ?? 0) > 0 || (layer.maxzoom ?? DEFAULT_LAYER_MAXZOOM) < DEFAULT_LAYER_MAXZOOM)) {
+      map.setLayerZoomRange(id, 0, DEFAULT_LAYER_MAXZOOM);
+    }
+  }
+}
+
 // builder-audit #338 SYNC-05: the cluster signature and the tile-url signature are
 // kept in SEPARATE per-map WeakMaps. They were previously crammed into one Map
 // (cluster key = sourceId, tile-url key = `${sourceId}::tileurl`), where a
@@ -952,16 +963,15 @@ function syncDrawnLayer(
   prefix: string | undefined,
 ) {
   const adapter = getAdapter(described.drawsAs);
+  const { outline, extrusion, arrow } = getCompanionLayerIds(adapterInput.id, prefix);
+  // The fixed ids also reach a companion that a previous family left on the map.
+  const ids = [...new Set([...adapter.getLayerIds(described.id), outline, extrusion, arrow])];
   // A raster without a saved range keeps MapLibre's uncapped default, which
   // FULL_ZOOM_RANGE would cut off at z22.
   const raster = described.drawsAs === 'raster' || described.drawsAs === 'hillshade';
   const zoom = described.zoom ?? (raster ? null : FULL_ZOOM_RANGE);
-  if (zoom) {
-    const { outline, extrusion, arrow } = getCompanionLayerIds(adapterInput.id, prefix);
-    // The fixed ids also reach a companion that a previous family left on the map.
-    const ids = new Set([...adapter.getLayerIds(described.id), outline, extrusion, arrow]);
-    syncLayerZoomRange(map, [...ids], zoom, described.specs);
-  }
+  if (zoom) syncLayerZoomRange(map, ids, zoom, described.specs);
+  else resetLayerZoomRange(map, ids);
   adapter.syncVisibility(map, adapterInput);
   removeOrphanedLabelCompanion(map, described.drawsAs, adapterInput);
 }

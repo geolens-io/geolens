@@ -222,6 +222,19 @@ describe('the handlers write through the layer writer', () => {
     expect(mounted.recording.getStyle().sources).toEqual({});
   });
 
+  it.each([
+    ['raster', raster],
+    ['hillshade and its relief', relief],
+  ])('frees a %s from a zoom range the layout no longer saves', (_label, layer) => {
+    const ranged = { ...layer, layout: { _minzoom: 5, _maxzoom: 12 } };
+    const mounted = run([ranged], (h) => h.handleLayoutChange(ranged.id, {}));
+    expectMatchesPass([ranged], mounted);
+    for (const id of mounted.recording.layerIds()) {
+      const drawnLayer = mounted.recording.layer(id);
+      expect([id, drawnLayer?.minzoom, drawnLayer?.maxzoom]).toEqual([id, 0, 24]);
+    }
+  });
+
   it('sets and clears a layout key no spec owns', () => {
     const mounted = run([polygon], (h) => h.handleLayoutChange(polygon.id, { 'fill-sort-key': 3 }));
     expect(layoutOf(mounted, `layer-${polygon.id}`)?.['fill-sort-key']).toBe(3);
