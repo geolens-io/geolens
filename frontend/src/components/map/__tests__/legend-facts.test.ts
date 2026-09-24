@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors } from '@/lib/color-ramps';
+import { buildCategoricalExpression, buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
 import { describeLayers } from '@/components/builder/layer-description';
@@ -414,6 +414,43 @@ const classRows: ClassRow[] = [
   ],
   ['a match fallback that a filter lets other values reach', categoricalPoint({ filter: ['in', ['get', 'kind'], ['literal', ['school', 'park']]] }), [KIND_CLASSES]],
   ['a match fallback under a filter on another column', categoricalPoint({ filter: ['==', ['get', 'use'], 'school'] }), [KIND_CLASSES]],
+  [
+    'a match on a to-string of the column under a filter on a number',
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': ['match', ['to-string', ['get', 'code']], '1', '#f472b6', '#cccccc'] },
+      filter: ['==', ['get', 'code'], 1],
+    }),
+    [categories('code', [{ color: '#f472b6', label: '1' }])],
+  ],
+  [
+    'a match on a to-number of the column under a filter on strings',
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': ['match', ['to-number', ['get', 'ada'], 0], 1, '#22c55e', 2, '#a3e635', '#94a3b8'] },
+      filter: ['in', ['get', 'ada'], ['literal', ['1', '2']]],
+    }),
+    [categories('ada', [{ color: '#22c55e', label: '1' }, { color: '#a3e635', label: '2' }])],
+  ],
+  [
+    'a filtered value the match input cannot convert, which reaches the fallback',
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': ['match', ['number', ['get', 'code']], 1, '#f472b6', '#cccccc'] },
+      filter: ['==', ['get', 'code'], 'x'],
+    }),
+    [categories('code', [{ color: '#f472b6', label: '1' }, other('#cccccc')])],
+  ],
+  [
+    "the style builder's null guard, which draws nulls in the fallback colour",
+    categoricalPoint({ paint: { 'circle-color': buildCategoricalExpression('kind', [['school', '#f472b6'], ['clinic', '#60a5fa']], '#cccccc') } }),
+    [KIND_CLASSES],
+  ],
+  [
+    'a null guard that draws nulls in another colour than the fallback',
+    categoricalPoint({ paint: { 'circle-color': ['case', ['==', ['get', 'kind'], null], '#ff0000', kindMatch] } }),
+    null,
+  ],
   [
     'a match fallback that one stored category no arm lists names',
     categoricalPoint({

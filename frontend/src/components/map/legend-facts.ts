@@ -337,6 +337,8 @@ function sizeStepsMatch(value: unknown, column: string, breaks: number[]): boole
 /** A colour `match` the legend can list: each arm's values and colour, and the colour of every other value. */
 interface MatchClasses {
   column: string;
+  /** The expression the match reads its column through. */
+  input: unknown;
   arms: { values: (string | number)[]; color: string }[];
   fallback: string;
 }
@@ -356,6 +358,8 @@ function matchClasses(value: unknown): MatchClasses | null {
   const column = plainColumn(match[1]);
   const fallback = match[match.length - 1];
   if (column === null || typeof fallback !== 'string') return null;
+  // A null guard's colour has no class of its own, so it must be the fallback's.
+  if (match !== value && String((value as unknown[])[2]).toLowerCase() !== fallback.toLowerCase()) return null;
   const arms: MatchClasses['arms'] = [];
   for (let i = 2; i < match.length - 1; i += 2) {
     const values = armValues(match[i]);
@@ -363,7 +367,39 @@ function matchClasses(value: unknown): MatchClasses | null {
     if (values === null || typeof color !== 'string') return null;
     arms.push({ values, color });
   }
-  return { column, arms, fallback };
+  return { column, input: match[1], arms, fallback };
+}
+
+/**
+ * A literal as a match input reads it, through the coercions and `coalesce` a
+ * plain column read allows; undefined where MapLibre would fail to convert it.
+ */
+function readAsMatchInput(input: unknown, value: unknown): unknown {
+  if (getColumn(input) !== null) return value;
+  if (!Array.isArray(input)) return undefined;
+  const [op, inner, ...fallbacks] = input;
+  const read = readAsMatchInput(inner, value);
+  if (read === undefined) return undefined;
+  const candidates = [read, ...fallbacks];
+  switch (op) {
+    case 'to-string':
+      return read === null ? '' : String(read);
+    case 'to-number':
+      // MapLibre reads null as 0 and tries each fallback until one converts.
+      for (const candidate of candidates) {
+        if (candidate === null) return 0;
+        if (!Number.isNaN(Number(candidate))) return Number(candidate);
+      }
+      return undefined;
+    case 'number':
+      return candidates.find((candidate) => typeof candidate === 'number');
+    case 'string':
+      return candidates.find((candidate) => typeof candidate === 'string');
+    case 'coalesce':
+      return candidates.find((candidate) => candidate !== null) ?? null;
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -399,7 +435,10 @@ function categoricalClasses(match: MatchClasses, config: StyleConfig, filter: un
     label: values.map((value) => stored.find((category) => String(category.value) === String(value))?.label ?? String(value)).join(', '),
   }));
   const allowed = filteredValues(filter, match.column);
-  const reachesFallback = allowed === null || allowed.some((value) => !match.arms.some((arm) => arm.values.some((armValue) => armValue === value)));
+  const reachesFallback = allowed === null || allowed.some((value) => {
+    const read = readAsMatchInput(match.input, value);
+    return read === undefined || !match.arms.some((arm) => arm.values.includes(read as string | number));
+  });
   if (reachesFallback && !isTransparentColor(match.fallback)) {
     const named = stored.filter((category) => !isListed(category.value)
       && String(category.color).toLowerCase() === match.fallback.toLowerCase());
