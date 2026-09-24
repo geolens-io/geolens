@@ -98,12 +98,14 @@ class _Fake:
         fail_at: str | None = None,
         refused: bool = False,
         during: dict | None = None,
+        failure: Failure | None = None,
     ) -> None:
         self.seed = seed
         self.raster_row = raster_row
         self.verdict = verdict
         self.fail_at = fail_at
         self.refused = refused
+        self.failure = failure
         # A coroutine function to run at a step, after the step's probe.
         self.during = during or {}
         self.seen: dict[str, dict[str, bool]] = {}
@@ -150,6 +152,8 @@ class _Fake:
         )
 
     def classify(self, exc: BaseException) -> Failure:
+        if self.failure is not None:
+            return self.failure
         return Failure(getattr(exc, "error_code", "fake_failed"), refused=self.refused)
 
     async def release(self, *, publication, failed: bool) -> None:
@@ -560,3 +564,30 @@ async def test_a_failure_write_that_expires_leaves_the_tasks_own_failure(
     ]
     assert fake.released == (None, True)
     assert _events(notifications) == []
+
+
+async def test_a_lost_catalog_wait_ends_the_job_without_waiting_on_the_held_row(
+    seed, monkeypatch, notifications
+) -> None:
+    """The failure write skips the contact stamp on a held dataset row and still lands."""
+    monkeypatch.setattr(catalog_locks, "WORKER_LOCK_TIMEOUT", "1s")
+    monkeypatch.setattr("app.platform.jobs.heartbeat.JOB_ERROR_WRITE_TIMEOUT_MS", 1500)
+    async with db_module.async_session() as reader:
+        dataset = await reader.get(Dataset, seed.dataset_id)
+        bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+        checked = dataset.last_checked_at
+    fake = _Fake(seed, failure=Failure(CATALOG_LOCK_CONFLICT_CODE, contacted=bound))
+    async with db_module.async_session() as holder:
+        await holder.execute(seed.rows()["dataset"].with_for_update())
+        try:
+            with pytest.raises(catalog_locks.CatalogLockConflict):
+                await asyncio.wait_for(_settle(fake), timeout=20)
+        finally:
+            await holder.rollback()
+
+    state = await _state(seed)
+    assert state["job"] == "failed"
+    assert state["run"] == ("failed", CATALOG_LOCK_CONFLICT_CODE)
+    assert _events(notifications) == ["ingest_failed"]
+    async with db_module.async_session() as reader:
+        assert (await reader.get(Dataset, seed.dataset_id)).last_checked_at == checked

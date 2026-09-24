@@ -584,16 +584,24 @@ async def _stamp_contact(
     """Date a failed attempt's origin contact, only while the dataset is still bound as it read.
 
     A rebind that finished first stamped what is true now, so losing the race
-    writes nothing.
+    writes nothing. A row another transaction holds is skipped the same way:
+    the failure is often the wait on that row, and its write must not wait
+    again.
     """
     from app.platform.extensions import get_processing_port
 
     Dataset = get_processing_port().get_dataset_orm_class()
     origin_uri, origin_ref, source_format = binding
+    free = (
+        select(Dataset.id)
+        .where(Dataset.id == dataset_id)
+        .with_for_update(key_share=True, skip_locked=True)
+    )
     stamped = await session.execute(
         update(Dataset)
         .where(
             Dataset.id == dataset_id,
+            Dataset.id.in_(free),
             Dataset.origin_uri.is_not_distinct_from(origin_uri),
             Dataset.origin_ref.is_not_distinct_from(origin_ref),
             Dataset.source_format.is_not_distinct_from(source_format),
