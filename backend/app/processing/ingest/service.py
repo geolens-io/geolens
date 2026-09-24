@@ -23,6 +23,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
 from app.core.failure_reason import is_composed_exception, redact_failure_reason
+from app.core.tiles3d import TILESET_FILE_TYPE
 from app.core.service_tokens import (
     ServiceCredential,
     header_token_rejection_reason,
@@ -1290,8 +1291,9 @@ async def queue_ingest_job(
     """Route a committed ingest job to the right Procrastinate task.
 
     Chooses between ``ingest_service`` (source_url set), ``ingest_raster``
-    (file_type=raster), and ``ingest_file`` (default vector path), and sends
-    small vector files to the priority queue.
+    (file_type=raster), ``ingest_tileset`` (file_type=tiles3d) and
+    ``ingest_file`` (default vector path), and sends small vector files to the
+    priority queue.
 
     Each ``defer_async`` call is wrapped in ``defer_with_orphan_guard`` so a
     queue outage flips the committed pending job to ``failed`` and surfaces
@@ -1324,7 +1326,12 @@ async def queue_ingest_job(
         resolve_dispatch_credential,
     )
     from app.processing.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
-    from app.processing.ingest.tasks import ingest_file, ingest_raster, ingest_service
+    from app.processing.ingest.tasks import (
+        ingest_file,
+        ingest_raster,
+        ingest_service,
+        ingest_tileset,
+    )
 
     if job.source_url and not job.file_path:
         # Capture source_url into a local so mypy preserves the ``str``
@@ -1431,11 +1438,14 @@ async def queue_ingest_job(
         )
     file_path = job.file_path
 
-    if (job.user_metadata or {}).get("file_type") == "raster":
+    whole_file_task = {"raster": ingest_raster, TILESET_FILE_TYPE: ingest_tileset}.get(
+        (job.user_metadata or {}).get("file_type")
+    )
+    if whole_file_task is not None:
 
-        async def _defer_raster() -> None:
+        async def _defer_whole_file() -> None:
             await defer_async_with_tenant(
-                ingest_raster,
+                whole_file_task,
                 job_id=str(job.id),
                 attempt_id=str(job.attempt_id),
                 file_path=file_path,
@@ -1443,7 +1453,7 @@ async def queue_ingest_job(
             )
 
         await defer_with_orphan_guard(
-            _defer_raster,
+            _defer_whole_file,
             rollback=make_ingest_job_failed_rollback(job),
             db=db,
             job=job,

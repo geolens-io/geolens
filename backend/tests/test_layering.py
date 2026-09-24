@@ -1299,10 +1299,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # callers.
     "backend/app/processing/ingest/metadata.py": 161,
     # Ingest API router debt; split upload, import and registration endpoints before
-    # raising.
-    "backend/app/processing/ingest/router.py": 1805,
+    # raising further. Each upload door branches once for a 3D Tiles tileset.
+    "backend/app/processing/ingest/router.py": 1860,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1883,
+    "backend/app/processing/ingest/tasks_common.py": 1884,
     # Reupload retains retrieval, staging, cleanup and enrichment adapters.
     "backend/app/processing/ingest/tasks_reupload.py": 1597,
     # Refresh strategies share access, admission and dispatch rules at this API
@@ -1312,13 +1312,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1632,
+    "backend/app/platform/jobs/sweep.py": 1746,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1237,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
-    "backend/app/core/config.py": 1496,
+    "backend/app/core/config.py": 1500,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects.
     "backend/app/core/persistent_config.py": 943,
@@ -1340,19 +1340,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/ogr.py": 1351,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
-    "backend/app/processing/ingest/validation.py": 1104,
+    "backend/app/processing/ingest/validation.py": 1112,
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1111,
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging and job settlement share one orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1481,
+    "backend/app/processing/ingest/service.py": 1491,
     # PostGIS refresh coordinates geometry repair, measurement, fenced catalog
     # updates and fenced post-commit steps.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 851,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1574,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1590,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1421,
@@ -1855,6 +1855,11 @@ _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN: dict[str, set[str]] = {
         "app.modules.audit.service",
     },
     "ingest/tasks_raster_swap.py": {
+        "app.modules.quota.service",
+    },
+    # The tileset publish reserves its dataset slot and unpacked bytes under
+    # the per-user lock, as the raster tails do.
+    "ingest/tasks_tileset.py": {
         "app.modules.quota.service",
     },
     "ingest/tasks_vrt.py": {

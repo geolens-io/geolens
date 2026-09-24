@@ -69,6 +69,11 @@ def _parse_response(
 
         return response_409
 
+    if response.status_code == 413:
+        response_413 = ProblemDetail.from_dict(response.json())
+
+        return response_413
+
     if response.status_code == 422:
         response_422 = ProblemDetail.from_dict(response.json())
 
@@ -117,7 +122,8 @@ def sync_detailed(
      Commit a staged file for ingestion with user-supplied metadata.
 
     Stores user metadata on the job and queues the ingest task.
-    Only callable on jobs with status 'pending'.
+    Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
+    size is checked against the storage quota again here.
 
     Args:
         job_id (UUID):
@@ -134,6 +140,7 @@ def sync_detailed(
               - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
               - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is
             None
+              - ``TilesetCommitRequest`` — when ``job.user_metadata['file_type'] == 'tiles3d'``
 
             For new internal code that constructs a commit view, prefer importing
             the appropriate subclass directly. This flat class is the wire contract,
@@ -170,7 +177,8 @@ def sync(
      Commit a staged file for ingestion with user-supplied metadata.
 
     Stores user metadata on the job and queues the ingest task.
-    Only callable on jobs with status 'pending'.
+    Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
+    size is checked against the storage quota again here.
 
     Args:
         job_id (UUID):
@@ -187,6 +195,7 @@ def sync(
               - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
               - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is
             None
+              - ``TilesetCommitRequest`` — when ``job.user_metadata['file_type'] == 'tiles3d'``
 
             For new internal code that constructs a commit view, prefer importing
             the appropriate subclass directly. This flat class is the wire contract,
@@ -218,7 +227,8 @@ async def asyncio_detailed(
      Commit a staged file for ingestion with user-supplied metadata.
 
     Stores user metadata on the job and queues the ingest task.
-    Only callable on jobs with status 'pending'.
+    Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
+    size is checked against the storage quota again here.
 
     Args:
         job_id (UUID):
@@ -235,6 +245,7 @@ async def asyncio_detailed(
               - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
               - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is
             None
+              - ``TilesetCommitRequest`` — when ``job.user_metadata['file_type'] == 'tiles3d'``
 
             For new internal code that constructs a commit view, prefer importing
             the appropriate subclass directly. This flat class is the wire contract,
@@ -269,7 +280,8 @@ async def asyncio(
      Commit a staged file for ingestion with user-supplied metadata.
 
     Stores user metadata on the job and queues the ingest task.
-    Only callable on jobs with status 'pending'.
+    Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
+    size is checked against the storage quota again here.
 
     Args:
         job_id (UUID):
@@ -286,6 +298,7 @@ async def asyncio(
               - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
               - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is
             None
+              - ``TilesetCommitRequest`` — when ``job.user_metadata['file_type'] == 'tiles3d'``
 
             For new internal code that constructs a commit view, prefer importing
             the appropriate subclass directly. This flat class is the wire contract,

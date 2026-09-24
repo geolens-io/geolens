@@ -81,7 +81,12 @@ class LocalStorageProvider:
                     # the empty-dir sweeper runs concurrently. Retry ONCE — a
                     # second disappearance means a broken volume, not a race.
                     dest.parent.mkdir(parents=True, exist_ok=True)
-                    if hasattr(data, "seek"):
+                    # A stream that cannot rewind may be part-read already, and
+                    # writing its remainder would store a truncated object.
+                    if not isinstance(data, bytes):
+                        seekable = getattr(data, "seekable", None)
+                        if seekable is None or not seekable():
+                            raise
                         data.seek(0)
                     _write(tmp, data)
                 os.replace(tmp, dest)

@@ -387,6 +387,47 @@ class TestPythonRoundTrip:
         )
 
     @pytest.mark.anyio
+    async def test_a_tileset_upload_body_carries_its_kind(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """The generated multipart body sends kind, and the upload door takes it."""
+        from sqlalchemy import select, text
+
+        from app.platform.jobs.models import IngestJob
+        from geolens.models.body_upload_file_ingest_upload_post import (
+            BodyUploadFileIngestUploadPost,
+        )
+        from tests.tiles3d_archives import tileset_json, zip_bytes
+
+        parts = BodyUploadFileIngestUploadPost(file="", kind="tiles3d").to_multipart()
+        kind = [part for part in parts if part[0] == "kind"]
+        assert [(name, value[1]) for name, value in kind] == [("kind", b"tiles3d")]
+
+        # The generator sends `file` as a text field, so a named .zip part
+        # stands in for it; the kind part goes as the SDK built it.
+        archive = zip_bytes([("tileset.json", tileset_json()), ("0/0.glb", b"glb")])
+        resp = await client.post(
+            "/ingest/upload",
+            files=[("file", ("campus.zip", archive, "application/zip")), *kind],
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        job_id = resp.json()["job_id"]
+        try:
+            job = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert job.user_metadata["file_type"] == "tiles3d"
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text("DELETE FROM catalog.ingest_jobs WHERE id = :id"), {"id": job_id}
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
     async def test_api_key_auth_mode(self, client, admin_auth_header) -> None:
         """Closes Pitfall 4: X-API-Key works via the wrapper despite not being
         in the OpenAPI spec (only OAuth2PasswordBearer is advertised)."""

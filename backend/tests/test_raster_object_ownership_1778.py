@@ -473,6 +473,7 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
         assert found == {
             "processing/ingest/tasks_raster.py",
             "processing/ingest/tasks_raster_replace.py",
+            "processing/ingest/tasks_tileset.py",
             "processing/ingest/tasks_vrt.py",
         }, found
 
@@ -740,6 +741,11 @@ PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
     ("processing/export/artifact_cache.py", "_write"): (
         1,
         "the export artifact cache, reaped by its own TTL sweep",
+    ),
+    ("processing/ingest/tasks_tileset.py", "unpack_tileset"): (
+        1,
+        "tiles3d/{dataset_id}/{attempt_id}/: ingest_tileset records that prefix "
+        "on the job row before calling it, and the job sweep reaps it",
     ),
 }
 

@@ -13,6 +13,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -37,6 +38,7 @@ from app.modules.auth.dependencies import get_current_active_user, require_permi
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
+from app.core.tiles3d import TILESET_FILE_TYPE
 from app.processing.ingest.layer_guard import (
     known_layer_names as known_layer_names_for,
     reject_option_like_layer_name,
@@ -68,6 +70,9 @@ from app.processing.ingest.schemas import (
     RegisterRequest,
     ServiceCommitRequest,
     TableRegisterResponse,
+    TILESET_KIND_DESCRIPTION,
+    TilesetCommitRequest,
+    TilesetPreviewResponse,
     UploadConfigResponse,
     UploadResponse,
     UrlUploadRequest,
@@ -104,6 +109,7 @@ from app.processing.ingest.url_fetch import (
 )
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
+    admit_presigned_tileset,
     finalize_presigned_object,
     lock_presigned_job,
     require_completable_presigned_job,
@@ -112,6 +118,14 @@ from app.processing.ingest.presigned import (
     sign_url_with_deadline,
 )
 from app.processing.ingest.tasks import regenerate_vrt_staged
+from app.processing.ingest.tileset import (
+    TILESET_UNPACKED_BYTES_FIELD,
+    preview_staged_tileset,
+    require_tileset_archive,
+    staged_tileset_metadata,
+    staged_unpacked_bytes,
+    tileset_job_metadata,
+)
 from app.processing.ingest.validation import (
     UnsafeUploadError,
     validate_file_content,
@@ -260,6 +274,7 @@ async def request_presigned_upload(
     allowed_list = await _get_allowed_extensions_safely(db)
     _reject_standalone_vrt(request.filename)
     validate_file_extension(request.filename, allowed_list)
+    require_tileset_archive(request.kind, request.filename)
 
     # Reject files exceeding configured size limit at request time
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
@@ -331,6 +346,7 @@ async def request_presigned_upload(
             "upload_id": upload_id,
             "multipart": True,
             "expected_size": request.file_size,
+            **tileset_job_metadata(request.kind),
         }
         try:
             await db.commit()
@@ -376,6 +392,7 @@ async def request_presigned_upload(
             "s3_key": s3_key,
             "multipart": False,
             "expected_size": request.file_size,
+            **tileset_job_metadata(request.kind),
         }
         await db.commit()
         return PresignedUploadResponse(
@@ -480,6 +497,15 @@ async def complete_presigned_upload(
         user_id=user.id,
         request=http_request,
     )
+    if um.get("file_type") == TILESET_FILE_TYPE:
+        await admit_presigned_tileset(
+            db,
+            storage,
+            job,
+            frozen_key=frozen_key,
+            user_id=user.id,
+            request=http_request,
+        )
 
     job.file_path = frozen_key
     # fix(#1186): the presigned path never stamped file_type — on S3 every
@@ -591,6 +617,11 @@ async def upload_file(
     file: UploadFile = File(...),
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
+    # A pattern, not a Literal: the generated Python SDK cannot put a nullable
+    # Literal into a multipart body.
+    kind: str | None = Form(
+        None, pattern="^tiles3d$", description=TILESET_KIND_DESCRIPTION
+    ),
 ) -> UploadResponse:
     """Upload a geospatial file for staging.
 
@@ -606,6 +637,7 @@ async def upload_file(
         allowed_list = await _get_allowed_extensions_safely(db)
         _reject_standalone_vrt(file.filename)
         validate_file_extension(file.filename, allowed_list)
+        require_tileset_archive(kind, file.filename)
 
         # IA-P0-02: enforce max_file_size_bytes at HTTP entry. Symmetric
         # with the presigned path's request-time check (:158-165).
@@ -636,6 +668,7 @@ async def upload_file(
             # Inline content validation for immediate feedback.
             try:
                 validate_file_content(validation_path, file.filename)
+                tileset_metadata = await staged_tileset_metadata(validation_path, kind)
             except ValueError as exc:
                 # Fenced like the bind below, so a row the sweep already
                 # reclaimed keeps its terminal status and message.
@@ -645,6 +678,10 @@ async def upload_file(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=str(exc),
                 ) from exc
+            if TILESET_UNPACKED_BYTES_FIELD in tileset_metadata:
+                await check_upload_quota(
+                    db, user.id, tileset_metadata[TILESET_UNPACKED_BYTES_FIELD], request
+                )
 
             # fix(#1848): bind only while the row is still pending, stamping
             # `staged_at` so the pending window restarts here rather than at
@@ -654,6 +691,7 @@ async def upload_file(
                     file_path=str(saved_path),
                     user_metadata={
                         **(raster_stamped_metadata(job_metadata, file.filename) or {}),
+                        **tileset_metadata,
                         "staged_at": datetime.now(timezone.utc).isoformat(),
                     },
                 )
@@ -872,9 +910,63 @@ async def upload_from_url(
         )
 
 
+async def _preview_raster(
+    job: "IngestJob", file_path: str, downloaded_preview_path: Path | None
+) -> RasterPreviewResponse:
+    """Read a staged raster's metadata and COG compliance for the preview."""
+    from app.processing.raster.cog import (
+        check_cog_compliance,
+        extract_raster_metadata,
+    )
+
+    file_size: int | None = None
+    try:
+        meta, (compliant, reason) = await asyncio.gather(
+            asyncio.to_thread(extract_raster_metadata, file_path),
+            asyncio.to_thread(check_cog_compliance, file_path),
+        )
+        try:
+            import os
+
+            file_size = os.path.getsize(file_path)
+        except OSError:
+            pass
+    except (
+        Exception
+    ) as exc:  # broad: rasterio/GDAL can raise various errors on malformed files
+        logger.exception("raster_preview failed", job_id=str(job.id), error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unable to preview raster file. The file may be malformed or unsupported.",
+        )
+    finally:
+        if downloaded_preview_path is not None:
+            downloaded_preview_path.unlink(missing_ok=True)
+
+    nodata = meta.get("nodata")
+    return RasterPreviewResponse(
+        job_id=job.id,
+        source_filename=job.source_filename,
+        crs_epsg=meta.get("epsg"),
+        crs_wkt=meta.get("crs_wkt"),
+        band_count=meta["band_count"],
+        width=meta["width"],
+        height=meta["height"],
+        dtype=meta["dtype"],
+        nodata=nodata,
+        res_x=meta["res_x"],
+        res_y=meta["res_y"],
+        compression=meta.get("compression"),
+        file_size_bytes=file_size,
+        is_cog_compliant=compliant,
+        compliance_reason=reason,
+        temporal_start=meta.get("temporal_start"),
+    )
+
+
 @router.post(
     "/preview/{job_id}",
-    response_model=PreviewResponse | RasterPreviewResponse,
+    response_model=PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse,
 )
 async def preview_file(
     job_id: uuid.UUID,
@@ -883,11 +975,14 @@ async def preview_file(
     ),
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
-) -> PreviewResponse | RasterPreviewResponse:
+) -> PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse:
     """Run preview on a staged file and return preview data.
 
     For vector files: returns columns, CRS, geometry type, feature count, sample rows.
     For raster files: returns band count, CRS, resolution, compliance status.
+    For a 3D Tiles tileset: returns its version, root geometric error, bounding
+    volume kind, extent and unpacked size, read from the archive's directory
+    and tileset.json without unpacking it.
     Only callable on jobs with status 'pending'.
     """
     # fix(#823): layer_name reaches ogrinfo argv; 422 option-like values.
@@ -907,6 +1002,8 @@ async def preview_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job has no associated file — upload must complete before preview",
         )
+    if (job.user_metadata or {}).get("file_type") == TILESET_FILE_TYPE:
+        return await preview_staged_tileset(job.id, job.source_filename, job.file_path)
     file_path: str = job.file_path
     downloaded_preview_path: Path | None = None
     resolved_file_path = await resolve_file_path(file_path, str(job.id))
@@ -917,56 +1014,7 @@ async def preview_file(
     # Branch: raster vs vector preview
     um = job.user_metadata or {}
     if um.get("file_type") == "raster":
-        from app.processing.raster.cog import (
-            check_cog_compliance,
-            extract_raster_metadata,
-        )
-
-        file_size: int | None = None
-        try:
-            meta, (compliant, reason) = await asyncio.gather(
-                asyncio.to_thread(extract_raster_metadata, file_path),
-                asyncio.to_thread(check_cog_compliance, file_path),
-            )
-            try:
-                import os
-
-                file_size = os.path.getsize(file_path)
-            except OSError:
-                pass
-        except (
-            Exception
-        ) as exc:  # broad: rasterio/GDAL can raise various errors on malformed files
-            logger.exception(
-                "raster_preview failed", job_id=str(job_id), error=str(exc)
-            )
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Unable to preview raster file. The file may be malformed or unsupported.",
-            )
-        finally:
-            if downloaded_preview_path is not None:
-                downloaded_preview_path.unlink(missing_ok=True)
-
-        nodata = meta.get("nodata")
-        return RasterPreviewResponse(
-            job_id=job.id,
-            source_filename=job.source_filename,
-            crs_epsg=meta.get("epsg"),
-            crs_wkt=meta.get("crs_wkt"),
-            band_count=meta["band_count"],
-            width=meta["width"],
-            height=meta["height"],
-            dtype=meta["dtype"],
-            nodata=nodata,
-            res_x=meta["res_x"],
-            res_y=meta["res_y"],
-            compression=meta.get("compression"),
-            file_size_bytes=file_size,
-            is_cog_compliant=compliant,
-            compliance_reason=reason,
-            temporal_start=meta.get("temporal_start"),
-        )
+        return await _preview_raster(job, file_path, downloaded_preview_path)
 
     try:
         info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
@@ -1033,6 +1081,7 @@ def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
     Mirrors ``queue_ingest_job``'s discrimination:
       - ``job.source_url`` set (no ``file_path``) -> service
       - ``job.user_metadata['file_type'] == 'raster'`` -> raster
+      - ``job.user_metadata['file_type'] == 'tiles3d'`` -> tileset
       - otherwise -> vector (default)
 
     Service jobs are discriminated by ``source_url``, NOT by
@@ -1043,6 +1092,8 @@ def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
         return ServiceCommitRequest
     if (job.user_metadata or {}).get("file_type") == "raster":
         return RasterCommitRequest
+    if (job.user_metadata or {}).get("file_type") == TILESET_FILE_TYPE:
+        return TilesetCommitRequest
     return VectorCommitRequest
 
 
@@ -1050,6 +1101,7 @@ def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
     "/commit/{job_id}",
     response_model=CommitResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    responses={413: PAYLOAD_TOO_LARGE_RESPONSE},
 )
 async def commit_import(
     job_id: uuid.UUID,
@@ -1060,7 +1112,8 @@ async def commit_import(
     """Commit a staged file for ingestion with user-supplied metadata.
 
     Stores user metadata on the job and queues the ingest task.
-    Only callable on jobs with status 'pending'.
+    Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
+    size is checked against the storage quota again here.
     """
     job = await get_job_or_404(db, job_id, user)
 
@@ -1120,6 +1173,8 @@ async def commit_import(
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
     await check_public_visibility_allowed(db, user, commit.visibility)
+    if Subclass is TilesetCommitRequest:
+        await check_upload_quota(db, user.id, staged_unpacked_bytes(job), None)
 
     # Extract the credential only for service commits (ServiceCommitRequest is
     # the only subclass carrying one). AUTH-04: never persisted.

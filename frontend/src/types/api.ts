@@ -124,6 +124,9 @@ export interface TilesetMetadata {
   /** URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json. */
   url: string;
   size_bytes: number | null;
+  version: string | null;
+  geometric_error: number | null;
+  bounding_volume: 'region' | 'box' | 'sphere' | null;
 }
 
 export interface RasterMetadata {
@@ -326,7 +329,7 @@ export interface DatasetResponse {
     overall: number;
     metadata_completeness: number;
     geometry_validity: number | null;
-    attribute_completeness: number;
+    attribute_completeness: number | null;
     crs_defined: number | null;
     computed_at: string | null;
   } | null;
@@ -566,7 +569,7 @@ export interface OGCRecordProperties {
     overall: number;
     metadata_completeness: number;
     geometry_validity: number | null;
-    attribute_completeness: number;
+    attribute_completeness: number | null;
     crs_defined: number | null;
     computed_at: string | null;
   } | null;

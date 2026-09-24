@@ -2938,7 +2938,8 @@ export interface paths {
          * @description Commit a staged file for ingestion with user-supplied metadata.
          *
          *     Stores user metadata on the job and queues the ingest task.
-         *     Only callable on jobs with status 'pending'.
+         *     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
+         *     size is checked against the storage quota again here.
          */
         post: operations["commit_import_ingest_commit__job_id__post"];
         delete?: never;
@@ -3007,6 +3008,9 @@ export interface paths {
          *
          *     For vector files: returns columns, CRS, geometry type, feature count, sample rows.
          *     For raster files: returns band count, CRS, resolution, compliance status.
+         *     For a 3D Tiles tileset: returns its version, root geometric error, bounding
+         *     volume kind, extent and unpacked size, read from the archive's directory
+         *     and tileset.json without unpacking it.
          *     Only callable on jobs with status 'pending'.
          */
         post: operations["preview_file_ingest_preview__job_id__post"];
@@ -6515,6 +6519,11 @@ export interface components {
         Body_upload_file_ingest_upload_post: {
             /** File */
             file: string;
+            /**
+             * Kind
+             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
+             */
+            kind?: string | null;
         };
         /** Body_upload_map_icon_endpoint_maps_icons_post */
         Body_upload_map_icon_endpoint_maps_icons_post: {
@@ -7138,6 +7147,7 @@ export interface components {
          *       - ``VectorCommitRequest`` — default for file uploads
          *       - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
          *       - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is None
+         *       - ``TilesetCommitRequest`` — when ``job.user_metadata['file_type'] == 'tiles3d'``
          *
          *     For new internal code that constructs a commit view, prefer importing
          *     the appropriate subclass directly. This flat class is the wire contract,
@@ -11156,6 +11166,11 @@ export interface components {
              * @default application/octet-stream
              */
             content_type: string;
+            /**
+             * Kind
+             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
+             */
+            kind?: "tiles3d" | null;
         };
         /** PresignedUploadResponse */
         PresignedUploadResponse: {
@@ -11336,7 +11351,7 @@ export interface components {
             /** Geometry Validity */
             geometry_validity?: number | null;
             /** Attribute Completeness */
-            attribute_completeness: number;
+            attribute_completeness: number | null;
             /** Crs Defined */
             crs_defined?: number | null;
             /** Computed At */
@@ -13517,6 +13532,70 @@ export interface components {
              * @description Unpacked size of the tileset in bytes
              */
             size_bytes?: number | null;
+            /**
+             * Version
+             * @description The tileset's asset.version: '1.0' or '1.1'
+             */
+            version?: string | null;
+            /**
+             * Geometric Error
+             * @description The root tile's geometricError, when tileset.json gives one
+             */
+            geometric_error?: number | null;
+            /**
+             * Bounding Volume
+             * @description The kind of the root tile's bounding volume. Only a region yields the dataset's extent; a box or sphere leaves it null.
+             */
+            bounding_volume?: ("region" | "box" | "sphere") | null;
+        };
+        /**
+         * TilesetPreviewResponse
+         * @description What a staged 3D Tiles tileset archive holds, read without unpacking it.
+         */
+        TilesetPreviewResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             * @description Identifier of the tileset ingestion job being previewed.
+             */
+            job_id: string;
+            /**
+             * Source Filename
+             * @description Original filename of the uploaded tileset archive.
+             */
+            source_filename: string | null;
+            /**
+             * Version
+             * @description The tileset's asset.version from its tileset.json.
+             * @enum {string}
+             */
+            version: "1.0" | "1.1";
+            /**
+             * Geometric Error
+             * @description The root tile's geometricError, or null when tileset.json gives none.
+             */
+            geometric_error: number | null;
+            /**
+             * Bounding Volume
+             * @description The kind of the root tile's bounding volume.
+             * @enum {string}
+             */
+            bounding_volume: "region" | "box" | "sphere";
+            /**
+             * Extent Bbox
+             * @description The root region as [west, south, east, north] in degrees; west > east when it crosses the antimeridian. Null for a box or sphere.
+             */
+            extent_bbox: number[] | null;
+            /**
+             * Unpacked Bytes
+             * @description Total size of the archive's files once unpacked.
+             */
+            unpacked_bytes: number;
+            /**
+             * Entry Count
+             * @description Number of entries, files and folders, in the archive.
+             */
+            entry_count: number;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -28915,6 +28994,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description Payload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -29188,7 +29276,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PreviewResponse"] | components["schemas"]["RasterPreviewResponse"];
+                    "application/json": components["schemas"]["PreviewResponse"] | components["schemas"]["RasterPreviewResponse"] | components["schemas"]["TilesetPreviewResponse"];
                 };
             };
             /** @description Bad request — invalid payload */

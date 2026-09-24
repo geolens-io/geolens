@@ -113,7 +113,9 @@ class QualityDetail(BaseModel):
     overall: float = Field(ge=0.0, le=100.0)
     metadata_completeness: float = Field(ge=0.0, le=100.0)
     geometry_validity: float | None = Field(default=None, ge=0.0, le=100.0)
-    attribute_completeness: float = Field(ge=0.0, le=100.0)
+    # Null for a 3D Tiles dataset, which has no attributes. It stays required
+    # so the generated SDKs keep this field's position.
+    attribute_completeness: float | None = Field(ge=0.0, le=100.0)
     crs_defined: float | None = Field(default=None, ge=0.0, le=100.0)
     computed_at: datetime | None = None
 
@@ -207,6 +209,20 @@ class TilesetMetadata(BaseModel):
     )
     size_bytes: int | None = Field(
         default=None, description="Unpacked size of the tileset in bytes"
+    )
+    version: str | None = Field(
+        default=None, description="The tileset's asset.version: '1.0' or '1.1'"
+    )
+    geometric_error: float | None = Field(
+        default=None,
+        description="The root tile's geometricError, when tileset.json gives one",
+    )
+    bounding_volume: Literal["region", "box", "sphere"] | None = Field(
+        default=None,
+        description=(
+            "The kind of the root tile's bounding volume. Only a region yields "
+            "the dataset's extent; a box or sphere leaves it null."
+        ),
     )
 
 

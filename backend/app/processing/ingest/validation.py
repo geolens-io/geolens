@@ -602,6 +602,25 @@ def validate_content_directives(file_path: str, filename: str | None = None) -> 
         _scan_archive_members(file_path, source)
 
 
+def _end_record_index(tail: bytes) -> int:
+    """Where the end-of-central-directory record starts in a file's tail, or -1.
+
+    The record's comment runs to the end of the file, which tells the record
+    from its signature appearing inside a comment.
+    """
+    search_end = len(tail)
+    while search_end > 0:
+        candidate = tail.rfind(_EOCD_SIGNATURE, 0, search_end)
+        if candidate < 0:
+            break
+        if candidate + _EOCD.size <= len(tail):
+            comment_length = _EOCD.unpack_from(tail, candidate)[7]
+            if candidate + _EOCD.size + comment_length == len(tail):
+                return candidate
+        search_end = candidate
+    return -1
+
+
 def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
     """Return member count, central-directory offset, and size without parsing members."""
     path = Path(file_path)
@@ -612,24 +631,10 @@ def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
         archive.seek(file_size - tail_size)
         tail = archive.read(tail_size)
 
-        search_end = len(tail)
-        eocd_offset = -1
-        eocd: tuple | None = None
-        while search_end > 0:
-            candidate = tail.rfind(_EOCD_SIGNATURE, 0, search_end)
-            if candidate < 0:
-                break
-            if candidate + _EOCD.size <= len(tail):
-                unpacked = _EOCD.unpack_from(tail, candidate)
-                comment_length = unpacked[7]
-                if candidate + _EOCD.size + comment_length == len(tail):
-                    eocd_offset = file_size - tail_size + candidate
-                    eocd = unpacked
-                    break
-            search_end = candidate
-
-        if eocd is None:
+        candidate = _end_record_index(tail)
+        if candidate < 0:
             raise zipfile.BadZipFile("End of central directory not found")
+        eocd_offset = file_size - tail_size + candidate
 
         (
             _signature,
@@ -640,7 +645,7 @@ def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
             directory_size,
             directory_offset,
             _comment_length,
-        ) = eocd
+        ) = _EOCD.unpack_from(tail, candidate)
 
         uses_zip64 = (
             entries_on_disk == 0xFFFF
@@ -686,15 +691,20 @@ def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
         return int(total_entries), int(directory_offset), int(directory_size)
 
 
-def _validate_zip_directory_cardinality(file_path: str) -> None:
-    """Bound ZIP metadata before ZipFile materializes a ZipInfo per member."""
+def _validate_zip_directory_cardinality(
+    file_path: str, max_entries: int | None = None
+) -> None:
+    """Bound ZIP metadata before ZipFile materializes a ZipInfo per member.
+
+    ``max_entries`` defaults to ``MAX_ARCHIVE_ENTRIES``.
+    """
+    max_entries = MAX_ARCHIVE_ENTRIES if max_entries is None else max_entries
     reported_entries, directory_offset, directory_size = _zip_directory_metadata(
         file_path
     )
-    if reported_entries > MAX_ARCHIVE_ENTRIES:
+    if reported_entries > max_entries:
         raise ValueError(
-            f"ZIP contains {reported_entries} entries; the maximum is "
-            f"{MAX_ARCHIVE_ENTRIES}."
+            f"ZIP contains {reported_entries} entries; the maximum is {max_entries}."
         )
     if directory_size > MAX_CENTRAL_DIRECTORY_BYTES:
         raise ValueError(
@@ -724,10 +734,8 @@ def _validate_zip_directory_cardinality(file_path: str) -> None:
                 archive.seek(variable_size, 1)
                 remaining -= entry_size
                 count += 1
-                if count > MAX_ARCHIVE_ENTRIES:
-                    raise ValueError(
-                        f"ZIP contains more than {MAX_ARCHIVE_ENTRIES} entries."
-                    )
+                if count > max_entries:
+                    raise ValueError(f"ZIP contains more than {max_entries} entries.")
                 continue
 
             if signature == _CENTRAL_DIGITAL_SIGNATURE:

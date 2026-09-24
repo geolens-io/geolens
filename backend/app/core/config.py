@@ -326,6 +326,10 @@ class Settings(BaseSettings):
 
     cors_allowed_origins: str = ""
     upload_max_size_mb: int = Field(default=500, gt=0)
+    # Both are checked against a tileset's central directory before anything is
+    # unpacked, so they bound a zip bomb as well as an honest large tileset.
+    max_tileset_unpacked_mb: int = Field(default=20480, gt=0)
+    max_tileset_entries: int = Field(default=100_000, gt=0)
     upload_staging_dir: str = "/app/staging"
     # NOTE: this is a PersistentConfig default — deployments where an admin
     # has stored an override keep their stored list and must add new

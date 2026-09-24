@@ -1414,6 +1414,12 @@ export type BodyUploadFileIngestUploadPost = {
      * File
      */
     file: Blob | File;
+    /**
+     * Kind
+     *
+     * 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
+     */
+    kind?: string | null;
 };
 
 /**
@@ -2351,6 +2357,7 @@ export type ColumnValuesResponse = {
  * - ``VectorCommitRequest`` — default for file uploads
  * - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
  * - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is None
+ * - ``TilesetCommitRequest`` — when ``job.user_metadata['file_type'] == 'tiles3d'``
  *
  * For new internal code that constructs a commit view, prefer importing
  * the appropriate subclass directly. This flat class is the wire contract,
@@ -7745,6 +7752,12 @@ export type PresignedUploadRequest = {
      * MIME type to associate with the uploaded object.
      */
     content_type?: string;
+    /**
+     * Kind
+     *
+     * 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
+     */
+    kind?: 'tiles3d' | null;
 };
 
 /**
@@ -7974,7 +7987,7 @@ export type QualityDetail = {
     /**
      * Attribute Completeness
      */
-    attribute_completeness: number;
+    attribute_completeness: number | null;
     /**
      * Crs Defined
      */
@@ -10819,6 +10832,80 @@ export type TilesetMetadata = {
      * Unpacked size of the tileset in bytes
      */
     size_bytes?: number | null;
+    /**
+     * Version
+     *
+     * The tileset's asset.version: '1.0' or '1.1'
+     */
+    version?: string | null;
+    /**
+     * Geometric Error
+     *
+     * The root tile's geometricError, when tileset.json gives one
+     */
+    geometric_error?: number | null;
+    /**
+     * Bounding Volume
+     *
+     * The kind of the root tile's bounding volume. Only a region yields the dataset's extent; a box or sphere leaves it null.
+     */
+    bounding_volume?: 'region' | 'box' | 'sphere' | null;
+};
+
+/**
+ * TilesetPreviewResponse
+ *
+ * What a staged 3D Tiles tileset archive holds, read without unpacking it.
+ */
+export type TilesetPreviewResponse = {
+    /**
+     * Job Id
+     *
+     * Identifier of the tileset ingestion job being previewed.
+     */
+    job_id: string;
+    /**
+     * Source Filename
+     *
+     * Original filename of the uploaded tileset archive.
+     */
+    source_filename: string | null;
+    /**
+     * Version
+     *
+     * The tileset's asset.version from its tileset.json.
+     */
+    version: '1.0' | '1.1';
+    /**
+     * Geometric Error
+     *
+     * The root tile's geometricError, or null when tileset.json gives none.
+     */
+    geometric_error: number | null;
+    /**
+     * Bounding Volume
+     *
+     * The kind of the root tile's bounding volume.
+     */
+    bounding_volume: 'region' | 'box' | 'sphere';
+    /**
+     * Extent Bbox
+     *
+     * The root region as [west, south, east, north] in degrees; west > east when it crosses the antimeridian. Null for a box or sphere.
+     */
+    extent_bbox: Array<number> | null;
+    /**
+     * Unpacked Bytes
+     *
+     * Total size of the archive's files once unpacked.
+     */
+    unpacked_bytes: number;
+    /**
+     * Entry Count
+     *
+     * Number of entries, files and folders, in the archive.
+     */
+    entry_count: number;
 };
 
 /**
@@ -20975,6 +21062,10 @@ export type CommitImportIngestCommitJobIdPostErrors = {
      */
     409: ProblemDetail;
     /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
@@ -21190,7 +21281,7 @@ export type PreviewFileIngestPreviewJobIdPostResponses = {
      *
      * Successful Response
      */
-    200: PreviewResponse | RasterPreviewResponse;
+    200: PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse;
 };
 
 export type PreviewFileIngestPreviewJobIdPostResponse = PreviewFileIngestPreviewJobIdPostResponses[keyof PreviewFileIngestPreviewJobIdPostResponses];

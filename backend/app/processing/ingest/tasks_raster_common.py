@@ -568,6 +568,7 @@ async def record_unpublished_storage_keys(
     attempt_scope: str,
     job_id: str,
     task: str,
+    field: str = UNPUBLISHED_STORAGE_KEYS_FIELD,
 ) -> bool:
     """Persist the object keys this attempt is ABOUT to write, best effort.
 
@@ -626,10 +627,12 @@ async def record_unpublished_storage_keys(
 
     A JSONB merge rather than assignment, so it can't clobber a field a
     later write adds, fenced on ``attempt_id`` so a retry's keys never land
-    on another attempt's row. A transient failure is swallowed: this buys
-    reclaimability for a crash that may not happen, and refusing the ingest
-    over an error that says nothing about the fence would trade a possible
-    leak for a certain failure.
+    on another attempt's row. ``field`` names the job-row list the keys
+    join; the tileset task keeps its attempt prefixes in a list of its own.
+    A transient failure is swallowed: this buys reclaimability for a crash
+    that may not happen, and refusing the ingest over an error that says
+    nothing about the fence would trade a possible leak for a certain
+    failure.
     """
     from sqlalchemy import bindparam, case, func, text, update
     from sqlalchemy.dialects.postgresql import JSONB
@@ -663,7 +666,7 @@ async def record_unpublished_storage_keys(
     # would fold an array into a non-array, so anything that isn't an array
     # is replaced rather than appended to.
     _existing_keys = func.coalesce(
-        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD],
+        IngestJob.user_metadata[field],
         text("'[]'::jsonb"),
     )
     _new_keys = bindparam("unpublished_patch", value=unpublished, type_=JSONB)
@@ -685,11 +688,7 @@ async def record_unpublished_storage_keys(
                 .values(
                     user_metadata=func.coalesce(
                         IngestJob.user_metadata, text("'{}'::jsonb")
-                    ).op("||")(
-                        func.jsonb_build_object(
-                            UNPUBLISHED_STORAGE_KEYS_FIELD, _accumulated_keys
-                        )
-                    )
+                    ).op("||")(func.jsonb_build_object(field, _accumulated_keys))
                 )
             )
             await session.commit()

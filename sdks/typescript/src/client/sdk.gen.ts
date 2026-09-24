@@ -3123,7 +3123,8 @@ export const commitFanOutIngestCommitFanOutJobIdPost = <ThrowOnError extends boo
  * Commit a staged file for ingestion with user-supplied metadata.
  *
  * Stores user metadata on the job and queues the ingest task.
- * Only callable on jobs with status 'pending'.
+ * Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
+ * size is checked against the storage quota again here.
  */
 export const commitImportIngestCommitJobIdPost = <ThrowOnError extends boolean = false>(options: Options<CommitImportIngestCommitJobIdPostData, ThrowOnError>): RequestResult<CommitImportIngestCommitJobIdPostResponses, CommitImportIngestCommitJobIdPostErrors, ThrowOnError> => (options.client ?? client).post<CommitImportIngestCommitJobIdPostResponses, CommitImportIngestCommitJobIdPostErrors, ThrowOnError>({
     security: [
@@ -3197,6 +3198,9 @@ export const applyManifestEndpointIngestManifestApplyPost = <ThrowOnError extend
  *
  * For vector files: returns columns, CRS, geometry type, feature count, sample rows.
  * For raster files: returns band count, CRS, resolution, compliance status.
+ * For a 3D Tiles tileset: returns its version, root geometric error, bounding
+ * volume kind, extent and unpacked size, read from the archive's directory
+ * and tileset.json without unpacking it.
  * Only callable on jobs with status 'pending'.
  */
 export const previewFileIngestPreviewJobIdPost = <ThrowOnError extends boolean = false>(options: Options<PreviewFileIngestPreviewJobIdPostData, ThrowOnError>): RequestResult<PreviewFileIngestPreviewJobIdPostResponses, PreviewFileIngestPreviewJobIdPostErrors, ThrowOnError> => (options.client ?? client).post<PreviewFileIngestPreviewJobIdPostResponses, PreviewFileIngestPreviewJobIdPostErrors, ThrowOnError>({

@@ -741,6 +741,12 @@ from .tile_token_batch_response_tokens_additional_property_type_2 import (
     TileTokenBatchResponseTokensAdditionalPropertyType2,
 )
 from .tileset_metadata import TilesetMetadata
+from .tileset_metadata_bounding_volume_type_0 import TilesetMetadataBoundingVolumeType0
+from .tileset_preview_response import TilesetPreviewResponse
+from .tileset_preview_response_bounding_volume import (
+    TilesetPreviewResponseBoundingVolume,
+)
+from .tileset_preview_response_version import TilesetPreviewResponseVersion
 from .token_response import TokenResponse
 from .translation_list_response import TranslationListResponse
 from .translation_response import TranslationResponse
@@ -1321,6 +1327,10 @@ __all__ = (
     "ThumbnailUploadRequest",
     "TileConfigResponse",
     "TilesetMetadata",
+    "TilesetMetadataBoundingVolumeType0",
+    "TilesetPreviewResponse",
+    "TilesetPreviewResponseBoundingVolume",
+    "TilesetPreviewResponseVersion",
     "TileTokenBatchRequest",
     "TileTokenBatchResponse",
     "TileTokenBatchResponseTokens",

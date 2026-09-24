@@ -164,12 +164,22 @@ async def score_quality(
 
     ``record_type``, ``geometry_type`` and ``srid`` are arguments so a
     measurement can be scored before it is written. Returns a dict with the
-    overall score and the per-dimension scores.
+    overall score and the per-dimension scores. A 3D Tiles dataset is scored on
+    its metadata alone: its ``table_name`` names no table.
     """
     _validate_table_name(table_name)
     has_geometry = geometry_type is not None
 
     metadata_score = await _score_metadata_completeness(session, record)
+    if record_type == "tiles3d_dataset":
+        return {
+            "overall": round(metadata_score),
+            "metadata_completeness": metadata_score,
+            "geometry_validity": None,
+            "attribute_completeness": None,
+            "crs_defined": None,
+            "computed_at": datetime.now(timezone.utc).isoformat(),
+        }
     crs_score = _score_crs(srid, geometry_type)
     geometry_score = await _score_geometry_validity(
         session,
