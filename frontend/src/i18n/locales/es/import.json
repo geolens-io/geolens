@@ -76,7 +76,14 @@
     "quotaShort": "Omitido: límite de conjuntos de datos alcanzado",
     "quotaBannerTitle": "Límite de conjuntos de datos alcanzado",
     "quotaBannerHint": "Elimina conjuntos de datos existentes para liberar espacio o pide a un administrador que aumente el límite.",
-    "reportProblem": "Informar de este problema"
+    "reportProblem": "Informar de este problema",
+    "kindLegend": "¿Qué vas a subir?",
+    "kindFiles": "Archivos geoespaciales",
+    "kindFilesHint": "Datos vectoriales, ráster o tabulares",
+    "kindTileset": "Tileset de 3D Tiles",
+    "kindTilesetHint": "Un archivo .zip con tileset.json en la raíz o en una carpeta",
+    "kindTilesetUnavailable": "No disponible hasta que un administrador permita subir archivos .zip",
+    "kindLocked": "Bloqueado mientras los archivos soltados esperan a que se cargue la configuración de subida"
   },
   "warnings": {
     "bannerTitle": "Importación completada con advertencias",
@@ -117,7 +124,8 @@
     "fileRejected": "{{filename}}: {{reason}}",
     "browse": "Examinar",
     "toUpload": "para cargar",
-    "subtext": "GeoLens detectará geometría, CRS y esquema antes de enviarlo al catálogo. Lotes de hasta {{max}} archivos."
+    "subtext": "GeoLens detectará geometría, CRS y esquema antes de enviarlo al catálogo. Lotes de hasta {{max}} archivos.",
+    "tilesetSubtext": "GeoLens comprueba cada archivo y lee su tileset.json antes de almacenar nada."
   },
   "stac": {
     "label": "URL de API STAC; pegue el endpoint raíz del catálogo",
@@ -469,7 +477,11 @@
     "rasterCount_one": "{{value}} ráster",
     "rasterCount_other": "{{value}} rásters",
     "tableCount_one": "{{value}} conjunto de datos tabular",
-    "tableCount_other": "{{value}} conjuntos de datos tabulares"
+    "tableCount_other": "{{value}} conjuntos de datos tabulares",
+    "tilesetSummary": "3D Tiles {{version}} · {{size}} · {{volume}}",
+    "tilesetCount_one": "{{value}} tileset",
+    "tilesetCount_other": "{{value}} tilesets",
+    "tilesetActionSummary": "{{files}} · {{tilesets}}"
   },
   "detect": {
     "rasterInfo": "Info del ráster",
@@ -489,12 +501,20 @@
       "cog": "COG",
       "type": "tipo",
       "features": "entidades",
-      "layer": "capa"
+      "layer": "capa",
+      "version": "versión",
+      "geometricError": "error geométrico",
+      "volume": "volumen",
+      "extent": "extensión",
+      "unpacked": "descomprimido",
+      "entries": "entradas"
     },
     "table": {
       "column": "Columna",
       "type": "Tipo"
-    }
+    },
+    "tilesetInfo": "Tileset",
+    "noExtent": "ninguna; solo una región la proporciona"
   },
   "bulk": {
     "uploading_one": "Subiendo {{count}} archivo...",
@@ -542,10 +562,12 @@
     "heroTitle_many": "{{count}} de conjuntos de datos añadidos al catálogo",
     "heroTitle_other": "{{count}} conjuntos de datos añadidos al catálogo",
     "heroDesc": "Todos los archivos ingestados, teselados e indexados. Listos para consultar, estilizar y mapear.",
+    "heroDescTilesets": "Listos para cargarse en un cliente de 3D Tiles. La URL del tileset está en la pestaña Acceso del conjunto de datos.",
     "statDatasets": "Conjuntos de datos",
     "statVector": "Vector",
     "statRaster": "Ráster",
     "statTabular": "Tabular",
+    "statTilesets": "3D Tiles",
     "next": "Siguiente:",
     "viewCatalog": "Ver en el catálogo",
     "importMore": "Importar más",
@@ -585,7 +607,9 @@
     "urlHint": "Importando desde una URL de archivo",
     "urlDesc": "GeoLens descarga el archivo en el servidor al área de preparación y luego ejecuta el mismo proceso de detección e importación que una carga.",
     "urlNote": "La URL se valida y se limita en tamaño antes de la descarga · los datos se copian en GeoLens",
-    "compareUrl": "La carga envía un archivo desde tu equipo. URL de archivo lo obtiene de la web: misma revisión, mismo resultado, sin descarga local."
+    "compareUrl": "La carga envía un archivo desde tu equipo. URL de archivo lo obtiene de la web: misma revisión, mismo resultado, sin descarga local.",
+    "tiles3dLabel": "3D Tiles",
+    "tiles3dDesc": "se descomprime y se sirve tal cual a los clientes de 3D Tiles."
   },
   "status": {
     "uploading": "Subiendo",

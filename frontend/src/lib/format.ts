@@ -71,6 +71,12 @@ export function formatNumber(n: number | null | undefined, options?: Intl.Number
   return new Intl.NumberFormat(i18n.language, options).format(n);
 }
 
+/** A `[west, south, east, north]` box as `(w, s) to (e, n)`, or `fallback` without one. */
+export function formatBbox(bbox: number[] | null | undefined, fallback: string): string {
+  if (!bbox || bbox.length < 4) return fallback;
+  return `(${bbox[0].toFixed(4)}, ${bbox[1].toFixed(4)}) to (${bbox[2].toFixed(4)}, ${bbox[3].toFixed(4)})`;
+}
+
 export function formatBytes(bytes: number | null): string {
   if (bytes === null || bytes === undefined) return i18n.t('common:notAvailable');
   if (bytes === 0) return '0 B';

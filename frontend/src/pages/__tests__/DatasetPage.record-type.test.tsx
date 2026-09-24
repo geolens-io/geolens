@@ -289,6 +289,27 @@ describe('DatasetPage actions by record type', () => {
     expect(screen.queryByTestId('reupload-dialog')).not.toBeInTheDocument();
   });
 
+  it('keeps the map preview for a vector dataset', async () => {
+    await renderAs('vector_dataset');
+
+    expect(screen.getByRole('region', { name: 'Map Preview' })).toBeInTheDocument();
+  });
+
+  it('has no map preview and none of the table actions for a 3D Tiles tileset', async () => {
+    vi.mocked(useDataset).mockReturnValue({
+      data: { ...makeDataset('tiles3d_dataset'), geometry_type: null, feature_count: null, column_info: null },
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    await screen.findByRole('tab', { name: 'Overview' });
+    expect(screen.queryByRole('region', { name: 'Map Preview' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-map')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add to map' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
+  });
+
   it('gives an unknown record type its own map after a vector dataset', async () => {
     vi.mocked(useDataset).mockImplementation(((id: string) => ({
       data: id === 'dataset-2'

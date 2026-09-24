@@ -73,7 +73,9 @@
     "copyCsvExportUrl": "CSV-Export-URL kopieren",
     "copyOgcFeaturesUrl": "OGC-Features-URL kopieren",
     "copyVectorTilesUrl": "Vektor-Kachel-URL kopieren",
-    "copied": "Kopiert: {{preview}}"
+    "copied": "Kopiert: {{preview}}",
+    "copyTilesetUrl": "Tileset-URL kopieren",
+    "instructionsTileset": "CesiumJS"
   },
   "addToMap": {
     "button": "Zur Karte hinzufügen",
@@ -1158,5 +1160,18 @@
     "description": "Sie haben nicht gespeicherte Änderungen. Möchten Sie die Seite wirklich verlassen? Ihre Änderungen gehen verloren.",
     "stay": "Bleiben",
     "leave": "Verlassen"
+  },
+  "tileset": {
+    "title": "3D-Tiles-Tileset",
+    "version": "Version",
+    "geometricError": "Geometrischer Fehler",
+    "boundingVolume": "Hüllvolumen",
+    "size": "Entpackte Größe",
+    "extent": "Ausdehnung",
+    "noExtent": "Nicht verfügbar. GeoLens liest die Ausdehnung nur aus einem Hüllvolumen vom Typ Region.",
+    "accessTitle": "In einem 3D-Tiles-Client laden",
+    "urlLabel": "Tileset-URL",
+    "headerHint": "Interne, eingeschränkte und private Tilesets brauchen alle einen API-Schlüssel im Header X-Api-Key. Verwenden Sie einen Schlüssel mit Nur-Lesen-Zugriff, da CesiumJS ihn bei jeder Anfrage mitsendet, die es beim Laden des Tilesets stellt.",
+    "copySnippet": "CesiumJS-Beispiel kopieren"
   }
 }

@@ -73,7 +73,9 @@
     "copyCsvExportUrl": "Copy CSV Export URL",
     "copyOgcFeaturesUrl": "Copy OGC Features URL",
     "copyVectorTilesUrl": "Copy Vector Tiles URL",
-    "copied": "Copied: {{preview}}"
+    "copied": "Copied: {{preview}}",
+    "copyTilesetUrl": "Copy tileset URL",
+    "instructionsTileset": "CesiumJS"
   },
   "addToMap": {
     "button": "Add to Map",
@@ -1158,5 +1160,18 @@
     "description": "You have unsaved changes. Are you sure you want to leave? Your changes will be lost.",
     "stay": "Stay",
     "leave": "Leave"
+  },
+  "tileset": {
+    "title": "3D Tiles tileset",
+    "version": "Version",
+    "geometricError": "Geometric error",
+    "boundingVolume": "Bounding volume",
+    "size": "Unpacked size",
+    "extent": "Extent",
+    "noExtent": "Not available. GeoLens reads the extent only from a region bounding volume.",
+    "accessTitle": "Load in a 3D Tiles client",
+    "urlLabel": "Tileset URL",
+    "headerHint": "Internal, restricted and private tilesets all need an API key in the X-Api-Key header. Use a read-only key, since CesiumJS sends it with every request it makes while loading the tileset.",
+    "copySnippet": "Copy CesiumJS snippet"
   }
 }

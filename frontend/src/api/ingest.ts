@@ -20,6 +20,7 @@ import type {
   BulkRegisterResponse,
   UploadConfig,
   PresignedUploadResponse,
+  UploadKind,
   VrtCreateRequest,
   VrtCreateResponse,
   ArcgisSigninRequest,
@@ -144,9 +145,11 @@ async function xhrUpload<T>(
 export async function uploadFile(
   file: File,
   onProgress?: UploadProgress,
+  kind?: UploadKind | null,
 ): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
+  if (kind) formData.append('kind', kind);
 
   return xhrUpload<UploadResponse>('/ingest/upload', formData, onProgress);
 }
@@ -361,6 +364,7 @@ export async function requestPresignedUpload(
   filename: string,
   fileSize: number,
   contentType?: string,
+  kind?: UploadKind | null,
 ): Promise<PresignedUploadResponse> {
   return apiFetch<PresignedUploadResponse>('/ingest/upload/presigned', {
     method: 'POST',
@@ -368,6 +372,7 @@ export async function requestPresignedUpload(
       filename,
       file_size: fileSize,
       ...(contentType && { content_type: contentType }),
+      ...(kind && { kind }),
     }),
   });
 }
@@ -422,6 +427,7 @@ function reportPresignFailure(stage: string, filename: string, err: unknown): vo
 export async function uploadPresigned(
   file: File,
   onProgress?: UploadProgress,
+  kind?: UploadKind | null,
 ): Promise<UploadResponse> {
   let job_id: string, urls: string[], upload_id: string | null | undefined, part_size: number | null | undefined;
   try {
@@ -429,6 +435,7 @@ export async function uploadPresigned(
       file.name,
       file.size,
       file.type || undefined,
+      kind,
     ));
   } catch (err) {
     reportPresignFailure('request', file.name, err);

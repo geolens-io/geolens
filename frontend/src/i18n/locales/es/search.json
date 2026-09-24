@@ -124,7 +124,8 @@
       "vrt_other": "Ráster virtual {{vrtType}} con {{count}} fuentes",
       "table_one": "Tabla con {{count}} fila",
       "table_other": "Tabla con {{count}} filas",
-      "fallback": "Conjunto de datos geoespacial"
+      "fallback": "Conjunto de datos geoespacial",
+      "tiles3d": "Tileset de 3D Tiles"
     },
     "moretags": "+{{count}} más",
     "updatedFallback": "Actualizado hace {{time}}",

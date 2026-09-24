@@ -124,7 +124,8 @@
       "vrt_other": "{{vrtType}} virtuelles Raster mit {{count}} Quellen",
       "table_one": "Tabelle mit {{count}} Zeile",
       "table_other": "Tabelle mit {{count}} Zeilen",
-      "fallback": "Geodatensatz"
+      "fallback": "Geodatensatz",
+      "tiles3d": "3D-Tiles-Tileset"
     },
     "moretags": "+{{count}} weitere",
     "updatedFallback": "Aktualisiert vor {{time}}",

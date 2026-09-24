@@ -76,7 +76,14 @@
     "quotaShort": "Skipped; dataset limit reached",
     "quotaBannerTitle": "Dataset limit reached",
     "quotaBannerHint": "Delete existing datasets to free space, or ask an administrator to raise the limit.",
-    "reportProblem": "Report this problem"
+    "reportProblem": "Report this problem",
+    "kindLegend": "What are you uploading?",
+    "kindFiles": "Geospatial files",
+    "kindFilesHint": "Vector, raster or tabular data",
+    "kindTileset": "3D Tiles tileset",
+    "kindTilesetHint": "A .zip archive with tileset.json at its root or in one folder",
+    "kindTilesetUnavailable": "Unavailable until an administrator allows .zip uploads",
+    "kindLocked": "Locked while your dropped files wait for the upload settings to load"
   },
   "warnings": {
     "bannerTitle": "Import completed with warnings",
@@ -111,10 +118,12 @@
     "heroTitle_many": "{{count}} datasets added to the catalog",
     "heroTitle_other": "{{count}} datasets added to the catalog",
     "heroDesc": "All files ingested, tiled, and indexed. Ready to query, style, and map.",
+    "heroDescTilesets": "Ready to load in a 3D Tiles client. The tileset URL is on the dataset's Access tab.",
     "statDatasets": "Datasets",
     "statVector": "Vector",
     "statRaster": "Raster",
     "statTabular": "Tabular",
+    "statTilesets": "3D Tiles",
     "next": "Next:",
     "viewCatalog": "View in Catalog",
     "importMore": "Import more",
@@ -131,7 +140,8 @@
     "sizeLimit": "Max 500 MB per file",
     "sizeLimitDynamic": "Max {{size}} MB per file",
     "batchLimit": "Up to {{max}} files per batch",
-    "fileRejected": "{{filename}}: {{reason}}"
+    "fileRejected": "{{filename}}: {{reason}}",
+    "tilesetSubtext": "GeoLens checks each archive and reads its tileset.json before anything is stored."
   },
   "stac": {
     "label": "STAC API URL; paste the catalog root endpoint",
@@ -322,7 +332,9 @@
     "urlHint": "Importing from a file URL",
     "urlDesc": "GeoLens downloads the file server-side into staging, then runs the same detection and import pipeline as an upload.",
     "urlNote": "The URL is validated and size-capped before download · data is copied into GeoLens",
-    "compareUrl": "Upload sends a file from your machine. File URL fetches it from the web; same review, same result, no local download needed."
+    "compareUrl": "Upload sends a file from your machine. File URL fetches it from the web; same review, same result, no local download needed.",
+    "tiles3dLabel": "3D Tiles",
+    "tiles3dDesc": "unpacked and served as is to 3D Tiles clients."
   },
   "register": {
     "helpText": "Catalog existing PostGIS tables from your database as datasets in GeoLens. Use this when you have geographic data already in the database that wasn't imported through GeoLens. Selected tables will be added to the dataset catalog with automatic metadata detection.",
@@ -519,7 +531,11 @@
     "rasterCount_one": "{{value}} raster",
     "rasterCount_other": "{{value}} rasters",
     "tableCount_one": "{{value}} tabular dataset",
-    "tableCount_other": "{{value}} tabular datasets"
+    "tableCount_other": "{{value}} tabular datasets",
+    "tilesetSummary": "3D Tiles {{version}} · {{size}} · {{volume}}",
+    "tilesetCount_one": "{{value}} tileset",
+    "tilesetCount_other": "{{value}} tilesets",
+    "tilesetActionSummary": "{{files}} · {{tilesets}}"
   },
   "detect": {
     "rasterInfo": "Raster info",
@@ -539,12 +555,20 @@
       "cog": "COG",
       "type": "type",
       "features": "features",
-      "layer": "layer"
+      "layer": "layer",
+      "version": "version",
+      "geometricError": "geometric error",
+      "volume": "volume",
+      "extent": "extent",
+      "unpacked": "unpacked",
+      "entries": "entries"
     },
     "table": {
       "column": "Column",
       "type": "Type"
-    }
+    },
+    "tilesetInfo": "Tileset",
+    "noExtent": "none; only a region gives one"
   },
   "eyebrow": "Import",
   "pageDescription": "Upload files, register tables from your Postgres, or connect a remote service. GeoLens detects geometry, schema, and CRS, then makes it queryable, styleable, and embeddable.",

@@ -14,9 +14,17 @@ import { getJobStatus } from '@/api/ingest';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { queryKeys } from '@/lib/query-keys';
 import { getVisibilityLabel } from '@/i18n/labels';
-import type { FileEntry } from '@/types/api';
+import type { DataKind, FileEntry } from '@/types/api';
 
 const isRasterFile = (name: string) => /\.tiff?$/i.test(name);
+
+const KIND_LABEL_KEYS = {
+  vector: 'complete.statVector',
+  raster: 'complete.statRaster',
+  vrt: 'complete.statRaster',
+  table: 'complete.statTabular',
+  tiles3d: 'complete.statTilesets',
+} as const satisfies Record<DataKind, string>;
 
 interface BulkTrackingListProps {
   entries: FileEntry[];
@@ -132,17 +140,20 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
               })}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {t('complete.heroDesc', { defaultValue: 'All files ingested, tiled, and indexed. Ready to query, style, and map.' })}
+              {completedEntries.length > 0 && completedEntries.every((e) => e.kind === 'tiles3d')
+                ? t('complete.heroDescTilesets')
+                : t('complete.heroDesc', { defaultValue: 'All files ingested, tiled, and indexed. Ready to query, style, and map.' })}
             </p>
           </div>
 
           {/* Summary stats */}
-          <div className="grid grid-cols-2 divide-x divide-border border-b border-border sm:grid-cols-4">
+          <div className="grid grid-cols-2 divide-x divide-border border-b border-border sm:grid-cols-5">
             {[
               { label: t('complete.statDatasets', { defaultValue: 'Datasets' }), value: completedEntries.length },
               { label: t('complete.statVector', { defaultValue: 'Vector' }), value: completedEntries.filter((e) => e.kind === 'vector').length },
               { label: t('complete.statRaster', { defaultValue: 'Raster' }), value: completedEntries.filter((e) => e.kind === 'raster').length },
               { label: t('complete.statTabular', { defaultValue: 'Tabular' }), value: completedEntries.filter((e) => e.kind === 'table').length },
+              { label: t('complete.statTilesets'), value: completedEntries.filter((e) => e.kind === 'tiles3d').length },
             ].map((stat, i) => (
               <div key={i} className="px-5 py-4">
                 <dt className="eyebrow mb-1.5">{stat.label}</dt>
@@ -161,11 +172,11 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
                   i < completedEntries.length - 1 && 'border-b border-border',
                 )}
               >
-                <TypeTag kind={entry.kind === 'vector' ? 'vector' : entry.kind === 'raster' ? 'raster' : 'table'} />
+                <TypeTag kind={entry.kind} />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium tracking-tight">{entry.title}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <Badge variant="secondary" className="text-2xs">{entry.kind}</Badge>
+                    <Badge variant="secondary" className="text-2xs">{t(KIND_LABEL_KEYS[entry.kind])}</Badge>
                     <Badge variant="outline" className="text-2xs">{getVisibilityLabel(t, entry.visibility)}</Badge>
                   </div>
                 </div>
@@ -270,7 +281,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
               <div key={entry.datasetId} className="flex items-center justify-between gap-3 rounded-lg border bg-background/80 px-3 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{entry.title}</p>
-                  <Badge variant="secondary" className="text-2xs mt-0.5">{entry.kind}</Badge>
+                  <Badge variant="secondary" className="text-2xs mt-0.5">{t(KIND_LABEL_KEYS[entry.kind])}</Badge>
                 </div>
                 <Button asChild size="sm" className="shrink-0">
                   <Link to={`/datasets/${entry.datasetId}`}>

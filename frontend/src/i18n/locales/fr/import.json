@@ -76,7 +76,14 @@
     "quotaShort": "Ignoré; limite de jeux de données atteinte",
     "quotaBannerTitle": "Limite de jeux de données atteinte",
     "quotaBannerHint": "Supprimez des jeux de données existants pour libérer de l'espace, ou demandez à un administrateur d'augmenter la limite.",
-    "reportProblem": "Signaler ce problème"
+    "reportProblem": "Signaler ce problème",
+    "kindLegend": "Que téléversez-vous ?",
+    "kindFiles": "Fichiers géospatiaux",
+    "kindFilesHint": "Données vectorielles, raster ou tabulaires",
+    "kindTileset": "Tileset 3D Tiles",
+    "kindTilesetHint": "Une archive .zip avec tileset.json à la racine ou dans un dossier",
+    "kindTilesetUnavailable": "Indisponible tant qu'un administrateur n'autorise pas les fichiers .zip",
+    "kindLocked": "Verrouillé pendant que les fichiers déposés attendent le chargement des paramètres de téléversement"
   },
   "warnings": {
     "bannerTitle": "Importation terminée avec des avertissements",
@@ -117,7 +124,8 @@
     "fileRejected": "{{filename}} : {{reason}}",
     "browse": "Parcourir",
     "toUpload": "pour charger",
-    "subtext": "GeoLens détectera la géométrie, le SCR et le schéma avant de valider dans le catalogue. Lots jusqu'à {{max}} fichiers."
+    "subtext": "GeoLens détectera la géométrie, le SCR et le schéma avant de valider dans le catalogue. Lots jusqu'à {{max}} fichiers.",
+    "tilesetSubtext": "GeoLens vérifie chaque archive et lit son tileset.json avant tout stockage."
   },
   "stac": {
     "label": "URL de l'API STAC; collez le point d'accès racine du catalogue",
@@ -469,7 +477,11 @@
     "rasterCount_one": "{{value}} raster",
     "rasterCount_other": "{{value}} rasters",
     "tableCount_one": "{{value}} jeu de données tabulaire",
-    "tableCount_other": "{{value}} jeux de données tabulaires"
+    "tableCount_other": "{{value}} jeux de données tabulaires",
+    "tilesetSummary": "3D Tiles {{version}} · {{size}} · {{volume}}",
+    "tilesetCount_one": "{{value}} tileset",
+    "tilesetCount_other": "{{value}} tilesets",
+    "tilesetActionSummary": "{{files}} · {{tilesets}}"
   },
   "detect": {
     "rasterInfo": "Infos raster",
@@ -489,12 +501,20 @@
       "cog": "COG",
       "type": "type",
       "features": "entités",
-      "layer": "couche"
+      "layer": "couche",
+      "version": "version",
+      "geometricError": "erreur géom.",
+      "volume": "volume",
+      "extent": "emprise",
+      "unpacked": "décompressé",
+      "entries": "entrées"
     },
     "table": {
       "column": "Colonne",
       "type": "Type"
-    }
+    },
+    "tilesetInfo": "Tileset",
+    "noExtent": "aucune ; seule une région en fournit une"
   },
   "bulk": {
     "uploading_one": "Téléchargement de {{count}} fichier...",
@@ -542,10 +562,12 @@
     "heroTitle_many": "{{count}} de jeux de données ajoutés au catalogue",
     "heroTitle_other": "{{count}} jeux de données ajoutés au catalogue",
     "heroDesc": "Tous les fichiers ingérés, tuilés et indexés. Prêts à être interrogés, stylisés et cartographiés.",
+    "heroDescTilesets": "Prêts à être chargés dans un client 3D Tiles. L'URL du tileset se trouve dans l'onglet Accès du jeu de données.",
     "statDatasets": "Jeux de données",
     "statVector": "Vecteur",
     "statRaster": "Raster",
     "statTabular": "Tabulaire",
+    "statTilesets": "3D Tiles",
     "next": "Suivant :",
     "viewCatalog": "Voir dans le catalogue",
     "importMore": "Importer davantage",
@@ -585,7 +607,9 @@
     "urlHint": "Importation depuis une URL de fichier",
     "urlDesc": "GeoLens télécharge le fichier côté serveur vers la zone de préparation, puis exécute le même processus de détection et d'importation qu'un chargement.",
     "urlNote": "L'URL est validée et limitée en taille avant le téléchargement · les données sont copiées dans GeoLens",
-    "compareUrl": "Le chargement envoie un fichier depuis votre machine. URL de fichier le récupère sur le web : même vérification, même résultat, sans téléchargement local."
+    "compareUrl": "Le chargement envoie un fichier depuis votre machine. URL de fichier le récupère sur le web : même vérification, même résultat, sans téléchargement local.",
+    "tiles3dLabel": "3D Tiles",
+    "tiles3dDesc": "décompressé et servi tel quel aux clients 3D Tiles."
   },
   "status": {
     "uploading": "Téléversement",

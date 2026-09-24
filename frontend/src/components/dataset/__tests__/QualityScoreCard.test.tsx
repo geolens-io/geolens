@@ -32,6 +32,24 @@ describe('QualityScoreCard', () => {
     expect(screen.queryByTestId('quality-remediation-hint')).not.toBeInTheDocument();
   });
 
+  it('renders a metadata-only score, as a 3D Tiles tileset gets, with the other dimensions unscored', () => {
+    render(
+      <QualityScoreCard
+        qualityScore={{
+          ...baseQualityScore,
+          overall: 64,
+          metadata_completeness: 64,
+          geometry_validity: null,
+          attribute_completeness: null,
+          crs_defined: null,
+        }}
+      />,
+    );
+
+    expect(screen.getByText('64 (30%)')).toBeInTheDocument();
+    expect(screen.getAllByText(/^— \(/)).toHaveLength(3);
+  });
+
   it('marks stale freshness and shows remediation guidance when score age exceeds cadence threshold', () => {
     render(
       <QualityScoreCard

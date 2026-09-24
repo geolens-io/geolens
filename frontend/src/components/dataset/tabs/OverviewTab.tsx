@@ -31,6 +31,7 @@ import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHin
 import { SECTION_EYEBROW } from '@/components/dataset/SectionEyebrow';
 import { RelatedDatasets } from '@/components/dataset/RelatedDatasets';
 import { UsedInMaps } from '@/components/dataset/UsedInMaps';
+import { TilesetCard } from '@/components/dataset/TilesetCard';
 import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { getSourceFormatLabel } from '@/i18n/labels';
 import { cn } from '@/lib/utils';
@@ -527,6 +528,10 @@ export function OverviewTab({
               )}
               </CardContent>
             </Card>
+          )}
+
+          {dataset.tileset && (
+            <TilesetCard tileset={dataset.tileset} extentBbox={dataset.extent_bbox} />
           )}
         </div>
 

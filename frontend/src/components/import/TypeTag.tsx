@@ -26,6 +26,12 @@ const KIND_CONFIG: Record<DataKind, { label: string; fg: string; bg: string; bor
     bg: 'bg-type-vrt-bg',
     border: 'border-type-vrt/20',
   },
+  tiles3d: {
+    label: '3DT',
+    fg: 'text-type-tiles3d',
+    bg: 'bg-type-tiles3d-bg',
+    border: 'border-type-tiles3d/20',
+  },
 };
 
 interface TypeTagProps {

@@ -151,6 +151,12 @@ export interface RasterMetadata {
   resolution_strategy: string | null;
 }
 
+/** What a staged 3D Tiles tileset archive holds, read without unpacking it. */
+export type TilesetPreviewResponse = components['schemas']['TilesetPreviewResponse'];
+
+/** The upload doors' `kind`: 'tiles3d' marks the file as a 3D Tiles tileset archive. */
+export type UploadKind = NonNullable<components['schemas']['PresignedUploadRequest']['kind']>;
+
 export interface RasterPreviewResponse {
   job_id: string;
   source_filename: string | null;
@@ -1911,7 +1917,8 @@ export interface FileEntry {
   fileName: string;
   status: FileEntryStatus;
   jobId: string | null;
-  previewData: FilePreviewResponse | RasterPreviewResponse | null;
+  previewData: FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | null;
+  uploadKind?: UploadKind | null;
   error: string | null;
   /** Byte-transfer progress (0–1) during the `uploading` phase; null when unknown/done. */
   progress?: number | null;
@@ -1921,7 +1928,7 @@ export interface FileEntry {
 }
 
 /** Canonical data-kind union used by TypeTag, StatusPill, and import utilities */
-export type DataKind = 'vector' | 'raster' | 'table' | 'vrt';
+export type DataKind = 'vector' | 'raster' | 'table' | 'vrt' | 'tiles3d';
 
 // Table discovery types
 export interface DiscoveredTable {
@@ -2048,11 +2055,7 @@ export interface UploadConfig {
   remaining_dataset_quota: number | null;
 }
 
-export interface PresignedUploadRequest {
-  filename: string;
-  file_size: number;
-  content_type?: string;
-}
+export type PresignedUploadRequest = components['schemas']['PresignedUploadRequest'];
 
 export interface PresignedUploadResponse {
   job_id: string;

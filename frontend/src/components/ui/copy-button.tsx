@@ -5,11 +5,14 @@ import { Copy, Check } from 'lucide-react';
 interface CopyButtonProps {
   value: string;
   className?: string;
+  /** Names what is copied when a view holds more than one copy button. */
+  label?: string;
 }
 
-export function CopyButton({ value, className }: CopyButtonProps) {
+export function CopyButton({ value, className, label }: CopyButtonProps) {
   const { t } = useTranslation('dataset');
   const [copied, setCopied] = useState(false);
+  const name = label ?? t('metadata.copyToClipboard');
 
   async function handleCopy() {
     try {
@@ -36,7 +39,8 @@ export function CopyButton({ value, className }: CopyButtonProps) {
         className ??
         'inline-flex items-center justify-center h-6 w-6 rounded-sm hover:bg-muted transition-colors'
       }
-      title={t('metadata.copyToClipboard')}
+      title={name}
+      aria-label={name}
     >
       {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
     </button>

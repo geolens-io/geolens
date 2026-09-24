@@ -120,7 +120,8 @@
       "vrt_other": "{{vrtType}} virtual raster with {{count}} sources",
       "table_one": "Table with {{count}} row",
       "table_other": "Table with {{count}} rows",
-      "fallback": "Geospatial dataset"
+      "fallback": "Geospatial dataset",
+      "tiles3d": "3D Tiles tileset"
     },
     "vector": "Vector",
     "raster": "Raster",

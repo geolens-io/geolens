@@ -109,6 +109,29 @@ describe('DatasetStatsBar', () => {
     expect(screen.getByText('4')).toBeInTheDocument();
   });
 
+  it('renders a tileset with its size, version and bounding volume, and no vector cells', () => {
+    const ds: DatasetResponse = {
+      ...BASE,
+      record_type: 'tiles3d_dataset',
+      geometry_type: null,
+      feature_count: null,
+      column_info: null,
+      tileset: {
+        url: '/api/datasets/ds-1/tiles3d/tileset.json',
+        size_bytes: 3 * 1024 * 1024,
+        version: '1.1',
+        geometric_error: 12.5,
+        bounding_volume: 'box',
+      },
+    };
+    render(<DatasetStatsBar dataset={ds} />);
+    expect(screen.getByText('3 MB')).toBeInTheDocument();
+    expect(screen.getByText('1.1')).not.toHaveClass('font-mono');
+    expect(screen.getByText('Box')).toBeInTheDocument();
+    expect(screen.queryByText('EPSG:4326')).not.toBeInTheDocument();
+    expect(screen.queryByText('v1')).not.toBeInTheDocument();
+  });
+
   it('caps at 6 cells', () => {
     const { container } = render(<DatasetStatsBar dataset={BASE} />);
     const grid = container.firstElementChild!;

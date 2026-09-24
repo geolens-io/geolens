@@ -493,6 +493,11 @@
       "ogcapiFeatures": "OGC API Features",
       "created": "在 GeoLens 中创建",
       "tiles3d": "3D Tiles"
+    },
+    "boundingVolume": {
+      "region": "区域",
+      "box": "盒",
+      "sphere": "球"
     }
   },
   "settingsToasts": {

@@ -208,6 +208,34 @@ describe('ConnectDropdown', () => {
     expect(screen.queryByRole('menuitem', { name: /connection instructions/i })).not.toBeInTheDocument();
   });
 
+  it('copies the absolute tileset URL and points a tileset to CesiumJS instructions', async () => {
+    const user = userEvent.setup();
+    render(
+      <ConnectDropdown
+        dataset={makeDataset({
+          record_type: 'tiles3d_dataset',
+          tileset: {
+            url: '/api/datasets/ds-1/tiles3d/tileset.json',
+            size_bytes: 1024,
+            version: '1.1',
+            geometric_error: 12,
+            bounding_volume: 'region',
+          },
+        })}
+        onShowInstructions={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /connect/i }));
+    expect(screen.getByText('CesiumJS')).toBeInTheDocument();
+    expect(screen.queryByText('Copy OGC Features URL')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Copy tileset URL' }));
+
+    await expect(navigator.clipboard.readText()).resolves.toBe(
+      `${window.location.origin}/api/datasets/ds-1/tiles3d/tileset.json`,
+    );
+  });
+
   it('offers no connection for an unknown record type', () => {
     render(
       <ConnectDropdown

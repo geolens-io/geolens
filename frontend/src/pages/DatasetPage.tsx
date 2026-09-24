@@ -380,6 +380,7 @@ export function DatasetPage() {
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
   const isTable = dataset.record_type === 'table';
+  const isTileset = dataset.record_type === 'tiles3d_dataset';
   const { featureTable, mapLayerType, tileToken: tileKind } = recordTypeCapabilities(dataset.record_type);
   const canAddToMap = !isTable && mapLayerType !== null;
   const canReupload = featureTable || isRaster;
@@ -577,8 +578,9 @@ export function DatasetPage() {
       {isTable && <TableHero />}
 
       {/* Keep the spatial canvas prominent for orientation, but let task tabs
-          lead with their own work instead of a full-height map. */}
-      {!isDataTabExpanded && !isTable && (
+          lead with their own work instead of a full-height map. The map cannot
+          draw a 3D Tiles tileset, so a tileset page has no map section. */}
+      {!isDataTabExpanded && !isTable && !isTileset && (
         <section aria-label={t('page.mapPreview')} className="rounded-lg border shadow-sm overflow-hidden">
           {!isOverview && !isDrawing && (
             <Button

@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { appOriginUrl } from '@/lib/dataset-access';
 import { recordTypeCapabilities } from '@/lib/record-types';
 import { truncateGraphemes } from '@/lib/text';
 import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
@@ -50,9 +51,11 @@ export function ConnectDropdown({ dataset, onShowInstructions }: ConnectDropdown
   const cogUrl = dataset.raster?.connect?.download_url;
   const tileUrl = dataset.raster?.connect?.tile_url;
   const s3Uri = dataset.raster?.connect?.s3_uri;
-  const hasApiInstructions = featureTable && Boolean(endpoints.ogcFeaturesUrl && publicApiBaseUrl);
+  const tilesetUrl = dataset.tileset ? appOriginUrl(dataset.tileset.url) : null;
+  const hasApiInstructions =
+    (featureTable && Boolean(endpoints.ogcFeaturesUrl && publicApiBaseUrl)) || tilesetUrl !== null;
 
-  if (!featureTable && tileToken === null) return null;
+  if (!featureTable && tileToken === null && tilesetUrl === null) return null;
 
   return (
     <DropdownMenu>
@@ -80,6 +83,12 @@ export function ConnectDropdown({ dataset, onShowInstructions }: ConnectDropdown
           <DropdownMenuItem onClick={() => copyToClipboard(tileUrl, t)}>
             <Copy className="me-2 size-3.5" />
             {t('connect.copyXyzTileUrl')}
+          </DropdownMenuItem>
+        )}
+        {tilesetUrl && (
+          <DropdownMenuItem onClick={() => copyToClipboard(tilesetUrl, t)}>
+            <Copy className="me-2 size-3.5" />
+            {t('connect.copyTilesetUrl')}
           </DropdownMenuItem>
         )}
         {tileToken === 'raster' && isAdmin && s3Uri && (
@@ -123,7 +132,7 @@ export function ConnectDropdown({ dataset, onShowInstructions }: ConnectDropdown
               {t('connect.openInstructions')}
             </span>
             <span className="ps-5 text-xs text-muted-foreground">
-              {t('connect.instructionsTools')}
+              {t(tilesetUrl ? 'connect.instructionsTileset' : 'connect.instructionsTools')}
             </span>
           </DropdownMenuItem>
         )}

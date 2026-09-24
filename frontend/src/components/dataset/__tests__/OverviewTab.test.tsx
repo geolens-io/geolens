@@ -68,6 +68,35 @@ describe('OverviewTab reuse details', () => {
       expect(detail).toHaveClass('break-words');
     }
   });
+
+  it('shows a tileset card for a 3D Tiles dataset and none for a vector one', () => {
+    const tileset: DatasetResponse = {
+      ...makeDataset(),
+      record_type: 'tiles3d_dataset',
+      tileset: {
+        url: '/api/datasets/ds-1/tiles3d/tileset.json',
+        size_bytes: 1024,
+        version: '1.0',
+        geometric_error: 70,
+        bounding_volume: 'box',
+      },
+    };
+    const props = {
+      canEdit: false,
+      capabilities: buildDatasetEditCapabilities({ isEditor: false }),
+      summaryValue: '',
+      onSummaryDraftSave: vi.fn(),
+      onSummaryDirtyChange: vi.fn(),
+    };
+    const { unmount } = render(<OverviewTab dataset={tileset} {...props} />);
+
+    expect(screen.getByRole('heading', { name: '3D Tiles tileset' })).toBeInTheDocument();
+    expect(screen.getByText('Box')).toBeInTheDocument();
+    unmount();
+
+    render(<OverviewTab dataset={makeDataset()} {...props} />);
+    expect(screen.queryByRole('heading', { name: '3D Tiles tileset' })).not.toBeInTheDocument();
+  });
 });
 
 describe('OverviewTab Table Name row', () => {

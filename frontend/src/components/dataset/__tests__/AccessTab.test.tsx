@@ -192,6 +192,60 @@ describe('AccessTab', () => {
     expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
   });
 
+  describe('a tileset', () => {
+    const tilesetDataset = makeDataset({
+      record_type: 'tiles3d_dataset',
+      tileset: {
+        url: '/api/datasets/ds-1/tiles3d/tileset.json',
+        size_bytes: 1024,
+        version: '1.1',
+        geometric_error: 16,
+        bounding_volume: 'region',
+      },
+    });
+    const noDistributions = {
+      data: { distributions: [], total: 0 },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useDistributions>;
+
+    it('gets its client URL and no API snippet, export or empty access points', () => {
+      mockUseDistributions.mockReturnValue(noDistributions);
+      render(<AccessTab dataset={tilesetDataset} />);
+
+      expect(screen.getByRole('heading', { name: 'Load in a 3D Tiles client' })).toBeInTheDocument();
+      expect(
+        screen.getByText(`${window.location.origin}/api/datasets/ds-1/tiles3d/tileset.json`),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Access Points' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
+      expect(screen.queryByRole('combobox', { name: 'Export format' })).not.toBeInTheDocument();
+    });
+
+    it('puts the key header in the snippet only for a tileset that is not public', () => {
+      mockUseDistributions.mockReturnValue(noDistributions);
+      const snippet = () => screen.getByText(/Cesium3DTileset\.fromUrl/).textContent;
+      const { unmount } = render(<AccessTab dataset={tilesetDataset} />);
+      expect(snippet()).not.toContain('X-Api-Key');
+      unmount();
+
+      render(<AccessTab dataset={{ ...tilesetDataset, visibility: 'restricted' }} />);
+      expect(snippet()).toContain('headers: { "X-Api-Key": "YOUR_API_KEY" }');
+    });
+
+    it('keeps the access points when it has distributions', () => {
+      render(<AccessTab dataset={tilesetDataset} />);
+
+      expect(screen.getByRole('heading', { name: 'Access Points' })).toBeInTheDocument();
+    });
+
+    it('leaves the access points of other record types alone when they have no distributions', () => {
+      mockUseDistributions.mockReturnValue(noDistributions);
+      render(<AccessTab dataset={makeDataset()} />);
+
+      expect(screen.getByRole('heading', { name: 'Access Points' })).toBeInTheDocument();
+    });
+  });
+
   it('offers no API snippet or export for an unknown record type', () => {
     render(<AccessTab dataset={makeDataset({ record_type: 'point_cloud_dataset' as RecordType })} />);
 

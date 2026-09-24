@@ -561,6 +561,22 @@ describe('SearchResultCard', () => {
       expect(desc).toHaveTextContent('10 m');
     });
 
+    it('describes a 3D Tiles tileset without a description as a tileset', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            description: null,
+            record_type: 'tiles3d_dataset',
+            geometry_type: null,
+            feature_count: null,
+            crs: null,
+          })}
+        />,
+      );
+
+      expect(screen.getByTestId('dataset-card-description')).toHaveTextContent('3D Tiles tileset');
+    });
+
     it('does not render description testid for collection records', () => {
       render(
         <SearchResultCard

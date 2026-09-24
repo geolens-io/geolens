@@ -123,6 +123,11 @@ export function getPublicApiBaseUrl(
   return getRuntimeApiBaseUrl();
 }
 
+/** An app-origin path, such as `tileset.url`, as an absolute URL. */
+export function appOriginUrl(path: string): string {
+  return isAbsoluteUrl(path) ? path : `${window.location.origin}${path}`;
+}
+
 export function resolveDistributionUrl(url: string, publicApiBaseUrl: string | null | undefined): string {
   if (!url) {
     return url;

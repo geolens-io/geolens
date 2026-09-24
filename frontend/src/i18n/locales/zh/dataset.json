@@ -73,7 +73,9 @@
     "copyCsvExportUrl": "复制 CSV 导出 URL",
     "copyOgcFeaturesUrl": "复制 OGC 要素 URL",
     "copyVectorTilesUrl": "复制矢量瓦片 URL",
-    "copied": "已复制：{{preview}}"
+    "copied": "已复制：{{preview}}",
+    "copyTilesetUrl": "复制瓦片集 URL",
+    "instructionsTileset": "CesiumJS"
   },
   "addToMap": {
     "button": "添加到地图",
@@ -1158,5 +1160,18 @@
     "description": "您有未保存的更改。确定要离开吗？您的更改将会丢失。",
     "stay": "留下",
     "leave": "离开"
+  },
+  "tileset": {
+    "title": "3D Tiles 瓦片集",
+    "version": "版本",
+    "geometricError": "几何误差",
+    "boundingVolume": "包围体",
+    "size": "解压后大小",
+    "extent": "范围",
+    "noExtent": "不可用。GeoLens 仅从 region 类型的包围体读取范围。",
+    "accessTitle": "在 3D Tiles 客户端中加载",
+    "urlLabel": "瓦片集 URL",
+    "headerHint": "内部、受限和私有瓦片集都需要在 X-Api-Key 请求头中提供 API 密钥。请使用只读密钥，因为 CesiumJS 加载瓦片集时发出的每个请求都会带上它。",
+    "copySnippet": "复制 CesiumJS 代码片段"
   }
 }

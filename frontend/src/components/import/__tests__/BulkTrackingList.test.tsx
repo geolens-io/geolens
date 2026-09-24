@@ -1,4 +1,4 @@
-import { render, screen } from '@/test/test-utils';
+import { render, screen, within } from '@/test/test-utils';
 import { useQueries } from '@tanstack/react-query';
 import { BulkTrackingList } from '../BulkTrackingList';
 import type { FileEntry } from '@/types/api';
@@ -99,8 +99,28 @@ describe('BulkTrackingList', () => {
     );
 
     expect(screen.getByRole('link', { name: 'Open dataset' })).toHaveAttribute('href', '/datasets/dataset-1');
+    expect(within(screen.getByText('Sample dataset').parentElement!).getByText('complete.statVector')).toBeInTheDocument();
     expect(screen.queryByTestId('job-progress-job-1')).not.toBeInTheDocument();
     expect(screen.getByTestId('job-progress-job-2')).toBeInTheDocument();
+  });
+
+  it('counts a finished tileset as 3D Tiles and describes it as ready for a 3D Tiles client', () => {
+    mockUseQueries.mockReturnValueOnce([
+      { data: { status: 'complete', dataset_id: 'dataset-3', source_filename: 'campus.zip' } },
+    ] as never);
+
+    render(
+      <BulkTrackingList
+        entries={[makeEntry({ fileName: 'campus.zip', submittedTitle: 'Campus', submittedKind: 'tiles3d' })]}
+        onReset={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('complete.heroDescTilesets')).toBeInTheDocument();
+    expect(screen.queryByText(/ingested, tiled, and indexed/)).not.toBeInTheDocument();
+    expect(screen.getByText('complete.statTilesets', { selector: 'dt' }).nextElementSibling).toHaveTextContent('1');
+    expect(within(screen.getByText('Campus').nextElementSibling as HTMLElement).getByText('complete.statTilesets')).toBeInTheDocument();
+    expect(screen.queryByText('tiles3d')).not.toBeInTheDocument();
   });
 
   it('offers the AI-metadata CTA on a single completed dataset when AI is available', () => {
