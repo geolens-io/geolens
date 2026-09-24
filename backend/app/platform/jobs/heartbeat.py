@@ -11,6 +11,7 @@ from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.sqlstate import sqlstate
+from app.platform.jobs.ledger import StaleIngestAttempt
 from app.platform.jobs.models import IngestJob
 
 HEARTBEAT_INTERVAL_SECONDS = 30.0
@@ -19,10 +20,6 @@ HEARTBEAT_INTERVAL_SECONDS = 30.0
 # job-status auto-fail (platform/jobs/router.py), so API and poller agree. 10x
 # the renewal interval so one missed renewal can't admit a second concurrent CTAS.
 ANALYSIS_MATERIALIZE_LEASE_SECONDS = 300.0
-
-
-class StaleIngestAttempt(RuntimeError):
-    """Raised when a worker no longer owns the job attempt it received."""
 
 
 # fix(#1858): shared by the code that MAKES these names and the code that

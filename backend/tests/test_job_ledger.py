@@ -35,7 +35,11 @@ from app.platform.jobs.ledger import (
     hold,
     retry,
 )
-from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    EMBEDDING_BACKFILL_METADATA_KEY,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
+    IngestJob,
+)
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
     USER_CANCELLED_ERROR_CODE,
@@ -524,6 +528,371 @@ class TestRetry:
             new_attempt,
             None,
         )
+
+
+class TestCreate:
+    @pytest.mark.parametrize("status", ["pending", "running"])
+    async def test_adds_a_pending_or_running_job(self, test_db_session, status):
+        """create adds a pending job, or a running one started now."""
+        job = ledger.create(
+            test_db_session,
+            created_by=None,
+            status=status,
+            source_filename="ledger.geojson",
+            file_path="",
+        )
+        await test_db_session.commit()
+        job_id = job.id
+
+        row = await _row(test_db_session, job_id)
+        assert row.status == status
+        assert (row.started_at is not None) is (status == "running")
+
+    @pytest.mark.parametrize(
+        "status", ["complete", "failed", "cancelled", "fanned_out"]
+    )
+    async def test_refuses_a_state_only_a_transition_reaches(
+        self, test_db_session, status
+    ):
+        """create refuses a job that would start terminal or fanned out."""
+        with pytest.raises(ValueError, match="cannot be created"):
+            ledger.create(
+                test_db_session,
+                created_by=None,
+                status=status,
+                source_filename="ledger.geojson",
+            )
+
+
+# Each owner transition's from-states, its target, and a call on a fixture job.
+_OWNER_MOVES = {
+    "claim": (
+        ("pending",),
+        "running",
+        lambda s, job: ledger.claim(s, job.id, job.attempt_id),
+    ),
+    "stage": (
+        ("running",),
+        "pending",
+        lambda s, job: ledger.stage(
+            s, job.id, job.attempt_id, values={"file_path": "staged.geojson"}
+        ),
+    ),
+    "fan_out": (
+        ("pending",),
+        "fanned_out",
+        lambda s, job: ledger.fan_out(s, job.id, job.attempt_id),
+    ),
+    "restore": (
+        ("fanned_out",),
+        "pending",
+        lambda s, job: ledger.restore(s, job.id, job.attempt_id),
+    ),
+    "fail": (
+        ("running",),
+        "failed",
+        lambda s, job: ledger.fail(s, job.id, job.attempt_id, reason=_REASON),
+    ),
+}
+
+
+async def _owner_end(session, end: str, job: IngestJob, **kwargs) -> bool:
+    """Run ``complete`` or ``fail`` on ``job``, and say whether it landed."""
+    if end == "fail":
+        return await ledger.fail(
+            session, job.id, job.attempt_id, reason=_REASON, **kwargs
+        )
+    try:
+        await ledger.complete(session, job.id, job.attempt_id, **kwargs)
+    except StaleIngestAttempt:
+        return False
+    return True
+
+
+class TestOwnerTransitions:
+    @pytest.mark.parametrize("status", _STATUSES)
+    @pytest.mark.parametrize("move", sorted(_OWNER_MOVES))
+    async def test_moves_a_job_only_from_its_own_states(
+        self, test_db_session, move, status
+    ):
+        """Each owner transition lands from its own states and writes nothing from any other."""
+        sources, target, call = _OWNER_MOVES[move]
+        job = await _job(test_db_session, status=status)
+        job_id = job.id
+
+        landed = await call(test_db_session, job)
+        assert landed is (status in sources)
+        if landed:
+            assert job.status == target, "the instance was not told"
+        await test_db_session.commit()
+
+        assert (await _row(test_db_session, job_id)).status == (
+            target if landed else status
+        )
+
+    @pytest.mark.parametrize("move", sorted(_OWNER_MOVES))
+    async def test_leaves_a_superseded_attempt_unwritten(self, test_db_session, move):
+        """An owner transition aimed at an attempt a retry replaced writes nothing."""
+        sources, _target, call = _OWNER_MOVES[move]
+        job = await _job(test_db_session, status=sources[0])
+        job_id = job.id
+        await _set(test_db_session, job_id, attempt_id=uuid.uuid4())
+
+        assert await call(test_db_session, job) is False
+        await test_db_session.commit()
+
+        assert (await _row(test_db_session, job_id)).status == sources[0]
+
+    async def test_claim_starts_the_lease(self, test_db_session):
+        """claim stamps the start and the lease in the same write."""
+        job = await _job(test_db_session, status="pending")
+        job_id = job.id
+
+        assert await ledger.claim(test_db_session, job_id, job.attempt_id)
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, job_id)
+        assert row.started_at is not None
+        assert row.heartbeat_at == row.started_at
+
+    async def test_stage_writes_what_staging_produced(self, test_db_session):
+        """stage returns a running job to pending with the columns staging wrote."""
+        job = await _job(test_db_session, status="running", current_step="downloading")
+        job_id = job.id
+
+        assert await ledger.stage(
+            test_db_session,
+            job_id,
+            job.attempt_id,
+            values={"file_path": "staged.geojson", "current_step": None},
+        )
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, job_id)
+        assert (row.status, row.file_path, row.current_step) == (
+            "pending",
+            "staged.geojson",
+            None,
+        )
+
+    async def test_restore_takes_back_only_an_interrupted_failure(
+        self, test_db_session
+    ):
+        """restore takes a failed parent back only with the interrupted marker, and drops it."""
+        marked = await _job(
+            test_db_session,
+            status="failed",
+            error_message="interrupted",
+            user_metadata={FAN_OUT_INTERRUPTED_METADATA_KEY: True, "kept": 1},
+        )
+        unmarked = await _job(
+            test_db_session, status="failed", user_metadata={"kept": 1}
+        )
+        marked_id, unmarked_id = marked.id, unmarked.id
+
+        assert await ledger.restore(test_db_session, marked_id, marked.attempt_id)
+        assert not await ledger.restore(
+            test_db_session, unmarked_id, unmarked.attempt_id
+        )
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, marked_id)
+        assert (row.status, row.error_message, row.user_metadata) == (
+            "pending",
+            None,
+            {"kept": 1},
+        )
+        assert (await _row(test_db_session, unmarked_id)).status == "failed"
+
+    @pytest.mark.parametrize("move", ["stage", "fail"])
+    async def test_a_further_predicate_the_row_fails_writes_nothing(
+        self, test_db_session, move
+    ):
+        """A transition given a further predicate writes nothing when the row no longer meets it."""
+        job = await _job(
+            test_db_session, status="running", user_metadata={"stage": "installing"}
+        )
+        job_id = job.id
+        downloading = IngestJob.user_metadata["stage"].astext == "downloading"
+
+        if move == "stage":
+            landed = await ledger.stage(
+                test_db_session,
+                job_id,
+                job.attempt_id,
+                values={},
+                require=(downloading,),
+            )
+        else:
+            landed = await ledger.fail(
+                test_db_session,
+                job_id,
+                job.attempt_id,
+                reason=_REASON,
+                require=(downloading,),
+            )
+        assert landed is False
+        await test_db_session.commit()
+
+        assert (await _row(test_db_session, job_id)).status == "running"
+
+    @pytest.mark.parametrize(
+        ("move", "values"),
+        [
+            ("stage", {"status": "complete"}),
+            ("complete", {"completed_at": None}),
+            ("fail", {"error_message": "raw"}),
+        ],
+    )
+    async def test_refuses_values_naming_a_column_it_writes(
+        self, test_db_session, move, values
+    ):
+        """stage, complete and fail write the status, reason and completion time themselves."""
+        job = await _job(test_db_session, status="running")
+        job_id, attempt_id = job.id, job.attempt_id
+        calls = {
+            "stage": lambda: ledger.stage(
+                test_db_session, job_id, attempt_id, values=values
+            ),
+            "complete": lambda: ledger.complete(
+                test_db_session, job_id, attempt_id, values=values
+            ),
+            "fail": lambda: ledger.fail(
+                test_db_session, job_id, attempt_id, reason=_REASON, values=values
+            ),
+        }
+
+        with pytest.raises(ValueError, match="the ledger writes"):
+            await calls[move]()
+
+
+class TestComplete:
+    @pytest.mark.parametrize("status", _STATUSES)
+    async def test_completes_only_a_running_job(self, test_db_session, status):
+        """complete ends a running job with its further columns, and a miss raises and writes nothing."""
+        job = await _job(test_db_session, status=status)
+        job_id, attempt_id = job.id, job.attempt_id
+
+        if status == "running":
+            await ledger.complete(
+                test_db_session, job_id, attempt_id, values={"current_step": "complete"}
+            )
+            assert job.status == "complete", "the instance was not told"
+        else:
+            with pytest.raises(StaleIngestAttempt):
+                await ledger.complete(test_db_session, job_id, attempt_id)
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, job_id)
+        if status == "running":
+            assert (row.status, row.current_step) == ("complete", "complete")
+            assert row.completed_at is not None
+        else:
+            assert (row.status, row.completed_at) == (status, None)
+
+    async def test_a_superseded_attempt_raises_and_writes_nothing(
+        self, test_db_session
+    ):
+        """complete aimed at an attempt a retry replaced raises and writes nothing."""
+        job = await _job(test_db_session, status="running")
+        job_id = job.id
+        await _set(test_db_session, job_id, attempt_id=uuid.uuid4())
+
+        with pytest.raises(StaleIngestAttempt):
+            await ledger.complete(test_db_session, job_id, job.attempt_id)
+        await test_db_session.commit()
+
+        assert (await _row(test_db_session, job_id)).status == "running"
+
+
+class TestFail:
+    @pytest.mark.parametrize("status", _STATUSES)
+    async def test_takes_a_pending_job_only_when_asked(self, test_db_session, status):
+        """fail given a pending-or-running fence ends a job in either state and nothing else."""
+        job = await _job(test_db_session, status=status)
+        job_id = job.id
+
+        landed = await ledger.fail(
+            test_db_session,
+            job_id,
+            job.attempt_id,
+            reason=_REASON,
+            expect=("pending", "running"),
+        )
+        assert landed is (status in ("pending", "running"))
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, job_id)
+        if landed:
+            assert (row.status, row.error_message) == ("failed", _REASON)
+            assert row.completed_at is not None
+        else:
+            assert (row.status, row.error_message) == (status, None)
+
+    async def test_stores_the_reason_redacted(self, test_db_session):
+        """fail keeps credentials and library exception text out of the stored reason."""
+        jobs = [await _job(test_db_session, status="running") for _ in range(3)]
+        (leaky, library, silent) = [(job.id, job.attempt_id) for job in jobs]
+
+        await ledger.fail(
+            test_db_session,
+            *leaky,
+            reason="Rejected https://reader:hunter2@example.test/data?token=abc",
+        )
+        await ledger.fail(
+            test_db_session, *library, reason=OSError("connection to 10.0.0.5 refused")
+        )
+        await ledger.fail(test_db_session, *silent, reason=None)
+        await test_db_session.commit()
+
+        stored = (await _row(test_db_session, leaky[0])).error_message
+        assert "hunter2" not in stored and "abc" not in stored
+        assert (await _row(test_db_session, library[0])).error_message == (
+            "internal_error"
+        )
+        assert (await _row(test_db_session, silent[0])).error_message is None
+
+
+class TestAnOwnersLinkedWrite:
+    @pytest.mark.parametrize("end", ["complete", "fail"])
+    async def test_runs_only_when_the_end_lands(self, test_db_session, end):
+        """An owner's end runs its linked write exactly when the job write lands."""
+        running = await _job(test_db_session, status="running")
+        finished = await _job(test_db_session, status="complete")
+        ran: list[str] = []
+
+        def _record(name: str):
+            async def _linked(session) -> None:
+                ran.append(name)
+
+            return _linked
+
+        assert await _owner_end(
+            test_db_session, end, running, linked=_record("running")
+        )
+        assert not await _owner_end(
+            test_db_session, end, finished, linked=_record("finished")
+        )
+        assert ran == ["running"]
+
+    @pytest.mark.parametrize("end", ["complete", "fail"])
+    async def test_a_raising_linked_write_takes_the_end_back(
+        self, test_db_session, end
+    ):
+        """When an owner's linked write raises, the job write rolls back with it."""
+        job = await _job(test_db_session, status="running")
+        job_id = job.id
+
+        async def _refuses(session) -> None:
+            raise RuntimeError("linked row refused")
+
+        with pytest.raises(RuntimeError, match="linked row refused"):
+            await _owner_end(test_db_session, end, job, linked=_refuses)
+        status = await test_db_session.scalar(
+            select(IngestJob.status).where(IngestJob.id == job_id)
+        )
+        assert status == "running"
+        await test_db_session.rollback()
 
 
 class TestTheRefreshRunHook:
