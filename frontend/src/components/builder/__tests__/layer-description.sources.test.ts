@@ -277,8 +277,10 @@ describe('describeLayers sources', () => {
   it.each(previewCases)('gives the preview of %s the builder source apart from the id prefix and extent', (_label, layer, elevationColumn) => {
     const builder = describeLayers([toSyncInput(layer)], { ...RENDER_CONTEXTS.builder, origin: window.location.origin });
     const preview = previewOf(layer, elevationColumn);
-    expect({ ...preview.layer, id: undefined, sourceId: unprefixed(preview.layer.sourceId) })
-      .toEqual({ ...builder.layers[0], id: undefined });
+    // The preview draws the default style, so its specs differ from a styled layer's.
+    const unstyled = { id: undefined, specs: undefined, images: undefined };
+    expect({ ...preview.layer, ...unstyled, sourceId: unprefixed(preview.layer.sourceId) })
+      .toEqual({ ...builder.layers[0], ...unstyled });
     expect({ [unprefixed(preview.layer.sourceId)]: preview.source })
       .toEqual(Object.fromEntries([...builder.sources].map(([id, spec]) => [id, withoutBounds(spec)])));
   });

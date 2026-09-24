@@ -1,6 +1,7 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { FilterSpecification } from 'maplibre-gl';
+import type { FilterSpecification, LayerSpecification } from 'maplibre-gl';
 import type { LabelConfig, StyleConfig } from '@/types/api';
+import type { LayoutPropertyName, PaintPropertyName } from './shared';
 
 type AdapterStyleConfig = Partial<StyleConfig> & {
   builder?: StyleConfig['builder'];
@@ -46,8 +47,45 @@ export interface AdapterLayerInput {
   attribution?: string | null;
 }
 
+/**
+ * One map layer a saved layer draws. `layer` is the layer as MapLibre adds it.
+ * On a layer already on the map, a write keeps only the owned keys in step: it
+ * sets each to the spec's value, or clears it when the spec leaves it out.
+ */
+export interface LayerSpec {
+  layer: {
+    id: string;
+    type: LayerSpecification['type'];
+    source: string;
+    'source-layer'?: string;
+    filter?: FilterSpecification;
+    layout: Record<string, unknown>;
+    paint: Record<string, unknown>;
+  };
+  ownedPaint: readonly PaintPropertyName[];
+  ownedLayout: readonly LayoutPropertyName[];
+}
+
+/** An image the specs draw with: a sprite sheet by URL, or one image built only when the map lacks it. */
+export type ImageSpec =
+  | { kind: 'sprite'; id: string; url: string }
+  | {
+    kind: 'image';
+    id: string;
+    data: () => { width: number; height: number; data: Uint8ClampedArray };
+    options?: { sdf?: boolean; pixelRatio?: number };
+  };
+
+/** The map layers an adapter draws for one saved layer, bottom first, and the images they use. */
+export interface LayerDrawing {
+  specs: readonly LayerSpec[];
+  images: readonly ImageSpec[];
+}
+
 export interface LayerAdapter {
   type: 'fill' | 'line' | 'circle' | 'symbol' | 'raster' | 'heatmap' | 'hillshade' | 'cluster' | 'mixed';
+  /** Present on the adapters whose layers the writer adds and updates. */
+  describe?(input: AdapterLayerInput): LayerDrawing;
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void;
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void;
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void;

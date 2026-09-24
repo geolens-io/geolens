@@ -63,6 +63,8 @@ function described(
     filter: null,
     layout: layer.layout,
     zoom: null,
+    specs: expect.any(Array),
+    images: expect.any(Array),
     ...overrides,
   };
 }
@@ -140,10 +142,15 @@ describe('describeLayers', () => {
     const layers = rows.map(([, layer]) => layer);
     const builder = describeLayers(layers.map(toSyncInput), RENDER_CONTEXTS.builderWithClusterData);
     const viewer = describeLayers(layers.map(viewerInput), RENDER_CONTEXTS.viewerWithClusterData);
+    const unprefixed = (id: string) => id.replace(/^viewer-/, '');
     expect(viewer.layers.map((layer) => ({
       ...layer,
-      id: layer.id.replace(/^viewer-/, ''),
-      sourceId: layer.sourceId.replace(/^viewer-/, ''),
+      id: unprefixed(layer.id),
+      sourceId: unprefixed(layer.sourceId),
+      specs: layer.specs.map((spec) => ({
+        ...spec,
+        layer: { ...spec.layer, id: unprefixed(spec.layer.id), source: unprefixed(spec.layer.source) },
+      })),
     }))).toEqual(builder.layers);
   });
 

@@ -1,15 +1,9 @@
-import type { FilterSpecification, Map as MaplibreMap } from 'maplibre-gl';
+import type { FilterSpecification } from 'maplibre-gl';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { LABEL_FONT_STACK } from '../label-layer-utils';
-import type { AdapterLayerInput, LayerAdapter } from './types';
-import {
-  finalizeLayer,
-  getBuilderStyleConfig,
-  applyMasterOpacity,
-  syncOwnedLayoutProperties,
-  syncOwnedPaintProperties,
-  syncSingleLayerVisibility,
-} from './shared';
+import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
+import type { AdapterLayerInput, LayerAdapter, LayerDrawing } from './types';
+import { getBuilderStyleConfig, getExpressionSafeOpacity, sourceLayerSpec } from './shared';
 // builder-audit #338 ADAPT-03: the unclustered point mirrors the standalone circle adapter —
 // reuse its exact owned-property set and default paint instead of duplicating them.
 import { CIRCLE_OWNED_PAINT_PROPERTIES, resolveCirclePaint } from './circle-adapter';
@@ -22,7 +16,7 @@ export function clusterCountLayerId(layerId: string) {
   return `${layerId}-cluster-count`;
 }
 
-const CLUSTER_CIRCLE_OWNED_PAINT_PROPERTIES = [
+export const CLUSTER_CIRCLE_OWNED_PAINT_PROPERTIES = [
   'circle-color',
   'circle-radius',
   'circle-opacity',
@@ -30,13 +24,13 @@ const CLUSTER_CIRCLE_OWNED_PAINT_PROPERTIES = [
   'circle-stroke-width',
   'circle-stroke-opacity',
 ] as const;
-const CLUSTER_COUNT_OWNED_PAINT_PROPERTIES = [
+export const CLUSTER_COUNT_OWNED_PAINT_PROPERTIES = [
   'text-color',
   'text-opacity',
   'text-halo-color',
   'text-halo-width',
 ] as const;
-const CLUSTER_COUNT_OWNED_LAYOUT_PROPERTIES = [
+export const CLUSTER_COUNT_OWNED_LAYOUT_PROPERTIES = [
   'text-field',
   'text-size',
   'text-font',
@@ -100,10 +94,6 @@ export function clusterColorValue(ramp: unknown, flatColor: string): unknown {
   }
   // need a base plus at least one threshold (length > 3) to be a valid ramp
   return expr.length > 3 ? expr : flatColor;
-}
-
-function sourceLayerSpec(input: AdapterLayerInput) {
-  return input.sourceType === 'geojson' ? {} : { 'source-layer': input.sourceLayer };
 }
 
 export function getClusterSourceOptions(input: AdapterLayerInput) {
@@ -179,117 +169,69 @@ function clusterCountPaint(input: AdapterLayerInput): Record<string, unknown> {
   };
 }
 
-function addClusterCircleLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = clusterCircleLayerId(input.layerId);
-  if (map.getLayer(id)) return;
-
-  map.addLayer({
-    id,
-    type: 'circle',
-    source: input.sourceId,
-    ...sourceLayerSpec(input),
-    filter: clusterFilter(input),
-    paint: clusterCirclePaint(input),
-    layout: {
-      visibility: input.visible ? 'visible' : 'none',
-    },
-  });
-}
-
-function addClusterCountLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = clusterCountLayerId(input.layerId);
-  if (map.getLayer(id)) return;
-
-  map.addLayer({
-    id,
-    type: 'symbol',
-    source: input.sourceId,
-    ...sourceLayerSpec(input),
-    filter: clusterFilter(input),
-    layout: clusterCountLayout(input),
-    paint: clusterCountPaint(input),
-  });
-}
-
-function addUnclusteredPointLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  if (map.getLayer(input.layerId)) return;
-  const hasExpressions = Object.values(input.paint).some(Array.isArray);
-
-  map.addLayer({
-    id: input.layerId,
-    type: 'circle',
-    source: input.sourceId,
-    ...sourceLayerSpec(input),
-    filter: unclusteredFilter(input),
-    paint: unclusteredPointPaint(input),
-    layout: {
-      ...input.layout,
-      visibility: input.visible ? 'visible' : 'none',
-    },
-  });
-  finalizeLayer(map, input.layerId, input.paint, 'circle', input.opacity ?? 1, unclusteredFilter(input), hasExpressions);
-}
-
-function syncClusterCircleLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = clusterCircleLayerId(input.layerId);
-  if (!map.getLayer(id)) return;
-  syncOwnedPaintProperties(map, id, clusterCirclePaint(input), {
-    geomType: 'circle',
-    ownedProperties: CLUSTER_CIRCLE_OWNED_PAINT_PROPERTIES,
-  });
-  map.setFilter(id, clusterFilter(input));
-}
-
-function syncClusterCountLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = clusterCountLayerId(input.layerId);
-  if (!map.getLayer(id)) return;
-  syncOwnedLayoutProperties(map, id, clusterCountLayout(input), {
-    ownedProperties: CLUSTER_COUNT_OWNED_LAYOUT_PROPERTIES,
-  });
-  syncOwnedPaintProperties(map, id, clusterCountPaint(input), {
-    ownedProperties: CLUSTER_COUNT_OWNED_PAINT_PROPERTIES,
-  });
-  map.setFilter(id, clusterFilter(input));
-}
-
-function syncUnclusteredPointLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  if (!map.getLayer(input.layerId)) return;
-  syncOwnedPaintProperties(map, input.layerId, input.paint, {
-    geomType: 'circle',
-    ownedProperties: CIRCLE_OWNED_PAINT_PROPERTIES,
-  });
-  applyMasterOpacity(map, input.layerId, input.paint, 'circle', input.opacity ?? 1);
-  map.setFilter(input.layerId, unclusteredFilter(input));
+function describeCluster(input: AdapterLayerInput): LayerDrawing {
+  const visibility = input.visible ? 'visible' : 'none';
+  const source = { source: input.sourceId, ...sourceLayerSpec(input) };
+  return {
+    specs: [
+      {
+        layer: {
+          id: clusterCircleLayerId(input.layerId),
+          type: 'circle',
+          ...source,
+          filter: clusterFilter(input),
+          layout: { visibility },
+          paint: clusterCirclePaint(input),
+        },
+        ownedPaint: CLUSTER_CIRCLE_OWNED_PAINT_PROPERTIES,
+        ownedLayout: [],
+      },
+      {
+        layer: {
+          id: clusterCountLayerId(input.layerId),
+          type: 'symbol',
+          ...source,
+          filter: clusterFilter(input),
+          layout: clusterCountLayout(input),
+          paint: clusterCountPaint(input),
+        },
+        ownedPaint: CLUSTER_COUNT_OWNED_PAINT_PROPERTIES,
+        ownedLayout: CLUSTER_COUNT_OWNED_LAYOUT_PROPERTIES,
+      },
+      {
+        layer: {
+          id: input.layerId,
+          type: 'circle',
+          ...source,
+          filter: unclusteredFilter(input),
+          layout: { ...input.layout, visibility },
+          paint: {
+            ...unclusteredPointPaint(input),
+            'circle-opacity': getExpressionSafeOpacity(input.paint, 'circle', input.opacity ?? 1),
+          },
+        },
+        ownedPaint: CIRCLE_OWNED_PAINT_PROPERTIES,
+        ownedLayout: [],
+      },
+    ],
+    images: [],
+  };
 }
 
 export const clusterAdapter: LayerAdapter = {
   type: 'cluster',
+  describe: describeCluster,
 
-  addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    try {
-      addClusterCircleLayer(map, input);
-      addClusterCountLayer(map, input);
-      addUnclusteredPointLayer(map, input);
-    } catch (e) {
-      if (import.meta.env.DEV) console.warn(`[map-sync] addLayer (cluster) failed for ${input.layerId}:`, e);
-    }
+  addLayers(map, input) {
+    writeDescribedLayer(map, describeCluster(input));
   },
 
-  syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
-    if (!map.getLayer(clusterCircleLayerId(input.layerId)) || !map.getLayer(clusterCountLayerId(input.layerId)) || !map.getLayer(input.layerId)) {
-      addClusterCircleLayer(map, input);
-      addClusterCountLayer(map, input);
-      addUnclusteredPointLayer(map, input);
-    }
-    syncClusterCircleLayer(map, input);
-    syncClusterCountLayer(map, input);
-    syncUnclusteredPointLayer(map, input);
+  syncPaint(map, input) {
+    writeDescribedLayer(map, describeCluster(input));
   },
 
-  syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    syncSingleLayerVisibility(map, clusterCircleLayerId(input.layerId), input.visible);
-    syncSingleLayerVisibility(map, clusterCountLayerId(input.layerId), input.visible && clusterCountsEnabled(input));
-    syncSingleLayerVisibility(map, input.layerId, input.visible);
+  syncVisibility(map, input) {
+    writeDescribedVisibility(map, describeCluster(input));
   },
 
   getLayerIds(layerId: string): string[] {

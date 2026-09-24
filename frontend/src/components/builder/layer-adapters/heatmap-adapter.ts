@@ -1,7 +1,7 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { StyleConfig } from '@/types/api';
-import type { AdapterLayerInput, LayerAdapter } from './types';
-import { getBuilderStyleConfig, syncOwnedPaintProperties, syncSingleLayerVisibility, syncLayerFilter } from './shared';
+import type { AdapterLayerInput, LayerAdapter, LayerDrawing } from './types';
+import { filterSpec, getBuilderStyleConfig, sourceLayerSpec } from './shared';
+import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 // builder-audit #338 ADAPT-05: the radius/weight/intensity/opacity defaults come from the
 // single builder-defaults source of truth (radius 30 / weight 1) instead of the magic
 // literals that previously diverged from renderAs's heatmap default (radius 18 / weight 0.5).
@@ -33,7 +33,7 @@ export function buildHeatmapColorExpression(rampName: string, reversed = false):
 }
 
 const DEFAULT_RAMP = 'YlOrRd';
-const HEATMAP_OWNED_PAINT_PROPERTIES = [
+export const HEATMAP_OWNED_PAINT_PROPERTIES = [
   'heatmap-radius',
   'heatmap-weight',
   'heatmap-intensity',
@@ -71,76 +71,59 @@ export function resolveHeatmapColor(
   return { expression: buildHeatmapColorExpression(ramp.name, ramp.reversed), ramp };
 }
 
+/**
+ * The heatmap paint: the stored keys over the shared defaults, and the builder
+ * ramp when no colour expression is stored. Radius, weight and intensity may be
+ * zoom expressions, so only a missing one falls back; the stored opacity must be
+ * a number, since the master slider multiplies it.
+ */
+function heatmapPaint(input: AdapterLayerInput): Record<string, unknown> {
+  const { paint } = input;
+  const builder = getBuilderStyleConfig(input);
+  const storedOpacity = finiteNumber(paint['heatmap-opacity']) ?? HEATMAP_PAINT_DEFAULTS['heatmap-opacity'];
+  return {
+    'heatmap-radius': paint['heatmap-radius'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-radius'],
+    'heatmap-weight': paint['heatmap-weight'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-weight'],
+    'heatmap-intensity': paint['heatmap-intensity'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-intensity'],
+    'heatmap-color': resolveHeatmapColor(paint, builder).expression,
+    'heatmap-opacity': storedOpacity * (input.opacity ?? 1),
+  };
+}
+
+function describeHeatmap(input: AdapterLayerInput): LayerDrawing {
+  return {
+    specs: [{
+      layer: {
+        id: input.layerId,
+        type: 'heatmap',
+        source: input.sourceId,
+        ...sourceLayerSpec(input),
+        ...filterSpec(input.filter),
+        layout: { visibility: input.visible ? 'visible' : 'none' },
+        paint: heatmapPaint(input),
+      },
+      ownedPaint: HEATMAP_OWNED_PAINT_PROPERTIES,
+      ownedLayout: [],
+    }],
+    images: [],
+  };
+}
+
 export const heatmapAdapter: LayerAdapter = {
   type: 'heatmap',
+  describe: describeHeatmap,
 
-  addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, sourceLayer, paint: rawPaint, filter, opacity, visible } = input;
-    const builder = getBuilderStyleConfig(input);
-
-    // Extract heatmap-specific props from paint, falling back to shared defaults.
-    // radius/weight/intensity may legitimately be zoom expressions (arrays), so they
-    // keep `?? default` rather than finiteNumber coercion.
-    const heatmapRadius = rawPaint['heatmap-radius'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-radius'];
-    const heatmapWeight = rawPaint['heatmap-weight'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-weight'];
-    const heatmapIntensity = rawPaint['heatmap-intensity'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-intensity'];
-    // Phase 1051 CR-04: read stored heatmap-opacity (matching syncPaint formula
-    // below) and compound with master opacity. Previously hard-coded 0.8 at
-    // add-time, which overwrote persisted heatmap-opacity on every page load,
-    // render-mode swap, or basemap switch — producing a visible flash and silent
-    // drift until any subsequent paint sync.
-    // builder-audit #338 ADAPT-11: finiteNumber rejects a string/array/NaN opacity that a
-    // bare `as number` cast would have multiplied into NaN.
-    const storedHeatmapOpacity = finiteNumber(rawPaint['heatmap-opacity']) ?? HEATMAP_PAINT_DEFAULTS['heatmap-opacity'];
-    const heatmapOpacity = storedHeatmapOpacity * (opacity ?? 1);
-
-    const heatmapColor = resolveHeatmapColor(rawPaint, builder).expression;
-
-    try {
-      map.addLayer({
-        id: layerId,
-        type: 'heatmap',
-        source: sourceId,
-        ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-        paint: {
-          'heatmap-radius': heatmapRadius,
-          'heatmap-weight': heatmapWeight,
-          'heatmap-intensity': heatmapIntensity,
-          'heatmap-color': heatmapColor,
-          'heatmap-opacity': heatmapOpacity,
-        } as Record<string, unknown>,
-        // BUG-01: honor input.visible at initial add — see fill-adapter for rationale.
-        ...(visible === false ? { layout: { visibility: 'none' as const } } : {}),
-      });
-
-      syncLayerFilter(map, layerId, filter);
-    } catch (e) {
-      if (import.meta.env.DEV) console.warn(`[map-sync] addLayer (heatmap) failed for ${layerId}:`, e);
-    }
+  addLayers(map, input) {
+    addDescribedLayer(map, describeHeatmap(input));
   },
 
-  syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, paint: rawPaint, filter } = input;
-    if (!map.getLayer(layerId)) return;
-    const builder = getBuilderStyleConfig(input);
-
-    syncOwnedPaintProperties(map, layerId, {
-      'heatmap-radius': rawPaint['heatmap-radius'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-radius'],
-      'heatmap-weight': rawPaint['heatmap-weight'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-weight'],
-      'heatmap-intensity': rawPaint['heatmap-intensity'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-intensity'],
-      'heatmap-color': resolveHeatmapColor(rawPaint, builder).expression,
-    }, { ownedProperties: HEATMAP_OWNED_PAINT_PROPERTIES.filter((prop) => prop !== 'heatmap-opacity') });
-
-    // Compound stored heatmap-opacity with master opacity. Single source of truth.
-    // builder-audit #338 ADAPT-11: finiteNumber guards the same NaN path as add-time.
-    const storedOpacity = finiteNumber(rawPaint['heatmap-opacity']) ?? HEATMAP_PAINT_DEFAULTS['heatmap-opacity'];
-    map.setPaintProperty(layerId, 'heatmap-opacity', storedOpacity * (input.opacity ?? 1));
-
-    syncLayerFilter(map, layerId, filter);
+  syncPaint(map, input) {
+    if (!map.getLayer(input.layerId)) return;
+    writeDescribedLayer(map, describeHeatmap(input));
   },
 
-  syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    syncSingleLayerVisibility(map, input.layerId, input.visible);
+  syncVisibility(map, input) {
+    writeDescribedVisibility(map, describeHeatmap(input));
   },
 
   getLayerIds(layerId: string): string[] {
