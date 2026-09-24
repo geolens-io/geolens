@@ -60,6 +60,7 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.credentials import (
     CredentialStoreUnavailable,
@@ -544,10 +545,10 @@ async def _dispatch_postgis_refresh(
             },
         )
 
-    job = IngestJob(
-        dataset_id=dataset_id,
+    job = ledger.create(
+        db,
         created_by=user.id,
-        status="pending",
+        dataset_id=dataset_id,
         # Deliberately NOT `reupload: True`. That marker means "a task is
         # replacing this dataset's data", and two pieces of shared SQL key off
         # it — the legacy-live admission probe and the abandoned-run sweep's
@@ -560,7 +561,6 @@ async def _dispatch_postgis_refresh(
             "origin_kind": "postgis",
         },
     )
-    db.add(job)
     await db.flush()
 
     try:
@@ -825,10 +825,10 @@ async def _dispatch_stac_refresh(
             detail=f"This dataset's stored STAC item URL is not reachable: {exc}",
         ) from exc
 
-    job = IngestJob(
-        dataset_id=dataset_id,
+    job = ledger.create(
+        db,
         created_by=user.id,
-        status="pending",
+        dataset_id=dataset_id,
         # Deliberately NOT `reupload: True`, for the reason the postgis door
         # gives: that marker means "a task is replacing this dataset's data",
         # and two pieces of shared SQL key off it to reason about swaps this
@@ -839,7 +839,6 @@ async def _dispatch_stac_refresh(
             "origin_kind": "stac",
         },
     )
-    db.add(job)
     await db.flush()
 
     try:
@@ -1173,15 +1172,14 @@ async def refresh_dataset(
     # re-read all dispatched state, refusing if the binding moved; (4)
     # fill the job from that; (5) stash the credential; (6) commit, defer.
     # Every refusal from (3) on rolls back the whole request.
-    job = IngestJob(
-        dataset_id=dataset_id,
+    job = ledger.create(
+        db,
         created_by=user_id,
-        status="pending",
+        dataset_id=dataset_id,
         # Enough to be a well-formed re-upload job; the source binding is
         # filled in below, from the read that happens after the reservation.
         user_metadata={"reupload": True, "dataset_id": str(dataset_id)},
     )
-    db.add(job)
     await db.flush()
 
     # Admission control and the history row, through the one implementation

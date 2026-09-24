@@ -6,7 +6,6 @@ import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
@@ -38,6 +37,7 @@ from app.platform.jobs.defer_guard import (
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
 
+from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.manifest_reservation import (
     RESERVATION_LOST_MESSAGE,
@@ -767,18 +767,15 @@ async def _reserve_entry(
     # fix(#1814): `running`, not `pending`. A pending row with no
     # file_path and no queue task is reapable by four actors while its source
     # is still downloading; the fixed lease is not.
-    job = IngestJob(
-        dataset_id=dataset_id,
-        source_filename=prepared.source_filename,
-        file_path=None,
-        source_url=None,
-        source_layer=prepared.source_layer,
+    job = ledger.create(
+        db,
         created_by=user.id,
         status="running",
-        started_at=datetime.now(timezone.utc),
+        dataset_id=dataset_id,
+        source_filename=prepared.source_filename,
+        source_layer=prepared.source_layer,
         user_metadata=metadata,
     )
-    db.add(job)
     try:
         await db.flush()
         await _commit_reservation(db)

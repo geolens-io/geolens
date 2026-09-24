@@ -1271,7 +1271,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow.
-    "backend/app/processing/ingest/manifest_service.py": 1221,
+    "backend/app/processing/ingest/manifest_service.py": 1218,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1360,
@@ -1307,7 +1307,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_reupload.py": 1263,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1399,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1397,
     # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
@@ -1346,7 +1346,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging and job settlement share one orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1491,
+    "backend/app/processing/ingest/service.py": 1487,
     # The PostGIS strategy: geometry repair, the snapshot measurement and its
     # catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 660,

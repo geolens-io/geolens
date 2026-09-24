@@ -53,6 +53,7 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+from app.platform.jobs import ledger
 from app.platform.jobs.ledger import abort, hold
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.credentials import (
@@ -520,13 +521,13 @@ async def reupload_service_preview(
     )
     schema_diff = SchemaDiff(**diff)
 
-    job = IngestJob(
+    job = ledger.create(
+        db,
+        created_by=user_id,
         dataset_id=dataset_id,
         source_filename=request.layer_title or request.layer_name,
         source_url=request.url,
         source_layer=request.layer_name,
-        created_by=user_id,
-        status="pending",
         user_metadata={
             "reupload": True,
             "dataset_id": str(dataset_id),
@@ -536,7 +537,6 @@ async def reupload_service_preview(
             "object_id_field": request.object_id_field,
         },
     )
-    db.add(job)
     await db.flush()
     await db.commit()
 

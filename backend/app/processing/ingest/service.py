@@ -55,6 +55,7 @@ from app.platform.jobs.heartbeat import (
     ATTEMPT_STAGING_NAME_PATTERN,
     is_attempt_scoped_staging_table,
 )
+from app.platform.jobs import ledger
 from app.platform.jobs.models import (
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     IngestJob,
@@ -618,13 +619,9 @@ async def create_ingest_job(
     user_id: uuid.UUID,
 ) -> IngestJob:
     """Create and persist an IngestJob record with status='pending'."""
-    job = IngestJob(
-        source_filename=filename,
-        file_path=file_path,
-        created_by=user_id,
-        status="pending",
+    job = ledger.create(
+        session, created_by=user_id, source_filename=filename, file_path=file_path
     )
-    session.add(job)
     await session.flush()
     return job
 
@@ -1029,11 +1026,11 @@ async def create_fan_out_jobs(
         file_base = _re.sub(r"\.[^.]+$", "", file_base)
         title = layer.title if layer.title else f"{file_base}: {layer.layer_name}"
 
-        new_job = IngestJob(
+        new_job = ledger.create(
+            session,
+            created_by=original_job.created_by,
             file_path=original_job.file_path,
             source_filename=original_job.source_filename,
-            status="pending",
-            created_by=original_job.created_by,
             user_metadata={
                 **(original_job.user_metadata or {}),
                 "layer_name": layer.layer_name,
@@ -1050,7 +1047,6 @@ async def create_fan_out_jobs(
                 **commit_attempted_marker(),
             },
         )
-        session.add(new_job)
         await session.flush()  # assigns new_job.id
         # COMMIT before deferring: defer_async uses a separate DB connection,
         # so an uncommitted row makes the worker log "job not found" and the

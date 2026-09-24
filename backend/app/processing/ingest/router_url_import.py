@@ -11,6 +11,7 @@ from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.quota.service import check_upload_quota
+from app.platform.jobs import ledger
 from app.processing.ingest.ogr import IngestionError
 from app.processing.ingest.router import (
     _get_allowed_extensions_safely,
@@ -18,7 +19,6 @@ from app.processing.ingest.router import (
 )
 from app.processing.ingest.schemas import UploadResponse, UrlUploadRequest
 from app.processing.ingest.service import (
-    create_ingest_job,
     safe_upload_basename,
     validate_file_extension,
 )
@@ -119,8 +119,6 @@ async def upload_from_url(
     streaming, validates the staged file like a direct upload, and gives GDAL
     only the local staged file.
     """
-    from datetime import datetime, timezone
-
     from app.core.db.tenant_session import defer_async_with_tenant
     from app.core.url_redaction import redact_url_credentials
     from app.platform.jobs.defer_guard import (
@@ -183,26 +181,29 @@ async def upload_from_url(
         # Content-Length may be absent or dishonest.
         await check_upload_quota(db, user.id, 0, request)
 
-        job = await create_ingest_job(db, filename, "", user.id)
-        job_id = job.id
         # feat(#1710): the row is committed 'running', not 'pending'. The
         # success state of a URL import IS 'pending' (previewable), so a
         # pending row would tell the UI the download had finished; and the
         # stale-PENDING sweep may legally fire at 61s while a download is
         # allowed url_import_fetch_max_seconds. Running rows are judged by
         # the worker lease instead, which the task's heartbeat renews.
-        job.status = "running"
-        job.started_at = datetime.now(timezone.utc)
-        job.current_step = "downloading"
-        job.progress = 0.0
-        # fix(#1710): while this is set, `file_path` names a destination, not
-        # a finished file, so retry is refused. The staged transition clears
-        # it; see URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY.
-        job.user_metadata = {
-            **(job.user_metadata or {}),
-            URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY: True,
-            **tileset_job_metadata(body.kind),
-        }
+        job = ledger.create(
+            db,
+            created_by=user.id,
+            status="running",
+            source_filename=filename,
+            file_path="",
+            current_step="downloading",
+            progress=0.0,
+            # While set, `file_path` names a destination, not a finished file,
+            # so retry is refused; the staged transition clears it.
+            user_metadata={
+                URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY: True,
+                **tileset_job_metadata(body.kind),
+            },
+        )
+        await db.flush()
+        job_id = job.id
         await db.commit()
 
         async def _defer_fetch() -> None:
