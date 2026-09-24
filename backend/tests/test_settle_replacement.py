@@ -18,6 +18,7 @@ from app.core.db.sqlstate import sqlstate
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform import catalog_locks
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE
+from app.platform.jobs.heartbeat import attempt_scoped_staging_table
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
@@ -666,3 +667,22 @@ async def test_a_publication_parked_on_the_dataset_row_bumps_past_the_edit(
 
     published = await _published_version(seed.dataset_id)
     assert published == before + 2, _message(before, published)
+
+
+async def test_a_lost_claim_drops_the_table_its_attempt_left_behind(seed) -> None:
+    """A redelivery that finds its job already running still drops its attempt's table."""
+    leftover = attempt_scoped_staging_table(seed.table, seed.attempt_id)
+    async with db_module.async_session() as session:
+        await session.execute(text(f'CREATE TABLE data."{leftover}" (name text)'))
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == seed.job_id)
+            .values(status="running")
+        )
+        await session.commit()
+    fake = _Fake(seed)
+    await _settle(fake)
+
+    assert "fetch" not in fake.seen
+    state = await _state(seed)
+    assert (state["job"], state["staging_left"]) == ("running", 0)

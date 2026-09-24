@@ -363,12 +363,14 @@ async def _claim(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                 "Dataset not found, skipping", dataset_id=str(attempt.dataset_id)
             )
             return False
-        staging_table = (
+        # Named before the claim: a redelivery that loses it still drops the
+        # table its dead worker left, and nothing else reaps attempt tables.
+        attempt.staging_table = (
             attempt_scoped_staging_table(dataset.table_name, attempt.attempt_id)
             if strategy.staging
             else ""
         )
-        strategy.prepare(job, dataset, staging_table)
+        strategy.prepare(job, dataset, attempt.staging_table)
         attempt.heartbeat = await claim_job_attempt_and_start_heartbeat(
             session, attempt.job_id, attempt.attempt_id
         )
@@ -378,11 +380,12 @@ async def _claim(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         # it under a 2 s lock_timeout, so it commits before the fetch.
         await claim_run_for_job(session, attempt.job_id)
         await session.commit()
-        attempt.staging_table = staging_table
-        if staging_table:
+        if attempt.staging_table:
             # A redelivery of this attempt may have left its table behind.
             await session.execute(
-                text(f"DROP TABLE IF EXISTS {_qualified(staging_table)} CASCADE")
+                text(
+                    f"DROP TABLE IF EXISTS {_qualified(attempt.staging_table)} CASCADE"
+                )
             )
             await session.commit()
     return True
