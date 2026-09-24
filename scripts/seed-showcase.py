@@ -5023,24 +5023,40 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
     id_to_href = {it["id"]: it["data_asset_href"] for it in items}
     by_title = None
     scenes = []  # (dataset_id, capture_date)
+    pinned_dataset_id = None
     for x in results:
         item_id = x.get("item_id")
         if x.get("dataset_id"):
             scenes.append((x["dataset_id"], id_to_date.get(item_id, "?")))
+            if item_id == PINNED_HARBOR_SCENE_ID:
+                pinned_dataset_id = x["dataset_id"]
         elif x.get("status") == "skipped":
             held_id = resolved_by_href.get(id_to_href.get(item_id, ""))
             if held_id:
                 scenes.append((held_id, id_to_date.get(item_id, "?")))
+                if item_id == PINNED_HARBOR_SCENE_ID:
+                    pinned_dataset_id = held_id
                 continue
             if by_title is None:
                 by_title = api.datasets_by_title()
             existing = by_title.get(id_to_title.get(item_id, ""))
             if existing:
                 scenes.append((existing, id_to_date.get(item_id, "?")))
+                if item_id == PINNED_HARBOR_SCENE_ID:
+                    pinned_dataset_id = existing
     if not scenes:
         raise RuntimeError(
             "STAC import resolved no dataset_ids (skipped items not found by "
             "title); remove the existing Sentinel-2 datasets and retry"
+        )
+    if pinned_dataset_id is None:
+        # A resolved scene set is not enough on its own: every OTHER tile
+        # could succeed while this one, skipped and unresolvable by href or
+        # title (held by a foreign or renamed row), silently drops out.
+        raise RuntimeError(
+            f"pinned Sentinel-2 scene {PINNED_HARBOR_SCENE_ID!r} was skipped "
+            "by the STAC import and could not be resolved by href or title; "
+            "the map geolens-examples pins would be missing this scene"
         )
     layers = [
         {

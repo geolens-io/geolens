@@ -866,3 +866,47 @@ def test_sentinel2_raises_on_an_empty_aoi_search_even_with_a_pinned_hit(monkeypa
 
     with pytest.raises(RuntimeError, match="no low-cloud Sentinel-2 TCI items"):
         seeder._sentinel2_items()
+
+
+class _SentinelImportApi:
+    """Just the surface build_sentinel2 reads for a fresh, non-repair build."""
+
+    def list_maps(self) -> dict[str, str]:
+        return {}
+
+    def stac_import(self, url, items, visibility="public"):
+        return [
+            {
+                "item_id": "S2A_T19TCH_20260829T155705_L2A",
+                "dataset_id": "other-ds-id",
+                "status": "created",
+            },
+            {"item_id": seeder.PINNED_HARBOR_SCENE_ID, "status": "skipped"},
+        ]
+
+    def datasets_by_title(self) -> dict[str, str]:
+        return {}
+
+
+def test_sentinel2_raises_when_the_pinned_scene_does_not_resolve(monkeypatch):
+    """A pinned scene the import skips and cannot resolve by href or title fails loudly.
+
+    Every other scene resolving is not enough: without this check the map
+    still builds, silently missing the one scene geolens-examples pins.
+    """
+    other = _fake_sentinel_feature(
+        "S2A_T19TCH_20260829T155705_L2A", datetime="2026-08-29T15:57:05Z"
+    )
+    pinned = _fake_sentinel_feature(
+        seeder.PINNED_HARBOR_SCENE_ID, datetime="2026-08-29T15:57:05Z"
+    )
+
+    def fake_post(url, *, json, timeout):
+        if "ids" in json:
+            return _FakeStacResponse([pinned])
+        return _FakeStacResponse([other])
+
+    monkeypatch.setattr(seeder.httpx, "post", fake_post)
+
+    with pytest.raises(RuntimeError, match=seeder.PINNED_HARBOR_SCENE_ID):
+        seeder.build_sentinel2(_SentinelImportApi())
