@@ -305,7 +305,7 @@ async def settle_ingest_job_failed(
         expect=expected_status,
         ip_address=ip_address,
     )
-    if outcome is Outcome.ENDED:
+    if outcome is Outcome.LANDED:
         return True
     logger.info(
         "orphan_guard_rollback_skipped_job_already_settled",

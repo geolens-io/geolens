@@ -502,7 +502,7 @@ async def _fail_undispatched_pending_row(
             ip_address=ip_address,
         )
         await session.commit()
-        return outcome is Outcome.ENDED
+        return outcome is Outcome.LANDED
 
 
 async def settle_undispatched_run(

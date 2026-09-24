@@ -13,8 +13,8 @@ The endpoint's contract, pinned here:
   wider than retry so a dataset's owner can always unblock their own
   dataset from a run someone else started.
 
-The no-swap-after-cancel guarantee itself is pinned separately in
-``test_job_cancel_no_swap.py``.
+The cancel itself, including the no-swap-after-cancel guarantee, is pinned
+in ``test_job_ledger.py``.
 """
 
 from __future__ import annotations
@@ -290,6 +290,89 @@ async def _terminal_backfill_events(session, job_id) -> list[AuditLog]:
         )
     )
     return list(rows.scalars())
+
+
+class TestCancelRaces:
+    """What the endpoint answers when the row moves between its read and the cancel."""
+
+    @pytest.mark.parametrize(
+        ("moved", "status_code", "expected"),
+        [
+            ("cancelled", 200, {"status": "cancelled", "already": True}),
+            ("complete", 409, {"code": "job_already_finished", "status": "complete"}),
+            ("retried", 409, {"code": "job_conflict", "status": "pending"}),
+        ],
+    )
+    async def test_a_row_that_moves_under_the_cancel_is_reported_as_it_became(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+        moved,
+        status_code,
+        expected,
+    ):
+        """A cancel that loses its row to another actor reports what the row became."""
+        import app.core.db as db_module
+        from app.platform.jobs import router as router_module
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id)
+        change = {
+            "cancelled": {"status": "cancelled", "error_message": "Cancelled by user"},
+            "complete": {"status": "complete"},
+            "retried": {"attempt_id": uuid.uuid4()},
+        }[moved]
+        authorize = router_module._may_cancel_job
+
+        async def _authorized_then_moved(request, db, user, target):
+            allowed = await authorize(request, db, user, target)
+            async with db_module.async_session() as other:
+                await other.execute(
+                    update(IngestJob).where(IngestJob.id == target.id).values(**change)
+                )
+                await other.commit()
+            return allowed
+
+        monkeypatch.setattr(router_module, "_may_cancel_job", _authorized_then_moved)
+        resp = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+
+        assert resp.status_code == status_code, resp.text
+        body = resp.json() if status_code == 200 else resp.json()["detail"]
+        assert {key: body[key] for key in expected} == expected
+
+    async def test_a_cancel_a_finalize_blocks_is_409_and_writes_nothing(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A finalize holding the job row turns a cancel into 409 job_finishing that writes nothing."""
+        from app.platform.jobs.heartbeat import require_ingest_job_update
+
+        _dataset, job, run = await _seed_job_with_run(test_db_session)
+        await require_ingest_job_update(
+            test_db_session,
+            job.id,
+            job.attempt_id,
+            values={"heartbeat_at": datetime.now(timezone.utc)},
+        )
+
+        resp = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "job_finishing"
+
+        # The finalize goes on untouched and completes.
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(status="complete", completed_at=datetime.now(timezone.utc))
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "running"
+
+        again = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+        assert again.status_code == 409
+        assert again.json()["detail"]["code"] == "job_already_finished"
 
 
 class TestCancelEmbeddingBackfillAudit:
@@ -715,41 +798,6 @@ class TestAnalysisWorkerBookkeepingFence:
 
 class TestCancelMachinery:
     """The CAS pieces the endpoint composes, pinned individually."""
-
-    async def test_stale_attempt_cancel_cas_writes_nothing(self, test_db_session):
-        """The endpoint's exact CAS shape with a superseded attempt id
-        matches zero rows — a stale cancel aimed at attempt N can never
-        kill a retried attempt N+1 (mirrors retry_job's own fencing)."""
-        admin_id = await get_user_id(test_db_session, "admin")
-        stale_attempt = uuid.uuid4()
-        job = await _create_job(
-            test_db_session, created_by=admin_id, attempt_id=stale_attempt
-        )
-        # The retry that raced in between: same row, fresh attempt token.
-        await test_db_session.execute(
-            update(IngestJob)
-            .where(IngestJob.id == job.id)
-            .values(attempt_id=uuid.uuid4())
-        )
-        await test_db_session.commit()
-
-        result = await test_db_session.execute(
-            update(IngestJob)
-            .where(
-                IngestJob.id == job.id,
-                IngestJob.status.in_(("pending", "running")),
-                IngestJob.attempt_id == stale_attempt,
-            )
-            .values(
-                status="cancelled",
-                error_message="Cancelled by user",
-                completed_at=datetime.now(timezone.utc),
-            )
-        )
-        await test_db_session.commit()
-        assert result.rowcount == 0
-        await test_db_session.refresh(job)
-        assert job.status == "pending"
 
     async def test_transition_run_refuses_to_leave_cancelled(self, test_db_session):
         _, job, run = await _seed_job_with_run(test_db_session)

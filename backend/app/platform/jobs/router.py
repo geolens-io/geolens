@@ -12,8 +12,7 @@ from typing import Literal, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select, text, update
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,10 +27,7 @@ from app.modules.auth.dependencies import (
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
-from app.platform.jobs.ledger import (
-    VRT_REGENERATE_JOB_FILENAME,
-    release_vrt_regeneration,
-)
+from app.platform.jobs.ledger import Outcome, cancel, retry
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
@@ -49,7 +45,6 @@ from app.platform.jobs.schemas import (
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
     JOB_TIMEOUT_SECONDS,  # noqa: F401 -- re-exported, see __all__
-    audit_settled_embedding_backfill,
     StaleCleanupOutcome,  # noqa: F401 -- re-exported, see __all__
     _RECHECK_TRANSFER_MARGIN_SECONDS,  # noqa: F401 -- re-exported, see __all__
     _reap_committed_staged_paths,
@@ -756,35 +751,7 @@ async def retry_job(
     # orphan guard in queue_ingest_job can flip it back to failed if
     # the queue is down (RESILIENCE-2).
     previous_attempt_id = job.attempt_id
-    next_attempt_id = uuid.uuid4()
-    retried_at = datetime.now(timezone.utc)
-    retry_result = await db.execute(
-        update(IngestJob)
-        .where(
-            IngestJob.id == job.id,
-            IngestJob.status == "failed",
-            IngestJob.attempt_id == previous_attempt_id,
-        )
-        .values(
-            status="pending",
-            attempt_id=next_attempt_id,
-            error_message=None,
-            started_at=None,
-            heartbeat_at=None,
-            completed_at=None,
-            dataset_id=None,
-            # fix(#1556): the pending clock restarts HERE. Ageing from
-            # `coalesce(staged_at, created_at)`, an hour-old failure is stale
-            # the instant it commits, before the queue row can land.
-            user_metadata=func.coalesce(
-                IngestJob.user_metadata, text("'{}'::jsonb")
-            ).op("||", return_type=JSONB)(
-                func.jsonb_build_object("staged_at", retried_at.isoformat())
-            ),
-        )
-        .execution_options(synchronize_session=False)
-    )
-    if not retry_result.rowcount:
+    if await retry(db, job) is not Outcome.LANDED:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -806,7 +773,7 @@ async def retry_job(
                     if previous_attempt_id is not None
                     else None
                 ),
-                "next_attempt_id": str(next_attempt_id),
+                "next_attempt_id": str(job.attempt_id),
                 "cross_user": job.created_by != user.id,
             },
             ip_address=get_client_ip(request),
@@ -925,7 +892,6 @@ async def cancel_job(
     """
     # Deferred by design to preserve the platform -> modules layer boundary.
     from app.modules.audit.service import AuditEvent, audit_emit
-    from app.platform.refresh.service import cancel_active_run_for_job
 
     result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -952,43 +918,13 @@ async def cancel_job(
             detail={"code": "job_already_finished", "status": job.status},
         )
 
-    # One transaction: fenced job CAS + run CAS + VRT reconciliation + audit,
-    # then commit. The attempt-id predicate mirrors retry_job's own CAS — a
-    # stale cancel aimed at attempt N can never kill a retried attempt N+1.
-    # The 2s lock_timeout keeps this request from blocking behind a finalize
-    # transaction holding its locks through the swap to commit.
-    #
-    # fix(#1709): the try covers the WHOLE transactional block;
-    # fix(#1847): every job type leads with the job row, matching the
-    # worker/dataset-delete order.
+    # One transaction: the ledger's fenced cancel, which ends the job's linked
+    # rows with it, and this request's audit event, then commit. The ledger's
+    # 2 s lock_timeout covers the audit write too.
     previous_attempt_id = job.attempt_id
-    now = datetime.now(timezone.utc)
-    attempt_predicate = (
-        IngestJob.attempt_id == previous_attempt_id
-        if previous_attempt_id is not None
-        else IngestJob.attempt_id.is_(None)
-    )
-    is_vrt_job = (
-        job.source_filename == VRT_REGENERATE_JOB_FILENAME
-        and job.dataset_id is not None
-    )
     try:
-        await db.execute(text("SET LOCAL lock_timeout = '2s'"))
-        cancel_result = await db.execute(
-            update(IngestJob)
-            .where(
-                IngestJob.id == job.id,
-                IngestJob.status.in_(("pending", "running")),
-                attempt_predicate,
-            )
-            .values(
-                status="cancelled",
-                error_message="Cancelled by user",
-                completed_at=now,
-            )
-        )
-
-        if not cancel_result.rowcount:
+        ended = await cancel(db, job, actor=user.id)
+        if ended.outcome is not Outcome.LANDED:
             # Another actor moved the row between the read and the CAS.
             # Report what it became; nothing was written.
             await db.rollback()
@@ -1010,32 +946,7 @@ async def cancel_job(
                 detail={"code": code, "status": job.status},
             )
 
-        run_id = await cancel_active_run_for_job(db, job.id, cancelled_by=user.id)
-        if is_vrt_job:
-            # fix(#1709): same transaction as the job CAS, so the
-            # VRT state this job stranded and the job's terminal status land
-            # together.
-            await release_vrt_regeneration(
-                db, job.dataset_id, now, message="Cancelled by user"
-            )
-        # fix(#1709): an embedding backfill's dispatch commits an
-        # `embedding.backfill` audit event at outcome="requested"; sweep.py's
-        # rule is that the job row and audit trail settle together by
-        # whoever settles the job. A cancelled queued backfill never runs,
-        # so no in-process path ever closes that trail — this is the only
-        # one left. No-op for every other job kind, SAVEPOINT-guarded
-        # against a concurrently settling worker.
-        await audit_settled_embedding_backfill(
-            db,
-            job_id=job.id,
-            user_metadata=job.user_metadata,
-            created_by=job.created_by,
-            error_code="user_cancelled",
-            # fix(#1709): the terminal event names the CANCELLER,
-            # matching job.cancel and refresh.cancelled in this same
-            # transaction — not the run's original requester.
-            settled_by=user.id,
-        )
+        run_id = ended.linked.get("run")
         await audit_emit(
             db,
             AuditEvent(

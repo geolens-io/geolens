@@ -705,7 +705,7 @@ async def _abort_admitted_refresh(
     if run_id is None:
         return None
     ended = await abort(session, job, code=error_code, reason=reason)
-    return run_id if ended is Outcome.ENDED else None
+    return run_id if ended is Outcome.LANDED else None
 
 
 async def expire_unclaimed_admitted_runs(session: AsyncSession) -> list[uuid.UUID]:
@@ -1078,7 +1078,7 @@ _RUN_JOB_SCOPE = """
 # currently a no-op — written now rather than remembered later.
 #
 # fix(#1954): the two proofs THIS sweep needs before writing `cancelled`.
-# ADR-002 4d gives the status two writers told apart by `error_code`:
+# The status has two writers, told apart by `error_code`:
 # `abandoned` here, a bookkeeping correction provable only when the work is
 # not happening, and `cancel_active_run_for_job`'s `user_cancelled` stop
 # signal, which is a person's decision and needs no proof.
