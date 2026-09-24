@@ -253,11 +253,8 @@ async def clip_to_mercator_bounds(
     if row is None:
         return None  # column has no registered metadata — nothing safe to clip
     src_srid = int(row[0])
-    # A 2D-only intersection with the envelope drops any Z or M the column
-    # declares; the UPDATE then fails ("Column has Z/M dimension but
-    # geometry does not") unless that dimension is forced back afterward. A
-    # lone M in the typmod is measured, not elevated: ST_Force3D would
-    # fabricate a Z instead of restoring the M the column actually needs.
+    # Restore the dimensions the column declares; ST_Force3D on an XYM column
+    # would invent a Z instead of keeping the M.
     typmod = (row[1] or "").upper()
     if typmod.endswith("ZM"):
         force_dims = "ST_Force4D"
