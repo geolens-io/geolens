@@ -767,6 +767,10 @@ class RefreshPublicationFenceError(RuntimeError):
         super().__init__(message)
 
 
+class SourceURLRefused(RuntimeError):
+    """The fetch-time safety check refused the service URL."""
+
+
 def _service_refresh_error_code(exc: BaseException) -> str:
     """Map a service re-upload failure onto the refresh-run vocabulary."""
     from app.platform.refresh.credentials import (
@@ -970,7 +974,7 @@ class _ServiceReupload:
         try:
             await validate_url_for_ssrf(self.source_url_value)
         except SSRFError as exc:
-            raise RuntimeError(
+            raise SourceURLRefused(
                 f"source_url failed safety check at worker fetch time: {exc}"
             ) from exc
         self.token = await _resolve_service_token(self.token, self.credential_ref)

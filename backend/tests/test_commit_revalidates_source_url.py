@@ -218,6 +218,9 @@ class TestReuploadServiceWorkerRevalidatesSourceUrl:
         assert "safety check at worker fetch time" in str(exc.value)
         await test_db_session.refresh(job)
         assert job.status == "failed"
+        assert job.error_message.startswith(
+            "source_url failed safety check at worker fetch time: "
+        )
 
     @pytest.fixture
     def network(self, monkeypatch):
