@@ -61,6 +61,8 @@ const credited = { ...polygon, dataset_attribution: CREDIT };
 const creditedRaster = { ...raster, dataset_attribution: CREDIT };
 const creditedDem = { ...hillshadeDem, dataset_attribution: CREDIT };
 const creditedCluster = { ...boundedCluster, dataset_attribution: CREDIT };
+const legacyHeight = { ...extrusion, paint: { ...extrusion.paint, _height_column: 'height_m' }, style_config: null };
+const heightColumnTiles = { tiles: [vectorUrl(extrusion, `${signature(extrusion)}&cols=height_m`)] };
 
 const noTokens = { ...RENDER_CONTEXTS.builder, tokens: new Map() };
 
@@ -78,6 +80,13 @@ const rows: Row[] = [
     RENDER_CONTEXTS.builder,
     { 'source-data-roads': vectorSource(line, { lineMetrics: true }) },
   ],
+  [
+    'a height column kept only in builder state, which cols= requests',
+    [extrusion],
+    RENDER_CONTEXTS.builder,
+    { 'source-data-buildings': vectorSource(extrusion, heightColumnTiles) },
+  ],
+  ['a height column in the legacy paint key', [legacyHeight], RENDER_CONTEXTS.builder, { 'source-data-buildings': vectorSource(extrusion, heightColumnTiles) }],
   ['a line layer without a gradient', [line], RENDER_CONTEXTS.builder, { 'source-data-roads': vectorSource(line) }],
   ['the builder line-gradient intent', [gradientIntent], RENDER_CONTEXTS.builder, { 'source-data-roads': vectorSource(line, { lineMetrics: true }) }],
   ['an array-shaped line-gradient intent', [arrayIntent], RENDER_CONTEXTS.builder, { 'source-data-roads': vectorSource(line) }],

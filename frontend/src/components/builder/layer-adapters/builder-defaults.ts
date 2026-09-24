@@ -86,6 +86,9 @@ export const DEFAULT_LINE_PAINT = {
 export const DEFAULT_ARROW_SIZE = 14;
 export const DEFAULT_ARROW_SPACING = 80;
 
+/** The builder's zoom bounds, which stand in for an end of the range the layout does not save. */
+export const FULL_ZOOM_RANGE = { minzoom: 0, maxzoom: 22 } as const;
+
 /** builder-audit #338 DRY-06: 3D fill-extrusion defaults. Below the min zoom the
  *  extrusion is not shown; the opacity cap bounds a freshly-converted extrusion. */
 export const DEFAULT_EXTRUSION_MIN_ZOOM = 14;

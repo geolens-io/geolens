@@ -1,15 +1,13 @@
-import type { FilterSpecification, Map as MaplibreMap } from 'maplibre-gl';
+import type { FilterSpecification } from 'maplibre-gl';
 import { convertFilter } from '@maplibre/maplibre-gl-style-spec';
 import { MAP_COLORS } from '@/lib/map-colors';
-import type { AdapterLayerInput, LayerAdapter } from './types';
+import type { AdapterLayerInput, LayerAdapter, LayerDrawing } from './types';
 import {
   filterPaintForLayerType,
-  finalizeLayer,
   getBuilderStyleConfig,
-  applyMasterOpacity,
-  syncOwnedLayoutProperties,
-  syncOwnedPaintProperties,
-  syncSingleLayerVisibility,
+  getExpressionSafeOpacity,
+  getFeatureOpacity,
+  sourceLayerSpec,
 } from './shared';
 // builder-audit #338 ADAPT-03 precedent (cluster-adapter): sibling sublayers reuse
 // the standalone adapters' owned-property sets and defaults instead of duplicating them.
@@ -17,11 +15,12 @@ import { CIRCLE_OWNED_PAINT_PROPERTIES, resolveCirclePaint } from './circle-adap
 import {
   FILL_OWNED_PAINT_PROPERTIES,
   OUTLINE_OWNED_PAINT_PROPERTIES,
-  withTintedFillPattern,
+  tintFillPattern,
 } from './fill-adapter';
-import { ensureFillPatternImages } from './fill-pattern-images';
+import { FILL_PATTERN_IMAGES } from './fill-pattern-images';
 import { LINE_OWNED_LAYOUT_PROPERTIES, LINE_OWNED_PAINT_PROPERTIES, resolveLinePaint } from './line-adapter';
 import { DEFAULT_FILL_PAINT } from './builder-defaults';
+import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 
 /**
  * fix(#430 codex r23): renderer for the generic GEOMETRY sentinel.
@@ -35,9 +34,8 @@ import { DEFAULT_FILL_PAINT } from './builder-defaults';
  * cluster adapter's filtered-sublayer pattern.
  *
  * The family filter is part of each sublayer's identity: it must ALWAYS be
- * composed with (never replaced by) the user's data filter, so filter syncing
- * here uses raw `map.setFilter` with the composed filter — the same deliberate
- * exception to `syncLayerFilter` the cluster adapter makes.
+ * composed with (never replaced by) the user's data filter, so each sublayer's
+ * spec carries the composed filter.
  */
 
 export function mixedLinesLayerId(layerId: string) {
@@ -94,24 +92,6 @@ export function resolveMixedFillPaint(paint: Record<string, unknown>): Record<st
   return Object.keys(fillPaint).length > 0 ? fillPaint : { ...DEFAULT_FILL_PAINT };
 }
 
-// ADAPT-04 pattern: each family's effective paint is built ONCE and consumed by
-// both the add-time and sync-time paths. The layer's stored paint typically only
-// carries fill-* keys (GEOMETRY seeds as the polygon family), so the line/point
-// sublayers fall back to defaults until family-specific keys are authored.
-function mixedFillPaint(map: MaplibreMap, input: AdapterLayerInput): Record<string, unknown> {
-  // fix(#914): the same tint swap the fill adapter makes. A patterned mixed layer
-  // would otherwise be the one surface still drawing the fixed grey.
-  return withTintedFillPattern(map, input.paint, getBuilderStyleConfig(input), resolveMixedFillPaint(input.paint));
-}
-
-function mixedLinePaint(input: AdapterLayerInput): Record<string, unknown> {
-  return resolveLinePaint(input.paint);
-}
-
-function mixedPointPaint(input: AdapterLayerInput): Record<string, unknown> {
-  return resolveCirclePaint(input.paint);
-}
-
 /**
  * The outline under a mixed layer's polygons: the default stroke at 1px.
  * Render-As offers no stroke toggles or outline overrides for mixed layers, so
@@ -149,161 +129,92 @@ function mixedLineLayout(input: AdapterLayerInput): Record<string, unknown> {
   };
 }
 
-function sourceLayerSpec(input: AdapterLayerInput) {
-  return input.sourceType === 'geojson' ? {} : { 'source-layer': input.sourceLayer };
-}
+// The master opacity slider rides on `line-layer-opacity`, so a write keeps it in step too.
+const MIXED_LINE_OWNED_PAINT_PROPERTIES = [...LINE_OWNED_PAINT_PROPERTIES, 'line-layer-opacity'] as const;
 
-function initialLayout(input: AdapterLayerInput): Record<string, unknown> {
-  return { visibility: input.visible === false ? 'none' : 'visible' };
-}
-
-function addFillLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  if (map.getLayer(input.layerId)) return;
-  const hasExpressions = Object.values(input.paint).some(Array.isArray);
-  const filter = mixedFamilyFilter('polygon', input.filter);
-  map.addLayer({
-    id: input.layerId,
-    type: 'fill',
-    source: input.sourceId,
-    ...sourceLayerSpec(input),
-    filter,
-    paint: mixedFillPaint(map, input),
-    layout: initialLayout(input),
-  });
-  finalizeLayer(map, input.layerId, input.paint, 'fill', input.opacity ?? 1, filter, hasExpressions);
-}
-
-function addOutlineLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = `${input.layerId}-outline`;
-  if (map.getLayer(id)) return;
-  map.addLayer({
-    id,
-    type: 'line',
-    source: input.sourceId,
-    ...sourceLayerSpec(input),
-    filter: mixedFamilyFilter('polygon', input.filter),
-    paint: mixedOutlinePaint(input),
-    layout: initialLayout(input),
-  });
-}
-
-function addLinesLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = mixedLinesLayerId(input.layerId);
-  if (map.getLayer(id)) return;
-  const hasExpressions = Object.values(input.paint).some(Array.isArray);
-  const filter = mixedFamilyFilter('line', input.filter);
-  map.addLayer({
-    id,
-    type: 'line',
-    source: input.sourceId,
-    ...sourceLayerSpec(input),
-    filter,
-    paint: mixedLinePaint(input),
-    layout: mixedLineLayout(input),
-  });
-  finalizeLayer(map, id, input.paint, 'line', input.opacity ?? 1, filter, hasExpressions);
-}
-
-function addPointsLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = mixedPointsLayerId(input.layerId);
-  if (map.getLayer(id)) return;
-  const hasExpressions = Object.values(input.paint).some(Array.isArray);
-  const filter = mixedFamilyFilter('point', input.filter);
-  map.addLayer({
-    id,
-    type: 'circle',
-    source: input.sourceId,
-    ...sourceLayerSpec(input),
-    filter,
-    paint: mixedPointPaint(input),
-    layout: initialLayout(input),
-  });
-  finalizeLayer(map, id, input.paint, 'circle', input.opacity ?? 1, filter, hasExpressions);
-}
-
-function syncFillLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  if (!map.getLayer(input.layerId)) return;
-  syncOwnedPaintProperties(map, input.layerId, mixedFillPaint(map, input), {
-    geomType: 'fill',
-    ownedProperties: FILL_OWNED_PAINT_PROPERTIES,
-  });
-  applyMasterOpacity(map, input.layerId, input.paint, 'fill', input.opacity ?? 1);
-  map.setFilter(input.layerId, mixedFamilyFilter('polygon', input.filter));
-}
-
-function syncOutlineLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = `${input.layerId}-outline`;
-  if (!map.getLayer(id)) return;
-  syncOwnedPaintProperties(map, id, mixedOutlinePaint(input), {
-    geomType: 'line',
-    ownedProperties: OUTLINE_OWNED_PAINT_PROPERTIES,
-  });
-  map.setFilter(id, mixedFamilyFilter('polygon', input.filter));
-}
-
-function syncLinesLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = mixedLinesLayerId(input.layerId);
-  if (!map.getLayer(id)) return;
-  syncOwnedPaintProperties(map, id, mixedLinePaint(input), {
-    geomType: 'line',
-    ownedProperties: LINE_OWNED_PAINT_PROPERTIES,
-  });
-  // clearMissing: false — mirrors the standalone line adapter (CR-01): addLayers
-  // hardcodes 'round'/'round'; a stored layout without cap/join must not reset
-  // the live value to MapLibre's spec defaults ('butt'/'miter').
-  syncOwnedLayoutProperties(map, id, (input.layout ?? {}) as Record<string, unknown>, {
-    ownedProperties: LINE_OWNED_LAYOUT_PROPERTIES,
-    clearMissing: false,
-  });
-  applyMasterOpacity(map, id, input.paint, 'line', input.opacity ?? 1);
-  map.setFilter(id, mixedFamilyFilter('line', input.filter));
-}
-
-function syncPointsLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = mixedPointsLayerId(input.layerId);
-  if (!map.getLayer(id)) return;
-  syncOwnedPaintProperties(map, id, mixedPointPaint(input), {
-    geomType: 'circle',
-    ownedProperties: CIRCLE_OWNED_PAINT_PROPERTIES,
-  });
-  // The point sublayer keeps the multiply path: circle has no -layer-opacity (#1625).
-  applyMasterOpacity(map, id, input.paint, 'circle', input.opacity ?? 1);
-  map.setFilter(id, mixedFamilyFilter('point', input.filter));
+/**
+ * One sublayer per geometry family. A layer's stored paint usually carries only
+ * fill keys (GEOMETRY seeds as the polygon family), so the line and point
+ * sublayers take their defaults until family keys are authored.
+ */
+function describeMixed(input: AdapterLayerInput): LayerDrawing {
+  const { paint } = input;
+  const opacity = input.opacity ?? 1;
+  const visibility = input.visible ? 'visible' : 'none';
+  const source = { source: input.sourceId, ...sourceLayerSpec(input) };
+  const fill = tintFillPattern(resolveMixedFillPaint(paint), paint, getBuilderStyleConfig(input));
+  return {
+    specs: [
+      {
+        layer: {
+          id: input.layerId,
+          type: 'fill',
+          ...source,
+          filter: mixedFamilyFilter('polygon', input.filter),
+          layout: { visibility },
+          paint: { ...fill.paint, 'fill-opacity': getFeatureOpacity(paint, 'fill'), 'fill-layer-opacity': opacity },
+        },
+        ownedPaint: FILL_OWNED_PAINT_PROPERTIES,
+        ownedLayout: [],
+      },
+      {
+        layer: {
+          id: `${input.layerId}-outline`,
+          type: 'line',
+          ...source,
+          filter: mixedFamilyFilter('polygon', input.filter),
+          layout: { visibility },
+          paint: mixedOutlinePaint(input),
+        },
+        ownedPaint: OUTLINE_OWNED_PAINT_PROPERTIES,
+        ownedLayout: [],
+      },
+      {
+        layer: {
+          id: mixedLinesLayerId(input.layerId),
+          type: 'line',
+          ...source,
+          filter: mixedFamilyFilter('line', input.filter),
+          layout: mixedLineLayout(input),
+          paint: { ...resolveLinePaint(paint), 'line-opacity': getFeatureOpacity(paint, 'line'), 'line-layer-opacity': opacity },
+        },
+        ownedPaint: MIXED_LINE_OWNED_PAINT_PROPERTIES,
+        ownedLayout: LINE_OWNED_LAYOUT_PROPERTIES,
+      },
+      {
+        layer: {
+          id: mixedPointsLayerId(input.layerId),
+          type: 'circle',
+          ...source,
+          filter: mixedFamilyFilter('point', input.filter),
+          layout: { visibility },
+          // Circles have no layer opacity, so the master slider multiplies the per-feature value.
+          paint: { ...resolveCirclePaint(paint), 'circle-opacity': getExpressionSafeOpacity(paint, 'circle', opacity) },
+        },
+        ownedPaint: CIRCLE_OWNED_PAINT_PROPERTIES,
+        ownedLayout: [],
+      },
+    ],
+    images: [...FILL_PATTERN_IMAGES, ...fill.images],
+  };
 }
 
 export const mixedAdapter: LayerAdapter = {
   type: 'mixed',
+  describe: describeMixed,
 
-  addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    // fix(#919): syncFillLayer syncs the whole FILL_OWNED_PAINT_PROPERTIES set,
-    // fill-pattern included, so the pattern images must be registered here too —
-    // otherwise a patterned polygon family draws nothing. syncPaint routes
-    // through addLayers, so this one call covers both entry points.
-    ensureFillPatternImages(map);
-    try {
-      addFillLayer(map, input);
-      addOutlineLayer(map, input);
-      addLinesLayer(map, input);
-      addPointsLayer(map, input);
-    } catch (e) {
-      if (import.meta.env.DEV) console.warn(`[map-sync] addLayer (mixed) failed for ${input.layerId}:`, e);
-    }
+  addLayers(map, input) {
+    writeDescribedLayer(map, describeMixed(input));
   },
 
-  syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
-    // Self-heal missing sublayers (cluster-adapter pattern) so a partial
-    // teardown never leaves a family invisible until remount.
-    this.addLayers(map, input);
-    syncFillLayer(map, input);
-    syncOutlineLayer(map, input);
-    syncLinesLayer(map, input);
-    syncPointsLayer(map, input);
+  // Self-heals missing sublayers (cluster-adapter pattern) so a partial
+  // teardown never leaves a family invisible until remount.
+  syncPaint(map, input) {
+    writeDescribedLayer(map, describeMixed(input));
   },
 
-  syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    for (const id of this.getLayerIds(input.layerId)) {
-      syncSingleLayerVisibility(map, id, input.visible);
-    }
+  syncVisibility(map, input) {
+    writeDescribedVisibility(map, describeMixed(input));
   },
 
   getLayerIds(layerId: string): string[] {

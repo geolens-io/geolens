@@ -166,6 +166,30 @@ describe('writeDescribedLayer', () => {
     expect(recording.layerIds()).toEqual(['labels']);
   });
 
+  it('gives a layer the zoom range its spec sets, on add and on update, and leaves the others alone', () => {
+    const recording = mapWithSource();
+    const zoom = (id: string) => [recording.layer(id)?.minzoom, recording.layer(id)?.maxzoom];
+
+    writeDescribedLayer(recording.map, drawn([circleSpec({ minzoom: 13, maxzoom: 22 }), circleSpec({ id: 'labels' })]));
+    expect(zoom('points')).toEqual([13, 22]);
+
+    writeDescribedLayer(recording.map, drawn([circleSpec({ minzoom: 15, maxzoom: 18 }), circleSpec({ id: 'labels' })]));
+    expect(zoom('points')).toEqual([15, 18]);
+    expect(recording.callsTo('setLayerZoomRange')).toEqual([['points', 15, 18]]);
+  });
+
+  it('writes the layers when an image fails to register', () => {
+    const recording = mapWithSource();
+    vi.spyOn(recording, 'addImage').mockImplementation(() => {
+      throw new Error('Invalid image');
+    });
+    const pattern: ImageSpec = { kind: 'image', id: 'hatch', data: () => ({ width: 1, height: 1, data: new Uint8ClampedArray(4) }) };
+
+    writeDescribedLayer(recording.map, drawn([circleSpec()], [pattern]));
+
+    expect(recording.layerIds()).toEqual(['points']);
+  });
+
   it('registers a sprite once, against the page origin', () => {
     const recording = mapWithSource();
     const sprite: ImageSpec = { kind: 'sprite', id: 'geolens', url: '/api/maps/sprites/geolens' };

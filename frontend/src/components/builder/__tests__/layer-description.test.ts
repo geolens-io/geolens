@@ -6,7 +6,7 @@ import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { toViewerSyncInput } from '@/components/viewer/ViewerMap';
 import { toSyncInput } from '../map-sync';
 import { describeLayers, type DescribedLayer, type RenderContext } from '../layer-description';
-import type { LayerAdapter } from '../layer-adapters/types';
+import type { ImageSpec, LayerAdapter } from '../layer-adapters/types';
 
 type SavedLayerKey = keyof typeof SAVED_LAYERS;
 type Row = [label: string, layer: MapLayerResponse, context: RenderContext, expected: DescribedLayer | null];
@@ -143,6 +143,8 @@ describe('describeLayers', () => {
     const builder = describeLayers(layers.map(toSyncInput), RENDER_CONTEXTS.builderWithClusterData);
     const viewer = describeLayers(layers.map(viewerInput), RENDER_CONTEXTS.viewerWithClusterData);
     const unprefixed = (id: string) => id.replace(/^viewer-/, '');
+    // Each description builds its own image closures, so the images compare by their pixels.
+    const drawn = (images: readonly ImageSpec[]) => images.map((image) => (image.kind === 'image' ? { ...image, data: image.data() } : image));
     expect(viewer.layers.map((layer) => ({
       ...layer,
       id: unprefixed(layer.id),
@@ -151,7 +153,8 @@ describe('describeLayers', () => {
         ...spec,
         layer: { ...spec.layer, id: unprefixed(spec.layer.id), source: unprefixed(spec.layer.source) },
       })),
-    }))).toEqual(builder.layers);
+      images: drawn(layer.images),
+    }))).toEqual(builder.layers.map((layer) => ({ ...layer, images: drawn(layer.images) })));
   });
 
   it('throws while the tenant prefix is unresolved', () => {

@@ -19,6 +19,7 @@ export type LayerWriteTarget = Pick<
   | 'setPaintProperty'
   | 'getLayoutProperty'
   | 'setLayoutProperty'
+  | 'setLayerZoomRange'
   | 'hasImage'
   | 'addImage'
   | 'getSprite'
@@ -85,13 +86,19 @@ function addSpec(map: LayerWriteTarget, spec: LayerSpec): void {
   if (hasFilter(filter)) map.setFilter(layer.id, filter);
 }
 
+/** MapLibre's maximum zoom for a layer that sets none. */
+const DEFAULT_LAYER_MAXZOOM = 24;
+
 function updateSpec(map: LayerWriteTarget, spec: LayerSpec): void {
-  const { id, layout, filter } = spec.layer;
+  const { id, layout, filter, minzoom, maxzoom } = spec.layer;
   reconcilePaint(map, spec);
   syncOwnedLayoutProperties(map, id, layout, { ownedProperties: spec.ownedLayout });
   // MapLibre reloads the source even when it clears a filter the layer never had.
   if (hasFilter(filter)) map.setFilter(id, filter);
   else if (map.getFilter(id)) map.setFilter(id, null);
+  if (minzoom !== undefined || maxzoom !== undefined) {
+    map.setLayerZoomRange(id, minzoom ?? 0, maxzoom ?? DEFAULT_LAYER_MAXZOOM);
+  }
 }
 
 function writeSpecs(map: LayerWriteTarget, drawing: LayerDrawing, write: (spec: LayerSpec) => void): void {

@@ -84,11 +84,9 @@ export function fillPatternTint(
 ): string | undefined {
   const painted = paint?.['fill-color'];
   if (typeof painted === 'string') return painted;
-  // fix(#910, codex P2): the stash is DECLARED string but arrives from an open
-  // `style_config` that gets serialized-size validation only, so an API-authored or
-  // imported layer can hold a number or object here. Returning that fed a junk tint
-  // into `ensureTintedFillPatternImage`, whose throw is swallowed by `addLayers`' catch
-  // — so the whole layer silently failed to build, not just the tint. Every other
-  // reader of this stash applies the same check.
+  // The stash is declared a string but comes from an open `style_config`, so an
+  // API-authored or imported layer can hold a number or object here. The pattern
+  // lookup throws on anything but a string while the layer is being described.
+  // Every other reader of this stash applies the same check.
   return typeof builder?.fillColorSaved === 'string' ? builder.fillColorSaved : undefined;
 }

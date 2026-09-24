@@ -1,24 +1,24 @@
-import type { FillExtrusionLayerSpecification, Map as MaplibreMap } from 'maplibre-gl';
+import type { FillExtrusionLayerSpecification } from 'maplibre-gl';
 import type { StyleConfig } from '@/types/api';
-import type { AdapterLayerInput, LayerAdapter } from './types';
+import type { AdapterLayerInput, ImageSpec, LayerAdapter, LayerDrawing, LayerSpec } from './types';
 import {
   simplifyPaint,
   filterPaintForLayerType,
-  finalizeLayer,
-  applyMasterOpacity,
+  filterSpec,
   getBuilderStyleConfig,
-  syncLayerFilter,
-  setLayerProperty,
-  syncOwnedPaintProperties,
+  getFeatureOpacity,
+  sourceLayerSpec,
 } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { ensureFillPatternImages, ensureTintedFillPatternImage } from './fill-pattern-images';
+import { FILL_PATTERN_IMAGES, tintedFillPattern } from './fill-pattern-images';
 import { fillPatternTint } from '@/lib/fill-pattern-preview';
+import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 // builder-audit #338 DRY-06: extrusion min-zoom (14) and opacity cap (0.85) come from the
 // single builder-defaults source of truth (shared with renderAs + backend mirror).
-import { DEFAULT_EXTRUSION_MIN_ZOOM, DEFAULT_EXTRUSION_OPACITY_CAP } from './builder-defaults';
+import { DEFAULT_EXTRUSION_MIN_ZOOM, DEFAULT_EXTRUSION_OPACITY_CAP, FULL_ZOOM_RANGE } from './builder-defaults';
 
-// Exported for the mixed adapter's fill/outline sublayers (ADAPT-03 reuse).
+// Exported for the mixed adapter's fill and outline sublayers. The master opacity
+// slider rides on `fill-layer-opacity`, so a write keeps it in step too.
 export const FILL_OWNED_PAINT_PROPERTIES = [
   'fill-color',
   'fill-opacity',
@@ -27,6 +27,7 @@ export const FILL_OWNED_PAINT_PROPERTIES = [
   'fill-pattern',
   'fill-translate',
   'fill-translate-anchor',
+  'fill-layer-opacity',
 ] as const;
 // fix(#1625): the outline is a line layer with no per-feature opacity of its own, so
 // the master slider rides on `line-layer-opacity` here too — shared polygon edges
@@ -38,7 +39,7 @@ export const OUTLINE_OWNED_PAINT_PROPERTIES = ['line-color', 'line-width', 'line
 // (column height only). fill-extrusion-base is intentionally fixed to 0 and
 // fill-extrusion-pattern / -translate / -translate-anchor are intentionally NOT authored;
 // this is column-height extrusion, not a general fill-extrusion editor.
-const EXTRUSION_OWNED_PAINT_PROPERTIES = [
+export const EXTRUSION_OWNED_PAINT_PROPERTIES = [
   'fill-extrusion-height',
   'fill-extrusion-base',
   'fill-extrusion-color',
@@ -90,21 +91,27 @@ function resolveExtrusionFillColor(
 }
 
 /**
- * fix(#914): swap a built-in `fill-pattern` for its tinted variant on the way into
- * MapLibre, so the pattern draws in the layer's fill colour instead of a fixed grey.
- * Returns a copy; `rawPaint` (and therefore saved paint, the wire format and
- * exported style.json) keeps the plain id.
+ * The paint with a built-in `fill-pattern` swapped for its variant in the layer's
+ * fill colour, and the image that variant needs, so the pattern does not draw in
+ * the fixed grey. Saved paint keeps the plain id.
  */
-export function withTintedFillPattern(
-  map: MaplibreMap,
+export function tintFillPattern(
+  paint: Record<string, unknown>,
   rawPaint: Record<string, unknown>,
   builder: { fillColorSaved?: string },
-  paint: Record<string, unknown>,
-): Record<string, unknown> {
+): { paint: Record<string, unknown>; images: ImageSpec[] } {
   const id = paint['fill-pattern'];
-  if (typeof id !== 'string') return paint;
-  const tinted = ensureTintedFillPatternImage(map, id, fillPatternTint(rawPaint, builder));
-  return tinted === id ? paint : { ...paint, 'fill-pattern': tinted };
+  const tinted = typeof id === 'string' ? tintedFillPattern(id, fillPatternTint(rawPaint, builder)) : null;
+  return tinted ? { paint: { ...paint, 'fill-pattern': tinted.id }, images: [tinted] } : { paint, images: [] };
+}
+
+/** The column a polygon layer extrudes by: the builder's, else the legacy paint key. */
+export function resolveHeightColumn(
+  builder: { heightColumn?: string },
+  paint: Record<string, unknown>,
+): string | undefined {
+  const column = builder.heightColumn ?? paint['_height_column'];
+  return typeof column === 'string' && column ? column : undefined;
 }
 
 function getExtrusionOptions(input: AdapterLayerInput) {
@@ -158,168 +165,110 @@ export function resolvePolygonStroke(
   };
 }
 
-export const fillAdapter: LayerAdapter = {
-  type: 'fill',
+/**
+ * The stored fill keys, or the default fill when no scalar survives, with each
+ * stored expression and the opacity keys. The native outline takes the authored
+ * outline colour or none, since the outline layer draws the stroke.
+ */
+function fillPaint(input: AdapterLayerInput, stroke: PolygonStroke): Record<string, unknown> {
+  const { paint } = input;
+  const hasExpressions = Object.values(paint).some(Array.isArray);
+  const expressions = Object.entries(filterPaintForLayerType(paint, 'fill')).filter(([, value]) => Array.isArray(value));
+  return {
+    ...resolveFillPaint(hasExpressions ? simplifyPaint(paint) : paint),
+    ...Object.fromEntries(expressions),
+    'fill-opacity': getFeatureOpacity(paint, 'fill'),
+    'fill-layer-opacity': input.opacity ?? 1,
+    'fill-outline-color': stroke.disabled ? MAP_COLORS.transparent : (stroke.authoredColor ?? MAP_COLORS.transparent),
+  };
+}
 
-  addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, sourceLayer, paint: rawPaint, layout, opacity, filter, visible } = input;
-    const builder = getBuilderStyleConfig(input);
-    ensureFillPatternImages(map);
-    const outlineId = `${input.layerId}-outline`;
-    const heightColumn = builder.heightColumn ?? (rawPaint['_height_column'] as string | undefined);
-    const hasExpressions = Object.values(rawPaint).some(Array.isArray);
-    try {
-      const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-      const stroke = resolvePolygonStroke(rawPaint, builder);
-      const effectiveFillPaint = resolveFillPaint(basePaint);
-      // Suppress native 1px fill outline when stroke is disabled
-      if (stroke.disabled) {
-        effectiveFillPaint['fill-outline-color'] = MAP_COLORS.transparent;
-      }
-      const tintedFillPaint = withTintedFillPattern(map, rawPaint, builder, effectiveFillPaint);
-      // BUG-01: honor input.visible at initial add so callers that don't
-      // immediately follow up with syncVisibility (e.g. swapLayerOnMap for
-      // render-mode switches, the raster re-add branch in
-      // handleStyleConfigChange) still produce a layer in the correct visual
-      // state. Without this, a hidden layer becomes inadvertently visible on
-      // the map after re-add, which the user perceives as the eye toggle
-      // being a no-op (the next click flips React state but the map was
-      // already at the new visibility — no observable change).
-      const initialLayout = visible === false
-        ? { ...layout, visibility: 'none' as const }
-        : layout;
-      map.addLayer({
-        id: layerId,
-        type: 'fill',
-        source: sourceId,
-        ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-        paint: tintedFillPaint,
-        layout: initialLayout,
-      });
-      finalizeLayer(map, layerId, rawPaint, 'fill', opacity ?? 1, filter, hasExpressions);
-
-      map.addLayer({
-        id: outlineId,
-        type: 'line',
-        source: sourceId,
-        ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-        paint: {
-          'line-color': stroke.color,
-          'line-width': stroke.width,
-        },
-        ...(visible === false ? { layout: { visibility: 'none' as const } } : {}),
-      });
-      map.setPaintProperty(outlineId, 'line-layer-opacity', opacity ?? 1);
-      // strokeDisabled hides the outline regardless of layer visibility.
-      // When the layer is hidden we leave the outline hidden too (it cannot be
-      // visible while its parent is none); when the layer is visible, we
-      // restore the outline to follow the stroke-disabled rule.
-      if (stroke.disabled) {
-        map.setLayoutProperty(outlineId, 'visibility', 'none');
-      }
-      syncLayerFilter(map, outlineId, filter);
-
-      // Companion fill-extrusion layer: only when a builder height column is set
-      if (heightColumn) {
-        const extrusionId = `${layerId}-extrusion`;
-        const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
-        const fillColor = resolveExtrusionFillColor(rawPaint, builder);
-        map.addLayer({
-          id: extrusionId,
-          type: 'fill-extrusion',
-          source: sourceId,
-          ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-          minzoom: extrusionMinZoom,
-          paint: {
-            'fill-extrusion-height': buildHeightExpression(heightColumn, heightScale),
-            'fill-extrusion-base': 0,
-            'fill-extrusion-color': fillColor,
-            'fill-extrusion-opacity': extrusionOpacity,
-            'fill-extrusion-vertical-gradient': true,
-          },
-        });
-        syncLayerFilter(map, extrusionId, filter);
-      }
-    } catch (e) {
-      if (import.meta.env.DEV) console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
-    }
-  },
-
-  syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, paint: rawPaint, opacity, filter } = input;
-    const builder = getBuilderStyleConfig(input);
-    const stroke = resolvePolygonStroke(rawPaint, builder);
-    ensureFillPatternImages(map);
-    const outlineId = `${input.layerId}-outline`;
-    if (map.getLayer(layerId)) {
-      syncOwnedPaintProperties(map, layerId, withTintedFillPattern(map, rawPaint, builder, rawPaint), {
-        geomType: 'fill',
-        ownedProperties: FILL_OWNED_PAINT_PROPERTIES,
-      });
-      applyMasterOpacity(map, layerId, rawPaint, 'fill', opacity ?? 1);
-      syncLayerFilter(map, layerId, filter);
-      setLayerProperty(map, layerId, 'fill-outline-color', stroke.disabled ? MAP_COLORS.transparent : (stroke.authoredColor ?? MAP_COLORS.transparent));
-    }
-    // Sync outline companion layer
-    if (map.getLayer(outlineId)) {
-      syncOwnedPaintProperties(map, outlineId, {
-        'line-color': stroke.color,
-        'line-width': stroke.width,
-        'line-layer-opacity': opacity ?? 1,
-      }, {
-        geomType: 'line',
-        ownedProperties: OUTLINE_OWNED_PAINT_PROPERTIES,
-      });
-      map.setLayoutProperty(outlineId, 'visibility', stroke.disabled ? 'none' : 'visible');
-      syncLayerFilter(map, outlineId, filter);
-    }
-    // Sync fill-extrusion companion layer
-    const extrusionId = `${layerId}-extrusion`;
-    if (map.getLayer(extrusionId)) {
-      const heightColumn = builder.heightColumn ?? (rawPaint['_height_column'] as string | undefined);
-      if (!heightColumn) {
-        map.removeLayer(extrusionId);
-        return;
-      }
-      const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
-      const fillColor = resolveExtrusionFillColor(rawPaint, builder);
-      syncOwnedPaintProperties(map, extrusionId, {
+function extrusionSpec(
+  input: AdapterLayerInput,
+  heightColumn: string,
+  base: Pick<LayerSpec['layer'], 'source' | 'source-layer' | 'filter' | 'layout'>,
+): LayerSpec {
+  const builder = getBuilderStyleConfig(input);
+  const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
+  const zoom = input.zoom ?? FULL_ZOOM_RANGE;
+  // Only the zooms both the layer's range and the extrusion minimum allow. An
+  // empty overlap collapses to minzoom === maxzoom, which draws nothing.
+  const minzoom = Math.max(zoom.minzoom, extrusionMinZoom);
+  return {
+    layer: {
+      id: `${input.layerId}-extrusion`,
+      type: 'fill-extrusion',
+      ...base,
+      minzoom,
+      maxzoom: Math.max(zoom.maxzoom, minzoom),
+      paint: {
         'fill-extrusion-height': buildHeightExpression(heightColumn, heightScale),
         'fill-extrusion-base': 0,
-        'fill-extrusion-color': fillColor,
+        'fill-extrusion-color': resolveExtrusionFillColor(input.paint, builder),
         'fill-extrusion-opacity': extrusionOpacity,
         'fill-extrusion-vertical-gradient': true,
-      }, { ownedProperties: EXTRUSION_OWNED_PAINT_PROPERTIES });
-      try {
-        map.setLayerZoomRange(extrusionId, extrusionMinZoom, 22);
-      } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion zoom range:`, e); }
-      syncLayerFilter(map, extrusionId, filter);
-      // Workaround MapLibre v5 bug: setPaintProperty only applies every other call with terrain active
-      try { map.triggerRepaint(); } catch (e) { if (import.meta.env.DEV) console.debug('[map-sync] triggerRepaint not available:', e); }
-    }
+      },
+    },
+    ownedPaint: EXTRUSION_OWNED_PAINT_PROPERTIES,
+    ownedLayout: [],
+  };
+}
+
+function describeFill(input: AdapterLayerInput): LayerDrawing {
+  const builder = getBuilderStyleConfig(input);
+  const stroke = resolvePolygonStroke(input.paint, builder);
+  const fill = tintFillPattern(fillPaint(input, stroke), input.paint, builder);
+  const visibility = input.visible ? 'visible' : 'none';
+  const shared = { source: input.sourceId, ...sourceLayerSpec(input), ...filterSpec(input.filter) };
+  const specs: LayerSpec[] = [
+    {
+      layer: { id: input.layerId, type: 'fill', ...shared, layout: { ...input.layout, visibility }, paint: fill.paint },
+      ownedPaint: FILL_OWNED_PAINT_PROPERTIES,
+      ownedLayout: [],
+    },
+    {
+      layer: {
+        id: `${input.layerId}-outline`,
+        type: 'line',
+        ...shared,
+        // A disabled stroke keeps the outline hidden whatever the layer's visibility.
+        layout: { visibility: input.visible && !stroke.disabled ? 'visible' : 'none' },
+        paint: { 'line-color': stroke.color, 'line-width': stroke.width, 'line-layer-opacity': input.opacity ?? 1 },
+      },
+      ownedPaint: OUTLINE_OWNED_PAINT_PROPERTIES,
+      ownedLayout: ['visibility'],
+    },
+  ];
+  const heightColumn = resolveHeightColumn(builder, input.paint);
+  if (heightColumn) specs.push(extrusionSpec(input, heightColumn, { ...shared, layout: { visibility } }));
+  return { specs, images: [...FILL_PATTERN_IMAGES, ...fill.images] };
+}
+
+export const fillAdapter: LayerAdapter = {
+  type: 'fill',
+  describe: describeFill,
+
+  addLayers(map, input) {
+    addDescribedLayer(map, describeFill(input));
   },
 
-  syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, visible, paint: rawPaint } = input;
-    const builder = getBuilderStyleConfig(input);
-    const outlineId = `${input.layerId}-outline`;
+  // Updates only the layers already on the map, and removes the extrusion once
+  // the layer has no height column.
+  syncPaint(map, input) {
+    const drawing = describeFill(input);
+    writeDescribedLayer(map, { ...drawing, specs: drawing.specs.filter(({ layer }) => map.getLayer(layer.id)) });
     const extrusionId = `${input.layerId}-extrusion`;
-    const vis = visible ? 'visible' : 'none';
-    if (map.getLayer(layerId)) {
-      map.setLayoutProperty(layerId, 'visibility', vis);
+    if (!map.getLayer(extrusionId)) return;
+    if (!drawing.specs.some(({ layer }) => layer.id === extrusionId)) {
+      map.removeLayer(extrusionId);
+      return;
     }
-    if (map.getLayer(outlineId)) {
-      // BUG-036: the outline carries the stroke-disabled state as its layout
-      // visibility (see addLayers/syncPaint). Restoring it on the raw `vis`
-      // here resurrects a 1px outline that the user disabled (render-as 'Fill
-      // only' sets strokeDisabled without zeroing outlineWidth). Gate it on the
-      // same strokeDisabled flag syncPaint reads so the map stays in sync.
-      const { disabled } = resolvePolygonStroke(rawPaint, builder);
-      map.setLayoutProperty(outlineId, 'visibility', visible && !disabled ? 'visible' : 'none');
-    }
-    if (map.getLayer(extrusionId)) {
-      map.setLayoutProperty(extrusionId, 'visibility', vis);
-    }
+    // Workaround MapLibre v5 bug: setPaintProperty only applies every other call with terrain active
+    try { map.triggerRepaint(); } catch (e) { if (import.meta.env.DEV) console.debug('[map-sync] triggerRepaint not available:', e); }
+  },
+
+  syncVisibility(map, input) {
+    writeDescribedVisibility(map, describeFill(input));
   },
 
   getLayerIds(layerId: string): string[] {
