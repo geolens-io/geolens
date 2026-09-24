@@ -154,7 +154,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
     const opacity = layer.opacity ?? 1;
     const effectiveGeom = inferGeometryType(layer.paint, layer.dataset_geometry_type);
     const swatch = facts?.swatch ?? null;
-    const weightColumn = facts?.weightColumn ?? undefined;
+    const weight = facts?.weight ?? null;
 
     return (
       <div>
@@ -163,11 +163,13 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
             <HeatmapLegend
               name={entryName}
               ramp={facts.ramp}
-              weightColumn={weightColumn}
+              weightColumn={weight?.column}
               opacity={opacity}
               lowLabel={t('plugins.legend.low')}
               highLabel={t('plugins.legend.high')}
-              weightedByLabel={weightColumn ? t('plugins.legend.weightedBy', { column: weightColumn }) : undefined}
+              weightedByLabel={weight
+                ? t(weight.scaled ? 'plugins.legend.weightedByScaled' : 'plugins.legend.weightedBy', { column: weight.column })
+                : undefined}
             />
           ) : facts?.classes ? (
             <>

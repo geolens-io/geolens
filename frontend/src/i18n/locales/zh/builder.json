@@ -1126,6 +1126,7 @@
       "low": "低",
       "high": "高",
       "weightedBy": "权重依据：{{column}}",
+      "weightedByScaled": "权重依据：{{column}}（缩放）",
       "unavailable": "（图例不可用）",
       "terrain3d": "3D 地形",
       "titlePlaceholder": "图例标题",

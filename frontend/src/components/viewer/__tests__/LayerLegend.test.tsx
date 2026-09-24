@@ -159,6 +159,14 @@ describe('LayerLegend notes under an entry', () => {
     expect(screen.getByText('Weighted by: severity')).toBeInTheDocument();
   });
 
+  it('names the column a rising weight ramp scales, and says it is scaled', () => {
+    const { heatmapByRamp } = SAVED_LAYERS;
+    const weight = ['interpolate', ['linear'], ['to-number', ['get', 'mag'], 0], 2.5, 0.05, 8, 1];
+    renderLegend([{ ...heatmapByRamp, paint: { ...heatmapByRamp.paint, 'heatmap-weight': weight } }]);
+
+    expect(screen.getByText('Weighted by: mag (scaled)')).toBeInTheDocument();
+  });
+
   it('names no weight column for a heatmap with a constant weight', () => {
     const { heatmapByRamp } = SAVED_LAYERS;
     renderLegend([{ ...heatmapByRamp, paint: { ...heatmapByRamp.paint, 'heatmap-weight': 1 } }]);

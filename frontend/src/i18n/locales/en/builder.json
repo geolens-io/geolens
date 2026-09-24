@@ -1126,6 +1126,7 @@
       "low": "Low",
       "high": "High",
       "weightedBy": "Weighted by: {{column}}",
+      "weightedByScaled": "Weighted by: {{column}} (scaled)",
       "unavailable": "(legend unavailable)",
       "terrain3d": "3D terrain",
       "titlePlaceholder": "Legend title",

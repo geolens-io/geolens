@@ -322,6 +322,7 @@
       "colorLabel": "Farbe: {{label}}",
       "widthLabel": "Breite: {{label}}",
       "weightedBy": "Gewichtet nach: {{column}}",
+      "weightedByScaled": "Gewichtet nach: {{column}} (skaliert)",
       "other": "Sonstige",
       "cluster": {
         "server": "Server-Cluster",

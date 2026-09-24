@@ -102,8 +102,11 @@ export interface LegendFacts {
   classes: LegendClasses[] | null;
   /** A heatmap's colour ramp; null for other layers. */
   ramp: LegendRamp | null;
-  /** The column a heatmap weights its points by; null when unweighted or not a heatmap. */
-  weightColumn: string | null;
+  /**
+   * The column a heatmap weights its points by, and whether a rising ramp scales it
+   * on the way; null when unweighted, weighted by anything else, or not a heatmap.
+   */
+  weight: { column: string; scaled: boolean } | null;
   /**
    * Where a cluster layer's clusters come from: the browser over bounded GeoJSON,
    * the tile server, or nowhere when it draws single points. Null for other layers.
@@ -600,17 +603,25 @@ function isExpression(value: unknown, name: string): boolean {
   return Array.isArray(value) && value.length === 1 && value[0] === name;
 }
 
-/** Whether a CSS colour has zero alpha: `transparent`, an rgb(a) or hsl(a) alpha of 0, or a 4- or 8-digit hex ending in 0. */
-function isTransparentColor(color: unknown): boolean {
-  if (typeof color !== 'string') return false;
+/**
+ * A CSS colour's alpha: 0 for `transparent`, the last digits of a 4- or 8-digit hex,
+ * the fourth part of an rgb(a) or hsl(a), and 1 for any other colour.
+ */
+function colorAlpha(color: string): number {
   const value = color.trim().toLowerCase();
-  if (value === 'transparent') return true;
+  if (value === 'transparent') return 0;
   const hex = /^#(?:[0-9a-f]{3}([0-9a-f])|[0-9a-f]{6}([0-9a-f]{2}))$/.exec(value);
-  if (hex) return parseInt(hex[1] ?? hex[2], 16) === 0;
+  if (hex) return hex[1] !== undefined ? parseInt(hex[1], 16) / 15 : parseInt(hex[2], 16) / 255;
   const fn = /^(?:rgb|hsl)a?\((.*)\)$/.exec(value);
-  if (!fn) return false;
-  const parts = fn[1].split(/[\s,/]+/).filter(Boolean);
-  return parts.length === 4 && parseFloat(parts[3]) === 0;
+  const parts = fn ? fn[1].split(/[\s,/]+/).filter(Boolean) : [];
+  if (parts.length !== 4) return 1;
+  const alpha = parts[3].endsWith('%') ? parseFloat(parts[3]) / 100 : parseFloat(parts[3]);
+  return Number.isNaN(alpha) ? 1 : Math.min(1, Math.max(0, alpha));
+}
+
+/** Whether a CSS colour has zero alpha. */
+function isTransparentColor(color: unknown): boolean {
+  return typeof color === 'string' && colorAlpha(color) === 0;
 }
 
 /** The colours, stops and mode a heatmap-color expression draws; null when they can't be read. */
@@ -630,6 +641,9 @@ function heatmapRamp(expression: unknown): Pick<LegendRamp, 'colors' | 'stops' |
     pairs.push([expression[i], expression[i + 1]]);
   }
   if (!pairs.length || !pairs.every(([density, color]) => typeof density === 'number' && typeof color === 'string')) return null;
+  // Gradients blend premultiplied colours and MapLibre blends them straight, so
+  // an interpolate whose alpha varies draws other colours between its stops.
+  if (!isStep && new Set(pairs.map(([, color]) => colorAlpha(color as string))).size > 1) return null;
   const densities = pairs.map(([density]) => density as number);
   // An interpolate draws from its first stop to its last; a step's bands cover every density.
   const [low, high] = isStep ? [0, 1] : [densities[0], densities[densities.length - 1]];
@@ -661,9 +675,32 @@ function rampFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts['r
   return drawn ? { ...drawn, name: ramp?.name ?? null, reversed: ramp?.reversed ?? false } : null;
 }
 
+/**
+ * The column a step, or a linear or exponential interpolate, reads when its numeric
+ * outputs never fall and rise somewhere; null for anything else.
+ */
+function risingRampColumn(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const curve = value[1];
+  const exponential = Array.isArray(curve) && curve.length === 2 && curve[0] === 'exponential'
+    && typeof curve[1] === 'number' && curve[1] > 0;
+  if (value[0] !== 'step' && !(value[0] === 'interpolate' && (isExpression(curve, 'linear') || exponential))) return null;
+  const column = plainColumn(rampInput(value));
+  const outputs = expressionOutputs(value);
+  if (column === null || outputs.length === 0 || !outputs.every((output) => typeof output === 'number')) return null;
+  const weights = outputs as number[];
+  const neverFalls = weights.every((weight, i) => i === 0 || weight >= weights[i - 1]);
+  return neverFalls && weights[weights.length - 1] > weights[0] ? column : null;
+}
+
 // The adapter weights by the paint, so builder state naming a column is not enough.
-function weightColumnFor(layer: LegendLayer, kind: LayerAdapter['type']): string | null {
-  return kind === 'heatmap' ? plainColumn(layer.paint?.['heatmap-weight']) : null;
+function weightFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts['weight'] {
+  if (kind !== 'heatmap') return null;
+  const weight = layer.paint?.['heatmap-weight'];
+  const column = plainColumn(weight);
+  if (column !== null) return { column, scaled: false };
+  const scaledColumn = risingRampColumn(weight);
+  return scaledColumn === null ? null : { column: scaledColumn, scaled: true };
 }
 
 function clusterFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts['cluster'] {
@@ -688,7 +725,7 @@ export function legendFacts(layer: LegendLayer, drawn?: DrawnLayer): LegendFacts
     swatch,
     classes: classesFor(layer, kind, swatch),
     ramp: rampFor(layer, kind),
-    weightColumn: weightColumnFor(layer, kind),
+    weight: weightFor(layer, kind),
     cluster: clusterFor(layer, kind),
   };
 }

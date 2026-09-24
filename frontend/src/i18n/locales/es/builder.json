@@ -1126,6 +1126,7 @@
       "low": "Bajo",
       "high": "Alto",
       "weightedBy": "Ponderado por: {{column}}",
+      "weightedByScaled": "Ponderado por: {{column}} (escalado)",
       "unavailable": "(leyenda no disponible)",
       "terrain3d": "Terreno 3D",
       "titlePlaceholder": "Título de la leyenda",

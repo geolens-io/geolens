@@ -224,6 +224,13 @@ describe('classes in both legends', () => {
     expect(screen.getByText('plugins.legend.weightedBy')).toBeInTheDocument();
   });
 
+  it('builder legend says a weight a rising ramp scales is scaled', () => {
+    const weight = ['interpolate', ['linear'], ['to-number', ['get', 'mag'], 0], 2.5, 0.05, 8, 1];
+    legends.builder({ ...SAVED_LAYERS.heatmapByRamp, paint: { ...SAVED_LAYERS.heatmapByRamp.paint, 'heatmap-weight': weight } });
+
+    expect(screen.getByText('plugins.legend.weightedByScaled')).toBeInTheDocument();
+  });
+
   it('builder legend lists graduated classes that have no breaks', () => {
     const noBreaks = { ...SAVED_LAYERS.graduatedColor, style_config: { ...SAVED_LAYERS.graduatedColor.style_config, breaks: undefined } };
     const container = legends.builder(noBreaks);

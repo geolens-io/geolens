@@ -25,8 +25,8 @@ function swatch(overrides: Partial<LegendSwatch> = {}): LegendSwatch {
   return { fill: null, fillOpacity: 1, opacity: 1, stroke: null, pattern: null, ...overrides };
 }
 
-/** No classes, heatmap ramp, weight column or cluster kind, as for any unclassified layer that is not a heatmap or a cluster. */
-const PLAIN = { classes: null, ramp: null, weightColumn: null, cluster: null } as const;
+/** No classes, heatmap ramp, weight or cluster kind, as for any unclassified layer that is not a heatmap or a cluster. */
+const PLAIN = { classes: null, ramp: null, weight: null, cluster: null } as const;
 
 const fixtureFacts: Record<keyof typeof SAVED_LAYERS, Omit<LegendFacts, 'name' | keyof typeof PLAIN> | null> = {
   polygon: { drawsAs: 'fill', swatch: swatch({ fill: '#3b82f6', fillOpacity: 0.3, stroke: DEFAULT_OUTLINE }) },
@@ -103,11 +103,11 @@ const builderRamp = (name: string, reversed = false): LegendRamp =>
 const storedRamp = (colors: string[], stops: number[], mode: LegendRamp['mode'] = 'interpolate'): LegendRamp =>
   ({ colors, stops, mode, name: null, reversed: false });
 
-/** The heatmap fixtures' ramps and weight columns. */
-const fixtureHeat: Partial<Record<keyof typeof SAVED_LAYERS, Pick<LegendFacts, 'ramp' | 'weightColumn'>>> = {
-  heatmapByRamp: { ramp: builderRamp('Blues'), weightColumn: 'severity' },
-  reversedHeatmap: { ramp: builderRamp('Viridis', true), weightColumn: null },
-  heatmapByExpression: { ramp: storedRamp(['#7c3aed', '#f0abfc'], [0, 1]), weightColumn: null },
+/** The heatmap fixtures' ramps and weights. */
+const fixtureHeat: Partial<Record<keyof typeof SAVED_LAYERS, Pick<LegendFacts, 'ramp' | 'weight'>>> = {
+  heatmapByRamp: { ramp: builderRamp('Blues'), weight: { column: 'severity', scaled: false } },
+  reversedHeatmap: { ramp: builderRamp('Viridis', true), weight: null },
+  heatmapByExpression: { ramp: storedRamp(['#7c3aed', '#f0abfc'], [0, 1]), weight: null },
 };
 
 /** The cluster fixtures' kinds, from their saved strategies. */
@@ -880,7 +880,7 @@ describe('legendFacts classes', () => {
   });
 });
 
-type HeatRow = [label: string, layer: MapLayerResponse, expected: Pick<LegendFacts, 'ramp' | 'weightColumn'>];
+type HeatRow = [label: string, layer: MapLayerResponse, expected: Pick<LegendFacts, 'ramp' | 'weight'>];
 
 const heatmap = (paint: Record<string, unknown>, style_config: Record<string, unknown> = {}) => savedLayer({
   dataset_geometry_type: 'MULTIPOINT',
@@ -889,119 +889,178 @@ const heatmap = (paint: Record<string, unknown>, style_config: Record<string, un
 });
 
 const heatRows: HeatRow[] = [
-  ['no ramp at all', heatmap({}), { ramp: builderRamp('YlOrRd'), weightColumn: null }],
+  ['no ramp at all', heatmap({}), { ramp: builderRamp('YlOrRd'), weight: null }],
   [
     'a stored expression over a reversed builder ramp',
     heatmap(
       { 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 0.5, '#7c3aed', 1, '#f0abfc'] },
       { builder: { heatmapRamp: 'Blues', heatmapReversed: true } },
     ),
-    { ramp: storedRamp(['#7c3aed', '#f0abfc'], [0, 1]), weightColumn: null },
+    { ramp: storedRamp(['#7c3aed', '#f0abfc'], [0, 1]), weight: null },
   ],
   [
     'a builder ramp over a stale top-level ramp',
     heatmap({}, { ramp: 'YlOrRd', builder: { heatmapRamp: 'Viridis' } }),
-    { ramp: builderRamp('Viridis'), weightColumn: null },
+    { ramp: builderRamp('Viridis'), weight: null },
   ],
   [
     'a builder ramp over a leftover paint mirror',
     heatmap({ '_heatmap-ramp': 'Blues', '_heatmap-reversed': true }, { builder: { heatmapRamp: 'YlOrRd' } }),
-    { ramp: builderRamp('YlOrRd'), weightColumn: null },
+    { ramp: builderRamp('YlOrRd'), weight: null },
   ],
   [
     'snake_case builder keys, with no weight in the paint',
     heatmap({}, { builder: { heatmap_ramp: 'Blues', heatmap_reversed: true, heatmap_weight_column: 'mag' } }),
-    { ramp: builderRamp('Blues', true), weightColumn: null },
+    { ramp: builderRamp('Blues', true), weight: null },
   ],
   [
     'a stale builder weight column over a constant weight',
     heatmap({ 'heatmap-weight': 1 }, { builder: { heatmapWeightColumn: 'severity' } }),
-    { ramp: builderRamp('YlOrRd'), weightColumn: null },
+    { ramp: builderRamp('YlOrRd'), weight: null },
   ],
   [
     'a stale builder weight column over another column',
     heatmap({ 'heatmap-weight': ['get', 'calls'] }, { builder: { heatmapWeightColumn: 'severity' } }),
-    { ramp: builderRamp('YlOrRd'), weightColumn: 'calls' },
+    { ramp: builderRamp('YlOrRd'), weight: { column: 'calls', scaled: false } },
   ],
   [
     'a coerced weight column',
     heatmap({ 'heatmap-weight': ['to-number', ['get', 'mag'], 0] }),
-    { ramp: builderRamp('YlOrRd'), weightColumn: 'mag' },
+    { ramp: builderRamp('YlOrRd'), weight: { column: 'mag', scaled: false } },
   ],
   [
-    'a weight ramp over a column',
+    'a weight ramp rising over a column',
     heatmap({ 'heatmap-weight': ['interpolate', ['linear'], ['to-number', ['get', 'mag'], 0], 2.5, 0.05, 8, 1] }),
-    { ramp: builderRamp('YlOrRd'), weightColumn: null },
+    { ramp: builderRamp('YlOrRd'), weight: { column: 'mag', scaled: true } },
   ],
   [
     'a stored ramp with an opaque colour at zero density',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#0000ff', 1, '#ff0000'] }),
-    { ramp: storedRamp(['#0000ff', '#ff0000'], [0, 1]), weightColumn: null },
+    { ramp: storedRamp(['#0000ff', '#ff0000'], [0, 1]), weight: null },
   ],
   [
     'a stored ramp with a transparent colour at zero density',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 1, '#ff0000'] }),
-    { ramp: storedRamp(['#ff0000'], [0]), weightColumn: null },
+    { ramp: storedRamp(['#ff0000'], [0]), weight: null },
   ],
   [
     'a stored ramp with a zero-alpha hex at zero density',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#2166ac00', 0.5, '#67a9cf', 1, '#ef8a62'] }),
-    { ramp: storedRamp(['#67a9cf', '#ef8a62'], [0, 1]), weightColumn: null },
+    { ramp: storedRamp(['#67a9cf', '#ef8a62'], [0, 1]), weight: null },
   ],
   [
     'a stored ramp with uneven stops',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#0000ff', 0.1, '#00ff00', 1, '#ff0000'] }),
-    { ramp: storedRamp(['#0000ff', '#00ff00', '#ff0000'], [0, 0.1, 1]), weightColumn: null },
+    { ramp: storedRamp(['#0000ff', '#00ff00', '#ff0000'], [0, 0.1, 1]), weight: null },
   ],
   [
     'a stored ramp whose stops start above zero density',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0.5, '#0000ff', 0.75, '#00ff00', 1, '#ff0000'] }),
-    { ramp: storedRamp(['#0000ff', '#00ff00', '#ff0000'], [0, 0.5, 1]), weightColumn: null },
+    { ramp: storedRamp(['#0000ff', '#00ff00', '#ff0000'], [0, 0.5, 1]), weight: null },
   ],
   [
     'a stored exponential ramp',
     heatmap({ 'heatmap-color': ['interpolate', ['exponential', 2], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 1, '#ff0000'] }),
-    { ramp: null, weightColumn: null },
+    { ramp: null, weight: null },
   ],
   [
     'a stored ramp blended in HCL',
     heatmap({ 'heatmap-color': ['interpolate-hcl', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 1, '#ff0000'] }),
-    { ramp: null, weightColumn: null },
+    { ramp: null, weight: null },
   ],
   [
     'a stored ramp blended in Lab',
     heatmap({ 'heatmap-color': ['interpolate-lab', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 1, '#ff0000'] }),
-    { ramp: null, weightColumn: null },
+    { ramp: null, weight: null },
   ],
   [
     'a stored ramp over zoom instead of density',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['zoom'], 0, '#0000ff', 10, '#ff0000'] }),
-    { ramp: null, weightColumn: null },
+    { ramp: null, weight: null },
   ],
   [
     'a stored step colour',
     heatmap({ 'heatmap-color': ['step', ['heatmap-density'], 'rgba(0,0,0,0)', 0.3, '#fde725', 0.7, '#440154'] }),
-    { ramp: storedRamp(['rgba(0,0,0,0)', '#fde725', '#440154'], [0, 0.3, 0.7], 'step'), weightColumn: null },
+    { ramp: storedRamp(['rgba(0,0,0,0)', '#fde725', '#440154'], [0, 0.3, 0.7], 'step'), weight: null },
   ],
   [
     'a stored single colour',
     heatmap({ 'heatmap-color': '#dc2626' }),
-    { ramp: storedRamp(['#dc2626'], [0]), weightColumn: null },
+    { ramp: storedRamp(['#dc2626'], [0]), weight: null },
   ],
-  ['a stored expression with no colours to read', heatmap({ 'heatmap-color': ['get', 'color'] }), { ramp: null, weightColumn: null }],
-  ['an empty weight column', heatmap({}, { builder: { heatmapWeightColumn: '' } }), { ramp: builderRamp('YlOrRd'), weightColumn: null }],
+  ['a stored expression with no colours to read', heatmap({ 'heatmap-color': ['get', 'color'] }), { ramp: null, weight: null }],
+  ['an empty weight column', heatmap({}, { builder: { heatmapWeightColumn: '' } }), { ramp: builderRamp('YlOrRd'), weight: null }],
+  [
+    'a weight step rising over a column',
+    heatmap({ 'heatmap-weight': ['step', ['get', 'mag'], 0, 5, 0.5, 7, 1] }),
+    { ramp: builderRamp('YlOrRd'), weight: { column: 'mag', scaled: true } },
+  ],
+  [
+    'an exponential weight ramp rising over a column',
+    heatmap({ 'heatmap-weight': ['interpolate', ['exponential', 2], ['get', 'mag'], 0, 0, 9, 1] }),
+    { ramp: builderRamp('YlOrRd'), weight: { column: 'mag', scaled: true } },
+  ],
+  [
+    'a weight ramp that holds level before it rises',
+    heatmap({ 'heatmap-weight': ['interpolate', ['linear'], ['get', 'mag'], 0, 0, 5, 0, 9, 1] }),
+    { ramp: builderRamp('YlOrRd'), weight: { column: 'mag', scaled: true } },
+  ],
+  ['a falling weight ramp', heatmap({ 'heatmap-weight': ['interpolate', ['linear'], ['get', 'mag'], 0, 1, 9, 0] }), { ramp: builderRamp('YlOrRd'), weight: null }],
+  [
+    'a weight ramp that rises then falls',
+    heatmap({ 'heatmap-weight': ['interpolate', ['linear'], ['get', 'mag'], 0, 0, 5, 1, 9, 0.5] }),
+    { ramp: builderRamp('YlOrRd'), weight: null },
+  ],
+  ['a flat weight ramp', heatmap({ 'heatmap-weight': ['interpolate', ['linear'], ['get', 'mag'], 0, 1, 9, 1] }), { ramp: builderRamp('YlOrRd'), weight: null }],
+  [
+    'a weight ramp whose weights read another column',
+    heatmap({ 'heatmap-weight': ['interpolate', ['linear'], ['get', 'mag'], 0, 0, 9, ['get', 'depth']] }),
+    { ramp: builderRamp('YlOrRd'), weight: null },
+  ],
+  ['a weight product of two columns', heatmap({ 'heatmap-weight': ['*', ['get', 'mag'], ['get', 'depth']] }), { ramp: builderRamp('YlOrRd'), weight: null }],
+  ['a weight ramp over zoom', heatmap({ 'heatmap-weight': ['interpolate', ['linear'], ['zoom'], 0, 0, 9, 1] }), { ramp: builderRamp('YlOrRd'), weight: null }],
+  [
+    'a weight ramp over a transformed column',
+    heatmap({ 'heatmap-weight': ['interpolate', ['linear'], ['/', ['get', 'mag'], 10], 0, 0, 1, 1] }),
+    { ramp: builderRamp('YlOrRd'), weight: null },
+  ],
+  [
+    'a weight ramp on a cubic-bezier curve',
+    heatmap({ 'heatmap-weight': ['interpolate', ['cubic-bezier', 0.4, 0, 0.6, 1], ['get', 'mag'], 0, 0, 9, 1] }),
+    { ramp: builderRamp('YlOrRd'), weight: null },
+  ],
+  [
+    'a stored ramp whose stops vary in alpha',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(255,0,0,0.2)', 1, 'rgb(0,0,255)'] }),
+    { ramp: null, weight: null },
+  ],
+  [
+    'a stored ramp that varies in alpha after its transparent floor',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 0.5, 'rgba(255,0,0,0.5)', 1, '#ff0000'] }),
+    { ramp: null, weight: null },
+  ],
+  [
+    'a stored ramp whose 8-digit hex stops vary in alpha',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#ff000080', 1, '#0000ffff'] }),
+    { ramp: null, weight: null },
+  ],
+  [
+    'a stored ramp at one alpha throughout',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(255,0,0,0.5)', 1, 'hsla(240, 100%, 50%, 50%)'] }),
+    { ramp: storedRamp(['rgba(255,0,0,0.5)', 'hsla(240, 100%, 50%, 50%)'], [0, 1]), weight: null },
+  ],
   [
     'a weight column left on a layer that is not a heatmap',
     savedLayer({ dataset_geometry_type: 'MULTIPOINT', paint: { 'circle-color': '#f59e0b' }, style_config: { builder: { heatmapWeightColumn: 'mag' } } }),
-    { ramp: null, weightColumn: null },
+    { ramp: null, weight: null },
   ],
 ];
 
 describe('legendFacts heatmap ramp', () => {
-  it.each(heatRows)('%s gives the same ramp and weight column in the builder and viewer shapes', (_label, layer, expected) => {
+  it.each(heatRows)('%s gives the same ramp and weight in the builder and viewer shapes', (_label, layer, expected) => {
     for (const shape of [layer, toSharedLayer(layer)]) {
       const facts = legendFacts(shape);
-      expect({ ramp: facts?.ramp, weightColumn: facts?.weightColumn }).toEqual(expected);
+      expect({ ramp: facts?.ramp, weight: facts?.weight }).toEqual(expected);
     }
   });
 });
