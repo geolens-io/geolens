@@ -79,6 +79,43 @@ async def test_a_geom_column_without_an_srid_is_refused_and_flagged(
         await test_db_session.commit()
 
 
+async def test_a_geom_column_postgis_does_not_list_is_refused(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """A geom typed as a domain over geometry is refused with the SRID reason."""
+    table = f"srid_domain_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(f"CREATE DOMAIN data.{table}_geom AS geometry(Point, 4326)")
+    )
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, geom data.{table}_geom)"
+        )
+    )
+    await test_db_session.commit()
+    before = await _columns(test_db_session, table)
+    try:
+        response = await client.post(
+            "/ingest/register/",
+            json={"table_name": table, "title": "Domain", "visibility": "private"},
+            headers=admin_auth_header,
+        )
+
+        assert response.status_code == 400, response.text
+        assert UNDECLARED_SRID_REASON in response.json()["detail"]
+        assert (
+            await test_db_session.scalar(
+                select(Dataset.id).where(Dataset.table_name == table)
+            )
+            is None
+        )
+        assert await _columns(test_db_session, table) == before
+    finally:
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+        await test_db_session.execute(text(f"DROP DOMAIN IF EXISTS data.{table}_geom"))
+        await test_db_session.commit()
+
+
 async def test_a_table_with_a_declared_srid_has_no_refusal_reason(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ) -> None:

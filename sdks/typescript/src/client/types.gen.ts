@@ -3968,7 +3968,7 @@ export type DiscoverResponse = {
     /**
      * Tables
      *
-     * Tables in the `data` schema not yet registered as datasets. `refusal_reason` marks the ones registration would refuse.
+     * Tables in the `data` schema not yet registered as datasets. `refusal_reason` marks those discovery knows registration would refuse.
      */
     tables: Array<DiscoveredTable>;
 };
@@ -4004,7 +4004,7 @@ export type DiscoveredTable = {
     /**
      * Refusal Reason
      *
-     * Why registration would refuse this table as it is, as one of a fixed set of GeoLens codes: source_srid_undeclared. Null when it can be registered.
+     * Why registration would refuse this table, as one of a fixed set of GeoLens codes: source_srid_undeclared. Null when discovery finds none, though registration can still refuse a table for a reason discovery does not check.
      */
     refusal_reason?: string | null;
 };

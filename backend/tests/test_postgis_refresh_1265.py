@@ -562,6 +562,20 @@ class TestPostgisRefreshDispatch:
 # ---------------------------------------------------------------------------
 
 
+# Two ways a registered table's geom stops reporting an SRID: the typmod drops
+# it, or a domain over geometry hides the column from geometry_columns.
+_SRID_LOSSES = {
+    "srid_zero": [
+        "ALTER TABLE data.{t} ALTER COLUMN geom "
+        "TYPE geometry(Polygon, 0) USING ST_SetSRID(geom, 0)",
+    ],
+    "domain": [
+        "CREATE DOMAIN data.{t}_geom AS geometry(Polygon, 3857)",
+        "ALTER TABLE data.{t} ALTER COLUMN geom TYPE data.{t}_geom USING geom",
+    ],
+}
+
+
 class TestPostgisRefreshExecution:
     async def test_a_refresh_re_measures_the_live_table(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -1078,26 +1092,23 @@ class TestPostgisRefreshExecution:
             None,
         )
 
+    @pytest.mark.parametrize("loss", list(_SRID_LOSSES), ids=list(_SRID_LOSSES))
     async def test_a_table_that_loses_its_srid_is_refused_before_any_write(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, loss: str
     ) -> None:
-        """A table whose geom declares SRID 0 fails with a code and keeps its render column."""
+        """A table whose geom has no SRID PostGIS reports fails with a code and keeps its render column."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _registered_dataset(test_db_session, created_by=admin_id)
         table = dataset.table_name
-        # Metres the repair would misread as degrees, with the SRID dropped.
+        # Metres the repair would misread as degrees, with the SRID lost.
         await test_db_session.execute(
             text(  # noqa: S608
                 f"ALTER TABLE data.{table} ALTER COLUMN geom "
                 "TYPE geometry(Polygon, 3857) USING ST_Transform(geom, 3857)"
             )
         )
-        await test_db_session.execute(
-            text(  # noqa: S608
-                f"ALTER TABLE data.{table} ALTER COLUMN geom "
-                "TYPE geometry(Polygon, 0) USING ST_SetSRID(geom, 0)"
-            )
-        )
+        for statement in _SRID_LOSSES[loss]:
+            await test_db_session.execute(text(statement.format(t=table)))
         await test_db_session.commit()
         render_before = await test_db_session.scalar(
             text(f"SELECT string_agg(ST_AsText(geom_4326), ';') FROM data.{table}")  # noqa: S608
@@ -1111,7 +1122,7 @@ class TestPostgisRefreshExecution:
         run = await _run_for(test_db_session, dataset.id)
         assert (run.status, run.error_code) == ("failed", "source_srid_undeclared")
         job = await _job_for(test_db_session, uuid.UUID(payload["job_id"]))
-        assert "declares an SRID" in job.error_message
+        assert "reports an SRID" in job.error_message
         refreshed = await _reload(test_db_session, dataset.id)
         assert (refreshed.srid, refreshed.tile_cache_version) == (4326, version_before)
         render_after = await test_db_session.scalar(

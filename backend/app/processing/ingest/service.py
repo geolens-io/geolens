@@ -72,9 +72,9 @@ _UPLOAD_SPOOL_MAX_BYTES: int = 16 * 1024 * 1024  # 16 MiB
 PART_SIZE = 10 * 1024 * 1024  # 10MB per part
 
 UNDECLARED_SRID_REASON = (
-    "Its geom column declares no SRID, so GeoLens cannot tell where its "
-    "coordinates are. Set the SRID, for example with UpdateGeometrySRID, then "
-    "register the table."
+    "PostGIS reports no SRID for its geom column, so GeoLens cannot tell where "
+    "its coordinates are. Give the column an SRID, for example with "
+    "UpdateGeometrySRID on a plain geometry column, then register the table."
 )
 
 

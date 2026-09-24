@@ -73,18 +73,26 @@ async def get_table_srid(
 async def get_declared_srid(
     session: AsyncSession, table_name: str, schema: str = "data"
 ) -> int | None:
-    """The SRID the ``geom`` column declares: 0 when it declares none.
+    """The SRID PostGIS reports for a geometry ``geom`` column the session can read.
 
-    None when the table has no ``geom`` geometry column, where
-    :func:`get_table_srid` raises instead.
+    0 when it reports none: an SRID of 0, or a column ``geometry_columns``
+    does not list, such as a domain over geometry, where
+    :func:`get_table_srid` raises. None when there is no such column or the
+    session cannot read the table.
     """
     _validate_table_name(table_name)
     _validate_table_name(schema)
     return await session.scalar(
         text(
-            "SELECT srid FROM geometry_columns "
-            "WHERE f_table_schema = :schema AND f_table_name = :t "
-            "AND f_geometry_column = 'geom'"
+            "SELECT COALESCE(gc.srid, 0) FROM pg_attribute a "
+            "JOIN pg_type t ON t.oid = a.atttypid "
+            "LEFT JOIN geometry_columns gc ON gc.f_table_schema = :schema "
+            "AND gc.f_table_name = :t AND gc.f_geometry_column = 'geom' "
+            "WHERE a.attrelid = to_regclass("
+            "format('%I.%I', CAST(:schema AS text), CAST(:t AS text))) "
+            "AND a.attname = 'geom' AND NOT a.attisdropped "
+            "AND 'geometry'::regtype IN (t.oid, t.typbasetype) "
+            "AND has_table_privilege(a.attrelid, 'SELECT')"
         ).bindparams(schema=schema, t=table_name)
     )
 

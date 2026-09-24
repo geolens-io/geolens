@@ -411,9 +411,9 @@ async def _repair_geom_4326(
             repair = None
             if state.rederivable:
                 srid = await get_table_srid(session, table_name, schema=schema)
-                # SRID 0 says nothing about where the coordinates are, so the
+                # Without an SRID nothing says where the coordinates are, so the
                 # render column is left alone; the measurement refuses the table.
-                if srid:
+                if srid is not None and srid != 0:
                     repair = await rederive_geom_4326(
                         session, table_name, srid, schema=schema, state=state
                     )
@@ -658,10 +658,10 @@ async def refresh_postgis(
                     )
                 if await get_declared_srid(session, table_name, schema=schema) == 0:
                     raise PostgisRefreshError(
-                        "The registered table's geom column no longer declares an "
-                        "SRID, so GeoLens cannot tell where its coordinates are. "
-                        "The catalog entry is unchanged; set the SRID, then "
-                        "refresh again.",
+                        "PostGIS no longer reports an SRID for the registered "
+                        "table's geom column, so GeoLens cannot tell where its "
+                        "coordinates are. The catalog entry is unchanged; give the "
+                        "column an SRID, then refresh again.",
                         error_code=UNDECLARED_SRID_CODE,
                     )
                 measurement = await measure(

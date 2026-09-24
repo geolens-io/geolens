@@ -19,7 +19,7 @@ class DiscoverResponse:
     """
     Attributes:
         tables (list[DiscoveredTable]): Tables in the `data` schema not yet registered as datasets. `refusal_reason`
-            marks the ones registration would refuse.
+            marks those discovery knows registration would refuse.
     """
 
     tables: list[DiscoveredTable]

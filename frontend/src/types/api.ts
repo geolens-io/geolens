@@ -1926,7 +1926,7 @@ export interface DiscoveredTable {
   geometry_type: GeometryTypeName | null;
   srid: number | null;
   estimated_rows: number | null;
-  /** A GeoLens code for why registration would refuse this table; null when it can be registered. */
+  /** A GeoLens code for why registration would refuse this table; null when discovery finds none. */
   refusal_reason?: string | null;
 }
 

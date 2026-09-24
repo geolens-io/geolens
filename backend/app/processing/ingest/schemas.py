@@ -453,16 +453,17 @@ class DiscoveredTable(BaseModel):
     refusal_reason: str | None = Field(
         default=None,
         description=(
-            "Why registration would refuse this table as it is, as one of a "
-            f"fixed set of GeoLens codes: {UNDECLARED_SRID_CODE}. Null when it "
-            "can be registered."
+            "Why registration would refuse this table, as one of a fixed set "
+            f"of GeoLens codes: {UNDECLARED_SRID_CODE}. Null when discovery finds "
+            "none, though registration can still refuse a table for a reason "
+            "discovery does not check."
         ),
     )
 
 
 class DiscoverResponse(BaseModel):
     tables: list[DiscoveredTable] = Field(
-        description="Tables in the `data` schema not yet registered as datasets. `refusal_reason` marks the ones registration would refuse."
+        description="Tables in the `data` schema not yet registered as datasets. `refusal_reason` marks those discovery knows registration would refuse."
     )
 
 
