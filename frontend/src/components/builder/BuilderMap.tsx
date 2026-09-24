@@ -12,7 +12,7 @@ import {
   BLANK_BASEMAP_ID,
   FALLBACK_BASEMAP_STYLE_URL,
 } from '@/lib/basemap-utils';
-import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
+import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
 import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
@@ -41,25 +41,24 @@ import type { VectorTileSource } from 'maplibre-gl';
 import {
   toSyncInput,
   getSourceIdForLayer,
-  getDataDrivenColumnsForSource,
   getLayerId,
   ensureRasterDemTerrainSource,
   normalizeTerrainExaggeration,
   refreshVectorSourceTiles,
   registerBasemapStyleGeneration,
+  syncRenderContext,
   TERRAIN_SOURCE_ID,
 } from './map-sync';
+import { describeLayers } from './layer-description';
 import { resolveTerrainSourceLayer } from './map-stack';
-import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { isGenericGeometryType } from './layer-adapters/shared';
 import { mixedInteractiveLayerIds } from './layer-adapters/mixed-adapter';
-import type { AdapterLayerInput } from './layer-adapters/types';
 import { maybeWarnSmallDemCoverage, resetSmallDemWarning } from './terrain-coverage';
 import { applyMapBasemapAppearance, syncMapComposition } from './map-composition-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
-import type { TileToken, VectorTileToken } from '@/api/tiles';
+import type { TileToken } from '@/api/tiles';
 import { getVisibleLayerBounds, visibleLayerBoundsKey, clampMinZoomAfterFit } from './builder-bounds';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
@@ -119,9 +118,8 @@ function getClusterFallbackReasonKey(status: ClusterSourceStatus): string | null
  * producing a transient 401/403 that is a token-sync race, NOT a real auth failure.
  *
  * This helper re-signs ONLY the failing source using the token already present in
- * `tokenMap` for that layer's own dataset_id (identical signing shape to the
- * token-sync effect — `buildClusterTileUrl` for server-tile clusters, otherwise
- * `buildSignedTileUrl` with the source's data-driven cols) and calls
+ * `tokenMap` for that layer's own dataset_id (the URL the layer description gives
+ * the source, as the sync pass signs it) and calls
  * `setTiles([newUrl])` exactly once so MapLibre re-fetches with a fresh sig. It does
  * NOT fabricate, broaden, or cross-assign a token, and never alters the raster path.
  *
@@ -135,34 +133,20 @@ function getClusterFallbackReasonKey(status: ClusterSourceStatus): string | null
  * eliminate it. The success criterion is "no unhandled vector 403 surfaced for the
  * recoverable case".
  */
-/**
- * builder-audit #338 SYNC-02 + SYNC-03: the SINGLE signed-vector-tile-URL builder used
- * by BOTH the 401/403 re-sign retry and the token-refresh effect, so the two
- * paths cannot drift. Cluster radius / max-zoom are clamped through the canonical
- * `getClusterSourceOptions` (1..256 / 0..22) instead of the previous inline
- * `48`/`14` with no clamping — an out-of-range builder value now produces the
- * SAME clamped URL the original source was built with, keeping MapLibre's tile
- * cache warm. The cols= set is the union across every layer sharing the source.
- */
-export function buildVectorSourceTileUrl(
-  layer: MapLayerResponse,
-  token: VectorTileToken,
-  tileBaseUrl: string | undefined,
-  allLayers: MapLayerResponse[],
-  sourceId: string,
-): string {
-  const sharedSourceCols = getDataDrivenColumnsForSource(sourceId, allLayers);
-  if (getClusterSourceStrategy(layer).kind === 'server-tile') {
-    const { clusterRadius, clusterMaxZoom } = getClusterSourceOptions(
-      { style_config: layer.style_config } as AdapterLayerInput,
-    );
-    // fix(#394) VT-02 (codex P2): keep the `_v=` cache-buster on token-refresh
-    // rebuilds — dropping it here rebuilt URLs on the pre-reupload cache key.
-    // fix(#403): forward cols= too, so unclustered features keep the columns
-    // their data-driven paint and popups reference (parity with map-sync).
-    return buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, layer.tile_version ?? undefined, { clusterRadius, clusterMaxZoom }, sharedSourceCols);
-  }
-  return buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, layer.tile_version ?? undefined, sharedSourceCols);
+type BuilderTileConfig = { cdn_base_url?: string | null; mvt_source_layer_prefix?: string | null };
+
+/** The sources a sync pass describes for these layers. The re-sign and refresh paths sign from them. */
+function describeBuilderSources(
+  layers: MapLayerResponse[],
+  tokenMap: Map<string, TileToken>,
+  tileConfig: BuilderTileConfig | null | undefined,
+  boundedGeoJson?: ReadonlyMap<string, GeoJSON.FeatureCollection>,
+) {
+  const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
+  const context = syncRenderContext(tokenMap, tileBaseUrl, boundedGeoJson, {
+    mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
+  });
+  return describeLayers(layers.map(toSyncInput), context).sources;
 }
 
 export function resignVectorSourceForRetry(
@@ -170,7 +154,7 @@ export function resignVectorSourceForRetry(
   sourceId: string,
   layers: MapLayerResponse[],
   tokenMap: Map<string, TileToken>,
-  tileConfig?: { cdn_base_url?: string | null } | null,
+  tileConfig?: BuilderTileConfig | null,
 ): boolean {
   const layer = layers.find((l) => getSourceIdForLayer(l) === sourceId);
   if (!layer) return false;
@@ -183,9 +167,11 @@ export function resignVectorSourceForRetry(
   const source = map.getSource(sourceId);
   if (!source || source.type !== 'vector') return false;
 
-  const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
-  const newUrl = buildVectorSourceTileUrl(layer, token, tileBaseUrl, layers, sourceId);
-  (source as VectorTileSource).setTiles([newUrl]);
+  // No source is synced while the tenant prefix is unresolved, and describing would throw.
+  if (tileConfig?.mvt_source_layer_prefix === null) return false;
+  const spec = describeBuilderSources(layers, tokenMap, tileConfig).get(sourceId);
+  if (spec?.type !== 'vector' || !spec.tiles?.[0]) return false;
+  (source as VectorTileSource).setTiles([spec.tiles[0]]);
   return true;
 }
 
@@ -1239,33 +1225,22 @@ export const BuilderMap = memo(function BuilderMap({
     });
   }, [basemapConfig, showBasemapLabels, mapReady]);
 
-  // Update tile URLs in-place when tokens refresh (vector only).
-  //
-  // builder-audit #338 (verifier-missed) + SYNC-02/SYNC-03: this effect depends on
-  // `layers`, which changes on EVERY paint/filter/visibility edit. Previously it
-  // called `setTiles([newUrl])` unconditionally for every vector source on every
-  // such change, bypassing the `${sourceId}::tileurl` flicker guard that
-  // map-sync builds and re-tiling far more often than token rotation requires.
-  // It now routes through the SAME `buildVectorSourceTileUrl` helper (clamped
-  // cluster options) and `refreshVectorSourceTiles`, which consults the shared
-  // tile-url signature store and only re-tiles when the signed URL actually
-  // changed — so a paint edit with an unchanged sig/cols set no longer refetches.
+  // Re-sign vector sources in place when tokens refresh. refreshVectorSourceTiles
+  // re-tiles only when the signed URL changed, so an edit that keeps it does not refetch.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady) return;
-    const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
+    if (!map || !mapReady || !tileConfigReady) return;
+    const sources = describeBuilderSources(layers, tokenMap, tileConfig, clusterGeoJsonDataRef.current);
 
     for (const layer of layers) {
       const token = tokenMap.get(layer.dataset_id) ?? null;
       // Raster tile URLs use nginx auth-check subrequest — nothing to refresh.
       if (!token || token.kind === 'raster') continue;
-      // Phase 1050-rev CR-02: route through getSourceIdForLayer so the deduped
-      // vector source (`source-data-${dataset_table_name}`) is actually located.
       const sourceId = getSourceIdForLayer(layer);
-      const newUrl = buildVectorSourceTileUrl(layer, token, tileBaseUrl, layers, sourceId);
-      refreshVectorSourceTiles(map, sourceId, newUrl);
+      const spec = sources.get(sourceId);
+      if (spec?.type === 'vector' && spec.tiles?.[0]) refreshVectorSourceTiles(map, sourceId, spec.tiles[0]);
     }
-  }, [tokenMap, layers, mapReady, tileConfig?.cdn_base_url]);
+  }, [tokenMap, layers, mapReady, tileConfigReady, tileConfig]);
 
   // Track whether we've restored a saved view (skip auto-fit on initial load)
   const hasSavedView = !!(initialViewState?.center_lng != null && initialViewState?.center_lat != null);

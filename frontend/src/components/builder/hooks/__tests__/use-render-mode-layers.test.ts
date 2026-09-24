@@ -166,6 +166,19 @@ describe('useRenderModeLayers — swapLayerOnMap label re-add carries parent fil
     expect(mapStub.setFilter).not.toHaveBeenCalled();
   });
 
+  it.each(['raster', 'hillshade'] as const)('leaves a %s switch to the sync pass', (adapterType) => {
+    const layer = makeLayer({ layer_type: 'raster_geolens', dataset_geometry_type: null, label_config: null });
+    const mapStub = makeMapStub();
+    const result = renderSwap(layer, mapStub);
+
+    act(() => {
+      result.current.swapLayerOnMap(layer, adapterType, {});
+    });
+
+    expect(mockAdapter.addLayers).not.toHaveBeenCalled();
+    expect(mapStub.removeSource).not.toHaveBeenCalled();
+  });
+
   it('symbol branch does not touch the label filter', () => {
     const filter = ['==', ['get', 'category'], 'A'] as MapLayerResponse['filter'];
     const layer = makeLayer({ filter });

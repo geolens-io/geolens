@@ -1,16 +1,17 @@
-import type { Map as MaplibreMap, GeoJSONSource, StyleSpecification, VectorSourceSpecification } from 'maplibre-gl';
+import type {
+  Map as MaplibreMap,
+  GeoJSONSource,
+  GeoJSONSourceSpecification,
+  RasterDEMSourceSpecification,
+  RasterSourceSpecification,
+  StyleSpecification,
+  VectorSourceSpecification,
+} from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
 import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig, MapTerrainConfig, PopupConfig } from '@/types/api';
-import { extractPlaceholders } from '@/lib/popup-template';
-import type {
-  RasterTileToken,
-  TileToken,
-  UnsignedRasterTileTemplate,
-  VectorTileToken,
-} from '@/api/tiles';
+import type { TileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
-import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import {
   applyBasemapConfigToStyle,
   isBasemapOwnedLayer,
@@ -26,18 +27,16 @@ import {
   FULL_ZOOM_RANGE,
   adapterInputFor,
   describeLayers,
-  isRasterLikeLayer,
   type DescribedLayer,
+  type Description,
   type RenderContext,
   type ZoomRange,
 } from './layer-description';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
-import { resolveSymbolConfig } from './layer-adapters/symbol-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
 import { syncColorReliefLayer } from './color-relief-sync';
-import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
@@ -64,7 +63,13 @@ export {
   stripCustomProps,
   filterPaintForLayerType,
 } from './layer-adapters/shared';
-export { isDemTerrainVisualSuppressed } from './layer-description';
+export {
+  getDataDrivenColumnsForLayer,
+  getDataDrivenColumnsForSource,
+  getSourceIdForLayer,
+  isDemTerrainVisualSuppressed,
+  type SourceIdLayer,
+} from './layer-description';
 
 export const TERRAIN_SOURCE_ID = 'terrain-dem';
 export const TERRAIN_EXAGGERATION_MIN = 0;
@@ -292,19 +297,6 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     // be a second copy of that rule and would discard the seam before anything
     // downstream could use it.
     bounds: layer.dataset_extent_bbox ?? null,
-  };
-}
-
-function rasterTokenFromLayer(layer: SyncLayerInput): UnsignedRasterTileTemplate | null {
-  if (!isRasterLikeLayer(layer) || !layer.tile_url) return null;
-  return {
-    kind: 'raster',
-    tile_url: layer.tile_url,
-    bounds: layer.bounds ?? null,
-    minzoom: layer.minzoom ?? 0,
-    maxzoom: layer.maxzoom ?? 18,
-    tile_size: layer.tile_size ?? 256,
-    format: layer.format ?? 'png',
   };
 }
 
@@ -720,228 +712,8 @@ export function refreshVectorSourceTiles(map: MaplibreMap, sourceId: string, til
   return true;
 }
 
-// chore(#835): `getSourceId(layerId)` was deleted. It had zero callers and was
-// a live footgun: it returned the raw per-layer id, which is WRONG for
-// SF-04-deduped vector sources — use `getSourceIdForLayer(layer)` below.
-
 export function getLayerId(layerId: string) {
   return prefixed('layer', layerId);
-}
-
-/**
- * Derive the MapLibre source id for a given layer.
- *
- * Phase 1050 SF-04 dedupe contract:
- *   - Cluster layers (`getClusterSourceStrategy(layer).kind !== 'fallback'`)
- *     keep their per-layer source id (`source-${layer.id}`). Cluster radius
- *     and minPoints are per-layer settings, so two cluster layers on the
- *     SAME dataset still need separate sources. This preserves the existing
- *     `source-cluster-1` keying that `map-sync.cluster.test.ts` asserts —
- *     the test's layer id is literally `cluster-1`, so `source-${id}` already
- *     produces `source-cluster-1`.
- *   - Non-cluster VECTOR layers with a `dataset_table_name` share one
- *     deduped source per dataset (`source-data-${dataset_table_name}`).
- *     Multiple visual layers on the same dataset_table_name now reuse a
- *     single MapLibre source, eliminating the per-layer tile-request fanout
- *     observed in v1010.1 SF-04 (~80 requests collapse to ~M for M datasets).
- *   - Raster / hillshade / orphan layers (no dataset_table_name) fall back
- *     to the per-layer key (`source-${layer.id}`). Raster sources are
- *     already idempotency-guarded by signed-tile-URL shape and don't share
- *     across layers in practice.
- *
- * `prefix` is the optional Viewer/Embed prefix (e.g. `embed-`) used by
- * `syncLayersToMap`'s `idPrefix` option.
- */
-/**
- * Minimal shape accepted by `getSourceIdForLayer`. Compatible with both
- * `SyncLayerInput` (builder/viewer sync) and `MapLayerResponse` (API). All
- * fields are optional except `id`, with `dataset_table_name` being the key
- * input for the dedupe path.
- */
-export interface SourceIdLayer {
-  id: string;
-  dataset_table_name?: string | null;
-  dataset_geometry_type?: string | null;
-  dataset_record_type?: string | null;
-  style_config?: Pick<StyleConfig, 'render_mode'> | null;
-  feature_count?: number | null;
-  dataset_feature_count?: number | null;
-  is_dem?: boolean | null;
-  layer_type?: string | null;
-}
-
-/** Extract column names a layer needs in MVT tiles to drive paint expressions.
- *
- * The tile server (Phase 269 H-23) projects no attribute columns at z<10 by
- * default, which breaks data-driven styling at zoomed-out views. Listing the
- * referenced columns here lets `buildSignedTileUrl` opt them into the tile
- * via the `cols=` query param so categorical / graduated / heatmap-weight /
- * height-extrusion expressions evaluate against real data at any zoom.
- *
- * Sources considered:
- *  - `style_config.column` — categorical / graduated styling
- *  - paint `_heatmap-weight-column` — heatmap weighting (custom builder prop)
- *  - paint `_height_column` — 3D fill-extrusion height (custom builder prop)
- *  - paint expressions of shape `["get", "<colname>"]` — generic catch-all
- *  - `label_config.column` — label text-field is a LAYOUT property the paint
- *    walk cannot see, which is exactly why an explicit read is required here
- *  - `style_config.symbol.categoryColumn` (#1778): the per-category
- *    `icon-image` match is the other data-driven LAYOUT expression, so a
- *    category-styled symbol layer fell back to its default icon below z10
- *  - `filter` expressions (builder-audit #338 P1-03) — a filter that references a
- *    column NOT also used by paint/label would otherwise evaluate against
- *    missing properties at z<10, producing empty/inconsistent rendering.
- *  - `popup_config` (#350) — custom `visible_fields` and `{placeholder}`
- *    title-template columns. Without these the popup filters to selected fields
- *    that were stripped from the tile at z<10 and renders "No attributes".
- */
-export function getDataDrivenColumnsForLayer(
-  layer: {
-    style_config?: StyleConfig | null;
-    paint?: Record<string, unknown>;
-    label_config?: LabelConfig | null;
-    filter?: FilterSpecification | unknown[] | null;
-    popup_config?: PopupConfig | null;
-  },
-): string[] {
-  const cols = new Set<string>();
-  const styleCol = layer.style_config?.column;
-  if (typeof styleCol === 'string' && styleCol) cols.add(styleCol);
-  const paint = layer.paint ?? {};
-  const heatmapWeight = paint['_heatmap-weight-column'];
-  if (typeof heatmapWeight === 'string' && heatmapWeight) cols.add(heatmapWeight);
-  const heightCol = paint['_height_column'];
-  if (typeof heightCol === 'string' && heightCol) cols.add(heightCol);
-  // label_config.column drives the companion symbol layer's text-field layout
-  // property — a LAYOUT expression the paint walk below cannot reach.
-  const labelCol = layer.label_config?.column;
-  if (typeof labelCol === 'string' && labelCol) cols.add(labelCol);
-  // fix(#1778): the symbol adapter's per-category `icon-image` is the other
-  // data-driven LAYOUT expression the paint walk below cannot reach.
-  // fix(#1778 codex round 2): resolved through the SAME merge the adapter uses,
-  // not `style_config.symbol ?? style_config.builder.symbol`. That picked one
-  // object whole, so a `categoryColumn` stashed under `builder` was dropped as
-  // soon as any top-level symbol object existed, and the icons fell back below
-  // z10 exactly as if the column had never been read.
-  const symbolCol = resolveSymbolConfig(layer.style_config).categoryColumn;
-  if (typeof symbolCol === 'string' && symbolCol) cols.add(symbolCol);
-  // Walk MapLibre expressions for `["get", "<name>"]` / `["has", "<name>"]`
-  // references — the canonical ways to read a feature property. Used for both
-  // paint values AND the filter (P1-03), so filter-only columns survive the
-  // z<10 attribute budget.
-  function walk(node: unknown): void {
-    if (!Array.isArray(node) || node.length === 0) return;
-    if ((node[0] === 'get' || node[0] === 'has') && typeof node[1] === 'string') {
-      cols.add(node[1]);
-      return;
-    }
-    for (const child of node) walk(child);
-  }
-  for (const val of Object.values(paint)) walk(val);
-  if (layer.filter) walk(layer.filter);
-  // Popup columns: the title template's {placeholder} columns and the
-  // custom visible_fields list. Skipped when the popup is explicitly disabled.
-  const popup = layer.popup_config;
-  if (popup && popup.enabled !== false) {
-    if (popup.expression) {
-      for (const c of extractPlaceholders(popup.expression)) cols.add(c);
-    }
-    if (popup.visible_fields) {
-      for (const c of popup.visible_fields) {
-        if (typeof c === 'string' && c) cols.add(c);
-      }
-    }
-  }
-  return Array.from(cols);
-}
-
-/** Union of data-driven columns across every layer sharing a source. */
-export function getDataDrivenColumnsForSource(
-  sourceId: string,
-  layers: SourceIdLayer[],
-  prefix?: string,
-): string[] {
-  const cols = new Set<string>();
-  for (const layer of layers) {
-    if (getSourceIdForLayer(layer, prefix) !== sourceId) continue;
-    const layerWithStyle = layer as SourceIdLayer & {
-      style_config?: StyleConfig | null;
-      paint?: Record<string, unknown>;
-      label_config?: LabelConfig | null;
-      filter?: FilterSpecification | unknown[] | null;
-      popup_config?: PopupConfig | null;
-    };
-    for (const c of getDataDrivenColumnsForLayer(layerWithStyle)) cols.add(c);
-  }
-  return Array.from(cols);
-}
-
-export function getSourceIdForLayer(
-  layer: SourceIdLayer,
-  prefix?: string,
-) {
-  // Cluster layers stay per-layer — cluster radius/minPoints are per-layer
-  // settings, so two cluster layers on the same dataset_table_name must
-  // each get their own MapLibre source.
-  if (getClusterSourceStrategy(layer).kind !== 'fallback') {
-    return prefixed('source', layer.id, prefix);
-  }
-  // Raster / hillshade / DEM layers also stay per-layer. Their tile URL is
-  // signed and per-dataset, and they can't share a MapLibre source with a
-  // vector layer anyway.
-  if (layer.is_dem === true || layer.layer_type === 'raster_geolens') {
-    return prefixed('source', layer.id, prefix);
-  }
-  // Non-cluster VECTOR layers with a known dataset_table_name share one
-  // source per dataset (the dedupe).
-  if (
-    typeof layer.dataset_table_name === 'string'
-    && layer.dataset_table_name.length > 0
-  ) {
-    const p = prefix ?? '';
-    return `${p}source-data-${layer.dataset_table_name}`;
-  }
-  // Fallback: per-layer key.
-  return prefixed('source', layer.id, prefix);
-}
-
-/** Detect whether any layer using this sourceId needs `lineMetrics: true`.
- *  A layer "needs" the flag when:
- *    - paint['line-gradient'] is set (any value — string, array expression, or object), OR
- *    - style_config.builder.lineGradient is a non-empty plain object (Phase 256 builder intent stub).
- *  Contract (locked): builder.lineGradient must be a plain object (NOT an array). Both this
- *  helper and the backend `_layer_uses_line_gradient` reject array-shaped intent. Phase 256
- *  builder UI must serialize stops as `{stops: [...]}` (or similar object wrapper), never as a
- *  bare array. Detection rule per .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-01.
- *
- *  Phase 1050 SF-04 dedupe: this loop now matches multiple layers in the deduped
- *  case (two non-cluster vector layers on the same `dataset_table_name` share a
- *  source). The "any consumer needs it → emit on the shared source" semantics
- *  is exactly what the forward-compat note anticipated.
- */
-function lineGradientNeededFor(
-  sourceId: string,
-  layers: SyncLayerInput[],
-  idPrefix: string | undefined,
-): boolean {
-  for (const layer of layers) {
-    if (getSourceIdForLayer(layer, idPrefix) !== sourceId) continue;
-    const paint = layer.paint ?? {};
-    if (paint['line-gradient'] != null) return true;
-    const builder = (layer.style_config as { builder?: { lineGradient?: unknown } } | null | undefined)?.builder;
-    const intent = builder?.lineGradient;
-    // Must be a non-null, non-array plain object with at least one key. Arrays are rejected
-    // for parity with the backend (`isinstance(intent, dict)`); see CONTEXT D-01.
-    if (
-      intent != null
-      && typeof intent === 'object'
-      && !Array.isArray(intent)
-      && Object.keys(intent as object).length > 0
-    ) {
-      return true;
-    }
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -968,19 +740,15 @@ export function isHillshadeTerrainBound(
   );
 }
 
-/** Add or update a raster layer on the map. */
+/** Add or update a raster layer and its described source on the map. */
 function syncRasterLayer(
   map: MaplibreMap,
   adapterInput: AdapterLayerInput,
-  drawsAs: DescribedLayer['drawsAs'],
-  // fix(#688): either shape. This reads only the URL, zoom, size and bounds —
-  // never the signature — so the locally-built unsigned template is as good
-  // here as a fetched one.
-  token: RasterTileToken | UnsignedRasterTileTemplate,
+  source: RasterSourceSpecification | RasterDEMSourceSpecification,
   desiredSources: Set<string>,
 ) {
   adapterInput.style_config = normalizeDemStyleConfig(adapterInput.style_config, adapterInput.is_dem);
-  const useHillshade = drawsAs === 'hillshade';
+  const useHillshade = source.type === 'raster-dem';
 
   // fix(HT-05): a terrain-bound hillshade always paints alongside the 3D mesh
   // on its own per-layer source (`source-${layer.id}` via getSourceIdForLayer,
@@ -989,40 +757,21 @@ function syncRasterLayer(
   // (999.17 D-07) was dead code: terrain binding is same-dataset, so both
   // consumers derive tileSize from one raster token and can never mismatch.
 
-  // Apply colormap query params to the tile URL before the diff comparison so
-  // that a _colormap change causes the existing source teardown/recreate path
-  // to fire and MapLibre re-fetches tiles with the new colormap. DEM/hillshade
-  // uses terrainrgb encoding — colormap params MUST NOT be added there.
-  const effectiveTileUrl = useHillshade
-    ? token.tile_url
-    : buildColormapTileUrl(token.tile_url, adapterInput.paint);
-
-  adapterInput.tileUrl = effectiveTileUrl;
-  adapterInput.tileSize = token.tile_size ?? 256;
-  adapterInput.minzoom = token.minzoom ?? 0;
-  adapterInput.maxzoom = token.maxzoom ?? 18;
-  adapterInput.bounds = token.bounds;
   const adapter = getAdapter(useHillshade ? 'hillshade' : 'raster');
   const expectedLayerType = useHillshade ? 'hillshade' : 'raster';
-  const expectedSourceType = useHillshade ? 'raster-dem' : 'raster';
   const currentLayer = map.getLayer(adapterInput.layerId) as { type?: string } | undefined;
   const currentSource = map.getSource(adapterInput.sourceId) as { type?: string } | undefined;
   const currentSourceSpec = currentSource ? sourceSpec(currentSource) : {};
-  const desiredBounds = normalizeRasterBounds(token.bounds);
-  const desiredTileUrl = absolutizeTileUrl(effectiveTileUrl);
-  const desiredTileSize = token.tile_size ?? 256;
-  const desiredMinzoom = token.minzoom ?? 0;
-  const desiredMaxzoom = token.maxzoom ?? 18;
 
   if (
     (currentLayer && currentLayer.type !== expectedLayerType) ||
     (currentSource && (
-      currentSource.type !== expectedSourceType ||
-      currentSourceSpec.tiles?.[0] !== desiredTileUrl ||
-      currentSourceSpec.tileSize !== desiredTileSize ||
-      currentSourceSpec.minzoom !== desiredMinzoom ||
-      currentSourceSpec.maxzoom !== desiredMaxzoom ||
-      !sameNumberArray(currentSourceSpec.bounds, desiredBounds)
+      currentSource.type !== source.type ||
+      currentSourceSpec.tiles?.[0] !== source.tiles?.[0] ||
+      currentSourceSpec.tileSize !== source.tileSize ||
+      currentSourceSpec.minzoom !== source.minzoom ||
+      currentSourceSpec.maxzoom !== source.maxzoom ||
+      !sameNumberArray(currentSourceSpec.bounds, source.bounds)
     ))
   ) {
     removeColorReliefCompanionLayer(map, adapterInput.layerId);
@@ -1031,29 +780,13 @@ function syncRasterLayer(
   }
 
   if (!map.getSource(adapterInput.sourceId)) {
+    map.addSource(adapterInput.sourceId, source);
     adapter.addLayers(map, adapterInput);
   } else {
     adapter.syncPaint(map, adapterInput);
   }
   desiredSources.add(adapterInput.sourceId);
 }
-
-// MVT-03: vector sources serve world zoom 0 (the tile server validates and
-// serves z0); a minzoom of 1 would make MapLibre never request z0 tiles, so
-// data would vanish at the full-world view.
-const VECTOR_SOURCE_MINZOOM = 0;
-// MVT-04 (verifier over-fetch note): cap the vector source maxzoom so MapLibre
-// OVERZOOMS a cached tile above this level instead of firing a fresh PostGIS
-// tile query at every integer zoom up to 22. Feature geometry does not gain
-// detail above ~z14 (the server stops simplifying at z>=10), so overzooming a
-// full-detail z14 tile renders identically while collapsing the high-zoom query
-// fanout.
-const VECTOR_SOURCE_MAXZOOM = 14;
-// Codex P2 (#338): server-cluster sources are the exception — the backend stops
-// clustering only for z > cluster_max_zoom (default 14), so the client MUST be
-// allowed to fetch z15+ unclustered tiles for clusters to expand into individual
-// points. Capping these at 14 would overzoom the clustered z14 tile forever.
-const VECTOR_SOURCE_CLUSTER_MAXZOOM = 22;
 
 /** Resolved per-layer source decisions — pure, no map side effects.
  *  builder-audit #338 SYNC-05: extracted from syncVectorLayer so the type/cluster
@@ -1065,62 +798,34 @@ interface VectorSourceMode {
   canUseCluster: boolean;
   canUseServerCluster: boolean;
   canUseBoundedCluster: boolean;
-  useGeoJsonSource: boolean;
-  desiredSourceType: 'vector' | 'geojson';
-  clusterOptions: ReturnType<typeof getClusterSourceOptions>;
   /** Composite signature for cluster sources (null for non-cluster). */
   desiredClusterSignature: string | null;
 }
 
-/** Cluster eligibility, GeoJSON or vector tiles, and the signed tile URL for the
- *  adapter the description chose. Sets `adapterInput.tileUrl`. */
+/** Cluster flags for the adapter and source the description chose. Sets `adapterInput.tileUrl`. */
 function resolveVectorSourceMode(
   layer: SyncLayerInput,
-  allLayers: SyncLayerInput[],
   adapterInput: AdapterLayerInput,
   drawsAs: DescribedLayer['drawsAs'],
-  tileBaseUrl: string | undefined,
-  token: VectorTileToken | null,
-  geojsonDataMap: Map<string, GeoJSON.FeatureCollection> | undefined,
-  prefix: string | undefined,
+  source: VectorSourceSpecification | GeoJSONSourceSpecification,
 ): VectorSourceMode {
-  const clusterStrategy = getClusterSourceStrategy(layer);
-  const hasBoundedGeoJson = geojsonDataMap?.has(layer.id) === true;
   // The description already turned a cluster it cannot draw into circles.
   const canUseCluster = drawsAs === 'cluster';
-  const canUseBoundedCluster = canUseCluster && clusterStrategy.kind === 'bounded-geojson';
-  const canUseServerCluster = canUseCluster && clusterStrategy.kind === 'server-tile';
-  const type = drawsAs;
-  const adapter = getAdapter(type);
-  const clusterOptions = getClusterSourceOptions(adapterInput);
-  // Gather data-driven columns from every layer sharing this source. The tile
-  // server's z<10 attribute budget would otherwise strip them, breaking
-  // categorical / graduated / heatmap / 3D-extrusion / filter-only paint at low
-  // zooms (filter columns are folded in by getDataDrivenColumnsForLayer, P1-03).
-  // fix(#403): server-cluster sources need the cols= opt-in too — their
-  // unclustered features (past cluster_max_zoom / single-point buckets) are
-  // styled and popup-inspected exactly like plain vector features.
-  const sharedSourceCols = getDataDrivenColumnsForSource(adapterInput.sourceId, allLayers, prefix);
-  // MVT-04: thread the dataset content/version stamp into the `_v=` cache-buster
-  // so a reupload/geometry edit busts client/CDN caches (undefined when the
-  // dataset exposes no version).
-  const tileVersion = layer.tile_version ?? undefined;
-  adapterInput.tileUrl = canUseServerCluster
-    ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, clusterOptions, sharedSourceCols)
-    : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, sharedSourceCols);
-
-  // GeoJSON branch: 3D small datasets and eligible Cluster layers use GeoJSON
-  // sources instead of the normal vector-tile path.
-  const isGeoJsonZ = layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000;
-  const useGeoJsonSource = (isGeoJsonZ || canUseBoundedCluster) && hasBoundedGeoJson;
-  const desiredSourceType: 'vector' | 'geojson' = useGeoJsonSource ? 'geojson' : 'vector';
+  const canUseBoundedCluster = canUseCluster && source.type === 'geojson';
+  const canUseServerCluster = canUseCluster && source.type === 'vector';
+  adapterInput.tileUrl = source.type === 'vector' ? source.tiles?.[0] ?? '' : '';
+  // A clustered GeoJSON source is rebuilt when these options change; a cluster
+  // tile source takes them in its URL, which refreshes in place.
   const desiredClusterSignature = canUseCluster
-    ? `${clusterStrategy.kind}:${clusterSourceSignature(adapterInput)}:${adapterInput.tileUrl}`
+    ? `${getClusterSourceStrategy(layer).kind}:${clusterSourceSignature(adapterInput)}`
     : null;
-
   return {
-    adapter, type, canUseCluster, canUseServerCluster, canUseBoundedCluster,
-    useGeoJsonSource, desiredSourceType, clusterOptions, desiredClusterSignature,
+    adapter: getAdapter(drawsAs),
+    type: drawsAs,
+    canUseCluster,
+    canUseServerCluster,
+    canUseBoundedCluster,
+    desiredClusterSignature,
   };
 }
 
@@ -1142,23 +847,21 @@ function syncVectorTiles(
   }
 }
 
-/** SYNC-05 unit 2 (ensureVectorSource): create / recreate the geojson or vector
- *  source and reconcile its tiles. Returns true when the geojson path fully
- *  handled visibility + zoom range (caller returns early). */
+/** SYNC-05 unit 2 (ensureVectorSource): create / recreate the described geojson
+ *  or vector source and reconcile its tiles. Returns true when the geojson path
+ *  fully handled visibility + zoom range (caller returns early). */
 function ensureVectorSource(
   map: MaplibreMap,
   layer: SyncLayerInput,
-  allLayers: SyncLayerInput[],
   adapterInput: AdapterLayerInput,
   mode: VectorSourceMode,
+  source: VectorSourceSpecification | GeoJSONSourceSpecification,
   zoom: ZoomRange,
-  geojsonDataMap: Map<string, GeoJSON.FeatureCollection> | undefined,
   prefix: string | undefined,
 ): boolean {
   const { sourceId, layerId } = adapterInput;
   const {
-    adapter, canUseCluster, canUseServerCluster, canUseBoundedCluster,
-    useGeoJsonSource, desiredSourceType, clusterOptions, desiredClusterSignature,
+    adapter, canUseCluster, canUseServerCluster, canUseBoundedCluster, desiredClusterSignature,
   } = mode;
   const clusterStore = clusterSignatureStore(map);
   const tileStore = tileUrlSignatureStore(map);
@@ -1168,7 +871,7 @@ function ensureVectorSource(
   const geoJsonClusterSourceOptionsChanged = canUseBoundedCluster
     && currentSource?.type === 'geojson'
     && currentClusterSignature !== desiredClusterSignature;
-  if (currentSource && (currentSource.type !== desiredSourceType || geoJsonClusterSourceOptionsChanged)) {
+  if (currentSource && (currentSource.type !== source.type || geoJsonClusterSourceOptionsChanged)) {
     removeKnownVectorLayers(map, layerId, layer.id, prefix);
     map.removeSource(sourceId);
     clusterStore.delete(sourceId);
@@ -1182,36 +885,11 @@ function ensureVectorSource(
     clusterStore.delete(sourceId);
   }
 
-  // fix(#1472 review): hoisted above the GeoJSON branch so BOTH source kinds
-  // this function can create read one definition. It was declared inside the
-  // vector-tile block, which is why the two GeoJSON sources below shipped
-  // uncredited: a 3D dataset at or under the GeoJSON-Z threshold, and a bounded
-  // client-side cluster layer, are the two shapes that never reach that block.
-  const attribution = typeof layer.attribution === 'string' && layer.attribution.length > 0
-    ? layer.attribution
-    : undefined;
-
-  if (useGeoJsonSource) {
-    const geojsonData = geojsonDataMap!.get(layer.id)!;
+  if (source.type === 'geojson') {
     adapterInput.sourceType = 'geojson';
     if (!map.getSource(sourceId)) {
-      if (canUseBoundedCluster) {
-        map.addSource(sourceId, {
-          type: 'geojson',
-          data: geojsonData,
-          cluster: true,
-          ...clusterOptions,
-          ...(attribution ? { attribution } : {}),
-        });
-        clusterStore.set(sourceId, desiredClusterSignature ?? '');
-      } else {
-        map.addSource(sourceId, {
-          type: 'geojson',
-          data: geojsonData,
-          ...(attribution ? { attribution } : {}),
-        });
-        clusterStore.delete(sourceId);
-      }
+      map.addSource(sourceId, source);
+      clusterStore.set(sourceId, desiredClusterSignature ?? '');
       adapter.addLayers(map, adapterInput);
     } else {
       const src = map.getSource(sourceId);
@@ -1223,7 +901,7 @@ function ensureVectorSource(
       // the credit is correct again on the next load of the builder. Every
       // PUBLISHED surface (viewer, share, embed, exported style) re-reads the
       // field per render or per request and is never stale.
-      if (src && src.type === 'geojson') (src as GeoJSONSource).setData(geojsonData);
+      if (src && src.type === 'geojson') (src as GeoJSONSource).setData(source.data);
       // A second layer sharing this dataset's source (the SF-04 dedupe) hits this
       // branch even though its own layer was never added. syncPaint no-ops when the
       // layer is missing, so add it here instead. See #311.
@@ -1236,24 +914,8 @@ function ensureVectorSource(
   }
 
   if (!map.getSource(sourceId)) {
-    const needsLineMetrics = lineGradientNeededFor(sourceId, allLayers, prefix);
-    // MVT-06: bound tile fetching to the dataset footprint. MVT-05: surface the
-    // dataset attribution string when available (hoisted above the GeoJSON
-    // branch — see the note there).
-    const bounds = normalizeRasterBounds(layer.bounds);
     // lineMetrics is sticky per D-02 (255-CONTEXT.md): we only set it at source CREATE time.
-    const vectorSpec: VectorSourceSpecification = {
-      type: 'vector',
-      tiles: [adapterInput.tileUrl],
-      minzoom: VECTOR_SOURCE_MINZOOM,
-      maxzoom: canUseServerCluster
-        ? VECTOR_SOURCE_CLUSTER_MAXZOOM
-        : VECTOR_SOURCE_MAXZOOM,
-      ...(needsLineMetrics && { lineMetrics: true }),
-      ...(bounds ? { bounds } : {}),
-      ...(attribution ? { attribution } : {}),
-    };
-    map.addSource(sourceId, vectorSpec);
+    map.addSource(sourceId, source);
     if (canUseServerCluster && desiredClusterSignature) clusterStore.set(sourceId, desiredClusterSignature);
     else clusterStore.delete(sourceId);
     // Seed the tile-url signature so the first post-create sync (and the
@@ -1304,27 +966,24 @@ function syncLabelCompanion(
   }
 }
 
-/** Add or update a vector (MVT / GeoJSON-Z) layer, including labels and visibility.
+/** Add or update a vector (MVT / GeoJSON) layer, including labels and visibility.
  *  builder-audit #338 SYNC-05: orchestrates resolveVectorSourceMode → ensureVectorSource
  *  → syncLabelCompanion so each concern is an isolated, testable unit. */
 function syncVectorLayer(
   map: MaplibreMap,
   layer: SyncLayerInput,
   described: DescribedLayer,
-  allLayers: SyncLayerInput[],
+  source: VectorSourceSpecification | GeoJSONSourceSpecification,
   adapterInput: AdapterLayerInput,
-  tileBaseUrl: string | undefined,
-  token: VectorTileToken | null,
   desiredSources: Set<string>,
-  geojsonDataMap: Map<string, GeoJSON.FeatureCollection> | undefined,
   prefix: string | undefined,
 ) {
   const { sourceId, layerId } = adapterInput;
   desiredSources.add(sourceId);
   const zoom = described.zoom ?? FULL_ZOOM_RANGE;
 
-  const mode = resolveVectorSourceMode(layer, allLayers, adapterInput, described.drawsAs, tileBaseUrl, token, geojsonDataMap, prefix);
-  const handledGeoJson = ensureVectorSource(map, layer, allLayers, adapterInput, mode, zoom, geojsonDataMap, prefix);
+  const mode = resolveVectorSourceMode(layer, adapterInput, described.drawsAs, source);
+  const handledGeoJson = ensureVectorSource(map, layer, adapterInput, mode, source, zoom, prefix);
   if (handledGeoJson) return;
 
   const outlineLayerId = prefixed('outline', layer.id, prefix);
@@ -1436,6 +1095,28 @@ function removeOrphanManagedLayers(
 
 // ---------------------------------------------------------------------------
 
+/** The render context syncLayersToMap describes its layers in. */
+export function syncRenderContext(
+  tokenMap: ReadonlyMap<string, TileToken>,
+  tileBaseUrl: string | undefined,
+  geojsonDataMap: ReadonlyMap<string, GeoJSON.FeatureCollection> | undefined,
+  options: Pick<SyncOptions, 'idPrefix' | 'mvtSourceLayerPrefix'> | undefined,
+): RenderContext {
+  return {
+    idPrefix: options?.idPrefix ?? '',
+    origin: window.location.origin,
+    tileBaseUrl,
+    sourceLayerPrefix: options?.mvtSourceLayerPrefix,
+    tokens: tokenMap,
+    boundedGeoJson: geojsonDataMap ?? new Map(),
+  };
+}
+
+function reportLayerSyncFailure(layer: SyncLayerInput, err: unknown) {
+  if (import.meta.env.DEV) console.error('[map-sync] layer sync failed', layer.id, err);
+  toast.error(i18n.t('builder:toasts.layerSyncFailed', { name: layer.dataset_table_name }), { id: `sync-error-${layer.id}` });
+}
+
 /** Imperatively add/sync all data layers to the map. Safe to call repeatedly.
  *  Works with both Builder (MapLayerResponse) and Viewer (SharedLayerResponse)
  *  contexts via the normalized SyncLayerInput interface. */
@@ -1455,33 +1136,31 @@ export function syncLayersToMap(
 
   const currentSources = new Set(managedSourcesRef.current);
   const desiredSources = new Set<string>();
-  const context: RenderContext = { idPrefix: prefix ?? '', boundedGeoJson: geojsonDataMap ?? new Map() };
+  let description: Description;
+  try {
+    description = describeLayers(renderableLayers, syncRenderContext(tokenMap, tileBaseUrl, geojsonDataMap, options));
+  } catch (err) {
+    // Only an unresolved tenant prefix throws here, and every caller gates on it.
+    for (const layer of renderableLayers) reportLayerSyncFailure(layer, err);
+    return;
+  }
+  const describedById = new Map(description.layers.map((described) => [described.id, described]));
 
   for (const layer of renderableLayers) {
     try {
-      const [described] = describeLayers([layer], context).layers;
-      if (!described) continue;
-
-      // SF-04 dedupe: non-cluster vector layers sharing a dataset_table_name
-      // now resolve to one shared source id; cluster + raster/DEM layers stay
-      // per-layer. Layer ids (per-layer paint/visibility) remain unchanged.
-      const sourceId = getSourceIdForLayer(layer, prefix);
-      // builder-audit #338 P1-01: one MVT source-layer-name helper shared with tile signing.
-      const sourceLayer = getMvtSourceLayerName(
-        layer.dataset_table_name,
-        options?.mvtSourceLayerPrefix,
-      );
-      const token = tokenMap.get(layer.dataset_id) ?? null;
+      const described = describedById.get(prefixed('layer', layer.id, prefix));
+      const source = described && description.sources.get(described.sourceId);
+      // Terrain-mode DEMs have no entry, and a raster without a tile URL no source.
+      if (!described || !source) continue;
 
       const adapterInput: AdapterLayerInput = {
-        ...adapterInputFor(layer, described, { sourceId, sourceLayer, tileUrl: '' }),
+        ...adapterInputFor(layer, described),
         // fix(#1472 review): reaches the raster / raster-dem source specs.
         attribution: layer.attribution ?? null,
       };
 
-      const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);
-      if (rasterToken) {
-        syncRasterLayer(map, adapterInput, described.drawsAs, rasterToken, desiredSources);
+      if (source.type === 'raster' || source.type === 'raster-dem') {
+        syncRasterLayer(map, adapterInput, source, desiredSources);
         // EDITOR-DEM-05: sync companion color-relief layer (hillshade-gated) for DEM layers.
         // Called after syncRasterLayer so the raster-dem source already exists.
         // Layer id: ${layerId}-colorrelief — reuses the existing raster-dem source.
@@ -1499,13 +1178,11 @@ export function syncLayersToMap(
             described.zoom,
           );
         }
-      } else {
-        const vectorToken = token?.kind === 'vector' ? token : null;
-        syncVectorLayer(map, layer, described, renderableLayers, adapterInput, tileBaseUrl, vectorToken, desiredSources, geojsonDataMap, prefix);
+      } else if (source.type === 'vector' || source.type === 'geojson') {
+        syncVectorLayer(map, layer, described, source, adapterInput, desiredSources, prefix);
       }
     } catch (err) {
-      if (import.meta.env.DEV) console.error('[map-sync] layer sync failed', layer.id, err);
-      toast.error(i18n.t('builder:toasts.layerSyncFailed', { name: layer.dataset_table_name }), { id: `sync-error-${layer.id}` });
+      reportLayerSyncFailure(layer, err);
     }
   }
 
