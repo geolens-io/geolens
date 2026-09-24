@@ -82,11 +82,12 @@ describe('line adapter — syncVisibility uses syncSingleLayerVisibility helper'
 });
 
 describe('line adapter — getLayerIds canonical shape (arrowLayerId guard PASS)', () => {
-  it('returns [layerId, layerId-arrow] for all render modes', () => {
-    // line-adapter.getLayerIds always returns both IDs — the arrow layer guard
-    // in syncVisibility is safe when the arrow layer does not exist on the map.
+  it('returns [layerId, layerId-arrow, layerId-label] for all render modes', () => {
+    // line-adapter.getLayerIds always returns every id — the arrow and label
+    // layer guards in syncVisibility are safe when a companion does not exist
+    // on the map.
     const ids = lineAdapter.getLayerIds('line-abc');
-    expect(ids).toEqual(['line-abc', 'line-abc-arrow']);
+    expect(ids).toEqual(['line-abc', 'line-abc-arrow', 'line-abc-label']);
   });
 });
 

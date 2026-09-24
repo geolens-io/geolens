@@ -69,11 +69,10 @@ function deriveCompanionIds(rawLayerId: string, renderMode: string | null | unde
     }
   }
   // Full companion set (base + outline + label + extrusion + arrow
-  // + colorrelief + cluster + cluster-count) from the single source of truth.
-  // The label companion is included because no current adapter declares it in
-  // getLayerIds — labels are managed by map-sync.ts syncLayersToMap, not by
-  // adapters. Color-relief is included because DEM hillshade layers can create
-  // it as a conditional companion on the same raster-dem source.
+  // + colorrelief + cluster + cluster-count) from the single source of truth,
+  // for an unknown or absent render mode. Color-relief is included because DEM
+  // hillshade layers can create it as a conditional companion on the same
+  // raster-dem source.
   const c = getCompanionLayerIds(rawLayerId);
   return [c.layer, c.outline, c.label, c.extrusion, c.arrow, c.colorRelief, c.cluster, c.clusterCount, c.mixedLines, c.mixedPoints];
 }

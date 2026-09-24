@@ -192,6 +192,34 @@ const LABEL_PAINT = {
   'text-opacity': 1,
 };
 
+/** The standalone label companion a point-placed family (circle, cluster,
+ *  line) draws — LABEL_TEXT/LABEL_PAINT plus the explicit placement and zoom
+ *  range every family shares, since none of them inline it the way symbol
+ *  does. `source` matches whatever source that family's own spec(s) use —
+ *  the shared per-dataset one by default, or a cluster's own per-layer one. */
+function labelCompanionSpec(
+  layer: MapLayerResponse,
+  source: { source: string; 'source-layer'?: string } = tableSource(layer),
+): LayerSpec {
+  return {
+    layer: {
+      id: `layer-${layer.id}-label`,
+      type: 'symbol',
+      ...source,
+      layout: { ...LABEL_TEXT, 'symbol-placement': 'point', visibility: 'visible' },
+      paint: LABEL_PAINT,
+      minzoom: 0,
+      maxzoom: 22,
+    },
+    ownedPaint: ['text-color', 'text-halo-color', 'text-halo-width', 'text-opacity'],
+    ownedLayout: [
+      'text-field', 'text-size', 'symbol-placement', 'text-allow-overlap',
+      'text-font', 'text-max-width', 'text-anchor', 'text-offset',
+      'symbol-avoid-edges', 'visibility',
+    ],
+  };
+}
+
 function symbolSpec(
   layer: MapLayerResponse,
   layout: Record<string, unknown>,
@@ -531,6 +559,18 @@ const rows: Row[] = [
       ],
       [ARROW_IMAGE as unknown as ImageSpec],
     ),
+  ],
+  [
+    'a point layer with a label',
+    { ...point, label_config: { column: 'name' } },
+    builder,
+    drawing([circle(point, { ...pointPaint, 'circle-opacity': 1 }), labelCompanionSpec(point)]),
+  ],
+  [
+    'a server cluster with a label',
+    { ...serverCluster, label_config: { column: 'name' } },
+    builder,
+    drawing(cluster(serverCluster, { source: ownSource(serverCluster), color: treeRamp, points: treePoints }).concat(labelCompanionSpec(serverCluster, ownSource(serverCluster)))),
   ],
 ];
 

@@ -1,6 +1,6 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { LABEL_FONT_STACK } from '../label-layer-utils';
+import { LABEL_FONT_STACK, labelLayerId, removeLabelCompanionIfCleared, withLabelCompanion } from '../label-layer-utils';
 import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import type { AdapterLayerInput, LayerAdapter, LayerDrawing } from './types';
 import { getBuilderStyleConfig, getExpressionSafeOpacity, sourceLayerSpec } from './shared';
@@ -172,7 +172,7 @@ function clusterCountPaint(input: AdapterLayerInput): Record<string, unknown> {
 function describeCluster(input: AdapterLayerInput): LayerDrawing {
   const visibility = input.visible ? 'visible' : 'none';
   const source = { source: input.sourceId, ...sourceLayerSpec(input) };
-  return {
+  return withLabelCompanion(input, {
     specs: [
       {
         layer: {
@@ -215,7 +215,7 @@ function describeCluster(input: AdapterLayerInput): LayerDrawing {
       },
     ],
     images: [],
-  };
+  });
 }
 
 export const clusterAdapter: LayerAdapter = {
@@ -227,6 +227,7 @@ export const clusterAdapter: LayerAdapter = {
   },
 
   syncPaint(map, input) {
+    removeLabelCompanionIfCleared(map, input);
     writeDescribedLayer(map, describeCluster(input));
   },
 
@@ -235,6 +236,6 @@ export const clusterAdapter: LayerAdapter = {
   },
 
   getLayerIds(layerId: string): string[] {
-    return [clusterCircleLayerId(layerId), clusterCountLayerId(layerId), layerId];
+    return [clusterCircleLayerId(layerId), clusterCountLayerId(layerId), layerId, labelLayerId(layerId)];
   },
 };

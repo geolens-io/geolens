@@ -28,10 +28,11 @@ describe('removePerLayerCompanions by render mode', () => {
 
     removePerLayerCompanions(map as never, ['l1'], renderModeByLayerId);
 
-    expect(removeLayer).toHaveBeenCalledTimes(3);
+    expect(removeLayer).toHaveBeenCalledTimes(4);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-label');
   });
 
   it('removes cluster companions', () => {
@@ -41,14 +42,26 @@ describe('removePerLayerCompanions by render mode', () => {
 
     removePerLayerCompanions(map as never, ['l1'], renderModeByLayerId);
 
-    expect(removeLayer).toHaveBeenCalledTimes(3);
+    expect(removeLayer).toHaveBeenCalledTimes(4);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster-count');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-label');
+  });
+
+  it('circle render mode removes the base layer and its label companion', () => {
+    const removeLayer = vi.fn();
+    const map = makeMap({ removeLayer });
+    const renderModeByLayerId = new Map([['l1', 'circle']]);
+
+    removePerLayerCompanions(map as never, ['l1'], renderModeByLayerId);
+
+    expect(removeLayer).toHaveBeenCalledTimes(2);
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-label');
   });
 
   it.each([
-    ['circle'],
     ['symbol'],
     ['heatmap'],
     ['raster'],
@@ -63,16 +76,17 @@ describe('removePerLayerCompanions by render mode', () => {
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
   });
 
-  it('removes the line base and arrow companion', () => {
+  it('removes the line base, arrow, and label companions', () => {
     const removeLayer = vi.fn();
     const map = makeMap({ removeLayer });
     const renderModeByLayerId = new Map([['l1', 'line']]);
 
     removePerLayerCompanions(map as never, ['l1'], renderModeByLayerId);
 
-    expect(removeLayer).toHaveBeenCalledTimes(2);
+    expect(removeLayer).toHaveBeenCalledTimes(3);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-arrow');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-label');
   });
 
   it('uses the suffix sweep when arrow is not registered', () => {
@@ -204,13 +218,15 @@ describe('removePerLayerCompanions by render mode', () => {
 
     removePerLayerCompanions(map as never, ['l1', 'l2'], renderModeByLayerId);
 
-    expect(removeLayer).toHaveBeenCalledTimes(6);
+    expect(removeLayer).toHaveBeenCalledTimes(8);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-label');
     expect(removeLayer).toHaveBeenCalledWith('layer-l2-cluster');
     expect(removeLayer).toHaveBeenCalledWith('layer-l2-cluster-count');
     expect(removeLayer).toHaveBeenCalledWith('layer-l2');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l2-label');
   });
 
 });

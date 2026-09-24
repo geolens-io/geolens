@@ -117,7 +117,7 @@ function renderSwap(layer: MapLayerResponse, mapStub: MaplibreMap) {
   return result;
 }
 
-describe('useRenderModeLayers — swapLayerOnMap label re-add carries parent filter (B-007 / LB-02)', () => {
+describe('useRenderModeLayers — swapLayerOnMap removes a stale label before re-adding (B-007 / LB-02)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -126,31 +126,35 @@ describe('useRenderModeLayers — swapLayerOnMap label re-add carries parent fil
     vi.clearAllMocks();
   });
 
-  it('re-added label layer receives the parent layer filter', () => {
-    const filter = ['==', ['get', 'category'], 'A'] as MapLayerResponse['filter'];
-    const layer = makeLayer({ filter });
+  it('removes an existing label companion before adding the new render mode', () => {
+    const layer = makeLayer();
     const mapStub = makeMapStub();
+    (mapStub.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => (id === LABEL_ID ? { id } : undefined));
     const result = renderSwap(layer, mapStub);
 
     act(() => {
       result.current.swapLayerOnMap(layer, 'circle', {});
     });
 
-    expect(mapStub.addLayer).toHaveBeenCalled();
-    expect(mapStub.setFilter).toHaveBeenCalledWith(LABEL_ID, filter);
+    // The label is removed unconditionally, like every other companion above
+    // it; the new adapter's own addLayers/syncVisibility (asserted elsewhere)
+    // re-add it, filter and all, when the new family is labelled.
+    expect(mapStub.removeLayer).toHaveBeenCalledWith(LABEL_ID);
+    expect(mockAdapter.addLayers).toHaveBeenCalled();
   });
 
-  it('re-added label layer receives a cleared (null) filter when the parent has none', () => {
-    const layer = makeLayer({ filter: null });
+  it('a switch to heatmap drops the label instead of only hiding it (documented change)', () => {
+    const layer = makeLayer();
     const mapStub = makeMapStub();
+    (mapStub.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => (id === LABEL_ID ? { id } : undefined));
     const result = renderSwap(layer, mapStub);
 
     act(() => {
-      result.current.swapLayerOnMap(layer, 'circle', {});
+      result.current.swapLayerOnMap(layer, 'heatmap', {});
     });
 
-    expect(mapStub.addLayer).toHaveBeenCalled();
-    expect(mapStub.setFilter).toHaveBeenCalledWith(LABEL_ID, null);
+    expect(mapStub.removeLayer).toHaveBeenCalledWith(LABEL_ID);
+    expect(mapStub.setLayoutProperty).not.toHaveBeenCalledWith(LABEL_ID, 'visibility', 'none');
   });
 
   it('heatmap branch does not touch the label filter', () => {

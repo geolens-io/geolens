@@ -55,11 +55,6 @@ vi.mock('@/lib/maplibre-filter-utils', () => ({
   sanitizeNullableNumericFilter: vi.fn((f: unknown) => f),
 }));
 
-vi.mock('@/components/builder/label-layer-utils', () => ({
-  buildLabelLayerSpec: vi.fn(),
-  syncLabelLayer: vi.fn(),
-}));
-
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
