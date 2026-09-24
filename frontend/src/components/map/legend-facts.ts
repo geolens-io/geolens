@@ -290,7 +290,7 @@ function colorSteps(value: unknown): { colors: string[]; breaks: number[]; colum
   };
 }
 
-function sameNumbers(a: number[], b: number[]): boolean {
+function sameValues<T>(a: T[], b: T[]): boolean {
   return a.length === b.length && a.every((value, i) => value === b[i]);
 }
 
@@ -302,7 +302,7 @@ function sizeStepsMatch(value: unknown, column: string, breaks: number[]): boole
   const expression = unwrapNullGuard(value);
   if (!Array.isArray(expression)) return false;
   if (expression[0] === 'step' && plainColumn(expression[1]) === column) {
-    return sameNumbers(expression.filter((_, i) => i >= 3 && i % 2 === 1), breaks);
+    return sameValues(expression.filter((_, i) => i >= 3 && i % 2 === 1), breaks);
   }
   const zoomStops = expression[0] === 'interpolate' && isExpression(expression[2], 'zoom')
     ? expression.filter((_, i) => i >= 4 && i % 2 === 0)
@@ -346,7 +346,7 @@ function classesFor(
     // A colour step on the size column at the size breaks, over sizes that step there
     // too, gives each size class one colour, so the legend lists one classification.
     const sizeProperty = getSizeProperty(geometry, config.target);
-    const colorsEachSize = listed !== null && listed.isStep && listed.column === column && sameNumbers(listed.breaks, breaks)
+    const colorsEachSize = listed !== null && listed.isStep && listed.column === column && sameValues(listed.breaks, breaks)
       && sizeProperty !== null && sizeStepsMatch(paint[sizeProperty], column, breaks);
     const sized: LegendClasses = {
       mode: 'graduated',
@@ -366,6 +366,11 @@ function classesFor(
   }
   const items = (config.colors ?? []).map((classColor) => ({ color: classColor }));
   if (!items.length) return null;
+  // Stored classes that the paint's own ramp on the column contradicts are stale.
+  const painted = colorSteps(paint[getColorProperty(geometry)]);
+  const contradicted = painted?.column === column
+    && (!sameValues(painted.colors, items.map((item) => item.color)) || (config.breaks !== undefined && !sameValues(painted.breaks, breaks)));
+  if (contradicted) return null;
   return [{ mode: 'graduated', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks }];
 }
 
@@ -435,9 +440,9 @@ function rampFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts['r
   return drawn ? { ...drawn, name: ramp?.name ?? null, reversed: ramp?.reversed ?? false } : null;
 }
 
+// The adapter weights by the paint, so builder state naming a column is not enough.
 function weightColumnFor(layer: LegendLayer, kind: LayerAdapter['type']): string | null {
-  const column = kind === 'heatmap' ? getBuilderStyleConfig(layer).heatmapWeightColumn : undefined;
-  return typeof column === 'string' && column ? column : null;
+  return kind === 'heatmap' ? plainColumn(layer.paint?.['heatmap-weight']) : null;
 }
 
 /**

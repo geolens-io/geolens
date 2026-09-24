@@ -3168,7 +3168,7 @@ describe('SHARE-09 export PNG composition', () => {
     const badRamp = makeLayer({
       id: 'layer-bad-ramp',
       display_name: 'Bad ramp',
-      paint: { 'fill-color': ['step', ['get', 'v'], '#111111', 10, '#222222'] },
+      paint: { 'fill-color': ['step', ['get', 'v'], '#111111', 10, ''] },
       style_config: { mode: 'graduated', column: 'v', colors: ['#111111', ''], breaks: [10] },
       visible: true,
       show_in_legend: true,

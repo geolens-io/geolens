@@ -341,6 +341,9 @@ const sizedByMagnitude = (circleColor: unknown) => savedLayer({
   paint: { 'circle-radius': magnitudeRadius, 'circle-color': circleColor },
   style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7], sizeLabel: 'Magnitude', colorLabel: 'Depth (km)' },
 });
+/** The graduated-colour fixture with its fill-color replaced. */
+const graduatedPop = (fillColor: unknown) => ({ ...SAVED_LAYERS.graduatedColor, paint: { 'fill-color': fillColor } });
+
 /** Magnitude size classes coloured by a step on magnitude at the same breaks, over the given size paint. */
 const magnitudeSizedBy = (circleRadius: unknown) => savedLayer({
   dataset_geometry_type: 'MULTIPOINT',
@@ -532,6 +535,21 @@ const classRows: ClassRow[] = [
     [graduated('width', 'flow', sized('#bae6fd', [1, 3, 6]), [10, 100]), graduated('color', 'basin', colored(['#bae6fd', '#0369a1']), [3])],
   ],
   [
+    'graduated colours the paint no longer draws',
+    graduatedPop(['case', ['==', ['get', 'pop'], null], '#cccccc', ['step', ['get', 'pop'], '#000000', 1000, '#fdbb84', 5000, '#e34a33']]),
+    null,
+  ],
+  [
+    'graduated breaks the paint no longer uses',
+    graduatedPop(['case', ['==', ['get', 'pop'], null], '#cccccc', ['step', ['get', 'pop'], '#fee8c8', 1000, '#fdbb84', 6000, '#e34a33']]),
+    null,
+  ],
+  [
+    'graduated colours over paint the legend cannot read',
+    graduatedPop(['match', ['get', 'pop'], 0, '#fee8c8', '#e34a33']),
+    [graduated('color', 'pop', colored(['#fee8c8', '#fdbb84', '#e34a33']), [1000, 5000])],
+  ],
+  [
     'a graduated mode with neither colours nor sizes',
     { ...SAVED_LAYERS.graduatedColor, style_config: { mode: 'graduated', column: 'pop', breaks: [1000] } },
     null,
@@ -584,9 +602,29 @@ const heatRows: HeatRow[] = [
     { ramp: builderRamp('YlOrRd'), weightColumn: null },
   ],
   [
-    'snake_case builder keys',
+    'snake_case builder keys, with no weight in the paint',
     heatmap({}, { builder: { heatmap_ramp: 'Blues', heatmap_reversed: true, heatmap_weight_column: 'mag' } }),
-    { ramp: builderRamp('Blues', true), weightColumn: 'mag' },
+    { ramp: builderRamp('Blues', true), weightColumn: null },
+  ],
+  [
+    'a stale builder weight column over a constant weight',
+    heatmap({ 'heatmap-weight': 1 }, { builder: { heatmapWeightColumn: 'severity' } }),
+    { ramp: builderRamp('YlOrRd'), weightColumn: null },
+  ],
+  [
+    'a stale builder weight column over another column',
+    heatmap({ 'heatmap-weight': ['get', 'calls'] }, { builder: { heatmapWeightColumn: 'severity' } }),
+    { ramp: builderRamp('YlOrRd'), weightColumn: 'calls' },
+  ],
+  [
+    'a coerced weight column',
+    heatmap({ 'heatmap-weight': ['to-number', ['get', 'mag'], 0] }),
+    { ramp: builderRamp('YlOrRd'), weightColumn: 'mag' },
+  ],
+  [
+    'a weight ramp over a column',
+    heatmap({ 'heatmap-weight': ['interpolate', ['linear'], ['to-number', ['get', 'mag'], 0], 2.5, 0.05, 8, 1] }),
+    { ramp: builderRamp('YlOrRd'), weightColumn: null },
   ],
   [
     'a stored ramp with an opaque colour at zero density',
