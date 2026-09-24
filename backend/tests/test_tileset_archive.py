@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import math
 import os
 import stat
@@ -434,6 +435,85 @@ def test_a_tileset_json_that_is_not_a_json_object_is_refused(
 def test_a_malformed_root_is_refused(tmp_path: Path, json_kw: dict) -> None:
     """The root's bounding volume and geometric error must be well formed."""
     refused(tileset_zip(tmp_path / "t.zip", **json_kw))
+
+
+# --- 11. Content URIs ----------------------------------------------------
+
+
+def _with_content(uri: str, *, where: str = "root") -> dict:
+    tile = {"boundingVolume": {"sphere": [0, 0, 0, 1]}, "geometricError": 0}
+    if where == "root":
+        return {"content": {"uri": uri}}
+    if where == "child":
+        return {"children": [{**tile, "content": {"uri": uri}}]}
+    if where == "contents":
+        return {"contents": [{"uri": "0/0.glb"}, {"uri": uri}]}
+    if where == "legacy-url":
+        return {"content": {"url": uri}}
+    return {"implicitTiling": {"subtrees": {"uri": uri}}}
+
+
+def _tileset_with_root(root_extra: dict) -> bytes:
+    document = json.loads(tileset_json())
+    document["root"].update(root_extra)
+    return json.dumps(document).encode()
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "https://example.com/0/0.b3dm",
+        "data:application/octet-stream;base64,AAAA",
+        "/srv/tiles/0.glb",
+        "C:/tiles/0.glb",
+        "..\\0.glb",
+        "../0.glb",
+        "0/../../0.glb",
+        "%2e%2e/0.glb",
+        "0/%2E%2E/%2e%2e/0.glb",
+    ],
+    ids=[
+        "http",
+        "data",
+        "absolute-path",
+        "drive-letter",
+        "backslash",
+        "dotdot",
+        "climbs-out-later",
+        "encoded-dotdot",
+        "encoded-dotdot-later",
+    ],
+)
+@pytest.mark.parametrize(
+    "where", ["root", "child", "contents", "legacy-url", "implicit-subtrees"]
+)
+def test_content_outside_the_tileset_is_refused(
+    tmp_path: Path, uri: str, where: str
+) -> None:
+    """Every content and subtree URI in the tile tree must stay inside the tileset."""
+    path = build_zip(
+        tmp_path / "t.zip",
+        [("tileset.json", _tileset_with_root(_with_content(uri, where=where)))],
+    )
+
+    message = refused(path)
+
+    assert "names content outside the tileset" in message
+    assert uri not in message
+
+
+@pytest.mark.parametrize(
+    "uri",
+    ["0/0.glb", "0/../0/0.glb", "./0/0.glb", "sub/tileset.json", "0/0.glb?v=2#x"],
+)
+def test_content_inside_the_tileset_is_accepted(tmp_path: Path, uri: str) -> None:
+    """A relative path that stays under tileset.json's folder is fine."""
+    path = build_zip(
+        tmp_path / "t.zip",
+        [("tileset.json", _tileset_with_root(_with_content(uri, where="child")))],
+    )
+
+    assert inspect_tileset(path).facts.version == "1.1"
 
 
 # --- 10. Extent ----------------------------------------------------------

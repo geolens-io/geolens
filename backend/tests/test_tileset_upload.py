@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import inspect
 import io
+import json
 import math
 import os
 import uuid
@@ -305,6 +306,21 @@ async def test_a_zip_slip_archive_is_refused_before_any_write(
     assert (job.status, job.file_path) == ("failed", "")
     assert await tileset_objects() == []
     assert list((tmp_path / "staging").glob("*.zip")) == []
+
+
+async def test_content_outside_the_tileset_is_refused_at_the_door(
+    client: AsyncClient, test_db_session, uploader
+) -> None:
+    """A tileset whose content URI climbs out of it is refused before any write."""
+    document = json.loads(tileset_json())
+    document["root"]["content"] = {"uri": "../../other-dataset/tileset.json"}
+    data = zip_bytes([("tileset.json", json.dumps(document).encode())])
+
+    refused = await upload(client, uploader[0], data)
+
+    assert refused.status_code == 422, refused.text
+    assert "names content outside the tileset" in refused.json()["detail"]
+    assert await tileset_objects() == []
 
 
 @pytest.mark.parametrize("door", ["multipart", "presigned"])

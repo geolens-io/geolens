@@ -21,7 +21,8 @@ import zipfile
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Iterator, NoReturn
+from urllib.parse import unquote
 
 import structlog
 from fastapi import HTTPException, status
@@ -85,6 +86,7 @@ _UNICODE_PATH_EXTRA_FIELD = 0x7075
 # The closing quote is optional: an unclosed string then runs to the end instead
 # of failing and rescanning from every later quote. json.loads refuses it anyway.
 _JSON_STRING = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"?')
+_URI_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 _NOT_A_BRACKET = re.compile(r"[^\[\]{}]+")
 
 # The end-of-central-directory record, its longest comment, and the ZIP64
@@ -339,6 +341,50 @@ def _parse_entry_point(raw: bytes) -> dict:
     return document
 
 
+def _content_uris(root: dict) -> Iterator[str]:
+    """Every content and subtree URI the tile tree under ``root`` names."""
+    tiles: list[object] = [root]
+    while tiles:
+        tile = tiles.pop()
+        if not isinstance(tile, dict):
+            continue
+        contents = tile.get("contents")
+        for content in [
+            tile.get("content"),
+            *(contents if isinstance(contents, list) else []),
+        ]:
+            if isinstance(content, dict):
+                # "url" is the pre-1.0 spelling some exporters still write.
+                yield from (
+                    content[k]
+                    for k in ("uri", "url")
+                    if isinstance(content.get(k), str)
+                )
+        implicit = tile.get("implicitTiling")
+        subtrees = implicit.get("subtrees") if isinstance(implicit, dict) else None
+        if isinstance(subtrees, dict) and isinstance(subtrees.get("uri"), str):
+            yield subtrees["uri"]
+        children = tile.get("children")
+        if isinstance(children, list):
+            tiles.extend(children)
+
+
+def _stays_in_tileset(uri: str) -> bool:
+    """Whether a relative URI resolves inside the folder tileset.json sits in."""
+    path = unquote(uri.split("#", 1)[0].split("?", 1)[0])
+    if _URI_SCHEME.match(path) or path.startswith(("/", "\\")) or "\\" in path:
+        return False
+    depth = 0
+    for segment in path.split("/"):
+        if segment == "..":
+            depth -= 1
+            if depth < 0:
+                return False
+        elif segment not in ("", "."):
+            depth += 1
+    return True
+
+
 def read_facts(archive: zipfile.ZipFile, entry_point: zipfile.ZipInfo) -> TilesetFacts:
     """Read the version, root geometric error and bounding volume from tileset.json."""
     with _member_read_errors(TILESET_ENTRY_POINT):
@@ -380,6 +426,14 @@ def read_facts(archive: zipfile.ZipFile, entry_point: zipfile.ZipInfo) -> Tilese
         _refuse(
             "The root boundingVolume has no region, box or sphere.",
             reason="tileset_bounding_volume",
+        )
+
+    if not all(_stays_in_tileset(uri) for uri in _content_uris(root)):
+        _refuse(
+            f"{TILESET_ENTRY_POINT} names content outside the tileset: an absolute "
+            "URI, or a path that climbs out of it with '..'. Content must be a "
+            "relative path to a file in the archive.",
+            reason="tileset_content_uri",
         )
 
     geometric_error = root.get("geometricError")
