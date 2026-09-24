@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 import { ColorizedGeometryIcon, LayerTypeIcon, getLayerColors, type LayerTypeIconLayer } from '../layer-icons';
 import type { LegendSwatch } from '../legend-facts';
+import { buildCategoricalExpression } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
 import type { MapLayerResponse } from '@/types/api';
@@ -91,7 +92,7 @@ describe('discrete bands for categorical styles (ux #840)', () => {
       layer_type: 'vector_geolens',
       paint: {
         'circle-radius': ['step', ['get', 'pop'], 4, 1000, 8],
-        'circle-color': ['case', ['==', ['get', 'pop'], null], '#cccccc', ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33']],
+        'circle-color': buildCategoricalExpression('kind', [['school', '#f472b6']], '#cccccc'),
       },
       style_config: { mode: 'graduated', column: 'pop', target: 'radius', sizes: [4, 8], breaks: [1000] },
     };

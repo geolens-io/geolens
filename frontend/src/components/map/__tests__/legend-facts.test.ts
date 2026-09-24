@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildGraduatedExpression, buildGraduatedSizeExpression } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
 import { SAVED_LAYERS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
@@ -322,6 +323,26 @@ const classRows: ClassRow[] = [
     'radius classes coloured by the same column',
     sizedByMagnitude(['step', ['get', 'mag'], '#fee8c8', 6, '#fdbb84', 7, '#e34a33']),
     [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Depth (km)', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+  ],
+  [
+    "radius classes over the builder's graduated colour",
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: {
+        'circle-radius': buildGraduatedSizeExpression('mag', [6, 7], [4, 8, 14]),
+        'circle-color': buildGraduatedExpression('depth_km', [50, 200], ['#fee8c8', '#fdbb84', '#e34a33']),
+      },
+      style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7] },
+    }),
+    [
+      graduated('radius', 'mag', sized('#fee8c8', [4, 8, 14]), [6, 7]),
+      graduated('color', 'depth km', colored(['#fee8c8', '#fdbb84', '#e34a33']), [50, 200]),
+    ],
+  ],
+  [
+    'radius classes over a case that is not a null guard',
+    sizedByMagnitude(['case', ['>', ['get', 'depth_km'], 100], '#e34a33', ['step', ['get', 'depth_km'], '#fee8c8', 50, '#fdbb84']]),
+    [MAGNITUDE_SIZES(MAP_COLORS.fallback)],
   ],
   [
     'radius classes with a zoom-stepped colour',

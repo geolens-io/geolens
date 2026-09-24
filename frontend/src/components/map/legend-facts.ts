@@ -183,9 +183,23 @@ function expressionColumn(value: unknown): string | null {
   return null;
 }
 
-/** The colours and breaks of a step or linear interpolate colour expression. */
+/**
+ * The expression inside the null guard the style builders wrap around their
+ * classes, `['case', ['==', ['get', column], null], fallback, inner]`; any other
+ * value as it is.
+ */
+function unwrapNullGuard(value: unknown): unknown {
+  if (!Array.isArray(value) || value[0] !== 'case' || value.length !== 4) return value;
+  const test = value[1];
+  const isNullGuard = Array.isArray(test) && test.length === 3 && test[0] === '=='
+    && Array.isArray(test[1]) && test[1][0] === 'get' && typeof test[1][1] === 'string'
+    && test[2] === null;
+  return isNullGuard ? value[3] : value;
+}
+
+/** The colours and breaks of a step or linear interpolate colour expression, null guard or not. */
 function colorSteps(value: unknown): { colors: string[]; breaks: number[] } | null {
-  const parsed = parseStepOrInterpolate(value);
+  const parsed = parseStepOrInterpolate(unwrapNullGuard(value));
   if (!parsed || !parsed.values.every((v) => typeof v === 'string')) return null;
   return { colors: parsed.values as string[], breaks: parsed.breaks };
 }
