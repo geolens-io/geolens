@@ -1,8 +1,10 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { AdapterLayerInput, LayerAdapter } from './types';
-import { normalizeRasterBounds, paintValueChanged, syncSingleLayerVisibility } from './shared';
+import type { AdapterLayerInput, LayerAdapter, LayerDrawing, LayerSpec } from './types';
+import { normalizeRasterBounds, paintValueChanged } from './shared';
 import { DEFAULT_HILLSHADE_PAINT } from './builder-defaults';
 import { COLOR_RELIEF_SUFFIX } from '../companion-ids';
+import { buildElevationExpression } from '../color-relief-sync';
+import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
+import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 // builder-audit #338 ADAPT-06: re-export the single hillshade default from builder-defaults
@@ -14,7 +16,7 @@ type HillshadePaintProperty = keyof typeof HILLSHADE_PAINT_DEFAULTS;
 export const HILLSHADE_EXAGGERATION_MIN = 0;
 export const HILLSHADE_EXAGGERATION_MAX = 1;
 
-const HILLSHADE_PAINT_PROPERTIES = Object.keys(HILLSHADE_PAINT_DEFAULTS) as HillshadePaintProperty[];
+export const HILLSHADE_PAINT_PROPERTIES = Object.keys(HILLSHADE_PAINT_DEFAULTS) as HillshadePaintProperty[];
 const HILLSHADE_COLOR_PROPERTIES = [
   'hillshade-shadow-color',
   'hillshade-highlight-color',
@@ -51,13 +53,6 @@ function getSupportedHillshadePaint(
     }
   }
   return nextPaint;
-}
-
-function hasHillshadePaintValue(
-  paint: Partial<Record<HillshadePaintProperty, number | string>>,
-  property: HillshadePaintProperty,
-): boolean {
-  return Object.prototype.hasOwnProperty.call(paint, property);
 }
 
 function normalizeOpacity(value: number | null | undefined): number {
@@ -117,11 +112,63 @@ function buildHillshadePaint(input: AdapterLayerInput): Record<string, number | 
   return paint;
 }
 
+export const COLOR_RELIEF_OWNED_PAINT_PROPERTIES = ['color-relief-color', 'color-relief-opacity'] as const;
+
+/**
+ * The hypsometric tint under a DEM's hillshade, when the layer turns it on. A new
+ * ramp rebuilds it in a paint write that can run outside map-sync's zoom-range
+ * pass, so it carries the layer's saved zoom range itself.
+ */
+function colorReliefSpec(input: AdapterLayerInput): LayerSpec | null {
+  if (input.is_dem !== true || input.paint['_hypso-enabled'] !== true) return null;
+  const ramp = input.paint['_hypso-ramp'];
+  return {
+    layer: {
+      id: `${input.layerId}${COLOR_RELIEF_SUFFIX}`,
+      type: 'color-relief',
+      source: input.sourceId,
+      ...(input.zoom ? { minzoom: input.zoom.minzoom, maxzoom: input.zoom.maxzoom } : {}),
+      layout: { visibility: input.visible ? 'visible' : 'none' },
+      paint: {
+        'color-relief-color': buildElevationExpression(
+          typeof ramp === 'string' ? ramp : 'Viridis',
+          undefined,
+          undefined,
+          input.paint['_hypso-reversed'] === true,
+        ),
+        'color-relief-opacity': 0.7,
+      },
+    },
+    ownedPaint: COLOR_RELIEF_OWNED_PAINT_PROPERTIES,
+    ownedLayout: ['visibility'],
+  };
+}
+
+/** The hillshade, and its colour relief below it when the layer turns one on. A terrain-mode DEM draws neither. */
+function describeHillshade(input: AdapterLayerInput): LayerDrawing {
+  if (effectiveDemRenderMode(input.style_config, input.is_dem) === 'terrain') return { specs: [], images: [] };
+  const hillshade: LayerSpec = {
+    layer: {
+      id: input.layerId,
+      type: 'hillshade',
+      source: input.sourceId,
+      layout: { visibility: input.visible ? 'visible' : 'none' },
+      paint: buildHillshadePaint(input),
+    },
+    ownedPaint: HILLSHADE_PAINT_PROPERTIES,
+    // map-sync's raster path calls syncPaint with no syncVisibility after it.
+    ownedLayout: ['visibility'],
+  };
+  const relief = colorReliefSpec(input);
+  return { specs: relief ? [relief, hillshade] : [hillshade], images: [] };
+}
+
 export const hillshadeAdapter: LayerAdapter = {
   type: 'hillshade',
+  describe: describeHillshade,
 
-  addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds, attribution } = input;
+  addLayers(map, input) {
+    const { sourceId, tileUrl, tileSize, minzoom, maxzoom, bounds, attribution } = input;
     if (!map.getSource(sourceId)) {
       // builder-audit #338 ADAPT-01: shared normalizeRasterBounds, computed once instead
       // of the prior double-call inside the spread ternary.
@@ -139,58 +186,31 @@ export const hillshadeAdapter: LayerAdapter = {
         encoding: 'mapbox',
       });
     }
-    if (!map.getLayer(layerId)) {
-      map.addLayer({
-        id: layerId,
-        type: 'hillshade',
-        source: sourceId,
-        paint: buildHillshadePaint(input),
-      });
-    }
-    if (!visible) {
-      map.setLayoutProperty(layerId, 'visibility', 'none');
-    }
+    writeDescribedLayer(map, describeHillshade(input));
   },
 
-  syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, visible } = input;
-    if (!map.getLayer(layerId)) return;
-
-    const supportedPaint = getSupportedHillshadePaint(input.paint);
-    const desiredPaint = buildHillshadePaint(input);
-    const hasOpacityOverride = normalizeOpacity(input.opacity) !== 1;
-    for (const property of HILLSHADE_PAINT_PROPERTIES) {
-      const current = map.getPaintProperty(layerId, property);
-      const desired = desiredPaint[property];
-      const shouldSync = hasHillshadePaintValue(supportedPaint, property)
-        || current !== undefined
-        || (hasOpacityOverride && HILLSHADE_COLOR_PROPERTIES.includes(property as typeof HILLSHADE_COLOR_PROPERTIES[number]));
-      if (shouldSync && paintValueChanged(current, desired)) {
-        map.setPaintProperty(layerId, property, desired);
-      }
+  syncPaint(map, input) {
+    if (!map.getLayer(input.layerId)) return;
+    const drawing = describeHillshade(input);
+    // setPaintProperty does not reliably rebuild the relief's colour-ramp texture, so a
+    // new ramp removes the relief here and the write adds it back below the hillshade.
+    // Each rebuild reloads the DEM source, so an unchanged relief stays in place.
+    const reliefId = `${input.layerId}${COLOR_RELIEF_SUFFIX}`;
+    const relief = drawing.specs.find(({ layer }) => layer.id === reliefId)?.layer;
+    if (map.getLayer(reliefId)
+      && (!relief || paintValueChanged(map.getPaintProperty(reliefId, 'color-relief-color'), relief.paint['color-relief-color']))) {
+      map.removeLayer(reliefId);
     }
-
-    // builder-audit #338 ADAPT-09: reconcile visibility through the SAME shared helper the
-    // vector adapters use, instead of a hand-rolled setLayoutProperty. syncRasterLayer
-    // (map-sync) calls syncPaint without a following syncVisibility for the raster/DEM
-    // path, so visibility must still be reconciled here — but now uniformly.
-    syncSingleLayerVisibility(map, layerId, visible);
+    writeDescribedLayer(map, drawing);
   },
 
-  syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    syncSingleLayerVisibility(map, input.layerId, input.visible);
-    // fix(#452): the hypso color-relief companion shares the raster-dem source
-    // and must follow the DEM's visibility. The full sync path recreates it via
-    // syncColorReliefLayer, but visibility-only diffs (the viewer legend's live
-    // eye toggle) only call syncVisibility — without this the unshaded tint
-    // kept painting after the DEM was hidden.
-    syncSingleLayerVisibility(map, `${input.layerId}${COLOR_RELIEF_SUFFIX}`, input.visible);
+  syncVisibility(map, input) {
+    writeDescribedVisibility(map, describeHillshade(input));
   },
 
   getLayerIds(layerId: string): string[] {
-    // fix(#452): the conditional color-relief companion belongs to this adapter;
-    // consumers (zoom-range sync, teardown) must see it. syncSingleLayerVisibility
-    // and removal both no-op when the companion doesn't exist.
+    // The colour relief is conditional but belongs to this adapter, so zoom-range
+    // sync and teardown see it; both skip it when it is not on the map.
     return [layerId, `${layerId}${COLOR_RELIEF_SUFFIX}`];
   },
 };

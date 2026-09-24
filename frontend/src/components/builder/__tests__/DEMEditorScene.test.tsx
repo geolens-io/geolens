@@ -696,9 +696,7 @@ describe('DEMEditorScene', () => {
       expect(picker).toHaveAttribute('data-ramp', 'Viridis');
     });
 
-    // test(#828): write side of hypso_reversed — the reverse toggle must persist
-    // _hypso-reversed via onPaintChange (color-relief-sync consumes it to flip
-    // the rendered ramp). Regressed once in the 1.6.0 cycle.
+    // The hillshade adapter's colour relief reads _hypso-reversed to flip the rendered ramp.
     it('toggling reverse fires onPaintChange with _hypso-reversed=true, preserving other keys', () => {
       const onPaintChange = vi.fn();
       render(

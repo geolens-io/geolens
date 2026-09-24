@@ -96,6 +96,7 @@ function makeMapRef(overrides: Partial<{
     getPaintProperty: overrides.getPaintProperty ?? vi.fn(),
     getLayoutProperty: overrides.getLayoutProperty ?? vi.fn(),
     getLayer: overrides.getLayer ?? vi.fn().mockReturnValue(null),
+    getFilter: vi.fn(),
   };
   return { current: mapInstance } as React.RefObject<typeof mapInstance>;
 }
@@ -389,7 +390,7 @@ describe('useBuilderLayers — handleBulkOpacity (POL-09)', () => {
 
   it('routes DEM hillshade bulk opacity through hillshade color paint, not raster-opacity', async () => {
     const setPaintProperty = vi.fn();
-    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer', type: 'hillshade' });
+    const getLayer = vi.fn((id: string) => (id === 'layer-dem' ? { id, type: 'hillshade' } : undefined));
     const getPaintProperty = vi.fn().mockReturnValue(undefined);
     const getLayoutProperty = vi.fn().mockReturnValue('visible');
     const mapRef = makeMapRef({
