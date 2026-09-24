@@ -183,25 +183,43 @@ function expressionColumn(value: unknown): string | null {
   return null;
 }
 
+/** The column a plain `['get', column]` reads; null for any other value. */
+function getColumn(value: unknown): string | null {
+  return Array.isArray(value) && value.length === 2 && value[0] === 'get' && typeof value[1] === 'string'
+    ? value[1]
+    : null;
+}
+
+/** The input a step or interpolate expression is classed on; undefined for any other value. */
+function rampInput(value: unknown): unknown {
+  if (!Array.isArray(value)) return undefined;
+  if (value[0] === 'step') return value[1];
+  if (value[0] === 'interpolate') return value[2];
+  return undefined;
+}
+
 /**
- * The expression inside the null guard the style builders wrap around their
- * classes, `['case', ['==', ['get', column], null], fallback, inner]`; any other
- * value as it is.
+ * The ramp inside the null guard the style builders wrap around their classes,
+ * `['case', ['==', ['get', column], null], fallback, ramp]`, when the ramp is
+ * classed on that same column; any other value as it is.
  */
 function unwrapNullGuard(value: unknown): unknown {
   if (!Array.isArray(value) || value[0] !== 'case' || value.length !== 4) return value;
-  const test = value[1];
-  const isNullGuard = Array.isArray(test) && test.length === 3 && test[0] === '=='
-    && Array.isArray(test[1]) && test[1][0] === 'get' && typeof test[1][1] === 'string'
-    && test[2] === null;
-  return isNullGuard ? value[3] : value;
+  const [, test, , ramp] = value;
+  const isNullTest = Array.isArray(test) && test.length === 3 && test[0] === '==' && test[2] === null;
+  const guarded = isNullTest ? getColumn(test[1]) : null;
+  return guarded !== null && getColumn(rampInput(ramp)) === guarded ? ramp : value;
 }
 
-/** The colours and breaks of a step or linear interpolate colour expression, null guard or not. */
-function colorSteps(value: unknown): { colors: string[]; breaks: number[] } | null {
-  const parsed = parseStepOrInterpolate(unwrapNullGuard(value));
+/**
+ * The colours, breaks and column of a step or linear interpolate colour ramp,
+ * null guard or not. The column comes from the ramp's input, so a zoom ramp has none.
+ */
+function colorSteps(value: unknown): { colors: string[]; breaks: number[]; column: string | null } | null {
+  const ramp = unwrapNullGuard(value);
+  const parsed = parseStepOrInterpolate(ramp);
   if (!parsed || !parsed.values.every((v) => typeof v === 'string')) return null;
-  return { colors: parsed.values as string[], breaks: parsed.breaks };
+  return { colors: parsed.values as string[], breaks: parsed.breaks, column: expressionColumn(rampInput(ramp)) };
 }
 
 // Symbol icons, heatmaps and rasters draw none of the vector colour or size classes.
@@ -230,9 +248,7 @@ function classesFor(
   }
   if (config.mode !== 'graduated') return null;
   if ((config.target === 'radius' || config.target === 'width') && config.sizes?.length) {
-    const painted = paint[getColorProperty(geometry)];
-    const steps = colorSteps(painted);
-    const colorColumn = expressionColumn(painted);
+    const steps = colorSteps(paint[getColorProperty(geometry)]);
     const color = steps?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
     const sized: LegendClasses = {
       mode: 'graduated',
@@ -241,11 +257,11 @@ function classesFor(
       items: config.sizes.map((size) => ({ color, size })),
       breaks,
     };
-    if (!steps || !colorColumn) return [sized];
+    if (!steps?.column) return [sized];
     return [sized, {
       mode: 'graduated',
       target: 'color',
-      title: config.colorLabel ?? displayColumn(colorColumn),
+      title: config.colorLabel ?? displayColumn(steps.column),
       items: steps.colors.map((stepColor) => ({ color: stepColor })),
       breaks: steps.breaks,
     }];

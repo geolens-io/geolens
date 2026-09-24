@@ -345,6 +345,21 @@ const classRows: ClassRow[] = [
     [MAGNITUDE_SIZES(MAP_COLORS.fallback)],
   ],
   [
+    'radius classes over a null-guarded zoom ramp',
+    sizedByMagnitude(['case', ['==', ['get', 'foo'], null], '#cccccc', ['step', ['zoom'], '#fee8c8', 10, '#e34a33']]),
+    [MAGNITUDE_SIZES(MAP_COLORS.fallback)],
+  ],
+  [
+    'radius classes over a null guard on another column than its ramp',
+    sizedByMagnitude(['case', ['==', ['get', 'depth_km'], null], '#cccccc', ['step', ['get', 'basin'], '#fee8c8', 3, '#e34a33']]),
+    [MAGNITUDE_SIZES(MAP_COLORS.fallback)],
+  ],
+  [
+    'radius classes over a zoom step with a stray get after its stops',
+    sizedByMagnitude(['step', ['zoom'], '#fee8c8', 10, '#e34a33', ['get', 'depth_km'], '#7d3c98']),
+    [MAGNITUDE_SIZES('#fee8c8')],
+  ],
+  [
     'radius classes with a zoom-stepped colour',
     sizedByMagnitude(['step', ['zoom'], '#fee8c8', 10, '#e34a33']),
     [MAGNITUDE_SIZES('#fee8c8')],
