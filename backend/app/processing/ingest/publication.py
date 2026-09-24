@@ -177,16 +177,17 @@ async def commit_publication(
     job_id: uuid.UUID,
     attempt_id: uuid.UUID,
     task: str,
+    ended: str = "complete",
 ) -> PublicationCommit:
-    """Commit the transaction that publishes this attempt.
+    """Commit the transaction that ends this attempt's job ``ended``.
 
     When the acknowledgement is lost, a probe of the job row decides: a commit
     it reads as landed, or cannot read at all, is returned rather than raised,
     and a cancellation that lost the acknowledgement is absorbed so the caller
     goes on to its post-commit steps. Re-raises when the probe reads that the
-    commit did not land. Every replacement path turns its job row ``complete``
-    in the publishing transaction, which is what the probe reads. Callers
-    delete superseded data only when the result is ``confirmed``.
+    commit did not land. Every replacement path ends its job in that
+    transaction, which is what the probe reads. Callers delete superseded data
+    only when the result is ``confirmed``.
     """
     try:
         await session.commit()
@@ -195,7 +196,7 @@ async def commit_publication(
         asyncio.CancelledError,
     ) as exc:  # broad: a lost acknowledgement can surface as any error
         observation = await observe_publish_commit(
-            job_id, attempt_id, job_id=str(job_id), task=task
+            job_id, attempt_id, job_id=str(job_id), task=task, ended=ended
         )
         if observation is PublishObservation.NOT_LANDED:
             raise
@@ -427,12 +428,18 @@ async def _publish(
                 reason=verdict.reason,
                 linked=verdict.settle,
             )
-            await session.commit()
+            ended = await commit_publication(
+                session,
+                job_id=job_id,
+                attempt_id=attempt_id,
+                task=strategy.task,
+                ended="failed",
+            )
             async with cleanup_step(
                 f"{strategy.task} catalog cache", job_id=str(job_id)
             ):
                 await invalidate_catalog_cache()
-            if landed and verdict.notify:
+            if landed and ended.confirmed and verdict.notify:
                 await _notify_failed(job_id, task=strategy.task, reason=verdict.reason)
             return None, True
 

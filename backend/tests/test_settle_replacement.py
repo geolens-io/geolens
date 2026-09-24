@@ -412,6 +412,33 @@ class _FailingCommit:
         return patch.object(AsyncSession, "commit", _commit)
 
 
+class _LostAcknowledgement:
+    """Make the commit that ends the job ``ended`` raise after it has applied."""
+
+    def __init__(self, job_id: uuid.UUID, ended: str, failure: BaseException) -> None:
+        self.job_id = job_id
+        self.ended = ended
+        self.failure = failure
+        self.fired = 0
+
+    def installed(self):
+        real_commit = AsyncSession.commit
+        own_status = select(IngestJob.status).where(IngestJob.id == self.job_id)
+        outer = self
+
+        async def _commit(session, *args, **kwargs):
+            await real_commit(session, *args, **kwargs)
+            if outer.fired:
+                return
+            async with db_module.async_session() as probe:
+                status = await probe.scalar(own_status)
+            if status == outer.ended:
+                outer.fired += 1
+                raise outer.failure
+
+        return patch.object(AsyncSession, "commit", _commit)
+
+
 @pytest.mark.parametrize("fail_at", ["fetch", "stage", "install", "write", "commit"])
 async def test_a_failure_before_the_commit_leaves_live_data_as_it_was(
     seed, notifications, fail_at: str
@@ -476,11 +503,7 @@ async def test_a_failure_after_the_commit_is_logged_and_the_job_stays_complete(
     ]
 
 
-async def test_a_rejected_verdict_ends_the_job_failed_and_notifies(
-    seed, notifications
-) -> None:
-    """A rejection ends the job and settles its run in one transaction, and sends ingest_failed."""
-
+def _rejection(seed: _Seed) -> Verdict:
     async def _settle_rejected(session) -> None:
         await record_refresh_failure(
             session,
@@ -490,13 +513,19 @@ async def test_a_rejected_verdict_ends_the_job_failed_and_notifies(
             contacted_origin=False,
         )
 
-    verdict = Verdict(
+    return Verdict(
         publish=False,
         reason="The refresh was rejected.",
         settle=_settle_rejected,
         notify=True,
     )
-    fake = _Fake(seed, verdict=verdict)
+
+
+async def test_a_rejected_verdict_ends_the_job_failed_and_notifies(
+    seed, notifications
+) -> None:
+    """A rejection ends the job and settles its run in one transaction, and sends ingest_failed."""
+    fake = _Fake(seed, verdict=_rejection(seed))
     await _settle(fake)
 
     state = await _state(seed)
@@ -604,3 +633,20 @@ async def test_a_held_back_verdict_without_a_settle_step_is_refused() -> None:
     """A verdict that holds the candidate back must say how its run ends."""
     with pytest.raises(ValueError, match="settle step"):
         Verdict(publish=False, reason="Held back.")
+
+
+@pytest.mark.parametrize("failure", [ConnectionResetError, asyncio.CancelledError])
+async def test_a_rejection_that_loses_its_acknowledgement_still_notifies(
+    seed, notifications, failure
+) -> None:
+    """A rejection that lands but loses its acknowledgement ends as rejected and sends ingest_failed."""
+    fake = _Fake(seed, verdict=_rejection(seed))
+    lost = _LostAcknowledgement(seed.job_id, "failed", failure("dropped"))
+    with lost.installed():
+        await _settle(fake)
+
+    assert lost.fired == 1
+    state = await _state(seed)
+    assert state["job"] == "failed"
+    assert state["run"] == ("failed", "refresh_rejected")
+    assert _events(notifications) == ["ingest_failed"]
