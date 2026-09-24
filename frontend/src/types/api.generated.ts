@@ -8180,6 +8180,8 @@ export interface components {
             record_type: string;
             /** @description Raster-specific metadata (null for vectors) */
             raster?: components["schemas"]["RasterMetadata"] | null;
+            /** @description 3D Tiles metadata on the dataset detail response; null for other record types and before a tileset is published */
+            tileset?: components["schemas"]["TilesetMetadata"] | null;
             /**
              * Stac Assets
              * @description STAC-style asset dictionary
@@ -13463,6 +13465,17 @@ export interface components {
                     [key: string]: unknown;
                 };
             };
+        };
+        /**
+         * TilesetMetadata
+         * @description A 3D Tiles dataset's published tileset.
+         */
+        TilesetMetadata: {
+            /**
+             * Size Bytes
+             * @description Unpacked size of the tileset in bytes
+             */
+            size_bytes?: number | null;
         };
         /** TokenResponse */
         TokenResponse: {

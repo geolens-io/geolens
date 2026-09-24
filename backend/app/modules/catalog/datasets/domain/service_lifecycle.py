@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import Any, NamedTuple
 
@@ -22,8 +21,9 @@ from app.core.db.tenant_session import current_tenant_var
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.tenancy import is_multi_tenant
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.tiles3d import tileset_prefix
 from app.platform.dataset_origin import geolens_owns_table
-from app.platform.storage.titiler_url import resolve_storage_key
+from app.platform.storage.reap import delete_prefix
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -61,16 +61,19 @@ class DatasetDeletion(NamedTuple):
 async def reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> None:
     """Delete every object under GeoLens-managed prefixes for one dataset.
 
-    Import the storage provider locally so callers and tests can replace it.
+    Every prefix is walked even when an earlier one fails; the first failure
+    is raised once all have been tried.
     """
-    from app.platform.storage.provider import get_storage
-
-    storage = get_storage()
+    failure: Exception | None = None
     for prefix in prefixes:
-        physical_prefix = resolve_storage_key(prefix, tenant_id=tenant_id)
-        keys = await storage.list(physical_prefix)
-        if keys:
-            await asyncio.gather(*(storage.delete(key) for key in keys))
+        try:
+            await delete_prefix(prefix, tenant_id=tenant_id)
+        except (
+            Exception
+        ) as exc:  # broad: one prefix's failure must not strand the others
+            failure = failure or exc
+    if failure is not None:
+        raise failure
 
 
 async def _relation_oid(
@@ -171,6 +174,12 @@ async def delete_dataset(
 
     await lock_ingest_jobs(session, job_cls=IngestJob, dataset_id=dataset.id)
 
+    tenant_id = current_tenant_var.get()
+    if is_multi_tenant() and tenant_id is None:
+        raise RuntimeError(
+            "Dataset deletion is missing tenant context in multi-tenant mode"
+        )
+
     if record_type in RASTER_FAMILY_RECORD_TYPES:
         if record_type == "raster_dataset":
             # Guard: prevent deletion if any VRT still references this COG.
@@ -219,24 +228,20 @@ async def delete_dataset(
         # These prefixes are returned, not reaped: the caller commits first and
         # then reaps best-effort, so a reap failure leaves orphaned objects
         # rather than a catalog row pointing at deleted bytes.
-        tenant_id = current_tenant_var.get()
-        if is_multi_tenant() and tenant_id is None:
-            raise RuntimeError(
-                "Dataset deletion is missing tenant context in multi-tenant mode"
-            )
         # Includes the raster child, which the record delete
         # cascades to and the replace worker holds across its upload.
         await lock_catalog_rows_for_write(session, dataset, with_raster_asset=True)
 
         storage_prefixes = tuple(prefixes)
+    elif record_type == "tiles3d_dataset":
+        # Every unpack attempt, published or interrupted, sits under the one
+        # prefix; the tileset asset row that points at the live one cascades
+        # with the record.
+        await lock_catalog_rows_for_write(session, dataset)
+        storage_prefixes = (tileset_prefix(dataset_id), f"originals/{dataset_id}/")
     else:
         # Vector ingest persists originals/{id}/ and
         # vectors/{id}/quicklook_256.png, so deletion removes both objects.
-        tenant_id = current_tenant_var.get()
-        if is_multi_tenant() and tenant_id is None:
-            raise RuntimeError(
-                "Dataset deletion is missing tenant context in multi-tenant mode"
-            )
         data_schema = tenant_data_schema(tenant_id)
         # Probe ahead of the branch, not inside the detach arm.
         # After the DROP below the pg_class row is gone within this

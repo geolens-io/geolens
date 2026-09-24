@@ -3756,6 +3756,10 @@ export type DatasetResponse = {
      */
     raster?: RasterMetadata | null;
     /**
+     * 3D Tiles metadata on the dataset detail response; null for other record types and before a tileset is published
+     */
+    tileset?: TilesetMetadata | null;
+    /**
      * Stac Assets
      *
      * STAC-style asset dictionary
@@ -10789,6 +10793,20 @@ export type TileTokenBatchResponse = {
             [key: string]: unknown;
         };
     };
+};
+
+/**
+ * TilesetMetadata
+ *
+ * A 3D Tiles dataset's published tileset.
+ */
+export type TilesetMetadata = {
+    /**
+     * Size Bytes
+     *
+     * Unpacked size of the tileset in bytes
+     */
+    size_bytes?: number | null;
 };
 
 /**

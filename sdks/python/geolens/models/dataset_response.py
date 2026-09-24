@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ..models.derived_from_response import DerivedFromResponse
     from ..models.quality_detail import QualityDetail
     from ..models.raster_metadata import RasterMetadata
+    from ..models.tileset_metadata import TilesetMetadata
 
 
 T = TypeVar("T", bound="DatasetResponse")
@@ -120,6 +121,8 @@ class DatasetResponse:
             'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote
             service), 'collection' (flat dataset group), 'tiles3d_dataset' (3D Tiles tileset). Default: 'vector_dataset'.
         raster (None | RasterMetadata | Unset): Raster-specific metadata (null for vectors)
+        tileset (None | TilesetMetadata | Unset): 3D Tiles metadata on the dataset detail response; null for other
+            record types and before a tileset is published
         stac_assets (DatasetResponseStacAssetsType0 | None | Unset): STAC-style asset dictionary
         stac_extensions (list[str] | None | Unset):
         language (None | str | Unset): ISO 639-1 language code, e.g. en, fr
@@ -186,6 +189,7 @@ class DatasetResponse:
     updated_by: None | Unset | UUID = UNSET
     record_type: str | Unset = "vector_dataset"
     raster: None | RasterMetadata | Unset = UNSET
+    tileset: None | TilesetMetadata | Unset = UNSET
     stac_assets: DatasetResponseStacAssetsType0 | None | Unset = UNSET
     stac_extensions: list[str] | None | Unset = UNSET
     language: None | str | Unset = UNSET
@@ -202,6 +206,7 @@ class DatasetResponse:
         from ..models.derived_from_response import DerivedFromResponse
         from ..models.quality_detail import QualityDetail
         from ..models.raster_metadata import RasterMetadata
+        from ..models.tileset_metadata import TilesetMetadata
 
         id = str(self.id)
 
@@ -525,6 +530,14 @@ class DatasetResponse:
         else:
             raster = self.raster
 
+        tileset: dict[str, Any] | None | Unset
+        if isinstance(self.tileset, Unset):
+            tileset = UNSET
+        elif isinstance(self.tileset, TilesetMetadata):
+            tileset = self.tileset.to_dict()
+        else:
+            tileset = self.tileset
+
         stac_assets: dict[str, Any] | None | Unset
         if isinstance(self.stac_assets, Unset):
             stac_assets = UNSET
@@ -667,6 +680,8 @@ class DatasetResponse:
             field_dict["record_type"] = record_type
         if raster is not UNSET:
             field_dict["raster"] = raster
+        if tileset is not UNSET:
+            field_dict["tileset"] = tileset
         if stac_assets is not UNSET:
             field_dict["stac_assets"] = stac_assets
         if stac_extensions is not UNSET:
@@ -691,6 +706,7 @@ class DatasetResponse:
         from ..models.derived_from_response import DerivedFromResponse
         from ..models.quality_detail import QualityDetail
         from ..models.raster_metadata import RasterMetadata
+        from ..models.tileset_metadata import TilesetMetadata
 
         d = dict(src_dict)
         id = UUID(d.pop("id"))
@@ -1266,6 +1282,23 @@ class DatasetResponse:
 
         raster = _parse_raster(d.pop("raster", UNSET))
 
+        def _parse_tileset(data: object) -> None | TilesetMetadata | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                tileset_type_0 = TilesetMetadata.from_dict(data)
+
+                return tileset_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | TilesetMetadata | Unset, data)
+
+        tileset = _parse_tileset(d.pop("tileset", UNSET))
+
         def _parse_stac_assets(
             data: object,
         ) -> DatasetResponseStacAssetsType0 | None | Unset:
@@ -1387,6 +1420,7 @@ class DatasetResponse:
             updated_by=updated_by,
             record_type=record_type,
             raster=raster,
+            tileset=tileset,
             stac_assets=stac_assets,
             stac_extensions=stac_extensions,
             language=language,

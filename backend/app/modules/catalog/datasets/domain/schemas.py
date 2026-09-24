@@ -198,6 +198,14 @@ class RasterMetadata(BaseModel):
     )
 
 
+class TilesetMetadata(BaseModel):
+    """A 3D Tiles dataset's published tileset."""
+
+    size_bytes: int | None = Field(
+        default=None, description="Unpacked size of the tileset in bytes"
+    )
+
+
 class StacAsset(BaseModel):
     href: str
     type: str | None = None
@@ -451,6 +459,13 @@ class DatasetResponse(BaseModel):
     )
     raster: RasterMetadata | None = Field(
         default=None, description="Raster-specific metadata (null for vectors)"
+    )
+    tileset: TilesetMetadata | None = Field(
+        default=None,
+        description=(
+            "3D Tiles metadata on the dataset detail response; null for other "
+            "record types and before a tileset is published"
+        ),
     )
     stac_assets: dict[str, StacAsset] | None = Field(
         default=None, description="STAC-style asset dictionary"

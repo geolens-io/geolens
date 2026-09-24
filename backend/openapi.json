@@ -6338,6 +6338,17 @@
             ],
             "description": "Raster-specific metadata (null for vectors)"
           },
+          "tileset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TilesetMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "3D Tiles metadata on the dataset detail response; null for other record types and before a tileset is published"
+          },
           "stac_assets": {
             "anyOf": [
               {
@@ -18385,6 +18396,25 @@
           "tokens"
         ],
         "title": "TileTokenBatchResponse",
+        "type": "object"
+      },
+      "TilesetMetadata": {
+        "description": "A 3D Tiles dataset's published tileset.",
+        "properties": {
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unpacked size of the tileset in bytes",
+            "title": "Size Bytes"
+          }
+        },
+        "title": "TilesetMetadata",
         "type": "object"
       },
       "TokenResponse": {

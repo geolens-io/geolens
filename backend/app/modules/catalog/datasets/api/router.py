@@ -1,5 +1,6 @@
 """Dataset core CRUD endpoints: list, create, get, update, delete, quicklook, history."""
 
+import asyncio
 import uuid
 
 import structlog
@@ -432,23 +433,40 @@ async def update_dataset_metadata(
     return response
 
 
-async def _reap_after_commit(deletion) -> None:
-    """Remove a deleted dataset's objects, once its rows are gone for good.
+# Held until each reap finishes, so a reap whose request was cancelled is not
+# garbage-collected mid-walk.
+_reaps_in_flight: set[asyncio.Task] = set()
+
+
+async def _reap_after_commit(*deletions) -> None:
+    """Remove deleted datasets' objects, once their rows are gone for good.
 
     Runs after the commit because it's irreversible and the delete's FK
     cascades can still lose a lock race. A failure orphans objects and
-    can't resurrect a dataset, so it's logged rather than raised.
+    can't resurrect a dataset, so it's logged rather than raised. The reap
+    runs in its own shielded task, so cancelling the request doesn't stop
+    it; a worker that dies mid-reap still leaves the rest behind.
     """
+    task = asyncio.create_task(_reap(deletions))
+    _reaps_in_flight.add(task)
+    task.add_done_callback(_reaps_in_flight.discard)
+    await asyncio.shield(task)
+
+
+async def _reap(deletions) -> None:
     from app.modules.catalog.datasets.domain.service import reap_managed_storage
 
-    try:
-        await reap_managed_storage(list(deletion.storage_prefixes), deletion.tenant_id)
-    except Exception:  # broad: the rows are already gone, so no failure here can be raised at a caller that could act on it
-        logger.exception(
-            "Dataset rows are deleted but their storage was not reaped",
-            table_name=deletion.table_name,
-            prefixes=list(deletion.storage_prefixes),
-        )
+    for deletion in deletions:
+        try:
+            await reap_managed_storage(
+                list(deletion.storage_prefixes), deletion.tenant_id
+            )
+        except Exception:  # broad: the rows are already gone, so no failure here can be raised at a caller that could act on it
+            logger.exception(
+                "Dataset rows are deleted but their storage was not reaped",
+                table_name=deletion.table_name,
+                prefixes=list(deletion.storage_prefixes),
+            )
 
 
 async def _rollback_failed_item(db: AsyncSession, user) -> None:
@@ -588,8 +606,7 @@ async def bulk_delete_datasets_endpoint(
 
     # fix(#1847): last, so no storage round trip can delay or skip the
     # invalidations above for any item in the batch.
-    for deletion in pending_reaps:
-        await _reap_after_commit(deletion)
+    await _reap_after_commit(*pending_reaps)
 
     return BulkDeleteResponse(
         deleted=deleted, errors=len(results) - deleted, results=results

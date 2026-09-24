@@ -7,6 +7,7 @@ Integration/DB tests are marked and skipped when no DB is available.
 import io
 import tempfile
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -477,7 +478,7 @@ class _MockDataset:
 
 
 class _MockStorage:
-    """Tracks list and delete calls; raises on delete if configured."""
+    """Tracks walked prefixes and deletes; raises on delete if configured."""
 
     def __init__(
         self, keys_by_prefix: dict[str, list[str]], delete_raises: bool = False
@@ -487,9 +488,13 @@ class _MockStorage:
         self.deleted_keys: list[str] = []
         self.listed_prefixes: list[str] = []
 
-    async def list(self, prefix: str) -> list[str]:
+    async def iter_object_pages(self, prefix: str, *, start_after: str | None = None):
+        from app.platform.storage.provider import StoredObject
+
         self.listed_prefixes.append(prefix)
-        return self._keys.get(prefix, [])
+        if keys := self._keys.get(prefix, []):
+            now = datetime.now(timezone.utc)
+            yield [StoredObject(key=key, last_modified=now) for key in keys]
 
     async def delete(self, key: str) -> None:
         if self._delete_raises:

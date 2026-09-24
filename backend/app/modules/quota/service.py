@@ -43,6 +43,7 @@ from app.core.persistent_config import (
     MAX_STORAGE_BYTES_PER_USER,
 )
 from app.core.record_types import DATASET_RECORD_TYPES
+from app.core.tiles3d import TILESET_ASSET_KEY
 from app.modules.quota.schemas import UserQuotaUsage
 from app.platform.extensions.entitlement import enforce_limit
 
@@ -53,14 +54,14 @@ async def get_user_quota_usage(
 ) -> UserQuotaUsage:
     """Return current bytes-used and dataset-count for a user in one SQL round-trip.
 
-    Joins records -> datasets -> dataset_assets (key='data' or
+    Joins records -> datasets -> dataset_assets (key 'data', 'tileset' or
     'archived_original:*') to sum byte size; only dataset record types are
     counted (maps/services/collections excluded).
 
-    Byte-coverage caveat: ``bytes_used`` sums ONLY the ``key='data'`` asset,
-    so in practice it's raster file bytes -- vector/``table`` datasets are
-    PostGIS-resident and ``vrt_dataset`` is definition-only, so they
-    contribute 0. The dataset-COUNT cap is the cross-type fence instead,
+    Byte-coverage caveat: ``bytes_used`` sums ONLY those assets, so in
+    practice it's raster files and unpacked tilesets -- vector/``table``
+    datasets are PostGIS-resident and ``vrt_dataset`` is definition-only, so
+    they contribute 0. The dataset-COUNT cap is the cross-type fence instead,
     and ``check_upload_quota`` still gates each upload on the actual
     incoming ``file.size``. A true cross-type storage total is deferred to
     the metered/per-tenant (cloud) quota work.
@@ -82,13 +83,19 @@ async def get_user_quota_usage(
         LEFT JOIN catalog.datasets d  ON d.record_id = r.id
         LEFT JOIN catalog.dataset_assets da
                ON da.dataset_id = d.id
-              AND (da.key = 'data' OR da.key LIKE 'archived_original:%')
+              AND (da.key IN ('data', :tileset_key)
+                   OR da.key LIKE 'archived_original:%')
         WHERE  r.created_by = :user_id
           AND  r.record_type = ANY(CAST(:record_types AS text[]))
         """
     )
     result = await db.execute(
-        sql, {"user_id": user_id, "record_types": list(DATASET_RECORD_TYPES)}
+        sql,
+        {
+            "user_id": user_id,
+            "record_types": list(DATASET_RECORD_TYPES),
+            "tileset_key": TILESET_ASSET_KEY,
+        },
     )
     row = result.one()
 
@@ -133,7 +140,8 @@ async def get_user_quota_usage_bulk(
         LEFT JOIN catalog.datasets d  ON d.record_id = r.id
         LEFT JOIN catalog.dataset_assets da
                ON da.dataset_id = d.id
-              AND (da.key = 'data' OR da.key LIKE 'archived_original:%')
+              AND (da.key IN ('data', :tileset_key)
+                   OR da.key LIKE 'archived_original:%')
         WHERE  r.created_by = ANY(CAST(:user_ids AS uuid[]))
           AND  r.record_type = ANY(CAST(:record_types AS text[]))
         GROUP BY r.created_by
@@ -144,6 +152,7 @@ async def get_user_quota_usage_bulk(
         {
             "user_ids": [str(uid) for uid in user_ids],
             "record_types": list(DATASET_RECORD_TYPES),
+            "tileset_key": TILESET_ASSET_KEY,
         },
     )
     by_user = {

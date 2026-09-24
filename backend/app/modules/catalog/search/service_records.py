@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import republished_tile_url, tile_template_query
+from app.core.tiles3d import TILESET_MEDIA_TYPE
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.source_freshness import (
     compute_source_freshness,
@@ -64,6 +65,9 @@ def _record_formats(record_type: str) -> list[str]:
         return list(_RASTER_FORMAT_MEDIA.values())
     if record_type == "table":
         return list(_TABLE_FORMAT_MEDIA.values())
+    if record_type == "tiles3d_dataset":
+        # Tile content types vary by tileset; its tileset.json is always JSON.
+        return [TILESET_MEDIA_TYPE]
     if capabilities(record_type).feature_table:
         return list(_FORMAT_MEDIA.values())
     return []
