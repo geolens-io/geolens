@@ -41,6 +41,7 @@ from app.processing.ingest.metadata import (
     grant_reader_access,
 )
 from app.processing.ingest.schemas import (
+    UNDECLARED_SRID_CODE,
     DiscoveredTable,
     RegisterRequest,
     VrtCreateRequest,
@@ -70,7 +71,6 @@ _UPLOAD_SPOOL_MAX_BYTES: int = 16 * 1024 * 1024  # 16 MiB
 # read it without importing the API edge (which registers routes on import).
 PART_SIZE = 10 * 1024 * 1024  # 10MB per part
 
-# Registration refuses these tables and discovery says why, in one wording.
 UNDECLARED_SRID_REASON = (
     "Its geom column declares no SRID, so GeoLens cannot tell where its "
     "coordinates are. Set the SRID, for example with UpdateGeometrySRID, then "
@@ -165,7 +165,7 @@ async def discover_unregistered_tables(
     return [
         DiscoveredTable(
             **dict(row),
-            refusal_reason=UNDECLARED_SRID_REASON if row["srid"] == 0 else None,
+            refusal_reason=UNDECLARED_SRID_CODE if row["srid"] == 0 else None,
         )
         for row in result.mappings().all()
     ]

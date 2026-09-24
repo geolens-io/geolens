@@ -8393,7 +8393,7 @@ export interface components {
             estimated_rows: number | null;
             /**
              * Refusal Reason
-             * @description Why registration would refuse this table as it is, or null when it can be registered.
+             * @description Why registration would refuse this table as it is, as one of a fixed set of GeoLens codes: source_srid_undeclared. Null when it can be registered.
              */
             refusal_reason?: string | null;
         };

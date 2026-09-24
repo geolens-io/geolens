@@ -22,8 +22,8 @@ class DiscoveredTable:
         geometry_type (None | str): Detected geometry type, or null for non-spatial tables.
         srid (int | None): Coordinate reference system EPSG code, if defined.
         estimated_rows (int | None): PostgreSQL row count estimate from `pg_class.reltuples`.
-        refusal_reason (None | str | Unset): Why registration would refuse this table as it is, or null when it can be
-            registered.
+        refusal_reason (None | str | Unset): Why registration would refuse this table as it is, as one of a fixed set of
+            GeoLens codes: source_srid_undeclared. Null when it can be registered.
     """
 
     table_name: str

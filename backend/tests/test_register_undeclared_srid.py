@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from app.core.failure_reason import INTERNAL_FAILURE_REASON
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.processing.ingest.schemas import UNDECLARED_SRID_CODE
 from app.processing.ingest.service import UNDECLARED_SRID_REASON
 
 pytestmark = pytest.mark.anyio
@@ -38,7 +39,7 @@ async def _columns(session, table: str) -> list[str]:
 async def test_a_geom_column_without_an_srid_is_refused_and_flagged(
     client: AsyncClient, admin_auth_header: dict, test_db_session, columns: str
 ) -> None:
-    """Registration answers 400 with the SRID reason, and discovery flags the table."""
+    """Registration answers 400 with the SRID reason, and discovery gives its code."""
     table = f"srid_zero_{uuid.uuid4().hex[:10]}"
     await test_db_session.execute(
         text(
@@ -71,7 +72,7 @@ async def test_a_geom_column_without_an_srid_is_refused_and_flagged(
         assert await _columns(test_db_session, table) == before
         discovered = await client.get("/ingest/discover/", headers=admin_auth_header)
         [row] = [t for t in discovered.json()["tables"] if t["table_name"] == table]
-        assert row["refusal_reason"] == UNDECLARED_SRID_REASON
+        assert row["refusal_reason"] == UNDECLARED_SRID_CODE
     finally:
         await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
         await test_db_session.commit()

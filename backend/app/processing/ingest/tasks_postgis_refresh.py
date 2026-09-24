@@ -78,7 +78,6 @@ _ERROR_CODE_MISSING = "source_missing"
 _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
 _ERROR_CODE_GENERIC = "postgis_refresh_failed"
 _ERROR_CODE_SUPERSEDED = "superseded"
-_ERROR_CODE_SRID_UNDECLARED = "source_srid_undeclared"
 
 # fix(#1738): repair phase's own statement deadline, in ms. Worker statements
 # have no deadline (`install_api_statement_timeout` only runs in the API
@@ -587,6 +586,7 @@ async def refresh_postgis(
         # run with a serialization failure. READ ONLY makes a future write
         # from this phase fail loudly instead of silently.
         from app.processing.ingest.metadata import get_declared_srid
+        from app.processing.ingest.schemas import UNDECLARED_SRID_CODE
 
         schema = _current_tenant_schema()
 
@@ -662,7 +662,7 @@ async def refresh_postgis(
                         "SRID, so GeoLens cannot tell where its coordinates are. "
                         "The catalog entry is unchanged; set the SRID, then "
                         "refresh again.",
-                        error_code=_ERROR_CODE_SRID_UNDECLARED,
+                        error_code=UNDECLARED_SRID_CODE,
                     )
                 measurement = await measure(
                     session, dataset, table=table_name, schema=schema

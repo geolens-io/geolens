@@ -131,3 +131,34 @@ describe('RegisterForm results', () => {
     expect(screen.queryByText('internal_error')).not.toBeInTheDocument();
   });
 });
+
+describe('RegisterForm refusal', () => {
+  test('a table discovery refuses shows the reason and cannot be registered', async () => {
+    const user = userEvent.setup();
+    mockUseDiscoverTables.mockReturnValue({
+      data: {
+        tables: [
+          {
+            table_name: 'nosrid',
+            geometry_type: 'Point',
+            srid: 0,
+            estimated_rows: 1,
+            refusal_reason: 'source_srid_undeclared',
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    });
+    mockUseDatasetCountHint.mockReturnValue({ data: undefined });
+
+    render(<RegisterForm />);
+    await user.click(screen.getByText('nosrid'));
+
+    const reason = 'register.refusal.source_srid_undeclared';
+    expect(screen.getByText(reason)).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: 'register.registerButton' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(reason);
+  });
+});

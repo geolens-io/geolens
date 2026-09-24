@@ -434,6 +434,11 @@ class TableRegisterResponse(BaseModel):
     table_name: str = Field(description="Source PostgreSQL table that was registered.")
 
 
+# Discovery's refusal for a geom column that declares no SRID. A refresh that
+# finds one fails its run with the same code.
+UNDECLARED_SRID_CODE = "source_srid_undeclared"
+
+
 class DiscoveredTable(BaseModel):
     table_name: str = Field(description="PostgreSQL table name in the `data` schema.")
     geometry_type: str | None = Field(
@@ -447,7 +452,11 @@ class DiscoveredTable(BaseModel):
     )
     refusal_reason: str | None = Field(
         default=None,
-        description="Why registration would refuse this table as it is, or null when it can be registered.",
+        description=(
+            "Why registration would refuse this table as it is, as one of a "
+            f"fixed set of GeoLens codes: {UNDECLARED_SRID_CODE}. Null when it "
+            "can be registered."
+        ),
     )
 
 
