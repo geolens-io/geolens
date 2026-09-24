@@ -19,6 +19,7 @@ import structlog
 from asyncpg.exceptions import LockNotAvailableError
 from sqlalchemy import text
 
+from app.processing.ingest.catalog_projection import Measurement
 from app.processing.ingest.tasks_common import (
     _apply_reupload_swap,
     _is_lock_timeout_error,
@@ -64,32 +65,26 @@ class TestIsLockTimeoutError:
 
 def _make_dataset_stub(table_name: str):
     """Build a minimal dataset object satisfying the attributes ``_apply_reupload_swap`` reads."""
-    # fix(#1361): the swap re-derives record_type from the geometry the swapped
-    # relation actually has, so the stub has to carry one to re-derive.
-    record = types.SimpleNamespace(
-        spatial_extent=None,
-        updated_by=None,
-        record_type="vector_dataset",
-    )
-    dataset = types.SimpleNamespace(
+    return types.SimpleNamespace(
         id=uuid.uuid4(),
-        record=record,
+        record=types.SimpleNamespace(updated_by=None),
         record_id=uuid.uuid4(),
         table_name=table_name,
         current_version=1,
         tile_cache_version=1,
-        srid=4326,
-        geometry_type="Point",
-        feature_count=1,
-        column_info=[{"name": "name", "type": "character varying"}],
-        sample_values={},
-        source_format="csv",
-        source_filename="orig.csv",
-        original_srid=4326,
         source_url=None,
-        quality_detail=None,
     )
-    return dataset
+
+
+def _stub_projection(monkeypatch, trace: list | None = None) -> None:
+    """Stand in for ``project``, which writes catalog rows these stubs do not have."""
+
+    async def _project(session, dataset, measurement):
+        if trace is not None:
+            trace.append(("write", "project"))
+        return {}
+
+    monkeypatch.setattr("app.processing.ingest.catalog_projection.project", _project)
 
 
 def _stub_atomic_bump(monkeypatch) -> None:
@@ -128,14 +123,20 @@ def _make_port():
     return _Port
 
 
-def _minimal_metadata():
-    return {
-        "srid": 4326,
-        "geometry_type": "Point",
-        "feature_count": 1,
-        "extent_wkt": None,
-        "column_info": [{"name": "name", "type": "character varying"}],
-    }
+def _minimal_measurement() -> Measurement:
+    return Measurement(
+        metadata={
+            "srid": 4326,
+            "geometry_type": "POINT",
+            "feature_count": 1,
+            "extent_wkt": None,
+            "column_info": [{"name": "name", "type": "character varying"}],
+        },
+        sample_values={},
+        three_d={},
+        geometry_type="POINT",
+        quality_detail={},
+    )
 
 
 class _WriteRecorder:
@@ -199,13 +200,7 @@ class TestSwapLocksBeforeItWrites:
     ) -> None:
         trace: list[tuple[str, str]] = []
 
-        record = _WriteRecorder(
-            trace,
-            "record",
-            spatial_extent=None,
-            updated_by=None,
-            record_type="vector_dataset",
-        )
+        record = _WriteRecorder(trace, "record", updated_by=None)
         dataset = _WriteRecorder(
             trace,
             "dataset",
@@ -215,31 +210,14 @@ class TestSwapLocksBeforeItWrites:
             table_name=self.live,
             current_version=1,
             tile_cache_version=1,
-            srid=4326,
-            geometry_type="Point",
-            feature_count=1,
-            column_info=[{"name": "name", "type": "character varying"}],
-            sample_values={},
-            source_format="csv",
-            source_filename="orig.csv",
-            original_srid=4326,
             source_url=None,
-            quality_detail=None,
         )
         _stub_atomic_bump(monkeypatch)
+        _stub_projection(monkeypatch, trace)
 
         async def _noop(*args, **kwargs):
             return None
 
-        async def _noop_quality(*args, **kwargs):
-            return {"score": 0.0, "issues": []}
-
-        monkeypatch.setattr(
-            "app.processing.ingest.metadata.refresh_attribute_metadata", _noop
-        )
-        monkeypatch.setattr(
-            "app.processing.ingest.metadata.compute_quality_score", _noop_quality
-        )
         monkeypatch.setattr("app.modules.audit.service.audit_emit", _noop)
         monkeypatch.setattr("app.platform.extensions.get_processing_port", _make_port)
         monkeypatch.setattr(self.session, "add", lambda *a, **kw: None)
@@ -258,9 +236,7 @@ class TestSwapLocksBeforeItWrites:
             self.session,
             dataset=dataset,
             staging_table=self.staging,
-            metadata=_minimal_metadata(),
-            sample_values={},
-            three_d={},
+            measurement=_minimal_measurement(),
             user_id=str(uuid.uuid4()),
             source_filename="x.csv",
             source_format="csv",
@@ -353,24 +329,10 @@ class TestApplyReuploadSwapRetry:
         """No contention → swap completes silently; neither retry log fires."""
         dataset = _make_dataset_stub(self.live)
 
-        # Bypass downstream metadata writes that need real ORM objects.
-        async def _noop_refresh(*args, **kwargs):
-            return None
-
-        async def _noop_quality(*args, **kwargs):
-            return {"score": 0.0, "issues": []}
-
         async def _noop_audit(*args, **kwargs):
             return None
 
-        monkeypatch.setattr(
-            "app.processing.ingest.metadata.refresh_attribute_metadata",
-            _noop_refresh,
-        )
-        monkeypatch.setattr(
-            "app.processing.ingest.metadata.compute_quality_score",
-            _noop_quality,
-        )
+        _stub_projection(monkeypatch)
         monkeypatch.setattr(
             "app.modules.audit.service.audit_emit",
             _noop_audit,
@@ -390,9 +352,7 @@ class TestApplyReuploadSwapRetry:
                 self.session,
                 dataset=dataset,
                 staging_table=self.staging,
-                metadata=_minimal_metadata(),
-                sample_values={},
-                three_d={},
+                measurement=_minimal_measurement(),
                 user_id=str(uuid.uuid4()),
                 source_filename="x.csv",
                 source_format="csv",
@@ -452,23 +412,10 @@ class TestApplyReuploadSwapRetry:
         origin was never contacted right after it demonstrably was."""
         dataset = _make_dataset_stub(self.live)
 
-        async def _noop_refresh(*args, **kwargs):
-            return None
-
-        async def _noop_quality(*args, **kwargs):
-            return {"score": 0.0, "issues": []}
-
         async def _noop_audit(*args, **kwargs):
             return None
 
-        monkeypatch.setattr(
-            "app.processing.ingest.metadata.refresh_attribute_metadata",
-            _noop_refresh,
-        )
-        monkeypatch.setattr(
-            "app.processing.ingest.metadata.compute_quality_score",
-            _noop_quality,
-        )
+        _stub_projection(monkeypatch)
         monkeypatch.setattr(
             "app.modules.audit.service.audit_emit",
             _noop_audit,
@@ -485,9 +432,7 @@ class TestApplyReuploadSwapRetry:
             self.session,
             dataset=dataset,
             staging_table=self.staging,
-            metadata=_minimal_metadata(),
-            sample_values={},
-            three_d={},
+            measurement=_minimal_measurement(),
             user_id=str(uuid.uuid4()),
             source_filename=None,
             source_format="wfs",
@@ -509,23 +454,10 @@ class TestApplyReuploadSwapRetry:
         """First swap raises ``LockNotAvailableError``; retry succeeds and both logs fire."""
         dataset = _make_dataset_stub(self.live)
 
-        async def _noop_refresh(*args, **kwargs):
-            return None
-
-        async def _noop_quality(*args, **kwargs):
-            return {"score": 0.0, "issues": []}
-
         async def _noop_audit(*args, **kwargs):
             return None
 
-        monkeypatch.setattr(
-            "app.processing.ingest.metadata.refresh_attribute_metadata",
-            _noop_refresh,
-        )
-        monkeypatch.setattr(
-            "app.processing.ingest.metadata.compute_quality_score",
-            _noop_quality,
-        )
+        _stub_projection(monkeypatch)
         monkeypatch.setattr(
             "app.modules.audit.service.audit_emit",
             _noop_audit,
@@ -574,9 +506,7 @@ class TestApplyReuploadSwapRetry:
                 self.session,
                 dataset=dataset,
                 staging_table=self.staging,
-                metadata=_minimal_metadata(),
-                sample_values={},
-                three_d={},
+                measurement=_minimal_measurement(),
                 user_id=str(uuid.uuid4()),
                 source_filename="x.csv",
                 source_format="csv",

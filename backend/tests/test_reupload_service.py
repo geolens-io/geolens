@@ -310,7 +310,7 @@ class TestServiceReuploadWorker:
                 new_callable=AsyncMock,
             ) as mock_refresh_attributes,
             patch(
-                "app.processing.ingest.metadata.compute_quality_score",
+                "app.processing.ingest.metadata.score_quality",
                 new_callable=AsyncMock,
             ) as mock_quality_score,
             patch(

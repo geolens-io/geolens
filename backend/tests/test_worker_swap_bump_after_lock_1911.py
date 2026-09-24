@@ -1,7 +1,6 @@
 """Each worker swap publishes N+2 behind an edit that published N+1 (#1911)."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select, text
@@ -9,6 +8,7 @@ from sqlalchemy.orm import joinedload
 
 import app.core.db as db_module
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.processing.ingest.catalog_projection import measure
 from app.processing.ingest.tasks_common import _apply_reupload_swap
 from app.processing.ingest.tasks_raster_replace import reupload_raster
 from app.processing.raster.models import RasterAsset
@@ -26,24 +26,6 @@ from tests.test_raster_replace_1221 import (
     _queue_replace_job,
 )
 from tests.test_raster_replace_1221 import raster_storage as raster_storage
-
-_SWAP_METADATA = {
-    "srid": 4326,
-    "geometry_type": "Point",
-    "feature_count": 1,
-    "extent_wkt": None,
-    "column_info": [{"name": "name", "type": "character varying"}],
-}
-
-# Complete, because the row outlives the swap on the shared per-worker
-# database and a partial detail fails response validation elsewhere.
-_QUALITY = {
-    "overall": 90.0,
-    "metadata_completeness": 90.0,
-    "geometry_validity": 100.0,
-    "attribute_completeness": 90.0,
-    "crs_defined": 100.0,
-}
 
 
 async def _parked_statement(probe, holder_xid: str) -> str:
@@ -138,40 +120,30 @@ class TestTheReuploadSwapPublishesTheNextVersion:
             )
         )
         await test_db_session.commit()
+        measurement = await measure(
+            test_db_session, dataset, table=staging, schema="data"
+        )
 
-        with (
-            patch(
-                "app.processing.ingest.metadata.refresh_attribute_metadata",
-                new_callable=AsyncMock,
-            ),
-            patch(
-                "app.processing.ingest.metadata.compute_quality_score",
-                new_callable=AsyncMock,
-            ) as mock_quality,
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
         ):
-            mock_quality.return_value = _QUALITY
-            async with (
-                db_module.async_session() as holder,
-                db_module.async_session() as probe,
-            ):
-                before, _version = await _overlap(
-                    holder,
-                    probe,
-                    dataset.id,
-                    _apply_reupload_swap(
-                        test_db_session,
-                        dataset=dataset,
-                        staging_table=staging,
-                        metadata=_SWAP_METADATA,
-                        sample_values={"name": ["A"]},
-                        three_d={},
-                        user_id=str(admin_id),
-                        source_filename="again.geojson",
-                        source_format="geojson",
-                        original_srid=4326,
-                    ),
-                )
-            await test_db_session.commit()
+            before, _swapped = await _overlap(
+                holder,
+                probe,
+                dataset.id,
+                _apply_reupload_swap(
+                    test_db_session,
+                    dataset=dataset,
+                    staging_table=staging,
+                    measurement=measurement,
+                    user_id=str(admin_id),
+                    source_filename="again.geojson",
+                    source_format="geojson",
+                    original_srid=4326,
+                ),
+            )
+        await test_db_session.commit()
 
         published = await _published_version(dataset.id)
         assert published == before + 2, _message(before, published)

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from app.processing.ingest.catalog_projection import Measurement
     from app.processing.ingest.warnings import IngestJobWarning
     from app.platform.jobs.models import IngestJob
 
@@ -1585,112 +1586,6 @@ async def invalidate_tile_cache_for_table(table_name: str) -> None:
         await tile_cache.invalidate_table(table_name)
 
 
-# What PostGIS records in ``geometry_columns.type`` for an untyped column.
-# A specific value ("POLYGON", "MULTILINESTRING", ...) describes what the
-# column will accept; this one describes nothing.
-_GENERIC_GEOMETRY_TYPE = "GEOMETRY"
-
-# The record types ``service_create.py`` derives from "does this dataset have
-# geometry". Raster and VRT records carry their own modality and must never be
-# re-derived from a geometry column they do not have.
-_DERIVED_RECORD_TYPES: frozenset[str] = frozenset({"table", "vector_dataset"})
-
-
-async def _declared_geometry_type(
-    session: Any, *, schema: str, table: str
-) -> str | None:
-    """The geom column's DECLARED type, or None when the relation has no geom.
-
-    fix(#1313): ``extract_metadata`` derives the type by sampling a row,
-    so an emptied spatial table reports None — indistinguishable from one
-    that never had geometry. Writing that None reclassifies the dataset as
-    tabular, which locks ``_require_feature_table`` out of ever
-    repopulating it and drops it from the builder. ``geometry_columns``
-    answers what the sample can't: a row there means the relation is
-    spatial regardless of current contents.
-
-    fix(#1373): shared with the reupload swap, which hits the identical
-    trap from the other direction (an empty spatial file), so the two
-    paths can't end up disagreeing via two spellings of this query.
-    """
-    from sqlalchemy import text
-
-    return await session.scalar(
-        text(
-            "SELECT type FROM geometry_columns "
-            "WHERE f_table_schema = :schema AND f_table_name = :table "
-            "AND f_geometry_column = 'geom'"
-        ),
-        {"schema": schema, "table": table},
-    )
-
-
-def _effective_geometry_type(
-    *, measured: str | None, declared: str | None, stored: str | None
-) -> str | None:
-    """The geometry type this measurement establishes, from the best evidence.
-
-    One rule in one place: both the write and the quality score use it, so a
-    second spelling of this precedence is how those two would disagree.
-
-    fix(#1382): when nothing was measured and the declared column is the
-    generic ``geometry`` sentinel, this falls back to ``stored`` rather than
-    always returning it — otherwise a never-measured dataset with a generic
-    empty column resolved to None and stayed classified ``table``, locked
-    out of feature writes despite plainly having a geometry column.
-    """
-    if measured is not None:
-        return measured
-    if declared is None:
-        return None
-    if declared != _GENERIC_GEOMETRY_TYPE:
-        return declared
-    return stored if stored is not None else _GENERIC_GEOMETRY_TYPE
-
-
-def _derived_record_type(current: str | None, geometry_type: str | None) -> str | None:
-    """``record_type`` as ``service_create.py`` derives it, for the two it owns."""
-    if current not in _DERIVED_RECORD_TYPES:
-        return current
-    return "table" if geometry_type is None else "vector_dataset"
-
-
-async def _retire_geometry_attribute_row(
-    session: Any, dataset_id: uuid.UUID, *, geometry_type: str | None
-) -> None:
-    """Retire the synthetic ``geom`` attribute row of a de-spatialized dataset.
-
-    ``refresh_attribute_metadata`` only touches this row for a non-null
-    ``geometry_type`` and excludes ``geom`` from its removed-column sweep by
-    name — right when a caller replaces contents while keeping shape, wrong
-    for the registered-PostGIS refresh (owner can drop the column) and the
-    reupload swap (CSV over a shapefile), whose relation can lose geometry
-    while keeping identity. Left stale, the attributes API and validation
-    service keep advertising a geometry field the relation no longer has.
-
-    fix(#1313) added this for the refresh path; fix(#1380) reuses it for the
-    reupload swap instead of a second copy. Pass the EFFECTIVE geometry
-    type (same value given to ``refresh_attribute_metadata``) and call
-    unconditionally — the null check lives inside so a caller can't hold
-    one half of the pair and forget the other.
-    """
-    if geometry_type is not None:
-        return
-
-    from app.platform.extensions import get_processing_port
-    from sqlalchemy import update
-
-    AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
-    await session.execute(
-        update(AttributeMetadata)
-        .where(
-            AttributeMetadata.dataset_id == dataset_id,
-            AttributeMetadata.field_name == "geom",
-        )
-        .values(is_current=False)
-    )
-
-
 # The AccessExclusiveLock budget the reupload swap DDL spends: first attempt,
 # the single retry, and the pause between them (#1917).
 _SWAP_FIRST_TIMEOUT = "5s"
@@ -1728,9 +1623,7 @@ async def _apply_reupload_swap(
     *,
     dataset,
     staging_table: str,
-    metadata: dict,
-    sample_values: dict,
-    three_d: dict,
+    measurement: "Measurement",
     user_id: str,
     source_filename: str | None,
     source_format: str | None,
@@ -1739,11 +1632,12 @@ async def _apply_reupload_swap(
     file_hash: str | None = None,
     origin_ref: dict[str, Any] | None = None,
     pre_catalog_write: Callable[[], Awaitable[None]] | None = None,
-) -> Any:
+) -> tuple[Any, dict]:
     """Apply shared atomic swap + version invariants for all reupload sources.
 
-    ``three_d`` is what ``_detect_3d_and_promote_elev`` returned for the
-    staging table.
+    ``measurement`` is ``catalog_projection.measure`` of the staging table,
+    taken in this transaction; the swap projects it once the catalog rows are
+    held.
 
     ``origin_ref`` carries the typed per-origin payload for the bytes this
     swap installs, minus the ``kind`` discriminator (derived from
@@ -1751,21 +1645,17 @@ async def _apply_reupload_swap(
     through the per-kind allowlist, and callers supply their own rather than
     one being inferred here.
 
-    Returns the ``DatasetVersion`` this swap produced, flushed so its id is
-    populated. feat(#1219): the refresh run row links to that id, and building
-    the version here while resolving it by (dataset_id, version_number) at the
-    call site would be two ways to name one row.
+    Returns the ``DatasetVersion`` this swap produced, flushed so the run row
+    can link to its id, and the schema diff the projection computed under the
+    lock, which is the diff the run stores.
     """
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
     )  # LAZY — preserved per D-17
     from app.platform.extensions import get_processing_port
-    from app.processing.ingest.metadata import (
-        compute_quality_score,
-        refresh_attribute_metadata,
-    )
-    from sqlalchemy import func, text
+    from app.processing.ingest.catalog_projection import project
+    from sqlalchemy import text
 
     port = get_processing_port()
     DatasetVersion = port.get_dataset_version_orm_class()
@@ -1882,25 +1772,11 @@ async def _apply_reupload_swap(
         {"value": pre_swap_lock_timeout},
     )
 
-    # fix(#1373): resolve the geometry type ONCE from the relation the swap
-    # just installed, using the same `_declared_geometry_type`/
-    # `_effective_geometry_type` helpers as the refresh path — see their
-    # docstrings for the empty-relation trap this avoids. Read `stored`
-    # before the write below: it must be the PRE-swap value.
-    previous_geometry_type = dataset.geometry_type
-    effective_geometry_type = _effective_geometry_type(
-        measured=metadata["geometry_type"],
-        declared=await _declared_geometry_type(
-            session, schema=_tenant_schema, table=table_name
-        ),
-        stored=previous_geometry_type,
-    )
-
     # fix(#448): belt-and-braces after the swap — the staging pipeline is
     # responsible for the GIST index, but a re-ingest of a table that already
     # lost its index (the IF-NOT-EXISTS name-collision regression) must
     # self-heal here rather than serve full-scan tiles until the next audit.
-    if effective_geometry_type is not None:
+    if measurement.geometry_type is not None:
         from app.processing.ingest.metadata import ensure_geom_4326_gist_index
 
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
@@ -1968,71 +1844,7 @@ async def _apply_reupload_swap(
         {"value": pre_swap_lock_timeout},
     )
 
-    dataset.srid = metadata["srid"]
-    dataset.geometry_type = effective_geometry_type
-    # fix(#1361): modality is derived, so keep deriving it. `service_create.py`
-    # sets `record_type` from whether the dataset has geometry, and a reupload
-    # is one of the two operations that can change the answer afterwards.
-    # `build_assets` reads it live, so leaving it stale means a de-spatialized
-    # dataset goes on advertising vector-tile and OGC-Features links against a
-    # relation with no geometry column, and a newly-spatial one never advertises
-    # them at all. Fed the EFFECTIVE type rather than the sampled one, or an
-    # empty spatial reupload would flip a still-spatial dataset to `table`.
-    dataset.record.record_type = _derived_record_type(
-        dataset.record.record_type, effective_geometry_type
-    )
-    dataset.feature_count = metadata["feature_count"]
-    if metadata["extent_wkt"] is None:
-        dataset.record.spatial_extent = None
-    else:
-        dataset.record.spatial_extent = func.ST_GeomFromText(
-            metadata["extent_wkt"], 4326
-        )
-    dataset.column_info = metadata["column_info"]
-    dataset.sample_values = sample_values
-    dataset.is_3d = three_d.get("is_3d")
-    dataset.n_dims = three_d.get("n_dims")
-    dataset.z_min = three_d.get("z_min")
-    dataset.z_max = three_d.get("z_max")
-
-    await refresh_attribute_metadata(
-        session,
-        dataset.id,
-        metadata["column_info"],
-        geometry_type=effective_geometry_type,
-        sample_values=sample_values,
-    )
-    # fix(#1380): the one row that helper will not retire. Fed the EFFECTIVE
-    # type, like the refresh above it, so a reupload that empties a still-
-    # spatial table cannot retire the row of a relation whose geom column is
-    # right there.
-    await _retire_geometry_attribute_row(
-        session, dataset.id, geometry_type=effective_geometry_type
-    )
-
-    # fix(#1314): a reupload can flip a dataset between spatial and
-    # non-spatial, leaving the auto-generated `record_distributions` rows as
-    # stale as on the refresh path. Gated on the modality FLIP only —
-    # reconcile normalizes `is_primary`, and a reupload keeping modality has
-    # no business rewriting it.
-    #
-    # fix(#1373): the flip is read off the EFFECTIVE type — the same value
-    # written to `geometry_type`/`record_type` above — so all three agree.
-    # Demote is safe because `_declared_geometry_type` returns None exactly
-    # when there is no geom column (reconciling on a sampled None alone
-    # would wrongly delete distribution rows of a still-spatial dataset).
-    # Promote now also fires for a TABULAR dataset reuploaded from an empty
-    # spatial file, since a declared column type is written even then.
-    was_spatial = previous_geometry_type is not None
-    is_spatial = effective_geometry_type is not None
-    if was_spatial != is_spatial:
-        await port.reconcile_distributions(
-            session,
-            dataset.id,
-            dataset.record_id,
-            table_name,
-            geometry_type=effective_geometry_type,
-        )
+    schema_diff = await project(session, dataset, measurement)
 
     dataset.source_format = source_format
     dataset.source_filename = source_filename
@@ -2079,25 +1891,16 @@ async def _apply_reupload_swap(
         dataset.last_checked_at = swap_time
     dataset.last_refreshed_at = swap_time
 
-    quality_score = await compute_quality_score(
-        session,
-        dataset.table_name,
-        metadata["column_info"],
-        dataset,
-        schema=_tenant_schema,
-    )
-    dataset.quality_detail = quality_score
-
     version = DatasetVersion(
         dataset_id=dataset.id,
         version_number=new_version,
         source_filename=source_filename,
         source_format=source_format,
-        feature_count=metadata["feature_count"],
-        srid=metadata["srid"],
+        feature_count=measurement.metadata.get("feature_count"),
+        srid=measurement.metadata.get("srid"),
         # The effective type, so the version history and the dataset row it
         # describes never disagree about what this swap installed (#1373).
-        geometry_type=effective_geometry_type,
+        geometry_type=measurement.geometry_type,
         file_hash=file_hash,
         uploaded_by=actor_id,
     )
@@ -2118,4 +1921,4 @@ async def _apply_reupload_swap(
             },
         ),
     )
-    return version
+    return version, schema_diff

@@ -25,8 +25,9 @@ from tests.test_feature_lock_order_1847 import _await_lock_wait
 from tests.test_reupload_swap_lock_retry import (
     _make_dataset_stub,
     _make_port,
-    _minimal_metadata,
+    _minimal_measurement,
     _stub_atomic_bump,
+    _stub_projection,
 )
 
 pytestmark = pytest.mark.anyio
@@ -100,20 +101,12 @@ async def swap_target(client, test_db_session):
 
 
 def _stub_downstream(monkeypatch, session) -> None:
-    """Neutralize the metadata, audit and tile-bump writes the swap makes after its lock."""
+    """Neutralize the projection, audit and tile-bump writes the swap makes after its lock."""
 
     async def _noop(*args, **kwargs):
         return None
 
-    async def _noop_quality(*args, **kwargs):
-        return {"score": 0.0, "issues": []}
-
-    monkeypatch.setattr(
-        "app.processing.ingest.metadata.refresh_attribute_metadata", _noop
-    )
-    monkeypatch.setattr(
-        "app.processing.ingest.metadata.compute_quality_score", _noop_quality
-    )
+    _stub_projection(monkeypatch)
     monkeypatch.setattr("app.modules.audit.service.audit_emit", _noop)
     monkeypatch.setattr("app.platform.extensions.get_processing_port", _make_port)
     monkeypatch.setattr(session, "add", lambda *args, **kwargs: None)
@@ -126,9 +119,7 @@ async def _run_swap(session, stub, staging):
         session,
         dataset=stub,
         staging_table=staging,
-        metadata=_minimal_metadata(),
-        sample_values={},
-        three_d={},
+        measurement=_minimal_measurement(),
         user_id=str(uuid.uuid4()),
         source_filename="x.csv",
         source_format="csv",
@@ -186,7 +177,7 @@ class TestSwapLockTimeoutScope:
                 await holder.rollback()
 
             try:
-                version = await asyncio.wait_for(swap, timeout=30)
+                version, _diff = await asyncio.wait_for(swap, timeout=30)
             except CatalogLockConflict as exc:
                 raise AssertionError(
                     "the swap failed on the contended datasets row instead of "

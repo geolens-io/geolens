@@ -36,6 +36,7 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
+from app.processing.ingest import catalog_projection
 from app.processing.ingest.publication import (
     PublicationCommit,
     PublicationOutcome,
@@ -64,6 +65,7 @@ from app.processing.ingest.tasks_common import (
     task_app,
 )
 from app.processing.ingest.tasks_staging import (
+    StagingResult,
     _archive_original_file,
     _cleanup_staging_on_failure,
     reap_downloaded_staging_source,
@@ -581,8 +583,15 @@ async def reupload_file(
                 has_geometry=has_geometry,
                 effective_srid=effective_srid,
             )
-            metadata = staging_result.metadata
-            sample_values = staging_result.sample_values
+            # The staging table, measured in the swap's transaction and never
+            # carried forward from the preview, which can be minutes old.
+            measurement = await catalog_projection.measure(
+                session,
+                dataset,
+                table=staging_tn,
+                schema=_current_tenant_schema(),
+                staged=staging_result,
+            )
 
             # fix(#888): tell the user when the Web Mercator clamp destroyed
             # geometry instead of leaving them to discover it downstream.
@@ -595,25 +604,11 @@ async def reupload_file(
                 attempt_uuid,
                 values={"heartbeat_at": datetime.now(timezone.utc)},
             )
-            # feat(#1223): measured HERE, against the staging table, and
-            # deliberately not carried forward from the preview. The preview
-            # can be minutes old and, for a service, describes a fetch that is
-            # not the one about to be installed. Both inputs are still the
-            # pre-swap values at this point — `_apply_reupload_swap` overwrites
-            # them — so the order of these two calls is load-bearing.
-            schema_diff = port.compute_schema_diff(
-                dataset.column_info or [],
-                metadata.get("column_info") or [],
-                dataset.feature_count,
-                metadata.get("feature_count"),
-            )
-            version = await _apply_reupload_swap(
+            version, schema_diff = await _apply_reupload_swap(
                 session,
                 dataset=dataset,
                 staging_table=staging_tn,
-                metadata=metadata,
-                sample_values=sample_values,
-                three_d=staging_result.three_d,
+                measurement=measurement,
                 user_id=user_id,
                 source_filename=source_filename,
                 source_format=source_format,
@@ -656,7 +651,7 @@ async def reupload_file(
                 ingest_job_id=job_uuid,
                 dataset=dataset,
                 dataset_version_id=version.id,
-                feature_count_after=metadata.get("feature_count"),
+                feature_count_after=measurement.metadata.get("feature_count"),
                 schema_diff=schema_diff,
                 contacted_origin=False,
             )
@@ -1446,16 +1441,23 @@ async def reupload_service(
                 if layer_id is not None
                 else source_url_value
             )
-            # feat(#1223): see the file path — measured against the staging
-            # table before the swap overwrites the pre-swap columns. It matters
-            # more here: a live service can have changed since the preview, so
-            # the previewed diff describes a fetch that is not this one.
-            schema_diff = port.compute_schema_diff(
-                dataset.column_info or [],
-                metadata.get("column_info") or [],
-                dataset.feature_count,
-                metadata.get("feature_count"),
+            measurement = await catalog_projection.measure(
+                session,
+                dataset,
+                table=staging_tn,
+                schema=_schema,
+                staged=StagingResult(
+                    metadata=metadata,
+                    sample_values=sample_values,
+                    three_d=three_d,
+                    has_geometry=has_geom,
+                    geometry_type=metadata.get("geometry_type"),
+                ),
+                score=False,
             )
+            # Verification compares this fetch, not the preview's: a live
+            # service can have changed since the preview was taken.
+            schema_diff = catalog_projection.schema_diff(dataset, measurement)
             measured_feature_count = metadata.get("feature_count")
             measured_schema_diff = schema_diff
             source_binding = {
@@ -1488,9 +1490,7 @@ async def reupload_service(
                     job_id=job_uuid,
                     attempt_id=attempt_uuid,
                     staging_table=staging_tn,
-                    metadata=metadata,
-                    sample_values=sample_values,
-                    three_d=three_d,
+                    measurement=measurement,
                     user_id=user_id,
                     source_filename=source_filename or source_layer_value,
                     source_format=source_format,

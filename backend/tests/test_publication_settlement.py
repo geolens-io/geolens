@@ -24,6 +24,7 @@ from app.platform.refresh.verification import (
     canonical_service_source_binding_fingerprint,
 )
 from app.platform.dataset_origin import set_dataset_origin
+from app.processing.ingest.catalog_projection import Measurement
 from app.processing.ingest.publication import (
     PublicationOutcome,
     PublicationSettlementCommand,
@@ -35,14 +36,20 @@ from tests.factories import create_dataset, get_user_id
 pytestmark = pytest.mark.anyio
 
 
-def _metadata() -> dict:
-    return {
-        "srid": 4326,
-        "geometry_type": "Point",
-        "feature_count": 1,
-        "extent_wkt": None,
-        "column_info": [{"name": "name", "type": "character varying"}],
-    }
+def _measurement() -> Measurement:
+    return Measurement(
+        metadata={
+            "srid": 4326,
+            "geometry_type": "POINT",
+            "feature_count": 1,
+            "extent_wkt": None,
+            "column_info": [{"name": "name", "type": "character varying"}],
+        },
+        sample_values={},
+        three_d={},
+        geometry_type="POINT",
+        quality_detail=None,
+    )
 
 
 async def _prepared_candidate(session, *, refresh: bool):
@@ -109,9 +116,7 @@ def _command(session, dataset, job, staging, admin_id, *, refresh: bool):
         job_id=job.id,
         attempt_id=job.attempt_id,
         staging_table=staging,
-        metadata=_metadata(),
-        sample_values={},
-        three_d={},
+        measurement=_measurement(),
         user_id=str(admin_id),
         source_filename="roads",
         source_format="wfs",
@@ -206,6 +211,43 @@ async def test_verified_refresh_publishes_and_settles_its_run(
         select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job.id)
     )
     assert run.status == "succeeded"
+
+
+async def test_a_published_refresh_stores_the_diff_taken_under_the_lock(
+    test_db_session, monkeypatch
+):
+    """A published run's diff compares the staged data with the values stored at the lock."""
+    dataset, job, staging, admin_id = await _prepared_candidate(
+        test_db_session, refresh=True
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.publication.invalidate_catalog_cache", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.publication.invalidate_tile_cache_for_table",
+        AsyncMock(),
+    )
+    command = replace(
+        _command(test_db_session, dataset, job, staging, admin_id, refresh=True),
+        expected_feature_count=1,
+    )
+    # A feature edit commits after verification's diff was taken.
+    async with db_module.async_session() as editor:
+        await editor.execute(
+            sa.text("UPDATE catalog.datasets SET feature_count = 7 WHERE id = :id"),
+            {"id": dataset.id},
+        )
+        await editor.commit()
+
+    outcome = await settle_publication(command)
+
+    assert outcome is PublicationOutcome.PUBLISHED
+    run = await test_db_session.scalar(
+        select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job.id)
+    )
+    diff = run.schema_diff
+    assert (diff["row_count_old"], diff["row_count_new"]) == (7, 1)
+    assert [column["name"] for column in diff["columns_added"]] == ["name"]
 
 
 async def test_blocked_refresh_keeps_live_data_and_settles_its_run(

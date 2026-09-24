@@ -14,7 +14,7 @@ until it is added here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # Datasets backed by raster assets rather than a PostGIS feature table.
 # Membership means: tiles come from TiTiler, feature reads/writes 404, and
@@ -40,6 +40,9 @@ class RecordTypeCapabilities:
     tile_token: str | None
     # "feature" or "coverage"; None when it is not an OGC API Features collection.
     ogc_item_type: str | None
+    # Follows the feature table's geometry: re-measuring the table may move a
+    # dataset between "table" and "vector_dataset".
+    geometry_derived: bool
 
 
 _VECTOR = RecordTypeCapabilities(
@@ -47,15 +50,22 @@ _VECTOR = RecordTypeCapabilities(
     map_layer_type="vector_geolens",
     tile_token="vector",
     ogc_item_type="feature",
+    geometry_derived=False,
 )
+_GEOMETRY_DERIVED = replace(_VECTOR, geometry_derived=True)
 _RASTER = RecordTypeCapabilities(
     feature_table=False,
     map_layer_type="raster_geolens",
     tile_token="raster",
     ogc_item_type="coverage",
+    geometry_derived=False,
 )
 _UNSUPPORTED = RecordTypeCapabilities(
-    feature_table=False, map_layer_type=None, tile_token=None, ogc_item_type=None
+    feature_table=False,
+    map_layer_type=None,
+    tile_token=None,
+    ogc_item_type=None,
+    geometry_derived=False,
 )
 
 # Mirrors chk_records_record_type. `map`, `service` and `collection` have no
@@ -63,13 +73,13 @@ _UNSUPPORTED = RecordTypeCapabilities(
 # gave them. A 3D Tiles tileset has none of these capabilities; it is served
 # by its own endpoints.
 _CAPABILITIES: dict[str, RecordTypeCapabilities] = {
-    "vector_dataset": _VECTOR,
+    "vector_dataset": _GEOMETRY_DERIVED,
     "raster_dataset": _RASTER,
     "vrt_dataset": _RASTER,
     "map": _VECTOR,
     "service": _VECTOR,
     "collection": _VECTOR,
-    "table": _VECTOR,
+    "table": _GEOMETRY_DERIVED,
     "tiles3d_dataset": _UNSUPPORTED,
 }
 

@@ -607,20 +607,21 @@ class TestWorkerSitesLeadWithTheDatasetRow:
         app_dir = Path(__file__).resolve().parents[1] / "app"
         return (app_dir / rel).read_text().splitlines()
 
-    def test_postgis_refresh_locks_the_dataset_before_applying_the_measurement(self):
+    def test_postgis_refresh_locks_the_dataset_before_projecting_the_measurement(
+        self,
+    ):
         lines = self._lines("processing/ingest/tasks_postgis_refresh.py")
         lock = next(
             i
             for i, line in enumerate(lines)
             if "select(Dataset.tile_cache_version)" in line
         )
-        apply_call = next(
-            i for i, line in enumerate(lines) if line.strip() == "_apply_measurement("
+        project_call = next(
+            i for i, line in enumerate(lines) if "await project(" in line
         )
-        assert lock < apply_call, (
-            "phase 3 must take the datasets row before _apply_measurement "
-            "writes dataset.record. Reversing this re-opens #1847 from the "
-            "worker side."
+        assert lock < project_call, (
+            "phase 3 must take the datasets row before project writes "
+            "dataset.record; the reverse order deadlocks against a feature edit."
         )
 
     def test_stac_refresh_locks_the_dataset_before_writing_the_record(self):
@@ -2510,10 +2511,11 @@ _PAIR_WRITER_EXEMPTIONS = {
     # --- writes one half; the caller owns the ordering ---------------------
     "app.processing.ingest.tasks_common.apply_manifest_record_metadata": "record only",
     "app.processing.ingest.tasks_raster_swap._write_swapped_fields": "sync, no session; reupload_raster acquires before calling it",
+    # --- writes both rows under its callers' acquisition -------------------
+    "app.processing.ingest.catalog_projection.project": "the reupload swap and refresh_postgis take the job row and the pair first",
     # --- takes the datasets row FOR UPDATE itself -------------------------
     # The lock and the superseded-content check are one step here, so these do
     # not go through the helper.
-    "app.processing.ingest.tasks_postgis_refresh._apply_measurement": "caller refresh_postgis holds datasets FOR UPDATE",
     "app.processing.ingest.tasks_postgis_refresh.refresh_postgis": "takes datasets FOR UPDATE for its superseded guard",
     "app.processing.ingest.tasks_stac_refresh.refresh_stac": "takes datasets FOR UPDATE for its superseded guard",
 }

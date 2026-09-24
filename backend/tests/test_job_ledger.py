@@ -41,6 +41,7 @@ from app.platform.refresh.service import (
     create_pending_run,
     record_refresh_success,
 )
+from app.processing.ingest.catalog_projection import measure
 from app.processing.ingest.tasks_common import _apply_reupload_swap
 from app.processing.raster.models import RasterAsset, VrtGeneration
 from tests.factories import create_dataset, create_user, get_user_id
@@ -134,7 +135,8 @@ async def _seed_running_reupload(session):
         await session.execute(
             sa.text(
                 f'CREATE TABLE data."{table}" '
-                "(id serial PRIMARY KEY, name text, geom geometry(Point, 4326))"
+                "(id serial PRIMARY KEY, name text, geom geometry(Point, 4326), "
+                "geom_4326 geometry(Geometry, 4326))"
             )
         )
         await session.execute(
@@ -180,7 +182,7 @@ async def _drive_finalize_verbatim(
     staging: str,
 ) -> None:
     """The re-upload worker's finalize in one transaction, left uncommitted:
-    fenced heartbeat, swap, fenced complete, then the run's success."""
+    measure, fenced heartbeat, swap, fenced complete, then the run's success."""
     dataset = (
         await session.execute(
             select(Dataset)
@@ -188,25 +190,18 @@ async def _drive_finalize_verbatim(
             .where(Dataset.id == dataset_id)
         )
     ).scalar_one()
+    measurement = await measure(session, dataset, table=staging, schema="data")
     await require_ingest_job_update(
         session,
         job_id,
         attempt_id,
         values={"heartbeat_at": datetime.now(timezone.utc)},
     )
-    version = await _apply_reupload_swap(
+    version, schema_diff = await _apply_reupload_swap(
         session,
         dataset=dataset,
         staging_table=staging,
-        metadata={
-            "srid": 4326,
-            "geometry_type": "Point",
-            "feature_count": 1,
-            "extent_wkt": None,
-            "column_info": [{"name": "name", "type": "character varying"}],
-        },
-        sample_values={},
-        three_d={},
+        measurement=measurement,
         user_id=str(dataset.record.created_by),
         source_filename="parcels.gpkg",
         source_format="gpkg",
@@ -226,8 +221,8 @@ async def _drive_finalize_verbatim(
         ingest_job_id=job_id,
         dataset=dataset,
         dataset_version_id=version.id,
-        feature_count_after=1,
-        schema_diff=None,
+        feature_count_after=measurement.metadata.get("feature_count"),
+        schema_diff=schema_diff,
         contacted_origin=False,
     )
 

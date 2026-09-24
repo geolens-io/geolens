@@ -28,8 +28,10 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
+from app.processing.ingest.catalog_projection import scored
 from app.processing.ingest.tasks_common import (
     _apply_reupload_swap,
+    _current_tenant_schema,
     cleanup_step,
     invalidate_tile_cache_for_table,
     load_job_for_error_write,
@@ -43,6 +45,8 @@ from app.processing.ingest.tasks_staging import _cleanup_staging_on_failure
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.processing.ingest.catalog_projection import Measurement
 
 
 class PublicationOutcome(StrEnum):
@@ -75,15 +79,16 @@ class PublicationSettlementCommand:
     job_id: uuid.UUID
     attempt_id: uuid.UUID
     staging_table: str
-    metadata: dict[str, Any]
-    sample_values: dict[str, Any]
-    three_d: dict[str, Any]
+    # Unscored: settlement scores the staged table once publication is allowed.
+    measurement: Measurement
     user_id: str
     source_filename: str | None
     source_format: str
     original_srid: int | None
     source_url: str
     origin_ref: dict[str, Any]
+    # Verification's diff, taken before the swap. A publication stores the one
+    # the projection computes under the catalog lock instead.
     schema_diff: dict[str, Any]
     source_binding: dict[str, Any]
     is_refresh: bool
@@ -127,7 +132,7 @@ def _verification(command: PublicationSettlementCommand) -> dict[str, Any] | Non
         source_binding=command.source_binding,
         schema_diff=command.schema_diff,
         expected_feature_count=command.expected_feature_count,
-        fetched_feature_count=command.metadata.get("feature_count"),
+        fetched_feature_count=command.measurement.metadata.get("feature_count"),
         content_digest=command.content_digest,
         staged_geometry_type=command.staged_geometry_type,
         staged_srid=command.staged_srid,
@@ -234,7 +239,7 @@ async def _settle_nonpublication(
             error_code=error_code,
             error_message=message,
             contacted_origin=False,
-            feature_count_after=command.metadata.get("feature_count"),
+            feature_count_after=command.measurement.metadata.get("feature_count"),
             schema_diff=command.schema_diff,
             verification=verification,
         )
@@ -243,7 +248,7 @@ async def _settle_nonpublication(
         await record_refresh_blocked(
             session,
             ingest_job_id=command.job_id,
-            feature_count_after=command.metadata.get("feature_count"),
+            feature_count_after=command.measurement.metadata.get("feature_count"),
             schema_diff=command.schema_diff,
             verification=verification,
         )
@@ -283,7 +288,7 @@ async def _record_settlement_failure(
             error_code=_service_refresh_error_code(exc),
             error_message=exc,
             contacted_origin=False,
-            feature_count_after=command.metadata.get("feature_count"),
+            feature_count_after=command.measurement.metadata.get("feature_count"),
             schema_diff=command.schema_diff,
             verification=verification,
         )
@@ -390,13 +395,18 @@ async def settle_publication(
             await _invalidate_after_commit(command.job_id)
             return outcome
 
-        version = await _apply_reupload_swap(
+        measurement = await scored(
+            command.session,
+            command.dataset,
+            command.measurement,
+            table=command.staging_table,
+            schema=_current_tenant_schema(),
+        )
+        version, schema_diff = await _apply_reupload_swap(
             command.session,
             dataset=command.dataset,
             staging_table=command.staging_table,
-            metadata=command.metadata,
-            sample_values=command.sample_values,
-            three_d=command.three_d,
+            measurement=measurement,
             user_id=command.user_id,
             source_filename=command.source_filename,
             source_format=command.source_format,
@@ -426,8 +436,8 @@ async def settle_publication(
             ingest_job_id=command.job_id,
             dataset=command.dataset,
             dataset_version_id=version.id,
-            feature_count_after=command.metadata.get("feature_count"),
-            schema_diff=command.schema_diff,
+            feature_count_after=command.measurement.metadata.get("feature_count"),
+            schema_diff=schema_diff,
             verification=verification,
             contacted_origin=True,
         )
