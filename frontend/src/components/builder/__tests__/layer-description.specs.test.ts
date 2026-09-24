@@ -1,4 +1,4 @@
-// describeLayers gives each point layer the map layers it draws, and the point adapters' own methods write exactly those.
+// describeLayers gives each layer the map layers it draws, and the migrated adapters' own methods write exactly those.
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
@@ -16,6 +16,12 @@ import {
 } from '../layer-adapters/cluster-adapter';
 import { HEATMAP_OWNED_PAINT_PROPERTIES, buildHeatmapColorExpression } from '../layer-adapters/heatmap-adapter';
 import { SYMBOL_OWNED_LAYOUT_PROPERTIES, SYMBOL_OWNED_PAINT_PROPERTIES } from '../layer-adapters/symbol-adapter';
+import {
+  ARROW_OWNED_LAYOUT_PROPERTIES,
+  ARROW_OWNED_PAINT_PROPERTIES,
+  LINE_OWNED_LAYOUT_PROPERTIES,
+  LINE_OWNED_PAINT_PROPERTIES,
+} from '../layer-adapters/line-adapter';
 import { getAdapter } from '../layer-adapters/registry';
 import type { ImageSpec, LayerDrawing, LayerSpec } from '../layer-adapters/types';
 
@@ -31,6 +37,10 @@ const {
   reversedHeatmap,
   heatmapByExpression,
   symbolWithLeftoverClassification: symbol,
+  line,
+  dashedLine,
+  arrowLine,
+  graduatedWidth,
 } = SAVED_LAYERS;
 
 const FILTER = ['==', ['get', 'kind'], 'school'] as FilterSpecification;
@@ -197,6 +207,53 @@ function symbolSpec(
 
 function withSymbol(symbolConfig: StyleConfig['symbol'], overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
   return { ...symbol, style_config: { ...symbol.style_config, symbol: symbolConfig }, ...overrides };
+}
+
+function lineSpecRow(
+  layer: MapLayerResponse,
+  paint: Record<string, unknown>,
+  overrides: Partial<LayerSpec['layer']> = {},
+): LayerSpec {
+  return {
+    layer: {
+      id: `layer-${layer.id}`,
+      type: 'line',
+      ...tableSource(layer),
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'visible' },
+      paint,
+      ...overrides,
+    },
+    ownedPaint: LINE_OWNED_PAINT_PROPERTIES,
+    ownedLayout: LINE_OWNED_LAYOUT_PROPERTIES,
+  };
+}
+
+const ARROW_IMAGE = { kind: 'image', id: 'geolens-line-arrow', data: expect.any(Function), options: { sdf: true, pixelRatio: 1 } };
+
+function arrowSpecRow(
+  layer: MapLayerResponse,
+  config: { color: string; size: number; spacing: number },
+): LayerSpec {
+  return {
+    layer: {
+      id: `layer-${layer.id}-arrow`,
+      type: 'symbol',
+      ...tableSource(layer),
+      layout: {
+        'symbol-placement': 'line',
+        'symbol-spacing': config.spacing,
+        'icon-image': 'geolens-line-arrow',
+        'icon-size': config.size / 14,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-rotation-alignment': 'map',
+        visibility: 'visible',
+      },
+      paint: { 'icon-color': config.color, 'icon-opacity': 1 },
+    },
+    ownedPaint: ARROW_OWNED_PAINT_PROPERTIES,
+    ownedLayout: ARROW_OWNED_LAYOUT_PROPERTIES,
+  };
 }
 
 const pointPaint = { 'circle-radius': 5, 'circle-color': '#3b82f6', 'circle-stroke-color': '#1d4ed8', 'circle-stroke-width': 1 };
@@ -426,18 +483,61 @@ const rows: Row[] = [
     builder,
     drawing([symbolSpec(symbol, { ...ICONS, visibility: 'none' }, { 'icon-opacity': 0.4 }, { filter: FILTER })], [GEOLENS_SPRITE]),
   ],
+  ['a line layer', line, builder, drawing([lineSpecRow(line, { 'line-color': '#ef4444', 'line-width': 2, 'line-opacity': 1, 'line-layer-opacity': 1 })])],
+  [
+    'a line layer without line paint',
+    { ...line, paint: {} },
+    builder,
+    drawing([lineSpecRow(line, { 'line-color': MAP_COLORS.default.fill, 'line-width': 2, 'line-opacity': 1, 'line-layer-opacity': 1 })]),
+  ],
+  [
+    'a line with stale fill and circle paint',
+    { ...line, paint: { 'line-color': '#ef4444', 'fill-color': '#00ff00', 'circle-radius': 8 } },
+    builder,
+    drawing([lineSpecRow(line, { 'line-color': '#ef4444', 'line-opacity': 1, 'line-layer-opacity': 1 })]),
+  ],
+  [
+    'a stored dasharray, which wins over a legacy layout one',
+    dashedLine,
+    builder,
+    drawing([lineSpecRow(dashedLine, { 'line-color': '#a16207', 'line-width': 1.5, 'line-dasharray': [4, 2], 'line-opacity': 1, 'line-layer-opacity': 1 })]),
+  ],
+  [
+    'a legacy dasharray stored in layout, migrated into paint',
+    { ...line, layout: { 'line-dasharray': [3, 1] } },
+    builder,
+    drawing([lineSpecRow(line, { 'line-color': '#ef4444', 'line-width': 2, 'line-dasharray': [3, 1], 'line-opacity': 1, 'line-layer-opacity': 1 })]),
+  ],
+  [
+    'a graduated line width, with no scalar fallback in the spec',
+    graduatedWidth,
+    builder,
+    drawing([lineSpecRow(graduatedWidth, { 'line-color': '#0284c7', 'line-width': graduatedWidth.paint['line-width'], 'line-opacity': 1, 'line-layer-opacity': 1 })]),
+  ],
+  [
+    'a hidden, filtered line layer under a master opacity',
+    { ...line, visible: false, filter: FILTER, opacity: 0.6 },
+    builder,
+    drawing([lineSpecRow(line, { 'line-color': '#ef4444', 'line-width': 2, 'line-opacity': 1, 'line-layer-opacity': 0.6 }, { layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' }, filter: FILTER })]),
+  ],
+  [
+    'an arrow line, whose companion carries the icon',
+    arrowLine,
+    builder,
+    drawing(
+      [
+        lineSpecRow(arrowLine, { 'line-color': '#2563eb', 'line-width': 2, 'line-opacity': 1, 'line-layer-opacity': 1 }),
+        arrowSpecRow(arrowLine, { color: '#1e3a8a', size: 14, spacing: 80 }),
+      ],
+      [ARROW_IMAGE as unknown as ImageSpec],
+    ),
+  ],
 ];
 
 describe('describeLayers specs', () => {
   it.each(rows)('describes the map layers of %s', (_label, layer, context, expected) => {
     const [described] = describeLayers([toSyncInput(layer)], context).layers;
     expect({ specs: described.specs, images: described.images }).toEqual(expected);
-  });
-
-  it('leaves the specs empty for an adapter that still adds its own layers', () => {
-    const [described] = describeLayers([toSyncInput(SAVED_LAYERS.line)], builder).layers;
-    expect(described.specs).toEqual([]);
-    expect(described.images).toEqual([]);
   });
 });
 
@@ -462,6 +562,8 @@ const ADAPTER_CASES: [label: string, layer: MapLayerResponse, context: RenderCon
   ['bounded cluster', boundedCluster, builderWithClusterData],
   ['heatmap', heatmapByRamp, builder],
   ['symbol', { ...symbol, label_config: { column: 'name' } }, builder],
+  ['line', line, builder],
+  ['arrow line', arrowLine, builder],
 ];
 
 describe("the point adapters' own methods", () => {
@@ -471,7 +573,10 @@ describe("the point adapters' own methods", () => {
     adapter.addLayers(recording.map, adapterInput);
 
     expect(recording.layerIds().map((id) => recording.layer(id))).toEqual(held(described.specs));
-    expect(recording.getSprite().map(({ id }) => id)).toEqual(described.images.map(({ id }) => id));
+    for (const image of described.images) {
+      if (image.kind === 'sprite') expect(recording.getSprite().some(({ id }) => id === image.id)).toBe(true);
+      else expect(recording.map.hasImage(image.id)).toBe(true);
+    }
     expect(recording.errors).toEqual([]);
   });
 
@@ -505,17 +610,47 @@ describe("the point adapters' own methods", () => {
     expect(described.specs.length).toBe(before.length);
   });
 
-  it.each(ADAPTER_CASES)('%s getLayerIds lists every map layer it describes', (_label, layer, context) => {
+  it.each(ADAPTER_CASES)('%s getLayerIds covers every current spec id', (_label, layer, context) => {
     const { described, adapter } = setUp(layer, context);
-    expect(new Set(adapter.getLayerIds(described.id))).toEqual(new Set(described.specs.map(({ layer: spec }) => spec.id)));
+    const ids = new Set(adapter.getLayerIds(described.id));
+    // A superset, not exact equality: a mode-dependent companion (e.g. line's arrow)
+    // is always listed for cleanup/z-order even when the current drawing lacks it.
+    for (const { layer: spec } of described.specs) expect(ids.has(spec.id)).toBe(true);
   });
 
-  it('circle, heatmap and symbol syncPaint leave a map without the layer alone', () => {
-    for (const layer of [point, heatmapByRamp, symbol]) {
+  it('circle, heatmap, symbol and line syncPaint leave a map without the layer alone', () => {
+    for (const layer of [point, heatmapByRamp, symbol, line]) {
       const { recording, adapter, adapterInput } = setUp(layer);
       adapter.syncPaint(recording.map, adapterInput);
       expect(recording.layerIds()).toEqual([]);
     }
+  });
+
+  it('an arrow line removes its companion when the render mode leaves arrow', () => {
+    const { recording, adapter, adapterInput } = setUp(arrowLine);
+    adapter.addLayers(recording.map, adapterInput);
+    expect(recording.layerIds()).toEqual([`layer-${arrowLine.id}`, `layer-${arrowLine.id}-arrow`]);
+
+    const next = setUp({ ...arrowLine, style_config: null });
+    adapter.syncPaint(recording.map, next.adapterInput);
+
+    expect(recording.layerIds()).toEqual([`layer-${arrowLine.id}`]);
+    expect(recording.errors).toEqual([]);
+  });
+
+  it('removing a stored line-cap and line-join returns to round, not the map default', () => {
+    const { recording, adapter, adapterInput } = setUp({ ...line, layout: { 'line-cap': 'butt', 'line-join': 'bevel' } });
+    adapter.addLayers(recording.map, adapterInput);
+    expect(recording.layer(`layer-${line.id}`)?.layout).toEqual(
+      expect.objectContaining({ 'line-cap': 'butt', 'line-join': 'bevel' }),
+    );
+
+    const next = setUp(line);
+    adapter.syncPaint(recording.map, next.adapterInput);
+
+    expect(recording.layer(`layer-${line.id}`)?.layout).toEqual(
+      expect.objectContaining({ 'line-cap': 'round', 'line-join': 'round' }),
+    );
   });
 
   it('cluster syncVisibility keeps the counts hidden while they are turned off', () => {

@@ -1,17 +1,14 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { AdapterLayerInput, LayerAdapter } from './types';
+import type { AdapterLayerInput, ImageSpec, LayerAdapter, LayerDrawing, LayerSpec } from './types';
 import {
   simplifyPaint,
   filterPaintForLayerType,
-  finalizeLayer,
+  filterSpec,
   getBuilderStyleConfig,
-  applyMasterOpacity,
-  syncOwnedLayoutProperties,
-  syncOwnedPaintProperties,
-  syncSingleLayerVisibility,
-  syncLayerFilter,
+  getFeatureOpacity,
+  sourceLayerSpec,
 } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 // builder-audit #338 DRY-06: arrow render-mode defaults come from the single builder-defaults
 // source of truth (shared with renderAs + backend mirror) instead of bare 14/80 literals.
 import { DEFAULT_ARROW_SIZE, DEFAULT_ARROW_SPACING, DEFAULT_LINE_PAINT } from './builder-defaults';
@@ -33,14 +30,15 @@ export const LINE_OWNED_PAINT_PROPERTIES = [
   'line-offset',
   'line-blur',
   'line-opacity',
+  'line-layer-opacity',
   'line-gradient',
   'line-dasharray',
   'line-pattern',
   'line-translate',
   'line-translate-anchor',
 ] as const;
-const ARROW_OWNED_PAINT_PROPERTIES = ['icon-color', 'icon-opacity'] as const;
-const ARROW_OWNED_LAYOUT_PROPERTIES = [
+export const ARROW_OWNED_PAINT_PROPERTIES = ['icon-color', 'icon-opacity'] as const;
+export const ARROW_OWNED_LAYOUT_PROPERTIES = [
   'symbol-placement',
   'symbol-spacing',
   'icon-image',
@@ -78,14 +76,12 @@ function arrowImageData() {
   return { width: size, height: size, data };
 }
 
-function ensureArrowImage(map: MaplibreMap) {
-  try {
-    if (map.hasImage?.(ARROW_IMAGE_ID)) return;
-    map.addImage(ARROW_IMAGE_ID, arrowImageData(), { sdf: true, pixelRatio: 1 });
-  } catch (e) {
-    if (import.meta.env.DEV) console.warn('[map-sync] Arrow icon registration failed:', e);
-  }
-}
+const ARROW_IMAGE: ImageSpec = {
+  kind: 'image',
+  id: ARROW_IMAGE_ID,
+  data: arrowImageData,
+  options: { sdf: true, pixelRatio: 1 },
+};
 
 function arrowConfig(input: AdapterLayerInput) {
   const builder = getBuilderStyleConfig(input);
@@ -103,63 +99,33 @@ function isArrowMode(input: AdapterLayerInput) {
   return input.style_config?.render_mode === 'arrow';
 }
 
-function addArrowLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const { layerId, sourceId, sourceLayer, filter, opacity, visible } = input;
-  const id = arrowLayerId(layerId);
+function arrowSpec(input: AdapterLayerInput): LayerSpec {
   const config = arrowConfig(input);
-  if (map.getLayer(id)) return;
-  ensureArrowImage(map);
-
-  map.addLayer({
-    id,
-    type: 'symbol',
-    source: sourceId,
-    ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-    layout: {
-      'symbol-placement': 'line',
-      'symbol-spacing': config.spacing,
-      'icon-image': ARROW_IMAGE_ID,
-      'icon-size': config.size / ARROW_BASE_SIZE,
-      'icon-allow-overlap': true,
-      'icon-ignore-placement': true,
-      'icon-rotation-alignment': 'map',
-      'visibility': visible ? 'visible' : 'none',
+  return {
+    layer: {
+      id: arrowLayerId(input.layerId),
+      type: 'symbol',
+      source: input.sourceId,
+      ...sourceLayerSpec(input),
+      ...filterSpec(input.filter),
+      layout: {
+        'symbol-placement': 'line',
+        'symbol-spacing': config.spacing,
+        'icon-image': ARROW_IMAGE_ID,
+        'icon-size': config.size / ARROW_BASE_SIZE,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-rotation-alignment': 'map',
+        visibility: input.visible ? 'visible' : 'none',
+      },
+      paint: {
+        'icon-color': config.color,
+        'icon-opacity': input.opacity ?? 1,
+      },
     },
-    paint: {
-      'icon-color': config.color,
-      'icon-opacity': opacity ?? 1,
-    },
-    ...(filter && Array.isArray(filter) && filter.length > 0 ? { filter } : {}),
-  });
-}
-
-function syncArrowLayer(map: MaplibreMap, input: AdapterLayerInput) {
-  const id = arrowLayerId(input.layerId);
-  if (!isArrowMode(input)) {
-    if (map.getLayer(id)) map.removeLayer(id);
-    return;
-  }
-  if (!map.getLayer(id)) {
-    addArrowLayer(map, input);
-  }
-  if (!map.getLayer(id)) return;
-
-  const config = arrowConfig(input);
-  syncOwnedLayoutProperties(map, id, {
-    'symbol-placement': 'line',
-    'symbol-spacing': config.spacing,
-    'icon-image': ARROW_IMAGE_ID,
-    'icon-size': config.size / ARROW_BASE_SIZE,
-    'icon-allow-overlap': true,
-    'icon-ignore-placement': true,
-    'icon-rotation-alignment': 'map',
-    visibility: input.visible ? 'visible' : 'none',
-  }, { ownedProperties: ARROW_OWNED_LAYOUT_PROPERTIES });
-  syncOwnedPaintProperties(map, id, {
-    'icon-color': config.color,
-    'icon-opacity': input.opacity ?? 1,
-  }, { ownedProperties: ARROW_OWNED_PAINT_PROPERTIES });
-  syncLayerFilter(map, id, input.filter);
+    ownedPaint: ARROW_OWNED_PAINT_PROPERTIES,
+    ownedLayout: ARROW_OWNED_LAYOUT_PROPERTIES,
+  };
 }
 
 /** The line paint the adapter adds: the stored line keys, or the default line paint when none are stored. */
@@ -168,81 +134,92 @@ export function resolveLinePaint(paint: Record<string, unknown>): Record<string,
   return Object.keys(linePaint).length > 0 ? linePaint : { ...DEFAULT_LINE_PAINT };
 }
 
+/**
+ * The line paint a line layer draws: the stored line keys with their scalar
+ * fallbacks, or the default line paint when none survive, then each stored
+ * expression. Master opacity rides on `line-layer-opacity`, its own tier in
+ * maplibre-gl v6, leaving the per-feature `line-opacity` unmultiplied.
+ *
+ * line-gradient REQUIRES an expression that consumes ['line-progress'] — there is no
+ * valid scalar fallback, so it is excluded from the "is paint empty" check the same
+ * way the legacy add path did. The writer's EXPRESSION_ONLY_PAINT keeps a real
+ * gradient expression out of the initial addLayer call; reconcilePaint installs it.
+ */
+function linePaint(input: AdapterLayerInput): Record<string, unknown> {
+  const rawPaint = input.paint;
+  const hasExpressions = Object.entries(rawPaint).some(
+    ([key, value]) => key !== 'line-dasharray' && Array.isArray(value),
+  );
+  const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
+  const { 'line-gradient': _gradientFallback, ...basePaintWithoutGradient } = basePaint;
+  const resolved = resolveLinePaint(
+    hasExpressions && Array.isArray(rawPaint['line-gradient']) ? basePaintWithoutGradient : basePaint,
+  );
+  // Legacy maps may still carry line-dasharray in layout; MapLibre expects it in paint.
+  const legacyDasharray = (input.layout as Record<string, unknown> | undefined)?.['line-dasharray'];
+  if (legacyDasharray != null && resolved['line-dasharray'] == null) {
+    resolved['line-dasharray'] = legacyDasharray;
+  }
+  const expressions = Object.entries(filterPaintForLayerType(rawPaint, 'line')).filter(([, v]) => Array.isArray(v));
+  return {
+    ...resolved,
+    ...Object.fromEntries(expressions),
+    'line-opacity': getFeatureOpacity(rawPaint, 'line'),
+    'line-layer-opacity': input.opacity ?? 1,
+  };
+}
+
+function lineLayout(input: AdapterLayerInput): Record<string, unknown> {
+  const { 'line-dasharray': _legacyDasharray, ...restLayout } = (input.layout ?? {}) as Record<string, unknown>;
+  return {
+    'line-cap': 'round',
+    'line-join': 'round',
+    ...restLayout,
+    visibility: input.visible ? 'visible' : 'none',
+  };
+}
+
+function lineSpec(input: AdapterLayerInput): LayerSpec {
+  return {
+    layer: {
+      id: input.layerId,
+      type: 'line',
+      source: input.sourceId,
+      ...sourceLayerSpec(input),
+      ...filterSpec(input.filter),
+      layout: lineLayout(input),
+      paint: linePaint(input),
+    },
+    ownedPaint: LINE_OWNED_PAINT_PROPERTIES,
+    ownedLayout: LINE_OWNED_LAYOUT_PROPERTIES,
+  };
+}
+
+function describeLine(input: AdapterLayerInput): LayerDrawing {
+  if (!isArrowMode(input)) return { specs: [lineSpec(input)], images: [] };
+  return { specs: [lineSpec(input), arrowSpec(input)], images: [ARROW_IMAGE] };
+}
+
 export const lineAdapter: LayerAdapter = {
   type: 'line',
+  describe: describeLine,
 
-  addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, sourceLayer, paint: rawPaint, layout: storedLayout, opacity, filter, visible } = input;
-    const hasExpressions = Object.entries(rawPaint).some(
-      ([key, value]) => key !== 'line-dasharray' && Array.isArray(value),
-    );
-    try {
-      const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-      // Legacy maps may still carry line-dasharray in layout; MapLibre expects it in paint.
-      const { 'line-dasharray': legacyDasharray, ...restLayout } = storedLayout;
-      // line-gradient REQUIRES an expression that consumes ['line-progress'] — there is no
-      // valid scalar fallback. simplifyPaint flattens arrays to scalar fallbacks (e.g.
-      // `interpolate`'s value[4] color stop), which produces a plain string that MapLibre
-      // rejects on addLayer. Drop it here and let finalizeLayer's replayExpressions install
-      // the real expression after addLayer succeeds. See REVIEW.md WR-02.
-      const { 'line-gradient': _gradientFallback, ...basePaintWithoutGradient } = basePaint;
-      const linePaint = resolveLinePaint(
-        hasExpressions && Array.isArray(rawPaint['line-gradient']) ? basePaintWithoutGradient : basePaint,
-      );
-      if (legacyDasharray && linePaint['line-dasharray'] == null) {
-        linePaint['line-dasharray'] = legacyDasharray;
-      }
-      map.addLayer({
-        id: layerId,
-        type: 'line',
-        source: sourceId,
-        ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-        paint: linePaint,
-        layout: {
-          'line-cap': 'round',
-          'line-join': 'round',
-          ...restLayout,
-          // BUG-01: honor input.visible at initial add — see fill-adapter for rationale.
-          ...(visible === false ? { visibility: 'none' as const } : {}),
-        },
-      });
-      finalizeLayer(map, layerId, rawPaint, 'line', opacity ?? 1, filter, hasExpressions);
-      if (isArrowMode(input)) {
-        addArrowLayer(map, input);
-      }
-    } catch (e) {
-      if (import.meta.env.DEV) console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
+  addLayers(map, input) {
+    addDescribedLayer(map, describeLine(input));
+  },
+
+  syncPaint(map, input) {
+    if (!map.getLayer(input.layerId)) return;
+    // The writer never removes layers (it only adds and updates); a mode that
+    // stops being 'arrow' has to drop the companion by hand.
+    if (!isArrowMode(input) && map.getLayer(arrowLayerId(input.layerId))) {
+      map.removeLayer(arrowLayerId(input.layerId));
     }
+    writeDescribedLayer(map, describeLine(input));
   },
 
-  syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, paint: rawPaint, opacity, filter } = input;
-    if (!map.getLayer(layerId)) return;
-    const legacyDasharray = input.layout?.['line-dasharray'];
-    const paintForSync = {
-      ...rawPaint,
-      ...(legacyDasharray != null && rawPaint['line-dasharray'] == null ? { 'line-dasharray': legacyDasharray } : {}),
-    };
-    syncOwnedPaintProperties(map, layerId, paintForSync, {
-      geomType: 'line',
-      ownedProperties: LINE_OWNED_PAINT_PROPERTIES,
-    });
-    applyMasterOpacity(map, layerId, rawPaint, 'line', opacity ?? 1);
-    // Phase 1136 EDITOR-LINE-01/02: reconcile owned layout properties (line-cap, line-join)
-    // clearMissing: false — addLayers hardcodes 'round'/'round' as defaults; when the stored
-    // layout does not carry cap/join, leave the map's current value intact rather than
-    // resetting to MapLibre spec defaults ('butt'/'miter'). CR-01 fix.
-    syncOwnedLayoutProperties(map, layerId, (input.layout ?? {}) as Record<string, unknown>, {
-      ownedProperties: LINE_OWNED_LAYOUT_PROPERTIES,
-      clearMissing: false,
-    });
-    syncLayerFilter(map, layerId, filter);
-    syncArrowLayer(map, input);
-  },
-
-  syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    syncSingleLayerVisibility(map, input.layerId, input.visible);
-    syncSingleLayerVisibility(map, arrowLayerId(input.layerId), input.visible);
+  syncVisibility(map, input) {
+    writeDescribedVisibility(map, describeLine(input));
   },
 
   getLayerIds(layerId: string): string[] {

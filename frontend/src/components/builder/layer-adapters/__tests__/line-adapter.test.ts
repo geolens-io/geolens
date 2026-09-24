@@ -110,37 +110,43 @@ describe('line adapter — syncPaint reconciles line-cap and line-join via syncO
     expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-line-1', 'line-join', 'bevel');
   });
 
-  it('does NOT call setLayoutProperty for line-cap or line-join when input.layout is empty', () => {
+  it('a stored square cap and bevel join, removed from the layout, return to round', () => {
     const map = createMockMap({ layerExists: true });
-    lineAdapter.syncPaint(
-      map as unknown as import('maplibre-gl').Map,
-      makeInput({ layout: {} }),
+    map.getLayoutProperty.mockImplementation((_id: string, prop: string) =>
+      prop === 'line-cap' ? 'square' : prop === 'line-join' ? 'bevel' : undefined,
     );
 
-    const layoutCalls = map.setLayoutProperty.mock.calls.filter(
-      ([, prop]) => prop === 'line-cap' || prop === 'line-join',
-    );
-    expect(layoutCalls).toHaveLength(0);
+    lineAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({ layout: {} }));
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-line-1', 'line-cap', 'round');
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-line-1', 'line-join', 'round');
   });
 
-  // CR-01 regression pin: in production, addLayers sets line-cap='round' and
-  // line-join='round'. A subsequent syncPaint with empty layout must NOT reset
-  // those values to undefined (which MapLibre resolves to 'butt'/'miter').
-  it('does NOT reset line-cap / line-join when layout is empty but map already has "round" (CR-01 pin)', () => {
+  // line-cap and line-join are always 'round' or an explicit stored value, never
+  // undefined: MapLibre resolves an undefined value to its own spec default
+  // ('butt'/'miter'), not geolens's round default.
+  it('resolves line-cap and line-join to round, never undefined, butt, or miter, when layout is empty', () => {
     const map = createMockMap({ layerExists: true });
-    // Simulate post-addLayers state: map already has both properties set to 'round'
-    map.getLayoutProperty.mockImplementation((_id: string, prop: string) => {
-      if (prop === 'line-cap' || prop === 'line-join') return 'round';
-      return undefined;
-    });
-    lineAdapter.syncPaint(
-      map as unknown as import('maplibre-gl').Map,
-      makeInput({ layout: {} }),
+
+    lineAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({ layout: {} }));
+
+    const values = map.setLayoutProperty.mock.calls
+      .filter(([, prop]) => prop === 'line-cap' || prop === 'line-join')
+      .map(([, , value]) => value);
+    expect(values).toEqual(['round', 'round']);
+  });
+
+  it('makes no call when line-cap and line-join already hold round', () => {
+    const map = createMockMap({ layerExists: true });
+    // Post-addLayers state: the map already has both at 'round'.
+    map.getLayoutProperty.mockImplementation((_id: string, prop: string) =>
+      (prop === 'line-cap' || prop === 'line-join') ? 'round' : undefined,
     );
-    const capResets = map.setLayoutProperty.mock.calls.filter(
-      ([, prop, val]) => (prop === 'line-cap' || prop === 'line-join') && val === undefined,
-    );
-    expect(capResets).toHaveLength(0);
+
+    lineAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({ layout: {} }));
+
+    const calls = map.setLayoutProperty.mock.calls.filter(([, prop]) => prop === 'line-cap' || prop === 'line-join');
+    expect(calls).toHaveLength(0);
   });
 });
 
