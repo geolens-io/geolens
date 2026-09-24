@@ -235,9 +235,10 @@ class TestVocabularyMatchesTheConstraints:
         }
         assert constraints == {
             "chk_refresh_runs_scheduled_identity": (
-                "trigger != 'scheduled' OR (scheduled_for IS NOT NULL "
+                "(trigger = 'scheduled' AND scheduled_for IS NOT NULL "
                 "AND occurrence_key IS NOT NULL AND claim_deadline IS NOT NULL "
-                "AND execution_key IS NOT NULL)"
+                "AND execution_key IS NOT NULL) "
+                "OR (trigger <> 'scheduled' AND scheduled_for IS NULL)"
             )
         }
 
@@ -652,6 +653,28 @@ class TestRunLifecycle:
 
         assert run.status == "failed"
         assert run.error_code == "dispatch_failed"
+
+
+class TestScheduledIdentityConstraint:
+    @pytest.mark.parametrize("trigger", ["manual", "api", "cli"])
+    async def test_an_unscheduled_run_cannot_carry_an_occurrence_time(
+        self, test_db_session, trigger
+    ) -> None:
+        """The database refuses `scheduled_for` on a run whose trigger is not `scheduled`."""
+        dataset, job = await _seed(test_db_session)
+        test_db_session.add(
+            DatasetRefreshRun(
+                dataset_id=dataset.id,
+                ingest_job_id=job.id,
+                origin_kind="upload",
+                trigger=trigger,
+                status="pending",
+                scheduled_for=datetime.now(timezone.utc),
+            )
+        )
+        with pytest.raises(IntegrityError, match="chk_refresh_runs_scheduled_identity"):
+            await test_db_session.flush()
+        await test_db_session.rollback()
 
 
 class TestAdmissionControl:
