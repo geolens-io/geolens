@@ -8,6 +8,8 @@ import io
 import json
 import math
 import os
+import re
+import stat
 import uuid
 import zipfile
 from contextlib import contextmanager
@@ -38,11 +40,13 @@ from app.platform.jobs.sweep import (
     reap_unpublished_tileset_attempts,
     unpublished_tileset_attempts_from_metadata,
 )
+from app.platform.storage.local import LocalStorageProvider
+from app.platform.storage.reap import PrefixDeleteError
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.embeddings.tasks import embed_record
 from app.processing.ingest.tasks import ingest_file, ingest_tileset, task_app
 from app.processing.ingest.tasks_tileset import unpack_tileset
-from app.processing.ingest.tileset import inspect_tileset
+from app.processing.ingest.tileset import Tileset, TilesetLayout, inspect_tileset
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_user
 from tests.tiles3d_archives import REGION, build_zip, tileset_json, zip_bytes
@@ -231,6 +235,13 @@ async def test_a_tileset_publishes_its_dataset_pointer_and_objects(
     ]
     assert await storage_provider.get_storage().get(f"{attempt}0/0.glb") == _GLB
     assert not Path(staged).exists()
+    # The tileset route refuses a pointer whose path segments leave this set.
+    _, dataset_name, attempt_name, _ = pointer.href.split("/")
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", dataset_name)
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", attempt_name)
+    base = storage_provider.get_storage().base_dir
+    for key in await tileset_objects(dataset.id):
+        assert (base / key).is_file() and not (base / key).is_symlink(), key
 
     detail = await client.get(f"/datasets/{dataset.id}", headers=headers)
     assert detail.status_code == 200, detail.text
@@ -497,6 +508,31 @@ async def test_the_publish_reservation_refuses_an_overshoot(
     assert await tileset_objects() == []
 
 
+async def test_a_failed_publish_commits_no_tiles3d_record(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch
+) -> None:
+    """The record, the dataset and the pointer commit together or not at all."""
+    headers, user_id = uploader
+    job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
+    assert (await commit(client, headers, job_id)).status_code == 202
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_tileset.compute_quality_score",
+        AsyncMock(side_effect=RuntimeError("publish interrupted")),
+    )
+
+    with pytest.raises(RuntimeError, match="publish interrupted"):
+        await run_queued(queued)
+
+    records = await test_db_session.execute(
+        select(Record.id).where(
+            Record.created_by == user_id, Record.record_type == "tiles3d_dataset"
+        )
+    )
+    assert records.all() == []
+    assert (await load_job(test_db_session, job_id)).status == "failed"
+    assert await tileset_objects() == []
+
+
 # --- Tenancy -------------------------------------------------------------
 
 
@@ -562,6 +598,40 @@ async def test_a_damaged_member_is_refused_while_unpacking(
 
     with pytest.raises(UnsafeUploadError, match="could not be read"):
         await unpack_tileset(str(path), tileset, prefix)
+
+
+async def test_unpacking_never_creates_a_link(tmp_path, monkeypatch) -> None:
+    """Even an entry marked as a symlink reaches storage as a regular file."""
+    link = zipfile.ZipInfo("0/link.glb")
+    link.create_system = 3
+    link.external_attr = (stat.S_IFLNK | 0o777) << 16
+    path = build_zip(
+        tmp_path / "t.zip", [("tileset.json", tileset_json()), (link, b"/etc")]
+    )
+    # The archive check refuses this entry, so the layout is built by hand to
+    # exercise the unpack on its own.
+    with zipfile.ZipFile(path) as archive:
+        entries = archive.infolist()
+    tileset = Tileset(
+        layout=TilesetLayout(
+            files=tuple((info, info.filename) for info in entries),
+            entry_point=entries[0],
+            unpacked_bytes=sum(info.file_size for info in entries),
+            entry_count=len(entries),
+        ),
+        facts=inspect_tileset(
+            build_zip(tmp_path / "ok.zip", [("tileset.json", tileset_json())])
+        ).facts,
+    )
+    storage = LocalStorageProvider(base_dir=str(tmp_path / "store"))
+    monkeypatch.setattr(storage_provider, "_storage", storage)
+    prefix = tileset_attempt_prefix(uuid.uuid4(), uuid.uuid4())
+
+    await unpack_tileset(path, tileset, prefix)
+
+    written = storage.base_dir / f"{prefix}0/link.glb"
+    assert written.is_file() and not written.is_symlink()
+    assert written.read_bytes() == b"/etc"
 
 
 # --- The task contract ---------------------------------------------------
@@ -867,6 +937,50 @@ async def test_the_sweep_reaps_under_the_tenant_prefix(client, monkeypatch) -> N
     assert counts == (1, 0, 0)
     assert await storage.list(f"tenants/{tenant}/") == []
     assert await storage.list(prefix) == [f"{prefix}tileset.json"]
+
+
+async def test_a_partial_reap_keeps_the_record_for_the_next_pass(
+    client, test_db_session, job_row, monkeypatch
+) -> None:
+    """A PrefixDeleteError leaves the prefix on the job row for the next pass."""
+    prefix = tileset_attempt_prefix(uuid.uuid4(), uuid.uuid4())
+    job = await job_row(
+        status="failed", user_metadata={UNPUBLISHED_TILESET_ATTEMPTS_FIELD: [prefix]}
+    )
+    monkeypatch.setattr(
+        "app.platform.storage.reap.delete_prefix",
+        AsyncMock(side_effect=PrefixDeleteError("1 of 2 deletes failed")),
+    )
+
+    counts = await reap_unpublished_tileset_attempts((prefix,))
+
+    assert counts == (0, 0, 1)
+    row = await load_job(test_db_session, job.id)
+    assert row.user_metadata[UNPUBLISHED_TILESET_ATTEMPTS_FIELD] == [prefix]
+
+
+async def test_an_unreadable_pointer_licenses_no_delete(
+    client, test_db_session, job_row, monkeypatch
+) -> None:
+    """When the live pointer cannot be read, nothing is deleted and the record stays."""
+    prefix = tileset_attempt_prefix(uuid.uuid4(), uuid.uuid4())
+    await storage_provider.get_storage().put(f"{prefix}tileset.json", b"{}")
+    job = await job_row(
+        status="failed", user_metadata={UNPUBLISHED_TILESET_ATTEMPTS_FIELD: [prefix]}
+    )
+    monkeypatch.setattr(
+        "app.modules.catalog.datasets.domain.service.get_tileset_href",
+        AsyncMock(side_effect=RuntimeError("the catalog is unavailable")),
+    )
+
+    counts = await reap_unpublished_tileset_attempts((prefix,))
+
+    assert counts == (0, 1, 0)
+    assert await storage_provider.get_storage().list(prefix) == [
+        f"{prefix}tileset.json"
+    ]
+    row = await load_job(test_db_session, job.id)
+    assert row.user_metadata[UNPUBLISHED_TILESET_ATTEMPTS_FIELD] == [prefix]
 
 
 @pytest.mark.parametrize(

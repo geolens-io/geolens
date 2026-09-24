@@ -27,7 +27,8 @@ This module is the one place that knows about refuse-to-coerce downgrades:
   ``0066_tileset_asset_key`` while any ``tileset`` asset row exists. Not
   auto-cleaned; the tests that commit such rows (test_tiles3d_record_type,
   test_tiles3d_branches, test_tiles3d_record_type_migration,
-  test_catalog_projection and test_tileset_upload) remove them themselves.
+  test_catalog_projection, test_tileset_upload and test_tileset_quality_score)
+  remove them themselves.
 
 If a future migration gains a refuse-to-coerce downgrade, teach this module
 about it rather than adding cleanup to individual test files.
