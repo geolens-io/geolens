@@ -876,6 +876,31 @@ async def test_a_lost_acknowledgement_stands_down_as_published(
         )
 
 
+@pytest.mark.parametrize("kind", ["file", "service", "raster"])
+async def test_a_cancel_after_the_publishing_commit_keeps_the_publication(
+    replace, kind: str
+) -> None:
+    """A cancel that lands in the post-commit steps leaves the replacement published."""
+    replacement = await replace(kind)
+    purging = asyncio.Event()
+
+    async def _stall(*args, **kwargs):
+        purging.set()
+        await asyncio.sleep(30)
+
+    with (
+        _quiet_embedding(),
+        patch("app.processing.ingest.publication.invalidate_catalog_cache", new=_stall),
+    ):
+        task = asyncio.create_task(replacement.run())
+        await asyncio.wait_for(purging.wait(), timeout=20)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    await _assert_settled_published(replacement)
+
+
 @pytest.mark.parametrize("kind", ["file", "service", "postgis"])
 async def test_a_vector_replacement_purges_its_tiles_after_the_commit(
     replace, kind: str
