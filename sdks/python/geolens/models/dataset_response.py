@@ -118,7 +118,7 @@ class DatasetResponse:
         updated_by (None | Unset | UUID):
         record_type (str | Unset): Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG),
             'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote
-            service), 'collection' (flat dataset group). Default: 'vector_dataset'.
+            service), 'collection' (flat dataset group), 'tiles3d_dataset' (3D Tiles tileset). Default: 'vector_dataset'.
         raster (None | RasterMetadata | Unset): Raster-specific metadata (null for vectors)
         stac_assets (DatasetResponseStacAssetsType0 | None | Unset): STAC-style asset dictionary
         stac_extensions (list[str] | None | Unset):

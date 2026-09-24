@@ -445,7 +445,8 @@ class DatasetResponse(BaseModel):
             "Record type: 'vector_dataset' (spatial features), "
             "'raster_dataset' (single COG), 'vrt_dataset' (VRT mosaic), "
             "'table' (non-spatial tabular), 'map' (saved map), "
-            "'service' (catalogued remote service), 'collection' (flat dataset group)."
+            "'service' (catalogued remote service), 'collection' (flat dataset group), "
+            "'tiles3d_dataset' (3D Tiles tileset)."
         ),
     )
     raster: RasterMetadata | None = Field(

@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from app.core.record_types import RECORD_TYPES, RecordTypeCapabilities, capabilities
+from app.core.record_types import (
+    DATASET_RECORD_TYPES,
+    RECORD_TYPES,
+    RecordTypeCapabilities,
+    capabilities,
+)
 from app.modules.catalog.datasets.domain.models import Record
 
 _VECTOR = RecordTypeCapabilities(
@@ -41,6 +46,7 @@ _FRONTEND_SNAPSHOT = (
         ("map", _VECTOR),
         ("service", _VECTOR),
         ("collection", _VECTOR),
+        ("tiles3d_dataset", _NONE),
         ("point_cloud_dataset", _NONE),
         (None, _NONE),
     ],
@@ -57,8 +63,14 @@ def test_the_table_covers_exactly_the_checked_vocabulary() -> None:
     constraint = next(
         c for c in Record.__table__.constraints if c.name == "chk_records_record_type"
     )
-    admitted = set(re.findall(r"'([a-z_]+)'", str(constraint.sqltext)))
+    admitted = set(re.findall(r"'([a-z0-9_]+)'", str(constraint.sqltext)))
     assert admitted == set(RECORD_TYPES)
+
+
+def test_a_tileset_counts_as_a_dataset() -> None:
+    """tiles3d_dataset is a dataset record type, and every dataset type is known."""
+    assert "tiles3d_dataset" in DATASET_RECORD_TYPES
+    assert set(DATASET_RECORD_TYPES) <= set(RECORD_TYPES)
 
 
 def test_the_frontend_snapshot_equals_the_table() -> None:

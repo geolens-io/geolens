@@ -9,6 +9,7 @@
     "service": {"feature_table": true, "map_layer_type": "vector_geolens", "tile_token": "vector", "ogc_item_type": "feature"},
     "collection": {"feature_table": true, "map_layer_type": "vector_geolens", "tile_token": "vector", "ogc_item_type": "feature"},
     "table": {"feature_table": true, "map_layer_type": "vector_geolens", "tile_token": "vector", "ogc_item_type": "feature"},
+    "tiles3d_dataset": {"feature_table": false, "map_layer_type": null, "tile_token": null, "ogc_item_type": null},
     "point_cloud_dataset": {"feature_table": false, "map_layer_type": null, "tile_token": null, "ogc_item_type": null}
   }
 }

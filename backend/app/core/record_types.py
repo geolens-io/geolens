@@ -60,7 +60,8 @@ _UNSUPPORTED = RecordTypeCapabilities(
 
 # Mirrors chk_records_record_type. `map`, `service` and `collection` have no
 # dataset writer; they keep the vector answers that every "not raster" branch
-# gave them.
+# gave them. A 3D Tiles tileset has none of these capabilities; it is served
+# by its own endpoints.
 _CAPABILITIES: dict[str, RecordTypeCapabilities] = {
     "vector_dataset": _VECTOR,
     "raster_dataset": _RASTER,
@@ -69,9 +70,20 @@ _CAPABILITIES: dict[str, RecordTypeCapabilities] = {
     "service": _VECTOR,
     "collection": _VECTOR,
     "table": _VECTOR,
+    "tiles3d_dataset": _UNSUPPORTED,
 }
 
 RECORD_TYPES: tuple[str, ...] = tuple(_CAPABILITIES)
+
+# The record types that carry a dataset row, which is what a user's dataset
+# quota counts.
+DATASET_RECORD_TYPES: tuple[str, ...] = (
+    "vector_dataset",
+    "raster_dataset",
+    "vrt_dataset",
+    "table",
+    "tiles3d_dataset",
+)
 
 
 def capabilities(record_type: str | None) -> RecordTypeCapabilities:

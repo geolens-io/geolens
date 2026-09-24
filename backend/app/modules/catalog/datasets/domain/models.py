@@ -47,7 +47,8 @@ class Record(Base):
             name="chk_records_sensitivity",
         ),
         CheckConstraint(
-            "record_type IN ('vector_dataset', 'raster_dataset', 'vrt_dataset', 'map', 'service', 'collection', 'table')",
+            "record_type IN ('vector_dataset', 'raster_dataset', 'vrt_dataset', 'map', 'service', 'collection', 'table', "
+            "'tiles3d_dataset')",
             name="chk_records_record_type",
         ),
         CheckConstraint(
@@ -352,12 +353,12 @@ class Dataset(Base):
         CheckConstraint(
             # fix(#541): allow-list of accepted source formats; a .kmz
             # normalizes to 'kml', a zipped .gdb to 'fgdb' (see
-            # ingest/source_format.py). Migration 0053 is the source of truth.
+            # ingest/source_format.py). Migration 0065 is the source of truth.
             "source_format IS NULL OR source_format IN ("
             "'geojson', 'shapefile', 'shp', 'gpkg', 'csv', 'kml', 'gml', "
             "'wfs', 'arcgis_featureserver', 'fgdb', 'created', 'geotiff', "
             "'ogcapi_features', 'stac', 'parquet', 'json', 'xlsx', 'xls', "
-            "'fgb')",
+            "'fgb', '3dtiles')",
             name="chk_datasets_source_format",
         ),
         CheckConstraint(
