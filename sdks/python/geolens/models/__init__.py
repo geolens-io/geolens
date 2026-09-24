@@ -741,6 +741,7 @@ from .tile_token_batch_response_tokens_additional_property_type_2 import (
     TileTokenBatchResponseTokensAdditionalPropertyType2,
 )
 from .tileset_metadata import TilesetMetadata
+from .tileset_metadata_bounding_volume_type_0 import TilesetMetadataBoundingVolumeType0
 from .token_response import TokenResponse
 from .translation_list_response import TranslationListResponse
 from .translation_response import TranslationResponse
@@ -1321,6 +1322,7 @@ __all__ = (
     "ThumbnailUploadRequest",
     "TileConfigResponse",
     "TilesetMetadata",
+    "TilesetMetadataBoundingVolumeType0",
     "TileTokenBatchRequest",
     "TileTokenBatchResponse",
     "TileTokenBatchResponseTokens",

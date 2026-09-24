@@ -208,6 +208,20 @@ class TilesetMetadata(BaseModel):
     size_bytes: int | None = Field(
         default=None, description="Unpacked size of the tileset in bytes"
     )
+    version: str | None = Field(
+        default=None, description="The tileset's asset.version: '1.0' or '1.1'"
+    )
+    geometric_error: float | None = Field(
+        default=None,
+        description="The root tile's geometricError, when tileset.json gives one",
+    )
+    bounding_volume: Literal["region", "box", "sphere"] | None = Field(
+        default=None,
+        description=(
+            "The kind of the root tile's bounding volume. Only a region yields "
+            "the dataset's extent; a box or sphere leaves it null."
+        ),
+    )
 
 
 class StacAsset(BaseModel):

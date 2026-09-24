@@ -8,6 +8,12 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.tileset_metadata_bounding_volume_type_0 import (
+    check_tileset_metadata_bounding_volume_type_0,
+)
+from ..models.tileset_metadata_bounding_volume_type_0 import (
+    TilesetMetadataBoundingVolumeType0,
+)
 from typing import cast
 
 
@@ -22,10 +28,17 @@ class TilesetMetadata:
         url (str): URL path of the tileset's tileset.json on the app origin, e.g.
             /api/datasets/{id}/tiles3d/tileset.json
         size_bytes (int | None | Unset): Unpacked size of the tileset in bytes
+        version (None | str | Unset): The tileset's asset.version: '1.0' or '1.1'
+        geometric_error (float | None | Unset): The root tile's geometricError, when tileset.json gives one
+        bounding_volume (None | TilesetMetadataBoundingVolumeType0 | Unset): The kind of the root tile's bounding
+            volume. Only a region yields the dataset's extent; a box or sphere leaves it null.
     """
 
     url: str
     size_bytes: int | None | Unset = UNSET
+    version: None | str | Unset = UNSET
+    geometric_error: float | None | Unset = UNSET
+    bounding_volume: None | TilesetMetadataBoundingVolumeType0 | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -37,6 +50,26 @@ class TilesetMetadata:
         else:
             size_bytes = self.size_bytes
 
+        version: None | str | Unset
+        if isinstance(self.version, Unset):
+            version = UNSET
+        else:
+            version = self.version
+
+        geometric_error: float | None | Unset
+        if isinstance(self.geometric_error, Unset):
+            geometric_error = UNSET
+        else:
+            geometric_error = self.geometric_error
+
+        bounding_volume: None | str | Unset
+        if isinstance(self.bounding_volume, Unset):
+            bounding_volume = UNSET
+        elif isinstance(self.bounding_volume, str):
+            bounding_volume = self.bounding_volume
+        else:
+            bounding_volume = self.bounding_volume
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -46,6 +79,12 @@ class TilesetMetadata:
         )
         if size_bytes is not UNSET:
             field_dict["size_bytes"] = size_bytes
+        if version is not UNSET:
+            field_dict["version"] = version
+        if geometric_error is not UNSET:
+            field_dict["geometric_error"] = geometric_error
+        if bounding_volume is not UNSET:
+            field_dict["bounding_volume"] = bounding_volume
 
         return field_dict
 
@@ -63,9 +102,51 @@ class TilesetMetadata:
 
         size_bytes = _parse_size_bytes(d.pop("size_bytes", UNSET))
 
+        def _parse_version(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        version = _parse_version(d.pop("version", UNSET))
+
+        def _parse_geometric_error(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        geometric_error = _parse_geometric_error(d.pop("geometric_error", UNSET))
+
+        def _parse_bounding_volume(
+            data: object,
+        ) -> None | TilesetMetadataBoundingVolumeType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                bounding_volume_type_0 = check_tileset_metadata_bounding_volume_type_0(
+                    data
+                )
+
+                return bounding_volume_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | TilesetMetadataBoundingVolumeType0 | Unset, data)
+
+        bounding_volume = _parse_bounding_volume(d.pop("bounding_volume", UNSET))
+
         tileset_metadata = cls(
             url=url,
             size_bytes=size_bytes,
+            version=version,
+            geometric_error=geometric_error,
+            bounding_volume=bounding_volume,
         )
 
         tileset_metadata.additional_properties = d

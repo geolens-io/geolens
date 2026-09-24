@@ -18429,6 +18429,47 @@
             ],
             "description": "Unpacked size of the tileset in bytes",
             "title": "Size Bytes"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tileset's asset.version: '1.0' or '1.1'",
+            "title": "Version"
+          },
+          "geometric_error": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The root tile's geometricError, when tileset.json gives one",
+            "title": "Geometric Error"
+          },
+          "bounding_volume": {
+            "anyOf": [
+              {
+                "enum": [
+                  "region",
+                  "box",
+                  "sphere"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The kind of the root tile's bounding volume. Only a region yields the dataset's extent; a box or sphere leaves it null.",
+            "title": "Bounding Volume"
           }
         },
         "required": [

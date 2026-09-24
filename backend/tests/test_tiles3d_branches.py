@@ -142,6 +142,9 @@ async def test_the_detail_response_carries_the_tileset_block(
     assert tileset_resp.json()["tileset"] == {
         "url": f"/api{tileset_path(tileset.id)}",
         "size_bytes": _UNPACKED_BYTES,
+        "version": None,
+        "geometric_error": None,
+        "bounding_volume": None,
     }
     assert vector_resp.status_code == 200, vector_resp.text
     assert vector_resp.json()["tileset"] is None

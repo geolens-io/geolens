@@ -1352,7 +1352,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # updates and fenced post-commit steps.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 851,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1574,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1588,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1421,

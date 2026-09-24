@@ -124,6 +124,9 @@ export interface TilesetMetadata {
   /** URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json. */
   url: string;
   size_bytes: number | null;
+  version: string | null;
+  geometric_error: number | null;
+  bounding_volume: 'region' | 'box' | 'sphere' | null;
 }
 
 export interface RasterMetadata {

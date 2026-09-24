@@ -468,6 +468,13 @@ class Dataset(Base):
     n_dims: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     z_min: Mapped[float | None] = mapped_column(Float, nullable=True)
     z_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # A 3D Tiles tileset's asset.version, root geometricError and root
+    # bounding volume kind, read from its tileset.json at upload.
+    tileset_version: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    tileset_geometric_error: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tileset_bounding_volume: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )
     quicklook_256_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Source info

@@ -10819,6 +10819,24 @@ export type TilesetMetadata = {
      * Unpacked size of the tileset in bytes
      */
     size_bytes?: number | null;
+    /**
+     * Version
+     *
+     * The tileset's asset.version: '1.0' or '1.1'
+     */
+    version?: string | null;
+    /**
+     * Geometric Error
+     *
+     * The root tile's geometricError, when tileset.json gives one
+     */
+    geometric_error?: number | null;
+    /**
+     * Bounding Volume
+     *
+     * The kind of the root tile's bounding volume. Only a region yields the dataset's extent; a box or sphere leaves it null.
+     */
+    bounding_volume?: 'region' | 'box' | 'sphere' | null;
 };
 
 /**
