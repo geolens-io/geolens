@@ -350,11 +350,13 @@ async def _assert_refused_without_a_write(
     return tuple(row), await _geom_row_is_current(session, dataset.id)
 
 
-@pytest.mark.parametrize("record_type", ["raster_dataset", "vrt_dataset"])
-async def test_a_raster_record_is_refused_before_anything_is_written(
+@pytest.mark.parametrize(
+    "record_type", ["raster_dataset", "vrt_dataset", "tiles3d_dataset"]
+)
+async def test_a_record_without_a_feature_table_is_refused_before_anything_is_written(
     test_db_session, record_type: str
 ) -> None:
-    """A raster-family dataset is refused, and nothing about it changes."""
+    """A dataset without a feature table is refused, and nothing about it changes."""
     session = test_db_session
     dataset = await _dataset(session, geometry_type="POINT", record_type=record_type)
     await _table(session, dataset.table_name, geometry=None)
