@@ -6523,7 +6523,7 @@ export interface components {
              * Kind
              * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
              */
-            kind?: "tiles3d" | null;
+            kind?: string | null;
         };
         /** Body_upload_map_icon_endpoint_maps_icons_post */
         Body_upload_map_icon_endpoint_maps_icons_post: {

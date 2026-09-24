@@ -1419,7 +1419,7 @@ export type BodyUploadFileIngestUploadPost = {
      *
      * 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
      */
-    kind?: 'tiles3d' | null;
+    kind?: string | null;
 };
 
 /**

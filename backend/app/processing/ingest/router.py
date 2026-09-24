@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import structlog
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from fastapi import (
     APIRouter,
@@ -617,7 +617,11 @@ async def upload_file(
     file: UploadFile = File(...),
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
-    kind: Literal["tiles3d"] | None = Form(None, description=TILESET_KIND_DESCRIPTION),
+    # A pattern, not a Literal: the generated Python SDK cannot put a nullable
+    # Literal into a multipart body.
+    kind: str | None = Form(
+        None, pattern="^tiles3d$", description=TILESET_KIND_DESCRIPTION
+    ),
 ) -> UploadResponse:
     """Upload a geospatial file for staging.
 

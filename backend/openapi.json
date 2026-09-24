@@ -2300,7 +2300,7 @@
           "kind": {
             "anyOf": [
               {
-                "const": "tiles3d",
+                "pattern": "^tiles3d$",
                 "type": "string"
               },
               {
