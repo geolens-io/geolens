@@ -2,7 +2,7 @@
 
 import json
 import re
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -20,15 +20,22 @@ _VECTOR = RecordTypeCapabilities(
     map_layer_type="vector_geolens",
     tile_token="vector",
     ogc_item_type="feature",
+    geometry_derived=False,
 )
+_DERIVED = replace(_VECTOR, geometry_derived=True)
 _RASTER = RecordTypeCapabilities(
     feature_table=False,
     map_layer_type="raster_geolens",
     tile_token="raster",
     ogc_item_type="coverage",
+    geometry_derived=False,
 )
 _NONE = RecordTypeCapabilities(
-    feature_table=False, map_layer_type=None, tile_token=None, ogc_item_type=None
+    feature_table=False,
+    map_layer_type=None,
+    tile_token=None,
+    ogc_item_type=None,
+    geometry_derived=False,
 )
 _FRONTEND_SNAPSHOT = (
     Path(__file__).resolve().parents[2]
@@ -39,8 +46,8 @@ _FRONTEND_SNAPSHOT = (
 @pytest.mark.parametrize(
     ("record_type", "expected"),
     [
-        ("vector_dataset", _VECTOR),
-        ("table", _VECTOR),
+        ("vector_dataset", _DERIVED),
+        ("table", _DERIVED),
         ("raster_dataset", _RASTER),
         ("vrt_dataset", _RASTER),
         ("map", _VECTOR),
