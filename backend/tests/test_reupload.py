@@ -10,6 +10,7 @@ Requirements:
 """
 
 import asyncio
+import contextlib
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -20,7 +21,7 @@ import pytest
 from app.core.service_tokens import CredentialMethod, ServiceCredential
 from fastapi import HTTPException, UploadFile
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset
@@ -2039,3 +2040,349 @@ class TestSourcelessCommitDoesNotReserve:
             )
         ).scalar_one()
         assert count == 0
+
+
+class TestArchiveRunsAfterTheSwapCommit:
+    """A re-upload archives the original file after the swap commits."""
+
+    @staticmethod
+    async def _seed(session, *, table_name: str, local_file: Path):
+        from app.platform.refresh.service import create_pending_run
+
+        admin_id = await get_user_id(session, "admin")
+        dataset = await create_dataset(
+            session,
+            created_by=admin_id,
+            table_name=table_name,
+            visibility="public",
+            record_type="vector_dataset",
+            geometry_type="Point",
+            feature_count=1,
+            source_format="geojson",
+            source_filename="original.geojson",
+            column_info=[{"name": "name", "type": "character varying"}],
+        )
+        await session.execute(
+            text(
+                f'CREATE TABLE "data"."{table_name}" '
+                "(gid serial PRIMARY KEY, geom geometry(Point, 4326), name text)"
+            )
+        )
+        await session.execute(
+            text(
+                f'INSERT INTO "data"."{table_name}" (geom, name) VALUES '
+                "(ST_SetSRID(ST_MakePoint(2.35, 48.85), 4326), 'Paris')"
+            )
+        )
+        await session.commit()
+
+        job = IngestJob(
+            dataset_id=dataset.id,
+            status="pending",
+            attempt_id=uuid.uuid4(),
+            source_filename="update.geojson",
+            file_path=str(local_file),
+            created_by=admin_id,
+            user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+        )
+        session.add(job)
+        await session.flush()
+        # Mirrors the commit endpoint (router_reupload.py): the run row this
+        # job's phase 1 claims and phase 2 finalizes.
+        await create_pending_run(
+            session,
+            dataset_id=dataset.id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=admin_id,
+            ingest_job_id=job.id,
+            feature_count_before=dataset.feature_count,
+        )
+        await session.commit()
+        await session.refresh(job)
+        return admin_id, dataset, job
+
+    @staticmethod
+    async def _fake_ogr2ogr(file_path, staging_tn, db_conn_str, **kwargs):
+        """Stands in for the GDAL subprocess: creates the staging table for real."""
+        import app.core.db as db_module
+
+        async with db_module.async_session() as session:
+            await session.execute(
+                text(
+                    f'CREATE TABLE "data"."{staging_tn}" '
+                    "(gid serial PRIMARY KEY, geom geometry(Point, 4326), name text)"
+                )
+            )
+            await session.execute(
+                text(
+                    f'INSERT INTO "data"."{staging_tn}" (geom, name) VALUES '
+                    "(ST_SetSRID(ST_MakePoint(2.29, 48.86), 4326), 'Paris 2')"
+                )
+            )
+            await session.commit()
+
+    async def _run_reupload(
+        self,
+        test_db_session,
+        tmp_path,
+        *,
+        table_name: str,
+        put_side_effect,
+        extra_patches: tuple = (),
+    ):
+        local_file = tmp_path / "update.geojson"
+        local_file.write_text('{"type":"FeatureCollection","features":[]}')
+        admin_id, dataset, job = await self._seed(
+            test_db_session, table_name=table_name, local_file=local_file
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.put = AsyncMock(side_effect=put_side_effect)
+
+        from app.processing.ingest.tasks import reupload_file
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.service.resolve_file_path",
+                    new=AsyncMock(side_effect=lambda path, job_id: path),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.tasks_reupload._validate_upload_file_safety",
+                    new=AsyncMock(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.ogr.run_ogrinfo",
+                    new=AsyncMock(
+                        return_value={
+                            "srid": 4326,
+                            "geometry_type": "Point",
+                            "layer_name": "update",
+                            "feature_count": 1,
+                            "columns": [{"name": "name", "type": "String"}],
+                        }
+                    ),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.ogr.run_ogr2ogr",
+                    new=AsyncMock(side_effect=self._fake_ogr2ogr),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.tasks_staging.get_storage",
+                    lambda: mock_storage,
+                )
+            )
+            for extra in extra_patches:
+                stack.enter_context(extra)
+            await reupload_file(
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                file_path=str(local_file),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+        return dataset, job
+
+    async def test_no_io_under_the_lock(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        """The archive's storage.put runs after the swap's lock is released."""
+        table_name = f"reup2175_{uuid.uuid4().hex[:10]}"
+        probe: dict = {}
+
+        async def _put_probes_the_live_table_lock(key, fobj):
+            import app.core.db as db_module
+
+            async with db_module.async_session() as probe_session:
+                await probe_session.execute(text("SET lock_timeout = '1s'"))
+                try:
+                    await probe_session.execute(
+                        text(f'SELECT 1 FROM "data"."{table_name}" LIMIT 1')
+                    )
+                    probe["ok"] = True
+                except Exception as exc:  # the assertion below reports it
+                    probe["ok"] = False
+                    probe["error"] = str(exc)
+                finally:
+                    await probe_session.rollback()
+
+        _dataset, job = await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=table_name,
+            put_side_effect=_put_probes_the_live_table_lock,
+        )
+
+        assert probe.get("ok") is True, probe.get("error")
+        await test_db_session.refresh(job)
+        assert job.status == "complete"
+
+    async def test_a_failed_archive_still_completes_the_job(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        from app.platform.refresh.models import DatasetRefreshRun
+
+        async def _raising_put(key, fobj):
+            raise RuntimeError("S3 unreachable")
+
+        _dataset, job = await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_raising_put,
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete"
+        assert job.user_metadata["archive_failed"] is True
+
+        run = (
+            await test_db_session.execute(
+                select(DatasetRefreshRun).where(
+                    DatasetRefreshRun.ingest_job_id == job.id
+                )
+            )
+        ).scalar_one()
+        assert run.status == "succeeded"
+
+    async def test_a_successful_reupload_archives_the_original_bytes(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        put_calls = []
+
+        async def _recording_put(key, fobj):
+            put_calls.append(key)
+
+        dataset, job = await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_recording_put,
+        )
+
+        assert put_calls == [f"originals/{dataset.id}/update.geojson"]
+        await test_db_session.refresh(job)
+        assert job.status == "complete"
+        assert "archive_failed" not in (job.user_metadata or {})
+
+    async def test_caches_are_invalidated_before_the_archive_runs(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        """Clients must not see a completed job with pre-swap tiles/metadata.
+
+        Records order rather than asserting inside ``put``'s side effect:
+        _archive_original_file catches any exception from a failed put,
+        including an AssertionError raised there, as a failed archive.
+        """
+        calls: list[str] = []
+
+        async def _recording_catalog_invalidate():
+            calls.append("catalog")
+
+        async def _recording_tile_invalidate(table_name):
+            calls.append("tile")
+
+        async def _recording_put(key, fobj):
+            calls.append("put")
+
+        await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_recording_put,
+            extra_patches=(
+                patch(
+                    "app.processing.ingest.tasks_reupload.invalidate_catalog_cache",
+                    new=AsyncMock(side_effect=_recording_catalog_invalidate),
+                ),
+                patch(
+                    "app.processing.ingest.tasks_reupload.invalidate_tile_cache_for_table",
+                    new=AsyncMock(side_effect=_recording_tile_invalidate),
+                ),
+            ),
+        )
+
+        assert calls == ["catalog", "tile", "put"], calls
+
+    async def test_a_cancellation_during_the_archive_still_completes_cleanup(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        """A cancelled archive must not skip the completed-job cleanup path.
+
+        The local upload file is deleted only when ``final_status ==
+        "complete"``; setting that before the archive runs (not after) is
+        what the finally block's cleanup depends on.
+        """
+
+        async def _cancelling_put(key, fobj):
+            raise asyncio.CancelledError()
+
+        local_file = tmp_path / "update.geojson"
+
+        with pytest.raises(asyncio.CancelledError):
+            await self._run_reupload(
+                test_db_session,
+                tmp_path,
+                table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
+                put_side_effect=_cancelling_put,
+            )
+
+        assert not local_file.exists()
+
+    async def test_a_failed_post_commit_refresh_does_not_fail_the_task(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        """The swap already committed; archive bookkeeping is best-effort too."""
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        real_refresh = AsyncSession.refresh
+        calls = {"n": 0}
+
+        async def _raising_once_refresh(self, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("pool checkout timed out")
+            return await real_refresh(self, *args, **kwargs)
+
+        put_calls = []
+
+        async def _recording_put(key, fobj):
+            put_calls.append(key)
+
+        dataset, job = await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_recording_put,
+            extra_patches=(
+                patch(
+                    "sqlalchemy.ext.asyncio.AsyncSession.refresh",
+                    new=_raising_once_refresh,
+                ),
+            ),
+        )
+
+        # The refresh raised before _archive_original_file ever ran.
+        assert put_calls == []
+        await test_db_session.refresh(job)
+        assert job.status == "complete"
+
+        from app.platform.refresh.models import DatasetRefreshRun
+
+        run = (
+            await test_db_session.execute(
+                select(DatasetRefreshRun).where(
+                    DatasetRefreshRun.ingest_job_id == job.id
+                )
+            )
+        ).scalar_one()
+        assert run.status == "succeeded"

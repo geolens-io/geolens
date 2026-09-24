@@ -280,6 +280,33 @@ async def _detect_reupload_crs(
     return info, effective_srid
 
 
+async def _archive_after_commit(
+    session, *, job, dataset_id: uuid.UUID, file_path: str, job_id: str
+) -> None:
+    """Refresh the job and archive its original file; log, never raise.
+
+    The swap, the completed job and the run are already durable by the time
+    this runs, so a failure here (the refresh included) must not fail an
+    otherwise-successful reupload.
+    """
+    try:
+        await session.refresh(job)
+        await _archive_original_file(
+            session,
+            job=job,
+            dataset_id=dataset_id,
+            file_path=file_path,
+            log_message="Failed to archive re-uploaded file to storage",
+        )
+    except Exception:  # broad: bookkeeping must not fail an already-committed reupload
+        structlog.get_logger().warning(
+            "Post-commit archive bookkeeping failed",
+            job_id=job_id,
+            dataset_id=str(dataset_id),
+            exc_info=True,
+        )
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
 @tenant_task
 async def reupload_file(
@@ -606,21 +633,7 @@ async def reupload_file(
             # Captured pre-commit: the ORM attribute may be expired after commit.
             live_table_name = dataset.table_name
 
-            # 9. Archive original file to storage provider.
-            # Best-effort: failure does NOT fail the reupload (data is already
-            # in PostGIS). Suppress the helper's inline commit so the
-            # archive_failed flag rides along with the status=complete commit
-            # below, avoiding a second round trip (CLEANUP-4).
-            await _archive_original_file(
-                session,
-                job=job,
-                dataset_id=dataset.id,
-                file_path=file_path,
-                log_message="Failed to archive re-uploaded file to storage",
-                commit=False,
-            )
-
-            # 10. Update job status to complete
+            # 9. Update job status to complete
             await require_ingest_job_update(
                 session,
                 job_uuid,
@@ -648,12 +661,22 @@ async def reupload_file(
             )
             await session.commit()
 
-        final_status = "complete"
-        await invalidate_catalog_cache()
-        # fix(#394) B-019/VT-01: the swap replaced the table's contents under the
-        # same name — purge cached MVT tiles or they 304-serve stale data for up
-        # to tile_cache_ttl. Post-commit, mirroring the feature-edit path.
-        await invalidate_tile_cache_for_table(live_table_name)
+            final_status = "complete"
+            await invalidate_catalog_cache()
+            # fix(#394) B-019/VT-01: the swap replaced the table's contents under the
+            # same name — purge cached MVT tiles or they 304-serve stale data for up
+            # to tile_cache_ttl. Post-commit, mirroring the feature-edit path.
+            await invalidate_tile_cache_for_table(live_table_name)
+
+            # 10. Archive the original after the commit, so the upload never
+            # runs under the rename's exclusive lock.
+            await _archive_after_commit(
+                session,
+                job=job,
+                dataset_id=dataset.id,
+                file_path=file_path,
+                job_id=job_id,
+            )
 
         # Generate embedding (non-fatal). Use a fresh session to load the
         # dataset since both phase 1 and phase 2 sessions are now closed.
