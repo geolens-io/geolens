@@ -10,6 +10,7 @@ const ViewerMap = lazy(() =>
 );
 import { ViewerChatPanel } from '@/components/viewer/ViewerChatPanel';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
+import type { DrawnLayer } from '@/components/map/legend-facts';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { MapPinOff } from 'lucide-react';
@@ -80,6 +81,7 @@ export function PublicMapViewerPage() {
     useViewerLayers(layers);
 
   const [basemapId, setBasemapId] = useState<string | null>(null);
+  const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
@@ -172,6 +174,7 @@ export function PublicMapViewerPage() {
             onMapReady={(map) => {
               mapInstanceRef.current = map;
             }}
+            onDrawnChange={setDrawnLayers}
           />
         </Suspense>
       </MapErrorBoundary>
@@ -186,6 +189,7 @@ export function PublicMapViewerPage() {
         onToggle={handleLegendToggle}
         terrainConfig={data.terrain_config ?? null}
         legendTitle={data.legend_title ?? null}
+        drawn={drawnLayers}
       />
 
       <BasemapToggle

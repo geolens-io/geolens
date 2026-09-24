@@ -2,8 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
+import { describeLayers } from '@/components/builder/layer-description';
+import { toSyncInput } from '@/components/builder/map-sync';
+import { RENDER_CONTEXTS } from '@/test/fixtures/render-contexts';
 import { SAVED_LAYERS, ZOOM_FADED_STATIONS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
-import { legendFacts, type LegendClasses, type LegendFacts, type LegendRamp, type LegendSwatch } from '../legend-facts';
+import {
+  legendFacts,
+  type DrawnLayer,
+  type LegendClasses,
+  type LegendFacts,
+  type LegendRamp,
+  type LegendSwatch,
+} from '../legend-facts';
 
 type Row = [label: string, layer: MapLayerResponse, expected: LegendFacts | null];
 
@@ -14,8 +24,8 @@ function swatch(overrides: Partial<LegendSwatch> = {}): LegendSwatch {
   return { fill: null, fillOpacity: 1, opacity: 1, stroke: null, pattern: null, ...overrides };
 }
 
-/** No classes, heatmap ramp or weight column, as for any unclassified layer that is not a heatmap. */
-const PLAIN = { classes: null, ramp: null, weightColumn: null } as const;
+/** No classes, heatmap ramp, weight column or cluster kind, as for any unclassified layer that is not a heatmap or a cluster. */
+const PLAIN = { classes: null, ramp: null, weightColumn: null, cluster: null } as const;
 
 const fixtureFacts: Record<keyof typeof SAVED_LAYERS, Omit<LegendFacts, 'name' | keyof typeof PLAIN> | null> = {
   polygon: { drawsAs: 'fill', swatch: swatch({ fill: '#3b82f6', fillOpacity: 0.3, stroke: DEFAULT_OUTLINE }) },
@@ -94,11 +104,19 @@ const fixtureHeat: Partial<Record<keyof typeof SAVED_LAYERS, Pick<LegendFacts, '
   heatmapByExpression: { ramp: storedRamp(['#7c3aed', '#f0abfc'], [0, 1]), weightColumn: null },
 };
 
+/** The cluster fixtures' kinds, from their saved strategies. */
+const fixtureCluster: Partial<Record<keyof typeof SAVED_LAYERS, LegendFacts['cluster']>> = {
+  boundedCluster: { kind: 'bounded-geojson' },
+  serverCluster: { kind: 'server-tile' },
+  fallbackCluster: { kind: 'fallback' },
+};
+
 const fixtureRows: Row[] = Object.entries(SAVED_LAYERS).map(([key, layer]) => {
   const facts = fixtureFacts[key as keyof typeof SAVED_LAYERS];
   const classes = fixtureClasses[key as keyof typeof SAVED_LAYERS] ?? null;
   const heat = fixtureHeat[key as keyof typeof SAVED_LAYERS];
-  return [key, layer, facts && { name: layer.display_name ?? '', ...facts, ...PLAIN, classes, ...heat }];
+  const cluster = fixtureCluster[key as keyof typeof SAVED_LAYERS] ?? null;
+  return [key, layer, facts && { name: layer.display_name ?? '', ...facts, ...PLAIN, classes, ...heat, cluster }];
 });
 
 /** Facts for `savedLayer()`'s unstyled polygon under the given name. */
@@ -695,6 +713,59 @@ describe('legendFacts heatmap ramp', () => {
     for (const shape of [layer, toSharedLayer(layer)]) {
       const facts = legendFacts(shape);
       expect({ ramp: facts?.ramp, weightColumn: facts?.weightColumn }).toEqual(expected);
+    }
+  });
+});
+
+type DrawnRow = [label: string, layer: MapLayerResponse, drawn: DrawnLayer, expected: Pick<LegendFacts, 'drawsAs' | 'cluster'>];
+
+const drawnRows: DrawnRow[] = [
+  [
+    'a bounded cluster drawn from its GeoJSON',
+    SAVED_LAYERS.boundedCluster,
+    { drawsAs: 'cluster' },
+    { drawsAs: 'cluster', cluster: { kind: 'bounded-geojson' } },
+  ],
+  [
+    'a bounded cluster whose GeoJSON never arrived',
+    SAVED_LAYERS.boundedCluster,
+    { drawsAs: 'circle' },
+    { drawsAs: 'circle', cluster: { kind: 'fallback' } },
+  ],
+  [
+    'a server cluster drawn from cluster tiles',
+    SAVED_LAYERS.serverCluster,
+    { drawsAs: 'cluster' },
+    { drawsAs: 'cluster', cluster: { kind: 'server-tile' } },
+  ],
+  [
+    'a cluster with no feature count, drawn as points',
+    SAVED_LAYERS.fallbackCluster,
+    { drawsAs: 'circle' },
+    { drawsAs: 'circle', cluster: { kind: 'fallback' } },
+  ],
+];
+
+describe('legendFacts for what the map drew', () => {
+  it.each(drawnRows)('%s moves only the kind and cluster facts in the builder and viewer shapes', (_label, layer, drawn, expected) => {
+    for (const shape of [layer, toSharedLayer(layer)]) {
+      expect(legendFacts(shape, drawn)).toEqual({ ...legendFacts(shape), ...expected });
+    }
+  });
+
+  it('a bounded cluster is a fallback until the description has its GeoJSON', () => {
+    const layer = SAVED_LAYERS.boundedCluster;
+    const [before] = describeLayers([toSyncInput(layer)], RENDER_CONTEXTS.viewer).layers;
+    const [after] = describeLayers([toSyncInput(layer)], RENDER_CONTEXTS.viewerWithClusterData).layers;
+
+    expect(legendFacts(layer, before)?.cluster).toEqual({ kind: 'fallback' });
+    expect(legendFacts(layer, after)?.cluster).toEqual({ kind: 'bounded-geojson' });
+  });
+
+  it('the description leaves every fact of a layer that is not a cluster as the saved style gives it', () => {
+    for (const layer of Object.values(SAVED_LAYERS).filter((saved) => saved.style_config?.render_mode !== 'cluster')) {
+      const [described] = describeLayers([toSyncInput(layer)], RENDER_CONTEXTS.viewer).layers;
+      expect(legendFacts(layer, described), layer.id).toEqual(legendFacts(layer));
     }
   });
 });

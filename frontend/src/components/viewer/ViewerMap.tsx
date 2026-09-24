@@ -29,6 +29,7 @@ import {
   isClusterFeature,
 } from '@/components/map/cluster-interactions';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
+import type { DrawnLayer } from '@/components/map/legend-facts';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import i18n from '@/i18n/i18n';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
@@ -96,6 +97,8 @@ interface ViewerMapProps {
    *  Defaults to false — non-embed callers stay clean.
    */
   showInlineBranding?: boolean;
+  /** Receives what the map draws each layer as, by layer key, once any bounded cluster GeoJSON has settled. */
+  onDrawnChange?: (drawn: ReadonlyMap<string, DrawnLayer>) => void;
 }
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.
@@ -146,6 +149,7 @@ export const ViewerMap = memo(function ViewerMap({
   showBasemapLabels = true,
   terrainConfig = null,
   showInlineBranding = false,
+  onDrawnChange,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const { isEnterprise } = useEdition();
@@ -394,6 +398,31 @@ export const ViewerMap = memo(function ViewerMap({
     const map = mapRef.current;
     if (map && mapReady) map.triggerRepaint();
   }, [geojsonVersion, mapReady]);
+
+  // A cluster draws single points while its GeoJSON loads, so reporting waits
+  // for the fetch to settle and reports a fallback only when it stays.
+  const onDrawnChangeRef = useRef(onDrawnChange);
+  onDrawnChangeRef.current = onDrawnChange;
+  const hasReportedRef = useRef(false);
+  useEffect(() => {
+    if (!tileConfigReady || !boundedGeoJsonReady) {
+      // The last report describes the last request, so withdraw it while this one loads.
+      if (hasReportedRef.current) onDrawnChangeRef.current?.(new Map());
+      hasReportedRef.current = false;
+      return;
+    }
+    const context = syncRenderContext(new Map(), undefined, geojsonDataRef.current, {
+      idPrefix: VIEWER_PREFIX,
+      mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
+    });
+    const drawn = new Map<string, DrawnLayer>();
+    for (const { layer, key } of layerEntries) {
+      const [described] = describeLayers([toViewerSyncInput(layer, key, visibleLayers)], context).layers;
+      if (described) drawn.set(key, { drawsAs: described.drawsAs });
+    }
+    onDrawnChangeRef.current?.(drawn);
+    hasReportedRef.current = drawn.size > 0;
+  }, [layerEntries, visibleLayers, geojsonVersion, tileConfigReady, boundedGeoJsonReady, tileConfig?.mvt_source_layer_prefix]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
