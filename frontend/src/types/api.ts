@@ -329,7 +329,7 @@ export interface DatasetResponse {
     overall: number;
     metadata_completeness: number;
     geometry_validity: number | null;
-    attribute_completeness: number;
+    attribute_completeness: number | null;
     crs_defined: number | null;
     computed_at: string | null;
   } | null;
@@ -569,7 +569,7 @@ export interface OGCRecordProperties {
     overall: number;
     metadata_completeness: number;
     geometry_validity: number | null;
-    attribute_completeness: number;
+    attribute_completeness: number | null;
     crs_defined: number | null;
     computed_at: string | null;
   } | null;

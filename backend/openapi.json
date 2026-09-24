@@ -13692,10 +13692,17 @@
             "title": "Geometry Validity"
           },
           "attribute_completeness": {
-            "maximum": 100.0,
-            "minimum": 0.0,
-            "title": "Attribute Completeness",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribute Completeness"
           },
           "crs_defined": {
             "anyOf": [

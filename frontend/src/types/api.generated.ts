@@ -11336,7 +11336,7 @@ export interface components {
             /** Geometry Validity */
             geometry_validity?: number | null;
             /** Attribute Completeness */
-            attribute_completeness: number;
+            attribute_completeness: number | null;
             /** Crs Defined */
             crs_defined?: number | null;
             /** Computed At */

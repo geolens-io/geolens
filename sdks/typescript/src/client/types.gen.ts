@@ -7974,7 +7974,7 @@ export type QualityDetail = {
     /**
      * Attribute Completeness
      */
-    attribute_completeness: number;
+    attribute_completeness: number | null;
     /**
      * Crs Defined
      */

@@ -23,7 +23,7 @@ class QualityDetail:
     Attributes:
         overall (float):
         metadata_completeness (float):
-        attribute_completeness (float):
+        attribute_completeness (float | None):
         geometry_validity (float | None | Unset):
         crs_defined (float | None | Unset):
         computed_at (datetime.datetime | None | Unset):
@@ -31,7 +31,7 @@ class QualityDetail:
 
     overall: float
     metadata_completeness: float
-    attribute_completeness: float
+    attribute_completeness: float | None
     geometry_validity: float | None | Unset = UNSET
     crs_defined: float | None | Unset = UNSET
     computed_at: datetime.datetime | None | Unset = UNSET
@@ -42,6 +42,7 @@ class QualityDetail:
 
         metadata_completeness = self.metadata_completeness
 
+        attribute_completeness: float | None
         attribute_completeness = self.attribute_completeness
 
         geometry_validity: float | None | Unset
@@ -89,7 +90,14 @@ class QualityDetail:
 
         metadata_completeness = d.pop("metadata_completeness")
 
-        attribute_completeness = d.pop("attribute_completeness")
+        def _parse_attribute_completeness(data: object) -> float | None:
+            if data is None:
+                return data
+            return cast(float | None, data)
+
+        attribute_completeness = _parse_attribute_completeness(
+            d.pop("attribute_completeness")
+        )
 
         def _parse_geometry_validity(data: object) -> float | None | Unset:
             if data is None:
