@@ -126,7 +126,7 @@ describe('DatasetStatsBar', () => {
     };
     render(<DatasetStatsBar dataset={ds} />);
     expect(screen.getByText('3 MB')).toBeInTheDocument();
-    expect(screen.getByText('1.1')).toBeInTheDocument();
+    expect(screen.getByText('1.1')).not.toHaveClass('font-mono');
     expect(screen.getByText('Box')).toBeInTheDocument();
     expect(screen.queryByText('EPSG:4326')).not.toBeInTheDocument();
     expect(screen.queryByText('v1')).not.toBeInTheDocument();

@@ -328,7 +328,9 @@
     "urlHint": "Importing from a file URL",
     "urlDesc": "GeoLens downloads the file server-side into staging, then runs the same detection and import pipeline as an upload.",
     "urlNote": "The URL is validated and size-capped before download · data is copied into GeoLens",
-    "compareUrl": "Upload sends a file from your machine. File URL fetches it from the web; same review, same result, no local download needed."
+    "compareUrl": "Upload sends a file from your machine. File URL fetches it from the web; same review, same result, no local download needed.",
+    "tiles3dLabel": "3D Tiles",
+    "tiles3dDesc": "unpacked and served as is to 3D Tiles clients."
   },
   "register": {
     "helpText": "Catalog existing PostGIS tables from your database as datasets in GeoLens. Use this when you have geographic data already in the database that wasn't imported through GeoLens. Selected tables will be added to the dataset catalog with automatic metadata detection.",

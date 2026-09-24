@@ -59,7 +59,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
     return (
       <div className="col-span-full mt-3 border-t border-dashed border-border pt-4">
         <h5 className="eyebrow mb-2">{t('detect.tilesetInfo')}</h5>
-        <dl className="grid grid-cols-[92px_1fr] gap-x-3 gap-y-1 text-xs">
+        <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
           {facts.map(([label, value]) => (
             <div key={label} className="contents">
               <dt className="font-mono text-mini text-muted-foreground">{label}</dt>

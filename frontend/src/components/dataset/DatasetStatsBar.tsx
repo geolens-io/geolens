@@ -89,7 +89,7 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
     const { tileset } = dataset;
     cells.push({ label: t('tileset.size'), value: formatBytes(tileset.size_bytes) });
     if (tileset.version) {
-      cells.push({ label: t('tileset.version'), value: tileset.version, mono: true });
+      cells.push({ label: t('tileset.version'), value: tileset.version });
     }
     if (tileset.bounding_volume) {
       cells.push({

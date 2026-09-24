@@ -603,7 +603,9 @@
     "urlHint": "Importation depuis une URL de fichier",
     "urlDesc": "GeoLens télécharge le fichier côté serveur vers la zone de préparation, puis exécute le même processus de détection et d'importation qu'un chargement.",
     "urlNote": "L'URL est validée et limitée en taille avant le téléchargement · les données sont copiées dans GeoLens",
-    "compareUrl": "Le chargement envoie un fichier depuis votre machine. URL de fichier le récupère sur le web : même vérification, même résultat, sans téléchargement local."
+    "compareUrl": "Le chargement envoie un fichier depuis votre machine. URL de fichier le récupère sur le web : même vérification, même résultat, sans téléchargement local.",
+    "tiles3dLabel": "3D Tiles",
+    "tiles3dDesc": "décompressé et servi tel quel aux clients 3D Tiles."
   },
   "status": {
     "uploading": "Téléversement",

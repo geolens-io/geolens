@@ -328,7 +328,9 @@
     "urlHint": "从文件 URL 导入",
     "urlDesc": "GeoLens 会在服务器端将文件下载到暂存区，然后运行与上传相同的检测和导入流水线。",
     "urlNote": "下载前会验证 URL 并限制大小 · 数据会复制到 GeoLens 中",
-    "compareUrl": "上传从您的计算机发送文件。文件 URL 从网络抓取；相同的检查、相同的结果，无需本地下载。"
+    "compareUrl": "上传从您的计算机发送文件。文件 URL 从网络抓取；相同的检查、相同的结果，无需本地下载。",
+    "tiles3dLabel": "3D Tiles",
+    "tiles3dDesc": "解压后原样提供给 3D Tiles 客户端。"
   },
   "register": {
     "helpText": "将数据库中现有的 PostGIS 表收录为 GeoLens 数据集。当数据库中已有未通过 GeoLens 导入的地理数据时，可使用此方式。选定的表将添加到数据集目录，并自动检测元数据。",

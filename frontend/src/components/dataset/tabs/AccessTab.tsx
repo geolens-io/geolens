@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import { Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
+import { useDistributions } from '@/components/dataset/hooks/use-records';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useCanSetPublicVisibility } from '@/hooks/use-settings';
 import { listKeywords } from '@/api/records';
@@ -351,34 +352,40 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
     applyVisibility(visibility);
   }
   const { featureTable, tileToken } = recordTypeCapabilities(dataset.record_type);
+  // A tileset's access is its client URL below; an empty list would only read as missing.
+  const { data: distributionData } = useDistributions(dataset.record_id);
+  const showDistributions =
+    dataset.record_type !== 'tiles3d_dataset' || (distributionData?.distributions.length ?? 0) > 0;
 
   return (
     <>
       {/* Distributions */}
-      <Card>
-        <CardHeader>
-          <CardTitle level={2} className="text-base">{t('distributions.title')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {dataset.record_id ? (
-            <DistributionsList recordId={dataset.record_id} canEdit={canEdit} />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {t('distributions.noDistributions')}
+      {showDistributions && (
+        <Card>
+          <CardHeader>
+            <CardTitle level={2} className="text-base">{t('distributions.title')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {dataset.record_id ? (
+              <DistributionsList recordId={dataset.record_id} canEdit={canEdit} />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {t('distributions.noDistributions')}
+              </p>
+            )}
+            {/* XYZ Tile URL for raster/VRT datasets */}
+            {tileToken === 'raster' && dataset.raster?.connect?.tile_url && (
+              <TileUrlSection tileUrl={dataset.raster.connect.tile_url} />
+            )}
+            <p className="text-xs text-muted-foreground mt-4">
+              {t('serviceUrls.authHelpSimple')}{' '}
+              <Link to="/settings" className="underline hover:text-foreground">
+                {t('serviceUrls.manageApiKeys')}
+              </Link>
             </p>
-          )}
-          {/* XYZ Tile URL for raster/VRT datasets */}
-          {tileToken === 'raster' && dataset.raster?.connect?.tile_url && (
-            <TileUrlSection tileUrl={dataset.raster.connect.tile_url} />
-          )}
-          <p className="text-xs text-muted-foreground mt-4">
-            {t('serviceUrls.authHelpSimple')}{' '}
-            <Link to="/settings" className="underline hover:text-foreground">
-              {t('serviceUrls.manageApiKeys')}
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {dataset.tileset && <TilesetAccess tileset={dataset.tileset} />}
 

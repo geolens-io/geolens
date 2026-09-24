@@ -603,7 +603,9 @@
     "urlHint": "Importando desde una URL de archivo",
     "urlDesc": "GeoLens descarga el archivo en el servidor al área de preparación y luego ejecuta el mismo proceso de detección e importación que una carga.",
     "urlNote": "La URL se valida y se limita en tamaño antes de la descarga · los datos se copian en GeoLens",
-    "compareUrl": "La carga envía un archivo desde tu equipo. URL de archivo lo obtiene de la web: misma revisión, mismo resultado, sin descarga local."
+    "compareUrl": "La carga envía un archivo desde tu equipo. URL de archivo lo obtiene de la web: misma revisión, mismo resultado, sin descarga local.",
+    "tiles3dLabel": "3D Tiles",
+    "tiles3dDesc": "se descomprime y se sirve tal cual a los clientes de 3D Tiles."
   },
   "status": {
     "uploading": "Subiendo",

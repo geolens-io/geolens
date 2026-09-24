@@ -95,6 +95,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
             { kind: 'vector' as DataKind, label: t('rail.vectorLabel', { defaultValue: 'Vector' }), desc: t('rail.vectorDesc', { defaultValue: 'tiled to MVT, spatial index, reprojected to 3857 on read.' }) },
             { kind: 'raster' as DataKind, label: t('rail.rasterLabel', { defaultValue: 'Raster' }), desc: t('rail.rasterDesc', { defaultValue: 'converted to COG, overviews built, bands kept intact.' }) },
             { kind: 'table' as DataKind, label: t('rail.tableLabel', { defaultValue: 'Tabular' }), desc: t('rail.tableDesc', { defaultValue: 'ingested as a joinable table. Optionally specify geometry columns during import.' }) },
+            { kind: 'tiles3d' as DataKind, label: t('rail.tiles3dLabel'), desc: t('rail.tiles3dDesc') },
           ]).map(({ kind, label, desc }) => (
             <div key={kind} className="flex gap-2.5 items-start">
               <TypeTag kind={kind} size="sm" />
