@@ -686,15 +686,20 @@ def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
         return int(total_entries), int(directory_offset), int(directory_size)
 
 
-def _validate_zip_directory_cardinality(file_path: str) -> None:
-    """Bound ZIP metadata before ZipFile materializes a ZipInfo per member."""
+def _validate_zip_directory_cardinality(
+    file_path: str, max_entries: int | None = None
+) -> None:
+    """Bound ZIP metadata before ZipFile materializes a ZipInfo per member.
+
+    ``max_entries`` defaults to ``MAX_ARCHIVE_ENTRIES``.
+    """
+    max_entries = MAX_ARCHIVE_ENTRIES if max_entries is None else max_entries
     reported_entries, directory_offset, directory_size = _zip_directory_metadata(
         file_path
     )
-    if reported_entries > MAX_ARCHIVE_ENTRIES:
+    if reported_entries > max_entries:
         raise ValueError(
-            f"ZIP contains {reported_entries} entries; the maximum is "
-            f"{MAX_ARCHIVE_ENTRIES}."
+            f"ZIP contains {reported_entries} entries; the maximum is {max_entries}."
         )
     if directory_size > MAX_CENTRAL_DIRECTORY_BYTES:
         raise ValueError(
@@ -724,10 +729,8 @@ def _validate_zip_directory_cardinality(file_path: str) -> None:
                 archive.seek(variable_size, 1)
                 remaining -= entry_size
                 count += 1
-                if count > MAX_ARCHIVE_ENTRIES:
-                    raise ValueError(
-                        f"ZIP contains more than {MAX_ARCHIVE_ENTRIES} entries."
-                    )
+                if count > max_entries:
+                    raise ValueError(f"ZIP contains more than {max_entries} entries.")
                 continue
 
             if signature == _CENTRAL_DIGITAL_SIGNATURE:

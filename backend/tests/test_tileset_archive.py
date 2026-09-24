@@ -28,6 +28,7 @@ from app.processing.ingest.tileset import (
     inspect_stored_tileset,
     inspect_tileset,
 )
+from app.processing.ingest.validation import MAX_ARCHIVE_ENTRIES, validate_zip_safety
 from tests.tiles3d_archives import (
     REGION,
     build_zip,
@@ -251,13 +252,23 @@ def test_entries_that_overlap_are_refused(tmp_path: Path) -> None:
     assert "overlap" in refused(str(path))
 
 
-def test_too_many_entries_are_refused(tmp_path: Path) -> None:
-    """The entry count is bounded before ZipFile builds an entry per member."""
+def test_too_many_entries_are_refused(tmp_path: Path, monkeypatch) -> None:
+    """MAX_TILESET_ENTRIES bounds the count before ZipFile builds an entry each."""
+    monkeypatch.setattr(settings, "max_tileset_entries", 50)
+    path = tileset_zip(tmp_path / "t.zip", *((f"t/{i}.glb", b"") for i in range(50)))
+
+    assert "the maximum is 50" in refused(path)
+
+
+def test_a_tileset_may_hold_more_entries_than_a_geospatial_zip(tmp_path: Path) -> None:
+    """Past MAX_ARCHIVE_ENTRIES a tileset is accepted and a zip for GDAL is not."""
     path = tileset_zip(
-        tmp_path / "t.zip", *((f"t/{i}.glb", b"") for i in range(10_000))
+        tmp_path / "t.zip", *((f"t/{i}.glb", b"") for i in range(MAX_ARCHIVE_ENTRIES))
     )
 
-    assert "10000" in refused(path)
+    assert len(inspect_tileset(path).layout.files) == MAX_ARCHIVE_ENTRIES + 2
+    with pytest.raises(ValueError, match=f"the maximum is {MAX_ARCHIVE_ENTRIES}"):
+        validate_zip_safety(path)
 
 
 def test_a_tileset_json_over_its_bound_is_refused(tmp_path: Path, monkeypatch) -> None:

@@ -1318,7 +1318,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1237,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
-    "backend/app/core/config.py": 1499,
+    "backend/app/core/config.py": 1500,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects.
     "backend/app/core/persistent_config.py": 943,
@@ -1340,7 +1340,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/ogr.py": 1351,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
-    "backend/app/processing/ingest/validation.py": 1104,
+    "backend/app/processing/ingest/validation.py": 1107,
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1111,

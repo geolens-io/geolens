@@ -466,7 +466,7 @@ def read_facts(archive: zipfile.ZipFile, entry_point: zipfile.ZipInfo) -> Tilese
 def _open_checked(path: str) -> zipfile.ZipFile:
     """Open the archive once its entry count and directory size are bounded."""
     try:
-        _validate_zip_directory_cardinality(path)
+        _validate_zip_directory_cardinality(path, settings.max_tileset_entries)
         return zipfile.ZipFile(path)
     except UnsafeUploadError:
         raise
