@@ -19,7 +19,7 @@ import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
-import { useMapLayers, getSourceLayerName, PREVIEW_ID_PREFIX, previewSourceId } from '@/components/maps/hooks/use-map-layers';
+import { useMapLayers, getSourceLayerName, previewSourceId } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { splitBbox, toFitBounds } from '@/lib/bbox';
 import { findElevationColumn } from '@/lib/geo-utils';
@@ -68,8 +68,8 @@ const APP_SOURCE_IDS = new Set([
 ]);
 
 /** True for a source id owned by this app (incl. TerraDraw's `td-*` sources and the preview's vector source). */
-function isAppSourceId(id: string): boolean {
-  return APP_SOURCE_IDS.has(id) || id.startsWith('td-') || id.startsWith(PREVIEW_ID_PREFIX);
+function isAppSourceId(id: string, vectorSourceId: string | null): boolean {
+  return APP_SOURCE_IDS.has(id) || id.startsWith('td-') || id === vectorSourceId;
 }
 
 /**
@@ -150,6 +150,7 @@ export const DatasetMap = memo(function DatasetMap({
   // Raster tokens are a separate payload with a preformatted tile_url and
   // are consumed via the rasterTileUrl prop path instead.
   const tileToken = rawTileToken?.kind === 'vector' ? rawTileToken : null;
+  const vectorSourceId = tileKind === 'vector' && tableName ? previewSourceId(tableName) : null;
   const [userBasemapId, setUserBasemapId] = useState<string | null>(null);
   const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
   const activeBasemap = useMemo(
@@ -590,7 +591,7 @@ export const DatasetMap = memo(function DatasetMap({
           // audit(w3-maps B11): allowlist app-owned sources/layers instead of
           // denylisting the raster-style id `basemap` — see APP_SOURCE_IDS.
           for (const [id, src] of Object.entries(_prev.sources || {})) {
-            if (!isAppSourceId(id) || next.sources?.[id]) continue;
+            if (!isAppSourceId(id, vectorSourceId) || next.sources?.[id]) continue;
             customSources[id] = src;
           }
           // Only carry over layers whose source exists in the merged style
@@ -603,7 +604,7 @@ export const DatasetMap = memo(function DatasetMap({
             const src = (layer as { source?: string }).source;
             // App-owned = a TerraDraw layer or a layer drawing from an
             // app-owned source; every basemap layer fails both checks.
-            if (!layer.id.startsWith('td-') && !(src && isAppSourceId(src))) continue;
+            if (!layer.id.startsWith('td-') && !(src && isAppSourceId(src, vectorSourceId))) continue;
             if (src && !mergedSourceIds.has(src)) continue;
             customLayers.push(layer);
           }
@@ -615,7 +616,7 @@ export const DatasetMap = memo(function DatasetMap({
         } as StyleSpecification;
       },
     });
-  }, [activeBasemap]);
+  }, [activeBasemap, vectorSourceId]);
 
   const [minx, miny, maxx, maxy] = hasBbox ? bbox : [0, 0, 0, 0];
 
@@ -792,7 +793,6 @@ export const DatasetMap = memo(function DatasetMap({
       } else if (tileKind === 'vector') {
         addVectorLayers(map);
         addOverlaySource(map);
-        const vectorSourceId = tableName ? previewSourceId(tableName) : undefined;
 
         // audit(w3-maps): the vector branch previously fired onMapReady
         // unconditionally and attached no error listeners, so a vector
@@ -835,7 +835,7 @@ export const DatasetMap = memo(function DatasetMap({
         fireReadyOnce(false);
       }
     },
-    [tileKind, tableName, addRasterLayers, addVectorLayers, addOverlaySource, onMapReady, onTileError, recoverTileAuth],
+    [tileKind, vectorSourceId, addRasterLayers, addVectorLayers, addOverlaySource, onMapReady, onTileError, recoverTileAuth],
   );
 
   const finishDrawingSession = useCallback(() => {

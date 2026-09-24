@@ -924,6 +924,8 @@ describe('DatasetMap record types', () => {
 });
 
 describe('DatasetMap basemap switch', () => {
+  const NEXT_STYLE: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'background', type: 'background' }] };
+
   beforeEach(() => {
     mapSpy.reset();
     mapSpy.attachMapInstance = true;
@@ -937,7 +939,8 @@ describe('DatasetMap basemap switch', () => {
     (fakeMap.getStyle as ReturnType<typeof vi.fn>).mockReset();
   });
 
-  it("carries the preview's vector source and layers onto the new basemap and drops the old basemap", () => {
+  /** The style transform a vector dataset's preview hands setStyle when it switches to a blank basemap. */
+  function switchTransform() {
     basemapState.data = [{ id: 'blank', label: 'Blank', url: BLANK_BASEMAP_ID, enabled: true, is_preset: true }];
     render(
       <DatasetMap
@@ -952,6 +955,11 @@ describe('DatasetMap basemap switch', () => {
       unknown,
       { transformStyle: (previous: StyleSpecification, next: StyleSpecification) => StyleSpecification },
     ];
+    return transformStyle;
+  }
+
+  it("carries the preview's vector source and layers onto the new basemap and drops the old basemap", () => {
+    const transformStyle = switchTransform();
     const sourceId = previewSourceId('cloud');
     const previous: StyleSpecification = {
       version: 8,
@@ -964,11 +972,24 @@ describe('DatasetMap basemap switch', () => {
         { id: 'preview-layer-dataset', type: 'circle', source: sourceId, 'source-layer': 'data.cloud' },
       ],
     };
-    const next: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'background', type: 'background' }] };
 
-    const merged = transformStyle(previous, next);
+    const merged = transformStyle(previous, NEXT_STYLE);
 
     expect(Object.keys(merged.sources)).toEqual([sourceId]);
     expect(merged.layers.map((layer) => layer.id)).toEqual(['background', 'preview-layer-dataset']);
+  });
+
+  it("drops an old basemap source whose id starts like the preview's", () => {
+    const transformStyle = switchTransform();
+    const previous: StyleSpecification = {
+      version: 8,
+      sources: { 'preview-foo': { type: 'vector', url: 'https://basemap.example.test/tiles.json' } },
+      layers: [{ id: 'roads', type: 'line', source: 'preview-foo', 'source-layer': 'roads' }],
+    };
+
+    const merged = transformStyle(previous, NEXT_STYLE);
+
+    expect(merged.sources).toEqual({});
+    expect(merged.layers.map((layer) => layer.id)).toEqual(['background']);
   });
 });
