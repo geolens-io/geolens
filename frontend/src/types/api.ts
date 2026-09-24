@@ -121,6 +121,8 @@ export interface StacAsset {
 
 /** A 3D Tiles dataset's published tileset. */
 export interface TilesetMetadata {
+  /** Path of the tileset's tileset.json, relative to the API base URL. */
+  url: string;
   size_bytes: number | null;
 }
 

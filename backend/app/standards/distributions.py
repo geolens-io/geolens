@@ -12,9 +12,11 @@ rejects internal pointers (only http(s) or root-relative API paths
 pass); ``published_distributions`` adds, for the raster family, the
 tile template the product serves anonymously — derived per request
 since it lives at the APP origin, nginx-rewritten to the tile proxy, and
-carries the tile cache-key params, values a stored row can't hold. Mirrors
-``build_assets`` in ``modules/catalog/search/service_records.py`` (what
-STAC advertises for the same datasets) — the discrepancy #1469 reported.
+carries the tile cache-key params, values a stored row can't hold. A 3D
+Tiles dataset gets its tileset.json the same way, with no stored row.
+Mirrors ``build_assets`` in ``modules/catalog/search/service_records.py``
+(what STAC advertises for the same datasets) — the discrepancy #1469
+reported.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from urllib.parse import urlsplit
 
 from app.core.record_types import is_raster_family
 from app.core.tile_scope import republished_tile_url, tile_template_query
+from app.core.tiles3d import TILESET_MEDIA_TYPE, tileset_path
 
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import Dataset
@@ -35,6 +38,9 @@ if TYPE_CHECKING:
 # profile's ``SERVICE_DISTRIBUTION_TYPES`` beside ``vector_tiles``, so the
 # two tile surfaces serialize alike.
 RASTER_TILES_DISTRIBUTION_TYPE = "raster_tiles"
+
+# The tileset's distribution type, synthesized per request like the raster one.
+TILESET_DISTRIBUTION_TYPE = "tiles3d"
 
 _RASTER_TILES_MEDIA_TYPE = "image/png"
 
@@ -116,6 +122,20 @@ def _raster_tiles_distribution(
     )
 
 
+def _tileset_distribution(
+    dataset: Dataset, *, api_base_url: str
+) -> PublishedDistribution:
+    """A 3D Tiles dataset's one access surface: its tileset.json."""
+    return PublishedDistribution(
+        distribution_type=TILESET_DISTRIBUTION_TYPE,
+        format="3dtiles",
+        url=api_base_url + tileset_path(dataset.id),
+        title="3D Tiles",
+        description=None,
+        media_type=TILESET_MEDIA_TYPE,
+    )
+
+
 def published_distributions(
     dataset: Dataset,
     *,
@@ -124,14 +144,17 @@ def published_distributions(
 ) -> list[PublishedDistribution]:
     """Every distribution a catalog feed should publish for *dataset*.
 
-    Stored rows that resolve for a consumer, plus the derived raster access
-    surface. Requires ``dataset.record.distributions`` to be loaded.
+    Stored rows that resolve for a consumer, plus the derived raster or
+    tileset access surface. Requires ``dataset.record.distributions`` to be
+    loaded.
     """
     record = dataset.record
     entries: list[PublishedDistribution] = []
 
     if is_raster_family(record.record_type):
         entries.append(_raster_tiles_distribution(dataset, app_base_url=app_base_url))
+    elif record.record_type == "tiles3d_dataset":
+        entries.append(_tileset_distribution(dataset, api_base_url=api_base_url))
 
     for row in record.distributions or ():
         if not is_publishable_url(row.url):
