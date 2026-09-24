@@ -28,6 +28,9 @@ import {
 } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 import { toast } from 'sonner';
+import { RecordingMap } from '@/test/recording-map';
+import { fixtureToken } from '@/test/fixtures/render-contexts';
+import { syncLayersToMap, toSyncInput } from '@/components/builder/map-sync';
 
 // ---------------------------------------------------------------------------
 // Selective vi.mock — override removeLayerFromMapApi + bulkDeleteLayersApi;
@@ -79,33 +82,29 @@ function makeMapData(layers: MapLayerResponse[] = []): MapResponse {
   return makeBuilderMap(layers);
 }
 
-// Minimal map instance mock — isStyleLoaded returns false so live-map sync is skipped
-// (we don't need to test setLayoutProperty/setPaintProperty behavior here).
-function makeMapRef(overrides: Partial<{
-  isStyleLoaded: () => boolean;
-  setLayoutProperty: ReturnType<typeof vi.fn>;
-  setPaintProperty: ReturnType<typeof vi.fn>;
-  getPaintProperty: ReturnType<typeof vi.fn>;
-  getLayoutProperty: ReturnType<typeof vi.fn>;
-  getLayer: ReturnType<typeof vi.fn>;
-}> = {}) {
-  const mapInstance = {
-    isStyleLoaded: overrides.isStyleLoaded ?? (() => false),
-    setLayoutProperty: overrides.setLayoutProperty ?? vi.fn(),
-    setPaintProperty: overrides.setPaintProperty ?? vi.fn(),
-    getPaintProperty: overrides.getPaintProperty ?? vi.fn(),
-    getLayoutProperty: overrides.getLayoutProperty ?? vi.fn(),
-    getLayer: overrides.getLayer ?? vi.fn().mockReturnValue(null),
-    getFilter: vi.fn(),
-  };
-  return { current: mapInstance } as React.RefObject<typeof mapInstance>;
+// A map no sync pass has drawn, so the bulk handlers write nothing to it.
+function makeMapRef() {
+  return { current: { isStyleLoaded: () => false } };
+}
+
+/** A map a sync pass drew the layers on, and a ref to it. */
+function drawnMapRef(layers: MapLayerResponse[]) {
+  const recording = new RecordingMap();
+  const tokens = new Map(layers.map((layer) => [layer.dataset_id, fixtureToken(layer)]));
+  syncLayersToMap(recording.map, layers.map(toSyncInput), tokens, undefined, { current: new Set() }, { current: '' });
+  recording.calls.length = 0;
+  return { recording, mapRef: { current: recording.map } };
+}
+
+function visibilityOf(recording: RecordingMap, id: string) {
+  return recording.layer(id)?.layout.visibility;
 }
 
 const MAP_ID = 'map-1';
 
 function renderBuilderLayers(
   mapData: MapResponse | undefined,
-  mapRef: ReturnType<typeof makeMapRef> = makeMapRef(),
+  mapRef: { current: unknown } = makeMapRef(),
 ) {
   const addLayerMutation = {
     mutate: vi.fn(),
@@ -201,10 +200,10 @@ describe('useBuilderLayers — handleBulkVisibility (POL-09)', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  it('Test 4: Does NOT call setLayoutProperty when map.isStyleLoaded=false', async () => {
-    const setLayoutProperty = vi.fn();
-    const mapRef = makeMapRef({ isStyleLoaded: () => false, setLayoutProperty });
+  it('Test 4: writes nothing to the map while the style is loading', async () => {
     const layers = [makeMockLayer({ id: 'a', sort_order: 0 })];
+    const { recording, mapRef } = drawnMapRef(layers);
+    recording.styleLoaded = false;
     const { result } = renderBuilderLayers(makeMapData(layers), mapRef);
     await waitForInit();
 
@@ -212,14 +211,12 @@ describe('useBuilderLayers — handleBulkVisibility (POL-09)', () => {
       result.current.handleBulkVisibility(new Set(['a']));
     });
 
-    expect(setLayoutProperty).not.toHaveBeenCalled();
+    expect(recording.calls).toEqual([]);
   });
 
-  it('Test 5: Calls setLayoutProperty for sub-layer ids when map is loaded', async () => {
-    const setLayoutProperty = vi.fn();
-    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer' }); // always returns truthy
-    const mapRef = makeMapRef({ isStyleLoaded: () => true, setLayoutProperty, getLayer });
+  it('Test 5: hides every map layer drawn for a selected layer', async () => {
     const layers = [makeMockLayer({ id: 'a', visible: true, sort_order: 0 })];
+    const { recording, mapRef } = drawnMapRef(layers);
     const { result } = renderBuilderLayers(makeMapData(layers), mapRef);
     await waitForInit();
 
@@ -227,12 +224,8 @@ describe('useBuilderLayers — handleBulkVisibility (POL-09)', () => {
       result.current.handleBulkVisibility(new Set(['a']));
     });
 
-    // Should call setLayoutProperty with visibility for sub-layer ids
-    expect(setLayoutProperty).toHaveBeenCalledWith(
-      expect.stringContaining('layer-a'),
-      'visibility',
-      expect.any(String),
-    );
+    expect(recording.layerIds()).toEqual(['layer-a', 'layer-a-outline']);
+    for (const id of recording.layerIds()) expect(visibilityOf(recording, id)).toBe('none');
   });
 });
 
@@ -243,29 +236,31 @@ describe('useBuilderLayers — handleBulkVisibility (POL-09)', () => {
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — handleBulkVisibility STATE-01 parity', () => {
-  it('enumerates the colorrelief companion when toggling visibility', async () => {
-    const setLayoutProperty = vi.fn();
-    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer' });
-    const mapRef = makeMapRef({ isStyleLoaded: () => true, setLayoutProperty, getLayer });
-    const layers = [makeMockLayer({ id: 'a', visible: true, sort_order: 0 })];
-    const { result } = renderBuilderLayers(makeMapData(layers), mapRef);
+  it('hides the colour relief of a DEM', async () => {
+    const dem = makeMockLayer({
+      id: 'dem',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      is_dem: true,
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
+      paint: { '_hypso-enabled': true, '_hypso-ramp': 'Blues' },
+      sort_order: 0,
+    });
+    const { recording, mapRef } = drawnMapRef([dem]);
+    const { result } = renderBuilderLayers(makeMapData([dem]), mapRef);
     await waitForInit();
 
     act(() => {
-      result.current.handleBulkVisibility(new Set(['a']));
+      result.current.handleBulkVisibility(new Set(['dem']));
     });
 
-    // The drifted inline array omitted layer-${id}-colorrelief; the shared
-    // helper includes it.
-    expect(setLayoutProperty).toHaveBeenCalledWith('layer-a-colorrelief', 'visibility', 'none');
+    expect(visibilityOf(recording, 'layer-dem')).toBe('none');
+    expect(visibilityOf(recording, 'layer-dem-colorrelief')).toBe('none');
   });
 
   it('keeps a stroke-disabled fill outline hidden when bulk-showing the layer', async () => {
-    const setLayoutProperty = vi.fn();
-    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer' });
-    const mapRef = makeMapRef({ isStyleLoaded: () => true, setLayoutProperty, getLayer });
-    // Hidden fill with stroke disabled — bulk toggle flips it to visible, but the
-    // outline must stay 'none' (the inline bulk path resurrected it).
+    // Hidden fill with stroke disabled: the toggle shows the fill, and the outline stays off.
     const layer = makeMockLayer({
       id: 'a',
       visible: false,
@@ -273,6 +268,7 @@ describe('useBuilderLayers — handleBulkVisibility STATE-01 parity', () => {
       sort_order: 0,
       style_config: { builder: { strokeDisabled: true } } as MapLayerResponse['style_config'],
     });
+    const { recording, mapRef } = drawnMapRef([layer]);
     const { result } = renderBuilderLayers(makeMapData([layer]), mapRef);
     await waitForInit();
 
@@ -280,25 +276,22 @@ describe('useBuilderLayers — handleBulkVisibility STATE-01 parity', () => {
       result.current.handleBulkVisibility(new Set(['a']));
     });
 
-    expect(setLayoutProperty).toHaveBeenCalledWith('layer-a', 'visibility', 'visible');
-    expect(setLayoutProperty).toHaveBeenCalledWith('layer-a-outline', 'visibility', 'none');
+    expect(visibilityOf(recording, 'layer-a')).toBe('visible');
+    expect(visibilityOf(recording, 'layer-a-outline')).toBe('none');
   });
 });
 
 // ---------------------------------------------------------------------------
-// P1-09 (builder-audit #338 20260626) — toggle_group_visibility flips every child +
-// the group row atomically and routes child map side effects through the shared
-// companion visibility helper.
+// toggle_group_visibility flips every child and the group row in one write, and
+// writes each child to the map.
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — toggle_group_visibility (P1-09)', () => {
   it('hides every child and the group row in one pass', async () => {
-    const setLayoutProperty = vi.fn();
-    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer' });
-    const mapRef = makeMapRef({ isStyleLoaded: () => true, setLayoutProperty, getLayer });
     const groupRow = makeMockLayer({ id: 'g1', sort_order: 0, layer_type: 'group:folder', visible: true });
     const child1 = { ...makeMockLayer({ id: 'c1', sort_order: 1, visible: true }), parent_group_id: 'g1' } as GroupedLayer as MapLayerResponse;
     const child2 = { ...makeMockLayer({ id: 'c2', sort_order: 2, visible: true }), parent_group_id: 'g1' } as GroupedLayer as MapLayerResponse;
+    const { recording, mapRef } = drawnMapRef([groupRow, child1, child2]);
     const { result } = renderBuilderLayers(makeMapData([groupRow, child1, child2]), mapRef);
     await waitForInit();
 
@@ -310,9 +303,8 @@ describe('useBuilderLayers — toggle_group_visibility (P1-09)', () => {
     expect(updated.find((l) => l.id === 'g1')!.visible).toBe(false);
     expect(updated.find((l) => l.id === 'c1')!.visible).toBe(false);
     expect(updated.find((l) => l.id === 'c2')!.visible).toBe(false);
-    // Child map side effects routed through the companion helper.
-    expect(setLayoutProperty).toHaveBeenCalledWith('layer-c1', 'visibility', 'none');
-    expect(setLayoutProperty).toHaveBeenCalledWith('layer-c2', 'visibility', 'none');
+    expect(visibilityOf(recording, 'layer-c1')).toBe('none');
+    expect(visibilityOf(recording, 'layer-c2')).toBe('none');
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
@@ -369,11 +361,9 @@ describe('useBuilderLayers — handleBulkOpacity (POL-09)', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  it('Test 8: Calls setPaintProperty for selected layer when map is loaded', async () => {
-    const setPaintProperty = vi.fn();
-    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer' });
-    const mapRef = makeMapRef({ isStyleLoaded: () => true, setPaintProperty, getLayer });
+  it('Test 8: puts the opacity on a selected polygon and its outline', async () => {
     const layers = [makeMockLayer({ id: 'a', dataset_geometry_type: 'Polygon', sort_order: 0 })];
+    const { recording, mapRef } = drawnMapRef(layers);
     const { result } = renderBuilderLayers(makeMapData(layers), mapRef);
     await waitForInit();
 
@@ -381,25 +371,11 @@ describe('useBuilderLayers — handleBulkOpacity (POL-09)', () => {
       result.current.handleBulkOpacity(new Set(['a']), 0.7);
     });
 
-    expect(setPaintProperty).toHaveBeenCalledWith(
-      expect.stringContaining('layer-a'),
-      expect.any(String),
-      0.7,
-    );
+    expect(recording.layer('layer-a')?.paint['fill-layer-opacity']).toBe(0.7);
+    expect(recording.layer('layer-a-outline')?.paint['line-layer-opacity']).toBe(0.7);
   });
 
   it('routes DEM hillshade bulk opacity through hillshade color paint, not raster-opacity', async () => {
-    const setPaintProperty = vi.fn();
-    const getLayer = vi.fn((id: string) => (id === 'layer-dem' ? { id, type: 'hillshade' } : undefined));
-    const getPaintProperty = vi.fn().mockReturnValue(undefined);
-    const getLayoutProperty = vi.fn().mockReturnValue('visible');
-    const mapRef = makeMapRef({
-      isStyleLoaded: () => true,
-      setPaintProperty,
-      getLayer,
-      getPaintProperty,
-      getLayoutProperty,
-    });
     const layer = makeMockLayer({
       id: 'dem',
       layer_type: 'raster_geolens',
@@ -414,6 +390,7 @@ describe('useBuilderLayers — handleBulkOpacity (POL-09)', () => {
       },
       sort_order: 0,
     });
+    const { recording, mapRef } = drawnMapRef([layer]);
     const { result } = renderBuilderLayers(makeMapData([layer]), mapRef);
     await waitForInit();
 
@@ -421,8 +398,9 @@ describe('useBuilderLayers — handleBulkOpacity (POL-09)', () => {
       result.current.handleBulkOpacity(new Set(['dem']), 0.5);
     });
 
-    expect(setPaintProperty).toHaveBeenCalledWith('layer-dem', 'hillshade-shadow-color', 'rgba(31, 41, 55, 0.5)');
-    expect(setPaintProperty).not.toHaveBeenCalledWith('layer-dem', 'raster-opacity', expect.anything());
+    const paint = recording.layer('layer-dem')?.paint;
+    expect(paint?.['hillshade-shadow-color']).toBe('rgba(31, 41, 55, 0.5)');
+    expect(paint).not.toHaveProperty('raster-opacity');
   });
 });
 
