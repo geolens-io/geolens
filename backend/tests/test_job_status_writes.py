@@ -1,0 +1,386 @@
+"""Only the job ledger writes ``ingest_jobs.status``."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+
+import app
+
+_APP = Path(app.__file__).parent
+_LEDGER = "platform/jobs/ledger.py"
+
+# Status writes the ledger does not own yet, by module or by function. Each
+# entry must still write a status, so the change that moves its last write
+# deletes it.
+_NOT_YET_IN_THE_LEDGER: dict[str, str] = {
+    "processing/ingest/publication.py::_complete": "the settlement seam's complete",
+    "processing/ingest/publication.py::_fail": "the settlement seam's fail",
+    "processing/ingest/tasks_reupload.py::_settle_keyed_execution_timeout": (
+        "a keyed refresh's timeout"
+    ),
+}
+
+# Helpers that write the ``values`` their caller composes: a caller's values are
+# judged at its call, and a helper passing its own parameter on is not.
+_VALUES_HELPERS = frozenset(
+    {
+        "update_ingest_job_for_attempt",
+        "require_ingest_job_update",
+        "write_job_failure_for_attempt",
+    }
+)
+_FORWARDING_BODY = "platform/jobs/heartbeat.py::update_ingest_job_for_attempt"
+
+_STATEMENT_BUILDERS = frozenset({"update", "sa_update", "insert", "pg_insert"})
+_RAW_WRITE = re.compile(
+    r"(?is)\binsert\s+into\s+[\w.\"]*ingest_jobs\b[^;]*\bstatus\b"
+    r"|\bingest_jobs\"?\s+(?:as\s+\w+\s+)?set\s+(?:(?!\bwhere\b).)*\bstatus\s*="
+)
+
+_Function = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+def _own_nodes(scope: ast.AST) -> Iterator[ast.AST]:
+    """``scope``'s nodes, without the bodies of the functions nested in it."""
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        yield node
+        if not isinstance(node, _Function | ast.ClassDef):
+            stack.extend(ast.iter_child_nodes(node))
+
+
+def _unwrap(node: ast.expr) -> ast.expr:
+    return node.value if isinstance(node, ast.Await) else node
+
+
+def _callee(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    return None
+
+
+def _functions_returning_a_job(trees: list[ast.AST]) -> frozenset[str]:
+    return frozenset(
+        node.name
+        for tree in trees
+        for node in ast.walk(tree)
+        if isinstance(node, _Function)
+        and node.returns is not None
+        and "IngestJob" in ast.unparse(node.returns)
+    )
+
+
+def _makes_a_job(value: ast.expr, returns_a_job: frozenset[str]) -> bool:
+    value = _unwrap(value)
+    if "select(IngestJob)" in ast.unparse(value):
+        return True
+    if not isinstance(value, ast.Call):
+        return False
+    name = _callee(value)
+    if name == "IngestJob" or name in returns_a_job:
+        return True
+    return (
+        name == "get" and bool(value.args) and ast.unparse(value.args[0]) == "IngestJob"
+    )
+
+
+def _job_names(scope: ast.AST, returns_a_job: frozenset[str]) -> set[str]:
+    """Names bound to an IngestJob in ``scope``."""
+    names: set[str] = set()
+    if isinstance(scope, _Function):
+        args = scope.args
+        for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs):
+            annotation = ast.unparse(arg.annotation) if arg.annotation else None
+            if annotation is None and arg.arg == "job":
+                names.add(arg.arg)
+            elif annotation is not None and "IngestJob" in annotation:
+                names.add(arg.arg)
+    for node in _own_nodes(scope):
+        if isinstance(node, ast.Assign | ast.AnnAssign) and node.value is not None:
+            if _makes_a_job(node.value, returns_a_job):
+                targets = (
+                    node.targets if isinstance(node, ast.Assign) else [node.target]
+                )
+                names.update(t.id for t in targets if isinstance(t, ast.Name))
+    return names
+
+
+def _statement_root(node: ast.expr, bindings: dict[str, ast.expr]) -> ast.Call | None:
+    """The ``update(...)`` or ``insert(...)`` a statement chain starts from."""
+    followed: set[str] = set()
+    while True:
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in _STATEMENT_BUILDERS:
+                return node
+            node = node.func
+        elif isinstance(node, ast.Attribute):
+            node = node.value
+        elif isinstance(node, ast.Name) and node.id in bindings:
+            if node.id in followed:
+                return None
+            followed.add(node.id)
+            node = bindings[node.id]
+        else:
+            return None
+
+
+def _may_target_jobs(root: ast.Call | None) -> bool:
+    """Whether a statement may write ``ingest_jobs``; an unresolved one may."""
+    if root is None or not root.args:
+        return True
+    model = root.args[0]
+    return not (isinstance(model, ast.Name) and model.id != "IngestJob")
+
+
+def _names_status(
+    values: ast.expr,
+    bindings: dict[str, ast.expr],
+    returns: dict[str, list[ast.expr]],
+) -> bool:
+    """Whether a values argument carries a ``status`` key; a ``**`` may."""
+    values = _unwrap(values)
+    if isinstance(values, ast.Dict):
+        return any(
+            key is None or (isinstance(key, ast.Constant) and key.value == "status")
+            for key in values.keys
+        )
+    if isinstance(values, ast.Name) and values.id in bindings:
+        return _names_status(bindings[values.id], {}, returns)
+    if isinstance(values, ast.Call) and _callee(values) in returns:
+        return any(_names_status(value, {}, {}) for value in returns[_callee(values)])
+    return False
+
+
+def _status_writes(
+    tree: ast.AST, returns_a_job: frozenset[str]
+) -> list[tuple[str, int]]:
+    """Every job status write in a module, as (enclosing function, line).
+
+    A write is an ``IngestJob(...)`` construction; a ``.values(...)`` naming
+    ``status`` (keyword, dict key or ``**``) on an update or insert that may
+    target ``ingest_jobs``; ``.status =`` or ``setattr(..., "status", ...)`` on a
+    name bound to an IngestJob; a ``values`` dict with a ``status`` key passed
+    to one of ``_VALUES_HELPERS``; or raw SQL that sets the status.
+
+    Known limits: bindings are read within one function, and a helper's
+    ``values`` also from a function of the same module that returns it. A
+    statement whose target cannot be resolved counts as a job write. An
+    unannotated parameter counts as a job only when it is named ``job``.
+    Dynamic dispatch, and dicts built in another module, are not followed.
+    """
+    returns = {
+        node.name: [
+            ret.value
+            for ret in _own_nodes(node)
+            if isinstance(ret, ast.Return) and ret.value is not None
+        ]
+        for node in ast.walk(tree)
+        if isinstance(node, _Function)
+    }
+    writes: list[tuple[str, int]] = []
+    scopes = [
+        (node, node.name) for node in ast.walk(tree) if isinstance(node, _Function)
+    ]
+    for scope, name in [*scopes, (tree, "<module>")]:
+        bindings = {
+            target.id: node.value
+            for node in _own_nodes(scope)
+            if isinstance(node, ast.Assign | ast.AnnAssign) and node.value is not None
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+            if isinstance(target, ast.Name)
+        }
+        jobs = _job_names(scope, returns_a_job)
+        for node in _own_nodes(scope):
+            if _writes_status(node, bindings, returns, jobs):
+                writes.append((name, node.lineno))
+    return writes
+
+
+def _writes_status(
+    node: ast.AST,
+    bindings: dict[str, ast.expr],
+    returns: dict[str, list[ast.expr]],
+    jobs: set[str],
+) -> bool:
+    if isinstance(node, ast.Call):
+        callee = _callee(node)
+        if callee == "IngestJob":
+            return True
+        if callee == "values" and isinstance(node.func, ast.Attribute):
+            names_status = any(k.arg in ("status", None) for k in node.keywords) or any(
+                _names_status(arg, bindings, returns) for arg in node.args
+            )
+            return names_status and _may_target_jobs(
+                _statement_root(node.func.value, bindings)
+            )
+        if callee in _VALUES_HELPERS:
+            values = next((k.value for k in node.keywords if k.arg == "values"), None)
+            return values is not None and _names_status(values, bindings, returns)
+        return (
+            callee == "setattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id in jobs
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "status"
+        )
+    if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign):
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        return any(
+            isinstance(target, ast.Attribute)
+            and target.attr == "status"
+            and isinstance(target.value, ast.Name)
+            and target.value.id in jobs
+            for target in targets
+        )
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and bool(_RAW_WRITE.search(node.value))
+    )
+
+
+def _tree_writes() -> dict[str, list[tuple[str, int]]]:
+    """Every status write in ``backend/app``, by module path."""
+    trees = {
+        path.relative_to(_APP).as_posix(): ast.parse(path.read_text())
+        for path in sorted(_APP.rglob("*.py"))
+    }
+    returns_a_job = _functions_returning_a_job(list(trees.values()))
+    return {
+        module: writes
+        for module, tree in trees.items()
+        if (writes := _status_writes(tree, returns_a_job))
+    }
+
+
+def _allowed(module: str, function: str) -> bool:
+    return (
+        module == _LEDGER
+        or module in _NOT_YET_IN_THE_LEDGER
+        or f"{module}::{function}" in _NOT_YET_IN_THE_LEDGER
+        or f"{module}::{function}" == _FORWARDING_BODY
+    )
+
+
+def test_only_the_ledger_writes_a_job_status() -> None:
+    """Every write of a job's status outside the ledger is one the ledger will take next."""
+    offenders = [
+        f"{module}:{line} {function}"
+        for module, writes in _tree_writes().items()
+        for function, line in writes
+        if not _allowed(module, function)
+    ]
+    assert not offenders, offenders
+
+
+def test_every_entry_still_waiting_writes_a_status() -> None:
+    """An entry for writes the ledger has since taken is removed with them."""
+    writes = _tree_writes()
+    found = {module for module in writes} | {
+        f"{module}::{function}"
+        for module, module_writes in writes.items()
+        for function, _line in module_writes
+    }
+    stale = sorted(set(_NOT_YET_IN_THE_LEDGER) - found)
+    assert not stale, stale
+    assert _FORWARDING_BODY in found
+
+
+def test_the_scan_reads_the_tree_and_finds_the_ledgers_writes() -> None:
+    """The scan reads the whole tree and sees the ledger's own writes."""
+    assert len(list(_APP.rglob("*.py"))) >= 400
+    ledger_functions = {function for function, _line in _tree_writes()[_LEDGER]}
+    assert {"create", "_move", "_end", "retry"} <= ledger_functions
+
+
+def _scan(source: str) -> list[tuple[str, int]]:
+    tree = ast.parse(source)
+    return _status_writes(tree, _functions_returning_a_job([tree]))
+
+
+_SHAPES = {
+    "constructor": "def f(s):\n    s.add(IngestJob(status='running'))\n",
+    "update keyword": "def f(s):\n    s.execute(update(IngestJob).values(status='failed'))\n",
+    "update unpacked": "def f(s, v):\n    s.execute(sa_update(IngestJob).values(**v))\n",
+    "unresolved target": "def f(s, job):\n    s.execute(sa_update(type(job)).values(status='failed'))\n",
+    "statement bound to a name": (
+        "def f(s):\n    stmt = update(IngestJob).where(x)\n"
+        "    s.execute(stmt.values({'status': 'failed'}))\n"
+    ),
+    "attribute on a loaded job": (
+        "async def f(s, i):\n    job = await s.get(IngestJob, i)\n    job.status = 'failed'\n"
+    ),
+    "attribute on a job parameter": "def f(job):\n    job.status = 'failed'\n",
+    "setattr on an annotated job": (
+        "def f(row: IngestJob):\n    setattr(row, 'status', 'failed')\n"
+    ),
+    "attribute on a created job": (
+        "async def create_ingest_job(s) -> IngestJob:\n    ...\n"
+        "async def f(s):\n    job = await create_ingest_job(s)\n    job.status = 'running'\n"
+    ),
+    "helper values display": (
+        "async def f(s, i, a):\n"
+        "    await update_ingest_job_for_attempt(s, i, a, values={'status': 'failed'})\n"
+    ),
+    "helper values name": (
+        "async def f(s, i, a, st):\n    values = {'status': st}\n"
+        "    await require_ingest_job_update(s, i, a, values=values)\n"
+    ),
+    "helper values annotated name": (
+        "async def f(s, i, a, st):\n    values: dict = {'status': st}\n"
+        "    await update_ingest_job_for_attempt(s, i, a, values=values)\n"
+    ),
+    "helper values from a function": (
+        "def staged():\n    return {'status': 'pending'}\n"
+        "async def f(s, i, a):\n"
+        "    await update_ingest_job_for_attempt(s, i, a, values=staged())\n"
+    ),
+    "raw update": (
+        "def f(s):\n"
+        "    s.execute(text(\"UPDATE catalog.ingest_jobs SET status = 'failed' WHERE id = :id\"))\n"
+    ),
+    "raw insert": (
+        "def f(s):\n"
+        "    s.execute(text('INSERT INTO catalog.ingest_jobs (id, status) VALUES (:i, :s)'))\n"
+    ),
+}
+
+_NOT_A_JOB_STATUS = {
+    "another table's update": (
+        "def f(s):\n    s.execute(update(DatasetRefreshRun).values(status='failed'))\n"
+    ),
+    "another row's attribute": (
+        "async def f(s, i):\n    run = await s.get(DatasetRefreshRun, i)\n    run.status = 'x'\n"
+    ),
+    "a job column other than status": (
+        "def f(s, now):\n    s.execute(update(IngestJob).values(heartbeat_at=now))\n"
+    ),
+    "a status dict no helper writes": "def f():\n    return {'status': 'ok'}\n",
+    "raw SQL reading the status": (
+        'def f(s):\n    s.execute(text("UPDATE catalog.ingest_jobs SET user_metadata = :m '
+        "WHERE status = 'running'\"))\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_SHAPES))
+def test_each_way_of_writing_a_status_is_seen(shape: str) -> None:
+    """The scan sees each way a status can be written."""
+    assert _scan(_SHAPES[shape]), shape
+
+
+@pytest.mark.parametrize("shape", sorted(_NOT_A_JOB_STATUS))
+def test_writes_that_set_no_job_status_are_not_seen(shape: str) -> None:
+    """The scan leaves other tables, other columns and reads alone."""
+    assert not _scan(_NOT_A_JOB_STATUS[shape]), shape

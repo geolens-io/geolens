@@ -855,19 +855,23 @@ class TestRegenerateVrtTask:
         from app.processing.ingest import tasks_vrt
 
         tree = ast.parse(inspect.getsource(tasks_vrt.regenerate_vrt.func))
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
         lines = {
-            name: [
+            "_settle_failed_vrt_asset": [
                 node.lineno
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Call) and getattr(node.func, "id", None) == name
-            ]
-            for name in ("_settle_failed_vrt_asset", "update_ingest_job_for_attempt")
+                for node in calls
+                if getattr(node.func, "id", None) == "_settle_failed_vrt_asset"
+            ],
+            "ledger.fail": [
+                node.lineno
+                for node in calls
+                if isinstance(node.func, ast.Attribute)
+                and node.func.attr == "fail"
+                and getattr(node.func.value, "id", None) == "ledger"
+            ],
         }
         assert all(len(v) == 1 for v in lines.values()), lines
-        assert (
-            lines["_settle_failed_vrt_asset"][0]
-            < (lines["update_ingest_job_for_attempt"][0])
-        ), (
+        assert lines["_settle_failed_vrt_asset"][0] < lines["ledger.fail"][0], (
             "the asset settles after the job write, so a contended job row "
             "aborts the transaction the asset write is in again"
         )
