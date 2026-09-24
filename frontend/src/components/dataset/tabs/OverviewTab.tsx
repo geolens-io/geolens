@@ -35,6 +35,7 @@ import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dat
 import { getSourceFormatLabel } from '@/i18n/labels';
 import { cn } from '@/lib/utils';
 import { vrtRasterStatusColors } from '@/lib/status-colors';
+import { recordTypeCapabilities } from '@/lib/record-types';
 
 /** Compact key-value row for sidebar cards — grid layout matching design */
 function SideKV({ label, value, mono, title, wrap, children }: {
@@ -187,6 +188,7 @@ export function OverviewTab({
 
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
+  const hasFeatureTable = recordTypeCapabilities(dataset.record_type).featureTable;
 
   // VRT derivation -- pass empty string for non-VRT so the hook's enabled:!!datasetId
   // disables the query. fix(#644): also gate on authentication — the endpoint needs
@@ -221,7 +223,7 @@ export function OverviewTab({
             {!isVrt && dataset.source_format && (
               <SideKV label={t('metadata.sourceFormat')} value={getSourceFormatLabel(t, dataset.source_format)} />
             )}
-            {dataset.table_name && (
+            {dataset.table_name && hasFeatureTable && (
               <SideKV label={t('metadata.tableName', { defaultValue: 'Table' })} value={dataset.table_name} mono />
             )}
             <SideKV label={t('overview.maintainer', { defaultValue: 'Maintainer' })} value={createdByIdentity} />
