@@ -622,9 +622,9 @@ export function DatasetPage() {
                     gates the drawing toolbar so generic sketch layers keep
                     every draw mode. */}
                 <DatasetMap
-                  // A map keeps every source it was given, so each tile kind
-                  // gets its own instance.
-                  key={isRasterOrVrt ? mapKey : tileKind ?? 'no-tiles'}
+                  // A map keeps every source it was given, so each dataset
+                  // needs its own instance (and, for raster/VRT, each tile kind).
+                  key={`${dataset.id}:${isRasterOrVrt ? mapKey : tileKind ?? 'no-tiles'}`}
                   bbox={bbox}
                   tableName={dataset.table_name}
                   geometryType={dataset.geometry_type}
