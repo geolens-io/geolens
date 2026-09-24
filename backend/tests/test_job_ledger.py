@@ -44,8 +44,8 @@ from app.platform.refresh.service import (
     record_refresh_success,
 )
 from app.processing.ingest.catalog_projection import measure
-from app.processing.ingest.tasks_common import _apply_reupload_swap
 from app.processing.raster.models import RasterAsset, VrtGeneration
+from tests.test_reupload_swap_lock_retry import swap_in
 from tests.factories import create_dataset, create_user, get_user_id
 from tests.test_embedding_backfill_queue_1542 import _release_slot
 from tests.test_job_cancel_vrt import _seed_vrt_regeneration
@@ -199,7 +199,7 @@ async def _drive_finalize_verbatim(
         attempt_id,
         values={"heartbeat_at": datetime.now(timezone.utc)},
     )
-    version, schema_diff = await _apply_reupload_swap(
+    version, schema_diff = await swap_in(
         session,
         dataset=dataset,
         staging_table=staging,

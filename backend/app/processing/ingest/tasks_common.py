@@ -11,9 +11,8 @@ import functools
 import hashlib
 import json
 import re
-import time
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -1010,7 +1009,7 @@ async def stamp_failed_origin_health(
 
     feat(#1266): shared rather than duplicated per strategy so the guard
     doesn't end up with a second, drifting spelling in the STAC strategy
-    beside ``_record_failed_origin_contact``.
+    beside the settlement seam's ``_stamp_contact``.
     """
     if health is None or bound is None:
         return
@@ -1446,7 +1445,7 @@ def _is_lock_timeout_error(exc: BaseException) -> bool:
     asyncpg exception. Check both shapes so behavior is identical
     regardless of where the exception bubbles up from.
 
-    ING-06 / P2-08: used by ``_apply_reupload_swap`` to gate its single
+    ING-06 / P2-08: used by ``_install_reupload_table`` to gate its single
     retry. Returns False for any other exception class or SQLSTATE so
     real errors (e.g., 23505 unique violation) still propagate
     immediately.
@@ -1556,71 +1555,18 @@ _SWAP_FIRST_TIMEOUT = "5s"
 _SWAP_RETRY_TIMEOUT = "15s"
 _SWAP_RETRY_SLEEP_MS = 200
 
-# fix(#1921): `lock_catalog_rows` reports an expired budget and a lost
-# deadlock alike, and the two send an operator looking for different things.
-_POST_SWAP_WAIT_FAILURES = {
-    "55P03": (
-        "reupload_swap_catalog_lock_timeout",
-        "The post-swap catalog wait expired. Find the holder of this "
-        "dataset's catalog.datasets row in pg_stat_activity.",
-    ),
-    "40P01": (
-        "reupload_swap_catalog_deadlock",
-        "PostgreSQL chose this swap as the deadlock victim. Look for the "
-        "other side of the cycle: a transaction holding this dataset's "
-        "catalog row and waiting on its live table.",
-    ),
-}
-_POST_SWAP_WAIT_UNKNOWN = (
-    "reupload_swap_catalog_lock_failed",
-    "The post-swap catalog wait failed and reported no SQLSTATE.",
-)
 
+async def _install_reupload_table(
+    session, *, dataset, staging_table: str, measurement: "Measurement"
+) -> None:
+    """Rename the staging table over the dataset's live table, in the caller's transaction.
 
-async def _apply_reupload_swap(
-    session,
-    *,
-    dataset,
-    staging_table: str,
-    measurement: "Measurement",
-    user_id: str,
-    source_filename: str | None,
-    source_format: str | None,
-    original_srid: int | None,
-    source_url: str | None = None,
-    file_hash: str | None = None,
-    origin_ref: dict[str, Any] | None = None,
-    pre_catalog_write: Callable[[], Awaitable[None]] | None = None,
-) -> tuple[Any, dict]:
-    """Apply shared atomic swap + version invariants for all reupload sources.
-
-    ``measurement`` is ``catalog_projection.measure`` of the staging table,
-    taken in this transaction; the swap projects it once the catalog rows are
-    held.
-
-    ``origin_ref`` carries the typed per-origin payload for the bytes this
-    swap installs, minus the ``kind`` discriminator (derived from
-    ``source_format``). Same contract as ``IngestContext.origin_ref``: keys go
-    through the per-kind allowlist, and callers supply their own rather than
-    one being inferred here.
-
-    Returns the ``DatasetVersion`` this swap produced, flushed so the run row
-    can link to its id, and the schema diff the projection computed under the
-    lock, which is the diff the run stores.
+    The renames run on their own lock budget and the transaction's
+    ``lock_timeout`` is restored afterwards. The caller takes the catalog rows
+    next, then calls :func:`_write_reupload_catalog`.
     """
-    from app.modules.audit.service import (
-        AuditEvent,
-        audit_emit,
-    )  # LAZY — preserved per D-17
-    from app.platform.extensions import get_processing_port
-    from app.processing.ingest.catalog_projection import project
     from sqlalchemy import text
 
-    port = get_processing_port()
-    DatasetVersion = port.get_dataset_version_orm_class()
-
-    actor_id = uuid.UUID(user_id)
-    new_version = dataset.current_version + 1
     table_name = dataset.table_name
 
     from app.processing.ingest.metadata import _qtable
@@ -1740,69 +1686,46 @@ async def _apply_reupload_swap(
 
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
-    # The catalog writes start here and dirty both rows. The swap's DDL budget
-    # was put back above; this wait gets the worker budget, and the value the
-    # transaction arrived with is restored after it.
-    from app.core.db.sqlstate import sqlstate
-    from app.platform.catalog_locks import (
-        WORKER_LOCK_TIMEOUT,
-        CatalogLockConflict,
-        bump_tile_cache_version_on,
-        lock_catalog_rows,
-    )
+
+async def _write_reupload_catalog(
+    session,
+    *,
+    dataset,
+    measurement: "Measurement",
+    user_id: str,
+    source_filename: str | None,
+    source_format: str | None,
+    original_srid: int | None,
+    source_url: str | None = None,
+    file_hash: str | None = None,
+    origin_ref: dict[str, Any] | None = None,
+) -> tuple[Any, dict]:
+    """Write what the installed table holds onto the catalog rows the caller holds.
+
+    ``measurement`` is ``catalog_projection.measure`` of the staging table,
+    taken in this transaction.
+
+    ``origin_ref`` carries the typed per-origin payload for the bytes this
+    swap installs, minus the ``kind`` discriminator (derived from
+    ``source_format``). Same contract as ``IngestContext.origin_ref``: keys go
+    through the per-kind allowlist, and callers supply their own rather than
+    one being inferred here.
+
+    Returns the ``DatasetVersion`` this swap produced, flushed so the run row
+    can link to its id, and the schema diff the projection computed under the
+    lock, which is the diff the run stores. The tile-cache bump is the
+    caller's.
+    """
+    from app.modules.audit.service import (
+        AuditEvent,
+        audit_emit,
+    )  # LAZY — preserved per D-17
     from app.platform.extensions import get_processing_port
-    from sqlalchemy.exc import DBAPIError
+    from app.processing.ingest.catalog_projection import project
 
-    _port = get_processing_port()
-    # fix(#1921): lock_catalog_rows rolls back before it raises, and a
-    # rolled-back session expires every loaded instance.
-    _log_dataset_id = str(dataset.id)
-    _wait_started = time.perf_counter()
-    try:
-        await lock_catalog_rows(
-            session,
-            dataset_cls=_port.get_dataset_orm_class(),
-            record_cls=_port.get_record_orm_class(),
-            dataset_id=dataset.id,
-            record_id=dataset.record_id,
-            lock_timeout=WORKER_LOCK_TIMEOUT,
-        )
-    except CatalogLockConflict as conflict:
-        cause = conflict.__cause__
-        code = sqlstate(cause) if isinstance(cause, DBAPIError) else None
-        event, hint = _POST_SWAP_WAIT_FAILURES.get(code, _POST_SWAP_WAIT_UNKNOWN)
-        structlog.get_logger().warning(
-            event,
-            dataset_id=_log_dataset_id,
-            table_name=table_name,
-            waited_ms=round((time.perf_counter() - _wait_started) * 1000),
-            budget=WORKER_LOCK_TIMEOUT,
-            sqlstate=code,
-            hint=(
-                f"{hint} The whole swap rolled back, so no half-swapped table is left."
-            ),
-        )
-        raise
-
-    structlog.get_logger().info(
-        "reupload_swap_catalog_lock_acquired",
-        dataset_id=_log_dataset_id,
-        table_name=table_name,
-        waited_ms=round((time.perf_counter() - _wait_started) * 1000),
-        budget=WORKER_LOCK_TIMEOUT,
-    )
-    # A caller with a publication fence runs it only after the canonical
-    # dataset -> record lock is held.  Its failure rolls back the preceding
-    # DDL in this transaction, so a late source rebind or local edit cannot
-    # leave a swapped relation behind.
-    if pre_catalog_write is not None:
-        await pre_catalog_write()
-
-    # fix(#1921): this wait's budget ends here, like the DDL's above it.
-    await session.execute(
-        text("SELECT set_config('lock_timeout', :value, true)"),
-        {"value": pre_swap_lock_timeout},
-    )
+    DatasetVersion = get_processing_port().get_dataset_version_orm_class()
+    actor_id = uuid.UUID(user_id)
+    new_version = dataset.current_version + 1
 
     schema_diff = await project(session, dataset, measurement)
 
@@ -1810,9 +1733,6 @@ async def _apply_reupload_swap(
     dataset.source_filename = source_filename
     dataset.original_srid = original_srid
     dataset.current_version = new_version
-    # fix(#1911): evaluated at write time, under the lock, so the counter read
-    # into `dataset` before the wait is never written back over a peer's commit.
-    await bump_tile_cache_version_on(session, dataset)
     dataset.record.updated_by = actor_id
     if source_url is not None:
         dataset.source_url = source_url

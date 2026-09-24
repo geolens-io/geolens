@@ -3,64 +3,53 @@
 import asyncio
 import uuid
 from datetime import datetime, timezone
-from functools import wraps
+from functools import partial, wraps
 from pathlib import Path
 
 import structlog
-from sqlalchemy import select, text, update
+from sqlalchemy import select, text
 
 from app.core.db.tenant_session import tenant_task
-from app.core.failure_reason import redact_failure_reason
 from app.core.upload_errors import geometry_loss_refusal
 from app.core.url_redaction import scrub_secret_from_exception
-from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
 )
 from app.platform.dataset_origin import classify_origin, service_layer_identity
-from app.platform.jobs.heartbeat import (
-    attempt_scoped_staging_table,
-    claim_job_attempt_and_start_heartbeat,
-    require_ingest_job_update,
-    resolve_ingest_attempt_or_skip,
-    stop_ingest_job_heartbeat,
-    update_ingest_job_for_attempt,
-)
+from app.platform.jobs.heartbeat import update_ingest_job_for_attempt
 from app.processing.raster.cog import sha256_file
 
 from app.platform.jobs.models import owned_presigned_staging_key
+from app.platform.refresh import verification as refresh_policy
 from app.platform.refresh.credentials import resolve_worker_credential
 from app.platform.refresh.service import (
-    claim_run_for_job,
+    drift_status_from_diff,
+    record_refresh_blocked,
     record_refresh_failure,
-    record_refresh_success,
 )
 from app.processing.ingest import catalog_projection
 from app.processing.ingest.publication import (
+    PUBLISH,
+    Failure,
     PublicationCommit,
-    PublicationOutcome,
-    PublicationSettlementCommand,
-    PublicationSettlementFailure,
-    _service_refresh_error_code,
-    commit_publication,
-    hold_publishing_job,
-    settle_publication,
+    Published,
+    Verdict,
+    settle_replacement,
 )
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
     cleanup_step,
     _append_mercator_clip_warning,
-    _apply_reupload_swap,
     _bind_task_log_context,
     _detect_3d_and_promote_elev,
-    load_job_for_error_write,
     _current_tenant_role,
     _current_tenant_schema,
+    _install_reupload_table,
     _run_service_import_with_wfs_fallback,
+    _write_reupload_catalog,
     apply_manifest_record_metadata,
-    invalidate_tile_cache_for_table,
     purge_token_on_failure,
     resolve_service_type,
     task_app,
@@ -68,7 +57,6 @@ from app.processing.ingest.tasks_common import (
 from app.processing.ingest.tasks_staging import (
     StagingResult,
     _archive_original_file,
-    _cleanup_staging_on_failure,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
     _run_staging_pipeline,
@@ -183,32 +171,6 @@ async def _settle_keyed_execution_timeout(
         return False
 
 
-async def _drop_attempt_staging_table(staging_table: str) -> None:
-    """Best-effort cleanup limited to one attempt-owned staging table."""
-    if not staging_table:
-        return
-
-    from app.core.db import async_session
-    from app.processing.ingest.metadata import _qtable
-    from sqlalchemy import text
-
-    try:
-        async with async_session() as session:
-            await session.execute(
-                text(
-                    f"DROP TABLE IF EXISTS "
-                    f"{_qtable(staging_table, schema=_current_tenant_schema())} CASCADE"
-                )
-            )
-            await session.commit()
-    except Exception:  # broad: cleanup must not mask the ingest result
-        structlog.get_logger().warning(
-            "attempt_staging_cleanup_failed",
-            staging_table=staging_table,
-            exc_info=True,
-        )
-
-
 def _assert_geometry_survives(
     *, record_type: str | None, geometry_type: str | None, has_geometry: bool
 ) -> None:
@@ -284,31 +246,244 @@ async def _detect_reupload_crs(
     return info, effective_srid
 
 
-async def _archive_after_publication(
-    session,
-    publication: PublicationCommit,
-    *,
-    job,
-    dataset_id: uuid.UUID,
-    file_path: str,
-    job_id: str,
-) -> None:
-    """Archive the original file once the publish is confirmed; log a failure.
+class _FileReupload:
+    """A browser upload's bytes, loaded by ogr2ogr into this attempt's table."""
 
-    The archive key is named after the file, so after an indeterminate publish
-    it could overwrite the original of the version that is still live.
-    """
-    if not publication.confirmed:
-        return
-    async with cleanup_step("reupload_file archive", job_id=job_id):
-        await session.refresh(job)
-        await _archive_original_file(
-            session,
-            job=job,
-            dataset_id=dataset_id,
-            file_path=file_path,
-            log_message="Failed to archive re-uploaded file to storage",
+    task = "reupload_file"
+    staging = True
+    raster_row = False
+    catalog_event = "reupload_swap_catalog"
+
+    def __init__(self, *, job_id: str, dataset_id: str, file_path: str, user_id: str):
+        self.job_id = job_id
+        self.dataset_uuid = uuid.UUID(dataset_id)
+        self.file_path = file_path
+        self.original_file_path = file_path
+        self.user_id = user_id
+        # Set when the upload fails the safety checks: recorded, not raised.
+        self.refused = False
+        self.owned_staging_key: str | None = None
+
+    def prepare(self, job, dataset, staging_table: str) -> None:
+        # Read off the row, not the local `file_path` a download rebinds.
+        self.owned_staging_key = owned_presigned_staging_key(
+            job.id, job.user_metadata, job.file_path
         )
+        self.staging_table = staging_table
+        self.source_filename = job.source_filename
+        self.user_metadata = job.user_metadata or {}
+        self.prior_record_type = dataset.record.record_type
+        self.prior_geometry_type = dataset.geometry_type
+        # GPKG-01 Phase 1058: the user-chosen layer of a multi-layer file.
+        self.layer_name = job.source_layer
+
+    async def fetch(self) -> None:
+        from app.core.db import async_session
+        from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr
+        from app.processing.ingest.service import resolve_file_path
+
+        self.file_path = await resolve_file_path(self.file_path, self.job_id)
+        # Validate file content and safety before ogr2ogr (KISS-5).
+        async with async_session() as session:
+            try:
+                await _validate_upload_file_safety(
+                    session,
+                    file_path=self.file_path,
+                    source_filename=self.source_filename,
+                )
+            except ValueError:
+                self.refused = True
+                raise
+
+        # Detect CRS from the new file, enforce the missing-CRS gate, and
+        # resolve the effective SRID (override > detected > 4326).
+        self.info, self.effective_srid = await _detect_reupload_crs(
+            self.file_path,
+            self.layer_name,
+            self.user_metadata,
+            original_filename=self.source_filename,
+            record_type=self.prior_record_type,
+            dataset_geometry_type=self.prior_geometry_type,
+        )
+        self.srid = self.info.get("srid")
+        await run_ogr2ogr(
+            self.file_path,
+            self.staging_table,
+            build_pg_conn_str(),
+            source_srid=self.srid,
+            geometry_type=self.info.get("geometry_type"),
+            layer_name=self.layer_name,
+            schema=_current_tenant_schema(),
+            effective_srid=self.effective_srid,
+            original_filename=self.source_filename,
+        )
+        self.file_hash = await asyncio.to_thread(sha256_file, self.file_path)
+        self.source_format = await asyncio.to_thread(
+            derive_source_format, self.file_path
+        )
+
+    async def stage(self, session, job, dataset) -> Verdict:
+        # Rename source columns that collide with GeoLens-internal names,
+        # before the post-process steps so they cannot clash.
+        from app.processing.ingest.metadata import rename_reserved_columns
+
+        reserved_renames = await rename_reserved_columns(
+            session, self.staging_table, schema=_current_tenant_schema()
+        )
+        if reserved_renames:
+            from app.processing.ingest.warnings import make_reserved_rename_warning
+
+            _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+
+        # Shapefile-only: detect DBF 10-char truncation collisions. Keyed on
+        # the derived format, not the .zip suffix: a File Geodatabase arrives
+        # in a .zip too and has no DBF to truncate.
+        if self.source_format == "shapefile":
+            from app.processing.ingest.metadata import (
+                detect_dbf_truncation_collisions,
+            )
+            from app.processing.ingest.ogr import run_ogrinfo_preview
+            from app.processing.ingest.warnings import make_dbf_truncation_warning
+
+            preview_cols = self.info.get("columns") or []
+            if not preview_cols:
+                preview_info = await run_ogrinfo_preview(
+                    self.file_path, sample_limit=0, layer_name=self.layer_name
+                )
+                preview_cols = preview_info.get("columns") or []
+            dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
+            if dbf_collisions:
+                _append_job_warning(job, make_dbf_truncation_warning(dbf_collisions))
+                structlog.get_logger().warning(
+                    "Shapefile DBF 10-char truncation collision detected",
+                    table=self.staging_table,
+                    collisions=dbf_collisions,
+                )
+
+        staging_result = await _run_staging_pipeline(
+            session,
+            table_name=self.staging_table,
+            has_geometry=self.info.get("geometry_type") is not None,
+            effective_srid=self.effective_srid,
+        )
+        # The staging table, measured in the swap's transaction and never
+        # carried forward from the preview, which can be minutes old.
+        self.measurement = await catalog_projection.measure(
+            session,
+            dataset,
+            table=self.staging_table,
+            schema=_current_tenant_schema(),
+            staged=staging_result,
+        )
+        # fix(#888): tell the user when the Web Mercator clamp destroyed
+        # geometry instead of leaving them to discover it downstream.
+        _append_mercator_clip_warning(job, staging_result.mercator_clip)
+        return PUBLISH
+
+    async def install(self, session, dataset) -> None:
+        await _install_reupload_table(
+            session,
+            dataset=dataset,
+            staging_table=self.staging_table,
+            measurement=self.measurement,
+        )
+
+    async def write(self, session, dataset) -> Published:
+        version, schema_diff = await _write_reupload_catalog(
+            session,
+            dataset=dataset,
+            measurement=self.measurement,
+            user_id=self.user_id,
+            source_filename=self.source_filename,
+            source_format=self.source_format,
+            original_srid=self.srid,
+            file_hash=self.file_hash,
+            # fix(#1218): the new bytes came from a file, so the binding says
+            # upload, even when the dataset was a registered table or service.
+            origin_ref={"filename": self.source_filename, "file_hash": self.file_hash},
+        )
+        # fix(#1472): a manifest re-apply lands here carrying the manifest's
+        # current attribution, which must replace the old credit.
+        await apply_manifest_record_metadata(
+            session, dataset.record, self.user_metadata
+        )
+        # The bytes came from the browser, so nothing remote was contacted.
+        return Published(
+            dataset_version_id=version.id,
+            feature_count=self.measurement.metadata.get("feature_count"),
+            schema_diff=schema_diff,
+            contacted_origin=False,
+            live_table=dataset.table_name,
+        )
+
+    def classify(self, exc: BaseException) -> Failure:
+        if self.refused:
+            return Failure("validation_failed", refused=True)
+        return Failure(_file_refresh_error_code(exc))
+
+    async def release(
+        self, *, publication: PublicationCommit | None, failed: bool
+    ) -> None:
+        # A cancelled archive must not skip the cleanup after it.
+        try:
+            # The archive key is named after the file, so after an unconfirmed
+            # publish it could overwrite the original of the version still live.
+            if publication is not None and publication.confirmed:
+                async with cleanup_step("reupload_file archive", job_id=self.job_id):
+                    await self._archive()
+        finally:
+            await self._clean_up(
+                "complete"
+                if publication is PublicationCommit.ACKNOWLEDGED
+                else "failed"
+                if failed
+                else "pending"
+            )
+
+    async def _clean_up(self, final_status: str) -> None:
+        # A publish seen only through the probe is "pending", which keeps the
+        # upload. The local file goes on success, and on failure only when it
+        # was a download (storage holds the source) or an unsafe upload.
+        async with cleanup_step("reupload_file local file", job_id=self.job_id):
+            if (
+                final_status == "complete"
+                or self.refused
+                or self.file_path != self.original_file_path
+            ):
+                Path(self.file_path).unlink(missing_ok=True)
+        # fix(#1213): the object the task downloaded FROM, which after a
+        # presigned completion is the frozen copy the job is bound to.
+        async with cleanup_step("reupload_file downloaded source", job_id=self.job_id):
+            await reap_downloaded_staging_source(
+                self.job_id,
+                original_file_path=self.original_file_path,
+                final_status=final_status,
+                # _retry_capability refuses reupload jobs outright, so nothing
+                # else will ever reap this; reap on failure too.
+                failed_source_replayable=False,
+            )
+        # fix(#1207): the presigned staging key, which no other reaper sweeps.
+        async with cleanup_step(
+            "reupload_file presigned staging object", job_id=self.job_id
+        ):
+            await reap_presigned_staging_object(
+                self.job_id, self.owned_staging_key, final_status=final_status
+            )
+
+    async def _archive(self) -> None:
+        from app.core.db import async_session
+        from app.platform.jobs.models import IngestJob
+
+        async with async_session() as session:
+            job = await session.get(IngestJob, uuid.UUID(self.job_id))
+            if job is not None:
+                await _archive_original_file(
+                    session,
+                    job=job,
+                    dataset_id=self.dataset_uuid,
+                    file_path=self.file_path,
+                    log_message="Failed to archive re-uploaded file to storage",
+                )
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
@@ -321,491 +496,18 @@ async def reupload_file(
     attempt_id: str | None = None,
     **kwargs,
 ) -> None:
-    """Background task: replace dataset data via staging table swap.
-
-    Session lifecycle (gh #100 followup): the AsyncSession is split into two
-    short-lived blocks so it is NOT held open across ``run_ogrinfo``,
-    ``run_ogr2ogr``, or the ``asyncio.to_thread(sha256_file, ...)`` call.
-    Holding a session across those long async boundaries in
-    Python 3.14 + SQLAlchemy 2.0 + greenlet 3.3 corrupts the greenlet bridge
-    state and the next ``session.execute()`` raises ``MissingGreenlet``
-    (same root cause as gh #100 in ``ingest_file`` / ``ingest_raster``).
-    """
+    """Background task: replace dataset data via staging table swap."""
     _bind_task_log_context(
         task_name="reupload_file", job_id=job_id, dataset_id=dataset_id
     )
-    from app.core.db import async_session
-    from app.platform.extensions import get_processing_port
-    from app.processing.ingest.metadata import _qtable
-    from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr
-    from app.platform.jobs.models import IngestJob
-    from sqlalchemy import text
-    from sqlalchemy.orm import joinedload
-
-    port = get_processing_port()
-    Dataset = port.get_dataset_orm_class()
-
-    resolved = await resolve_ingest_attempt_or_skip(
-        job_id, attempt_id, task_label="reupload"
+    await settle_replacement(
+        _FileReupload(
+            job_id=job_id, dataset_id=dataset_id, file_path=file_path, user_id=user_id
+        ),
+        job_id=job_id,
+        dataset_id=dataset_id,
+        attempt_id=attempt_id,
     )
-    if resolved is None:
-        return
-    job_uuid, attempt_uuid = resolved
-    dataset_uuid = uuid.UUID(dataset_id)
-    original_file_path = file_path
-    final_status: str = "pending"
-    # fix(#1207): captured in phase 1, swept in the finally.
-    owned_staging_key: str | None = None
-    staging_tn: str = ""
-    heartbeat_task: asyncio.Task[None] | None = None
-
-    try:
-        # Phase 1 (short-lived session): load job + dataset, mark running,
-        # resolve, validate, drop stale staging table. Snapshot the values
-        # needed for the long async work into local variables.
-        async with async_session() as session:
-            job_result = await session.execute(
-                select(IngestJob).where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                )
-            )
-            job = job_result.scalar_one_or_none()
-            if job is None:
-                structlog.get_logger().warning(
-                    "Ingest job not found, skipping", job_id=job_id
-                )
-                return
-
-            # fix(#1207): captured HERE, first thing after the row is in
-            # hand, so every early exit below (dataset-missing, heartbeat
-            # bail, download/validation failure) still reaches the
-            # terminal `finally` with it set. Reads the DB column, not the
-            # local `file_path` that resolve_file_path rebinds.
-            owned_staging_key = owned_presigned_staging_key(
-                job.id, job.user_metadata, job.file_path
-            )
-
-            dataset_result = await session.execute(
-                select(Dataset)
-                .options(joinedload(Dataset.record))
-                .where(Dataset.id == dataset_uuid)
-            )
-            dataset = dataset_result.scalar_one_or_none()
-            if dataset is None:
-                structlog.get_logger().warning(
-                    "Dataset not found, skipping", dataset_id=dataset_id
-                )
-                return
-
-            # 1. Update job to running
-            staging_tn = attempt_scoped_staging_table(dataset.table_name, attempt_uuid)
-            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
-                session, job_uuid, attempt_uuid
-            )
-            if heartbeat_task is None:
-                return
-
-            # feat(#1219): pending -> running, keyed on the job rather than a
-            # run id threaded through task arguments (those are durable rows;
-            # a new argument would break every in-flight job on deploy).
-            # `started_at` stays at dispatch time, so the gap to this write
-            # IS the queue wait.
-            await claim_run_for_job(session, job_uuid)
-            # fix(#1778): committed before the download, not after — this
-            # holds a row lock on `dataset_refresh_runs` until commit, and
-            # `cancel_job` transitions that row under a 2s lock_timeout, so
-            # holding it across `resolve_file_path` made a cancel during
-            # download 409 and roll back its own already-committed cancel.
-            await session.commit()
-
-            # Resolve S3 key to local file for ogr2ogr
-            from app.processing.ingest.service import resolve_file_path
-
-            file_path = await resolve_file_path(file_path, job_id)
-
-            # Validate file content and safety before ogr2ogr (KISS-5).
-            try:
-                await _validate_upload_file_safety(
-                    session,
-                    file_path=file_path,
-                    source_filename=job.source_filename,
-                )
-            except ValueError as exc:
-                await update_ingest_job_for_attempt(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "failed",
-                        "error_message": redact_failure_reason(exc),
-                        "completed_at": datetime.now(timezone.utc),
-                    },
-                )
-                # feat(#1219): RETURNS rather than raising, so the broad
-                # handler below never sees it — without a terminal write
-                # here the run would sit `running` until the sweep, instead
-                # of the plain content rejection the user should read.
-                await record_refresh_failure(
-                    session,
-                    ingest_job_id=job_uuid,
-                    error_code="validation_failed",
-                    error_message=exc,
-                    contacted_origin=False,
-                )
-                await session.commit()
-                Path(file_path).unlink(missing_ok=True)
-                final_status = "failed"
-                return
-
-            # Snapshot values for phase 2 (job + dataset will be re-loaded;
-            # these values are immutable for the duration of the task).
-            source_filename = job.source_filename
-            user_metadata = job.user_metadata or {}
-            prior_record_type = dataset.record.record_type
-            prior_geometry_type = dataset.geometry_type
-            # GPKG-01 Phase 1058: snapshot the user-chosen layer so ogr2ogr
-            # ingests the correct layer from multi-layer GPKG files.
-            layer_name = job.source_layer  # None for single-layer files
-
-            # Drop stale staging table from any prior failed attempt before
-            # closing the session — ogr2ogr needs a clean target.
-            await session.execute(
-                text(
-                    f"DROP TABLE IF EXISTS "
-                    f"{_qtable(staging_tn, schema=_current_tenant_schema())} CASCADE"
-                )
-            )
-            await session.commit()
-
-        # Phase 1.5 (no session): ogrinfo, ogr2ogr subprocess, sha256.
-        # Holding an AsyncSession across these would corrupt the greenlet
-        # bridge state — same root cause as gh #100.
-
-        # 2-3. Detect CRS from the new file, enforce the missing-CRS gate,
-        # and resolve the effective SRID (override > detected > 4326).
-        info, effective_srid = await _detect_reupload_crs(
-            file_path,
-            layer_name,
-            user_metadata,
-            original_filename=source_filename,
-            record_type=prior_record_type,
-            dataset_geometry_type=prior_geometry_type,
-        )
-        srid = info.get("srid")
-        geometry_type = info.get("geometry_type")
-        has_geometry = geometry_type is not None
-
-        # 4. Load into staging table
-        # GPKG-01 Phase 1058: pass layer_name to ogr2ogr to ingest the correct
-        # layer from multi-layer GPKG files.
-        db_conn_str = build_pg_conn_str()
-        await run_ogr2ogr(
-            file_path,
-            staging_tn,
-            db_conn_str,
-            source_srid=srid,
-            geometry_type=geometry_type,
-            layer_name=layer_name,
-            schema=_current_tenant_schema(),
-            effective_srid=effective_srid,
-            original_filename=source_filename,
-        )
-
-        # 7. Compute file hash (moved up — must be outside any session)
-        file_hash = await asyncio.to_thread(sha256_file, file_path)
-        source_format = await asyncio.to_thread(derive_source_format, file_path)
-
-        # ----------------------------------------------------------------- #
-        # Phase 2 (short-lived session): re-load job + dataset, run staging
-        # pipeline, apply swap, archive, mark complete.
-        # ----------------------------------------------------------------- #
-        async with async_session() as session:
-            job_result = await session.execute(
-                select(IngestJob).where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                )
-            )
-            job = job_result.scalar_one()
-
-            dataset_result = await session.execute(
-                select(Dataset)
-                .options(joinedload(Dataset.record))
-                .where(Dataset.id == dataset_uuid)
-            )
-            dataset = dataset_result.scalar_one()
-
-            # 4a. Rename source columns that collide with GeoLens-internal
-            #     names. Runs BEFORE post-process steps so they cannot clash
-            #     with source attributes.
-            from app.processing.ingest.metadata import rename_reserved_columns
-
-            reserved_renames = await rename_reserved_columns(
-                session, staging_tn, schema=_current_tenant_schema()
-            )
-            if reserved_renames:
-                from app.processing.ingest.warnings import make_reserved_rename_warning
-
-                _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
-
-            # 4b. Shapefile-only: detect DBF 10-char truncation collisions.
-            #     Keyed on the derived format, not the .zip suffix — a File
-            #     Geodatabase arrives in a .zip too and has no DBF to truncate.
-            if source_format == "shapefile":
-                from app.processing.ingest.metadata import (
-                    detect_dbf_truncation_collisions,
-                )
-                from app.processing.ingest.ogr import run_ogrinfo_preview
-                from app.processing.ingest.warnings import make_dbf_truncation_warning
-
-                preview_cols = info.get("columns") or []
-                if not preview_cols:
-                    # GPKG-01 Phase 1058: pass layer_name for multi-layer shapefiles (rare)
-                    preview_info = await run_ogrinfo_preview(
-                        file_path, sample_limit=0, layer_name=layer_name
-                    )
-                    preview_cols = preview_info.get("columns") or []
-                dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
-                if dbf_collisions:
-                    _append_job_warning(
-                        job, make_dbf_truncation_warning(dbf_collisions)
-                    )
-                    structlog.get_logger().warning(
-                        "Shapefile DBF 10-char truncation collision detected",
-                        table=staging_tn,
-                        collisions=dbf_collisions,
-                    )
-
-            # 5-6. Post-process staging table (shared pipeline)
-            staging_result = await _run_staging_pipeline(
-                session,
-                table_name=staging_tn,
-                has_geometry=has_geometry,
-                effective_srid=effective_srid,
-            )
-            # The staging table, measured in the swap's transaction and never
-            # carried forward from the preview, which can be minutes old.
-            measurement = await catalog_projection.measure(
-                session,
-                dataset,
-                table=staging_tn,
-                schema=_current_tenant_schema(),
-                staged=staging_result,
-            )
-
-            # fix(#888): tell the user when the Web Mercator clamp destroyed
-            # geometry instead of leaving them to discover it downstream.
-            _append_mercator_clip_warning(job, staging_result.mercator_clip)
-
-            # 8. Apply shared reupload swap/version invariants
-            await hold_publishing_job(session, job_uuid, attempt_uuid)
-            version, schema_diff = await _apply_reupload_swap(
-                session,
-                dataset=dataset,
-                staging_table=staging_tn,
-                measurement=measurement,
-                user_id=user_id,
-                source_filename=source_filename,
-                source_format=source_format,
-                original_srid=srid,
-                file_hash=file_hash,
-                # fix(#1218): the new bytes came from a file, so the
-                # binding says upload — even when the dataset was originally
-                # a registered table or a service import.
-                origin_ref={"filename": source_filename, "file_hash": file_hash},
-            )
-            # fix(#1472): a manifest re-apply whose fingerprint
-            # changed lands on THIS path carrying the manifest's current
-            # metadata.attribution — without this the swap installs new
-            # data but leaves the old (now wrong) credit on it.
-            # `dataset.record` is joinedloaded here, so no lazy load runs.
-            await apply_manifest_record_metadata(session, dataset.record, user_metadata)
-
-            # Captured pre-commit: the ORM attribute may be expired after commit.
-            live_table_name = dataset.table_name
-
-            # 9. Update job status to complete
-            await require_ingest_job_update(
-                session,
-                job_uuid,
-                attempt_uuid,
-                values={
-                    "status": "complete",
-                    "completed_at": datetime.now(timezone.utc),
-                },
-            )
-            # feat(#1219, #1223): the run's terminal status commits WITH the
-            # job's, which is what makes "job complete, run still running"
-            # unreachable — the stale-run sweep leans on that rather than
-            # having to guess whether such a row was abandoned.
-            # contacted_origin=False: these bytes came from the browser, so
-            # nothing remote was reached and last_checked_at must not claim a
-            # probe that never happened.
-            await record_refresh_success(
-                session,
-                ingest_job_id=job_uuid,
-                dataset=dataset,
-                dataset_version_id=version.id,
-                feature_count_after=measurement.metadata.get("feature_count"),
-                schema_diff=schema_diff,
-                contacted_origin=False,
-            )
-            publication = await commit_publication(
-                session,
-                job_id=job_uuid,
-                attempt_id=attempt_uuid,
-                task="reupload_file",
-            )
-            # A publish seen only through the probe keeps the upload, which
-            # `final_status` licenses deleting.
-            if publication is PublicationCommit.ACKNOWLEDGED:
-                final_status = "complete"
-
-            # Past the commit, each step below logs its own failure instead
-            # of failing the reupload.
-            async with cleanup_step("reupload_file catalog cache", job_id=job_id):
-                await invalidate_catalog_cache()
-            # fix(#394) B-019/VT-01: the swap replaced the table's contents under the
-            # same name — purge cached MVT tiles or they 304-serve stale data for up
-            # to tile_cache_ttl. Post-commit, mirroring the feature-edit path.
-            async with cleanup_step("reupload_file tile cache", job_id=job_id):
-                await invalidate_tile_cache_for_table(live_table_name)
-
-            # 10. Archive the original after the commit, so the upload never
-            # runs under the rename's exclusive lock.
-            await _archive_after_publication(
-                session,
-                publication,
-                job=job,
-                dataset_id=dataset.id,
-                file_path=file_path,
-                job_id=job_id,
-            )
-
-        await _defer_embedding_after_publication(
-            PublicationOutcome.PUBLISHED, Dataset, dataset_uuid
-        )
-
-    except (
-        Exception
-    ) as exc:  # broad: reupload pipeline spans GDAL/PostGIS/S3/FS — any step can fail
-        # Phase 1/2 sessions are already closed (or rolled back) by the time
-        # we get here. Open a fresh session, re-load the job, and run the
-        # shared cleanup helper.
-        try:
-            async with async_session() as err_session:
-                # fix(#1950): arms the budget, loads the row, and
-                # swallows an expiry — the failure below is the task's outcome.
-                err_job = await load_job_for_error_write(
-                    err_session, job_uuid, attempt_uuid, task_name="reupload_file"
-                )
-                if err_job is not None:
-                    await _cleanup_staging_on_failure(
-                        err_session,
-                        staging_table=staging_tn,
-                        job=err_job,
-                        exc=exc,
-                        task_name="reupload_file",
-                        attempt_id=attempt_uuid,
-                    )
-                # feat(#1219): outside the err_job guard on purpose — the run
-                # is keyed on the job id, which is known even when the job row
-                # itself has gone, and a failure is history too.
-                await record_refresh_failure(
-                    err_session,
-                    ingest_job_id=job_uuid,
-                    error_code=_file_refresh_error_code(exc),
-                    error_message=exc,
-                    contacted_origin=False,
-                )
-                await err_session.commit()
-        finally:
-            # fix(#1213): the `finally` reapers gate on THIS
-            # variable, so every exit from this handler sets it — the bounded
-            # error write above can raise past a positional assignment.
-            final_status = "failed"
-        raise
-    finally:
-        async with cleanup_step("reupload_file heartbeat", job_id=job_id):
-            await stop_ingest_job_heartbeat(heartbeat_task)
-        async with cleanup_step("reupload_file staging table", job_id=job_id):
-            await _drop_attempt_staging_table(staging_tn)
-        # Clean up local file on success always; on failure only if it was
-        # a resolve_file_path download (source of truth is S3).
-        async with cleanup_step("reupload_file local file", job_id=job_id):
-            if final_status == "complete":
-                Path(file_path).unlink(missing_ok=True)
-            elif file_path != original_file_path:
-                Path(file_path).unlink(missing_ok=True)
-        # fix(#1213): reap the object the task downloaded FROM, which
-        # after a presigned completion is the frozen copy the job is bound to —
-        # the unlinks above are local files only, so it was never deleted and a
-        # successful reupload job is its dataset's latest-complete row, exempt
-        # from the stale purge forever. No fan-out on this surface, so the
-        # sibling-sharing guard is left at its default.
-        async with cleanup_step("reupload_file downloaded source", job_id=job_id):
-            await reap_downloaded_staging_source(
-                job_id,
-                original_file_path=original_file_path,
-                final_status=final_status,
-                # _retry_capability refuses reupload jobs outright, so nothing
-                # else will ever reap this; reap on failure too.
-                failed_source_replayable=False,
-            )
-        # fix(#1207): sweep the presigned staging key — this surface had NO
-        # storage reaper (the unlinks above are local files only), and the
-        # stale purge isn't a backstop since a successful reupload job is
-        # the per-dataset latest-complete row it exempts forever.
-        async with cleanup_step(
-            "reupload_file presigned staging object", job_id=job_id
-        ):
-            await reap_presigned_staging_object(
-                job_id, owned_staging_key, final_status=final_status
-            )
-
-
-async def _record_failed_origin_contact(
-    err_session,
-    dataset_cls,
-    dataset_uuid,
-    *,
-    contacted: bool,
-    bound: tuple | None,
-) -> None:
-    """Date the contact a failed service reupload made before it died.
-
-    fix(#1271): a failed attempt that reached the outbound fetch
-    still CONTACTED the origin (the column's contract is "last time
-    GeoLens contacted the origin at all"), so only the timestamp moves —
-    the dataset keeps its old data and the health verdict stays with the
-    probe's classifier. ``contacted`` is False for failures before the
-    fetch began.
-
-    ``bound`` is the (origin_uri, origin_ref, source_format) snapshot taken
-    at load time: guards against a concurrent reupload rebinding the origin
-    mid-fetch, which would otherwise stamp the OLD origin's contact onto
-    the NEW binding. Losing that race is a silent skip — same discipline
-    as the source-health probe.
-    """
-    if not contacted or bound is None:
-        return
-    bound_uri, bound_ref, bound_format = bound
-    outcome = await err_session.execute(
-        update(dataset_cls)
-        .where(
-            dataset_cls.id == dataset_uuid,
-            dataset_cls.origin_uri.is_not_distinct_from(bound_uri),
-            dataset_cls.origin_ref.is_not_distinct_from(bound_ref),
-            dataset_cls.source_format.is_not_distinct_from(bound_format),
-        )
-        .values(last_checked_at=datetime.now(timezone.utc))
-    )
-    await err_session.commit()
-    # fix(#1271): GET /datasets/ caches last_checked_at for 60s;
-    # invalidate only when the guarded write actually landed.
-    if outcome.rowcount:
-        await invalidate_catalog_cache()
 
 
 def _file_refresh_error_code(exc: BaseException) -> str:
@@ -1025,34 +727,6 @@ async def _staged_geometry_contract(
     return row.type, int(row.srid), int(row.coord_dimension)
 
 
-async def _defer_embedding_after_publication(
-    outcome: PublicationOutcome, Dataset, dataset_uuid: uuid.UUID
-) -> None:
-    """Keep enrichment outside settlement and skip candidates left unpublished."""
-    if outcome is not PublicationOutcome.PUBLISHED:
-        return
-
-    from app.core.db import async_session
-    from sqlalchemy.orm import joinedload
-
-    try:
-        async with async_session() as embed_session:
-            dataset_result = await embed_session.execute(
-                select(Dataset)
-                .options(joinedload(Dataset.record))
-                .where(Dataset.id == dataset_uuid)
-            )
-            embed_dataset = dataset_result.scalar_one_or_none()
-            if embed_dataset is not None:
-                from app.processing.embeddings.helpers import defer_embedding
-
-                await defer_embedding(embed_dataset)
-    except Exception:  # broad: post-commit enrichment cannot rewrite publication
-        structlog.get_logger().warning(
-            "reupload_embedding_defer_failed", dataset_id=str(dataset_uuid)
-        )
-
-
 def _matches_service_origin(
     bound: tuple,
     *,
@@ -1083,6 +757,481 @@ def _require_service_source_url(value: str | None) -> str:
 
         raise IngestionError("Missing service source URL for re-upload commit job.")
     return value
+
+
+class RefreshPublicationFenceError(RuntimeError):
+    """A durable source or local-edit publication fence refused the swap."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(message)
+
+
+def _service_refresh_error_code(exc: BaseException) -> str:
+    """Map a service re-upload failure onto the refresh-run vocabulary."""
+    from app.platform.refresh.credentials import (
+        CredentialExpiredError,
+        CredentialStoreUnavailable,
+    )
+
+    if isinstance(exc, CatalogLockConflict):
+        return CATALOG_LOCK_CONFLICT_CODE
+    if isinstance(exc, CredentialExpiredError):
+        return "credential_expired"
+    if isinstance(exc, CredentialStoreUnavailable):
+        return "credential_store_unavailable"
+    if isinstance(exc, RefreshPublicationFenceError):
+        return exc.code
+    if getattr(exc, "code", None) in (498, 499):
+        return "credential_expired"
+    return "service_refresh_failed"
+
+
+async def _enforce_refresh_publication_fence(
+    session,
+    *,
+    job_id: uuid.UUID,
+    dataset,
+    verification: dict | None,
+) -> None:
+    """Refuse a late swap after a scheduled source rebind or local edit."""
+    if verification is None:
+        return
+
+    from app.platform.extensions import get_processing_port
+    from app.platform.refresh.models import DatasetRefreshRun
+
+    run = await session.scalar(
+        select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job_id)
+    )
+    if run is None or run.source_binding_fingerprint is None:
+        return
+
+    record_cls = get_processing_port().get_record_orm_class()
+    current_origin, current_record_modified_at = (
+        await session.execute(
+            select(dataset.__class__.origin_ref, record_cls.updated_at)
+            .join(record_cls, record_cls.id == dataset.record_id)
+            .where(dataset.__class__.id == dataset.id)
+        )
+    ).one()
+    if not isinstance(current_origin, dict):
+        raise RefreshPublicationFenceError(
+            "source_changed", "Refresh source changed before publication."
+        )
+    try:
+        current_fingerprint = (
+            refresh_policy.canonical_service_source_binding_fingerprint(current_origin)
+        )
+    except ValueError as exc:
+        raise RefreshPublicationFenceError(
+            "source_changed", "Refresh source changed before publication."
+        ) from exc
+    if current_fingerprint != run.source_binding_fingerprint:
+        raise RefreshPublicationFenceError(
+            "source_changed", "Refresh source changed before publication."
+        )
+    if (
+        run.local_edit_baseline is not None
+        and current_record_modified_at is not None
+        and current_record_modified_at > run.local_edit_baseline
+    ):
+        raise RefreshPublicationFenceError(
+            "local_edits_changed", "Dataset changed locally before refresh publication."
+        )
+
+
+async def _stage_service_table(
+    session, job, dataset, *, table: str, schema: str
+) -> StagingResult:
+    """Bring a fetched service layer's staging table to the shape first ingest builds."""
+    from app.processing.ingest.metadata import (
+        add_4326_column,
+        clip_to_mercator_bounds,
+        ensure_geom_column,
+        extract_metadata,
+        get_sample_values,
+        grant_reader_access,
+        rename_reserved_columns,
+    )
+
+    # Rename source columns that collide with GeoLens-internal names.
+    # Runs BEFORE ensure_geom_column / add_4326_column.
+    reserved_renames = await rename_reserved_columns(session, table, schema=schema)
+    if reserved_renames:
+        from app.processing.ingest.warnings import make_reserved_rename_warning
+
+        _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+
+    has_geom = await ensure_geom_column(session, table, schema=schema)
+    # fix(#2031 review): the file door's refusal, before the swap DDL —
+    # this path learns geometry from the staging table, never from
+    # `_detect_reupload_crs`, so a table layer over a vector dataset
+    # reached the same record_type re-derivation.
+    _assert_geometry_survives(
+        record_type=dataset.record.record_type,
+        geometry_type=dataset.geometry_type,
+        has_geometry=has_geom,
+    )
+    if has_geom:
+        # fix(#888): same clamp accounting as the file-reupload path.
+        _append_mercator_clip_warning(
+            job, await clip_to_mercator_bounds(session, table, schema=schema)
+        )
+        await add_4326_column(session, table, 4326, schema=schema)
+    await grant_reader_access(
+        session, table, schema=schema, role=_current_tenant_role()
+    )
+
+    metadata = await extract_metadata(session, table, schema=schema)
+    # Before the samples, schema diff and content digest, so all three
+    # describe the table first ingest builds, `elev` included.
+    three_d = await _detect_3d_and_promote_elev(session, table, metadata, schema=schema)
+    sample_values = await get_sample_values(
+        session, table, metadata.get("column_info", []), schema=schema
+    )
+    return StagingResult(
+        metadata=metadata,
+        sample_values=sample_values,
+        three_d=three_d,
+        has_geometry=has_geom,
+        geometry_type=metadata.get("geometry_type"),
+    )
+
+
+class _ServiceReupload:
+    """A remote service layer, fetched by ogr2ogr into this attempt's table.
+
+    A refresh is verified against its source binding before it publishes.
+    """
+
+    task = "reupload_service"
+    staging = True
+    raster_row = False
+    catalog_event = "reupload_swap_catalog"
+
+    def __init__(
+        self,
+        *,
+        job_id: str,
+        source_url: str,
+        source_layer: str,
+        user_id: str,
+        token: str | None,
+        credential_ref: str | None,
+        options: dict,
+    ):
+        self.job_uuid = uuid.UUID(job_id)
+        self.source_url = source_url
+        self.source_layer = source_layer
+        self.user_id = user_id
+        self.token = token
+        self.credential_ref = credential_ref
+        self.options = options
+        # fix(#1271): whether the outbound fetch was reached, so a failure
+        # can date the contact.
+        self.contacted = False
+        self.measured_feature_count: int | None = None
+        self.measured_schema_diff: dict | None = None
+        self.verification: dict | None = None
+
+    def prepare(self, job, dataset, staging_table: str) -> None:
+        self.staging_table = staging_table
+        # fix(#1271): a failure's contact stamp lands only while the dataset
+        # keeps the origin this attempt fetched from.
+        self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+        um = job.user_metadata or {}
+        self.service_type_raw = um.get("service_type", "")
+        self.layer_id = um.get("layer_id")
+        self.job_source_url = job.source_url
+        self.source_layer_value = job.source_layer or self.source_layer
+        self.source_filename = job.source_filename
+        self.oid_field = um.get("object_id_field") or None
+        # fix(#1746): router_refresh writes "refresh" into user_metadata, so
+        # the auth-failure copy can name the call the operator made.
+        self.is_refresh = bool(um.get("refresh"))
+        self.accepted_fingerprint = um.get("accepted_refresh_fingerprint")
+        self.accepted_run_id = um.get("accepted_refresh_run_id")
+        self.verification_policy = self.options.get(
+            "verification_policy", um.get("verification_policy")
+        )
+
+    async def fetch(self) -> None:
+        from app.platform.security import SSRFError, validate_url_for_ssrf
+        from app.processing.ingest.ogr import IngestionError, build_pg_conn_str
+
+        self.source_url_value = _require_service_source_url(
+            self.job_source_url or self.source_url
+        )
+        self.service_type, self.source_format = resolve_service_type(
+            self.service_type_raw
+        )
+        # IA-P0-03 defense-in-depth: revalidate source_url at fetch time. The
+        # route-level check covers the preview→commit TOCTOU, but manifest
+        # reuploads skip that route entirely.
+        try:
+            await validate_url_for_ssrf(self.source_url)
+        except SSRFError as exc:
+            raise RuntimeError(
+                f"source_url failed safety check at worker fetch time: {exc}"
+            ) from exc
+        self.token = await _resolve_service_token(self.token, self.credential_ref)
+
+        # fix(#1271): the stamp may only describe the STORED origin, so it
+        # arms only when the whole attempted binding equals the stored one.
+        matches_binding = _matches_service_origin(
+            self.bound,
+            source_format=self.source_format,
+            source_url=self.source_url_value,
+            layer_id=self.layer_id,
+            layer_name=self.source_layer_value,
+        )
+
+        def _arm_contact() -> None:
+            # Fired the instant the subprocess exists, the first moment an
+            # outbound attempt truthfully began. Monotonic, so a retry that
+            # dies locally cannot erase its first attempt's contact.
+            self.contacted = self.contacted or matches_binding
+
+        db_conn_str = build_pg_conn_str()
+        self.expected_feature_count: int | None = None
+        self.initial_id_plan = None
+
+        async def _run_service_import(layer_name: str) -> None:
+            (
+                self.expected_feature_count,
+                self.initial_id_plan,
+            ) = await _fetch_service_layer_with_paging_guard(
+                service_type_raw=self.service_type_raw,
+                service_type=self.service_type,
+                source_url=self.source_url_value,
+                layer_name=layer_name,
+                layer_id=self.layer_id,
+                token=self.token,
+                staging_table=self.staging_table,
+                db_conn_str=db_conn_str,
+                schema=_current_tenant_schema(),
+                fallback_order_field=self.oid_field,
+                on_spawn=_arm_contact,
+                verification_policy=self.verification_policy,
+            )
+
+        try:
+            await _run_service_import_with_wfs_fallback(
+                _run_service_import,
+                self.source_layer_value,
+                token=self.token,
+                # fix(#1746): serves only the refresh endpoint and the re-upload
+                # commit, and says "credential"/`auth` because a bearer token
+                # can't authenticate a basic or named-key origin.
+                auth_error_message=(
+                    "Remote service authentication failed. Retry the refresh "
+                    "with the credential in the request body's `auth` object; "
+                    "credentials are request-only and are not stored between "
+                    "runs."
+                    if self.is_refresh
+                    else "Remote service authentication failed. Retry the "
+                    "re-upload with the credential in the commit request's "
+                    "`auth` object; credentials are request-only and are not "
+                    "stored between runs."
+                ),
+            )
+        except ValueError as exc:
+            raise IngestionError(str(exc)) from exc
+
+    async def stage(self, session, job, dataset) -> Verdict:
+        from app.processing.ingest.metadata import compute_table_content_digest
+
+        schema = _current_tenant_schema()
+        staged = await _stage_service_table(
+            session, job, dataset, table=self.staging_table, schema=schema
+        )
+        self.metadata = staged.metadata
+        self.measurement = await catalog_projection.measure(
+            session,
+            dataset,
+            table=self.staging_table,
+            schema=schema,
+            staged=staged,
+            score=False,
+        )
+        # Verification compares this fetch, not the preview's: a live
+        # service can have changed since the preview was taken.
+        self.measured_schema_diff = catalog_projection.schema_diff(
+            dataset, self.measurement
+        )
+        self.measured_feature_count = staged.metadata.get("feature_count")
+        if not self.is_refresh:
+            return PUBLISH
+
+        geometry_type, srid, coordinate_dimension = await _staged_geometry_contract(
+            session, schema=schema, table=self.staging_table
+        )
+        credential_version = self.options.get("credential_version")
+        source_binding = {
+            "service_type": self.source_format,
+            "url": self.source_url_value,
+            "layer_id": service_layer_identity(
+                self.source_format,
+                layer_id=self.layer_id,
+                layer_name=self.source_layer_value,
+            ),
+            "verification_policy": self.verification_policy,
+            "credential_version": (
+                credential_version if isinstance(credential_version, str) else None
+            ),
+            "arcgis_id_coverage": await _arcgis_id_coverage_evidence(
+                session,
+                initial_id_plan=self.initial_id_plan,
+                schema=schema,
+                table_name=self.staging_table,
+                source_url=self.source_url_value,
+                layer_id=self.layer_id,
+                token=self.token,
+            ),
+        }
+        self.verification = refresh_policy.verify_service_refresh(
+            source_binding=source_binding,
+            schema_diff=self.measured_schema_diff,
+            expected_feature_count=self.expected_feature_count,
+            fetched_feature_count=self.measured_feature_count,
+            content_digest=await compute_table_content_digest(
+                session,
+                self.staging_table,
+                schema=schema,
+                has_geometry=staged.has_geometry,
+            ),
+            staged_geometry_type=geometry_type,
+            staged_srid=srid,
+            staged_coordinate_dimension=coordinate_dimension,
+            accepted_fingerprint=self.accepted_fingerprint,
+            accepted_run_id=self.accepted_run_id,
+        )
+        if self.verification["decision"] == "allowed":
+            return PUBLISH
+        rejected = self.verification["decision"] == "rejected"
+        if rejected:
+            error_code, message = refresh_policy.refresh_rejection_diagnostic(
+                self.verification
+            )
+        else:
+            error_code = "review_required"
+            message = "Review the detected changes before publication."
+        return Verdict(
+            publish=False,
+            reason=message,
+            settle=partial(
+                self._hold_back,
+                dataset=dataset,
+                rejected=rejected,
+                error_code=error_code,
+                message=message,
+            ),
+            # A blocked refresh waits for review; a rejected one has failed.
+            notify=rejected,
+        )
+
+    async def _hold_back(
+        self, session, *, dataset, rejected: bool, error_code: str, message: str
+    ) -> None:
+        dataset.last_checked_at = datetime.now(timezone.utc)
+        dataset.schema_drift_status = drift_status_from_diff(self.measured_schema_diff)
+        if rejected:
+            await record_refresh_failure(
+                session,
+                ingest_job_id=self.job_uuid,
+                error_code=error_code,
+                error_message=message,
+                contacted_origin=False,
+                feature_count_after=self.measured_feature_count,
+                schema_diff=self.measured_schema_diff,
+                verification=self.verification,
+            )
+        else:
+            await record_refresh_blocked(
+                session,
+                ingest_job_id=self.job_uuid,
+                feature_count_after=self.measured_feature_count,
+                schema_diff=self.measured_schema_diff,
+                verification=self.verification,
+            )
+
+    async def install(self, session, dataset) -> None:
+        # Scored once publication is allowed: the quality scan reads the
+        # whole staged table.
+        self.measurement = await catalog_projection.scored(
+            session,
+            dataset,
+            self.measurement,
+            table=self.staging_table,
+            schema=_current_tenant_schema(),
+        )
+        await _install_reupload_table(
+            session,
+            dataset=dataset,
+            staging_table=self.staging_table,
+            measurement=self.measurement,
+        )
+
+    async def write(self, session, dataset) -> Published:
+        # Runs under the catalog rows, so a rebind or local edit that lands
+        # first rolls back the rename before it is published.
+        await _enforce_refresh_publication_fence(
+            session,
+            job_id=self.job_uuid,
+            dataset=dataset,
+            verification=self.verification,
+        )
+        source_binding_layer = service_layer_identity(
+            self.source_format,
+            layer_id=self.layer_id,
+            layer_name=self.source_layer_value,
+        )
+        version, schema_diff = await _write_reupload_catalog(
+            session,
+            dataset=dataset,
+            measurement=self.measurement,
+            user_id=self.user_id,
+            source_filename=self.source_filename or self.source_layer_value,
+            source_format=self.source_format,
+            original_srid=self.metadata.get("srid"),
+            source_url=(
+                f"{self.source_url_value}/{self.layer_id}"
+                if self.layer_id is not None
+                else self.source_url_value
+            ),
+            origin_ref={
+                "service_type": self.source_format,
+                "url": self.source_url_value,
+                "layer_id": source_binding_layer,
+                "auth_required": True if self.token else None,
+            },
+        )
+        return Published(
+            dataset_version_id=version.id,
+            feature_count=self.measured_feature_count,
+            schema_diff=schema_diff,
+            contacted_origin=True,
+            verification=self.verification,
+            live_table=dataset.table_name,
+        )
+
+    def classify(self, exc: BaseException) -> Failure:
+        # fix(#1277): exact-value scrub first, in place, before anything reads
+        # `exc`: only this task knows the credential's literal value.
+        scrub_secret_from_exception(exc, self.token)
+        return Failure(
+            _service_refresh_error_code(exc),
+            feature_count_after=self.measured_feature_count,
+            schema_diff=self.measured_schema_diff,
+            verification=self.verification,
+            contacted=self.bound if self.contacted else None,
+        )
+
+    async def release(
+        self, *, publication: PublicationCommit | None, failed: bool
+    ) -> None:
+        return None
 
 
 @task_app.task(
@@ -1116,474 +1265,24 @@ async def reupload_service(
     store is configured (state 3 in ``platform/refresh/credentials``).
     Both optional, at most one ever set — the reference wins if both
     somehow are. Neither required: a public service needs no credential.
-
-    Session lifecycle (gh #100 followup): the AsyncSession is split into
-    two short-lived blocks so it is NOT held open across
-    ``run_ogr2ogr_service`` (can take 30s+) — see ``ingest_service``'s
-    docstring for the ``MissingGreenlet`` root cause this avoids.
     """
     _bind_task_log_context(
         task_name="reupload_service", job_id=job_id, dataset_id=dataset_id
     )
-    from app.core.db import async_session
-    from app.platform.security import (
-        SSRFError,
-        validate_url_for_ssrf,
+    await settle_replacement(
+        _ServiceReupload(
+            job_id=job_id,
+            source_url=source_url,
+            source_layer=source_layer,
+            user_id=user_id,
+            token=token,
+            credential_ref=credential_ref,
+            options=kwargs,
+        ),
+        job_id=job_id,
+        dataset_id=dataset_id,
+        attempt_id=attempt_id,
     )
-    from app.platform.extensions import get_processing_port
-    from app.processing.ingest.metadata import (
-        _qtable,
-        add_4326_column,
-        clip_to_mercator_bounds,
-        compute_table_content_digest,
-        ensure_geom_column,
-        extract_metadata,
-        get_sample_values,
-        grant_reader_access,
-    )
-    from app.processing.ingest.ogr import (
-        IngestionError,
-        build_pg_conn_str,
-    )
-    from app.platform.jobs.models import IngestJob
-    from sqlalchemy import text
-    from sqlalchemy.orm import joinedload
-
-    port = get_processing_port()
-    Dataset = port.get_dataset_orm_class()
-
-    # fix(#1271): tracks whether the outbound fetch was reached, so the
-    # failure handler can date the contact. A failure before this point never
-    # touched the origin and must not claim it did.
-    origin_contact_attempted = False
-    reupload_bound: tuple | None = None
-
-    resolved = await resolve_ingest_attempt_or_skip(
-        job_id, attempt_id, task_label="reupload"
-    )
-    if resolved is None:
-        return
-    job_uuid, attempt_uuid = resolved
-    dataset_uuid = uuid.UUID(dataset_id)
-    staging_tn: str = ""
-    heartbeat_task: asyncio.Task[None] | None = None
-    measured_feature_count: int | None = None
-    measured_schema_diff: dict | None = None
-    verification_evidence: dict | None = None
-    initial_arcgis_id_plan = None
-    job_verification_policy = None
-
-    try:
-        # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
-        # The route-level check at commit_import covers the preview→commit
-        # TOCTOU, but manifest-path reuploads skip that route entirely.
-        # fix(#1274): INSIDE the handled region — this task owns a
-        # pending run row, and a refusal that skips the failure handler
-        # leaves it active, so the admission index refuses every further
-        # refresh until the stale sweep. Must fail the job like any other.
-        try:
-            await validate_url_for_ssrf(source_url)
-        except SSRFError as exc:
-            raise RuntimeError(
-                f"source_url failed safety check at worker fetch time: {exc}"
-            ) from exc
-
-        token = await _resolve_service_token(token, credential_ref)
-        # Phase 1 (short-lived session): load job + dataset, mark running,
-        # snapshot service-import config, drop stale staging table.
-        async with async_session() as session:
-            job_result = await session.execute(
-                select(IngestJob).where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                )
-            )
-            job = job_result.scalar_one_or_none()
-            if job is None:
-                structlog.get_logger().warning(
-                    "Ingest job not found, skipping", job_id=job_id
-                )
-                return
-
-            dataset_result = await session.execute(
-                select(Dataset)
-                .options(joinedload(Dataset.record))
-                .where(Dataset.id == dataset_uuid)
-            )
-            dataset = dataset_result.scalar_one_or_none()
-            if dataset is None:
-                structlog.get_logger().warning(
-                    "Dataset not found, skipping", dataset_id=dataset_id
-                )
-                return
-
-            # fix(#1271): binding snapshot for the failure handler —
-            # its contact stamp must be conditional on the dataset still
-            # having the origin this task actually fetched from.
-            reupload_bound = (
-                dataset.origin_uri,
-                dataset.origin_ref,
-                dataset.source_format,
-            )
-
-            staging_tn = attempt_scoped_staging_table(dataset.table_name, attempt_uuid)
-            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
-                session, job_uuid, attempt_uuid
-            )
-            if heartbeat_task is None:
-                return
-
-            await claim_run_for_job(session, job_uuid)  # feat(#1219)
-
-            um = job.user_metadata or {}
-            service_type_raw = um.get("service_type", "")
-            layer_id = um.get("layer_id")
-            source_url_value = _require_service_source_url(job.source_url or source_url)
-            source_layer_value = job.source_layer or source_layer
-            source_filename = job.source_filename
-            reupload_oid_field = um.get("object_id_field") or None
-            # fix(#1746): which door dispatched this run, so the auth-failure
-            # copy can name the call the operator actually made. router_refresh
-            # writes "refresh" into user_metadata; reupload_commit does not.
-            is_refresh = bool(um.get("refresh"))
-            job_verification_policy = um.get("verification_policy")
-            accepted_refresh_fingerprint = um.get("accepted_refresh_fingerprint")
-            accepted_refresh_run_id = um.get("accepted_refresh_run_id")
-
-            service_type, source_format = resolve_service_type(service_type_raw)
-            db_conn_str = build_pg_conn_str()
-
-            # Drop stale staging table from prior failed attempt before
-            # closing the session — ogr2ogr_service needs a clean target.
-            await session.execute(
-                text(
-                    f"DROP TABLE IF EXISTS "
-                    f"{_qtable(staging_tn, schema=_current_tenant_schema())} CASCADE"
-                )
-            )
-            await session.commit()
-
-        # Phase 1.5 (no session): run_ogr2ogr_service subprocess with WFS
-        # fallback. Holding an AsyncSession across this would corrupt the
-        # greenlet bridge state — same root cause as gh #100.
-
-        # fix(#1271): the failure stamp may only describe the STORED
-        # origin — a reupload can target a different source — so it arms
-        # only when the COMPLETE attempted binding (type, base URL, layer
-        # identity) equals the stored one. A successful swap re-stamps via
-        # set_dataset_origin regardless.
-        attempt_matches_binding = _matches_service_origin(
-            reupload_bound,
-            source_format=source_format,
-            source_url=source_url_value,
-            layer_id=layer_id,
-            layer_name=source_layer_value,
-        )
-
-        def _arm_contact() -> None:
-            # fix(#1271): fired by run_ogr2ogr_service the instant the
-            # subprocess exists, which is the first moment an outbound
-            # attempt truthfully began — every local preflight (argv checks,
-            # token sanitization, spawn itself) happens before it. Monotonic
-            # OR, so a fallback retry that dies locally cannot erase the
-            # contact its first attempt already made.
-            nonlocal origin_contact_attempted
-            origin_contact_attempted = (
-                origin_contact_attempted or attempt_matches_binding
-            )
-
-        expected_feature_count: int | None = None
-        verification_policy = kwargs.get("verification_policy", job_verification_policy)
-        credential_version = kwargs.get("credential_version")
-
-        async def _run_service_import(layer_name: str) -> None:
-            nonlocal expected_feature_count, initial_arcgis_id_plan
-            (
-                expected_feature_count,
-                initial_arcgis_id_plan,
-            ) = await _fetch_service_layer_with_paging_guard(
-                service_type_raw=service_type_raw,
-                service_type=service_type,
-                source_url=source_url_value,
-                layer_name=layer_name,
-                layer_id=layer_id,
-                token=token,
-                staging_table=staging_tn,
-                db_conn_str=db_conn_str,
-                schema=_current_tenant_schema(),
-                fallback_order_field=reupload_oid_field,
-                on_spawn=_arm_contact,
-                verification_policy=verification_policy,
-            )
-
-        try:
-            await _run_service_import_with_wfs_fallback(
-                _run_service_import,
-                source_layer_value,
-                token=token,
-                # fix(#1746): serves only the refresh endpoint and the
-                # re-upload commit (never a first import), so the message
-                # names "the refresh" rather than "Retry commit". Literal
-                # string, not an f-string, since this reaches
-                # record_refresh_failure through redact_run_error.
-                #
-                # fix(#1746): says "credential"/`auth` object,
-                # not "token" — the deprecated field always means a bearer
-                # token, which can't authenticate a basic or named-key origin.
-                auth_error_message=(
-                    "Remote service authentication failed. Retry the refresh "
-                    "with the credential in the request body's `auth` object; "
-                    "credentials are request-only and are not stored between "
-                    "runs."
-                    if is_refresh
-                    else "Remote service authentication failed. Retry the "
-                    "re-upload with the credential in the commit request's "
-                    "`auth` object; credentials are request-only and are not "
-                    "stored between runs."
-                ),
-            )
-        except ValueError as exc:
-            raise IngestionError(str(exc)) from exc
-
-        # ----------------------------------------------------------------- #
-        # Phase 2 (short-lived session): re-load job + dataset, run staging
-        # post-processing, apply swap, mark complete.
-        # ----------------------------------------------------------------- #
-        async with async_session() as session:
-            job_result = await session.execute(
-                select(IngestJob).where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                )
-            )
-            job = job_result.scalar_one()
-
-            dataset_result = await session.execute(
-                select(Dataset)
-                .options(joinedload(Dataset.record))
-                .where(Dataset.id == dataset_uuid)
-            )
-            dataset = dataset_result.scalar_one()
-
-            # Rename source columns that collide with GeoLens-internal names.
-            # Runs BEFORE ensure_geom_column / add_4326_column.
-            from app.processing.ingest.metadata import rename_reserved_columns
-
-            _schema = _current_tenant_schema()
-            reserved_renames = await rename_reserved_columns(
-                session, staging_tn, schema=_schema
-            )
-            if reserved_renames:
-                from app.processing.ingest.warnings import make_reserved_rename_warning
-
-                _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
-
-            has_geom = await ensure_geom_column(session, staging_tn, schema=_schema)
-            # fix(#2031 review): the file door's refusal, before the swap DDL —
-            # this path learns geometry from the staging table, never from
-            # `_detect_reupload_crs`, so a table layer over a vector dataset
-            # reached the same record_type re-derivation.
-            _assert_geometry_survives(
-                record_type=dataset.record.record_type,
-                geometry_type=dataset.geometry_type,
-                has_geometry=has_geom,
-            )
-            if has_geom:
-                # fix(#888): same clamp accounting as the file-reupload path.
-                _append_mercator_clip_warning(
-                    job,
-                    await clip_to_mercator_bounds(session, staging_tn, schema=_schema),
-                )
-                await add_4326_column(session, staging_tn, 4326, schema=_schema)
-            await grant_reader_access(
-                session,
-                staging_tn,
-                schema=_schema,
-                role=_current_tenant_role(),
-            )
-
-            metadata = await extract_metadata(session, staging_tn, schema=_schema)
-            # Before the samples, schema diff and content digest, so all three
-            # describe the table first ingest builds, `elev` included.
-            three_d = await _detect_3d_and_promote_elev(
-                session, staging_tn, metadata, schema=_schema
-            )
-            staged_geometry_type, staged_srid, staged_coordinate_dimension = (
-                await _staged_geometry_contract(
-                    session, schema=_schema, table=staging_tn
-                )
-                if is_refresh
-                else (None, None, None)
-            )
-            sample_values = await get_sample_values(
-                session,
-                staging_tn,
-                metadata.get("column_info", []),
-                schema=_schema,
-            )
-            content_digest = (
-                await compute_table_content_digest(
-                    session,
-                    staging_tn,
-                    schema=_schema,
-                    has_geometry=has_geom,
-                )
-                if is_refresh
-                else None
-            )
-
-            reupload_source_url = (
-                f"{source_url_value}/{layer_id}"
-                if layer_id is not None
-                else source_url_value
-            )
-            measurement = await catalog_projection.measure(
-                session,
-                dataset,
-                table=staging_tn,
-                schema=_schema,
-                staged=StagingResult(
-                    metadata=metadata,
-                    sample_values=sample_values,
-                    three_d=three_d,
-                    has_geometry=has_geom,
-                    geometry_type=metadata.get("geometry_type"),
-                ),
-                score=False,
-            )
-            # Verification compares this fetch, not the preview's: a live
-            # service can have changed since the preview was taken.
-            schema_diff = catalog_projection.schema_diff(dataset, measurement)
-            measured_feature_count = metadata.get("feature_count")
-            measured_schema_diff = schema_diff
-            source_binding = {
-                "service_type": source_format,
-                "url": source_url_value,
-                "layer_id": service_layer_identity(
-                    source_format,
-                    layer_id=layer_id,
-                    layer_name=source_layer_value,
-                ),
-                "verification_policy": verification_policy,
-                "credential_version": (
-                    credential_version if isinstance(credential_version, str) else None
-                ),
-            }
-            source_binding["arcgis_id_coverage"] = await _arcgis_id_coverage_evidence(
-                session,
-                initial_id_plan=initial_arcgis_id_plan,
-                schema=_schema,
-                table_name=staging_tn,
-                source_url=source_url_value,
-                layer_id=layer_id,
-                token=token,
-            )
-            outcome = await settle_publication(
-                PublicationSettlementCommand(
-                    session=session,
-                    dataset=dataset,
-                    dataset_id=dataset_uuid,
-                    job_id=job_uuid,
-                    attempt_id=attempt_uuid,
-                    staging_table=staging_tn,
-                    measurement=measurement,
-                    user_id=user_id,
-                    source_filename=source_filename or source_layer_value,
-                    source_format=source_format,
-                    original_srid=metadata.get("srid"),
-                    source_url=reupload_source_url,
-                    origin_ref={
-                        "service_type": source_binding["service_type"],
-                        "url": source_binding["url"],
-                        "layer_id": source_binding["layer_id"],
-                        "auth_required": True if token else None,
-                    },
-                    schema_diff=schema_diff,
-                    source_binding=source_binding,
-                    is_refresh=is_refresh,
-                    expected_feature_count=expected_feature_count,
-                    content_digest=content_digest,
-                    staged_geometry_type=staged_geometry_type,
-                    staged_srid=staged_srid,
-                    staged_coordinate_dimension=staged_coordinate_dimension,
-                    accepted_fingerprint=accepted_refresh_fingerprint,
-                    accepted_run_id=accepted_refresh_run_id,
-                    origin_binding=reupload_bound,
-                    failure_contacted_origin=origin_contact_attempted,
-                    credential_for_error_scrubbing=token,
-                )
-            )
-        await _defer_embedding_after_publication(outcome, Dataset, dataset_uuid)
-
-    except (
-        Exception
-    ) as exc:  # broad: reupload service-path spans GDAL/PostGIS — any step can fail
-        # fix(#1277): exact-value scrub, first thing, before `exc` is
-        # read by anything — this task is the only place that knows the
-        # credential's literal value, covering an echo the pattern matchers
-        # (run_ogr2ogr_service, _cleanup_staging_on_failure) wouldn't
-        # recognise as a URL. Mutated in place so the class survives for
-        # the error-code handlers below and every reader sees the scrub.
-        scrub_secret_from_exception(exc, token)
-        if isinstance(exc, PublicationSettlementFailure):
-            raise
-        # Phase 1/2 sessions are already closed by the time we get here.
-        async with async_session() as err_session:
-            # fix(#1950): arms the budget, loads the row, and
-            # swallows an expiry — the failure below is the task's outcome.
-            err_job = await load_job_for_error_write(
-                err_session, job_uuid, attempt_uuid, task_name="reupload_service"
-            )
-            if err_job is not None:
-                await _cleanup_staging_on_failure(
-                    err_session,
-                    staging_table=staging_tn,
-                    job=err_job,
-                    exc=exc,
-                    task_name="reupload_service",
-                    attempt_id=attempt_uuid,
-                )
-            # Two records, one writer each (#1219 x #1222 merge):
-            # _record_failed_origin_contact owns the dataset-side contact
-            # stamp, record_refresh_failure owns the run row.
-            # contacted_origin=False below so the run finalizer doesn't
-            # repeat the dataset write a second, weaker way.
-            await _record_failed_origin_contact(
-                err_session,
-                Dataset,
-                dataset_uuid,
-                contacted=origin_contact_attempted,
-                bound=reupload_bound,
-            )
-            # feat(#1219): last_refreshed_at is untouched by construction,
-            # so a failed refresh leaves the live table's freshness exactly
-            # as it was (invariant 10).
-            #
-            # feat(#1220): the two credential failures get their own error
-            # codes rather than collapsing into service_refresh_failed
-            # (which would send the reader to investigate a working
-            # service) — expired means retry with a fresh token, unreachable
-            # store means an operator config split-brain.
-            await record_refresh_failure(
-                err_session,
-                ingest_job_id=job_uuid,
-                error_code=_service_refresh_error_code(exc),
-                error_message=exc,
-                contacted_origin=False,
-                feature_count_after=measured_feature_count,
-                schema_diff=measured_schema_diff,
-                verification=verification_evidence,
-            )
-            await err_session.commit()
-        raise
-    finally:
-        # fix(#1755): `purge_token_on_failure` (`tasks_common.py`), the
-        # decorator around this task, must still see whatever exception
-        # `reupload_service` itself raised, not one from a cleanup step.
-        async with cleanup_step("reupload_service heartbeat", job_id=job_id):
-            await stop_ingest_job_heartbeat(heartbeat_task)
-        async with cleanup_step("reupload_service staging table", job_id=job_id):
-            await _drop_attempt_staging_table(staging_tn)
 
 
 # Verified refreshes use a task name introduced with the publication protocol;

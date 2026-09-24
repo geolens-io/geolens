@@ -5,8 +5,8 @@ dataset whose origin is a service, a STAC item, or a registered table. That
 refusal is a CLIENT-side precheck: the client reads the origin once, then
 uploads, previews, and waits for a human to confirm. Anything that rebinds
 the dataset in that window is invisible to it, and the swap the commit queues
-rebinds unconditionally to `upload` (`_apply_reupload_swap` in
-tasks_reupload.py) — so a service or STAC binding established mid-flow was
+rebinds unconditionally to `upload` (`_write_reupload_catalog` in
+tasks_common.py) — so a service or STAC binding established mid-flow was
 severed by a commit that looked, to the client, exactly like the one it had
 checked.
 

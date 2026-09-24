@@ -9,10 +9,10 @@ from sqlalchemy.orm import joinedload
 import app.core.db as db_module
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.processing.ingest.catalog_projection import measure
-from app.processing.ingest.tasks_common import _apply_reupload_swap
 from app.processing.ingest.tasks_raster_replace import reupload_raster
 from app.processing.raster.models import RasterAsset
 from tests import test_feature_lock_order_1847 as lock_order
+from tests.test_reupload_swap_lock_retry import swap_in
 from tests.factories import get_user_id
 from tests.test_feature_lock_order_1847 import (
     _await_waiter_on,
@@ -132,7 +132,7 @@ class TestTheReuploadSwapPublishesTheNextVersion:
                 holder,
                 probe,
                 dataset.id,
-                _apply_reupload_swap(
+                swap_in(
                     test_db_session,
                     dataset=dataset,
                     staging_table=staging,

@@ -221,7 +221,7 @@ class TestStagingPipelineIntegration:
                     f"Expected 3 rows in staging table {table_name!r}"
                 )
 
-                # Verify the staging table can be renamed (simulating _apply_reupload_swap)
+                # Verify the staging table can be renamed, as the swap's install does.
                 final_name = f"{base_name}_final"
                 await session.execute(
                     text(f'ALTER TABLE data."{table_name}" RENAME TO "{final_name}"')

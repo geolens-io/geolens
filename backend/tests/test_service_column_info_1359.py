@@ -357,7 +357,7 @@ async def test_service_refresh_repopulates_wrong_stored_column_info(
                 new=_fake_run_ogr2ogr_service,
             ),
             patch(
-                "app.processing.ingest.tasks_reupload.invalidate_catalog_cache",
+                "app.processing.ingest.publication.invalidate_catalog_cache",
                 new_callable=AsyncMock,
             ),
         ):

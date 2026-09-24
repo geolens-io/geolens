@@ -509,7 +509,7 @@ async def transition_run(
     actor owns this run now — callers log it and back off.
 
     ``expected`` is a tuple because a run can fail BEFORE it is claimed
-    (SSRF revalidation in ``reupload_service``), so the failure path accepts
+    (a task that fails before its claim commits), so the failure path accepts
     both `pending` and `running`; it never contains a terminal state.
     """
     result = await session.execute(
@@ -803,7 +803,7 @@ def project_refresh_success(
     Duck-typed on the Dataset ORM instance so ``platform/`` does not import
     ``modules.catalog``.
 
-    ``last_refreshed_at`` is NOT set here: ``_apply_reupload_swap`` already
+    ``last_refreshed_at`` is NOT set here: ``_write_reupload_catalog`` already
     stamps it as part of the swap, and two writers would be two answers.
 
     ``contacted_origin`` gates ``last_checked_at`` ("last time GeoLens

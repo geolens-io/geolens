@@ -20,10 +20,7 @@ def _source(rel: str) -> str:
 class TestRunLockReleasedBeforeDownload:
     """``claim_run_for_job`` is committed before ``resolve_file_path`` runs."""
 
-    MODULES = [
-        "processing/ingest/tasks_raster_replace.py",
-        "processing/ingest/tasks_reupload.py",
-    ]
+    MODULES = ["processing/ingest/tasks_raster_replace.py"]
 
     @pytest.mark.parametrize("module", MODULES)
     def test_a_commit_separates_the_claim_from_the_download(self, module: str) -> None:

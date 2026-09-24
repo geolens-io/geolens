@@ -1478,9 +1478,9 @@ class TestBackfill:
 
 
 async def _run_reupload_swap(session, dataset, *, admin_id, **kwargs) -> None:
-    """Measure a real staging table and swap it in through _apply_reupload_swap."""
+    """Measure a real staging table and swap it in as the settlement seam does."""
     from app.processing.ingest.catalog_projection import measure
-    from app.processing.ingest.tasks import _apply_reupload_swap
+    from tests.test_reupload_swap_lock_retry import swap_in
 
     staging_table = f"{dataset.table_name}_staging"
     await session.execute(
@@ -1493,7 +1493,7 @@ async def _run_reupload_swap(session, dataset, *, admin_id, **kwargs) -> None:
         )
     )
     measurement = await measure(session, dataset, table=staging_table, schema="data")
-    await _apply_reupload_swap(
+    await swap_in(
         session,
         dataset=dataset,
         staging_table=staging_table,
@@ -1560,7 +1560,7 @@ class TestReuploadRestampsTheBinding:
     ) -> None:
         """Kind is derived, not hardcoded to upload.
 
-        _apply_reupload_swap serves the service re-pull path too, so stamping
+        The swap serves the service re-pull path too, so stamping
         `upload` unconditionally would flatten a service dataset's binding and
         drop the pointer a refresh needs.
         """

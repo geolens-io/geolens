@@ -2301,11 +2301,11 @@ class TestArchiveRunsAfterTheSwapCommit:
             put_side_effect=_recording_put,
             extra_patches=(
                 patch(
-                    "app.processing.ingest.tasks_reupload.invalidate_catalog_cache",
+                    "app.processing.ingest.publication.invalidate_catalog_cache",
                     new=AsyncMock(side_effect=_recording_catalog_invalidate),
                 ),
                 patch(
-                    "app.processing.ingest.tasks_reupload.invalidate_tile_cache_for_table",
+                    "app.processing.ingest.publication.invalidate_tile_cache_for_table",
                     new=AsyncMock(side_effect=_recording_tile_invalidate),
                 ),
             ),
@@ -2338,21 +2338,20 @@ class TestArchiveRunsAfterTheSwapCommit:
 
         assert not local_file.exists()
 
-    async def test_a_failed_post_commit_refresh_does_not_fail_the_task(
+    async def test_a_failed_archive_job_load_does_not_fail_the_task(
         self, client: AsyncClient, test_db_session, tmp_path
     ):
-        """The swap already committed; archive bookkeeping is best-effort too."""
+        """A failure loading the job for the archive leaves the published job complete."""
         from sqlalchemy.ext.asyncio import AsyncSession
 
-        real_refresh = AsyncSession.refresh
+        real_get = AsyncSession.get
         calls = {"n": 0}
 
-        async def _raising_once_refresh(self, instance, *args, **kwargs):
-            # The job's post-commit refresh; the swap also re-reads the dataset.
-            if isinstance(instance, IngestJob) and calls["n"] == 0:
+        async def _raising_once_get(self, entity, *args, **kwargs):
+            if entity is IngestJob and calls["n"] == 0:
                 calls["n"] += 1
                 raise RuntimeError("pool checkout timed out")
-            return await real_refresh(self, instance, *args, **kwargs)
+            return await real_get(self, entity, *args, **kwargs)
 
         put_calls = []
 
@@ -2366,13 +2365,14 @@ class TestArchiveRunsAfterTheSwapCommit:
             put_side_effect=_recording_put,
             extra_patches=(
                 patch(
-                    "sqlalchemy.ext.asyncio.AsyncSession.refresh",
-                    new=_raising_once_refresh,
+                    "sqlalchemy.ext.asyncio.AsyncSession.get",
+                    new=_raising_once_get,
                 ),
             ),
         )
 
-        # The refresh raised before _archive_original_file ever ran.
+        # The load raised before _archive_original_file ever ran.
+        assert calls["n"] == 1
         assert put_calls == []
         await test_db_session.refresh(job)
         assert job.status == "complete"

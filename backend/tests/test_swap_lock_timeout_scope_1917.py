@@ -1,10 +1,9 @@
 """The reupload swap's DDL lock_timeout does not outlive its savepoint (#1917).
 
-PostgreSQL keeps a ``SET LOCAL`` across ``RELEASE SAVEPOINT`` — only
-``ROLLBACK TO`` reverts it. ``_apply_reupload_swap`` installs one for its
-``ALTER TABLE`` renames, so on the success path it has to put the previous
-value back; otherwise the ``lock_catalog_rows(lock_timeout=None)`` wait that
-follows runs on the swap's budget and fails on contention it must wait out.
+PostgreSQL keeps a ``SET LOCAL`` across ``RELEASE SAVEPOINT``; only
+``ROLLBACK TO`` reverts it. ``_install_reupload_table`` sets one for its
+``ALTER TABLE`` renames and puts the previous value back, so the catalog wait
+that follows runs on the worker budget rather than the swap's.
 
 The DB-backed tests require the Docker test database.
 """
@@ -18,7 +17,6 @@ from sqlalchemy import select, text
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.catalog_locks import CatalogLockConflict
 from app.processing.ingest import tasks_common
-from app.processing.ingest.tasks_common import _apply_reupload_swap
 
 from tests.factories import get_user_id
 from tests.test_feature_lock_order_1847 import _await_lock_wait
@@ -28,6 +26,7 @@ from tests.test_reupload_swap_lock_retry import (
     _minimal_measurement,
     _stub_atomic_bump,
     _stub_projection,
+    swap_in,
 )
 
 pytestmark = pytest.mark.anyio
@@ -115,7 +114,7 @@ def _stub_downstream(monkeypatch, session) -> None:
 
 
 async def _run_swap(session, stub, staging):
-    return await _apply_reupload_swap(
+    return await swap_in(
         session,
         dataset=stub,
         staging_table=staging,

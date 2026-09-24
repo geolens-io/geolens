@@ -35,7 +35,7 @@ from app.platform.jobs.heartbeat import (
 )
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import purge_queue_row_args, purge_terminal_job_tokens
-from app.processing.ingest import tasks_reupload, tasks_vector
+from app.processing.ingest import publication, tasks_reupload, tasks_vector
 from app.processing.ingest.tasks_common import (
     purge_queued_job_arg,
     purge_token_on_failure,
@@ -513,7 +513,7 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
             await _real_stop_heartbeat(task)
             raise ValueError("cleanup boom: heartbeat")
 
-        real_drop_staging = tasks_reupload._drop_attempt_staging_table
+        real_drop_staging = publication._drop_staging_table
 
         async def _drop_staging_and_raise(staging_table: str) -> None:
             await real_drop_staging(staging_table)
@@ -522,17 +522,14 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
         monkeypatch.setattr(
             "app.platform.security.validate_url_for_ssrf", _validate_url_noop
         )
-        # fix(#1755 item 11) test: `resolve_service_type` runs AFTER
-        # `staging_tn`/`heartbeat_task` are both set, so failing here (rather
-        # than at credential resolution, which runs before either) is what
-        # gives both cleanup calls real state to act on.
+        # `resolve_service_type` runs in the fetch, after the claim started the
+        # heartbeat and named the staging table, so both cleanup calls have
+        # real state to act on.
         monkeypatch.setattr(tasks_reupload, "resolve_service_type", _boom_service_type)
         monkeypatch.setattr(
-            tasks_reupload, "stop_ingest_job_heartbeat", _stop_heartbeat_and_raise
+            publication, "stop_ingest_job_heartbeat", _stop_heartbeat_and_raise
         )
-        monkeypatch.setattr(
-            tasks_reupload, "_drop_attempt_staging_table", _drop_staging_and_raise
-        )
+        monkeypatch.setattr(publication, "_drop_staging_table", _drop_staging_and_raise)
 
         try:
             context = SimpleNamespace(job=SimpleNamespace(id=row_id))

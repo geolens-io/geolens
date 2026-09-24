@@ -557,9 +557,9 @@ _BUILDERS = {
 # Where each path looks up the post-commit steps it runs.
 _STEPS = {
     "file": {
-        "catalog cache": "app.processing.ingest.tasks_reupload.invalidate_catalog_cache",
+        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
         "tile cache": (
-            "app.processing.ingest.tasks_reupload.invalidate_tile_cache_for_table"
+            "app.processing.ingest.publication.invalidate_tile_cache_for_table"
         ),
         "archive": "app.processing.ingest.tasks_reupload._archive_original_file",
         "embedding": "app.processing.embeddings.helpers.defer_embedding",

@@ -2258,15 +2258,15 @@ class TestTheOtherSitesHoldTheOrderToo:
 
 
 class TestWorkerDoorsAcquireBeforeTheirWrites:
-    """The three worker sites, checked on emitted order rather than by racing.
+    """The worker sites that acquire themselves, checked on emitted order.
 
     Each needs a staged upload and a live ingest job to reach its swap, and the
-    property under test is an ordering.
-    `test_replacement_preamble.py` races the replacement tasks end to end.
+    property under test is an ordering. `test_replacement_preamble.py` races
+    the replacement tasks end to end, and `test_settle_replacement.py` checks
+    the order the settlement seam takes for its strategies.
     """
 
     SITES = [
-        ("processing/ingest/tasks_common.py", "_apply_reupload_swap"),
         ("processing/ingest/tasks_raster_replace.py", "reupload_raster"),
         ("processing/ingest/tasks_vrt.py", "regenerate_vrt"),
     ]
@@ -2462,7 +2462,9 @@ _PAIR_WRITER_EXEMPTIONS = {
     "app.processing.ingest.tasks_common.apply_manifest_record_metadata": "record only",
     "app.processing.ingest.tasks_raster_swap._write_swapped_fields": "sync, no session; reupload_raster acquires before calling it",
     # --- writes both rows under its callers' acquisition -------------------
-    "app.processing.ingest.catalog_projection.project": "the reupload swap and refresh_postgis take the job row and the pair first",
+    "app.processing.ingest.catalog_projection.project": "the settlement seam and refresh_postgis take the job row and the pair first",
+    "app.processing.ingest.tasks_common._write_reupload_catalog": "the settlement seam takes the job row and the pair before a strategy writes",
+    "app.processing.ingest.tasks_reupload.write": "the file and service strategies' write step, which the settlement seam calls holding the job row and the pair",
 }
 
 
@@ -3036,7 +3038,7 @@ class TestEveryPairWriterTakesTheHouseOrder:
         writers = _pair_writer_report()
         for expected in (
             "app.modules.catalog.datasets.domain.service_metadata.update_user_metadata",
-            "app.processing.ingest.tasks_common._apply_reupload_swap",
+            "app.processing.ingest.tasks_common._write_reupload_catalog",
             "app.modules.catalog.features.service.refresh_dataset_metadata",
             "app.modules.catalog.datasets.domain.service_lifecycle.delete_dataset",
         ):

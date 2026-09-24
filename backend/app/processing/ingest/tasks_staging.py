@@ -337,11 +337,11 @@ async def _cleanup_staging_on_failure(
 ) -> None:
     """Mark the job failed, then drop the staging table, in that order.
 
-    The single terminal-write site for ``reupload_file``/``reupload_service``
-    and the import tasks: applies the ``redact_failure_reason`` backstop,
-    the ``pending``-inclusive attempt fence (fix(#1274): a worker-time refusal
-    that raises before the claim must still finalize the job it owns rather
-    than leave it for the stale sweep), and the ``ingest_failed`` notification.
+    The terminal-write site for the import tasks: applies the
+    ``redact_failure_reason`` backstop, the ``pending``-inclusive attempt
+    fence (fix(#1274): a worker-time refusal that raises before the claim
+    must still finalize the job it owns rather than leave it for the stale
+    sweep), and the ``ingest_failed`` notification.
 
     fix(#1778): ``staging_table`` is "" for paths with none (the VRT tail
     reaps its object keys in its own ``finally``) — an empty name skips the
