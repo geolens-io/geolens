@@ -21,7 +21,7 @@ interface SidebarRailProps {
 function RailLayerIcon({ layer }: { layer: MapLayerResponse }) {
   const caps = getLayerCapabilities(layer);
   const facts = legendFacts(layer);
-  const layerColors = getLayerColors(layer, facts);
+  const layerColors = getLayerColors(facts);
   const styleHints = extractStyleHints(
     layer.paint ?? {},
     layer.layout ?? {},
@@ -44,6 +44,7 @@ function RailLayerIcon({ layer }: { layer: MapLayerResponse }) {
       layerType={caps.kind}
       styleHints={styleHints}
       swatch={facts?.swatch ?? null}
+      ramp={facts?.ramp ?? null}
       discrete={isDiscreteColorStyle(facts)}
     />
   );

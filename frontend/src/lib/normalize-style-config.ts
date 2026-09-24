@@ -167,23 +167,6 @@ function normalizeBuilderStyleConfig(
   return Object.keys(builder).length > 0 ? builder : undefined;
 }
 
-/**
- * The heatmap ramp a legend swatch draws: paint mirror, then builder, then the
- * legacy top-level `ramp`, then the adapter's default.
- */
-export function resolveHeatmapRamp(
-  paint: Record<string, unknown> | null | undefined,
-  styleConfig: StyleConfig | null | undefined,
-): { rampName: string; reversed: boolean } {
-  // The normalizer ranks a heatmap `ramp` above the builder, and it can be stale.
-  const { ramp: _ramp, ...styleConfigWithoutRamp } = styleConfig ?? {};
-  const builder = normalizeBuilderStyleConfig(styleConfigWithoutRamp, paint);
-  return {
-    rampName: builder?.heatmapRamp ?? styleConfig?.ramp ?? 'YlOrRd',
-    reversed: builder?.heatmapReversed ?? false,
-  };
-}
-
 function normalizeRenderMode(raw: Record<string, unknown> | null | undefined): StyleConfig['render_mode'] | undefined {
   const direct = raw?.render_mode;
   if (typeof direct === 'string' && RENDER_MODES.has(direct)) {

@@ -82,7 +82,7 @@ function StyleControlSection({
 function StylePreview({ layer, onRevert }: { layer: MapLayerResponse; onRevert: () => void }) {
   const { t } = useTranslation('builder');
   const facts = legendFacts(layer);
-  const swatchColor = getLayerColors(layer, facts)[0] ?? MAP_COLORS.icon.fallback;
+  const swatchColor = getLayerColors(facts)[0] ?? MAP_COLORS.icon.fallback;
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border bg-background p-2">
       <div className="flex min-w-0 items-center gap-2">

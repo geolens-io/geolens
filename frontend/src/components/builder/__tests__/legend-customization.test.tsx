@@ -123,6 +123,8 @@ describe('classes in both legends', () => {
     },
     style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7] },
   });
+  const storedHeat = (heatmapColor: unknown[]) =>
+    ({ ...SAVED_LAYERS.heatmapByRamp, paint: { ...SAVED_LAYERS.heatmapByRamp.paint, 'heatmap-color': heatmapColor } });
   const riversByBasin = {
     ...SAVED_LAYERS.graduatedWidth,
     paint: { ...SAVED_LAYERS.graduatedWidth.paint, 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'] },
@@ -140,11 +142,12 @@ describe('classes in both legends', () => {
     expect(screen.queryByText('Residential')).not.toBeInTheDocument();
   });
 
-  it.each(Object.entries(legends))('%s legend lists the colour classes a size classification is painted in', (_legend, draw) => {
+  it.each(Object.entries(legends))('%s legend draws each size in its class colour when colour and size share breaks', (_legend, draw) => {
     const container = draw(magnitudeCircles);
 
-    expect(screen.getByText(/viewer\.legend\.colorLabel/)).toBeInTheDocument();
-    expect(container.querySelectorAll('svg[viewBox="0 0 14 14"] circle')).toHaveLength(3);
+    expect(screen.queryByText(/viewer\.legend\.colorLabel/)).not.toBeInTheDocument();
+    const sizes = Array.from(container.querySelectorAll('svg[viewBox="0 0 24 24"]:not(.lucide) circle'));
+    expect(sizes.map((circle) => circle.getAttribute('fill'))).toEqual(['#fee8c8', '#fdbb84', '#e34a33']);
   });
 
   it.each(Object.entries(legends))('%s legend draws width classes in the colour the paint gives them', (_legend, draw) => {
@@ -169,6 +172,49 @@ describe('classes in both legends', () => {
     const container = legends.viewer(ZOOM_FADED_STATIONS);
 
     expect(container.querySelector('.lucide-circle')).toHaveAttribute('fill-opacity', '0.95');
+  });
+
+  it.each(Object.entries(legends))('%s legend draws the stored heatmap colour the map draws', (_legend, draw) => {
+    const container = draw(SAVED_LAYERS.heatmapByExpression);
+
+    const gradient = (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+    expect(gradient).toContain('rgb(124, 58, 237)');
+    expect(gradient).toContain('rgb(240, 171, 252)');
+  });
+
+  it.each(Object.entries(legends))('%s legend draws a heatmap ramp in the five colours the map draws', (_legend, draw) => {
+    const container = draw(SAVED_LAYERS.heatmapByRamp);
+
+    const gradient = (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+    expect(gradient.match(/rgb\(/g)).toHaveLength(5);
+  });
+
+  it.each(Object.entries(legends))('%s legend draws a stored heatmap ramp at its own stops', (_legend, draw) => {
+    const container = draw(storedHeat(['interpolate', ['linear'], ['heatmap-density'], 0, '#0000ff', 0.1, '#00ff00', 1, '#ff0000']));
+
+    const gradient = (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+    expect(gradient).toBe('linear-gradient(to right, rgb(0, 0, 255) 0%, rgb(0, 255, 0) 10%, rgb(255, 0, 0) 100%)');
+  });
+
+  it.each(Object.entries(legends))('%s legend draws a stored heatmap step as hard bands', (_legend, draw) => {
+    const container = draw(storedHeat(['step', ['heatmap-density'], '#fde725', 0.3, '#440154']));
+
+    const gradient = (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+    expect(gradient).toBe(
+      'linear-gradient(to right, rgb(253, 231, 37) 0%, rgb(253, 231, 37) 30%, rgb(68, 1, 84) 30%, rgb(68, 1, 84) 100%)',
+    );
+  });
+
+  it.each(Object.entries(legends))('%s legend draws no heatmap ramp for a stored colour it cannot read', (_legend, draw) => {
+    const container = draw({ ...SAVED_LAYERS.heatmapByRamp, paint: { ...SAVED_LAYERS.heatmapByRamp.paint, 'heatmap-color': ['get', 'color'] } });
+
+    expect(container.querySelector('.h-3.rounded-sm.w-full')).not.toBeInTheDocument();
+  });
+
+  it('builder legend names the column a heatmap is weighted by', () => {
+    legends.builder(SAVED_LAYERS.heatmapByRamp);
+
+    expect(screen.getByText('plugins.legend.weightedBy')).toBeInTheDocument();
   });
 
   it('builder legend lists graduated classes that have no breaks', () => {

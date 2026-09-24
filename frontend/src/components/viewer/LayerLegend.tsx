@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
 import { HeatmapLegend, LegendClassesList } from '@/components/map/LegendEntries';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
-import { resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import {
   deriveTerrainLegendEntry,
@@ -156,7 +155,6 @@ export function LayerLegend({
             const sc = layer.style_config;
             const layerName = facts.name;
             const clusterKind = clusterLegendKind(layer);
-            const heatmapRamp = resolveHeatmapRamp(layer.paint, sc);
             return (
               <li key={key} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
@@ -202,12 +200,11 @@ export function LayerLegend({
 
                 {/* Data-driven legend entries */}
                 {isVisible && (
-                  sc?.render_mode === 'heatmap' ? (
+                  facts.ramp ? (
                     <div className="mt-1.5 ms-6">
                       <HeatmapLegend
                         name=""
-                        rampName={heatmapRamp.rampName}
-                        reversed={heatmapRamp.reversed}
+                        ramp={facts.ramp}
                         opacity={layer.opacity ?? 1}
                         lowLabel={t('viewer.heatmapLow')}
                         highLabel={t('viewer.heatmapHigh')}

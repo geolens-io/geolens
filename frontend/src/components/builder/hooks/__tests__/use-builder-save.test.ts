@@ -3125,6 +3125,42 @@ describe('SHARE-09 export PNG composition', () => {
     expect(stops).toEqual(['#111111', '#999999']);
   });
 
+  it('draws a heatmap swatch in the stored heatmap colour the map draws', () => {
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [SAVED_LAYERS.heatmapByExpression],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(addColorStopSpy.mock.calls.map((c: unknown[]) => c[1])).toEqual(['#7c3aed', '#f0abfc']);
+  });
+
+  it('draws a stored heatmap ramp at its own stops', () => {
+    const mockMap = makeExportMap();
+    const uneven = {
+      ...SAVED_LAYERS.heatmapByExpression,
+      paint: { 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#0000ff', 0.1, '#00ff00', 1, '#ff0000'] },
+    };
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [uneven],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(addColorStopSpy.mock.calls).toEqual([[0, '#0000ff'], [0.1, '#00ff00'], [1, '#ff0000']]);
+  });
+
   it('an unparseable ramp color falls back to solid instead of aborting the export', () => {
     const mockMap = makeExportMap();
     // The empty-string second stop makes the mocked addColorStop throw (as the browser
@@ -3132,7 +3168,7 @@ describe('SHARE-09 export PNG composition', () => {
     const badRamp = makeLayer({
       id: 'layer-bad-ramp',
       display_name: 'Bad ramp',
-      paint: { 'fill-color': ['step', ['get', 'v'], '#111111', 10, '#222222'] },
+      paint: { 'fill-color': ['step', ['get', 'v'], '#111111', 10, ''] },
       style_config: { mode: 'graduated', column: 'v', colors: ['#111111', ''], breaks: [10] },
       visible: true,
       show_in_legend: true,

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { LegendClassesList } from '../LegendEntries';
-import type { LegendClasses, LegendSwatch } from '../legend-facts';
+import { HeatmapLegend, LegendClassesList } from '../LegendEntries';
+import type { LegendClasses, LegendRamp, LegendSwatch } from '../legend-facts';
 
 function legendSwatch(overrides: Partial<LegendSwatch> = {}): LegendSwatch {
   return { fill: null, fillOpacity: 1, opacity: 1, stroke: null, pattern: null, ...overrides };
@@ -258,5 +258,32 @@ describe('GeometrySwatch — points', () => {
     expect(ringed).toHaveAttribute('stroke-width', '2');
     expect(ringless).not.toHaveAttribute('stroke');
     expect(ringless).toHaveAttribute('stroke-width', '0');
+  });
+});
+
+describe('HeatmapLegend', () => {
+  function gradientOf(ramp: Pick<LegendRamp, 'colors' | 'stops' | 'mode'>): string {
+    const { container } = render(
+      <HeatmapLegend name="Heat" ramp={{ ...ramp, name: null, reversed: false }} lowLabel="Low" highLabel="High" />,
+    );
+    return (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+  }
+
+  it('draws each colour at its stop', () => {
+    expect(gradientOf({ colors: ['#0000ff', '#00ff00', '#ff0000'], stops: [0, 0.1, 1], mode: 'interpolate' })).toBe(
+      'linear-gradient(to right, rgb(0, 0, 255) 0%, rgb(0, 255, 0) 10%, rgb(255, 0, 0) 100%)',
+    );
+  });
+
+  it('draws a step as hard bands', () => {
+    expect(gradientOf({ colors: ['#fde725', '#440154'], stops: [0, 0.3], mode: 'step' })).toBe(
+      'linear-gradient(to right, rgb(253, 231, 37) 0%, rgb(253, 231, 37) 30%, rgb(68, 1, 84) 30%, rgb(68, 1, 84) 100%)',
+    );
+  });
+
+  it('draws a single colour as a solid bar', () => {
+    expect(gradientOf({ colors: ['#dc2626'], stops: [0], mode: 'interpolate' })).toBe(
+      'linear-gradient(to right, rgb(220, 38, 38) 0%, rgb(220, 38, 38) 100%)',
+    );
   });
 });

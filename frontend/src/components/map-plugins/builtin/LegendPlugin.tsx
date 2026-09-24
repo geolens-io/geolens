@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
 import { HeatmapLegend, LegendClassesList } from '@/components/map/LegendEntries';
 import type { MapLayerResponse } from '@/types/api';
-import { resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
 import { legendEntryName, legendFacts } from '@/components/map/legend-facts';
 import { Pencil, Check } from 'lucide-react';
@@ -155,22 +154,20 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
     const opacity = layer.opacity ?? 1;
     const effectiveGeom = inferGeometryType(layer.paint, layer.dataset_geometry_type);
     const swatch = facts?.swatch ?? null;
-    const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
-    const heatmapRamp = resolveHeatmapRamp(layer.paint, layer.style_config);
+    const weightColumn = facts?.weightColumn ?? undefined;
 
     return (
       <div>
         <div className="p-1 text-xs">
-          {layer.style_config?.render_mode === 'heatmap' ? (
+          {facts?.ramp ? (
             <HeatmapLegend
               name={entryName}
-              rampName={heatmapRamp.rampName}
-              reversed={heatmapRamp.reversed}
-              weightColumn={weightCol}
+              ramp={facts.ramp}
+              weightColumn={weightColumn}
               opacity={opacity}
               lowLabel={t('plugins.legend.low')}
               highLabel={t('plugins.legend.high')}
-              weightedByLabel={weightCol ? t('plugins.legend.weightedBy', { column: weightCol }) : undefined}
+              weightedByLabel={weightColumn ? t('plugins.legend.weightedBy', { column: weightColumn }) : undefined}
             />
           ) : facts?.classes ? (
             <>

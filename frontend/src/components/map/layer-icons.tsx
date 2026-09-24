@@ -1,13 +1,11 @@
 import { useMemo } from 'react';
 import { Circle, Pentagon, Grid3x3, Layers } from 'lucide-react';
-import { getRampColors } from '@/lib/color-ramps';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
-import { resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import type { MapLayerResponse } from '@/types/api';
-import { legendFacts } from './legend-facts';
-import type { LegendFacts, LegendSwatch } from './legend-facts';
+import { legendFacts, rampGradient } from './legend-facts';
+import type { LegendFacts, LegendRamp, LegendSwatch } from './legend-facts';
 
 /** Shape hints for the icon glyph. Its stroke, fill opacity and pattern come from the layer's legend swatch. */
 export interface StyleHints {
@@ -63,6 +61,7 @@ interface IconSubProps {
   opacityStyle?: React.CSSProperties;
   styleHints?: StyleHints;
   swatch?: LegendSwatch | null;
+  ramp?: LegendRamp | null;
   /** ux(#840): render multi-color fills as hard-stop bands instead of a smooth ramp. */
   discrete?: boolean;
 }
@@ -98,15 +97,16 @@ function gradientStops(colors: string[], discrete?: boolean) {
   ]);
 }
 
-function HeatmapIcon({ colors, layerId, opacityStyle }: IconSubProps) {
+function HeatmapIcon({ colors, layerId, opacityStyle, ramp }: IconSubProps) {
   const gradientId = `layer-heat-${layerId}`;
+  const stops = ramp ? rampGradient(ramp) : colors.map((color, i) => ({ color, offset: i / (colors.length - 1) }));
   return (
     <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
       <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
         <defs>
           <radialGradient id={gradientId}>
-            {colors.map((c, i) => (
-              <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
+            {stops.map(({ color, offset }, i) => (
+              <stop key={i} offset={`${offset * 100}%`} stopColor={color} />
             ))}
           </radialGradient>
         </defs>
@@ -222,6 +222,7 @@ export function ColorizedGeometryIcon({
   layerType,
   styleHints,
   swatch,
+  ramp,
   discrete,
 }: {
   geometryType: string | null;
@@ -231,6 +232,8 @@ export function ColorizedGeometryIcon({
   styleHints?: StyleHints;
   /** The layer's legend swatch: its stroke, fill opacity and pattern. */
   swatch?: LegendSwatch | null;
+  /** A heatmap's colour ramp, drawn at its own stops. */
+  ramp?: LegendRamp | null;
   /** ux(#840): true for categorical styles — hard-stop bands instead of a smooth ramp. */
   discrete?: boolean;
 }) {
@@ -243,7 +246,7 @@ export function ColorizedGeometryIcon({
   // stroke-opacity), so a stroke-only style keeps the outline it's drawn with.
   const layerOpacity = styleHints?.opacity ?? 1;
   const opacityStyle: React.CSSProperties | undefined = layerOpacity < 1 ? { opacity: layerOpacity } : undefined;
-  const sub: IconSubProps = { colors, layerId, opacityStyle, styleHints, swatch, discrete };
+  const sub: IconSubProps = { colors, layerId, opacityStyle, styleHints, swatch, ramp, discrete };
 
   if (styleHints?.isHeatmap && colors.length > 1) return <HeatmapIcon {...sub} />;
   if (gt.includes('LINE')) return <LineIcon {...sub} />;
@@ -254,22 +257,15 @@ export function ColorizedGeometryIcon({
  * The colours a layer's icon draws: the heatmap ramp, else the swatch's constant
  * colour or pattern tint, else the colour classes.
  */
-export function getLayerColors(
-  layer: Pick<MapLayerResponse, 'paint' | 'style_config'>,
-  facts: LegendFacts | null,
-): string[] {
-  // Heatmap: extract from ramp name
-  if (layer.style_config?.render_mode === 'heatmap') {
-    const { rampName, reversed } = resolveHeatmapRamp(layer.paint, layer.style_config);
-    return getRampColors(rampName, 5, reversed);
-  }
+export function getLayerColors(facts: LegendFacts | null): string[] {
+  if (facts?.ramp) return facts.ramp.colors;
   const constant = facts?.swatch?.fill ?? facts?.swatch?.pattern?.tint;
   if (constant) return [constant];
   const classes = facts?.classes ?? [];
   const colorClasses = classes.find((entry) => entry.target === 'color');
   if (colorClasses) return colorClasses.items.map((item) => item.color);
-  // A size classification draws every class in one colour.
-  if (classes.length) return [classes[0].items[0].color];
+  // A size classification's items carry the colour each size class draws in.
+  if (classes.length) return [...new Set(classes[0].items.map((item) => item.color))];
   return [MAP_COLORS.icon.fallback];
 }
 
@@ -345,11 +341,12 @@ export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; ic
   return (
     <ColorizedGeometryIcon
       geometryType={layer.dataset_geometry_type}
-      colors={getLayerColors({ paint, style_config: layer.style_config ?? null }, facts)}
+      colors={getLayerColors(facts)}
       layerId={iconId}
       layerType={caps.kind}
       styleHints={styleHints}
       swatch={facts?.swatch ?? null}
+      ramp={facts?.ramp ?? null}
       discrete={isDiscreteColorStyle(facts)}
     />
   );
