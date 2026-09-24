@@ -5812,11 +5812,13 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         job_id = job.id
         attempt_id = job.attempt_id
 
-        async def _observes_nothing(*args, **kwargs) -> bool:
-            return False
+        from app.processing.ingest.tasks_raster_common import PublishObservation
+
+        async def _observes_nothing(*args, **kwargs) -> PublishObservation:
+            return PublishObservation.NOT_LANDED
 
         monkeypatch.setattr(
-            "app.processing.ingest.tasks_raster_replace.publish_commit_landed",
+            "app.processing.ingest.publication.observe_publish_commit",
             _observes_nothing,
             raising=True,
         )
@@ -6286,13 +6288,14 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         honouring. The orphan reap must still be gated on the name that
         handler assigns rather than on a flag set after the commit returned.
 
-        A fifth tail written the old way, or a revert of any of these four,
-        fails here.
+        A fourth tail written the old way, or a revert of any of these three,
+        fails here. The replace tail stands down through
+        ``commit_publication`` instead.
         """
         import ast
         import inspect
 
-        from app.processing.ingest import tasks_raster, tasks_raster_replace, tasks_vrt
+        from app.processing.ingest import tasks_raster, tasks_vrt
 
         def _calls(node, name: str) -> bool:
             return any(
@@ -6301,7 +6304,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             )
 
         checked = 0
-        for module in (tasks_raster, tasks_raster_replace, tasks_vrt):
+        for module in (tasks_raster, tasks_vrt):
             tree = ast.parse(inspect.getsource(module))
             for func in ast.walk(tree):
                 if not isinstance(func, (ast.AsyncFunctionDef, ast.FunctionDef)):
@@ -6357,8 +6360,8 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                                 f"probe assigns {sorted(published)})"
                             )
                             checked += 1
-        assert checked == 4, (
-            f"expected the four publish tails, walked {checked} — a tail was "
+        assert checked == 3, (
+            f"expected the three publish tails, walked {checked} — a tail was "
             "added or removed without updating this gate"
         )
 

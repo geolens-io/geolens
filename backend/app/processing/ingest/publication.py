@@ -35,8 +35,9 @@ from app.processing.ingest.tasks_common import (
     load_job_for_error_write,
 )
 from app.processing.ingest.tasks_raster_common import (
+    PublishObservation,
     absorb_cancellation,
-    publish_commit_landed,
+    observe_publish_commit,
 )
 from app.processing.ingest.tasks_staging import _cleanup_staging_on_failure
 
@@ -307,21 +308,38 @@ async def _record_settlement_failure(
         await invalidate_catalog_cache()
 
 
+class PublicationCommit(StrEnum):
+    """How a publishing commit is known to have landed."""
+
+    ACKNOWLEDGED = "acknowledged"
+    # The acknowledgement was lost; a probe read this attempt's job complete.
+    OBSERVED = "observed"
+    # The acknowledgement was lost and the probe failed: the old data may
+    # still be the live data.
+    INDETERMINATE = "indeterminate"
+
+    @property
+    def confirmed(self) -> bool:
+        """The commit certainly landed, so what it superseded is unreferenced."""
+        return self is not PublicationCommit.INDETERMINATE
+
+
 async def commit_publication(
     session: AsyncSession,
     *,
     job_id: uuid.UUID,
     attempt_id: uuid.UUID,
     task: str,
-) -> bool:
+) -> PublicationCommit:
     """Commit the transaction that publishes this attempt.
 
-    Returns True when the commit is acknowledged. Returns False when the
-    acknowledgement was lost but a probe of the job row shows the commit
-    landed; a cancellation that lost it is absorbed, so the caller goes on to
-    its post-commit steps. Re-raises when the commit did not land. Every
-    replacement path turns its job row ``complete`` in the publishing
-    transaction, which is what the probe reads.
+    When the acknowledgement is lost, a probe of the job row decides: a commit
+    it reads as landed, or cannot read at all, is returned rather than raised,
+    and a cancellation that lost the acknowledgement is absorbed so the caller
+    goes on to its post-commit steps. Re-raises when the probe reads that the
+    commit did not land. Every replacement path turns its job row ``complete``
+    in the publishing transaction, which is what the probe reads. Callers
+    delete superseded data only when the result is ``confirmed``.
     """
     try:
         await session.commit()
@@ -329,13 +347,16 @@ async def commit_publication(
         Exception,
         asyncio.CancelledError,
     ) as exc:  # broad: a lost acknowledgement can surface as any error
-        if not await publish_commit_landed(
+        observation = await observe_publish_commit(
             job_id, attempt_id, job_id=str(job_id), task=task
-        ):
+        )
+        if observation is PublishObservation.NOT_LANDED:
             raise
         absorb_cancellation(exc)
-        return False
-    return True
+        if observation is PublishObservation.LANDED:
+            return PublicationCommit.OBSERVED
+        return PublicationCommit.INDETERMINATE
+    return PublicationCommit.ACKNOWLEDGED
 
 
 async def _invalidate_after_commit(

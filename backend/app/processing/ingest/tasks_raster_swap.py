@@ -553,12 +553,14 @@ async def _run_post_swap_followups(
     prior_physical_keys: list[str],
     written_storage_keys: list[str],
     job_id: str,
+    reap_superseded: bool,
 ) -> None:
     """Work that happens once the replacement is durably published.
 
     Every step is optional and none may be confused with a failed replace, so
     each is fenced on its own: a failed cache purge still lets the reap and
-    the embedding defer run.
+    the embedding defer run. ``reap_superseded`` is False when the publish is
+    indeterminate, because the superseded keys may still be the live raster.
 
     Reaping the superseded objects is safe only now: up to the commit every
     exit left the previous COG both pointed at and present, past it the
@@ -586,11 +588,12 @@ async def _run_post_swap_followups(
 
     async with cleanup_step("reupload_raster catalog cache", job_id=job_id):
         await invalidate_catalog_cache()
-    async with cleanup_step("reupload_raster superseded objects", job_id=job_id):
-        await _cleanup_orphaned_storage_keys(
-            [key for key in prior_physical_keys if key not in written_storage_keys],
-            job_id=job_id,
-        )
+    if reap_superseded:
+        async with cleanup_step("reupload_raster superseded objects", job_id=job_id):
+            await _cleanup_orphaned_storage_keys(
+                [key for key in prior_physical_keys if key not in written_storage_keys],
+                job_id=job_id,
+            )
     async with cleanup_step("reupload_raster embedding", job_id=job_id):
         async with async_session() as embed_session:
             embed_dataset = (
@@ -614,22 +617,18 @@ async def run_post_swap_followups_best_effort(
     written_storage_keys: list[str],
     job_id: str,
     dataset_id: str,
+    reap_superseded: bool,
 ) -> None:
     """``_run_post_swap_followups`` with the caller's fence built in.
 
-    fix(#1778): the replace tail reaches this from two places — the
-    ordinary success path and the stand-down a lost commit acknowledgement
-    takes — and both need the identical rule: the swap is durable, so a
-    cache purge that can't reach Valkey, a reap that can't reach storage,
-    or an embedding defer against a busy queue are things to log and move
-    on from, never reasons to fail a job whose outcome is already
-    committed and reported as succeeded. One home for that rule rather
-    than two copies of the try/except, so the two paths can't drift.
+    The swap is published, so a cache purge that can't reach Valkey, a reap
+    that can't reach storage or an embedding defer against a busy queue is
+    something to log and move on from, never a reason to fail the job.
 
-    The reap inside is what makes this worth running on the stand-down
-    path at all: it's the ONLY deletion of the superseded COG and
-    quicklooks, and the committed pointer already names the new keys, so
-    skipping it strands objects no row references and no quota counts.
+    The reap is the only deletion of the superseded COG and quicklooks, so
+    skipping it strands objects no row references and no quota counts. The
+    caller still skips it after an indeterminate publish: stranded objects
+    can be removed later, and a deleted live raster cannot be restored.
     """
     try:
         await _run_post_swap_followups(
@@ -638,6 +637,7 @@ async def run_post_swap_followups_best_effort(
             prior_physical_keys=prior_physical_keys,
             written_storage_keys=written_storage_keys,
             job_id=job_id,
+            reap_superseded=reap_superseded,
         )
     except Exception:  # broad: nothing after the commit may fail the job
         structlog.get_logger().warning(

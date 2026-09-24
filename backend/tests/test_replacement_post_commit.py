@@ -680,24 +680,6 @@ async def test_a_failing_post_commit_step_leaves_the_replacement_published(
         )
 
 
-async def test_a_failing_cache_purge_still_reaps_the_superseded_raster(
-    replace, storage
-) -> None:
-    """The superseded COG and quicklooks are reaped even when the cache purge fails."""
-    replacement = await replace("raster")
-    with (
-        _quiet_embedding(),
-        patch(
-            _STEPS["raster"]["catalog cache"],
-            new=AsyncMock(side_effect=RuntimeError("valkey unavailable")),
-        ),
-    ):
-        await replacement.run()
-
-    for key in replacement.prior_keys:
-        assert not await storage.exists(key), f"the superseded {key} survived"
-
-
 class _LostAcknowledgement:
     """Make the commit that completes ``job_id`` raise after it has applied."""
 
@@ -732,6 +714,127 @@ _FAILURES = {
     "connection-loss": lambda: ConnectionResetError("the connection dropped"),
     "cancellation": asyncio.CancelledError,
 }
+
+
+class _IndeterminatePublish:
+    """Fail the publishing commit before it lands, then the probe that follows."""
+
+    def __init__(self, job_id: uuid.UUID) -> None:
+        self.job_id = job_id
+        self.commit_failed = False
+        self.probe_failed = False
+
+    @contextmanager
+    def installed(self) -> Iterator[None]:
+        real_commit = AsyncSession.commit
+        real_execute = AsyncSession.execute
+        own_status = select(IngestJob.status).where(IngestJob.id == self.job_id)
+
+        async def _commit(session, *args, **kwargs):
+            if not self.commit_failed:
+                # The publishing transaction is the one that already shows
+                # the job complete from inside itself.
+                status = (await real_execute(session, own_status)).scalar()
+                if status == "complete":
+                    self.commit_failed = True
+                    raise ConnectionResetError("the connection dropped before COMMIT")
+            return await real_commit(session, *args, **kwargs)
+
+        async def _execute(session, statement, *args, **kwargs):
+            reads_attempt = "ingest_jobs.attempt_id" in str(statement)
+            if self.commit_failed and not self.probe_failed and reads_attempt:
+                self.probe_failed = True
+                raise ConnectionResetError("the probe could not reach the database")
+            return await real_execute(session, statement, *args, **kwargs)
+
+        AsyncSession.commit = _commit
+        AsyncSession.execute = _execute
+        try:
+            yield
+        finally:
+            AsyncSession.commit = real_commit
+            AsyncSession.execute = real_execute
+
+
+def _stored_keys(storage: LocalStorageProvider, dataset_id: uuid.UUID) -> set[str]:
+    root = Path(storage.base_dir)
+    return {
+        str(path.relative_to(root))
+        for path in (root / "rasters" / str(dataset_id)).rglob("*")
+        if path.is_file()
+    }
+
+
+@pytest.mark.parametrize("publish", ["acknowledged", "observed"])
+async def test_a_confirmed_publish_reaps_the_superseded_raster(
+    replace, storage, publish: str
+) -> None:
+    """A confirmed publish reaps the superseded COG and quicklooks, even when the cache purge fails."""
+    replacement = await replace("raster")
+    lost = _LostAcknowledgement(replacement.job_id, ConnectionResetError("dropped"))
+    with (
+        _quiet_embedding(),
+        patch(
+            _STEPS["raster"]["catalog cache"],
+            new=AsyncMock(side_effect=RuntimeError("valkey unavailable")),
+        ),
+        lost.installed() if publish == "observed" else ExitStack(),
+    ):
+        await replacement.run()
+
+    for key in replacement.prior_keys:
+        assert not await storage.exists(key), f"the superseded {key} survived"
+
+
+@pytest.mark.parametrize("purge", ["failing", "working"])
+async def test_an_indeterminate_publish_keeps_every_raster_object(
+    replace, storage, purge: str
+) -> None:
+    """A commit that may not have landed deletes neither the old raster nor the new one."""
+    replacement = await replace("raster")
+    indeterminate = _IndeterminatePublish(replacement.job_id)
+    purge_step = (
+        AsyncMock(side_effect=RuntimeError("valkey unavailable"))
+        if purge == "failing"
+        else AsyncMock()
+    )
+    with (
+        _quiet_embedding(),
+        patch(_STEPS["raster"]["catalog cache"], new=purge_step),
+        indeterminate.installed(),
+    ):
+        await replacement.run()
+
+    assert indeterminate.commit_failed and indeterminate.probe_failed
+    live_uri = await _fresh_scalar(
+        select(RasterAsset.asset_uri).where(
+            RasterAsset.dataset_id == replacement.dataset_id
+        )
+    )
+    assert live_uri == replacement.prior_keys[0], "the swap did not roll back"
+    stored = _stored_keys(storage, replacement.dataset_id)
+    assert set(replacement.prior_keys) <= stored, "the live raster was reaped"
+    assert len(stored - set(replacement.prior_keys)) == 3, (
+        "the objects this attempt wrote were reaped"
+    )
+
+
+async def test_an_indeterminate_publish_skips_the_file_archive(replace) -> None:
+    """A commit that may not have landed neither archives the upload nor deletes it."""
+    replacement = await replace("file")
+    indeterminate = _IndeterminatePublish(replacement.job_id)
+    archive = AsyncMock()
+    with (
+        _quiet_embedding(),
+        patch(_STEPS["file"]["archive"], new=archive),
+        indeterminate.installed(),
+    ):
+        await replacement.run()
+
+    assert indeterminate.commit_failed and indeterminate.probe_failed
+    archive.assert_not_awaited()
+    await _assert_live_row(replacement.live_table, "before")
+    assert replacement.upload.exists()
 
 
 @pytest.mark.parametrize("failure", sorted(_FAILURES))

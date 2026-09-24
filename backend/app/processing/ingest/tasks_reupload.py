@@ -37,6 +37,7 @@ from app.platform.refresh.service import (
     record_refresh_success,
 )
 from app.processing.ingest.publication import (
+    PublicationCommit,
     PublicationOutcome,
     PublicationSettlementCommand,
     PublicationSettlementFailure,
@@ -278,6 +279,33 @@ async def _detect_reupload_crs(
         else (srid if srid is not None else 4326)
     )
     return info, effective_srid
+
+
+async def _archive_after_publication(
+    session,
+    publication: PublicationCommit,
+    *,
+    job,
+    dataset_id: uuid.UUID,
+    file_path: str,
+    job_id: str,
+) -> None:
+    """Archive the original file once the publish is confirmed; log a failure.
+
+    The archive key is named after the file, so after an indeterminate publish
+    it could overwrite the original of the version that is still live.
+    """
+    if not publication.confirmed:
+        return
+    async with cleanup_step("reupload_file archive", job_id=job_id):
+        await session.refresh(job)
+        await _archive_original_file(
+            session,
+            job=job,
+            dataset_id=dataset_id,
+            file_path=file_path,
+            log_message="Failed to archive re-uploaded file to storage",
+        )
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
@@ -632,19 +660,19 @@ async def reupload_file(
                 schema_diff=schema_diff,
                 contacted_origin=False,
             )
-            acknowledged = await commit_publication(
+            publication = await commit_publication(
                 session,
                 job_id=job_uuid,
                 attempt_id=attempt_uuid,
                 task="reupload_file",
             )
-            # A publish seen only through the probe keeps the upload: a probe
-            # that cannot read the job row also answers "landed".
-            if acknowledged:
+            # A publish seen only through the probe keeps the upload, which
+            # `final_status` licenses deleting.
+            if publication is PublicationCommit.ACKNOWLEDGED:
                 final_status = "complete"
 
-            # The swap is published, so each step below logs its own failure
-            # instead of failing the reupload.
+            # Past the commit, each step below logs its own failure instead
+            # of failing the reupload.
             async with cleanup_step("reupload_file catalog cache", job_id=job_id):
                 await invalidate_catalog_cache()
             # fix(#394) B-019/VT-01: the swap replaced the table's contents under the
@@ -655,15 +683,14 @@ async def reupload_file(
 
             # 10. Archive the original after the commit, so the upload never
             # runs under the rename's exclusive lock.
-            async with cleanup_step("reupload_file archive", job_id=job_id):
-                await session.refresh(job)
-                await _archive_original_file(
-                    session,
-                    job=job,
-                    dataset_id=dataset.id,
-                    file_path=file_path,
-                    log_message="Failed to archive re-uploaded file to storage",
-                )
+            await _archive_after_publication(
+                session,
+                publication,
+                job=job,
+                dataset_id=dataset.id,
+                file_path=file_path,
+                job_id=job_id,
+            )
 
         await _defer_embedding_after_publication(
             PublicationOutcome.PUBLISHED, Dataset, dataset_uuid
