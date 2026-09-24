@@ -1094,9 +1094,8 @@ _MEASURED_CASES = [
     ),
 ]
 
-# The refusal must fire before the type-mismatch check, so the geometry
-# payload matches each case's declared type: the counterfactual (no refusal)
-# then reaches PostGIS's own type-mismatch error, not a generic 400.
+# Each payload matches its layer's declared type, so without the guard the
+# write passes the app's own type check and fails in PostGIS (22023).
 _GEOJSON_BY_MEASURED_TYPE = {"POINT": POINT_GEOJSON, "LINESTRING": LINESTRING_GEOJSON}
 
 
