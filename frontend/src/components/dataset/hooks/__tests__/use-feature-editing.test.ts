@@ -6,7 +6,8 @@
 import { renderHook, act } from '@testing-library/react';
 import type { Map as MaplibreMap, Point } from 'maplibre-gl';
 import { toast } from 'sonner';
-import { useFeatureEditing } from '@/components/dataset/hooks/use-feature-editing';
+import { showAllFeaturesInTiles, useFeatureEditing } from '@/components/dataset/hooks/use-feature-editing';
+import { previewSourceId, useMapLayers } from '@/components/maps/hooks/use-map-layers';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { getFeature } from '@/api/features';
 import type { GeoJSONFeature } from '@/api/features';
@@ -29,7 +30,8 @@ vi.mock('@/hooks/use-features', () => ({
   useDeleteFeature: () => ({ mutateAsync: deleteMutateAsync }),
 }));
 
-vi.mock('@/lib/tile-utils', () => ({
+vi.mock('@/lib/tile-utils', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/tile-utils')>()),
   buildSignedTileUrl: (table: string, _token: unknown, _base: unknown, cacheBust?: string) =>
     `/tiles/${table}/{z}/{x}/{y}.pbf?cb=${cacheBust ?? ''}`,
 }));
@@ -60,7 +62,7 @@ function deferred<T>() {
 function makeMapWithVectorSource(setTiles: ReturnType<typeof vi.fn>) {
   return {
     getSource: vi.fn((id: string) =>
-      id === 'vector-tile-source' ? { setTiles } : undefined,
+      id === previewSourceId('parcels') ? { setTiles } : undefined,
     ),
     getLayer: vi.fn(() => undefined),
     setFilter: vi.fn(),
@@ -723,7 +725,7 @@ describe('useFeatureEditing — overlay reset on identity change (fix #1761 revi
     // A's stale tile-load event finally arrives.
     overlaySetData.mockClear();
     act(() => {
-      onSourceData({ sourceId: 'vector-tile-source', isSourceLoaded: true });
+      onSourceData({ sourceId: previewSourceId('parcels'), isSourceLoaded: true });
     });
 
     // Refused: B's overlay feature must be untouched.
@@ -1066,5 +1068,110 @@ describe('drawing session return to the same dataset', () => {
     });
     expect(opts.clear).not.toHaveBeenCalled();
     expect(opts.addFeatures).not.toHaveBeenCalled();
+  });
+});
+
+/** A map holding what the dataset preview adds for a `parcels` table of the given geometry. */
+function previewMap(geometryType: string, elevationColumn?: string) {
+  const sources = new Map<string, { setTiles: ReturnType<typeof vi.fn>; setData: ReturnType<typeof vi.fn> }>();
+  const filters = new Map<string, unknown>();
+  const map = {
+    addSource: vi.fn((id: string) => {
+      sources.set(id, { setTiles: vi.fn(), setData: vi.fn() });
+    }),
+    addLayer: vi.fn((layer: { id: string; filter?: unknown }) => {
+      filters.set(layer.id, layer.filter ?? null);
+    }),
+    getSource: vi.fn((id: string) => sources.get(id)),
+    getLayer: vi.fn((id: string) => (filters.has(id) ? { id } : undefined)),
+    getFilter: vi.fn((id: string) => filters.get(id)),
+    setFilter: vi.fn(),
+    queryRenderedFeatures: vi.fn(() => []),
+    on: vi.fn(),
+    off: vi.fn(),
+  } as unknown as MaplibreMap;
+  const { result } = renderHook(() =>
+    useMapLayers({ tableName: 'parcels', geometryType, tileToken: null, mapRef: { current: null }, elevationColumn }),
+  );
+  result.current.addVectorLayers(map);
+  const [vectorSourceId] = sources.keys();
+  const layerIds = [...filters.keys()];
+  result.current.addOverlaySource(map);
+  return {
+    map,
+    layerIds,
+    vectorSourceId,
+    vectorSource: sources.get(vectorSourceId)!,
+    overlay: sources.get('drawn-overlay')!,
+  };
+}
+
+const PREVIEW_CASES: [label: string, geometryType: string, elevationColumn?: string][] = [
+  ['point', 'MULTIPOINT'],
+  ['line', 'MULTILINESTRING'],
+  ['polygon', 'MULTIPOLYGON'],
+  ['GEOMETRY', 'GEOMETRY'],
+  ['3D polygon', 'MULTIPOLYGON', 'height_m'],
+];
+
+describe("useFeatureEditing on the dataset preview's layers", () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+    updateMutateAsync.mockClear();
+    createMutateAsync.mockClear();
+  });
+
+  it.each(PREVIEW_CASES)('restores the filter on every layer of a %s preview', (_label, geometryType, elevationColumn) => {
+    const { map, layerIds } = previewMap(geometryType, elevationColumn);
+
+    showAllFeaturesInTiles(map);
+
+    const filtered = vi.mocked(map.setFilter).mock.calls.map(([id]) => id);
+    expect(filtered.sort()).toEqual([...layerIds].sort());
+  });
+
+  it.each(PREVIEW_CASES)('hit-tests every feature layer of a %s preview', async (_label, geometryType, elevationColumn) => {
+    const { map, layerIds } = previewMap(geometryType, elevationColumn);
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.selectFeatureFromMap(map, FAKE_POINT);
+    });
+
+    const [[, options]] = vi.mocked(map.queryRenderedFeatures).mock.calls as unknown as [[Point, { layers: string[] }]];
+    expect([...options.layers].sort()).toEqual(layerIds.filter((id) => !id.endsWith('-outline')).sort());
+  });
+
+  it('re-tiles the source the preview draws from after an attribute edit', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: { name: 'old' } } });
+    const { map, vectorSource } = previewMap('MULTIPOLYGON');
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.handleEditAttributeSubmit({ name: 'new' });
+    });
+
+    expect(vectorSource.setTiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the overlay once the preview's source reloads after a create", async () => {
+    const { map, vectorSourceId, overlay } = previewMap('MULTIPOINT');
+    const { result } = renderEditing(map);
+    await act(async () => {
+      await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    });
+    const [, onSourceData] = vi.mocked(map.on).mock.calls.find(([event]) => event === 'sourcedata') as unknown as [
+      string,
+      (e: { sourceId?: string; isSourceLoaded?: boolean }) => void,
+    ];
+    overlay.setData.mockClear();
+
+    act(() => {
+      onSourceData({ sourceId: vectorSourceId, isSourceLoaded: true });
+    });
+
+    expect(overlay.setData).toHaveBeenCalledWith({ type: 'FeatureCollection', features: [] });
   });
 });

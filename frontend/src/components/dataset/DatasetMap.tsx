@@ -19,7 +19,7 @@ import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
-import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
+import { useMapLayers, getSourceLayerName, previewSourceId } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { splitBbox, toFitBounds } from '@/lib/bbox';
 import { findElevationColumn } from '@/lib/geo-utils';
@@ -62,15 +62,14 @@ const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
 // ids, so switching vector → raster stacked the entire old vector basemap
 // (~100 layers) on top of the new one.
 const APP_SOURCE_IDS = new Set([
-  'vector-tile-source', // use-map-layers addVectorLayers
   'raster-tile-source', // use-map-layers addRasterLayers
   'drawn-overlay', // use-map-layers addOverlaySource
   'bbox-source', // declarative <Source> below
 ]);
 
-/** True for a source id owned by this app (incl. TerraDraw's `td-*` sources). */
-function isAppSourceId(id: string): boolean {
-  return APP_SOURCE_IDS.has(id) || id.startsWith('td-');
+/** True for a source id owned by this app (incl. TerraDraw's `td-*` sources and the preview's vector source). */
+function isAppSourceId(id: string, vectorSourceId: string | null): boolean {
+  return APP_SOURCE_IDS.has(id) || id.startsWith('td-') || id === vectorSourceId;
 }
 
 /**
@@ -150,13 +149,8 @@ export const DatasetMap = memo(function DatasetMap({
   // Narrow to the vector-tile shape expected by downstream hooks.
   // Raster tokens are a separate payload with a preformatted tile_url and
   // are consumed via the rasterTileUrl prop path instead.
-  const tileToken = useMemo(
-    () =>
-      rawTileToken && rawTileToken.kind === 'vector'
-        ? { sig: rawTileToken.sig, exp: rawTileToken.exp, scope: rawTileToken.scope }
-        : null,
-    [rawTileToken],
-  );
+  const tileToken = rawTileToken?.kind === 'vector' ? rawTileToken : null;
+  const vectorSourceId = tileKind === 'vector' && tableName ? previewSourceId(tableName) : null;
   const [userBasemapId, setUserBasemapId] = useState<string | null>(null);
   const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
   const activeBasemap = useMemo(
@@ -244,13 +238,14 @@ export const DatasetMap = memo(function DatasetMap({
   const drawGeometryType = hasGenericGeometry ? 'GEOMETRY' : geometryType;
 
   const { addVectorLayers, addRasterLayers, addOverlaySource } = useMapLayers({
+    datasetId,
     // The hook also adds the vector source after load, once the tile config
     // settles, so only a type with vector tiles hands it a table.
     tableName: tileKind === 'vector' ? tableName : null,
     geometryType: drawGeometryType,
     rasterTileUrl,
     tileVersion,
-    tileToken: tileToken ?? null,
+    tileToken,
     tileConfigCdnBaseUrl: tileConfig?.cdn_base_url ?? undefined,
     mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
     mvtSourceLayerReady: tileConfigReady,
@@ -596,7 +591,7 @@ export const DatasetMap = memo(function DatasetMap({
           // audit(w3-maps B11): allowlist app-owned sources/layers instead of
           // denylisting the raster-style id `basemap` — see APP_SOURCE_IDS.
           for (const [id, src] of Object.entries(_prev.sources || {})) {
-            if (!isAppSourceId(id) || next.sources?.[id]) continue;
+            if (!isAppSourceId(id, vectorSourceId) || next.sources?.[id]) continue;
             customSources[id] = src;
           }
           // Only carry over layers whose source exists in the merged style
@@ -609,7 +604,7 @@ export const DatasetMap = memo(function DatasetMap({
             const src = (layer as { source?: string }).source;
             // App-owned = a TerraDraw layer or a layer drawing from an
             // app-owned source; every basemap layer fails both checks.
-            if (!layer.id.startsWith('td-') && !(src && isAppSourceId(src))) continue;
+            if (!layer.id.startsWith('td-') && !(src && isAppSourceId(src, vectorSourceId))) continue;
             if (src && !mergedSourceIds.has(src)) continue;
             customLayers.push(layer);
           }
@@ -621,7 +616,7 @@ export const DatasetMap = memo(function DatasetMap({
         } as StyleSpecification;
       },
     });
-  }, [activeBasemap]);
+  }, [activeBasemap, vectorSourceId]);
 
   const [minx, miny, maxx, maxy] = hasBbox ? bbox : [0, 0, 0, 0];
 
@@ -811,7 +806,7 @@ export const DatasetMap = memo(function DatasetMap({
         const handleVectorError = (e: { error: { message?: string; status?: number } }) => {
           const status = e.error?.status;
           if (status && status >= 400 && status < 500) return;
-          if (e.error?.message?.includes('vector-tile-source') ||
+          if ((vectorSourceId && e.error?.message?.includes(vectorSourceId)) ||
               e.error?.message?.includes('Error: HTTP') ||
               (status && status >= 500)) {
             tileStats.failed++;
@@ -823,7 +818,7 @@ export const DatasetMap = memo(function DatasetMap({
           }
         };
         const handleVectorSourceData = (e: { sourceId?: string; isSourceLoaded?: boolean }) => {
-          if (e.sourceId === 'vector-tile-source' && e.isSourceLoaded) {
+          if (vectorSourceId && e.sourceId === vectorSourceId && e.isSourceLoaded) {
             tileStats.total++;
             fireReadyOnce(true);
           }
@@ -840,7 +835,7 @@ export const DatasetMap = memo(function DatasetMap({
         fireReadyOnce(false);
       }
     },
-    [tileKind, addRasterLayers, addVectorLayers, addOverlaySource, onMapReady, onTileError, recoverTileAuth],
+    [tileKind, vectorSourceId, addRasterLayers, addVectorLayers, addOverlaySource, onMapReady, onTileError, recoverTileAuth],
   );
 
   const finishDrawingSession = useCallback(() => {

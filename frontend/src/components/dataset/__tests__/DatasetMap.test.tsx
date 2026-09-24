@@ -1,5 +1,9 @@
+import type { StyleSpecification } from 'maplibre-gl';
 import { render, screen, fireEvent, act } from '@/test/test-utils';
+import type { BasemapEntry } from '@/api/settings';
 import { DatasetMap } from '@/components/dataset/DatasetMap';
+import { previewSourceId } from '@/components/maps/hooks/use-map-layers';
+import { BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 
 // fix(#1004): what the map was actually told to draw and where to point. The
 // three camera/extent sites derive from the bbox prop alone, so recording the
@@ -91,9 +95,10 @@ vi.mock('@/components/theme-provider', () => ({
 const tileConfigState = vi.hoisted(() => ({
   data: null as { mvt_source_layer_prefix: string | null } | null,
 }));
+const basemapState = vi.hoisted(() => ({ data: [] as BasemapEntry[] }));
 
 vi.mock('@/hooks/use-settings', () => ({
-  useBasemaps: () => ({ data: [] }),
+  useBasemaps: () => ({ data: basemapState.data }),
   useMapDefaults: () => ({ data: null }),
   useTileConfig: () => ({ data: tileConfigState.data }),
 }));
@@ -891,13 +896,13 @@ describe('DatasetMap record types', () => {
   it('adds the vector source once the tile config settles after load for a vector dataset', () => {
     loadThenSettleTileConfig('vector_dataset');
 
-    expect(fakeMap.addSource).toHaveBeenCalledWith('vector-tile-source', expect.anything());
+    expect(fakeMap.addSource).toHaveBeenCalledWith(previewSourceId('cloud'), expect.anything());
   });
 
   it('adds no vector source for an unknown record type when the tile config settles after load', () => {
     loadThenSettleTileConfig('point_cloud_dataset');
 
-    expect(fakeMap.addSource).not.toHaveBeenCalledWith('vector-tile-source', expect.anything());
+    expect(fakeMap.addSource).not.toHaveBeenCalledWith(previewSourceId('cloud'), expect.anything());
   });
 
   it('adds no tile or overlay source for an unknown record type and still reports ready', () => {
@@ -915,5 +920,76 @@ describe('DatasetMap record types', () => {
 
     expect(fakeMap.addSource).not.toHaveBeenCalled();
     expect(onMapReady).toHaveBeenCalled();
+  });
+});
+
+describe('DatasetMap basemap switch', () => {
+  const NEXT_STYLE: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'background', type: 'background' }] };
+
+  beforeEach(() => {
+    mapSpy.reset();
+    mapSpy.attachMapInstance = true;
+    (fakeMap.setStyle as ReturnType<typeof vi.fn>).mockReset();
+    (fakeMap.getStyle as ReturnType<typeof vi.fn>).mockReturnValue({ version: 8, sources: {}, layers: [] });
+  });
+
+  afterEach(() => {
+    mapSpy.reset();
+    basemapState.data = [];
+    (fakeMap.getStyle as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  /** The style transform a vector dataset's preview hands setStyle when it switches to a blank basemap. */
+  function switchTransform() {
+    basemapState.data = [{ id: 'blank', label: 'Blank', url: BLANK_BASEMAP_ID, enabled: true, is_preset: true }];
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="cloud"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="vector_dataset"
+      />,
+    );
+    const [, { transformStyle }] = (fakeMap.setStyle as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      unknown,
+      { transformStyle: (previous: StyleSpecification, next: StyleSpecification) => StyleSpecification },
+    ];
+    return transformStyle;
+  }
+
+  it("carries the preview's vector source and layers onto the new basemap and drops the old basemap", () => {
+    const transformStyle = switchTransform();
+    const sourceId = previewSourceId('cloud');
+    const previous: StyleSpecification = {
+      version: 8,
+      sources: {
+        openmaptiles: { type: 'vector', url: 'https://basemap.example.test/tiles.json' },
+        [sourceId]: { type: 'vector', tiles: ['https://maps.example.test/api/tiles/data.cloud/{z}/{x}/{y}.pbf'] },
+      },
+      layers: [
+        { id: 'water', type: 'fill', source: 'openmaptiles', 'source-layer': 'water' },
+        { id: 'preview-layer-dataset', type: 'circle', source: sourceId, 'source-layer': 'data.cloud' },
+      ],
+    };
+
+    const merged = transformStyle(previous, NEXT_STYLE);
+
+    expect(Object.keys(merged.sources)).toEqual([sourceId]);
+    expect(merged.layers.map((layer) => layer.id)).toEqual(['background', 'preview-layer-dataset']);
+  });
+
+  it("drops an old basemap source whose id starts like the preview's", () => {
+    const transformStyle = switchTransform();
+    const previous: StyleSpecification = {
+      version: 8,
+      sources: { 'preview-foo': { type: 'vector', url: 'https://basemap.example.test/tiles.json' } },
+      layers: [{ id: 'roads', type: 'line', source: 'preview-foo', 'source-layer': 'roads' }],
+    };
+
+    const merged = transformStyle(previous, NEXT_STYLE);
+
+    expect(merged.sources).toEqual({});
+    expect(merged.layers.map((layer) => layer.id)).toEqual(['background']);
   });
 });
