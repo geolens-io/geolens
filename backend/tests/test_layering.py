@@ -1328,12 +1328,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1476,
     # VRT creation and regeneration share publication and superseded-object cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1694,
+    "backend/app/processing/ingest/tasks_vrt.py": 1684,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 616,
     # File/service tasks share publication fencing, heartbeat phases and failure
     # cleanup.
-    "backend/app/processing/ingest/tasks_vector.py": 1173,
+    "backend/app/processing/ingest/tasks_vector.py": 1160,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1351,
@@ -1354,7 +1354,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1607,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
-    "backend/app/processing/analysis/tasks.py": 1414,
+    "backend/app/processing/analysis/tasks.py": 1403,
     # Maps API router debt; split endpoint families before raising.
     "backend/app/modules/catalog/maps/router.py": 1507,
     # Native search and OGC Records share visibility, query parsing and pagination.

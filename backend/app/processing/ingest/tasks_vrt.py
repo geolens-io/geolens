@@ -31,7 +31,6 @@ from app.platform.jobs.heartbeat import (
     maintain_vrt_generation_heartbeat,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
-    update_ingest_job_for_attempt,
 )
 from app.core.failure_reason import redact_failure_reason
 from app.core.db import tenant_task
@@ -1606,16 +1605,7 @@ async def regenerate_vrt(
                 # catalog row, so this handler runs while the job row may be
                 # contended too. Both writes below share the budget.
                 await arm_job_error_write_budget(err_session)
-                await update_ingest_job_for_attempt(
-                    err_session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "failed",
-                        "error_message": redact_failure_reason(exc),
-                        "completed_at": datetime.now(timezone.utc),
-                    },
-                )
+                await ledger.fail(err_session, job_uuid, attempt_uuid, reason=exc)
                 # fix(#1962): only once the asset is off this generation. A
                 # terminal generation under an asset still pointing at it is
                 # the state `sweep_stale_vrt_assets` fences itself out of.

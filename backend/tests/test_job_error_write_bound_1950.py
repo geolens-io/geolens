@@ -362,7 +362,7 @@ class TestAHeldJobRowEndsTheFailureWrite:
     async def test_the_shared_helper_gives_up(
         self, running_job, monkeypatch, test_db_session
     ) -> None:
-        job_id, _attempt_id = running_job
+        job_id, attempt_id = running_job
         # `arm_job_error_write_budget` reads this as a global of its OWN module,
         # resolved per call, so no import placement elsewhere can sever the
         # patch. The upper bound below is what proves the patch was read.
@@ -391,7 +391,7 @@ class TestAHeldJobRowEndsTheFailureWrite:
                             job=err_job,
                             exc=RuntimeError("ogr2ogr could not read the layer"),
                             task_name="ingest_file",
-                            attempt_id=None,
+                            attempt_id=attempt_id,
                         ),
                         timeout=30,
                     )
@@ -651,7 +651,7 @@ class TestTheTimeoutDoesNotReplaceTheCause:
                 job=job,
                 exc=cause,
                 task_name="ingest_file",
-                attempt_id=None,
+                attempt_id=job.attempt_id,
             )
         finally:
             final_status = "failed"

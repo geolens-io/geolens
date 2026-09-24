@@ -1,7 +1,6 @@
 """Procrastinate task definitions for raster/COG file ingestion."""
 
 import uuid
-from datetime import datetime, timezone
 
 import structlog
 from sqlalchemy.exc import DBAPIError
@@ -15,7 +14,6 @@ from app.platform.jobs.heartbeat import (
     log_job_error_write_failure,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
-    update_ingest_job_for_attempt,
 )
 from app.processing.raster.cog import (
     _scratch_dir,
@@ -107,8 +105,6 @@ async def ingest_raster(
     import tempfile
     from pathlib import Path as _Path
 
-    from app.platform.jobs.models import IngestJob
-
     resolved = await resolve_ingest_attempt_or_skip(
         job_id, attempt_id, task_label="raster"
     )
@@ -192,16 +188,7 @@ async def ingest_raster(
                     source_filename=job.source_filename,
                 )
             except ValueError as exc:
-                await update_ingest_job_for_attempt(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "failed",
-                        "error_message": redact_failure_reason(exc),
-                        "completed_at": datetime.now(timezone.utc),
-                    },
-                )
+                await ledger.fail(session, job_uuid, attempt_uuid, reason=exc)
                 await session.commit()
                 # fix(#1290): NO unlink here — unconditional delete
                 # destroyed a local-storage install's only copy of a file
@@ -744,21 +731,7 @@ async def ingest_raster(
                 err_session,
                 _err_job,
             ):
-                from sqlalchemy import update as sa_update
-
-                await err_session.execute(
-                    sa_update(IngestJob)
-                    .where(
-                        IngestJob.id == job_uuid,
-                        IngestJob.attempt_id == attempt_uuid,
-                        IngestJob.status == "running",
-                    )
-                    .values(
-                        status="failed",
-                        error_message=redact_failure_reason(exc),
-                        completed_at=datetime.now(timezone.utc),
-                    )
-                )
+                await ledger.fail(err_session, job_uuid, attempt_uuid, reason=exc)
                 await err_session.commit()
         except DBAPIError as write_failure:
             # fix(#1950): swallowed so the `raise` below re-raises the ingest

@@ -11,7 +11,6 @@ the finalize pipeline.
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -336,7 +335,7 @@ async def _cleanup_staging_on_failure(
     job,
     exc: Exception,
     task_name: str,
-    attempt_id: uuid.UUID | None = None,
+    attempt_id: uuid.UUID,
 ) -> None:
     """Mark the job failed, then drop the staging table, in that order.
 
@@ -364,9 +363,9 @@ async def _cleanup_staging_on_failure(
     the failure it was already handling.
     """
     from sqlalchemy import text
-    from sqlalchemy import update as sa_update
     from sqlalchemy.exc import DBAPIError
 
+    from app.platform.jobs import ledger
     from app.platform.jobs.heartbeat import (
         arm_job_error_write_budget,
         log_job_error_write_failure,
@@ -374,7 +373,6 @@ async def _cleanup_staging_on_failure(
     from app.processing.ingest.metadata import _qtable
 
     job_id = job.id
-    completed_at = datetime.now(timezone.utc)
     # fix(#1277): last boundary before this text becomes durable — feeds the
     # persisted error_message, the log record, and the notification reason,
     # so redacting once here covers all three for every caller.
@@ -384,34 +382,24 @@ async def _cleanup_staging_on_failure(
     error_message = redact_failure_reason(exc)
     await session.rollback()
 
-    failure_update = sa_update(type(job)).where(type(job).id == job_id)
-    if attempt_id is not None:
-        # The fence is the attempt-id equality — a superseded attempt carries
-        # a different token and can never match. `pending` is included
-        # because a failure BEFORE the claim (fix(#1274) review: the worker-
-        # time SSRF refusal) must still finalize the job it owns; requiring
-        # `running` made the legitimate attempt's pre-claim failures
-        # invisible, leaving the job pending until the stale sweep.
-        failure_update = failure_update.where(
-            type(job).attempt_id == attempt_id,
-            type(job).status.in_(("pending", "running")),
-        )
     # fix(#1950): an expired budget must not become the task's outcome. Swallowed
     # and logged as its own event, so the caller re-raises the ingest failure and
     # the report below still runs; `written` gates what the write earned.
-    written = False
-    result = None
+    written = landed = False
     try:
         # fix(#1950): armed AFTER the rollback that would discard it and before
         # the UPDATE, which is the statement that blocks on a contended job row;
         # inside the guard because arming can fail on a lost connection too.
         await arm_job_error_write_budget(session)
-        result = await session.execute(
-            failure_update.values(
-                status="failed",
-                error_message=error_message,
-                completed_at=completed_at,
-            )
+        # `pending` too: a failure before the claim, such as the worker-time
+        # SSRF refusal, must still end the job this attempt owns.
+        landed = await ledger.fail(
+            session,
+            job_id,
+            attempt_id,
+            reason=error_message,
+            expect=("pending", "running"),
+            mirror=job,
         )
         await session.commit()
         written = True
@@ -449,12 +437,8 @@ async def _cleanup_staging_on_failure(
                     task=task_name,
                 )
 
-    if written and attempt_id is not None and not result.rowcount:
+    if written and not landed:
         return
-    if written:
-        job.status = "failed"
-        job.error_message = error_message
-        job.completed_at = completed_at
     structlog.get_logger().exception(
         "Ingest task failed",
         job_id=str(job_id),

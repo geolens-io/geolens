@@ -746,7 +746,7 @@ class TestFailureWriteIsBudgeted:
 
         seen: list[str] = []
 
-        async def _expired(session, job_id, attempt_id, *, values, task_name, **kw):
+        async def _expired(session, job_id, attempt_id, *, task_name, **kw):
             seen.append(task_name)
             return None
 

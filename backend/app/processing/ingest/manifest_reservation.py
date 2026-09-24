@@ -10,12 +10,10 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import desc, func, select, text, update
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.attributes import set_committed_value
 
-from app.core.failure_reason import redact_failure_reason
 from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import settle_stale_jobs
@@ -153,45 +151,23 @@ async def bind_reservation_to_staged_source(
 
 
 async def release_manifest_reservation(
-    db: AsyncSession, job: IngestJob, message: str, *, now: datetime | None = None
+    db: AsyncSession, job: IngestJob, message: str
 ) -> bool:
     """Fenced running -> failed for a reservation that never staged its source.
 
-    fix(#1814): the shared settlement fences on ``pending``, so the lease needs
-    its own exit. The trap: ``user_metadata`` is not mirrored, reading queries.
-
-    fix(#1953): ``message`` is redacted HERE, not at the caller. This is the
-    sink, and the manifest door composes it from an exception.
+    The shared settlement fences on ``pending``, so the lease needs its own
+    exit. The ledger stores ``message`` redacted, since the manifest door
+    composes it from an exception.
     """
-    now = now or datetime.now(timezone.utc)
-    message = redact_failure_reason(message)
-    result = await db.execute(
-        update(IngestJob)
-        .where(
-            IngestJob.id == job.id,
-            (
-                IngestJob.attempt_id == job.attempt_id
-                if job.attempt_id is not None
-                else IngestJob.attempt_id.is_(None)
-            ),
-            IngestJob.status == "running",
-            IngestJob.user_metadata[MANIFEST_STAGE_METADATA_KEY].astext
-            == MANIFEST_STAGE_DOWNLOADING,
-        )
-        .values(
-            status="failed",
-            error_message=message,
-            completed_at=now,
-            user_metadata=_without_stage_marker(),
-        )
-        .execution_options(synchronize_session=False)
+    return await ledger.fail(
+        db,
+        job.id,
+        job.attempt_id,
+        reason=message,
+        values={"user_metadata": _without_stage_marker()},
+        require=(_still_downloading(),),
+        mirror=job,
     )
-    if not result.rowcount:
-        return False
-    set_committed_value(job, "status", "failed")
-    set_committed_value(job, "error_message", message)
-    set_committed_value(job, "completed_at", now)
-    return True
 
 
 async def staged_source_is_referenced(

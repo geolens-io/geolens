@@ -51,7 +51,7 @@ def _fence_vrt_worker_helpers(monkeypatch):
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(
-        "app.processing.ingest.tasks_vrt.update_ingest_job_for_attempt",
+        "app.processing.ingest.tasks_vrt.ledger.fail",
         AsyncMock(return_value=True),
     )
 

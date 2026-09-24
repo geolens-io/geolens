@@ -201,10 +201,6 @@ async def _notify(
 async def _record_failure(
     job_uuid: uuid.UUID, attempt_uuid: uuid.UUID, exc: Exception, *, job_id: str
 ) -> None:
-    from sqlalchemy import update as sa_update
-
-    from app.platform.jobs.models import IngestJob
-
     try:
         async with _job_phase_session(
             job_uuid,
@@ -212,19 +208,7 @@ async def _record_failure(
             attempt_id=attempt_uuid,
             lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
         ) as (session, _job):
-            await session.execute(
-                sa_update(IngestJob)
-                .where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                    IngestJob.status == "running",
-                )
-                .values(
-                    status="failed",
-                    error_message=redact_failure_reason(exc),
-                    completed_at=datetime.now(timezone.utc),
-                )
-            )
+            await ledger.fail(session, job_uuid, attempt_uuid, reason=exc)
             await session.commit()
     except DBAPIError as write_failure:
         # Swallowed so the caller re-raises the ingest failure, not a timeout.

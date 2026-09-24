@@ -6,7 +6,6 @@ OWNERSHIP of staged bytes rather than about time.
 """
 
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
@@ -15,7 +14,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
-from app.core.failure_reason import redact_failure_reason
 from app.modules.quota.service import check_upload_quota, get_user_quota_usage
 from app.platform.jobs.heartbeat import write_job_failure_for_attempt
 from app.platform.storage import get_storage
@@ -249,15 +247,7 @@ async def _settle_failed_url_import(
     # door applies its own provenance rule, which a caller that flattens to
     # text first has already thrown away.
     fenced = await write_job_failure_for_attempt(
-        db,
-        job_id,
-        attempt_id,
-        values={
-            "status": "failed",
-            "error_message": redact_failure_reason(exc),
-            "completed_at": datetime.now(timezone.utc),
-        },
-        task_name="fetch_url",
+        db, job_id, attempt_id, reason=exc, task_name="fetch_url"
     )
     if fenced is False:
         logger.info("url_import_fail_stamp_skipped", job_id=str(job_id))

@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Literal
 
@@ -47,6 +46,7 @@ from app.platform.analysis_sql import (
     spatial_join_output_columns,
 )
 from app.processing.analysis.provenance import apply_analysis_provenance
+from app.core.failure_reason import FixedReason
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     StaleIngestAttempt,
@@ -231,15 +231,9 @@ async def _fail_cancelled_job(
             session,
             uuid.UUID(job_id),
             attempt_id,
-            values={
-                "status": "failed",
-                "error_message": (
-                    "The worker shut down before this analysis finished. Run it again."
-                ),
-                # fix(#813): terminal writes stamp completed_at — without it
-                # the jobs UI renders '-' and retention ages on queue time.
-                "completed_at": datetime.now(timezone.utc),
-            },
+            reason=FixedReason(
+                "The worker shut down before this analysis finished. Run it again."
+            ),
             task_name="analysis_cancelled",
             budget_ms=CANCEL_WRITE_BUDGET_MS,
         )
@@ -894,13 +888,8 @@ async def _mark_job_failed(
         session,
         uuid.UUID(job_id),
         attempt_id,
-        values={
-            "status": "failed",
-            # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
-            "error_message": _user_error_message(exc, registered=registered),
-            # fix(#813): stamp completion time like ingest does.
-            "completed_at": datetime.now(timezone.utc),
-        },
+        # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
+        reason=_user_error_message(exc, registered=registered),
         task_name="analysis_materialize",
     )
     # fix(#1957): an expiry proves nothing about who owns the row, so the

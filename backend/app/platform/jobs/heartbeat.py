@@ -167,11 +167,16 @@ async def write_job_failure_for_attempt(
     job_id: uuid.UUID,
     attempt_id: uuid.UUID,
     *,
-    values: dict[str, object],
     task_name: str,
+    reason: str | BaseException | None = None,
+    values: dict[str, object] | None = None,
     budget_ms: int | None = None,
 ) -> bool | None:
     """Commit a fenced terminal job write under the error-write budget.
+
+    The ledger fails the running job with ``reason``, stored redacted.
+    ``values`` writes the given columns instead, for the PostGIS and STAC
+    refreshes that still compose their own failed status.
 
     Returns whether the fence matched, or ``None`` when the write did not
     happen at all and the transaction was ended: the budget expired or the
@@ -198,9 +203,12 @@ async def write_job_failure_for_attempt(
         # the one point in the write that is safe to cancel.
         await asyncio.wait_for(session.connection(), timeout=budget_ms / 1000)
         await arm_job_error_write_budget(session, budget_ms=budget_ms)
-        fenced = await update_ingest_job_for_attempt(
-            session, job_id, attempt_id, values=values
-        )
+        if values is None:
+            fenced = await ledger.fail(session, job_id, attempt_id, reason=reason)
+        else:
+            fenced = await update_ingest_job_for_attempt(
+                session, job_id, attempt_id, values=values
+            )
         await session.commit()
         return fenced
     except (SQLAlchemyError, TimeoutError) as write_failure:
