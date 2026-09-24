@@ -19,11 +19,10 @@ from starlette.types import Message, Receive, Scope, Send
 
 from app.core.dependencies import get_db
 from app.core.identity import Identity
-from app.core.tiles3d import TILESET_ASSET_KEY, tileset_prefix
+from app.core.tiles3d import tileset_prefix
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import check_dataset_access_or_anonymous
-from app.modules.catalog.datasets.domain.service import get_dataset
-from app.platform.extensions import get_catalog_port
+from app.modules.catalog.datasets.domain.service import get_dataset, get_tileset_href
 from app.platform.ratelimit import limiter
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -154,9 +153,7 @@ async def get_tileset_file(
     if dataset.record.record_type != "tiles3d_dataset":
         raise _not_found()
 
-    assets = await get_catalog_port().get_dataset_assets(db, dataset.id)
-    carrier = next((a.href for a in assets if a.key == TILESET_ASSET_KEY), None)
-    attempt = _live_attempt(carrier, dataset.id)
+    attempt = _live_attempt(await get_tileset_href(db, dataset.id), dataset.id)
     relative = _relative_key(path)
     if attempt is None or relative is None:
         raise _not_found()
