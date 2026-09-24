@@ -152,6 +152,20 @@ describe('LayerLegend notes under an entry', () => {
     expect(entry('Bike racks').getByText('Point fallback')).toBeInTheDocument();
     expect(entry('Street trees').getByText('Server cluster')).toBeInTheDocument();
   });
+
+  it('names the column a heatmap is weighted by', () => {
+    renderLegend([SAVED_LAYERS.heatmapByRamp]);
+
+    expect(screen.getByText('Weighted by: severity')).toBeInTheDocument();
+  });
+
+  it('names no weight column for a heatmap with a constant weight', () => {
+    const { heatmapByRamp } = SAVED_LAYERS;
+    renderLegend([{ ...heatmapByRamp, paint: { ...heatmapByRamp.paint, 'heatmap-weight': 1 } }]);
+
+    expect(screen.getByText('Low')).toBeInTheDocument();
+    expect(screen.queryByText(/Weighted by/)).not.toBeInTheDocument();
+  });
 });
 
 describe('LayerLegend terrain consistency (Fix 1)', () => {

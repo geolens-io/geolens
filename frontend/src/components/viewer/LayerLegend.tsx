@@ -201,9 +201,11 @@ export function LayerLegend({
                       <HeatmapLegend
                         name=""
                         ramp={facts.ramp}
+                        weightColumn={facts.weightColumn ?? undefined}
                         opacity={layer.opacity ?? 1}
                         lowLabel={t('viewer.heatmapLow')}
                         highLabel={t('viewer.heatmapHigh')}
+                        weightedByLabel={facts.weightColumn ? t('viewer.legend.weightedBy', { column: facts.weightColumn }) : undefined}
                       />
                     </div>
                   ) : facts.classes ? (
