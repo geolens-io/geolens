@@ -274,7 +274,7 @@ class _FileReupload:
         self.user_metadata = job.user_metadata or {}
         self.prior_record_type = dataset.record.record_type
         self.prior_geometry_type = dataset.geometry_type
-        # GPKG-01 Phase 1058: the user-chosen layer of a multi-layer file.
+        # The user-chosen layer of a multi-layer file.
         self.layer_name = job.source_layer
 
     async def fetch(self) -> None:
@@ -283,7 +283,7 @@ class _FileReupload:
         from app.processing.ingest.service import resolve_file_path
 
         self.file_path = await resolve_file_path(self.file_path, self.job_id)
-        # Validate file content and safety before ogr2ogr (KISS-5).
+        # Validate file content and safety before ogr2ogr.
         async with async_session() as session:
             try:
                 await _validate_upload_file_safety(
@@ -375,8 +375,8 @@ class _FileReupload:
             schema=_current_tenant_schema(),
             staged=staging_result,
         )
-        # fix(#888): tell the user when the Web Mercator clamp destroyed
-        # geometry instead of leaving them to discover it downstream.
+        # Tell the user when the Web Mercator clamp destroyed geometry,
+        # instead of leaving them to discover it downstream.
         _append_mercator_clip_warning(job, staging_result.mercator_clip)
         return PUBLISH
 
@@ -398,12 +398,12 @@ class _FileReupload:
             source_format=self.source_format,
             original_srid=self.srid,
             file_hash=self.file_hash,
-            # fix(#1218): the new bytes came from a file, so the binding says
-            # upload, even when the dataset was a registered table or service.
+            # The new bytes came from a file, so the binding says upload, even
+            # when the dataset was a registered table or service.
             origin_ref={"filename": self.source_filename, "file_hash": self.file_hash},
         )
-        # fix(#1472): a manifest re-apply lands here carrying the manifest's
-        # current attribution, which must replace the old credit.
+        # A manifest re-apply lands here carrying the manifest's current
+        # attribution, which replaces the old credit.
         await apply_manifest_record_metadata(
             session, dataset.record, self.user_metadata
         )
@@ -451,8 +451,8 @@ class _FileReupload:
                 or self.file_path != self.original_file_path
             ):
                 Path(self.file_path).unlink(missing_ok=True)
-        # fix(#1213): the object the task downloaded FROM, which after a
-        # presigned completion is the frozen copy the job is bound to.
+        # The object the task downloaded from, which after a presigned
+        # completion is the frozen copy the job is bound to.
         async with cleanup_step("reupload_file downloaded source", job_id=self.job_id):
             await reap_downloaded_staging_source(
                 self.job_id,
@@ -462,7 +462,7 @@ class _FileReupload:
                 # else will ever reap this; reap on failure too.
                 failed_source_replayable=False,
             )
-        # fix(#1207): the presigned staging key, which no other reaper sweeps.
+        # The presigned staging key, which no other reaper sweeps.
         async with cleanup_step(
             "reupload_file presigned staging object", job_id=self.job_id
         ):
@@ -864,17 +864,15 @@ async def _stage_service_table(
         _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
     has_geom = await ensure_geom_column(session, table, schema=schema)
-    # fix(#2031 review): the file door's refusal, before the swap DDL —
-    # this path learns geometry from the staging table, never from
-    # `_detect_reupload_crs`, so a table layer over a vector dataset
-    # reached the same record_type re-derivation.
+    # The file door's geometry-loss refusal, before the swap DDL. This path
+    # learns geometry from the staging table, not `_detect_reupload_crs`.
     _assert_geometry_survives(
         record_type=dataset.record.record_type,
         geometry_type=dataset.geometry_type,
         has_geometry=has_geom,
     )
     if has_geom:
-        # fix(#888): same clamp accounting as the file-reupload path.
+        # The same clamp accounting as the file re-upload.
         _append_mercator_clip_warning(
             job, await clip_to_mercator_bounds(session, table, schema=schema)
         )
@@ -928,8 +926,8 @@ class _ServiceReupload:
         self.token = token
         self.credential_ref = credential_ref
         self.options = options
-        # fix(#1271): whether the outbound fetch was reached, so a failure
-        # can date the contact.
+        # Whether the outbound fetch was reached, so a failure can date the
+        # contact.
         self.contacted = False
         self.measured_feature_count: int | None = None
         self.measured_schema_diff: dict | None = None
@@ -937,8 +935,8 @@ class _ServiceReupload:
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.staging_table = staging_table
-        # fix(#1271): a failure's contact stamp lands only while the dataset
-        # keeps the origin this attempt fetched from.
+        # A failure's contact stamp lands only while the dataset keeps the
+        # origin this attempt fetched from.
         self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
         um = job.user_metadata or {}
         self.service_type_raw = um.get("service_type", "")
@@ -947,8 +945,8 @@ class _ServiceReupload:
         self.source_layer_value = job.source_layer or self.source_layer
         self.source_filename = job.source_filename
         self.oid_field = um.get("object_id_field") or None
-        # fix(#1746): router_refresh writes "refresh" into user_metadata, so
-        # the auth-failure copy can name the call the operator made.
+        # router_refresh writes "refresh" into user_metadata, so the
+        # auth-failure copy can name the call the operator made.
         self.is_refresh = bool(um.get("refresh"))
         self.accepted_fingerprint = um.get("accepted_refresh_fingerprint")
         self.accepted_run_id = um.get("accepted_refresh_run_id")
@@ -977,8 +975,8 @@ class _ServiceReupload:
             ) from exc
         self.token = await _resolve_service_token(self.token, self.credential_ref)
 
-        # fix(#1271): the stamp may only describe the STORED origin, so it
-        # arms only when the whole attempted binding equals the stored one.
+        # The stamp may only describe the stored origin, so it arms only
+        # when the whole attempted binding equals the stored one.
         matches_binding = _matches_service_origin(
             self.bound,
             source_format=self.source_format,
@@ -1021,9 +1019,9 @@ class _ServiceReupload:
                 _run_service_import,
                 self.source_layer_value,
                 token=self.token,
-                # fix(#1746): serves only the refresh endpoint and the re-upload
-                # commit, and says "credential"/`auth` because a bearer token
-                # can't authenticate a basic or named-key origin.
+                # Serves only the refresh endpoint and the re-upload commit, and
+                # says "credential"/`auth` because a bearer token can't
+                # authenticate a basic or named-key origin.
                 auth_error_message=(
                     "Remote service authentication failed. Retry the refresh "
                     "with the credential in the request body's `auth` object; "
@@ -1217,8 +1215,8 @@ class _ServiceReupload:
         )
 
     def classify(self, exc: BaseException) -> Failure:
-        # fix(#1277): exact-value scrub first, in place, before anything reads
-        # `exc`: only this task knows the credential's literal value.
+        # Exact-value scrub first, in place, before anything reads `exc`: only
+        # this task knows the credential's literal value.
         scrub_secret_from_exception(exc, self.token)
         return Failure(
             _service_refresh_error_code(exc),
