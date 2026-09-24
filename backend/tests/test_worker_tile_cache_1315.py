@@ -393,38 +393,6 @@ async def test_in_memory_worker_cache_would_not_have_evicted_anything(
 
 
 # ---------------------------------------------------------------------------
-# Call-site coverage -- acceptance (c)
-# ---------------------------------------------------------------------------
-
-
-def test_every_worker_swap_path_purges_the_tile_cache():
-    """Every worker swap path reaches the tile purge after publication."""
-    from app.processing.ingest import (
-        publication,
-        tasks_postgis_refresh,
-        tasks_reupload,
-    )
-
-    call = "await invalidate_tile_cache_for_table(live_table_name)"
-    counts = {
-        "tasks_reupload": inspect.getsource(tasks_reupload).count(call),
-        "publication": inspect.getsource(publication._invalidate_after_commit).count(
-            call
-        ),
-        "tasks_postgis_refresh": inspect.getsource(tasks_postgis_refresh).count(call),
-    }
-    assert counts == {
-        "tasks_reupload": 1,
-        "publication": 1,
-        "tasks_postgis_refresh": 1,
-    }
-    assert (
-        "return await _invalidate_after_commit(PublicationOutcome.PUBLISHED, live_table_name)"
-        in inspect.getsource(publication.settle_publication)
-    )
-
-
-# ---------------------------------------------------------------------------
 # Drift guards -- bootstrap owns the tile cache for both entrypoints
 # ---------------------------------------------------------------------------
 

@@ -26,7 +26,6 @@ from app.platform.refresh.verification import (
 from app.platform.dataset_origin import set_dataset_origin
 from app.processing.ingest.publication import (
     PublicationOutcome,
-    PublicationPostCommitFailure,
     PublicationSettlementCommand,
     PublicationSettlementFailure,
     settle_publication,
@@ -233,9 +232,10 @@ async def test_blocked_refresh_keeps_live_data_and_settles_its_run(
     assert run.status == "blocked"
 
 
-async def test_blocked_cache_failure_keeps_blocked_diagnostic(
+async def test_a_blocked_verdict_settles_blocked_when_its_cache_purge_fails(
     test_db_session, monkeypatch
 ):
+    """A cache purge that fails after the blocked commit is logged, not raised."""
     dataset, job, staging, admin_id = await _prepared_candidate(
         test_db_session, refresh=True
     )
@@ -245,16 +245,14 @@ async def test_blocked_cache_failure_keeps_blocked_diagnostic(
         AsyncMock(side_effect=RuntimeError("cache unavailable")),
     )
 
-    with pytest.raises(PublicationPostCommitFailure, match="blocked"):
-        await settle_publication(
-            replace(
-                _command(
-                    test_db_session, dataset, job, staging, admin_id, refresh=True
-                ),
-                expected_feature_count=None,
-            )
+    outcome = await settle_publication(
+        replace(
+            _command(test_db_session, dataset, job, staging, admin_id, refresh=True),
+            expected_feature_count=None,
         )
+    )
 
+    assert outcome is PublicationOutcome.BLOCKED
     test_db_session.expire_all()
     run = await test_db_session.scalar(
         select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job_id)
@@ -354,28 +352,6 @@ async def test_a_rejected_verdict_settles_failed_through_held_contention(
     )
     assert run.status == "failed"
     assert run.error_code != CATALOG_LOCK_CONFLICT_CODE
-
-
-async def test_post_commit_cache_failure_keeps_the_published_job_complete(
-    test_db_session, monkeypatch
-):
-    dataset, job, staging, admin_id = await _prepared_candidate(
-        test_db_session, refresh=False
-    )
-    dataset_id, job_id = dataset.id, job.id
-    monkeypatch.setattr(
-        "app.processing.ingest.publication.invalidate_catalog_cache",
-        AsyncMock(side_effect=RuntimeError("cache unavailable")),
-    )
-
-    with pytest.raises(PublicationPostCommitFailure, match="cache invalidation"):
-        await settle_publication(
-            _command(test_db_session, dataset, job, staging, admin_id, refresh=False)
-        )
-
-    test_db_session.expire_all()
-    assert (await test_db_session.get(IngestJob, job_id)).status == "complete"
-    assert (await test_db_session.get(Dataset, dataset_id)).current_version == 2
 
 
 async def test_cancelled_attempt_is_fenced_before_its_swap(

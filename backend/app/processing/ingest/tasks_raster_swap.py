@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import set_dataset_origin
 from app.platform.storage.titiler_url import resolve_current_storage_key
+from app.processing.ingest.tasks_common import cleanup_step
 from app.processing.ingest.tasks_raster_common import _cleanup_orphaned_storage_keys
 
 logger = structlog.get_logger(__name__)
@@ -555,9 +556,9 @@ async def _run_post_swap_followups(
 ) -> None:
     """Work that happens once the replacement is durably published.
 
-    Extracted (fix(#1290)) so the caller can fence the whole of it in one
-    place — every statement here is optional, none may be confused with a
-    failed replace.
+    Every step is optional and none may be confused with a failed replace, so
+    each is fenced on its own: a failed cache purge still lets the reap and
+    the embedding defer run.
 
     Reaping the superseded objects is safe only now: up to the commit every
     exit left the previous COG both pointed at and present, past it the
@@ -583,23 +584,26 @@ async def _run_post_swap_followups(
     from app.core.db import async_session
     from sqlalchemy.orm import joinedload
 
-    await invalidate_catalog_cache()
-    await _cleanup_orphaned_storage_keys(
-        [key for key in prior_physical_keys if key not in written_storage_keys],
-        job_id=job_id,
-    )
-    async with async_session() as embed_session:
-        embed_dataset = (
-            await embed_session.execute(
-                select(dataset_cls)
-                .options(joinedload(dataset_cls.record))
-                .where(dataset_cls.id == dataset_uuid)
-            )
-        ).scalar_one_or_none()
-        if embed_dataset is not None:
-            from app.processing.embeddings.helpers import defer_embedding
+    async with cleanup_step("reupload_raster catalog cache", job_id=job_id):
+        await invalidate_catalog_cache()
+    async with cleanup_step("reupload_raster superseded objects", job_id=job_id):
+        await _cleanup_orphaned_storage_keys(
+            [key for key in prior_physical_keys if key not in written_storage_keys],
+            job_id=job_id,
+        )
+    async with cleanup_step("reupload_raster embedding", job_id=job_id):
+        async with async_session() as embed_session:
+            embed_dataset = (
+                await embed_session.execute(
+                    select(dataset_cls)
+                    .options(joinedload(dataset_cls.record))
+                    .where(dataset_cls.id == dataset_uuid)
+                )
+            ).scalar_one_or_none()
+            if embed_dataset is not None:
+                from app.processing.embeddings.helpers import defer_embedding
 
-            await defer_embedding(embed_dataset)
+                await defer_embedding(embed_dataset)
 
 
 async def run_post_swap_followups_best_effort(

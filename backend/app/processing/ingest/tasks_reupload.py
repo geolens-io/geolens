@@ -38,7 +38,6 @@ from app.platform.refresh.service import (
 )
 from app.processing.ingest.publication import (
     PublicationOutcome,
-    PublicationPostCommitFailure,
     PublicationSettlementCommand,
     PublicationSettlementFailure,
     _service_refresh_error_code,
@@ -1525,9 +1524,7 @@ async def reupload_service(
         # recognise as a URL. Mutated in place so the class survives for
         # the error-code handlers below and every reader sees the scrub.
         scrub_secret_from_exception(exc, token)
-        if isinstance(
-            exc, (PublicationSettlementFailure, PublicationPostCommitFailure)
-        ):
+        if isinstance(exc, PublicationSettlementFailure):
             raise
         # Phase 1/2 sessions are already closed by the time we get here.
         async with async_session() as err_session:
