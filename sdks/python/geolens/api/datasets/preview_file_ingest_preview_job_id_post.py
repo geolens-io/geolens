@@ -11,6 +11,7 @@ from ... import errors
 from ...models.preview_response import PreviewResponse
 from ...models.problem_detail import ProblemDetail
 from ...models.raster_preview_response import RasterPreviewResponse
+from ...models.tileset_preview_response import TilesetPreviewResponse
 from ...types import Unset
 from uuid import UUID
 
@@ -45,12 +46,18 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> PreviewResponse | RasterPreviewResponse | ProblemDetail | None:
+) -> (
+    PreviewResponse
+    | RasterPreviewResponse
+    | TilesetPreviewResponse
+    | ProblemDetail
+    | None
+):
     if response.status_code == 200:
 
         def _parse_response_200(
             data: object,
-        ) -> PreviewResponse | RasterPreviewResponse:
+        ) -> PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
@@ -59,11 +66,19 @@ def _parse_response(
                 return response_200_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                response_200_type_1 = RasterPreviewResponse.from_dict(data)
+
+                return response_200_type_1
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
             if not isinstance(data, dict):
                 raise TypeError()
-            response_200_type_1 = RasterPreviewResponse.from_dict(data)
+            response_200_type_2 = TilesetPreviewResponse.from_dict(data)
 
-            return response_200_type_1
+            return response_200_type_2
 
         response_200 = _parse_response_200(response.json())
 
@@ -122,7 +137,9 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[PreviewResponse | RasterPreviewResponse | ProblemDetail]:
+) -> Response[
+    PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
+]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -136,13 +153,18 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     layer_name: None | str | Unset = UNSET,
-) -> Response[PreviewResponse | RasterPreviewResponse | ProblemDetail]:
+) -> Response[
+    PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
+]:
     """Preview File
 
      Run preview on a staged file and return preview data.
 
     For vector files: returns columns, CRS, geometry type, feature count, sample rows.
     For raster files: returns band count, CRS, resolution, compliance status.
+    For a 3D Tiles tileset: returns its version, root geometric error, bounding
+    volume kind, extent and unpacked size, read from the archive's directory
+    and tileset.json without unpacking it.
     Only callable on jobs with status 'pending'.
 
     Args:
@@ -154,7 +176,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[PreviewResponse | RasterPreviewResponse | ProblemDetail]
+        Response[PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -174,13 +196,22 @@ def sync(
     *,
     client: AuthenticatedClient,
     layer_name: None | str | Unset = UNSET,
-) -> PreviewResponse | RasterPreviewResponse | ProblemDetail | None:
+) -> (
+    PreviewResponse
+    | RasterPreviewResponse
+    | TilesetPreviewResponse
+    | ProblemDetail
+    | None
+):
     """Preview File
 
      Run preview on a staged file and return preview data.
 
     For vector files: returns columns, CRS, geometry type, feature count, sample rows.
     For raster files: returns band count, CRS, resolution, compliance status.
+    For a 3D Tiles tileset: returns its version, root geometric error, bounding
+    volume kind, extent and unpacked size, read from the archive's directory
+    and tileset.json without unpacking it.
     Only callable on jobs with status 'pending'.
 
     Args:
@@ -192,7 +223,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        PreviewResponse | RasterPreviewResponse | ProblemDetail
+        PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
     """
 
     return sync_detailed(
@@ -207,13 +238,18 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     layer_name: None | str | Unset = UNSET,
-) -> Response[PreviewResponse | RasterPreviewResponse | ProblemDetail]:
+) -> Response[
+    PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
+]:
     """Preview File
 
      Run preview on a staged file and return preview data.
 
     For vector files: returns columns, CRS, geometry type, feature count, sample rows.
     For raster files: returns band count, CRS, resolution, compliance status.
+    For a 3D Tiles tileset: returns its version, root geometric error, bounding
+    volume kind, extent and unpacked size, read from the archive's directory
+    and tileset.json without unpacking it.
     Only callable on jobs with status 'pending'.
 
     Args:
@@ -225,7 +261,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[PreviewResponse | RasterPreviewResponse | ProblemDetail]
+        Response[PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -243,13 +279,22 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     layer_name: None | str | Unset = UNSET,
-) -> PreviewResponse | RasterPreviewResponse | ProblemDetail | None:
+) -> (
+    PreviewResponse
+    | RasterPreviewResponse
+    | TilesetPreviewResponse
+    | ProblemDetail
+    | None
+):
     """Preview File
 
      Run preview on a staged file and return preview data.
 
     For vector files: returns columns, CRS, geometry type, feature count, sample rows.
     For raster files: returns band count, CRS, resolution, compliance status.
+    For a 3D Tiles tileset: returns its version, root geometric error, bounding
+    volume kind, extent and unpacked size, read from the archive's directory
+    and tileset.json without unpacking it.
     Only callable on jobs with status 'pending'.
 
     Args:
@@ -261,7 +306,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        PreviewResponse | RasterPreviewResponse | ProblemDetail
+        PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | ProblemDetail
     """
 
     return (

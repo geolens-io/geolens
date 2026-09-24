@@ -1,0 +1,709 @@
+"""A tileset zip uploads, previews, commits and publishes, and never reaches GDAL."""
+
+from __future__ import annotations
+
+import inspect
+import io
+import math
+import os
+import uuid
+import zipfile
+from contextlib import contextmanager
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import boto3
+import pytest
+from httpx import AsyncClient
+from moto import mock_aws
+from sqlalchemy import select, text
+
+import app.platform.storage.provider as storage_provider
+from app.core.config import settings
+from app.core.db.tenant_session import current_tenant_var
+from app.core.upload_errors import UnsafeUploadError
+from app.core.tiles3d import (
+    TILESET_ASSET_KEY,
+    UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
+    tileset_attempt_prefix,
+    tileset_prefix,
+)
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.platform.jobs.models import IngestJob
+from app.platform.storage.s3 import S3StorageProvider
+from app.processing.embeddings.tasks import embed_record
+from app.processing.ingest.tasks import ingest_file, ingest_tileset, task_app
+from app.processing.ingest.tasks_tileset import unpack_tileset
+from app.processing.ingest.tileset import inspect_tileset
+from app.processing.raster.models import DatasetAsset
+from tests.factories import create_user
+from tests.tiles3d_archives import REGION, build_zip, tileset_json, zip_bytes
+
+_GLB = b"glTF" + bytes(60)
+_B3DM = b"b3dm" + bytes(28)
+
+
+def campus_zip(**json_kw) -> bytes:
+    """A tileset inside one top-level folder, the way most tools export it."""
+    return zip_bytes(
+        [
+            ("campus/", b""),
+            ("campus/tileset.json", tileset_json(**json_kw)),
+            ("campus/0/0.glb", _GLB),
+            ("campus/0/1.b3dm", _B3DM),
+        ]
+    )
+
+
+def unpacked_size(**json_kw) -> int:
+    return len(tileset_json(**json_kw)) + len(_GLB) + len(_B3DM)
+
+
+def compressible_zip() -> bytes:
+    """600 kB unpacked, about a quarter of that zipped, well under the ratio bound."""
+    digits = b"".join(f"{i:08d}".encode() for i in range(75_000))
+    return zip_bytes([("tileset.json", tileset_json()), ("0/0.glb", digits)])
+
+
+@pytest.fixture
+async def uploader(client: AsyncClient, admin_auth_header: dict, test_db_session):
+    """An editor whose datasets and jobs are removed afterwards."""
+    headers, user_id = await create_user(client, admin_auth_header, "editor")
+    yield headers, uuid.UUID(user_id)
+    # A committed tiles3d row blocks the migration tests' downgrades past 0065.
+    await test_db_session.rollback()
+    for table in ("records", "ingest_jobs"):
+        await test_db_session.execute(
+            text(f"DELETE FROM catalog.{table} WHERE created_by = :user"),
+            {"user": user_id},
+        )
+    await test_db_session.commit()
+
+
+@pytest.fixture
+def queued(monkeypatch) -> list:
+    """Each deferred task and its arguments, instead of the queue."""
+    calls: list = []
+
+    async def _defer(task, **kwargs):
+        calls.append((task, kwargs))
+
+    monkeypatch.setattr("app.processing.ingest.service.defer_async_with_tenant", _defer)
+    monkeypatch.setattr(
+        "app.processing.embeddings.helpers.defer_async_with_tenant", _defer
+    )
+    return calls
+
+
+def _quota(cap: int):
+    return patch(
+        "app.modules.quota.service.MAX_STORAGE_BYTES_PER_USER.get",
+        new=AsyncMock(return_value=cap),
+    )
+
+
+async def upload(
+    client: AsyncClient,
+    headers: dict,
+    data: bytes,
+    *,
+    kind: str | None = "tiles3d",
+    filename: str = "campus.zip",
+):
+    return await client.post(
+        "/ingest/upload",
+        files={"file": (filename, data, "application/zip")},
+        data={"kind": kind} if kind else {},
+        headers=headers,
+    )
+
+
+async def commit(client: AsyncClient, headers: dict, job_id: str, **fields):
+    return await client.post(
+        f"/ingest/commit/{job_id}",
+        json={"title": "Campus", "visibility": "public", **fields},
+        headers=headers,
+    )
+
+
+async def run_queued(queued: list) -> None:
+    task, kwargs = queued.pop()
+    assert task is ingest_tileset, f"dispatched {task.name}"
+    await task.func(**kwargs)
+
+
+async def publish(client, headers, queued, data: bytes) -> str:
+    """Upload, preview, commit and run the worker; returns the job id."""
+    uploaded = await upload(client, headers, data)
+    assert uploaded.status_code == 201, uploaded.text
+    job_id = uploaded.json()["job_id"]
+    previewed = await client.post(f"/ingest/preview/{job_id}", headers=headers)
+    assert previewed.status_code == 200, previewed.text
+    committed = await commit(client, headers, job_id)
+    assert committed.status_code == 202, committed.text
+    await run_queued(queued)
+    return job_id
+
+
+async def load_job(session, job_id) -> IngestJob:
+    session.expire_all()
+    return (
+        await session.execute(select(IngestJob).where(IngestJob.id == job_id))
+    ).scalar_one()
+
+
+async def tileset_objects(dataset_id=None) -> list[str]:
+    prefix = tileset_prefix(dataset_id) if dataset_id else "tiles3d/"
+    return sorted(await storage_provider.get_storage().list(prefix))
+
+
+# --- The published tileset -----------------------------------------------
+
+
+async def test_a_tileset_publishes_its_dataset_pointer_and_objects(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """One transaction creates the record, the dataset with its facts, and the pointer."""
+    headers, user_id = uploader
+    uploaded = await upload(client, headers, campus_zip())
+    assert uploaded.status_code == 201, uploaded.text
+    job_id = uploaded.json()["job_id"]
+
+    previewed = await client.post(f"/ingest/preview/{job_id}", headers=headers)
+    assert previewed.status_code == 200, previewed.text
+    assert previewed.json() == {
+        "job_id": job_id,
+        "source_filename": "campus.zip",
+        "version": "1.1",
+        "geometric_error": 70.0,
+        "bounding_volume": "region",
+        "extent_bbox": pytest.approx([math.degrees(v) for v in REGION[:4]]),
+        "unpacked_bytes": unpacked_size(),
+        "entry_count": 4,
+    }
+    staged = (await load_job(test_db_session, job_id)).file_path
+
+    committed = await commit(client, headers, job_id)
+    assert committed.status_code == 202, committed.text
+    await run_queued(queued)
+
+    job = await load_job(test_db_session, job_id)
+    assert job.status == "complete", job.error_message
+    dataset = (
+        await test_db_session.execute(
+            select(Dataset).where(Dataset.id == job.dataset_id)
+        )
+    ).scalar_one()
+    record = await test_db_session.get(Record, dataset.record_id)
+    assert (record.record_type, record.created_by) == ("tiles3d_dataset", user_id)
+    assert (dataset.source_format, dataset.table_name[:8]) == ("3dtiles", "tiles3d_")
+    assert (
+        dataset.tileset_version,
+        dataset.tileset_geometric_error,
+        dataset.tileset_bounding_volume,
+    ) == ("1.1", 70.0, "region")
+    assert dataset.quality_detail["attribute_completeness"] is None
+    attempt = tileset_attempt_prefix(dataset.id, job.attempt_id)
+    pointer = (
+        await test_db_session.execute(
+            select(DatasetAsset).where(
+                DatasetAsset.dataset_id == dataset.id,
+                DatasetAsset.key == TILESET_ASSET_KEY,
+            )
+        )
+    ).scalar_one()
+    assert (pointer.href, pointer.size_bytes) == (
+        f"{attempt}tileset.json",
+        unpacked_size(),
+    )
+    assert await tileset_objects(dataset.id) == [
+        f"{attempt}0/0.glb",
+        f"{attempt}0/1.b3dm",
+        f"{attempt}tileset.json",
+    ]
+    assert await storage_provider.get_storage().get(f"{attempt}0/0.glb") == _GLB
+    assert not Path(staged).exists()
+
+    detail = await client.get(f"/datasets/{dataset.id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert {k: body["tileset"][k] for k in ("size_bytes", "version")} == {
+        "size_bytes": unpacked_size(),
+        "version": "1.1",
+    }
+    assert body["tileset"]["geometric_error"] == 70.0
+    assert body["tileset"]["bounding_volume"] == "region"
+    assert body["extent_bbox"] == pytest.approx(
+        [math.degrees(v) for v in REGION[:4]], abs=1e-6
+    )
+    assert queued == [(embed_record, {"record_id": str(record.id)})]
+
+
+async def test_an_antimeridian_region_reads_back_as_the_crossing_pair(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """The stored extent is the two-ring split, and it reads back west > east."""
+    headers, _ = uploader
+    region = [math.radians(170), -0.3, math.radians(-170), -0.2, 0.0, 10.0]
+    job_id = await publish(
+        client, headers, queued, campus_zip(volume={"region": region})
+    )
+    job = await load_job(test_db_session, job_id)
+
+    detail = await client.get(f"/datasets/{job.dataset_id}", headers=headers)
+
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["extent_bbox"] == pytest.approx(
+        [170.0, math.degrees(-0.3), -170.0, math.degrees(-0.2)], abs=1e-6
+    )
+
+
+@pytest.mark.parametrize(
+    ("volume", "kind"),
+    [({"box": [0.0] * 12}, "box"), ({"sphere": [0.0, 0.0, 0.0, 5.0]}, "sphere")],
+)
+async def test_a_box_or_sphere_tileset_has_no_extent(
+    client: AsyncClient, test_db_session, uploader, queued, volume, kind
+) -> None:
+    """Only a region yields an extent; the stored kind says why it is null."""
+    headers, _ = uploader
+    job_id = await publish(client, headers, queued, campus_zip(volume=volume))
+    job = await load_job(test_db_session, job_id)
+
+    body = (await client.get(f"/datasets/{job.dataset_id}", headers=headers)).json()
+
+    assert body["extent_bbox"] is None
+    assert body["tileset"]["bounding_volume"] == kind
+
+
+# --- Refusals ------------------------------------------------------------
+
+
+async def test_a_zip_slip_archive_is_refused_before_any_write(
+    client: AsyncClient, test_db_session, uploader, tmp_path
+) -> None:
+    """The door refuses the archive, and nothing reaches the tileset prefix."""
+    headers, _ = uploader
+    data = zip_bytes([("tileset.json", tileset_json()), ("../../escape.glb", _GLB)])
+
+    refused = await upload(client, headers, data)
+
+    assert refused.status_code == 422, refused.text
+    assert "below the archive root" in refused.json()["detail"]
+    job = (
+        await test_db_session.execute(
+            select(IngestJob).where(IngestJob.created_by == uploader[1])
+        )
+    ).scalar_one()
+    assert (job.status, job.file_path) == ("failed", "")
+    assert await tileset_objects() == []
+    assert list((tmp_path / "staging").glob("*.zip")) == []
+
+
+@pytest.mark.parametrize("door", ["multipart", "presigned"])
+async def test_kind_on_a_file_that_is_not_a_zip_is_refused(
+    client: AsyncClient, test_db_session, uploader, monkeypatch, door
+) -> None:
+    """A tileset is a .zip; the kind cannot route any other file past a check."""
+    headers, user_id = uploader
+    monkeypatch.setattr(
+        settings, "storage_provider", "s3" if door == "presigned" else "local"
+    )
+    if door == "multipart":
+        resp = await upload(client, headers, b"SQLite format 3\x00", filename="x.gpkg")
+    else:
+        resp = await client.post(
+            "/ingest/upload/presigned",
+            json={"filename": "x.gpkg", "file_size": 16, "kind": "tiles3d"},
+            headers=headers,
+        )
+
+    assert resp.status_code == 422, resp.text
+    assert "uploaded as a .zip archive" in resp.json()["detail"]
+    jobs = await test_db_session.execute(
+        select(IngestJob.id).where(IngestJob.created_by == user_id)
+    )
+    assert jobs.all() == []
+
+
+async def test_an_unknown_kind_is_refused(client: AsyncClient, uploader) -> None:
+    """kind accepts 'tiles3d' and nothing else."""
+    resp = await upload(client, uploader[0], campus_zip(), kind="pointcloud")
+
+    assert resp.status_code == 422, resp.text
+
+
+async def test_fan_out_queues_nothing_for_a_tileset(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """A tileset job has no layers, so the fan-out door queues no vector import."""
+    headers, _ = uploader
+    job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
+
+    resp = await client.post(
+        f"/ingest/commit-fan-out/{job_id}",
+        json={"layers": [{"layer_name": "campus"}]},
+        headers=headers,
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert queued == []
+    assert (await load_job(test_db_session, job_id)).status == "pending"
+
+
+# --- GDAL isolation (Rule 2) ---------------------------------------------
+
+
+@contextmanager
+def _gdal_unreachable(monkeypatch):
+    reached: list[str] = []
+
+    def _record(name):
+        async def _async(*args, **kwargs):
+            reached.append(name)
+            raise AssertionError(f"{name} reached")
+
+        return _async
+
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.asyncio.create_subprocess_exec",
+        _record("a GDAL subprocess"),
+    )
+
+    def _rasterio_open(*args, **kwargs):
+        reached.append("rasterio.open")
+        raise AssertionError("rasterio.open reached")
+
+    monkeypatch.setattr("rasterio.open", _rasterio_open)
+    yield reached
+
+
+async def test_a_tileset_upload_never_reaches_gdal(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch
+) -> None:
+    """Upload, preview, commit and publish run without a GDAL process or open."""
+    headers, _ = uploader
+    with _gdal_unreachable(monkeypatch) as reached:
+        job_id = await publish(client, headers, queued, campus_zip())
+
+    assert reached == []
+    assert (await load_job(test_db_session, job_id)).status == "complete"
+
+
+async def test_a_zip_without_kind_takes_every_gdal_check(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch
+) -> None:
+    """The same archive without kind is previewed and queued as geospatial data."""
+    from app.processing.ingest import ogr, validation
+
+    headers, _ = uploader
+    checked: list[str] = []
+    zip_safety = validation.validate_zip_safety
+    directives = ogr.validate_content_directives
+
+    def _zip_safety(path):
+        checked.append("validate_zip_safety")
+        return zip_safety(path)
+
+    def _directives(path, filename=None):
+        checked.append("validate_content_directives")
+        return directives(path, filename)
+
+    monkeypatch.setattr(validation, "validate_zip_safety", _zip_safety)
+    monkeypatch.setattr(ogr, "validate_content_directives", _directives)
+
+    uploaded = await upload(client, headers, campus_zip(), kind=None)
+    job_id = uploaded.json()["job_id"]
+    await client.post(f"/ingest/preview/{job_id}", headers=headers)
+    committed = await commit(client, headers, job_id)
+
+    assert uploaded.status_code == 201, uploaded.text
+    assert "file_type" not in (await load_job(test_db_session, job_id)).user_metadata
+    assert checked[:2] == ["validate_content_directives", "validate_zip_safety"]
+    assert committed.status_code == 202, committed.text
+    # A small import goes to the priority queue through a configured deferrer.
+    assert queued[-1][0].job.task_name == ingest_file.name
+
+
+# --- Quota ---------------------------------------------------------------
+
+
+async def test_the_unpacked_total_is_checked_at_the_upload_door(
+    client: AsyncClient, test_db_session, uploader
+) -> None:
+    """A zip that fits the quota but unpacks past it gets the quota's 413."""
+    headers, _ = uploader
+    data = compressible_zip()
+    with _quota(400_000):
+        resp = await upload(client, headers, data)
+
+    assert len(data) < 400_000
+    assert resp.status_code == 413, resp.text
+    assert "Storage quota exceeded" in resp.json()["detail"]
+
+
+async def test_the_unpacked_total_is_checked_again_at_commit(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """Usage that grew after the upload is caught at commit, before anything is queued."""
+    headers, _ = uploader
+    job_id = (await upload(client, headers, compressible_zip())).json()["job_id"]
+
+    with _quota(400_000):
+        resp = await commit(client, headers, job_id)
+
+    assert resp.status_code == 413, resp.text
+    assert queued == []
+    assert (await load_job(test_db_session, job_id)).status == "pending"
+
+
+async def test_the_publish_reservation_refuses_an_overshoot(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """The worker reserves under the per-user lock and publishes nothing past the cap."""
+    headers, _ = uploader
+    job_id = (await upload(client, headers, compressible_zip())).json()["job_id"]
+    assert (await commit(client, headers, job_id)).status_code == 202
+
+    with _quota(400_000), pytest.raises(Exception, match="Storage quota exceeded"):
+        await run_queued(queued)
+
+    job = await load_job(test_db_session, job_id)
+    assert (job.status, job.dataset_id) == ("failed", None)
+    assert "Storage quota exceeded" in job.error_message
+    assert await tileset_objects() == []
+
+
+# --- Tenancy -------------------------------------------------------------
+
+
+class _RecordingStorage:
+    def __init__(self) -> None:
+        self.keys: list[str] = []
+
+    async def put(self, key, data) -> str:
+        data.read()
+        self.keys.append(key)
+        return key
+
+
+async def test_every_key_goes_through_the_tenant_resolver(
+    tmp_path, monkeypatch
+) -> None:
+    """A hosted worker writes under its tenant's prefix, and none without one."""
+    path = build_zip(
+        tmp_path / "t.zip",
+        [("tileset.json", tileset_json()), ("0/0.glb", _GLB)],
+    )
+    tileset = inspect_tileset(path)
+    storage = _RecordingStorage()
+    monkeypatch.setattr(storage_provider, "_storage", storage)
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    prefix = tileset_attempt_prefix(uuid.uuid4(), uuid.uuid4())
+
+    with pytest.raises(RuntimeError, match="tenant context"):
+        await unpack_tileset(path, tileset, prefix)
+    assert storage.keys == []
+
+    tenant = str(uuid.uuid4())
+    token = current_tenant_var.set(tenant)
+    try:
+        await unpack_tileset(path, tileset, prefix)
+    finally:
+        current_tenant_var.reset(token)
+    assert sorted(storage.keys) == [
+        f"tenants/{tenant}/{prefix}0/0.glb",
+        f"tenants/{tenant}/{prefix}tileset.json",
+    ]
+
+
+# --- Unpacking -----------------------------------------------------------
+
+
+async def test_a_damaged_member_is_refused_while_unpacking(
+    tmp_path, monkeypatch
+) -> None:
+    """A member that fails its checksum reads as a refusal, not a storage error."""
+    path = tmp_path / "t.zip"
+    build_zip(
+        path,
+        [("tileset.json", tileset_json()), ("0/0.glb", b"ORIGINAL-PAYLOAD")],
+        compression=zipfile.ZIP_STORED,
+    )
+    path.write_bytes(
+        path.read_bytes().replace(b"ORIGINAL-PAYLOAD", b"ORIGINAL-PAYLOAX")
+    )
+    tileset = inspect_tileset(str(path))
+    monkeypatch.setattr(storage_provider, "_storage", _RecordingStorage())
+    prefix = tileset_attempt_prefix(uuid.uuid4(), uuid.uuid4())
+
+    with pytest.raises(UnsafeUploadError, match="could not be read"):
+        await unpack_tileset(str(path), tileset, prefix)
+
+
+# --- The task contract ---------------------------------------------------
+
+
+def test_the_tileset_task_keeps_its_name_queue_and_arguments() -> None:
+    """A queued tileset job resolves to this task and binds these arguments."""
+    task = task_app.tasks["app.processing.ingest.tasks_tileset.ingest_tileset"]
+    signature = inspect.signature(task.func)
+
+    assert task is ingest_tileset
+    assert (task.queue, task.retry_strategy, task.pass_context) == (
+        "raster",
+        None,
+        False,
+    )
+    assert [(p.name, p.kind, p.default) for p in signature.parameters.values()] == [
+        ("job_id", inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.empty),
+        ("file_path", inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.empty),
+        ("user_id", inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.empty),
+        ("attempt_id", inspect.Parameter.POSITIONAL_OR_KEYWORD, None),
+        ("kwargs", inspect.Parameter.VAR_KEYWORD, inspect.Parameter.empty),
+    ]
+
+
+# --- Presigned doors on S3 -----------------------------------------------
+
+
+@pytest.fixture
+def s3_storage(client, monkeypatch):
+    """S3 mode against a moto bucket, on every storage lookup."""
+    credential = uuid.uuid4().hex
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
+        monkeypatch.setenv(name, credential)
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    with mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket="tiles3d")
+        storage = S3StorageProvider(
+            bucket="tiles3d",
+            region="us-east-1",
+            access_key_id=credential,
+            secret_access_key=credential,
+        )
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(storage_provider, "_storage", storage)
+        yield storage
+
+
+async def presigned_upload(client, headers, storage, data: bytes):
+    presigned = await client.post(
+        "/ingest/upload/presigned",
+        json={"filename": "campus.zip", "file_size": len(data), "kind": "tiles3d"},
+        headers=headers,
+    )
+    assert presigned.status_code == 201, presigned.text
+    body = presigned.json()
+    # Stands in for the browser's PUT to the presigned URL.
+    await storage.put(body["s3_key"], io.BytesIO(data))
+    completed = await client.post(
+        f"/ingest/upload/presigned/{body['job_id']}/complete", json={}, headers=headers
+    )
+    return body, completed
+
+
+async def test_a_presigned_tileset_publishes_from_s3(
+    client: AsyncClient, test_db_session, uploader, queued, s3_storage
+) -> None:
+    """The presigned doors read the archive in place and the worker unpacks it to S3."""
+    headers, _ = uploader
+    body, completed = await presigned_upload(client, headers, s3_storage, campus_zip())
+    assert completed.status_code == 200, completed.text
+    job_id = body["job_id"]
+
+    previewed = await client.post(f"/ingest/preview/{job_id}", headers=headers)
+    assert previewed.status_code == 200, previewed.text
+    assert previewed.json()["unpacked_bytes"] == unpacked_size()
+    assert (await commit(client, headers, job_id)).status_code == 202
+    await run_queued(queued)
+
+    job = await load_job(test_db_session, job_id)
+    assert job.status == "complete", job.error_message
+    attempt = tileset_attempt_prefix(job.dataset_id, job.attempt_id)
+    assert await s3_storage.list(tileset_prefix(job.dataset_id)) == [
+        f"{attempt}0/0.glb",
+        f"{attempt}0/1.b3dm",
+        f"{attempt}tileset.json",
+    ]
+    assert await s3_storage.list(f"staging/{job_id}/") == []
+
+
+async def test_the_unpacked_total_is_checked_at_presigned_complete(
+    client: AsyncClient, test_db_session, uploader, s3_storage
+) -> None:
+    """The quota's 413 at completion drops the staging object and its frozen copy."""
+    headers, _ = uploader
+    data = compressible_zip()
+
+    with _quota(400_000):
+        body, completed = await presigned_upload(client, headers, s3_storage, data)
+
+    assert len(data) < 400_000
+    assert completed.status_code == 413, completed.text
+    assert await s3_storage.list(f"staging/{body['job_id']}/") == []
+    job = await load_job(test_db_session, body["job_id"])
+    assert (job.status, job.file_path) == ("pending", "")
+
+
+async def test_a_refused_archive_is_dropped_at_presigned_complete(
+    client: AsyncClient, uploader, s3_storage
+) -> None:
+    """A zip-slip entry is a 422 at completion, with both objects gone."""
+    headers, _ = uploader
+    data = zip_bytes([("tileset.json", tileset_json()), ("../escape.glb", _GLB)])
+
+    body, completed = await presigned_upload(client, headers, s3_storage, data)
+
+    assert completed.status_code == 422, completed.text
+    assert "below the archive root" in completed.json()["detail"]
+    assert await s3_storage.list(f"staging/{body['job_id']}/") == []
+
+
+async def test_a_member_past_the_multipart_threshold_streams_whole(
+    tmp_path, s3_storage
+) -> None:
+    """A member larger than one S3 part reaches the bucket byte for byte."""
+    large = os.urandom(9 * 1024 * 1024)
+    path = build_zip(
+        tmp_path / "t.zip",
+        [("tileset.json", tileset_json()), ("0/large.glb", large)],
+        compression=zipfile.ZIP_STORED,
+    )
+    prefix = tileset_attempt_prefix(uuid.uuid4(), uuid.uuid4())
+
+    await unpack_tileset(path, inspect_tileset(path), prefix)
+
+    assert await s3_storage.get(f"{prefix}0/large.glb") == large
+
+
+# --- Interruption ----------------------------------------------------------
+
+
+async def test_the_attempt_names_its_prefix_before_the_first_put(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch
+) -> None:
+    """The job row already names the prefix when the first object is written."""
+    headers, _ = uploader
+    job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
+    assert (await commit(client, headers, job_id)).status_code == 202
+    real = storage_provider.get_storage()
+    recorded: list = []
+
+    class _Watching:
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        async def put(self, key, data):
+            if not recorded:
+                recorded.append((await load_job(test_db_session, job_id)).user_metadata)
+                await test_db_session.rollback()
+            return await real.put(key, data)
+
+    monkeypatch.setattr(storage_provider, "_storage", _Watching())
+    await run_queued(queued)
+
+    job = await load_job(test_db_session, job_id)
+    assert recorded[0][UNPUBLISHED_TILESET_ATTEMPTS_FIELD] == [
+        tileset_attempt_prefix(job.dataset_id, job.attempt_id)
+    ]

@@ -2296,6 +2296,19 @@
             "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "const": "tiles3d",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.",
+            "title": "Kind"
           }
         },
         "required": [
@@ -3911,7 +3924,7 @@
         "type": "object"
       },
       "CommitRequest": {
-        "description": "Wire-level schema for ``POST /ingest/commit/{job_id}``.\n\nPreserved as a flat union of all possible commit fields so that the\nFastAPI route signature renders correctly in OpenAPI and so that the\nfrontend's ``CommitImportRequest`` TypeScript type stays unchanged.\n\nThe route handler re-validates the body against a subclass chosen by\n``_pick_commit_subclass(job)`` (see ``app.ingest.router``):\n\n  - ``VectorCommitRequest`` \u2014 default for file uploads\n  - ``RasterCommitRequest`` \u2014 when ``job.user_metadata['file_type'] == 'raster'``\n  - ``ServiceCommitRequest`` \u2014 when ``job.source_url`` is set and ``job.file_path`` is None\n\nFor new internal code that constructs a commit view, prefer importing\nthe appropriate subclass directly. This flat class is the wire contract,\nnot an implementation detail.",
+        "description": "Wire-level schema for ``POST /ingest/commit/{job_id}``.\n\nPreserved as a flat union of all possible commit fields so that the\nFastAPI route signature renders correctly in OpenAPI and so that the\nfrontend's ``CommitImportRequest`` TypeScript type stays unchanged.\n\nThe route handler re-validates the body against a subclass chosen by\n``_pick_commit_subclass(job)`` (see ``app.ingest.router``):\n\n  - ``VectorCommitRequest`` \u2014 default for file uploads\n  - ``RasterCommitRequest`` \u2014 when ``job.user_metadata['file_type'] == 'raster'``\n  - ``ServiceCommitRequest`` \u2014 when ``job.source_url`` is set and ``job.file_path`` is None\n  - ``TilesetCommitRequest`` \u2014 when ``job.user_metadata['file_type'] == 'tiles3d'``\n\nFor new internal code that constructs a commit view, prefer importing\nthe appropriate subclass directly. This flat class is the wire contract,\nnot an implementation detail.",
         "properties": {
           "title": {
             "description": "Human-readable dataset title.",
@@ -13316,6 +13329,19 @@
             "maxLength": 255,
             "title": "Content Type",
             "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "const": "tiles3d",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.",
+            "title": "Kind"
           }
         },
         "required": [
@@ -18483,6 +18509,97 @@
           "url"
         ],
         "title": "TilesetMetadata",
+        "type": "object"
+      },
+      "TilesetPreviewResponse": {
+        "description": "What a staged 3D Tiles tileset archive holds, read without unpacking it.",
+        "properties": {
+          "job_id": {
+            "description": "Identifier of the tileset ingestion job being previewed.",
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Original filename of the uploaded tileset archive.",
+            "title": "Source Filename"
+          },
+          "version": {
+            "description": "The tileset's asset.version from its tileset.json.",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
+            "title": "Version",
+            "type": "string"
+          },
+          "geometric_error": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The root tile's geometricError, or null when tileset.json gives none.",
+            "title": "Geometric Error"
+          },
+          "bounding_volume": {
+            "description": "The kind of the root tile's bounding volume.",
+            "enum": [
+              "region",
+              "box",
+              "sphere"
+            ],
+            "title": "Bounding Volume",
+            "type": "string"
+          },
+          "extent_bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The root region as [west, south, east, north] in degrees; west > east when it crosses the antimeridian. Null for a box or sphere.",
+            "title": "Extent Bbox"
+          },
+          "unpacked_bytes": {
+            "description": "Total size of the archive's files once unpacked.",
+            "title": "Unpacked Bytes",
+            "type": "integer"
+          },
+          "entry_count": {
+            "description": "Number of entries, files and folders, in the archive.",
+            "title": "Entry Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "source_filename",
+          "version",
+          "geometric_error",
+          "bounding_volume",
+          "extent_bbox",
+          "unpacked_bytes",
+          "entry_count"
+        ],
+        "title": "TilesetPreviewResponse",
         "type": "object"
       },
       "TokenResponse": {
@@ -42101,7 +42218,7 @@
     },
     "/ingest/commit/{job_id}": {
       "post": {
-        "description": "Commit a staged file for ingestion with user-supplied metadata.\n\nStores user metadata on the job and queues the ingest task.\nOnly callable on jobs with status 'pending'.",
+        "description": "Commit a staged file for ingestion with user-supplied metadata.\n\nStores user metadata on the job and queues the ingest task.\nOnly callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked\nsize is checked against the storage quota again here.",
         "operationId": "commit_import_ingest_commit__job_id__post",
         "parameters": [
           {
@@ -42185,6 +42302,16 @@
               }
             },
             "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Payload too large"
           },
           "422": {
             "content": {
@@ -42545,7 +42672,7 @@
     },
     "/ingest/preview/{job_id}": {
       "post": {
-        "description": "Run preview on a staged file and return preview data.\n\nFor vector files: returns columns, CRS, geometry type, feature count, sample rows.\nFor raster files: returns band count, CRS, resolution, compliance status.\nOnly callable on jobs with status 'pending'.",
+        "description": "Run preview on a staged file and return preview data.\n\nFor vector files: returns columns, CRS, geometry type, feature count, sample rows.\nFor raster files: returns band count, CRS, resolution, compliance status.\nFor a 3D Tiles tileset: returns its version, root geometric error, bounding\nvolume kind, extent and unpacked size, read from the archive's directory\nand tileset.json without unpacking it.\nOnly callable on jobs with status 'pending'.",
         "operationId": "preview_file_ingest_preview__job_id__post",
         "parameters": [
           {
@@ -42588,6 +42715,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/RasterPreviewResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TilesetPreviewResponse"
                     }
                   ],
                   "title": "Response Preview File Ingest Preview  Job Id  Post"

@@ -2450,6 +2450,8 @@ _PAIR_WRITER_EXEMPTIONS = {
     "app.processing.ingest.tasks_vrt.create_vrt_dataset": "creates the pair",
     "app.processing.ingest.tasks_common._finalize_ingest": "creates the pair, then stamps it",
     "app.processing.ingest.tasks_raster.ingest_raster": "creates the pair, then stamps it",
+    "app.processing.ingest.tasks_tileset.create_tileset_dataset": "creates the pair",
+    "app.processing.ingest.tasks_tileset.ingest_tileset": "creates the pair, then stamps it",
     "app.processing.ingest.tasks_vector.ingest_file": "wrapper around _finalize_ingest",
     "app.processing.ingest.tasks_vector.ingest_service": "wrapper around _finalize_ingest",
     "app.modules.catalog.sources.stac_router.stac_import": "one pair per item, each in its own savepoint",

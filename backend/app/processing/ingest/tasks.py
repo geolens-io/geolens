@@ -40,6 +40,9 @@ from app.processing.ingest.tasks_raster import (  # noqa: F401
     create_raster_dataset,
     ingest_raster,
 )
+from app.processing.ingest.tasks_tileset import (  # noqa: F401
+    ingest_tileset,
+)
 from app.processing.ingest.tasks_vrt import (  # noqa: F401
     create_vrt_dataset,
     ingest_vrt,

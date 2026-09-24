@@ -350,6 +350,7 @@ services:
       TILE_CACHE_TTL: "${TILE_CACHE_TTL:-300}"
       TILE_SIGNING_SECRET: "${TILE_SIGNING_SECRET:-}"
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
+      MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       # GAP-022: pinned — api/worker/titiler share the upload_staging volume at
       # the fixed /app/staging mount target; the app path must equal it. Not an
       # operator knob in compose. See docker-compose.yml + .env.example.
@@ -428,6 +429,9 @@ services:
       # fix(#1710): the URL-import fetch clock runs in THIS container, so the
       # documented override only takes effect if it is forwarded here.
       URL_IMPORT_FETCH_MAX_SECONDS: "${URL_IMPORT_FETCH_MAX_SECONDS:-1800}"
+      # The tileset worker checks the unpacked total again before its first put,
+      # so it must read the cap the api's upload doors read.
+      MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
     healthcheck:
       # The api image's baked healthcheck targets :8000 (uvicorn); the worker

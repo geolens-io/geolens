@@ -35,6 +35,7 @@ class CommitRequest:
       - ``VectorCommitRequest`` — default for file uploads
       - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
       - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is None
+      - ``TilesetCommitRequest`` — when ``job.user_metadata['file_type'] == 'tiles3d'``
 
     For new internal code that constructs a commit view, prefer importing
     the appropriate subclass directly. This flat class is the wire contract,

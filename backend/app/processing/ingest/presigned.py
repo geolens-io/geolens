@@ -16,9 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.core.async_io import await_draining, run_in_thread_draining
+from app.core.upload_errors import UnsafeUploadError
 from app.modules.quota.service import check_replacement_quota, check_upload_quota
 from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
+from app.processing.ingest.tileset import (
+    TILESET_UNPACKED_BYTES_FIELD,
+    inspect_stored_tileset,
+)
 from app.processing.ingest.validation import HEADER_READ_SIZE, validate_file_content
 
 if TYPE_CHECKING:
@@ -547,3 +552,45 @@ async def finalize_presigned_object(
         raise
 
     return frozen_key
+
+
+async def admit_presigned_tileset(
+    db: AsyncSession,
+    storage: StorageProvider,
+    job: "IngestJob",
+    *,
+    frozen_key: str,
+    user_id: uuid.UUID,
+    request: Request,
+) -> None:
+    """Check a frozen tileset archive and its unpacked total, or drop both objects.
+
+    Runs after ``finalize_presigned_object``, on the frozen copy, and reads only
+    the archive's directory and tileset.json. Follows that function's failure
+    contract: a refusal deletes both objects, any other failure only the frozen
+    copy. Records the unpacked total on the job for the commit door.
+    """
+    job_id = job.id
+    metadata = job.user_metadata or {}
+    physical_frozen_key = resolve_current_storage_key(frozen_key)
+    try:
+        try:
+            tileset = await inspect_stored_tileset(storage, physical_frozen_key)
+        except UnsafeUploadError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+        await check_upload_quota(db, user_id, tileset.layout.unpacked_bytes, request)
+    except HTTPException:
+        await _cleanup_presigned_object(storage, physical_frozen_key, job_id)
+        await _cleanup_presigned_object(
+            storage, resolve_current_storage_key(metadata["s3_key"]), job_id
+        )
+        raise
+    except BaseException:
+        await _cleanup_presigned_object(storage, physical_frozen_key, job_id)
+        raise
+    job.user_metadata = {
+        **metadata,
+        TILESET_UNPACKED_BYTES_FIELD: tileset.layout.unpacked_bytes,
+    }

@@ -16,6 +16,12 @@ from app.platform.service_auth import (
 
 Visibility = Literal["private", "restricted", "internal", "public"]
 
+TILESET_KIND_DESCRIPTION = (
+    "'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding "
+    "tileset.json. Omit it for any other file; a zip without it is read as "
+    "geospatial data."
+)
+
 
 class UrlUploadRequest(BaseModel):
     """Request body for importing a file from a URL.
@@ -147,12 +153,44 @@ class RasterPreviewResponse(BaseModel):
     )
 
 
+class TilesetPreviewResponse(BaseModel):
+    """What a staged 3D Tiles tileset archive holds, read without unpacking it."""
+
+    job_id: uuid.UUID = Field(
+        description="Identifier of the tileset ingestion job being previewed."
+    )
+    source_filename: str | None = Field(
+        description="Original filename of the uploaded tileset archive."
+    )
+    version: Literal["1.0", "1.1"] = Field(
+        description="The tileset's asset.version from its tileset.json."
+    )
+    geometric_error: float | None = Field(
+        description="The root tile's geometricError, or null when tileset.json gives none."
+    )
+    bounding_volume: Literal["region", "box", "sphere"] = Field(
+        description="The kind of the root tile's bounding volume."
+    )
+    extent_bbox: list[float] | None = Field(
+        description=(
+            "The root region as [west, south, east, north] in degrees; west > "
+            "east when it crosses the antimeridian. Null for a box or sphere."
+        )
+    )
+    unpacked_bytes: int = Field(
+        description="Total size of the archive's files once unpacked."
+    )
+    entry_count: int = Field(
+        description="Number of entries, files and folders, in the archive."
+    )
+
+
 class BaseCommitRequest(BaseModel):
     """Fields common to every commit request type.
 
     Not meant to be instantiated directly — the router always selects
-    one of VectorCommitRequest, RasterCommitRequest, or
-    ServiceCommitRequest based on server-side job state.
+    one of VectorCommitRequest, RasterCommitRequest, ServiceCommitRequest or
+    TilesetCommitRequest based on server-side job state.
     """
 
     title: str = Field(
@@ -296,6 +334,10 @@ class ServiceCommitRequest(BaseCommitRequest):
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
+class TilesetCommitRequest(BaseCommitRequest):
+    """Commit request for a 3D Tiles tileset archive: the common fields only."""
+
+
 class CommitRequest(BaseModel):
     """Wire-level schema for ``POST /ingest/commit/{job_id}``.
 
@@ -309,6 +351,7 @@ class CommitRequest(BaseModel):
       - ``VectorCommitRequest`` — default for file uploads
       - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
       - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is None
+      - ``TilesetCommitRequest`` — when ``job.user_metadata['file_type'] == 'tiles3d'``
 
     For new internal code that constructs a commit view, prefer importing
     the appropriate subclass directly. This flat class is the wire contract,
@@ -520,6 +563,9 @@ class PresignedUploadRequest(BaseModel):
         default="application/octet-stream",
         max_length=255,  # RFC 6838 practical upper bound
         description="MIME type to associate with the uploaded object.",
+    )
+    kind: Literal["tiles3d"] | None = Field(
+        default=None, description=TILESET_KIND_DESCRIPTION
     )
 
 
