@@ -12,6 +12,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from collections.abc import Iterable
+from enum import StrEnum
 from typing import Any
 
 import structlog
@@ -439,6 +440,33 @@ async def publish_commit_landed(
     standing down there would turn a probe failure into a second, worse
     deletion.
     """
+    observation = await observe_publish_commit(
+        job_uuid, attempt_uuid, job_id=job_id, task=task
+    )
+    return observation is not PublishObservation.NOT_LANDED
+
+
+class PublishObservation(StrEnum):
+    """What the job row says about a commit whose acknowledgement was lost."""
+
+    LANDED = "landed"
+    NOT_LANDED = "not_landed"
+    # The probe itself failed, so the commit may or may not have landed.
+    UNKNOWN = "unknown"
+
+
+async def observe_publish_commit(
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    job_id: str,
+    task: str,
+) -> PublishObservation:
+    """Read this attempt's job row on a fresh session after a lost acknowledgement.
+
+    ``complete`` for this exact attempt means the publishing commit landed. A
+    probe that fails reports ``UNKNOWN`` rather than guessing either way.
+    """
     # fix(#909)-style late bind so tests' engine patching is honored.
     import app.core.db as db_module
 
@@ -458,13 +486,13 @@ async def publish_commit_landed(
         structlog.get_logger().warning(
             "publish_commit_probe_failed", job_id=job_id, task=task
         )
-        return True
-    landed = status == "complete"
-    if landed:
-        structlog.get_logger().warning(
-            "publish_commit_ack_lost_but_landed", job_id=job_id, task=task
-        )
-    return landed
+        return PublishObservation.UNKNOWN
+    if status != "complete":
+        return PublishObservation.NOT_LANDED
+    structlog.get_logger().warning(
+        "publish_commit_ack_lost_but_landed", job_id=job_id, task=task
+    )
+    return PublishObservation.LANDED
 
 
 def absorb_cancellation(exc: BaseException) -> None:

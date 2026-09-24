@@ -1,7 +1,8 @@
-"""Settle one prepared service publication attempt behind a single command."""
+"""Settle a prepared service publication, and commit any replacement's publication."""
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -29,8 +30,14 @@ from app.platform.refresh.service import (
 )
 from app.processing.ingest.tasks_common import (
     _apply_reupload_swap,
+    cleanup_step,
     invalidate_tile_cache_for_table,
     load_job_for_error_write,
+)
+from app.processing.ingest.tasks_raster_common import (
+    PublishObservation,
+    absorb_cancellation,
+    observe_publish_commit,
 )
 from app.processing.ingest.tasks_staging import _cleanup_staging_on_failure
 
@@ -56,10 +63,6 @@ class RefreshPublicationFenceError(RuntimeError):
 
 class PublicationSettlementFailure(RuntimeError):
     """Settlement rolled back and recorded its durable failure outcome."""
-
-
-class PublicationPostCommitFailure(RuntimeError):
-    """A post-commit cache operation failed after publication was durable."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,21 +308,66 @@ async def _record_settlement_failure(
         await invalidate_catalog_cache()
 
 
-async def _invalidate_after_commit(
-    outcome: PublicationOutcome, live_table_name: str | None = None
-) -> PublicationOutcome:
-    """Expose cache failures without rewriting a committed settlement outcome."""
+class PublicationCommit(StrEnum):
+    """How a publishing commit is known to have landed."""
+
+    ACKNOWLEDGED = "acknowledged"
+    # The acknowledgement was lost; a probe read this attempt's job complete.
+    OBSERVED = "observed"
+    # The acknowledgement was lost and the probe failed: the old data may
+    # still be the live data.
+    INDETERMINATE = "indeterminate"
+
+    @property
+    def confirmed(self) -> bool:
+        """The commit certainly landed, so what it superseded is unreferenced."""
+        return self is not PublicationCommit.INDETERMINATE
+
+
+async def commit_publication(
+    session: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    task: str,
+) -> PublicationCommit:
+    """Commit the transaction that publishes this attempt.
+
+    When the acknowledgement is lost, a probe of the job row decides: a commit
+    it reads as landed, or cannot read at all, is returned rather than raised,
+    and a cancellation that lost the acknowledgement is absorbed so the caller
+    goes on to its post-commit steps. Re-raises when the probe reads that the
+    commit did not land. Every replacement path turns its job row ``complete``
+    in the publishing transaction, which is what the probe reads. Callers
+    delete superseded data only when the result is ``confirmed``.
+    """
     try:
-        await invalidate_catalog_cache()
-        if live_table_name is not None:
-            await invalidate_tile_cache_for_table(live_table_name)
+        await session.commit()
     except (
-        Exception
-    ) as exc:  # broad: cache failure is visible but cannot rewrite a committed outcome
-        raise PublicationPostCommitFailure(
-            f"Publication {outcome} but cache invalidation failed."
-        ) from exc
-    return outcome
+        Exception,
+        asyncio.CancelledError,
+    ) as exc:  # broad: a lost acknowledgement can surface as any error
+        observation = await observe_publish_commit(
+            job_id, attempt_id, job_id=str(job_id), task=task
+        )
+        if observation is PublishObservation.NOT_LANDED:
+            raise
+        absorb_cancellation(exc)
+        if observation is PublishObservation.LANDED:
+            return PublicationCommit.OBSERVED
+        return PublicationCommit.INDETERMINATE
+    return PublicationCommit.ACKNOWLEDGED
+
+
+async def _invalidate_after_commit(
+    job_id: uuid.UUID, live_table_name: str | None = None
+) -> None:
+    """Purge the caches a committed settlement changed; a failure is only logged."""
+    async with cleanup_step("publication catalog cache", job_id=str(job_id)):
+        await invalidate_catalog_cache()
+    if live_table_name is not None:
+        async with cleanup_step("publication tile cache", job_id=str(job_id)):
+            await invalidate_tile_cache_for_table(live_table_name)
 
 
 async def settle_publication(
@@ -339,7 +387,8 @@ async def settle_publication(
         verification = _verification(command)
         if verification is not None and verification["decision"] != "allowed":
             outcome = await _settle_nonpublication(command, verification)
-            return await _invalidate_after_commit(outcome)
+            await _invalidate_after_commit(command.job_id)
+            return outcome
 
         version = await _apply_reupload_swap(
             command.session,
@@ -382,9 +431,12 @@ async def settle_publication(
             verification=verification,
             contacted_origin=True,
         )
-        await command.session.commit()
-    except PublicationPostCommitFailure:
-        raise
+        await commit_publication(
+            command.session,
+            job_id=command.job_id,
+            attempt_id=command.attempt_id,
+            task="publication_settlement",
+        )
     except (
         Exception
     ) as exc:  # broad: settlement preserves last-known-good on every pre-commit failure
@@ -392,4 +444,5 @@ async def settle_publication(
         await _record_settlement_failure(command, exc, verification)
         raise PublicationSettlementFailure("Publication settlement failed.") from exc
 
-    return await _invalidate_after_commit(PublicationOutcome.PUBLISHED, live_table_name)
+    await _invalidate_after_commit(command.job_id, live_table_name)
+    return PublicationOutcome.PUBLISHED

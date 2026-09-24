@@ -77,14 +77,13 @@ from app.processing.ingest.tasks_staging import (
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
 )
+from app.processing.ingest.publication import PublicationCommit, commit_publication
 from app.processing.ingest.tasks_raster_common import (
     _cleanup_orphaned_storage_keys,
     _enforce_strict_cog,
     _resolve_managed_raster_storage_keys,
-    absorb_cancellation,
     attempt_scoped_raster_base_key,
     extract_source_raster_metadata,
-    publish_commit_landed,
     record_unpublished_storage_keys,
 )
 from app.processing.ingest.tasks_raster_swap import (
@@ -821,42 +820,12 @@ async def reupload_raster(
                 schema_diff=None,
                 contacted_origin=False,
             )
-            try:
-                await session.commit()
-            except BaseException as exc:
-                # fix(#1778): the one await on this path whose outcome is
-                # genuinely unknown — see `publish_commit_landed`. A lost
-                # acknowledgement left the flag below false, and the terminal
-                # cleanup then deleted the three keys the committed
-                # RasterAsset had just been pointed at.
-                if not await publish_commit_landed(
-                    job_uuid, attempt_uuid, job_id=job_id, task="reupload_raster"
-                ):
-                    raise
-                # fix(#1778): stand down rather than re-raise, the
-                # same decision the other three tails make. `final_status`
-                # deliberately stays non-complete: it also licenses deleting
-                # the uploader's staged original, and a probe answer must
-                # never reach that decision.
-                swap_committed = True
-                absorb_cancellation(exc)
-                # fix(#1778): standing down from the FAILURE handler
-                # is not standing down from the success work. This call is the
-                # only deletion of the superseded COG and quicklooks, and the
-                # committed pointer already names the new keys, so returning
-                # without it strands three objects no row references and no
-                # quota counts — once per lost acknowledgement, for the life of
-                # the dataset. The helper carries its own fence, so a followup
-                # that fails still ends in this return.
-                await run_post_swap_followups_best_effort(
-                    dataset_uuid=dataset_uuid,
-                    dataset_cls=Dataset,
-                    prior_physical_keys=prior_physical_keys,
-                    written_storage_keys=written_storage_keys,
-                    job_id=job_id,
-                    dataset_id=dataset_id,
-                )
-                return
+            publication = await commit_publication(
+                session,
+                job_id=job_uuid,
+                attempt_id=attempt_uuid,
+                task="reupload_raster",
+            )
             # fix(#1290): set in the same breath as the commit, and read
             # by the terminal cleanup instead of `final_status`. These are two
             # different facts and the cleanup needs this one: "the replacement
@@ -867,15 +836,15 @@ async def reupload_raster(
             # optional post-commit work below reaped the COG the committed
             # RasterAsset now points at.
             swap_committed = True
-            final_status = "complete"
+            # A publish seen only through the probe keeps the uploader's
+            # staged original, which `final_status` licenses deleting.
+            if publication is PublicationCommit.ACKNOWLEDGED:
+                final_status = "complete"
 
-        # fix(#1290): everything from here is optional post-commit work,
-        # fenced so it cannot be mistaken for a failed replace. The
-        # `swap_committed` guard in the `finally` is the structural half of
-        # this: the fence keeps today's code from raising, and the guard keeps
-        # tomorrow's from destroying anything if it does. fix(#1778):
-        # the fence itself lives in the helper now, because the stand-down
-        # path below needs the same one.
+        # Everything from here is optional post-commit work, fenced so it
+        # cannot be mistaken for a failed replace. The `swap_committed` guard in
+        # the `finally` keeps the new keys; the superseded ones are reaped only
+        # when the publish is confirmed, since they may still be live.
         await run_post_swap_followups_best_effort(
             dataset_uuid=dataset_uuid,
             dataset_cls=Dataset,
@@ -883,6 +852,7 @@ async def reupload_raster(
             written_storage_keys=written_storage_keys,
             job_id=job_id,
             dataset_id=dataset_id,
+            reap_superseded=publication.confirmed,
         )
 
     except Exception as exc:  # broad: spans GDAL/COG/storage — any step can fail

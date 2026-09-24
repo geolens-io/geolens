@@ -46,6 +46,7 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
+from app.processing.ingest.publication import commit_publication
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
@@ -911,29 +912,39 @@ async def refresh_postgis(
                 contacted_origin=True,
             )
             live_table_name = dataset.table_name
-            await session.commit()
+            await commit_publication(
+                session,
+                job_id=job_uuid,
+                attempt_id=attempt_uuid,
+                task="refresh_postgis",
+            )
 
-        await invalidate_catalog_cache()
+        # The measurement is published, so each step below logs its own
+        # failure instead of failing the refresh.
+        async with cleanup_step("refresh_postgis catalog cache", job_id=job_id):
+            await invalidate_catalog_cache()
         # fix(#1313): unconditional, not only when the recount moved. The MVT
         # cache key has no content-version dimension, so an owner who edits
         # geometry or rewrites attributes without changing the row count
         # would otherwise keep serving stale tiles until they expire.
-        await invalidate_tile_cache_for_table(live_table_name)
+        async with cleanup_step("refresh_postgis tile cache", job_id=job_id):
+            await invalidate_tile_cache_for_table(live_table_name)
 
         # Non-fatal, same reason the reupload paths do it: the embedding is
         # built from the column names/sample values this run just rewrote.
-        async with async_session() as embed_session:
-            embed_dataset = (
-                await embed_session.execute(
-                    select(Dataset)
-                    .options(joinedload(Dataset.record))
-                    .where(Dataset.id == dataset_uuid)
-                )
-            ).scalar_one_or_none()
-            if embed_dataset is not None:
-                from app.processing.embeddings.helpers import defer_embedding
+        async with cleanup_step("refresh_postgis embedding", job_id=job_id):
+            async with async_session() as embed_session:
+                embed_dataset = (
+                    await embed_session.execute(
+                        select(Dataset)
+                        .options(joinedload(Dataset.record))
+                        .where(Dataset.id == dataset_uuid)
+                    )
+                ).scalar_one_or_none()
+                if embed_dataset is not None:
+                    from app.processing.embeddings.helpers import defer_embedding
 
-                await defer_embedding(embed_dataset)
+                    await defer_embedding(embed_dataset)
 
     except Exception as exc:  # broad: any step here is a database read that can fail
         logger.exception(

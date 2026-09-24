@@ -58,6 +58,7 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
+from app.processing.ingest.publication import commit_publication
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
@@ -752,12 +753,19 @@ async def refresh_stac(
                 schema_diff=None,
                 contacted_origin=True,
             )
-            await session.commit()
+            await commit_publication(
+                session,
+                job_id=job_uuid,
+                attempt_id=attempt_uuid,
+                task="refresh_stac",
+            )
 
         # GET /datasets/ serves the origin pointer and the health columns from
         # a 60-second cache, so without this the list keeps describing the old
-        # href after the refresh reported the new one.
-        await invalidate_catalog_cache()
+        # href after the refresh reported the new one. The rebind is already
+        # published, so a failure here is only logged.
+        async with cleanup_step("refresh_stac catalog cache", job_id=job_id):
+            await invalidate_catalog_cache()
 
     except Exception as exc:  # broad: any step here is a network or database read
         logger.exception("STAC refresh failed", job_id=job_id, task="refresh_stac")

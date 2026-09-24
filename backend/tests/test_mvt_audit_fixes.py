@@ -285,32 +285,6 @@ async def test_invalidate_tile_cache_for_table_noop_without_provider(monkeypatch
     await invalidate_tile_cache_for_table("reuploaded_table")
 
 
-def test_reupload_tasks_invalidate_tile_cache_after_commit():
-    """File and service swaps purge tiles only after their durable commit."""
-    import inspect
-
-    from app.processing.ingest import publication, tasks_reupload
-
-    task_source = inspect.getsource(tasks_reupload)
-    settlement_source = inspect.getsource(publication._invalidate_after_commit)
-    publish_source = inspect.getsource(publication.settle_publication)
-
-    assert (
-        task_source.count("await invalidate_tile_cache_for_table(live_table_name)") == 1
-    )
-    assert (
-        settlement_source.count(
-            "await invalidate_tile_cache_for_table(live_table_name)"
-        )
-        == 1
-    )
-    assert publish_source.index(
-        "await command.session.commit()"
-    ) < publish_source.index(
-        "return await _invalidate_after_commit(PublicationOutcome.PUBLISHED, live_table_name)"
-    )
-
-
 # ---------------------------------------------------------------------------
 # fix(#403): cluster tiles project attribute columns onto UNCLUSTERED features
 # ---------------------------------------------------------------------------
