@@ -578,6 +578,36 @@ class TestReuploadUpload:
         assert job.user_metadata["dataset_id"] == str(dataset.id)
         assert job.user_metadata["presigned"] is True
 
+    async def test_presigned_reupload_answers_400_for_a_disallowed_extension(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """A disallowed extension answers 400, matching the direct reupload
+        door, instead of an unhandled ValueError from validate_file_extension."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        storage = MagicMock()
+
+        with (
+            patch.object(router_reupload.settings, "storage_provider", "s3"),
+            patch.object(router_reupload, "get_storage", return_value=storage),
+        ):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/presigned",
+                json={
+                    "filename": "malware.exe",
+                    "file_size": 128,
+                    "content_type": "application/octet-stream",
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 400, resp.text
+        assert "'.exe'" in resp.json()["detail"]
+        assert "not allowed" in resp.json()["detail"]
+
 
 # ---------------------------------------------------------------------------
 # SC3: Preview returns schema diff

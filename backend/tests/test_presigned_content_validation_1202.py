@@ -256,6 +256,33 @@ async def test_both_doors_accept_a_legitimate_payload(
     assert presigned.status_code == 200, presigned.text
 
 
+async def test_both_doors_reject_a_disallowed_extension_identically(
+    client, admin_auth_header, both_doors
+) -> None:
+    """A disallowed extension answers 400 on both doors, with the same detail.
+
+    The presigned door's validate_file_extension call had no handler for the
+    ValueError it raises, so this request used to 500 instead.
+    """
+    direct = await _direct_upload(
+        client, admin_auth_header, "malware.exe", b"MZ" + b"\x00" * 64
+    )
+    presigned_resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "malware.exe",
+            "file_size": 66,
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert direct.status_code == 400, direct.text
+    assert presigned_resp.status_code == direct.status_code, presigned_resp.text
+    assert presigned_resp.json()["detail"] == direct.json()["detail"]
+    assert "'.exe'" in direct.json()["detail"]
+
+
 async def test_both_doors_reject_a_truncated_parquet_identically(
     client, admin_auth_header, both_doors
 ) -> None:

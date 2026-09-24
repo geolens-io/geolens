@@ -273,7 +273,13 @@ async def request_presigned_upload(
 
     allowed_list = await _get_allowed_extensions_safely(db)
     _reject_standalone_vrt(request.filename)
-    validate_file_extension(request.filename, allowed_list)
+    try:
+        validate_file_extension(request.filename, allowed_list)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
     require_tileset_archive(request.kind, request.filename)
 
     # Reject files exceeding configured size limit at request time
