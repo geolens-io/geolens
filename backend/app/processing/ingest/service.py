@@ -34,6 +34,7 @@ from app.processing.ingest.metadata import (
     add_4326_column,
     linearize_existing_4326,
     extract_metadata,
+    get_declared_srid,
     get_sample_values,
     get_table_srid,
     grant_reader_access,
@@ -67,6 +68,13 @@ _UPLOAD_SPOOL_MAX_BYTES: int = 16 * 1024 * 1024  # 16 MiB
 # fix(#836): lives here, not router.py, so CatalogPort (platform layer) can
 # read it without importing the API edge (which registers routes on import).
 PART_SIZE = 10 * 1024 * 1024  # 10MB per part
+
+# Registration refuses these tables and discovery says why, in one wording.
+UNDECLARED_SRID_REASON = (
+    "Its geom column declares no SRID, so GeoLens cannot tell where its "
+    "coordinates are. Set the SRID, for example with UpdateGeometrySRID, then "
+    "register the table."
+)
 
 
 async def _await_provider_call_draining(awaitable: Any) -> Any:
@@ -153,7 +161,13 @@ async def discover_unregistered_tables(
             """
         ).bindparams(**bind_params)
     )
-    return [DiscoveredTable(**dict(row)) for row in result.mappings().all()]
+    return [
+        DiscoveredTable(
+            **dict(row),
+            refusal_reason=UNDECLARED_SRID_REASON if row["srid"] == 0 else None,
+        )
+        for row in result.mappings().all()
+    ]
 
 
 async def get_job_or_404(
@@ -762,6 +776,11 @@ async def register_existing_table(
     # Per-tenant schema/role so published assets in multi_tenant land on the
     # correct reader role; no-op in single_tenant ('data'/'geolens_reader').
     _grant_role = _current_tenant_role()
+
+    if has_geom and await get_declared_srid(session, table_name, schema=_schema) == 0:
+        raise ValueError(
+            f"Table '{table_name}' cannot be registered. {UNDECLARED_SRID_REASON}"
+        )
 
     if has_geom:
         if not has_4326:

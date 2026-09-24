@@ -445,11 +445,15 @@ class DiscoveredTable(BaseModel):
     estimated_rows: int | None = Field(
         description="PostgreSQL row count estimate from `pg_class.reltuples`."
     )
+    refusal_reason: str | None = Field(
+        default=None,
+        description="Why registration would refuse this table as it is, or null when it can be registered.",
+    )
 
 
 class DiscoverResponse(BaseModel):
     tables: list[DiscoveredTable] = Field(
-        description="Tables in the `data` schema that are eligible for registration as datasets."
+        description="Tables in the `data` schema not yet registered as datasets. `refusal_reason` marks the ones registration would refuse."
     )
 
 

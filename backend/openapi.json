@@ -6702,7 +6702,7 @@
       "DiscoverResponse": {
         "properties": {
           "tables": {
-            "description": "Tables in the `data` schema that are eligible for registration as datasets.",
+            "description": "Tables in the `data` schema not yet registered as datasets. `refusal_reason` marks the ones registration would refuse.",
             "items": {
               "$ref": "#/components/schemas/DiscoveredTable"
             },
@@ -6758,6 +6758,18 @@
             ],
             "description": "PostgreSQL row count estimate from `pg_class.reltuples`.",
             "title": "Estimated Rows"
+          },
+          "refusal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why registration would refuse this table as it is, or null when it can be registered.",
+            "title": "Refusal Reason"
           }
         },
         "required": [

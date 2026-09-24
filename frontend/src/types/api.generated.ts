@@ -8365,7 +8365,7 @@ export interface components {
         DiscoverResponse: {
             /**
              * Tables
-             * @description Tables in the `data` schema that are eligible for registration as datasets.
+             * @description Tables in the `data` schema not yet registered as datasets. `refusal_reason` marks the ones registration would refuse.
              */
             tables: components["schemas"]["DiscoveredTable"][];
         };
@@ -8391,6 +8391,11 @@ export interface components {
              * @description PostgreSQL row count estimate from `pg_class.reltuples`.
              */
             estimated_rows: number | null;
+            /**
+             * Refusal Reason
+             * @description Why registration would refuse this table as it is, or null when it can be registered.
+             */
+            refusal_reason?: string | null;
         };
         /** DistributionCreate */
         DistributionCreate: {

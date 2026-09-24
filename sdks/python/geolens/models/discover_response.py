@@ -18,7 +18,8 @@ T = TypeVar("T", bound="DiscoverResponse")
 class DiscoverResponse:
     """
     Attributes:
-        tables (list[DiscoveredTable]): Tables in the `data` schema that are eligible for registration as datasets.
+        tables (list[DiscoveredTable]): Tables in the `data` schema not yet registered as datasets. `refusal_reason`
+            marks the ones registration would refuse.
     """
 
     tables: list[DiscoveredTable]

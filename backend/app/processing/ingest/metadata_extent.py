@@ -70,6 +70,25 @@ async def get_table_srid(
     return int(row) if row is not None else None
 
 
+async def get_declared_srid(
+    session: AsyncSession, table_name: str, schema: str = "data"
+) -> int | None:
+    """The SRID the ``geom`` column declares: 0 when it declares none.
+
+    None when the table has no ``geom`` geometry column, where
+    :func:`get_table_srid` raises instead.
+    """
+    _validate_table_name(table_name)
+    _validate_table_name(schema)
+    return await session.scalar(
+        text(
+            "SELECT srid FROM geometry_columns "
+            "WHERE f_table_schema = :schema AND f_table_name = :t "
+            "AND f_geometry_column = 'geom'"
+        ).bindparams(schema=schema, t=table_name)
+    )
+
+
 # Phase 1057 WFS-04: map abstract OGC GML 3 geometry types (returned by
 # PostGIS GeometryType() when the source WFS stores them, e.g. GeoServer's
 # opengeo:countries) to the closest concrete subtype, since
