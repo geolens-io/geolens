@@ -206,10 +206,11 @@ async def detect_3d_metadata(
 ) -> dict:
     """Detect 3D geometry properties from a PostGIS table.
 
-    Uses ``ST_NDims`` to determine whether any geometry is 3D and
-    ``ST_3DExtent`` to derive z-range metadata.
-    Returns dict with keys: is_3d, n_dims, z_min, z_max.
-    All values are None if the table has no geometry or no rows.
+    ``is_3d`` comes from ``ST_Zmflag`` (2 = Z, 3 = ZM), not from a raw
+    dimension count: an XYM row also has 3 ordinates but no Z. ``ST_NDims``
+    still gives the raw dimension count, and ``ST_3DExtent`` derives the
+    z-range for rows that do have Z. Returns dict with keys: is_3d, n_dims,
+    z_min, z_max. All values are None if the table has no geometry or no rows.
     """
     _validate_table_name(table_name)
 
@@ -225,21 +226,20 @@ async def detect_3d_metadata(
                 # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
                 f"SELECT "
                 f"  MAX(ST_NDims(geom)) AS n_dims, "
+                f"  BOOL_OR(ST_Zmflag(geom) IN (2, 3)) AS has_z, "
                 f"  CASE "
-                f"    WHEN MAX(ST_NDims(geom)) > 2 THEN ST_3DExtent(geom)::text "
+                f"    WHEN BOOL_OR(ST_Zmflag(geom) IN (2, 3)) THEN ST_3DExtent(geom)::text "
                 f"    ELSE NULL "
                 f"  END AS extent_3d "
                 f"FROM {_qtable(table_name, schema=schema)} "
                 f"WHERE geom IS NOT NULL"
             )
         )
-    except (
-        Exception
-    ):  # broad: ST_NDims/ST_3DExtent may not exist in older PostGIS; degrade gracefully
+    except Exception:  # broad: ST_NDims/ST_Zmflag/ST_3DExtent may not exist in older PostGIS; degrade gracefully
         logger.warning(
             "3d_metadata_detection_failed",
             table=table_name,
-            hint="ST_NDims or ST_3DExtent may not be available in this PostGIS version",
+            hint="ST_NDims, ST_Zmflag or ST_3DExtent may not be available in this PostGIS version",
         )
         return _NO_3D
 
@@ -248,7 +248,7 @@ async def detect_3d_metadata(
         return {"is_3d": False, "n_dims": 2, "z_min": None, "z_max": None}
 
     n_dims = row.n_dims if row.n_dims is not None else 2
-    is_3d = bool(n_dims and n_dims > 2)
+    is_3d = bool(row.has_z)
     z_min, z_max = _parse_box3d_z_bounds(row.extent_3d if is_3d else None)
 
     return {

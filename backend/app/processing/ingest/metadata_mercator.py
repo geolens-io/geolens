@@ -223,9 +223,10 @@ async def clip_to_mercator_bounds(
     Two CRS quirks the SQL handles: (1) the envelope is SRID 4326 and gets
     transformed to match the column's SRID, else PostGIS raises `coveredby:
     Operation on mixed SRID geometries`; (2) the envelope is always 2D, so a
-    3D column (e.g. `MultiPointZ`) needs `ST_Force3D` after
-    `ST_Intersection` or the UPDATE fails with `Column has Z dimension but
-    geometry does not` (clipped vertices land at z=0).
+    Z or M column (e.g. `MultiPointZ`, `MultiPointM`) needs that dimension
+    forced back after `ST_Intersection` or the UPDATE fails with `Column
+    has Z/M dimension but geometry does not` (clipped vertices land at 0 in
+    the forced dimension).
 
     fix(#888): returns the clip accounting (``dropped_features``,
     ``clipped_features``) so the caller can surface loss at the point it
@@ -236,17 +237,36 @@ async def clip_to_mercator_bounds(
 
     geom_meta = await session.execute(
         text(
-            "SELECT srid, coord_dimension FROM geometry_columns "
-            "WHERE f_table_schema = :schema "
-            "  AND f_table_name = :table_name "
-            "  AND f_geometry_column = 'geom'"
+            "SELECT gc.srid, postgis_typmod_type(a.atttypmod) AS typmod_type "
+            "FROM geometry_columns gc "
+            "JOIN pg_class c ON c.relname = gc.f_table_name "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "  AND n.nspname = gc.f_table_schema "
+            "JOIN pg_attribute a ON a.attrelid = c.oid "
+            "  AND a.attname = gc.f_geometry_column AND NOT a.attisdropped "
+            "WHERE gc.f_table_schema = :schema "
+            "  AND gc.f_table_name = :table_name "
+            "  AND gc.f_geometry_column = 'geom'"
         ).bindparams(schema=schema, table_name=table_name)
     )
     row = geom_meta.first()
     if row is None:
         return None  # column has no registered metadata — nothing safe to clip
     src_srid = int(row[0])
-    column_is_3d = int(row[1]) >= 3
+    # A 2D-only intersection with the envelope drops any Z or M the column
+    # declares; the UPDATE then fails ("Column has Z/M dimension but
+    # geometry does not") unless that dimension is forced back afterward. A
+    # lone M in the typmod is measured, not elevated: ST_Force3D would
+    # fabricate a Z instead of restoring the M the column actually needs.
+    typmod = (row[1] or "").upper()
+    if typmod.endswith("ZM"):
+        force_dims = "ST_Force4D"
+    elif typmod.endswith("Z"):
+        force_dims = "ST_Force3D"
+    elif typmod.endswith("M"):
+        force_dims = "ST_Force3DM"
+    else:
+        force_dims = None
 
     shifted = await _shift_zero_to_360_longitudes(session, table_name, schema, src_srid)
 
@@ -273,8 +293,8 @@ async def clip_to_mercator_bounds(
             }
 
     clipped = f"ST_CollectionExtract(ST_Intersection(geom, {envelope}), ST_Dimension(geom) + 1)"
-    if column_is_3d:
-        clipped = f"ST_Force3D({clipped})"
+    if force_dims is not None:
+        clipped = f"{force_dims}({clipped})"
 
     # fix(#888): count what the clip destroyed in the same statement that
     # destroys it. Rows that were already empty are excluded from the WHERE so

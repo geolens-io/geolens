@@ -467,6 +467,33 @@ class TestClipAccounting(_FixtureTable):
             "details": {"dropped_features": 0, "clipped_features": 1},
         }
 
+    async def test_a_measured_polygon_clips_without_forcing_a_z(self, test_db_session):
+        """A PolygonM straddling ±85.06° clips and keeps its M, not a forced Z.
+
+        ``ST_Force3D`` on an XYM geometry drops the M and fabricates a Z=0,
+        and writing that back into an M-typed column then fails with
+        "Geometry has Z dimension but column does not".
+        """
+        await _seed_wkt(
+            test_db_session,
+            ["POLYGON M ((0 80 1, 10 80 1, 10 89 1, 0 89 1, 0 80 1))"],
+            "PolygonM",
+        )
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None
+        assert counts["dropped_features"] == 0
+        assert counts["clipped_features"] == 1
+        row = (
+            await test_db_session.execute(
+                text(f"SELECT ST_YMax(geom), ST_Zmflag(geom) FROM data.{TABLE}")
+            )
+        ).first()
+        assert row is not None
+        assert float(row[0]) == pytest.approx(85.06)
+        assert int(row[1]) == 1  # still M-only; ST_Force3D was not applied
+
     async def test_in_bounds_dataset_reports_no_loss(self, test_db_session):
         """The overwhelmingly common case stays a silent no-op."""
         await _seed_points(test_db_session, [(-73.985, 40.748), (2.35, 48.85)])

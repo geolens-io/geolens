@@ -29,6 +29,7 @@ async def test_detect_3d_metadata_uses_3d_extent_and_parses_z_bounds():
     metadata_result = Mock()
     metadata_result.one_or_none.return_value = SimpleNamespace(
         n_dims=3,
+        has_z=True,
         extent_3d="BOX3D(1 2 -12.5,4 6 77.25)",
     )
 
@@ -46,6 +47,34 @@ async def test_detect_3d_metadata_uses_3d_extent_and_parses_z_bounds():
     metadata_query = str(session.execute.await_args_list[1].args[0])
     assert "ST_3DExtent" in metadata_query
     assert "ST_Is3D" not in metadata_query
+    assert "ST_Zmflag" in metadata_query
+
+
+@pytest.mark.asyncio
+async def test_detect_3d_metadata_treats_a_measured_column_as_not_3d():
+    """A 3-ordinate XYM row is not 3D: the 3rd ordinate is M, not Z."""
+    session = AsyncMock()
+
+    has_geom_result = Mock()
+    has_geom_result.scalar_one.return_value = True
+
+    metadata_result = Mock()
+    metadata_result.one_or_none.return_value = SimpleNamespace(
+        n_dims=3,
+        has_z=False,
+        extent_3d=None,
+    )
+
+    session.execute.side_effect = [has_geom_result, metadata_result]
+
+    result = await detect_3d_metadata(session, "sample_table")
+
+    assert result == {
+        "is_3d": False,
+        "n_dims": 3,
+        "z_min": None,
+        "z_max": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -58,6 +87,7 @@ async def test_detect_3d_metadata_returns_2d_defaults_without_extent():
     metadata_result = Mock()
     metadata_result.one_or_none.return_value = SimpleNamespace(
         n_dims=2,
+        has_z=False,
         extent_3d=None,
     )
 
