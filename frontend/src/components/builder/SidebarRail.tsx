@@ -44,6 +44,7 @@ function RailLayerIcon({ layer }: { layer: MapLayerResponse }) {
       layerType={caps.kind}
       styleHints={styleHints}
       swatch={facts?.swatch ?? null}
+      ramp={facts?.ramp ?? null}
       discrete={isDiscreteColorStyle(facts)}
     />
   );

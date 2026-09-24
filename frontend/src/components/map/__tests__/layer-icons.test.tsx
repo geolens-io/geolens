@@ -354,6 +354,16 @@ describe('ColorizedGeometryIcon line gradients (fix #1494)', () => {
 });
 
 describe('LayerTypeIcon heatmap', () => {
+  it('draws a stored heatmap ramp at its own stops', () => {
+    const layer = {
+      ...SAVED_LAYERS.heatmapByExpression,
+      paint: { 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#0000ff', 0.1, '#00ff00', 1, '#ff0000'] },
+    };
+    const { container } = render(<LayerTypeIcon layer={layer} iconId="uneven" />);
+    const stops = Array.from(container.querySelectorAll('stop'), (stop) => [stop.getAttribute('offset'), stop.getAttribute('stop-color')]);
+    expect(stops).toEqual([['0%', '#0000ff'], ['10%', '#00ff00'], ['100%', '#ff0000']]);
+  });
+
   it('draws the stored heatmap colour the map draws', () => {
     const { container } = render(<LayerTypeIcon layer={SAVED_LAYERS.heatmapByExpression} iconId="calls" />);
     const stops = Array.from(container.querySelectorAll('stop'), (stop) => stop.getAttribute('stop-color'));

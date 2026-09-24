@@ -123,6 +123,8 @@ describe('classes in both legends', () => {
     },
     style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7] },
   });
+  const storedHeat = (heatmapColor: unknown[]) =>
+    ({ ...SAVED_LAYERS.heatmapByRamp, paint: { ...SAVED_LAYERS.heatmapByRamp.paint, 'heatmap-color': heatmapColor } });
   const riversByBasin = {
     ...SAVED_LAYERS.graduatedWidth,
     paint: { ...SAVED_LAYERS.graduatedWidth.paint, 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'] },
@@ -185,6 +187,22 @@ describe('classes in both legends', () => {
 
     const gradient = (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
     expect(gradient.match(/rgb\(/g)).toHaveLength(5);
+  });
+
+  it.each(Object.entries(legends))('%s legend draws a stored heatmap ramp at its own stops', (_legend, draw) => {
+    const container = draw(storedHeat(['interpolate', ['linear'], ['heatmap-density'], 0, '#0000ff', 0.1, '#00ff00', 1, '#ff0000']));
+
+    const gradient = (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+    expect(gradient).toBe('linear-gradient(to right, rgb(0, 0, 255) 0%, rgb(0, 255, 0) 10%, rgb(255, 0, 0) 100%)');
+  });
+
+  it.each(Object.entries(legends))('%s legend draws a stored heatmap step as hard bands', (_legend, draw) => {
+    const container = draw(storedHeat(['step', ['heatmap-density'], '#fde725', 0.3, '#440154']));
+
+    const gradient = (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+    expect(gradient).toBe(
+      'linear-gradient(to right, rgb(253, 231, 37) 0%, rgb(253, 231, 37) 30%, rgb(68, 1, 84) 30%, rgb(68, 1, 84) 100%)',
+    );
   });
 
   it.each(Object.entries(legends))('%s legend draws no heatmap ramp for a stored colour it cannot read', (_legend, draw) => {

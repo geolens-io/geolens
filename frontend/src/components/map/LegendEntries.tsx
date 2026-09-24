@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { breakLabel } from '@/lib/legend-utils';
 import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
-import type { LegendClasses, LegendSwatch } from './legend-facts';
+import { rampGradient } from './legend-facts';
+import type { LegendClasses, LegendRamp, LegendSwatch } from './legend-facts';
 
 /* ── Shared swatch rendering ─────────────────────── */
 
@@ -198,8 +199,7 @@ export const LegendClassesList = memo(function LegendClassesList({ classes, geom
 
 interface HeatmapLegendProps {
   name: string;
-  /** The heatmap's colours from low to high density. */
-  colors: string[];
+  ramp: LegendRamp;
   weightColumn?: string;
   opacity?: number;
   lowLabel: string;
@@ -209,15 +209,15 @@ interface HeatmapLegendProps {
 
 export const HeatmapLegend = memo(function HeatmapLegend({
   name,
-  colors,
+  ramp,
   weightColumn,
   opacity = 1,
   lowLabel,
   highLabel,
   weightedByLabel,
 }: HeatmapLegendProps) {
-  // A CSS gradient needs two stops, so a single colour is repeated.
-  const gradient = `linear-gradient(to right, ${(colors.length > 1 ? colors : [colors[0], colors[0]]).join(', ')})`;
+  const stops = rampGradient(ramp).map(({ color, offset }) => `${color} ${Math.round(offset * 10000) / 100}%`);
+  const gradient = `linear-gradient(to right, ${stops.join(', ')})`;
 
   return (
     <div style={opacity < 1 ? { opacity } : undefined}>

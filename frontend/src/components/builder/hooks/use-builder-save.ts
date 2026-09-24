@@ -20,7 +20,7 @@ import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatc
 import { usePluginStore } from '@/stores/map-plugin-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
-import { legendFacts } from '@/components/map/legend-facts';
+import { legendFacts, rampGradient } from '@/components/map/legend-facts';
 import { syntheticTerrainEntry } from '@/components/builder/terrain-legend';
 import { getPersistedFolderGroup, prepareLayersForPersistence, stampPersistedFolderGroupExpanded, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
@@ -1419,7 +1419,10 @@ export function useBuilderSave(state: SaveState) {
               if (colors.length > 1) {
                 try {
                   const grad = ctx.createLinearGradient(pad, 0, pad + swatchSize, 0);
-                  colors.forEach((c, i) => grad.addColorStop(i / (colors.length - 1), c));
+                  const stops = facts.ramp
+                    ? rampGradient(facts.ramp)
+                    : colors.map((color, i) => ({ color, offset: i / (colors.length - 1) }));
+                  stops.forEach(({ color, offset }) => grad.addColorStop(offset, color));
                   ctx.fillStyle = grad;
                   filled = true;
                 } catch {

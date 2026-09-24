@@ -204,7 +204,7 @@ export function LayerLegend({
                     <div className="mt-1.5 ms-6">
                       <HeatmapLegend
                         name=""
-                        colors={facts.ramp.colors}
+                        ramp={facts.ramp}
                         opacity={layer.opacity ?? 1}
                         lowLabel={t('viewer.heatmapLow')}
                         highLabel={t('viewer.heatmapHigh')}

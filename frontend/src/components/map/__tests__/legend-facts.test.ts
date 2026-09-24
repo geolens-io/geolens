@@ -3,7 +3,7 @@ import { buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors }
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
 import { SAVED_LAYERS, ZOOM_FADED_STATIONS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
-import { legendFacts, type LegendClasses, type LegendFacts, type LegendSwatch } from '../legend-facts';
+import { legendFacts, type LegendClasses, type LegendFacts, type LegendRamp, type LegendSwatch } from '../legend-facts';
 
 type Row = [label: string, layer: MapLayerResponse, expected: LegendFacts | null];
 
@@ -80,11 +80,18 @@ const fixtureClasses: Partial<Record<keyof typeof SAVED_LAYERS, LegendClasses[]>
   graduatedWidth: [graduated('width', 'flow', sized('#0284c7', [1, 3, 6]), [10, 100])],
 };
 
+/** A ramp built from a named ramp: its five map colours, evenly spaced. */
+const builderRamp = (name: string, reversed = false): LegendRamp =>
+  ({ colors: getRampColors(name, 5, reversed), stops: [0, 0.25, 0.5, 0.75, 1], mode: 'interpolate', name, reversed });
+/** A ramp read from a stored heatmap-color expression. */
+const storedRamp = (colors: string[], stops: number[], mode: LegendRamp['mode'] = 'interpolate'): LegendRamp =>
+  ({ colors, stops, mode, name: null, reversed: false });
+
 /** The heatmap fixtures' ramps and weight columns. */
 const fixtureHeat: Partial<Record<keyof typeof SAVED_LAYERS, Pick<LegendFacts, 'ramp' | 'weightColumn'>>> = {
-  heatmapByRamp: { ramp: { colors: getRampColors('Blues', 5), name: 'Blues', reversed: false }, weightColumn: 'severity' },
-  reversedHeatmap: { ramp: { colors: getRampColors('Viridis', 5, true), name: 'Viridis', reversed: true }, weightColumn: null },
-  heatmapByExpression: { ramp: { colors: ['#7c3aed', '#f0abfc'], name: null, reversed: false }, weightColumn: null },
+  heatmapByRamp: { ramp: builderRamp('Blues'), weightColumn: 'severity' },
+  reversedHeatmap: { ramp: builderRamp('Viridis', true), weightColumn: null },
+  heatmapByExpression: { ramp: storedRamp(['#7c3aed', '#f0abfc'], [0, 1]), weightColumn: null },
 };
 
 const fixtureRows: Row[] = Object.entries(SAVED_LAYERS).map(([key, layer]) => {
@@ -406,6 +413,15 @@ const classRows: ClassRow[] = [
     ], [5, 6, 7])],
   ],
   [
+    'radius classes with an interpolated colour on the same column and breaks',
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-radius': magnitudeRadius, 'circle-color': ['interpolate', ['linear'], ['get', 'mag'], 5, '#fee8c8', 6, '#fdbb84', 7, '#e34a33'] },
+      style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7], sizeLabel: 'Magnitude' },
+    }),
+    [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+  ],
+  [
     'radius classes coloured by the same column at other breaks',
     savedLayer({
       dataset_geometry_type: 'MULTIPOINT',
@@ -493,7 +509,6 @@ const heatmap = (paint: Record<string, unknown>, style_config: Record<string, un
   paint: { 'heatmap-radius': 30, ...paint },
   style_config: { mode: 'graduated', column: '', render_mode: 'heatmap', ...style_config },
 });
-const builderRamp = (name: string, reversed = false) => ({ colors: getRampColors(name, 5, reversed), name, reversed });
 
 const heatRows: HeatRow[] = [
   ['no ramp at all', heatmap({}), { ramp: builderRamp('YlOrRd'), weightColumn: null }],
@@ -503,7 +518,7 @@ const heatRows: HeatRow[] = [
       { 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 0.5, '#7c3aed', 1, '#f0abfc'] },
       { builder: { heatmapRamp: 'Blues', heatmapReversed: true } },
     ),
-    { ramp: { colors: ['#7c3aed', '#f0abfc'], name: null, reversed: false }, weightColumn: null },
+    { ramp: storedRamp(['#7c3aed', '#f0abfc'], [0, 1]), weightColumn: null },
   ],
   [
     'a builder ramp over a stale top-level ramp',
@@ -523,27 +538,37 @@ const heatRows: HeatRow[] = [
   [
     'a stored ramp with an opaque colour at zero density',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#0000ff', 1, '#ff0000'] }),
-    { ramp: { colors: ['#0000ff', '#ff0000'], name: null, reversed: false }, weightColumn: null },
+    { ramp: storedRamp(['#0000ff', '#ff0000'], [0, 1]), weightColumn: null },
   ],
   [
     'a stored ramp with a transparent colour at zero density',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 1, '#ff0000'] }),
-    { ramp: { colors: ['#ff0000'], name: null, reversed: false }, weightColumn: null },
+    { ramp: storedRamp(['#ff0000'], [0]), weightColumn: null },
   ],
   [
     'a stored ramp with a zero-alpha hex at zero density',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#2166ac00', 0.5, '#67a9cf', 1, '#ef8a62'] }),
-    { ramp: { colors: ['#67a9cf', '#ef8a62'], name: null, reversed: false }, weightColumn: null },
+    { ramp: storedRamp(['#67a9cf', '#ef8a62'], [0, 1]), weightColumn: null },
+  ],
+  [
+    'a stored ramp with uneven stops',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#0000ff', 0.1, '#00ff00', 1, '#ff0000'] }),
+    { ramp: storedRamp(['#0000ff', '#00ff00', '#ff0000'], [0, 0.1, 1]), weightColumn: null },
+  ],
+  [
+    'a stored ramp whose stops start above zero density',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0.5, '#0000ff', 0.75, '#00ff00', 1, '#ff0000'] }),
+    { ramp: storedRamp(['#0000ff', '#00ff00', '#ff0000'], [0, 0.5, 1]), weightColumn: null },
   ],
   [
     'a stored step colour',
     heatmap({ 'heatmap-color': ['step', ['heatmap-density'], 'rgba(0,0,0,0)', 0.3, '#fde725', 0.7, '#440154'] }),
-    { ramp: { colors: ['rgba(0,0,0,0)', '#fde725', '#440154'], name: null, reversed: false }, weightColumn: null },
+    { ramp: storedRamp(['rgba(0,0,0,0)', '#fde725', '#440154'], [0, 0.3, 0.7], 'step'), weightColumn: null },
   ],
   [
     'a stored single colour',
     heatmap({ 'heatmap-color': '#dc2626' }),
-    { ramp: { colors: ['#dc2626'], name: null, reversed: false }, weightColumn: null },
+    { ramp: storedRamp(['#dc2626'], [0]), weightColumn: null },
   ],
   ['a stored expression with no colours to read', heatmap({ 'heatmap-color': ['get', 'color'] }), { ramp: null, weightColumn: null }],
   ['an empty weight column', heatmap({}, { builder: { heatmapWeightColumn: '' } }), { ramp: builderRamp('YlOrRd'), weightColumn: null }],

@@ -58,6 +58,20 @@ export interface LegendClasses {
   breaks: number[];
 }
 
+/** A heatmap's colours from low to high density, where each sits on the ramp, and how they blend. */
+export interface LegendRamp {
+  colors: string[];
+  /**
+   * Where each colour sits, 0 to 1 across the densities the ramp draws: its stop
+   * for an interpolate, and where its band starts for a step.
+   */
+  stops: number[];
+  mode: 'interpolate' | 'step';
+  /** The named ramp the colours come from; null for a stored expression. */
+  name: string | null;
+  reversed: boolean;
+}
+
 /** What a legend entry shows for one layer. */
 export interface LegendFacts {
   name: string;
@@ -69,8 +83,8 @@ export interface LegendFacts {
    * comes first, followed by the colour classes its symbols are painted in.
    */
   classes: LegendClasses[] | null;
-  /** A heatmap's colours from low to high density, and the named ramp they come from; null for other layers. */
-  ramp: { colors: string[]; name: string | null; reversed: boolean } | null;
+  /** A heatmap's colour ramp; null for other layers. */
+  ramp: LegendRamp | null;
   /** The column a heatmap weights its points by; null when unweighted or not a heatmap. */
   weightColumn: string | null;
 }
@@ -256,11 +270,16 @@ function unwrapNullGuard(value: unknown): unknown {
  * The colours, breaks and column of a step or linear interpolate colour ramp,
  * null guard or not. The column comes from the ramp's input, so a zoom ramp has none.
  */
-function colorSteps(value: unknown): { colors: string[]; breaks: number[]; column: string | null } | null {
+function colorSteps(value: unknown): { colors: string[]; breaks: number[]; column: string | null; isStep: boolean } | null {
   const ramp = unwrapNullGuard(value);
   const parsed = parseStepOrInterpolate(ramp);
   if (!parsed || !parsed.values.every((v) => typeof v === 'string')) return null;
-  return { colors: parsed.values as string[], breaks: parsed.breaks, column: expressionColumn(rampInput(ramp)) };
+  return {
+    colors: parsed.values as string[],
+    breaks: parsed.breaks,
+    column: expressionColumn(rampInput(ramp)),
+    isStep: Array.isArray(ramp) && ramp[0] === 'step',
+  };
 }
 
 function sameNumbers(a: number[], b: number[]): boolean {
@@ -296,9 +315,9 @@ function classesFor(
     const steps = colorSteps(paint[getColorProperty(geometry)]);
     const color = steps?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
     const sizeTitle = config.sizeLabel ?? displayColumn(column);
-    // Colour steps on the size column at the size breaks colour each size class,
-    // so the legend lists one classification.
-    const colorsEachSize = steps !== null && steps.column === column && sameNumbers(steps.breaks, breaks);
+    // A colour step on the size column at the size breaks gives each size class one
+    // colour, so the legend lists one classification. An interpolate blends within a class.
+    const colorsEachSize = steps !== null && steps.isStep && steps.column === column && sameNumbers(steps.breaks, breaks);
     const sized: LegendClasses = {
       mode: 'graduated',
       target: config.target,
@@ -333,28 +352,50 @@ function isTransparentColor(color: unknown): boolean {
   return parts.length === 4 && parseFloat(parts[3]) === 0;
 }
 
-/** The colours a heatmap-color expression draws, low to high density; null when they can't be read. */
-function heatmapColors(expression: unknown): string[] | null {
-  if (typeof expression === 'string') return [expression];
+/** The colours, stops and mode a heatmap-color expression draws; null when they can't be read. */
+function heatmapRamp(expression: unknown): Pick<LegendRamp, 'colors' | 'stops' | 'mode'> | null {
+  if (typeof expression === 'string') return { colors: [expression], stops: [0], mode: 'interpolate' };
   if (!Array.isArray(expression)) return null;
-  let outputs: unknown[];
-  if (expression[0] === 'interpolate' || expression[0] === 'interpolate-hcl' || expression[0] === 'interpolate-lab') {
+  const isStep = expression[0] === 'step';
+  if (!isStep && !['interpolate', 'interpolate-hcl', 'interpolate-lab'].includes(expression[0])) return null;
+  // [density, colour]: a step's first band starts at zero density.
+  const pairs: [unknown, unknown][] = isStep ? [[0, expression[2]]] : [];
+  for (let i = 3; i + 1 < expression.length; i += 2) {
     // A transparent colour at zero density is the floor where no heat draws, as
     // in the built ramps; an opaque one there is part of the ramp.
-    outputs = expression.filter((_, i) => i >= 4 && i % 2 === 0 && !(expression[i - 1] === 0 && isTransparentColor(expression[i])));
-  } else if (expression[0] === 'step') {
-    outputs = expression.filter((_, i) => i >= 2 && i % 2 === 0);
-  } else {
-    return null;
+    if (!isStep && expression[i] === 0 && isTransparentColor(expression[i + 1])) continue;
+    pairs.push([expression[i], expression[i + 1]]);
   }
-  return outputs.length && outputs.every((color) => typeof color === 'string') ? outputs as string[] : null;
+  if (!pairs.length || !pairs.every(([density, color]) => typeof density === 'number' && typeof color === 'string')) return null;
+  const densities = pairs.map(([density]) => density as number);
+  // An interpolate draws from its first stop to its last; a step's bands cover every density.
+  const [low, high] = isStep ? [0, 1] : [densities[0], densities[densities.length - 1]];
+  return {
+    colors: pairs.map(([, color]) => color as string),
+    // Rounded so float noise in the division doesn't leak into the stops.
+    stops: densities.map((density) => (high > low ? Math.round(Math.min(1, Math.max(0, (density - low) / (high - low))) * 1e6) / 1e6 : 0)),
+    mode: isStep ? 'step' : 'interpolate',
+  };
+}
+
+/** A ramp as gradient stops from 0 to 1: interpolated colours at their stops, a step's colours as hard bands. */
+export function rampGradient(ramp: Pick<LegendRamp, 'colors' | 'stops' | 'mode'>): { color: string; offset: number }[] {
+  if (ramp.mode === 'step') {
+    return ramp.colors.flatMap((color, i) => [
+      { color, offset: ramp.stops[i] },
+      { color, offset: ramp.stops[i + 1] ?? 1 },
+    ]);
+  }
+  const stops = ramp.colors.map((color, i) => ({ color, offset: ramp.stops[i] }));
+  // A gradient needs two stops, so a lone colour spans the ramp.
+  return stops.length > 1 ? stops : [{ ...stops[0], offset: 0 }, { ...stops[0], offset: 1 }];
 }
 
 function rampFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts['ramp'] {
   if (kind !== 'heatmap') return null;
   const { expression, ramp } = resolveHeatmapColor(layer.paint ?? {}, getBuilderStyleConfig(layer));
-  const colors = heatmapColors(expression);
-  return colors ? { colors, name: ramp?.name ?? null, reversed: ramp?.reversed ?? false } : null;
+  const drawn = heatmapRamp(expression);
+  return drawn ? { ...drawn, name: ramp?.name ?? null, reversed: ramp?.reversed ?? false } : null;
 }
 
 function weightColumnFor(layer: LegendLayer, kind: LayerAdapter['type']): string | null {

@@ -162,7 +162,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
           {facts?.ramp ? (
             <HeatmapLegend
               name={entryName}
-              colors={facts.ramp.colors}
+              ramp={facts.ramp}
               weightColumn={weightColumn}
               opacity={opacity}
               lowLabel={t('plugins.legend.low')}

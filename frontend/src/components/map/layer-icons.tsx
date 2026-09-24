@@ -4,8 +4,8 @@ import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
 import type { MapLayerResponse } from '@/types/api';
-import { legendFacts } from './legend-facts';
-import type { LegendFacts, LegendSwatch } from './legend-facts';
+import { legendFacts, rampGradient } from './legend-facts';
+import type { LegendFacts, LegendRamp, LegendSwatch } from './legend-facts';
 
 /** Shape hints for the icon glyph. Its stroke, fill opacity and pattern come from the layer's legend swatch. */
 export interface StyleHints {
@@ -61,6 +61,7 @@ interface IconSubProps {
   opacityStyle?: React.CSSProperties;
   styleHints?: StyleHints;
   swatch?: LegendSwatch | null;
+  ramp?: LegendRamp | null;
   /** ux(#840): render multi-color fills as hard-stop bands instead of a smooth ramp. */
   discrete?: boolean;
 }
@@ -96,15 +97,16 @@ function gradientStops(colors: string[], discrete?: boolean) {
   ]);
 }
 
-function HeatmapIcon({ colors, layerId, opacityStyle }: IconSubProps) {
+function HeatmapIcon({ colors, layerId, opacityStyle, ramp }: IconSubProps) {
   const gradientId = `layer-heat-${layerId}`;
+  const stops = ramp ? rampGradient(ramp) : colors.map((color, i) => ({ color, offset: i / (colors.length - 1) }));
   return (
     <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
       <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
         <defs>
           <radialGradient id={gradientId}>
-            {colors.map((c, i) => (
-              <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
+            {stops.map(({ color, offset }, i) => (
+              <stop key={i} offset={`${offset * 100}%`} stopColor={color} />
             ))}
           </radialGradient>
         </defs>
@@ -220,6 +222,7 @@ export function ColorizedGeometryIcon({
   layerType,
   styleHints,
   swatch,
+  ramp,
   discrete,
 }: {
   geometryType: string | null;
@@ -229,6 +232,8 @@ export function ColorizedGeometryIcon({
   styleHints?: StyleHints;
   /** The layer's legend swatch: its stroke, fill opacity and pattern. */
   swatch?: LegendSwatch | null;
+  /** A heatmap's colour ramp, drawn at its own stops. */
+  ramp?: LegendRamp | null;
   /** ux(#840): true for categorical styles — hard-stop bands instead of a smooth ramp. */
   discrete?: boolean;
 }) {
@@ -241,7 +246,7 @@ export function ColorizedGeometryIcon({
   // stroke-opacity), so a stroke-only style keeps the outline it's drawn with.
   const layerOpacity = styleHints?.opacity ?? 1;
   const opacityStyle: React.CSSProperties | undefined = layerOpacity < 1 ? { opacity: layerOpacity } : undefined;
-  const sub: IconSubProps = { colors, layerId, opacityStyle, styleHints, swatch, discrete };
+  const sub: IconSubProps = { colors, layerId, opacityStyle, styleHints, swatch, ramp, discrete };
 
   if (styleHints?.isHeatmap && colors.length > 1) return <HeatmapIcon {...sub} />;
   if (gt.includes('LINE')) return <LineIcon {...sub} />;
@@ -341,6 +346,7 @@ export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; ic
       layerType={caps.kind}
       styleHints={styleHints}
       swatch={facts?.swatch ?? null}
+      ramp={facts?.ramp ?? null}
       discrete={isDiscreteColorStyle(facts)}
     />
   );
