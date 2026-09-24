@@ -272,3 +272,26 @@ export function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     dataset_extent_bbox: layer.dataset_extent_bbox,
   };
 }
+
+/** The showcase's subway stations: categories that fade in past zoom 12.3. */
+export const ZOOM_FADED_STATIONS: MapLayerResponse = savedLayer({
+  dataset_geometry_type: 'MULTIPOINT',
+  display_name: 'Stations (green = ADA accessible)',
+  paint: {
+    'circle-radius': ['interpolate', ['linear'], ['zoom'], 12.5, 2.5, 16, 5.5],
+    'circle-color': ['match', ['to-number', ['get', 'ada'], 0], 1, '#22c55e', 2, '#a3e635', '#94a3b8'],
+    'circle-stroke-color': '#0b0f14',
+    'circle-stroke-width': 1,
+    'circle-opacity': ['interpolate', ['linear'], ['zoom'], 12.3, 0, 12.9, 0.95],
+    'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 12.3, 0, 12.9, 1],
+  },
+  style_config: {
+    mode: 'categorical',
+    column: 'ada',
+    categories: [
+      { value: 1, color: '#22c55e', label: 'ADA accessible' },
+      { value: 2, color: '#a3e635', label: 'Partially accessible' },
+      { value: 0, color: '#94a3b8', label: 'Not accessible' },
+    ],
+  },
+});

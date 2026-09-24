@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 import { ColorizedGeometryIcon, LayerTypeIcon, getLayerColors, type LayerTypeIconLayer } from '../layer-icons';
 import type { LegendSwatch } from '../legend-facts';
+import { buildCategoricalExpression } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
 import type { MapLayerResponse } from '@/types/api';
@@ -34,10 +35,11 @@ describe('ColorizedGeometryIcon raster/vrt contract', () => {
 // at its band edges) instead of a smooth ramp, capped at 4 bands. Graduated
 // ramps keep the smooth gradient.
 describe('discrete bands for categorical styles (ux #840)', () => {
-  const layerWith = (style_config: LayerTypeIconLayer['style_config']): LayerTypeIconLayer => ({
+  const layerWith = (style_config: NonNullable<LayerTypeIconLayer['style_config']>): LayerTypeIconLayer => ({
     dataset_geometry_type: 'POINT',
     layer_type: 'vector_geolens',
-    paint: { 'circle-color': ['match', ['get', 'fall'], 'Fell', '#f59e0b', '#94a3b8'] },
+    // The paint reads the classified column, so the classification is live.
+    paint: { 'circle-color': ['match', ['get', style_config.column], 'Fell', '#f59e0b', '#94a3b8'] },
     layout: {},
     opacity: 1,
     style_config,
@@ -76,6 +78,26 @@ describe('discrete bands for categorical styles (ux #840)', () => {
       <LayerTypeIcon layer={layerWith({ mode: 'categorical', column: 'c', categories })} iconId="cat-6" />,
     );
     expect(container.querySelectorAll('stop')).toHaveLength(8);
+  });
+
+  it('draws no class colours for a symbol layer with a leftover classification', () => {
+    const { container } = render(<LayerTypeIcon layer={SAVED_LAYERS.symbolWithLeftoverClassification} iconId="symbols" />);
+    expect(container.querySelectorAll('stop')).toHaveLength(0);
+    expect(container.querySelector('.lucide-circle')).toHaveAttribute('fill', MAP_COLORS.icon.fallback);
+  });
+
+  it('draws a size classification in its classes\' colour when no colour classes are listed', () => {
+    const layer: LayerTypeIconLayer = {
+      dataset_geometry_type: 'POINT',
+      layer_type: 'vector_geolens',
+      paint: {
+        'circle-radius': ['step', ['get', 'pop'], 4, 1000, 8],
+        'circle-color': buildCategoricalExpression('kind', [['school', '#f472b6']], '#cccccc'),
+      },
+      style_config: { mode: 'graduated', column: 'pop', target: 'radius', sizes: [4, 8], breaks: [1000] },
+    };
+    const { container } = render(<LayerTypeIcon layer={layer} iconId="sized" />);
+    expect(container.querySelector('.lucide-circle')).toHaveAttribute('fill', MAP_COLORS.fallback);
   });
 
   it('keeps the smooth ramp for graduated colors (no categories)', () => {

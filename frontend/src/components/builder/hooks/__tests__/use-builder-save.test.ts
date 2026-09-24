@@ -3105,7 +3105,7 @@ describe('SHARE-09 export PNG composition', () => {
       id: 'layer-graduated',
       display_name: 'Graduated',
       paint: { 'fill-color': ['step', ['get', 'v'], '#111111', 10, '#999999'] },
-      style_config: { colors: ['#111111', '#999999'] } as MapLayerResponse['style_config'],
+      style_config: { mode: 'graduated', column: 'v', colors: ['#111111', '#999999'], breaks: [10] },
       visible: true,
       show_in_legend: true,
     });
@@ -3133,7 +3133,7 @@ describe('SHARE-09 export PNG composition', () => {
       id: 'layer-bad-ramp',
       display_name: 'Bad ramp',
       paint: { 'fill-color': ['step', ['get', 'v'], '#111111', 10, '#222222'] },
-      style_config: { colors: ['#111111', ''] } as MapLayerResponse['style_config'],
+      style_config: { mode: 'graduated', column: 'v', colors: ['#111111', ''], breaks: [10] },
       visible: true,
       show_in_legend: true,
     });

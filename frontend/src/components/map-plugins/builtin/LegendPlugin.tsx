@@ -1,56 +1,14 @@
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
-import {
-  CategoricalLegend,
-  GraduatedColorLegend,
-  GraduatedRadiusLegend,
-  GraduatedWidthLegend,
-  HeatmapLegend,
-} from '@/components/map/LegendEntries';
-import type { MapLayerResponse, StyleConfig } from '@/types/api';
-import { MAP_COLORS } from '@/lib/map-colors';
-import { parseStepOrInterpolate, resolveHeatmapRamp } from '@/lib/normalize-style-config';
+import { HeatmapLegend, LegendClassesList } from '@/components/map/LegendEntries';
+import type { MapLayerResponse } from '@/types/api';
+import { resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
 import { legendEntryName, legendFacts } from '@/components/map/legend-facts';
-import type { LegendSwatch } from '@/components/map/legend-facts';
 import { Pencil, Check } from 'lucide-react';
 import { syntheticTerrainEntry } from '@/components/builder/terrain-legend';
 import type { PluginContext } from '../types';
-
-/** Extract colors and breaks from a paint color expression for the legend. */
-function parsePaintColors(paintColorValue: unknown): { colors: string[]; breaks: number[] } | null {
-  if (typeof paintColorValue === 'string' || !paintColorValue) return null;
-  const parsed = parseStepOrInterpolate(paintColorValue);
-  if (!parsed || !parsed.values.every((v) => typeof v === 'string')) return null;
-  const colors = parsed.values as string[];
-  // For interpolate, breaks already has the first stop dropped by parseStepOrInterpolate
-  return { colors, breaks: parsed.breaks };
-}
-
-export function expressionColumn(value: unknown): string | null {
-  if (!Array.isArray(value)) return null;
-  if (value[0] === 'get' && typeof value[1] === 'string') return value[1];
-  for (const entry of value) {
-    const column = expressionColumn(entry);
-    if (column) return column;
-  }
-  return null;
-}
-
-export function displayColumn(value: string | undefined): string {
-  if (!value) return 'value';
-  return value
-    .replace(/^_+/, '')
-    .replace(/_/g, ' ')
-    .replace(/\bmhi\b/i, 'income')
-    .replace(/\bkm\b/i, 'km');
-}
-
-type LegendLabelStyleConfig = StyleConfig & {
-  sizeLabel?: string;
-  colorLabel?: string;
-};
 
 export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
   const { t } = useTranslation('builder');
@@ -214,29 +172,12 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
               highLabel={t('plugins.legend.high')}
               weightedByLabel={weightCol ? t('plugins.legend.weightedBy', { column: weightCol }) : undefined}
             />
-          ) : layer.style_config?.column ? (
+          ) : facts?.classes ? (
             <>
               <div className="font-medium text-foreground mb-1 truncate">
                 {entryName}
               </div>
-
-              {layer.style_config.mode === 'categorical' && layer.style_config.categories && (
-                <CategoricalLegend
-                  categories={layer.style_config.categories}
-                  geometryType={effectiveGeom}
-                  style={swatch}
-                />
-              )}
-
-              {layer.style_config.mode === 'graduated' &&
-                layer.style_config.breaks && (
-                  <GraduatedLegendSwitch
-                    styleConfig={layer.style_config}
-                    paint={layer.paint ?? {}}
-                    style={swatch}
-                    geometryType={effectiveGeom}
-                  />
-                )}
+              <LegendClassesList classes={facts.classes} geometryType={effectiveGeom} style={swatch} />
             </>
           ) : (
             <div className="flex items-center gap-1.5">
@@ -273,85 +214,3 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
     );
   }
 });
-
-/** Picks the right graduated sub-legend based on target (color/radius/width). */
-function GraduatedLegendSwitch({
-  styleConfig,
-  paint,
-  style,
-  geometryType,
-}: {
-  styleConfig: StyleConfig;
-  paint: Record<string, unknown>;
-  style: LegendSwatch | null;
-  geometryType?: string | null;
-}) {
-  const { t } = useTranslation('common');
-  const breaks = styleConfig.breaks ?? [];
-  const labelConfig = styleConfig as LegendLabelStyleConfig;
-  const metricLabel = labelConfig.sizeLabel ?? displayColumn(styleConfig.column);
-
-  // Parse circle-color expression unconditionally (Rules of Hooks)
-  const rawCircleColor = paint['circle-color'];
-  const parsedCircleColor = useMemo(() => parsePaintColors(rawCircleColor), [rawCircleColor]);
-  const colorColumn = expressionColumn(rawCircleColor);
-
-  if (styleConfig.target === 'radius' && styleConfig.sizes) {
-    const circleColor = style?.fill ?? MAP_COLORS.fallback;
-    return (
-      <div className="space-y-1">
-        <div className="text-mini font-medium text-muted-foreground">
-          {t('common:viewer.legend.sizeLabel', { label: metricLabel })}
-        </div>
-        <GraduatedRadiusLegend
-          sizes={styleConfig.sizes}
-          breaks={breaks}
-          circleColor={parsedCircleColor?.colors[0] ?? circleColor}
-          style={style}
-        />
-        {parsedCircleColor && colorColumn && colorColumn !== styleConfig.column && (
-          <>
-            <div className="pt-1 text-mini font-medium text-muted-foreground">
-              {t('common:viewer.legend.colorLabel', {
-                label: labelConfig.colorLabel ?? displayColumn(colorColumn),
-              })}
-            </div>
-            <GraduatedColorLegend
-              colors={parsedCircleColor.colors}
-              breaks={parsedCircleColor.breaks}
-              geometryType={geometryType}
-              style={style}
-            />
-          </>
-        )}
-      </div>
-    );
-  }
-
-  if (styleConfig.target === 'width' && styleConfig.sizes) {
-    const lineColor = style?.fill ?? MAP_COLORS.fallback;
-    return (
-      <div className="space-y-1">
-        <div className="text-mini font-medium text-muted-foreground">
-          {t('common:viewer.legend.widthLabel', { label: metricLabel })}
-        </div>
-        <GraduatedWidthLegend
-          sizes={styleConfig.sizes}
-          breaks={breaks}
-          lineColor={lineColor}
-          style={style}
-        />
-      </div>
-    );
-  }
-
-  if (!styleConfig.colors) return null;
-  return (
-    <GraduatedColorLegend
-      colors={styleConfig.colors}
-      breaks={breaks}
-      geometryType={geometryType}
-      style={style}
-    />
-  );
-}

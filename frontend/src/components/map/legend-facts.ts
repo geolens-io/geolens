@@ -6,13 +6,16 @@ import {
   getBuilderStyleConfig,
   getFeatureOpacity,
   resolveAdapterType,
-  simplifyPaint,
 } from '@/components/builder/layer-adapters/shared';
 import type { LayerAdapter } from '@/components/builder/layer-adapters/types';
 import { isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
+import { colorClassificationIsOrphaned, getColorProperty } from '@/lib/color-ramps';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
+import { inferGeometryType } from '@/lib/geo-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { MAP_COLORS } from '@/lib/map-colors';
+import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import type { StyleConfig } from '@/types/api';
 
 /** The saved-layer fields legend facts read. MapLayerResponse and SharedLayerResponse both satisfy it. */
@@ -42,12 +45,29 @@ export interface LegendSwatch {
   pattern: { id: string; tint: string | null } | null;
 }
 
+/** One classification the map draws, as the legend lists it. */
+export interface LegendClasses {
+  mode: 'categorical' | 'graduated';
+  target: 'color' | 'radius' | 'width';
+  /** The classified attribute, named for the legend. */
+  title: string;
+  /** One entry per class: its colour, its size on a size target, and a category's label. */
+  items: { color: string; size?: number; label?: string }[];
+  /** Graduated class breaks; empty for categories. */
+  breaks: number[];
+}
+
 /** What a legend entry shows for one layer. */
 export interface LegendFacts {
   name: string;
   drawsAs: LayerAdapter['type'];
   /** Null for heatmap, raster and hillshade layers. */
   swatch: LegendSwatch | null;
+  /**
+   * The classifications the map draws, or null for none. A size classification
+   * comes first, followed by the colour classes its symbols are painted in.
+   */
+  classes: LegendClasses[] | null;
 }
 
 function nonBlank(value: unknown): string | null {
@@ -81,10 +101,47 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-// Expressions count at the value the adapter adds them with.
+/** Where an expression's branches put their outputs: step and interpolate stops, match and case arms, coalesce arguments. */
+function expressionOutputs(expr: unknown[]): unknown[] {
+  switch (expr[0]) {
+    case 'step':
+      return expr.filter((_, i) => i >= 2 && i % 2 === 0);
+    case 'interpolate':
+    case 'interpolate-hcl':
+    case 'interpolate-lab':
+      return expr.filter((_, i) => i >= 4 && i % 2 === 0);
+    case 'match':
+      return expr.filter((_, i) => i >= 3 && (i % 2 === 1 || i === expr.length - 1));
+    case 'case':
+      return expr.filter((_, i) => i >= 2 && (i % 2 === 0 || i === expr.length - 1));
+    case 'coalesce':
+      return expr.slice(1);
+    default:
+      return [];
+  }
+}
+
+/** The largest number an expression outputs, through nested expressions; null when it outputs none. */
+function largestOutput(value: unknown): number | null {
+  if (typeof value === 'number') return value;
+  if (!Array.isArray(value)) return null;
+  return expressionOutputs(value).reduce<number | null>((largest, output) => {
+    const candidate = largestOutput(output);
+    return candidate !== null && (largest === null || candidate > largest) ? candidate : largest;
+  }, null);
+}
+
+// A zoom or data expression counts at the largest value it reaches: the swatch
+// shows the layer as it looks once it fades in, and an unreadable one shows at 1.
 function featureOpacity(paint: Record<string, unknown>, family: 'fill' | 'line' | 'circle'): number {
-  const value = getFeatureOpacity(simplifyPaint(paint), family);
-  return typeof value === 'number' ? value : 1;
+  const value = getFeatureOpacity(paint, family);
+  return typeof value === 'number' ? value : largestOutput(value) ?? 1;
+}
+
+/** The paint with an expression on `key` replaced by the largest value it reaches, else 1. */
+function atLargestOutput(paint: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = paint[key];
+  return Array.isArray(value) ? { ...paint, [key]: largestOutput(value) ?? 1 } : paint;
 }
 
 function patternOf(
@@ -134,12 +191,120 @@ function swatchFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendSwatch
         fill: stringOrNull(resolveCirclePaint(paint)['circle-color']),
         fillOpacity: featureOpacity(paint, 'circle'),
         opacity,
-        stroke: resolvePointStroke(paint),
+        stroke: resolvePointStroke(atLargestOutput(paint, 'circle-stroke-width')),
         pattern: null,
       };
     default:
       return null;
   }
+}
+
+/** A column name as a legend title. */
+function displayColumn(column: string): string {
+  return column
+    .replace(/^_+/, '')
+    .replace(/_/g, ' ')
+    .replace(/\bmhi\b/i, 'income')
+    .replace(/\bkm\b/i, 'km');
+}
+
+/** The first column an expression reads with `get`. */
+function expressionColumn(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  if (value[0] === 'get' && typeof value[1] === 'string') return value[1];
+  for (const entry of value) {
+    const column = expressionColumn(entry);
+    if (column) return column;
+  }
+  return null;
+}
+
+/** The column a plain `['get', column]` reads; null for any other value. */
+function getColumn(value: unknown): string | null {
+  return Array.isArray(value) && value.length === 2 && value[0] === 'get' && typeof value[1] === 'string'
+    ? value[1]
+    : null;
+}
+
+/** The input a step or interpolate expression is classed on; undefined for any other value. */
+function rampInput(value: unknown): unknown {
+  if (!Array.isArray(value)) return undefined;
+  if (value[0] === 'step') return value[1];
+  if (value[0] === 'interpolate') return value[2];
+  return undefined;
+}
+
+/**
+ * The ramp inside the null guard the style builders wrap around their classes,
+ * `['case', ['==', ['get', column], null], fallback, ramp]`, when the ramp is
+ * classed on that same column; any other value as it is.
+ */
+function unwrapNullGuard(value: unknown): unknown {
+  if (!Array.isArray(value) || value[0] !== 'case' || value.length !== 4) return value;
+  const [, test, , ramp] = value;
+  const isNullTest = Array.isArray(test) && test.length === 3 && test[0] === '==' && test[2] === null;
+  const guarded = isNullTest ? getColumn(test[1]) : null;
+  return guarded !== null && getColumn(rampInput(ramp)) === guarded ? ramp : value;
+}
+
+/**
+ * The colours, breaks and column of a step or linear interpolate colour ramp,
+ * null guard or not. The column comes from the ramp's input, so a zoom ramp has none.
+ */
+function colorSteps(value: unknown): { colors: string[]; breaks: number[]; column: string | null } | null {
+  const ramp = unwrapNullGuard(value);
+  const parsed = parseStepOrInterpolate(ramp);
+  if (!parsed || !parsed.values.every((v) => typeof v === 'string')) return null;
+  return { colors: parsed.values as string[], breaks: parsed.breaks, column: expressionColumn(rampInput(ramp)) };
+}
+
+// Symbol icons, heatmaps and rasters draw none of the vector colour or size classes.
+const CLASSED_KINDS = new Set<LayerAdapter['type']>(['fill', 'line', 'circle', 'cluster', 'mixed']);
+
+function classesFor(
+  layer: LegendLayer,
+  kind: LayerAdapter['type'],
+  swatch: LegendSwatch | null,
+): LegendClasses[] | null {
+  const config = layer.style_config;
+  const column = config?.column;
+  if (!config || !column || !CLASSED_KINDS.has(kind)) return null;
+  const paint = layer.paint ?? {};
+  const geometry = inferGeometryType(paint, layer.dataset_geometry_type ?? layer.geometry_type);
+  // A classification stays in style_config after the paint stops reading its column.
+  if (colorClassificationIsOrphaned(config, paint, geometry)) return null;
+  const breaks = config.breaks ?? [];
+  if (config.mode === 'categorical') {
+    const items = (config.categories ?? []).map((category) => ({
+      color: category.color,
+      label: category.label ?? String(category.value ?? 'null'),
+    }));
+    if (!items.length) return null;
+    return [{ mode: 'categorical', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks: [] }];
+  }
+  if (config.mode !== 'graduated') return null;
+  if ((config.target === 'radius' || config.target === 'width') && config.sizes?.length) {
+    const steps = colorSteps(paint[getColorProperty(geometry)]);
+    const color = steps?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
+    const sized: LegendClasses = {
+      mode: 'graduated',
+      target: config.target,
+      title: config.sizeLabel ?? displayColumn(column),
+      items: config.sizes.map((size) => ({ color, size })),
+      breaks,
+    };
+    if (!steps?.column) return [sized];
+    return [sized, {
+      mode: 'graduated',
+      target: 'color',
+      title: config.colorLabel ?? displayColumn(steps.column),
+      items: steps.colors.map((stepColor) => ({ color: stepColor })),
+      breaks: steps.breaks,
+    }];
+  }
+  const items = (config.colors ?? []).map((classColor) => ({ color: classColor }));
+  if (!items.length) return null;
+  return [{ mode: 'graduated', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks }];
 }
 
 /**
@@ -150,5 +315,6 @@ function swatchFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendSwatch
 export function legendFacts(layer: LegendLayer): LegendFacts | null {
   if (isFolderGroupLayer(layer) || isDemTerrainVisualSuppressed(layer)) return null;
   const kind = drawsAs(layer);
-  return { name: legendEntryName(layer) ?? '', drawsAs: kind, swatch: swatchFor(layer, kind) };
+  const swatch = swatchFor(layer, kind);
+  return { name: legendEntryName(layer) ?? '', drawsAs: kind, swatch, classes: classesFor(layer, kind, swatch) };
 }

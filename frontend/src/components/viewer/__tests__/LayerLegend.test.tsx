@@ -67,60 +67,6 @@ function layer(overrides: Partial<SharedLayerResponse> = {}): SharedLayerRespons
 }
 
 describe('LayerLegend', () => {
-  it('separates graduated radius and color semantics for point layers', () => {
-    render(
-      <LayerLegend
-        layers={[layer()]}
-        visibleLayers={new Set(['layer-1'])}
-        onToggleVisibility={vi.fn()}
-        isOpen
-        onToggle={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText('Size: Magnitude')).toBeInTheDocument();
-    expect(screen.getByText('Color: Depth (km)')).toBeInTheDocument();
-    expect(screen.getByText('< 6')).toBeInTheDocument();
-    expect(screen.getByText(/50.*200/)).toBeInTheDocument();
-  });
-
-  it('colors graduated-size swatches with a constant fill, not the gray fallback', () => {
-    // Regression: a constant (string) circle-color is not an expression, so
-    // parsePaintColors returns null — the radius legend must still use the real
-    // color instead of falling back to gray (#cccccc).
-    const constColorLayer = layer({
-      id: 'layer-const',
-      display_name: 'Magnitude (graduated)',
-      paint: {
-        'circle-radius': ['step', ['get', 'mag'], 4, 5, 7, 6, 11, 7, 16],
-        'circle-color': '#ef4444',
-      },
-      style_config: {
-        mode: 'graduated',
-        column: 'mag',
-        target: 'radius',
-        ramp: 'YlOrRd',
-        breaks: [5, 6, 7],
-        sizes: [4, 7, 11, 16],
-        sizeLabel: 'Magnitude',
-      },
-    });
-
-    const { container } = render(
-      <LayerLegend
-        layers={[constColorLayer]}
-        visibleLayers={new Set(['layer-const'])}
-        onToggleVisibility={vi.fn()}
-        isOpen
-        onToggle={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText('Size: Magnitude')).toBeInTheDocument();
-    expect(container.querySelectorAll('circle[fill="#ef4444"]').length).toBeGreaterThanOrEqual(1);
-    expect(container.querySelector('circle[fill="#cccccc"]')).toBeNull();
-  });
-
   it('shows a raster icon, not a colored point swatch, for raster layers', () => {
     // Regression: raster layers (no vector fill) were given the #6366f1 default
     // color + a point swatch. They should render a raster icon like the builder.

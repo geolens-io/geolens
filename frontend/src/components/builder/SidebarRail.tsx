@@ -20,8 +20,8 @@ interface SidebarRailProps {
 
 function RailLayerIcon({ layer }: { layer: MapLayerResponse }) {
   const caps = getLayerCapabilities(layer);
-  const swatch = legendFacts(layer)?.swatch ?? null;
-  const layerColors = getLayerColors(layer, swatch);
+  const facts = legendFacts(layer);
+  const layerColors = getLayerColors(layer, facts);
   const styleHints = extractStyleHints(
     layer.paint ?? {},
     layer.layout ?? {},
@@ -43,8 +43,8 @@ function RailLayerIcon({ layer }: { layer: MapLayerResponse }) {
       layerId={layer.id}
       layerType={caps.kind}
       styleHints={styleHints}
-      swatch={swatch}
-      discrete={isDiscreteColorStyle(layer.style_config)}
+      swatch={facts?.swatch ?? null}
+      discrete={isDiscreteColorStyle(facts)}
     />
   );
 }
