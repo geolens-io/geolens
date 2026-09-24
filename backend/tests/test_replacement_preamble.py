@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from dataclasses import replace as with_changes
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -22,10 +21,8 @@ from app.platform.jobs.heartbeat import StaleIngestAttempt
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest import tasks_raster_replace
-from app.processing.ingest.publication import PublicationOutcome, settle_publication
 from app.processing.raster.models import RasterAsset
 from tests.factories import get_user_id
-from tests.test_publication_settlement import _command, _prepared_candidate
 from tests.test_replacement_post_commit import (
     _BUILDERS,
     _Replacement,
@@ -246,29 +243,6 @@ async def test_a_publication_bumps_the_tile_version_once_atomically(
 
     await _assert_settled_published(replacement)
     assert await _tile_version(replacement.dataset_id) == before + 1
-
-
-async def test_a_blocked_verdict_leaves_the_tile_version_alone(
-    test_db_session, monkeypatch
-) -> None:
-    """A verdict that holds the candidate back publishes no tile version."""
-    dataset, job, staging, admin_id = await _prepared_candidate(
-        test_db_session, refresh=True
-    )
-    before = dataset.tile_cache_version
-    monkeypatch.setattr(
-        "app.processing.ingest.publication.invalidate_catalog_cache", AsyncMock()
-    )
-
-    outcome = await settle_publication(
-        with_changes(
-            _command(test_db_session, dataset, job, staging, admin_id, refresh=True),
-            expected_feature_count=None,
-        )
-    )
-
-    assert outcome is PublicationOutcome.BLOCKED
-    assert await _tile_version(dataset.id) == before
 
 
 async def test_the_raster_quota_wait_outlasts_the_worker_budget(

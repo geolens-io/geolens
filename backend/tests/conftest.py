@@ -222,6 +222,8 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_register_geom_column_name_1737",  # same: its accept-case registers
     "test_registered_geom_4326_rederive_1738",  # same: registers, and REVOKEs
     "test_replacement_post_commit",  # staging and the PostGIS repair grant the reader
+    "test_replacement_preamble",  # same: it drives the same replacements
+    "test_publication_settlement",  # service staging grants the reader
     "test_embed_tokens",
     "test_features_crud",
     "test_features_geojson_z",

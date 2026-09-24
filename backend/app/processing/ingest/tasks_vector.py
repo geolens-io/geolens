@@ -39,6 +39,7 @@ from app.processing.ingest.tasks_common import (
     _resolve_effective_srid,
     _run_service_import_with_wfs_fallback,
     purge_token_on_failure,
+    SourceURLRefused,
     rename_pkey_to_match_table,
     resolve_service_type,
     task_app,
@@ -862,7 +863,7 @@ async def ingest_service(
     try:
         await validate_url_for_ssrf(source_url)
     except SSRFError as exc:
-        raise RuntimeError(
+        raise SourceURLRefused(
             f"source_url failed safety check at worker fetch time: {exc}"
         ) from exc
 

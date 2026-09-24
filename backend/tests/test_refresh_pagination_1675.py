@@ -25,12 +25,12 @@ from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.jobs.models import IngestJob
 from app.platform.dataset_origin import set_dataset_origin
 from app.processing.ingest import tasks_vector
-from app.processing.ingest.publication import (
+from app.processing.ingest.tasks_common import _ARCGIS_GDAL_GET_URL_MAX_BYTES
+from app.processing.ingest.tasks_reupload import (
     RefreshPublicationFenceError,
     _enforce_refresh_publication_fence,
+    reupload_service,
 )
-from app.processing.ingest.tasks_common import _ARCGIS_GDAL_GET_URL_MAX_BYTES
-from app.processing.ingest.tasks_reupload import reupload_service
 
 from tests.factories import create_dataset, get_user_id
 from tests.test_refresh_gate_1269 import _dispatch_harness, _runs_ordered
@@ -660,7 +660,7 @@ async def test_post_verification_failure_preserves_evidence_and_live_dataset(
     )
     task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset_id)
 
-    with pytest.raises(RuntimeError, match="Publication settlement failed"):
+    with pytest.raises(RuntimeError, match="publication failed"):
         await _execute_with_fake(task_kwargs, _fake_ogr2ogr([], lambda i: 10))
 
     test_db_session.expire_all()

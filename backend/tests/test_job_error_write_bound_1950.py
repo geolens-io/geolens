@@ -42,8 +42,6 @@ _TEST_BUDGET_MS = 400
 _HELPER_ROUTED_TAILS = {
     ("tasks_vector", "ingest_file"): "_job_phase_session",
     ("tasks_vector", "ingest_service"): "_job_phase_session",
-    ("tasks_reupload", "reupload_file"): "load_job_for_error_write",
-    ("tasks_reupload", "reupload_service"): "load_job_for_error_write",
     ("tasks_vrt", "ingest_vrt"): "load_job_for_error_write",
 }
 
@@ -226,11 +224,10 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
                 "regenerate_vrt",
                 lambda: _task_source("tasks_vrt", "regenerate_vrt"),
             ),
-            # The four helper-routed tails load the job row BEFORE the helper,
-            # under the same budget, so an expiry there lands in a frame the
-            # helper's own handler cannot reach (#1950 codex r2). The two
-            # vector tails guard that load in place; the two re-upload tails
-            # share `load_job_for_error_write`, whose guard is its own entry.
+            # The helper-routed tails load the job row BEFORE the helper, under
+            # the same budget, so an expiry there lands in a frame the helper's
+            # own handler cannot reach. The two vector tails guard that load in
+            # place; `load_job_for_error_write`'s guard is its own entry.
             ("ingest_file", lambda: _task_source("tasks_vector", "ingest_file")),
             ("ingest_service", lambda: _task_source("tasks_vector", "ingest_service")),
             ("load_job_for_error_write", lambda: load_job_for_error_write),
@@ -266,7 +263,6 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
         [
             ("tasks_vector", "ingest_file"),
             ("tasks_raster", "ingest_raster"),
-            ("tasks_reupload", "reupload_file"),
         ],
     )
     def test_the_terminal_status_survives_a_raised_error_write(

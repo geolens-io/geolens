@@ -374,7 +374,7 @@ async def ensure_geom_4326_gist_index(
     so the new staging table silently got NO spatial index and the swap
     then dropped the only indexed copy. Check ``pg_indexes`` for a gist
     index on THIS table instead, and let PostgreSQL pick a collision-free
-    name. Called from both add_4326_column and _apply_reupload_swap, so any
+    name. Called from both add_4326_column and _install_reupload_table, so any
     re-ingest self-heals a missing index.
 
     The no-geom_4326 early return is defensive, not reachable (#1020):

@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from app.core.failure_reason import redact_failure_reason
 from app.platform.security import SSRFError
 
 
@@ -151,18 +152,55 @@ class TestIngestServiceWorkerRevalidatesSourceUrl:
                 )
 
         assert "safety check at worker fetch time" in str(exc.value)
+        assert redact_failure_reason(exc.value).startswith(
+            "source_url failed safety check at worker fetch time: "
+        )
+
+
+async def _queued_service_reupload(session, *, source_url: str, user_metadata: dict):
+    """A dataset with a pending service re-upload job and its pending run."""
+    from app.platform.jobs.models import IngestJob
+    from app.platform.refresh.service import create_pending_run
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(session, "admin")
+    dataset = await create_dataset(session, created_by=admin_id)
+    job = IngestJob(
+        dataset_id=dataset.id,
+        status="pending",
+        created_by=admin_id,
+        source_url=source_url,
+        source_layer="roads",
+        user_metadata={"reupload": True, **user_metadata},
+    )
+    session.add(job)
+    await session.flush()
+    await create_pending_run(
+        session,
+        dataset_id=dataset.id,
+        origin_kind="service",
+        trigger="manual",
+        triggered_by=admin_id,
+        ingest_job_id=job.id,
+        feature_count_before=0,
+    )
+    await session.commit()
+    return dataset, job, admin_id
 
 
 class TestReuploadServiceWorkerRevalidatesSourceUrl:
     """`reupload_service` worker also re-validates source_url."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_reupload_worker_raises_runtime_error_on_ssrf(self, test_db_session):
-        # test_db_session: fix(#1274 review) moved the fetch-time check inside
-        # the task's handled region, so the failure handler now runs — and it
-        # finalizes job and run rows, which needs the schema to exist even
-        # though this test's ids match nothing.
+        """A URL the fetch-time check refuses fails the claimed job before any fetch."""
         from app.processing.ingest.tasks_reupload import reupload_service
+
+        dataset, job, admin_id = await _queued_service_reupload(
+            test_db_session,
+            source_url="https://example.test/wfs",
+            user_metadata={"service_type": "WFS 2.0.0"},
+        )
 
         async def _ssrf_raise(url: str) -> None:
             raise SSRFError(f"rebinding at reupload fetch: {url}")
@@ -173,12 +211,126 @@ class TestReuploadServiceWorkerRevalidatesSourceUrl:
         ):
             with pytest.raises(RuntimeError) as exc:
                 await reupload_service.__wrapped__(  # type: ignore[attr-defined]
-                    job_id=str(uuid.uuid4()),
-                    dataset_id=str(uuid.uuid4()),
+                    job_id=str(job.id),
+                    dataset_id=str(dataset.id),
                     source_url="https://example.test/wfs",
                     source_layer="roads",
-                    user_id=str(uuid.uuid4()),
-                    attempt_id=str(uuid.uuid4()),
+                    user_id=str(admin_id),
+                    attempt_id=str(job.attempt_id),
                 )
 
         assert "safety check at worker fetch time" in str(exc.value)
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message.startswith(
+            "source_url failed safety check at worker fetch time: "
+        )
+
+    @pytest.fixture
+    def network(self, monkeypatch):
+        """Answer DNS for listed hosts, and record every request and ogr2ogr spawn."""
+        import socket
+        from types import SimpleNamespace
+
+        import httpx
+
+        from app.platform import security as security_mod
+        from app.processing.ingest import ogr
+
+        seen = SimpleNamespace(
+            answers={}, resolved=[], requests=[], spawned=AsyncMock()
+        )
+
+        def _resolve(host, port, *args, **kwargs):
+            if host not in seen.answers:
+                return socket.getaddrinfo(host, port, *args, **kwargs)
+            seen.resolved.append(host)
+            address = (seen.answers[host], 443)
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", address)
+            ]
+
+        def _record(request: httpx.Request) -> httpx.Response:
+            seen.requests.append(request)
+            return httpx.Response(503)
+
+        # Only the validator and its transport see these answers.
+        monkeypatch.setattr(
+            security_mod,
+            "socket",
+            SimpleNamespace(
+                getaddrinfo=_resolve,
+                IPPROTO_TCP=socket.IPPROTO_TCP,
+                gaierror=socket.gaierror,
+            ),
+        )
+        monkeypatch.setattr(
+            security_mod, "make_safe_transport", lambda: httpx.MockTransport(_record)
+        )
+        monkeypatch.setattr(ogr, "run_ogr2ogr_service", seen.spawned)
+        return seen
+
+    @staticmethod
+    async def _refused(session, *, stored_url: str, argument_url: str):
+        """Run a service re-upload that the fetch-time check must refuse."""
+        from sqlalchemy import select
+
+        from app.platform.refresh.models import DatasetRefreshRun
+        from app.processing.ingest.tasks_reupload import reupload_service
+
+        dataset, job, admin_id = await _queued_service_reupload(
+            session,
+            source_url=stored_url,
+            user_metadata={"service_type": "ArcGIS FeatureServer", "layer_id": 0},
+        )
+        with pytest.raises(Exception) as raised:
+            await reupload_service.__wrapped__(  # type: ignore[attr-defined]
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                source_url=argument_url,
+                source_layer="roads",
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+        await session.refresh(job)
+        run = await session.scalar(
+            select(DatasetRefreshRun)
+            .where(DatasetRefreshRun.ingest_job_id == job.id)
+            .execution_options(populate_existing=True)
+        )
+        return raised.value, job.status, run.status
+
+    @pytest.mark.anyio
+    async def test_a_host_now_resolving_to_a_private_address_sends_no_request(
+        self, test_db_session, network
+    ):
+        """A host that resolves to a private address at fetch time fails the job before any request."""
+        url = "https://rebound.example.test/arcgis/rest/services/Roads/FeatureServer"
+        network.answers["rebound.example.test"] = "10.0.0.7"
+
+        error, job_status, run_status = await self._refused(
+            test_db_session, stored_url=url, argument_url=url
+        )
+
+        assert network.requests == []
+        network.spawned.assert_not_awaited()
+        assert "safety check at worker fetch time" in str(error)
+        assert (job_status, run_status) == ("failed", "failed")
+
+    @pytest.mark.anyio
+    async def test_the_url_checked_is_the_url_fetched(self, test_db_session, network):
+        """With the job's URL and the task argument differing, the job's URL is checked and nothing is fetched."""
+        network.answers["stored.example.test"] = "10.0.0.7"
+        network.answers["argument.example.test"] = "93.184.216.34"
+
+        error, job_status, run_status = await self._refused(
+            test_db_session,
+            stored_url="https://stored.example.test/arcgis/rest/services/Roads/FeatureServer",
+            argument_url="https://argument.example.test/arcgis/rest/services/Roads/FeatureServer",
+        )
+
+        assert network.requests == []
+        assert network.resolved == ["stored.example.test"]
+        network.spawned.assert_not_awaited()
+        assert "safety check at worker fetch time" in str(error)
+        assert (job_status, run_status) == ("failed", "failed")

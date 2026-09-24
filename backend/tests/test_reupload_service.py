@@ -11,27 +11,10 @@ from app.modules.catalog.collections.models import DatasetVersion
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs.heartbeat import attempt_scoped_staging_table
 from app.processing.ingest.ogr import IngestionError
-from app.processing.ingest.publication import PublicationOutcome
 from app.processing.ingest.tasks import reupload_service
-from app.processing.ingest.tasks_reupload import _defer_embedding_after_publication
 from app.platform.jobs.models import IngestJob
 
 from tests.factories import create_dataset, get_user_id
-
-
-async def test_post_commit_embedding_failure_does_not_reclassify_publication() -> None:
-    dataset_id = uuid.uuid4()
-    with patch(
-        "app.core.db.async_session", side_effect=RuntimeError("DB unavailable")
-    ) as open_session:
-        await _defer_embedding_after_publication(
-            PublicationOutcome.PUBLISHED, Dataset, dataset_id
-        )
-        open_session.assert_called_once()
-        await _defer_embedding_after_publication(
-            PublicationOutcome.BLOCKED, Dataset, dataset_id
-        )
-        open_session.assert_called_once()
 
 
 async def _create_dataset(

@@ -10,8 +10,8 @@ from sqlalchemy.orm import joinedload
 from app.modules.audit.models import AuditLog
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.processing.ingest.catalog_projection import measure
-from app.processing.ingest.tasks import _apply_reupload_swap
 
+from tests.test_reupload_swap_lock_retry import swap_in
 from tests.factories import get_user_id
 
 pytestmark = pytest.mark.anyio
@@ -294,7 +294,7 @@ async def test_reupload_swap_stamps_actor_and_emits_reupload_commit_audit(
     measurement = await measure(
         test_db_session, dataset, table=staging_table, schema="data"
     )
-    await _apply_reupload_swap(
+    await swap_in(
         test_db_session,
         dataset=dataset,
         staging_table=staging_table,

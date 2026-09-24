@@ -1161,7 +1161,7 @@ async def refresh_dataset(
     # and quietly undo a re-upload that had already succeeded.
     #
     # Fix: read the dispatched binding only once the reservation exists.
-    # `_apply_reupload_swap`/`record_refresh_success` commit in ONE
+    # The swap and `record_refresh_success` commit in ONE
     # transaction, so a non-active run implies its swap is already
     # committed and visible (READ COMMITTED) -- either the other refresh
     # still holds the reservation (refused below, dataset_busy) or its

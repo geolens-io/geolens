@@ -1,7 +1,7 @@
-"""Regression test for ING-06 / P2-08: ``_apply_reupload_swap`` must retry once on lock_timeout failure.
+"""Regression test for ING-06 / P2-08: the reupload swap must retry once on lock_timeout failure.
 
 Background — see ``.planning/audits/INGEST-AUDIT-2026-05-21.md`` P2-08:
-``_apply_reupload_swap`` ran ``SET LOCAL lock_timeout = '5s'`` before three
+the swap ran ``SET LOCAL lock_timeout = '5s'`` before three
 ``ALTER TABLE ... RENAME TO`` statements. Under autovacuum contention on
 large tables the AccessExclusiveLock acquire failed at the 5s mark, AFTER
 staging had been loaded — surfacing a late, user-visible failure.
@@ -21,10 +21,30 @@ from sqlalchemy import text
 
 from app.processing.ingest.catalog_projection import Measurement
 from app.processing.ingest.tasks_common import (
-    _apply_reupload_swap,
+    _install_reupload_table,
     _is_lock_timeout_error,
+    _write_reupload_catalog,
     rename_pkey_to_match_table,
 )
+
+# What the settlement seam reads off a file or service strategy to take the rows.
+_SWAP = types.SimpleNamespace(raster_row=False, catalog_event="reupload_swap_catalog")
+
+
+async def swap_in(session, *, dataset, staging_table, measurement, **writes):
+    """Publish a staging table as the settlement seam does, outside a job."""
+    from app.platform import catalog_locks
+    from app.processing.ingest.publication import _take_catalog_rows
+
+    await _install_reupload_table(
+        session, dataset=dataset, staging_table=staging_table, measurement=measurement
+    )
+    await _take_catalog_rows(session, _SWAP, dataset)
+    written = await _write_reupload_catalog(
+        session, dataset=dataset, measurement=measurement, **writes
+    )
+    await catalog_locks.bump_tile_cache_version_on(session, dataset)
+    return written
 
 
 class TestIsLockTimeoutError:
@@ -64,7 +84,7 @@ class TestIsLockTimeoutError:
 
 
 def _make_dataset_stub(table_name: str):
-    """Build a minimal dataset object satisfying the attributes ``_apply_reupload_swap`` reads."""
+    """Build a minimal dataset object satisfying the attributes the swap reads."""
     return types.SimpleNamespace(
         id=uuid.uuid4(),
         record=types.SimpleNamespace(updated_by=None),
@@ -98,7 +118,7 @@ def _stub_atomic_bump(monkeypatch) -> None:
 
 
 def _make_port():
-    """The ProcessingPort surface ``_apply_reupload_swap`` actually reaches for.
+    """The ProcessingPort surface the swap actually reaches for.
 
     The swap resolves both mapped classes through the port, so a stub offering
     only ``get_dataset_version_orm_class`` AttributeErrors. The real classes
@@ -139,7 +159,7 @@ def _minimal_measurement() -> Measurement:
     )
 
 
-class TestApplyReuploadSwapRetry:
+class TestReuploadSwapRetry:
     """Exercise the swap retry behavior on a real test DB session."""
 
     @pytest.fixture(autouse=True)
@@ -208,7 +228,7 @@ class TestApplyReuploadSwapRetry:
         monkeypatch.setattr(self.session, "add", lambda *a, **kw: None)
 
         with structlog.testing.capture_logs() as captured:
-            await _apply_reupload_swap(
+            await swap_in(
                 self.session,
                 dataset=dataset,
                 staging_table=self.staging,
@@ -288,7 +308,7 @@ class TestApplyReuploadSwapRetry:
         _stub_atomic_bump(monkeypatch)
         monkeypatch.setattr(self.session, "add", lambda *a, **kw: None)
 
-        await _apply_reupload_swap(
+        await swap_in(
             self.session,
             dataset=dataset,
             staging_table=self.staging,
@@ -362,7 +382,7 @@ class TestApplyReuploadSwapRetry:
         monkeypatch.setattr(self.session, "execute", _flaky_execute)
 
         with structlog.testing.capture_logs() as captured:
-            await _apply_reupload_swap(
+            await swap_in(
                 self.session,
                 dataset=dataset,
                 staging_table=self.staging,

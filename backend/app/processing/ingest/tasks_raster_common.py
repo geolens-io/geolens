@@ -461,11 +461,12 @@ async def observe_publish_commit(
     *,
     job_id: str,
     task: str,
+    ended: str = "complete",
 ) -> PublishObservation:
     """Read this attempt's job row on a fresh session after a lost acknowledgement.
 
-    ``complete`` for this exact attempt means the publishing commit landed. A
-    probe that fails reports ``UNKNOWN`` rather than guessing either way.
+    ``ended`` for this exact attempt means the commit landed. A probe that
+    fails reports ``UNKNOWN`` rather than guessing either way.
     """
     # fix(#909)-style late bind so tests' engine patching is honored.
     import app.core.db as db_module
@@ -487,7 +488,7 @@ async def observe_publish_commit(
             "publish_commit_probe_failed", job_id=job_id, task=task
         )
         return PublishObservation.UNKNOWN
-    if status != "complete":
+    if status != ended:
         return PublishObservation.NOT_LANDED
     structlog.get_logger().warning(
         "publish_commit_ack_lost_but_landed", job_id=job_id, task=task

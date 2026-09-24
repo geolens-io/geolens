@@ -1,320 +1,158 @@
-"""Settle a prepared service publication, and commit any replacement's publication."""
+"""The settlement seam: one order for every replacement of a dataset's data.
+
+``settle_replacement`` claims the job, has the strategy fetch and stage the
+candidate, publishes it in one transaction and ends the job. A strategy
+supplies only its own steps.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import select, update
+import structlog
+from sqlalchemy import select, text, update
+from sqlalchemy.orm import joinedload
 
 from app.core.failure_reason import redact_failure_reason
-from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
-    CATALOG_LOCK_CONFLICT_CODE,
-    WORKER_LOCK_TIMEOUT,
     CatalogLockConflict,
+    bump_tile_cache_version_on,
     lock_catalog_rows,
+    lock_conflict_report,
     worker_lock_budget,
 )
-from app.platform.jobs.heartbeat import StaleIngestAttempt
+from app.platform.jobs.heartbeat import (
+    JOB_ERROR_WRITE_TIMEOUT_MS,
+    StaleIngestAttempt,
+    arm_job_error_write_budget,
+    attempt_scoped_staging_table,
+    claim_job_attempt_and_start_heartbeat,
+    log_job_error_write_failure,
+    require_ingest_job_update,
+    resolve_ingest_attempt_or_skip,
+    stop_ingest_job_heartbeat,
+)
 from app.platform.jobs.ledger import hold
 from app.platform.jobs.models import IngestJob
-from app.platform.refresh import verification as refresh_policy
 from app.platform.refresh.service import (
-    drift_status_from_diff,
-    record_refresh_blocked,
+    claim_run_for_job,
     record_refresh_failure,
     record_refresh_success,
 )
-from app.processing.ingest.catalog_projection import scored
 from app.processing.ingest.tasks_common import (
-    _apply_reupload_swap,
     _current_tenant_schema,
     cleanup_step,
     invalidate_tile_cache_for_table,
-    load_job_for_error_write,
 )
 from app.processing.ingest.tasks_raster_common import (
     PublishObservation,
     absorb_cancellation,
     observe_publish_commit,
 )
-from app.processing.ingest.tasks_staging import _cleanup_staging_on_failure
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.processing.ingest.catalog_projection import Measurement
+logger = structlog.get_logger(__name__)
 
-
-class PublicationOutcome(StrEnum):
-    """The durable result of one publication settlement."""
-
-    PUBLISHED = "published"
-    BLOCKED = "blocked"
-    REJECTED = "rejected"
-
-
-class RefreshPublicationFenceError(RuntimeError):
-    """A durable source or local-edit publication fence refused the swap."""
-
-    def __init__(self, code: str, message: str):
-        self.code = code
-        super().__init__(message)
-
-
-class PublicationSettlementFailure(RuntimeError):
-    """Settlement rolled back and recorded its durable failure outcome."""
+# What settles the rows linked to a job when its end lands.
+Linked = Callable[["AsyncSession"], Awaitable[Any]]
 
 
 @dataclass(frozen=True, slots=True)
-class PublicationSettlementCommand:
-    """Prepared candidate plus evidence; settlement owns ``session``'s finish."""
+class Verdict:
+    """What staging decided about the candidate.
 
-    session: AsyncSession
-    dataset: Any
-    dataset_id: uuid.UUID
-    job_id: uuid.UUID
-    attempt_id: uuid.UUID
-    staging_table: str
-    # Unscored: settlement scores the staged table once publication is allowed.
-    measurement: Measurement
-    user_id: str
-    source_filename: str | None
-    source_format: str
-    original_srid: int | None
-    source_url: str
-    origin_ref: dict[str, Any]
-    # Verification's diff, taken before the swap. A publication stores the one
-    # the projection computes under the catalog lock instead.
-    schema_diff: dict[str, Any]
-    source_binding: dict[str, Any]
-    is_refresh: bool
-    expected_feature_count: int | None
-    content_digest: str | None
-    staged_geometry_type: str | None
-    staged_srid: int | None
-    staged_coordinate_dimension: int | None
-    accepted_fingerprint: str | None
-    accepted_run_id: str | None
-    origin_binding: tuple[str | None, dict[str, Any] | None, str | None] | None
-    failure_contacted_origin: bool
-    credential_for_error_scrubbing: str | None = None
+    A verdict that holds the candidate back ends the job ``failed`` with
+    ``reason``. Its ``settle``, which it must have, writes what the hold-back
+    records, under the catalog rows and only when the job's end lands, and
+    ``notify`` sends ``ingest_failed``.
+    """
+
+    publish: bool = True
+    reason: str = ""
+    settle: Linked | None = None
+    notify: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.publish and self.settle is None:
+            raise ValueError("A held-back verdict needs a settle step for its run")
 
 
-def _service_refresh_error_code(exc: BaseException) -> str:
-    """Map a settlement failure onto the existing refresh-run vocabulary."""
-    from app.platform.refresh.credentials import (
-        CredentialExpiredError,
-        CredentialStoreUnavailable,
-    )
-
-    if isinstance(exc, CatalogLockConflict):
-        return CATALOG_LOCK_CONFLICT_CODE
-    if isinstance(exc, CredentialExpiredError):
-        return "credential_expired"
-    if isinstance(exc, CredentialStoreUnavailable):
-        return "credential_store_unavailable"
-    if isinstance(exc, RefreshPublicationFenceError):
-        return exc.code
-    if getattr(exc, "code", None) in (498, 499):
-        return "credential_expired"
-    return "service_refresh_failed"
+PUBLISH = Verdict()
 
 
-def _verification(command: PublicationSettlementCommand) -> dict[str, Any] | None:
-    if not command.is_refresh:
-        return None
-    assert command.content_digest is not None
-    return refresh_policy.verify_service_refresh(
-        source_binding=command.source_binding,
-        schema_diff=command.schema_diff,
-        expected_feature_count=command.expected_feature_count,
-        fetched_feature_count=command.measurement.metadata.get("feature_count"),
-        content_digest=command.content_digest,
-        staged_geometry_type=command.staged_geometry_type,
-        staged_srid=command.staged_srid,
-        staged_coordinate_dimension=command.staged_coordinate_dimension,
-        accepted_fingerprint=command.accepted_fingerprint,
-        accepted_run_id=command.accepted_run_id,
-    )
+@dataclass(frozen=True, slots=True)
+class Published:
+    """What a strategy's catalog writes produced, for the run it completes."""
+
+    dataset_version_id: uuid.UUID | None
+    feature_count: int | None
+    schema_diff: dict[str, Any] | None
+    contacted_origin: bool
+    verification: dict[str, Any] | None = None
+    # Its cached tiles are purged after the commit.
+    live_table: str | None = None
 
 
-async def _enforce_refresh_publication_fence(
-    session: AsyncSession,
-    *,
-    job_id: uuid.UUID,
-    dataset: Any,
-    verification: dict[str, Any] | None,
-) -> None:
-    """Refuse a late swap after a scheduled source rebind or local edit."""
-    if verification is None:
-        return
+@dataclass(frozen=True, slots=True)
+class Failure:
+    """How a failed attempt is recorded on its run."""
 
-    from app.platform.extensions import get_processing_port
-    from app.platform.refresh.models import DatasetRefreshRun
-
-    run = await session.scalar(
-        select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job_id)
-    )
-    if run is None or run.source_binding_fingerprint is None:
-        return
-
-    record_cls = get_processing_port().get_record_orm_class()
-    current_origin, current_record_modified_at = (
-        await session.execute(
-            select(dataset.__class__.origin_ref, record_cls.updated_at)
-            .join(record_cls, record_cls.id == dataset.record_id)
-            .where(dataset.__class__.id == dataset.id)
-        )
-    ).one()
-    if not isinstance(current_origin, dict):
-        raise RefreshPublicationFenceError(
-            "source_changed", "Refresh source changed before publication."
-        )
-    try:
-        current_fingerprint = (
-            refresh_policy.canonical_service_source_binding_fingerprint(current_origin)
-        )
-    except ValueError as exc:
-        raise RefreshPublicationFenceError(
-            "source_changed", "Refresh source changed before publication."
-        ) from exc
-    if current_fingerprint != run.source_binding_fingerprint:
-        raise RefreshPublicationFenceError(
-            "source_changed", "Refresh source changed before publication."
-        )
-    if (
-        run.local_edit_baseline is not None
-        and current_record_modified_at is not None
-        and current_record_modified_at > run.local_edit_baseline
-    ):
-        raise RefreshPublicationFenceError(
-            "local_edits_changed", "Dataset changed locally before refresh publication."
-        )
+    error_code: str
+    feature_count_after: int | None = None
+    schema_diff: dict[str, Any] | None = None
+    verification: dict[str, Any] | None = None
+    # The origin binding the attempt contacted, when it reached the origin.
+    contacted: tuple[str | None, dict[str, Any] | None, str | None] | None = None
+    # A refused input is recorded like any failure, but the task returns.
+    refused: bool = False
 
 
-async def _settle_nonpublication(
-    command: PublicationSettlementCommand, verification: dict[str, Any]
-) -> PublicationOutcome:
-    """Commit a blocked or rejected verification without changing live data."""
-    session = command.session
-    rejected = verification["decision"] == "rejected"
-    if rejected:
-        error_code, message = refresh_policy.refresh_rejection_diagnostic(verification)
-    else:
-        error_code = "review_required"
-        message = "Review the detected changes before publication."
+class ReplacementStrategy(Protocol):
+    """One kind of replacement's own steps; the seam decides their order."""
 
-    from app.platform.extensions import get_processing_port
-    from app.platform.jobs.heartbeat import require_ingest_job_update
+    task: str
+    # Stages into this attempt's own copy of the dataset's table.
+    staging: bool
+    # The catalog rows include the dataset's raster row.
+    raster_row: bool
+    # The prefix of the catalog wait's log events.
+    catalog_event: str
 
-    await require_ingest_job_update(
-        session,
-        command.job_id,
-        command.attempt_id,
-        values={
-            "status": "failed",
-            "error_message": redact_failure_reason(message),
-            "completed_at": datetime.now(timezone.utc),
-        },
-    )
-    port = get_processing_port()
-    await lock_catalog_rows(
-        session,
-        dataset_cls=port.get_dataset_orm_class(),
-        record_cls=port.get_record_orm_class(),
-        dataset_id=command.dataset.id,
-        record_id=command.dataset.record_id,
-        lock_timeout=WORKER_LOCK_TIMEOUT,
-    )
-    command.dataset.last_checked_at = datetime.now(timezone.utc)
-    command.dataset.schema_drift_status = drift_status_from_diff(command.schema_diff)
-    if rejected:
-        await record_refresh_failure(
-            session,
-            ingest_job_id=command.job_id,
-            error_code=error_code,
-            error_message=message,
-            contacted_origin=False,
-            feature_count_after=command.measurement.metadata.get("feature_count"),
-            schema_diff=command.schema_diff,
-            verification=verification,
-        )
-        outcome = PublicationOutcome.REJECTED
-    else:
-        await record_refresh_blocked(
-            session,
-            ingest_job_id=command.job_id,
-            feature_count_after=command.measurement.metadata.get("feature_count"),
-            schema_diff=command.schema_diff,
-            verification=verification,
-        )
-        outcome = PublicationOutcome.BLOCKED
-    await session.commit()
-    return outcome
+    def prepare(self, job: IngestJob, dataset: Any, staging_table: str) -> None:
+        """Read what the attempt needs from its job and dataset; writes nothing."""
 
+    async def fetch(self) -> None:
+        """Bring the candidate in, holding no session."""
 
-async def _record_settlement_failure(
-    command: PublicationSettlementCommand,
-    exc: BaseException,
-    verification: dict[str, Any] | None,
-) -> None:
-    """Roll back the candidate and terminalize its attempt in a fresh session."""
-    await command.session.rollback()
-    from app.core.db import async_session
+    async def stage(
+        self, session: AsyncSession, job: IngestJob, dataset: Any
+    ) -> Verdict:
+        """Prepare and measure the candidate, and decide whether it publishes."""
 
-    async with async_session() as session:
-        job = await load_job_for_error_write(
-            session,
-            command.job_id,
-            command.attempt_id,
-            task_name="publication_settlement",
-        )
-        if job is not None:
-            await _cleanup_staging_on_failure(
-                session,
-                staging_table=command.staging_table,
-                job=job,
-                exc=exc,
-                task_name="publication_settlement",
-                attempt_id=command.attempt_id,
-            )
-        await record_refresh_failure(
-            session,
-            ingest_job_id=command.job_id,
-            error_code=_service_refresh_error_code(exc),
-            error_message=exc,
-            contacted_origin=False,
-            feature_count_after=command.measurement.metadata.get("feature_count"),
-            schema_diff=command.schema_diff,
-            verification=verification,
-        )
-        contact_stamped = False
-        if command.failure_contacted_origin and command.origin_binding is not None:
-            bound_uri, bound_ref, bound_format = command.origin_binding
-            outcome = await session.execute(
-                update(type(command.dataset))
-                .where(
-                    type(command.dataset).id == command.dataset_id,
-                    type(command.dataset).origin_uri.is_not_distinct_from(bound_uri),
-                    type(command.dataset).origin_ref.is_not_distinct_from(bound_ref),
-                    type(command.dataset).source_format.is_not_distinct_from(
-                        bound_format
-                    ),
-                )
-                .values(last_checked_at=datetime.now(timezone.utc))
-            )
-            contact_stamped = bool(outcome.rowcount)
-        await session.commit()
-    if contact_stamped:
-        await invalidate_catalog_cache()
+    async def install(self, session: AsyncSession, dataset: Any) -> None:
+        """Put the candidate in place, before the catalog rows are taken."""
+
+    async def write(self, session: AsyncSession, dataset: Any) -> Published:
+        """Write the catalog rows the seam holds, starting with any fence."""
+
+    def classify(self, exc: BaseException) -> Failure:
+        """How ``exc`` is recorded; may scrub it first."""
+
+    async def release(
+        self, *, publication: PublicationCommit | None, failed: bool
+    ) -> None:
+        """Keep or remove the files the strategy owns; must not raise."""
 
 
 class PublicationCommit(StrEnum):
@@ -339,16 +177,17 @@ async def commit_publication(
     job_id: uuid.UUID,
     attempt_id: uuid.UUID,
     task: str,
+    ended: str = "complete",
 ) -> PublicationCommit:
-    """Commit the transaction that publishes this attempt.
+    """Commit the transaction that ends this attempt's job ``ended``.
 
     When the acknowledgement is lost, a probe of the job row decides: a commit
     it reads as landed, or cannot read at all, is returned rather than raised,
     and a cancellation that lost the acknowledgement is absorbed so the caller
     goes on to its post-commit steps. Re-raises when the probe reads that the
-    commit did not land. Every replacement path turns its job row ``complete``
-    in the publishing transaction, which is what the probe reads. Callers
-    delete superseded data only when the result is ``confirmed``.
+    commit did not land. Every replacement path ends its job in that
+    transaction, which is what the probe reads. Callers delete superseded data
+    only when the result is ``confirmed``.
     """
     try:
         await session.commit()
@@ -357,7 +196,7 @@ async def commit_publication(
         asyncio.CancelledError,
     ) as exc:  # broad: a lost acknowledgement can surface as any error
         observation = await observe_publish_commit(
-            job_id, attempt_id, job_id=str(job_id), task=task
+            job_id, attempt_id, job_id=str(job_id), task=task, ended=ended
         )
         if observation is PublishObservation.NOT_LANDED:
             raise
@@ -386,90 +225,464 @@ async def hold_publishing_job(
     return job
 
 
-async def _invalidate_after_commit(
-    job_id: uuid.UUID, live_table_name: str | None = None
+async def _complete(
+    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID, *, linked: Linked
 ) -> None:
-    """Purge the caches a committed settlement changed; a failure is only logged."""
-    async with cleanup_step("publication catalog cache", job_id=str(job_id)):
-        await invalidate_catalog_cache()
-    if live_table_name is not None:
-        async with cleanup_step("publication tile cache", job_id=str(job_id)):
-            await invalidate_tile_cache_for_table(live_table_name)
+    """Move this attempt's job from running to complete, then settle ``linked``.
+
+    A miss raises ``StaleIngestAttempt`` and writes nothing. Does not commit.
+    """
+    await require_ingest_job_update(
+        session,
+        job_id,
+        attempt_id,
+        values={"status": "complete", "completed_at": datetime.now(timezone.utc)},
+    )
+    await linked(session)
 
 
-async def settle_publication(
-    command: PublicationSettlementCommand,
-) -> PublicationOutcome:
-    """Settle a prepared candidate and own its session's commit or rollback."""
-    verification: dict[str, Any] | None = None
-    try:
-        from app.platform.jobs.heartbeat import require_ingest_job_update
+async def _fail(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    *,
+    reason: str | BaseException,
+    linked: Linked,
+) -> bool:
+    """Move this attempt's job from pending or running to failed, then settle ``linked``.
 
-        await hold_publishing_job(command.session, command.job_id, command.attempt_id)
-        verification = _verification(command)
-        if verification is not None and verification["decision"] != "allowed":
-            outcome = await _settle_nonpublication(command, verification)
-            await _invalidate_after_commit(command.job_id)
-            return outcome
-
-        measurement = await scored(
-            command.session,
-            command.dataset,
-            command.measurement,
-            table=command.staging_table,
-            schema=_current_tenant_schema(),
+    ``reason`` is stored redacted. Returns whether the write landed; a miss
+    writes nothing. Does not commit.
+    """
+    ended = await session.execute(
+        update(IngestJob)
+        .where(
+            IngestJob.id == job_id,
+            IngestJob.attempt_id == attempt_id,
+            IngestJob.status.in_(("pending", "running")),
         )
-        version, schema_diff = await _apply_reupload_swap(
-            command.session,
-            dataset=command.dataset,
-            staging_table=command.staging_table,
-            measurement=measurement,
-            user_id=command.user_id,
-            source_filename=command.source_filename,
-            source_format=command.source_format,
-            original_srid=command.original_srid,
-            source_url=command.source_url,
-            origin_ref=command.origin_ref,
-            pre_catalog_write=partial(
-                _enforce_refresh_publication_fence,
-                command.session,
-                job_id=command.job_id,
-                dataset=command.dataset,
-                verification=verification,
+        .values(
+            status="failed",
+            error_message=redact_failure_reason(reason),
+            completed_at=datetime.now(timezone.utc),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if not ended.rowcount:
+        return False
+    await linked(session)
+    return True
+
+
+@dataclass
+class _Attempt:
+    """One attempt's ids, and what the seam cleans up after it."""
+
+    job_id: uuid.UUID
+    attempt_id: uuid.UUID
+    dataset_id: uuid.UUID
+    heartbeat: asyncio.Task[None] | None = None
+    staging_table: str = ""
+
+
+async def settle_replacement(
+    strategy: ReplacementStrategy,
+    *,
+    job_id: str,
+    dataset_id: str,
+    attempt_id: str | None,
+) -> None:
+    """Run one replacement attempt through claim, fetch, publication and cleanup.
+
+    The job row is held from after staging to the commit, and the catalog rows
+    are taken after ``install``, job row first, then the raster row, datasets
+    and records, under ``WORKER_LOCK_TIMEOUT``. Nothing is fetched or staged
+    after that. The job and its run end in the catalog writes' transaction. A
+    failure before the commit leaves live data as it was and is recorded once;
+    a step after the commit only logs its failure.
+    """
+    resolved = await resolve_ingest_attempt_or_skip(
+        job_id, attempt_id, task_label=strategy.task
+    )
+    if resolved is None:
+        return
+    attempt = _Attempt(*resolved, dataset_id=uuid.UUID(dataset_id))
+    publication: PublicationCommit | None = None
+    failed = False
+    try:
+        if not await _claim(strategy, attempt):
+            return
+        await strategy.fetch()
+        publication, failed = await _publish(strategy, attempt)
+    except Exception as exc:  # broad: every failure before the commit is recorded once
+        failed = True
+        failure = strategy.classify(exc)
+        logger.exception("Ingest task failed", job_id=job_id, task=strategy.task)
+        await _record_failure(strategy, attempt, exc, failure)
+        if failure.refused:
+            return
+        raise
+    finally:
+        async with cleanup_step(f"{strategy.task} heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(attempt.heartbeat)
+        async with cleanup_step(f"{strategy.task} staging table", job_id=job_id):
+            await _drop_staging_table(attempt.staging_table)
+        await strategy.release(publication=publication, failed=failed)
+
+    if publication is not None:
+        async with cleanup_step(f"{strategy.task} embedding", job_id=job_id):
+            await _defer_embedding(attempt.dataset_id)
+
+
+async def _claim(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
+    """Claim the job and its run and commit, before anything is fetched.
+
+    False when the job, the dataset or the claim is gone.
+    """
+    from app.core.db import async_session
+    from app.platform.extensions import get_processing_port
+
+    Dataset = get_processing_port().get_dataset_orm_class()
+    async with async_session() as session:
+        job = await session.scalar(
+            select(IngestJob).where(
+                IngestJob.id == attempt.job_id,
+                IngestJob.attempt_id == attempt.attempt_id,
+            )
+        )
+        if job is None:
+            logger.warning("Ingest job not found, skipping", job_id=str(attempt.job_id))
+            return False
+        dataset = await session.scalar(
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.id == attempt.dataset_id)
+        )
+        if dataset is None:
+            logger.warning(
+                "Dataset not found, skipping", dataset_id=str(attempt.dataset_id)
+            )
+            return False
+        # Named before the claim: a redelivery that loses it still drops the
+        # table its dead worker left, and nothing else reaps attempt tables.
+        attempt.staging_table = (
+            attempt_scoped_staging_table(dataset.table_name, attempt.attempt_id)
+            if strategy.staging
+            else ""
+        )
+        strategy.prepare(job, dataset, attempt.staging_table)
+        attempt.heartbeat = await claim_job_attempt_and_start_heartbeat(
+            session, attempt.job_id, attempt.attempt_id
+        )
+        if attempt.heartbeat is None:
+            return False
+        # The run row stays locked until this commit, and a cancel transitions
+        # it under a 2 s lock_timeout, so it commits before the fetch.
+        await claim_run_for_job(session, attempt.job_id)
+        await session.commit()
+        if attempt.staging_table:
+            # A redelivery of this attempt may have left its table behind.
+            await session.execute(
+                text(
+                    f"DROP TABLE IF EXISTS {_qualified(attempt.staging_table)} CASCADE"
+                )
+            )
+            await session.commit()
+    return True
+
+
+async def _publish(
+    strategy: ReplacementStrategy, attempt: _Attempt
+) -> tuple[PublicationCommit | None, bool]:
+    """Stage and verify the candidate, then publish it or hold it back.
+
+    Returns how a publication committed, or None with ``True`` for a verdict
+    that held the candidate back.
+    """
+    from app.core.db import async_session
+    from app.platform.extensions import get_processing_port
+
+    Dataset = get_processing_port().get_dataset_orm_class()
+    job_id, attempt_id = attempt.job_id, attempt.attempt_id
+    async with async_session() as session:
+        job = (
+            await session.execute(
+                select(IngestJob).where(
+                    IngestJob.id == job_id, IngestJob.attempt_id == attempt_id
+                )
+            )
+        ).scalar_one()
+        dataset = (
+            await session.execute(
+                select(Dataset)
+                .options(joinedload(Dataset.record))
+                .where(Dataset.id == attempt.dataset_id)
+            )
+        ).scalar_one()
+        verdict = await strategy.stage(session, job, dataset)
+        await hold_publishing_job(session, job_id, attempt_id)
+
+        if not verdict.publish:
+            await _take_catalog_rows(session, strategy, dataset)
+            landed = await _fail(
+                session,
+                job_id,
+                attempt_id,
+                reason=verdict.reason,
+                linked=verdict.settle,
+            )
+            ended = await commit_publication(
+                session,
+                job_id=job_id,
+                attempt_id=attempt_id,
+                task=strategy.task,
+                ended="failed",
+            )
+            async with cleanup_step(
+                f"{strategy.task} catalog cache", job_id=str(job_id)
+            ):
+                await invalidate_catalog_cache()
+            if landed and ended.confirmed and verdict.notify:
+                await _notify_failed(job_id, task=strategy.task, reason=verdict.reason)
+            return None, True
+
+        await strategy.install(session, dataset)
+        await _take_catalog_rows(session, strategy, dataset)
+        published = await strategy.write(session, dataset)
+        await bump_tile_cache_version_on(session, dataset)
+        await _complete(
+            session,
+            job_id,
+            attempt_id,
+            linked=partial(
+                record_refresh_success,
+                ingest_job_id=job_id,
+                dataset=dataset,
+                dataset_version_id=published.dataset_version_id,
+                feature_count_after=published.feature_count,
+                schema_diff=published.schema_diff,
+                verification=published.verification,
+                contacted_origin=published.contacted_origin,
             ),
         )
-        live_table_name = command.dataset.table_name
-        await require_ingest_job_update(
-            command.session,
-            command.job_id,
-            command.attempt_id,
-            values={
-                "status": "complete",
-                "completed_at": datetime.now(timezone.utc),
-            },
+        publication = await commit_publication(
+            session, job_id=job_id, attempt_id=attempt_id, task=strategy.task
         )
-        await record_refresh_success(
-            command.session,
-            ingest_job_id=command.job_id,
-            dataset=command.dataset,
-            dataset_version_id=version.id,
-            feature_count_after=command.measurement.metadata.get("feature_count"),
-            schema_diff=schema_diff,
-            verification=verification,
-            contacted_origin=True,
-        )
-        await commit_publication(
-            command.session,
-            job_id=command.job_id,
-            attempt_id=command.attempt_id,
-            task="publication_settlement",
-        )
-    except (
-        Exception
-    ) as exc:  # broad: settlement preserves last-known-good on every pre-commit failure
-        scrub_secret_from_exception(exc, command.credential_for_error_scrubbing)
-        await _record_settlement_failure(command, exc, verification)
-        raise PublicationSettlementFailure("Publication settlement failed.") from exc
 
-    await _invalidate_after_commit(command.job_id, live_table_name)
-    return PublicationOutcome.PUBLISHED
+        # Published, so each step below logs its own failure instead of
+        # failing the replacement.
+        async with cleanup_step(f"{strategy.task} catalog cache", job_id=str(job_id)):
+            await invalidate_catalog_cache()
+        if published.live_table is not None:
+            async with cleanup_step(f"{strategy.task} tile cache", job_id=str(job_id)):
+                await invalidate_tile_cache_for_table(published.live_table)
+    return publication, False
+
+
+async def _take_catalog_rows(
+    session: AsyncSession, strategy: ReplacementStrategy, dataset: Any
+) -> None:
+    """Lock the raster row when the strategy has one, then datasets and records."""
+    from app.platform.catalog_locks import WORKER_LOCK_TIMEOUT
+    from app.platform.extensions import get_processing_port
+
+    raster_asset_cls = None
+    if strategy.raster_row:
+        from app.processing.raster.models import RasterAsset as raster_asset_cls
+
+    port = get_processing_port()
+    # Read before the wait: a failed acquisition rolls back and expires the row.
+    dataset_id, table_name = str(dataset.id), dataset.table_name
+    started = time.perf_counter()
+    try:
+        async with worker_lock_budget(session):
+            await lock_catalog_rows(
+                session,
+                dataset_cls=port.get_dataset_orm_class(),
+                record_cls=port.get_record_orm_class(),
+                dataset_id=dataset.id,
+                record_id=dataset.record_id,
+                lock_timeout=None,
+                raster_asset_cls=raster_asset_cls,
+            )
+    except CatalogLockConflict as conflict:
+        event, hint, code = lock_conflict_report(
+            conflict, event_prefix=strategy.catalog_event
+        )
+        logger.warning(
+            event,
+            dataset_id=dataset_id,
+            table_name=table_name,
+            waited_ms=round((time.perf_counter() - started) * 1000),
+            budget=WORKER_LOCK_TIMEOUT,
+            sqlstate=code,
+            hint=hint,
+        )
+        raise
+    logger.info(
+        f"{strategy.catalog_event}_lock_acquired",
+        dataset_id=dataset_id,
+        table_name=table_name,
+        waited_ms=round((time.perf_counter() - started) * 1000),
+        budget=WORKER_LOCK_TIMEOUT,
+    )
+
+
+async def _record_failure(
+    strategy: ReplacementStrategy,
+    attempt: _Attempt,
+    exc: BaseException,
+    failure: Failure,
+) -> None:
+    """End the attempt's job and run as failed in one bounded transaction.
+
+    Never raises: the task's own failure is what the caller re-raises. Sends
+    ``ingest_failed`` when the job's end landed.
+    """
+    from app.core.db import async_session
+
+    stamped = False
+
+    async def _settle(session: AsyncSession) -> None:
+        nonlocal stamped
+        await record_refresh_failure(
+            session,
+            ingest_job_id=attempt.job_id,
+            error_code=failure.error_code,
+            error_message=exc,
+            contacted_origin=False,
+            feature_count_after=failure.feature_count_after,
+            schema_diff=failure.schema_diff,
+            verification=failure.verification,
+        )
+        if failure.contacted is not None:
+            stamped = await _stamp_contact(
+                session, attempt.dataset_id, failure.contacted
+            )
+
+    try:
+        async with async_session() as session:
+            # The pool checkout first, on its own deadline: `SET LOCAL` cannot
+            # bound a wait for a connection.
+            await asyncio.wait_for(
+                session.connection(), timeout=JOB_ERROR_WRITE_TIMEOUT_MS / 1000
+            )
+            await arm_job_error_write_budget(session)
+            landed = await _fail(
+                session,
+                attempt.job_id,
+                attempt.attempt_id,
+                reason=exc,
+                linked=_settle,
+            )
+            await session.commit()
+    except Exception as write_failure:  # broad: must not replace the task's failure
+        log_job_error_write_failure(
+            write_failure, job_id=str(attempt.job_id), task=strategy.task
+        )
+        return
+    if stamped:
+        async with cleanup_step(
+            f"{strategy.task} catalog cache", job_id=str(attempt.job_id)
+        ):
+            await invalidate_catalog_cache()
+    if landed:
+        await _notify_failed(attempt.job_id, task=strategy.task, reason=exc)
+
+
+async def _stamp_contact(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    binding: tuple[str | None, dict[str, Any] | None, str | None],
+) -> bool:
+    """Date a failed attempt's origin contact, only while the dataset is still bound as it read.
+
+    A rebind that finished first stamped what is true now, so losing the race
+    writes nothing. A row another transaction holds is skipped the same way:
+    the failure is often the wait on that row, and its write must not wait
+    again.
+    """
+    from app.platform.extensions import get_processing_port
+
+    Dataset = get_processing_port().get_dataset_orm_class()
+    origin_uri, origin_ref, source_format = binding
+    free = (
+        select(Dataset.id)
+        .where(Dataset.id == dataset_id)
+        .with_for_update(key_share=True, skip_locked=True)
+    )
+    stamped = await session.execute(
+        update(Dataset)
+        .where(
+            Dataset.id == dataset_id,
+            Dataset.id.in_(free),
+            Dataset.origin_uri.is_not_distinct_from(origin_uri),
+            Dataset.origin_ref.is_not_distinct_from(origin_ref),
+            Dataset.source_format.is_not_distinct_from(source_format),
+        )
+        .values(last_checked_at=datetime.now(timezone.utc))
+        .execution_options(synchronize_session=False)
+    )
+    return bool(stamped.rowcount)
+
+
+async def _notify_failed(
+    job_id: uuid.UUID, *, task: str, reason: str | BaseException
+) -> None:
+    from app.platform.notifications.events import (
+        build_event_notification,
+        emit_event_safe,
+    )
+
+    message = redact_failure_reason(reason)
+    await emit_event_safe(
+        event_key="ingest_failed",
+        build=lambda: build_event_notification(
+            "ingest_failed",
+            subject=f"Ingest failed: {task}",
+            body=f"Ingest job (task={task}) failed.",
+            reason=message,
+            extra={"job_id": str(job_id), "task": task},
+        ),
+    )
+
+
+def _qualified(staging_table: str) -> str:
+    from app.processing.ingest.metadata import _qtable
+
+    return _qtable(staging_table, schema=_current_tenant_schema())
+
+
+async def _drop_staging_table(staging_table: str) -> None:
+    """Drop this attempt's staging table; a failure is only logged."""
+    if not staging_table:
+        return
+    from app.core.db import async_session
+
+    try:
+        async with async_session() as session:
+            await session.execute(
+                text(f"DROP TABLE IF EXISTS {_qualified(staging_table)} CASCADE")
+            )
+            await session.commit()
+    except Exception:  # broad: cleanup must not mask the ingest result
+        logger.warning(
+            "attempt_staging_cleanup_failed", staging_table=staging_table, exc_info=True
+        )
+
+
+async def _defer_embedding(dataset_id: uuid.UUID) -> None:
+    """Queue the published dataset's embedding, built from what it now holds."""
+    from app.core.db import async_session
+    from app.platform.extensions import get_processing_port
+    from app.processing.embeddings.helpers import defer_embedding
+
+    Dataset = get_processing_port().get_dataset_orm_class()
+    async with async_session() as session:
+        dataset = await session.scalar(
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.id == dataset_id)
+        )
+        if dataset is not None:
+            await defer_embedding(dataset)

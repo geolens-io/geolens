@@ -165,7 +165,7 @@ class TestProjectRefreshSuccess:
     def test_last_refreshed_at_and_health_are_not_this_function_s_business(
         self,
     ) -> None:
-        """`_apply_reupload_swap` owns the first; #1222 owns the other two."""
+        """`_write_reupload_catalog` owns the first; #1222 owns the other two."""
         dataset = self._dataset()
         project_refresh_success(dataset, schema_diff=_diff(), contacted_origin=True)
         assert dataset.last_refreshed_at == datetime(2020, 1, 1, tzinfo=timezone.utc)
