@@ -1130,6 +1130,37 @@ class TestPostgisRefreshExecution:
         )
         assert render_after == render_before
 
+    async def test_a_table_without_an_srid_gets_no_render_index_or_grant(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """A refresh that refuses a table without an SRID indexes and grants nothing first."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        table = dataset.table_name
+        for statement in _SRID_LOSSES["srid_zero"]:
+            await test_db_session.execute(text(statement.format(t=table)))
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        grant = AsyncMock()
+        with (
+            patch.object(tasks_postgis_refresh_metadata, "grant_reader_access", grant),
+            pytest.raises(tasks_postgis_refresh.PostgisRefreshError),
+        ):
+            await _execute(test_db_session, payload)
+
+        run = await _run_for(test_db_session, dataset.id)
+        assert (run.status, run.error_code) == ("failed", "source_srid_undeclared")
+        render_indexes = await test_db_session.scalar(
+            text(
+                "SELECT count(*) FROM pg_indexes WHERE schemaname = 'data' "
+                "AND tablename = :t AND indexdef LIKE '%USING gist (geom_4326)%'"
+            ),
+            {"t": table},
+        )
+        assert render_indexes == 0
+        grant.assert_not_awaited()
+
     async def test_an_emptied_table_keeps_its_geometry_type(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:

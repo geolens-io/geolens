@@ -356,7 +356,7 @@ async def _repair_geom_4326(
     from app.core.db import async_session
     from app.processing.ingest.metadata import (
         ensure_geom_4326_gist_index,
-        get_table_srid,
+        get_declared_srid,
         grant_reader_access,
         probe_geom_4326,
         rederive_geom_4326,
@@ -401,22 +401,18 @@ async def _repair_geom_4326(
             if not await _relation_exists(session, schema=schema, table=table_name):
                 # Same: the "missing" verdict belongs to the measurement.
                 return _RepairReport(_REPAIR_NOT_APPLICABLE)
+            srid = await get_declared_srid(session, table_name, schema=schema)
+            if srid == 0:
+                # Phase 2 refuses a table without an SRID, so nothing about it
+                # is re-derived, indexed or granted first.
+                return _RepairReport(_REPAIR_NOT_APPLICABLE)
 
-            # fix(#1738): probed before the SRID is resolved. `get_table_srid`
-            # wraps PostGIS `Find_SRID`, which RAISES rather than returning
-            # NULL for a table with no geometry column — so a registered
-            # non-spatial table (#1359) used to hit this as an exception,
-            # reported as a repair failure every refresh, skipping the grant below.
             state = await probe_geom_4326(session, table_name, schema=schema)
             repair = None
-            if state.rederivable:
-                srid = await get_table_srid(session, table_name, schema=schema)
-                # Without an SRID nothing says where the coordinates are, so the
-                # render column is left alone; the measurement refuses the table.
-                if srid is not None and srid != 0:
-                    repair = await rederive_geom_4326(
-                        session, table_name, srid, schema=schema, state=state
-                    )
+            if state.rederivable and srid is not None:
+                repair = await rederive_geom_4326(
+                    session, table_name, srid, schema=schema, state=state
+                )
 
             # fix(#1738): index restored on the same rule as the grant below —
             # every outcome where the column EXISTS, not only a rewrite.
