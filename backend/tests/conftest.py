@@ -231,6 +231,7 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_rls_drift_gate",
     "test_rls_leak_lint",
     "test_vrt_stale_sweep_gap002",
+    "test_staging_pipeline_tables",  # stages real tables, which grants the reader
 }
 
 

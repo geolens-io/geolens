@@ -1302,7 +1302,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # raising further. Each upload door branches once for a 3D Tiles tileset.
     "backend/app/processing/ingest/router.py": 1860,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1808,
+    "backend/app/processing/ingest/tasks_common.py": 1772,
     # The file and service strategies: retrieval, staging, verification and cleanup.
     "backend/app/processing/ingest/tasks_reupload.py": 1295,
     # Refresh strategies share access, admission and dispatch rules at this API
