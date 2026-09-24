@@ -198,10 +198,17 @@ async def seed(test_db_session):
     )
     await test_db_session.commit()
     await test_db_session.refresh(job)
-    yield _Seed(job.id, job.attempt_id, dataset.id, dataset.record_id, table)
+    seeded = _Seed(job.id, job.attempt_id, dataset.id, dataset.record_id, table)
+    yield seeded
     async with db_module.async_session() as cleanup:
         await cleanup.execute(
             text("DELETE FROM catalog.ingest_jobs WHERE id = :id"), {"id": job.id}
+        )
+        # Cascades to the dataset and its runs, so a run a test leaves running
+        # never reaches a later test's unscoped sweep.
+        await cleanup.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"),
+            {"id": seeded.record_id},
         )
         await cleanup.execute(text(f'DROP TABLE IF EXISTS data."{table}" CASCADE'))
         await cleanup.commit()
