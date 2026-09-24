@@ -12,6 +12,7 @@ import {
 import type { LayerAdapter } from '@/components/builder/layer-adapters/types';
 import { isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getColorProperty } from '@/lib/color-ramps';
+import { isNumericColumn } from '@/lib/column-utils';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import { inferGeometryType } from '@/lib/geo-utils';
@@ -36,6 +37,10 @@ export interface LegendLayer {
   dataset_feature_count?: number | null;
   /** The viewer shape's feature count. */
   feature_count?: number | null;
+  /** The builder shape's column types. */
+  dataset_column_info?: { name: string; type: string }[] | null;
+  /** The viewer shape's column types. */
+  column_info?: { name: string; type: string }[] | null;
   paint?: Record<string, unknown> | null;
   /** The saved filter, which can keep every value from a `match`'s fallback colour. */
   filter?: unknown;
@@ -402,23 +407,40 @@ function readAsMatchInput(input: unknown, value: unknown): unknown {
   }
 }
 
+/** Whether an expression is the filter editor's number accessor, `['to-number', ['get', column], ...fallbacks]`. */
+function isNumberAccessor(value: unknown, column: string): boolean {
+  return Array.isArray(value) && value[0] === 'to-number' && getColumn(value[1]) === column
+    && value.slice(2).every((fallback) => typeof fallback === 'number');
+}
+
 /**
  * The values a layer filter lets through on `column`, from an `==` or a literal
- * `in` on it, alone or inside `all`; null when the filter names none.
+ * `in` on it, alone or inside `all`; null when the filter names none. On a numeric
+ * column the number accessor reads a null as 0, so an equality with 0 lets nulls through.
  */
-function filteredValues(filter: unknown, column: string): unknown[] | null {
+function filteredValues(filter: unknown, column: string, numeric: boolean): unknown[] | null {
   if (!Array.isArray(filter)) return null;
   const [op, input, operand] = filter;
   if (op === 'all') {
     const limits = filter.slice(1)
-      .map((entry) => filteredValues(entry, column))
+      .map((entry) => filteredValues(entry, column, numeric))
       .filter((limit): limit is unknown[] => limit !== null);
     return limits.length > 0 ? limits.reduce((kept, limit) => kept.filter((value) => limit.includes(value))) : null;
   }
-  if (filter.length !== 3 || getColumn(input) !== column) return null;
+  if (filter.length !== 3) return null;
+  if (numeric && op === '==' && typeof operand === 'number' && isNumberAccessor(input, column)) {
+    return operand === 0 ? [0, null] : [operand];
+  }
+  if (getColumn(input) !== column) return null;
   if (op === '==' && isLiteral(operand)) return [operand];
   if (op === 'in' && Array.isArray(operand) && operand[0] === 'literal' && Array.isArray(operand[1])) return operand[1];
   return null;
+}
+
+/** Whether the layer's column types say `column` holds numbers, so each feature carries a number or nothing. */
+function columnIsNumeric(layer: LegendLayer, column: string): boolean {
+  const type = (layer.dataset_column_info ?? layer.column_info)?.find((info) => info.name === column)?.type;
+  return typeof type === 'string' && isNumericColumn(type);
 }
 
 /**
@@ -426,7 +448,7 @@ function filteredValues(filter: unknown, column: string): unknown[] | null {
  * filter lets through reaches it. Stored categories on its column lend their
  * labels, and one that no arm lists, in the fallback's colour, names the fallback.
  */
-function categoricalClasses(match: MatchClasses, config: StyleConfig, filter: unknown, title: string): LegendClasses {
+function categoricalClasses(match: MatchClasses, config: StyleConfig, layer: LegendLayer, title: string): LegendClasses {
   const stored = config.column === match.column && Array.isArray(config.categories) ? config.categories : [];
   // A paint that coerces its input matches a stored value of another type.
   const isListed = (value: unknown) => match.arms.some((arm) => arm.values.some((armValue) => String(armValue) === String(value)));
@@ -434,7 +456,7 @@ function categoricalClasses(match: MatchClasses, config: StyleConfig, filter: un
     color,
     label: values.map((value) => stored.find((category) => String(category.value) === String(value))?.label ?? String(value)).join(', '),
   }));
-  const allowed = filteredValues(filter, match.column);
+  const allowed = filteredValues(layer.filter, match.column, columnIsNumeric(layer, match.column));
   const reachesFallback = allowed === null || allowed.some((value) => {
     const read = readAsMatchInput(match.input, value);
     return read === undefined || !match.arms.some((arm) => arm.values.includes(read as string | number));
@@ -491,8 +513,14 @@ function sizeClassesFor(kind: LayerAdapter['type'], paint: Record<string, unknow
   return { target: size.target, column, sizes, breaks: config.breaks ?? [], expression, painted: false };
 }
 
-/** The colour a line draws with: a line gradient draws over its line colour. */
+/** The colour a fill draws with; an active fill pattern draws instead of it. */
+function fillColor(fillPaint: Record<string, unknown>): unknown {
+  return fillPaint['fill-pattern'] != null ? undefined : fillPaint['fill-color'];
+}
+
+/** The colour a line draws with: an active line pattern draws instead of any colour, and a gradient instead of its line colour. */
 function lineColor(linePaint: Record<string, unknown>): unknown {
+  if (linePaint['line-pattern'] != null) return undefined;
   return linePaint['line-gradient'] ?? linePaint['line-color'];
 }
 
@@ -500,10 +528,11 @@ function lineColor(linePaint: Record<string, unknown>): unknown {
 function drawnColor(paint: Record<string, unknown>, kind: LayerAdapter['type'], geometry: string | null): unknown {
   if (kind !== 'mixed') {
     const property = getColorProperty(geometry);
-    return property === 'line-color' ? lineColor(paint) : paint[property];
+    if (property === 'line-color') return lineColor(paint);
+    return property === 'fill-color' ? fillColor(paint) : paint[property];
   }
   const [fill, ...others] = [
-    resolveMixedFillPaint(paint)['fill-color'],
+    fillColor(resolveMixedFillPaint(paint)),
     lineColor(resolveLinePaint(paint)),
     resolveCirclePaint(paint)['circle-color'],
   ];
@@ -539,7 +568,7 @@ function classesFor(
   // Colour steps on zoom or a transformed input have no column, and list nothing.
   const listed = steps?.column ? { ...steps, column: steps.column } : null;
   const colors: LegendClasses | null = match
-    ? categoricalClasses(match, config, layer.filter, colorTitle(config, match.column))
+    ? categoricalClasses(match, config, layer, colorTitle(config, match.column))
     : listed && {
       mode: 'graduated',
       target: 'color',
