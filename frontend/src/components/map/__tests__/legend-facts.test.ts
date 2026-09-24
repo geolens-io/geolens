@@ -521,6 +521,21 @@ const heatRows: HeatRow[] = [
     { ramp: builderRamp('Blues', true), weightColumn: 'mag' },
   ],
   [
+    'a stored ramp with an opaque colour at zero density',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#0000ff', 1, '#ff0000'] }),
+    { ramp: { colors: ['#0000ff', '#ff0000'], name: null, reversed: false }, weightColumn: null },
+  ],
+  [
+    'a stored ramp with a transparent colour at zero density',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 1, '#ff0000'] }),
+    { ramp: { colors: ['#ff0000'], name: null, reversed: false }, weightColumn: null },
+  ],
+  [
+    'a stored ramp with a zero-alpha hex at zero density',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, '#2166ac00', 0.5, '#67a9cf', 1, '#ef8a62'] }),
+    { ramp: { colors: ['#67a9cf', '#ef8a62'], name: null, reversed: false }, weightColumn: null },
+  ],
+  [
     'a stored step colour',
     heatmap({ 'heatmap-color': ['step', ['heatmap-density'], 'rgba(0,0,0,0)', 0.3, '#fde725', 0.7, '#440154'] }),
     { ramp: { colors: ['rgba(0,0,0,0)', '#fde725', '#440154'], name: null, reversed: false }, weightColumn: null },

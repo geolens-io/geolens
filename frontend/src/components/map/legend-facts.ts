@@ -320,14 +320,28 @@ function classesFor(
   return [{ mode: 'graduated', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks }];
 }
 
-/** The colours a heatmap-color expression draws above zero density; null when they can't be read. */
+/** Whether a CSS colour has zero alpha: `transparent`, an rgb(a) or hsl(a) alpha of 0, or a 4- or 8-digit hex ending in 0. */
+function isTransparentColor(color: unknown): boolean {
+  if (typeof color !== 'string') return false;
+  const value = color.trim().toLowerCase();
+  if (value === 'transparent') return true;
+  const hex = /^#(?:[0-9a-f]{3}([0-9a-f])|[0-9a-f]{6}([0-9a-f]{2}))$/.exec(value);
+  if (hex) return parseInt(hex[1] ?? hex[2], 16) === 0;
+  const fn = /^(?:rgb|hsl)a?\((.*)\)$/.exec(value);
+  if (!fn) return false;
+  const parts = fn[1].split(/[\s,/]+/).filter(Boolean);
+  return parts.length === 4 && parseFloat(parts[3]) === 0;
+}
+
+/** The colours a heatmap-color expression draws, low to high density; null when they can't be read. */
 function heatmapColors(expression: unknown): string[] | null {
   if (typeof expression === 'string') return [expression];
   if (!Array.isArray(expression)) return null;
   let outputs: unknown[];
   if (expression[0] === 'interpolate' || expression[0] === 'interpolate-hcl' || expression[0] === 'interpolate-lab') {
-    // Zero density is the floor where no heat draws, transparent in the built ramps.
-    outputs = expression.filter((_, i) => i >= 4 && i % 2 === 0 && expression[i - 1] !== 0);
+    // A transparent colour at zero density is the floor where no heat draws, as
+    // in the built ramps; an opaque one there is part of the ramp.
+    outputs = expression.filter((_, i) => i >= 4 && i % 2 === 0 && !(expression[i - 1] === 0 && isTransparentColor(expression[i])));
   } else if (expression[0] === 'step') {
     outputs = expression.filter((_, i) => i >= 2 && i % 2 === 0);
   } else {
