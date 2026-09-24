@@ -745,7 +745,7 @@ PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
     ("processing/ingest/tasks_tileset.py", "unpack_tileset"): (
         1,
         "tiles3d/{dataset_id}/{attempt_id}/: ingest_tileset records that prefix "
-        "on the job row before calling it",
+        "on the job row before calling it, and the job sweep reaps it",
     ),
 }
 

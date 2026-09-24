@@ -447,6 +447,7 @@ class TestOnlyASettledArtifactLosesItsRecord:
         walk(tree)
         assert callers == {
             "reap_unpublished_storage_keys",
+            "reap_unpublished_tileset_attempts",
             "_reap_unadopted_analysis_outputs",
         }, callers
 

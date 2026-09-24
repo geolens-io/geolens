@@ -30,6 +30,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
+from app.core.tiles3d import (
+    UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
+    is_tileset_attempt_prefix,
+    tileset_attempt_dataset,
+)
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
@@ -214,6 +219,11 @@ class StaleCleanupOutcome:
     # fix(#1778): analysis output tables named on the job rows this pass
     # settled, dropped after the settling commit under the same rule.
     _unadopted_analysis_tables: tuple[tuple[uuid.UUID, str], ...] = field(
+        default=(), repr=False, compare=False
+    )
+    # The unpack prefixes tileset attempts named before their first put, reaped
+    # after the commit like the raster keys.
+    _unpublished_tileset_attempts: tuple[str, ...] = field(
         default=(), repr=False, compare=False
     )
     # The job rows this pass settled, for a caller that logs each one.
@@ -481,6 +491,13 @@ async def _reap_committed_staged_paths(
     staged_paths_skipped += skipped
     staged_cleanup_failures += failures
 
+    reaped, skipped, failures = await reap_unpublished_tileset_attempts(
+        outcome._unpublished_tileset_attempts
+    )
+    storage_objects_reaped += reaped
+    staged_paths_skipped += skipped
+    staged_cleanup_failures += failures
+
     # fix(#1778): the analysis peer of the loop above. Same rule, same reason:
     # the table is dropped only once the row that stopped owning it is durable.
     await _reap_unadopted_analysis_outputs(outcome._unadopted_analysis_tables)
@@ -520,6 +537,22 @@ def unpublished_storage_keys_from_metadata(
         and key.startswith(("rasters/", "originals/"))
         and ".." not in key
     )
+
+
+def unpublished_tileset_attempts_from_metadata(
+    user_metadata: object,
+) -> tuple[str, ...]:
+    """Read the unpack prefixes tileset attempts named on their job row.
+
+    Only the exact shape of one attempt's prefix is read back: the value comes
+    from a schemaless JSONB blob and licenses deleting everything under it.
+    """
+    if not isinstance(user_metadata, dict):
+        return ()
+    raw = user_metadata.get(UNPUBLISHED_TILESET_ATTEMPTS_FIELD)
+    if not isinstance(raw, list):
+        return ()
+    return tuple(prefix for prefix in raw if is_tileset_attempt_prefix(prefix))
 
 
 def unadopted_analysis_tables_from_metadata(user_metadata: object) -> tuple[str, ...]:
@@ -620,6 +653,7 @@ async def _clear_settled_artifact_records(
     *,
     storage_keys: set[str] = frozenset(),  # type: ignore[assignment]
     analysis_tables: set[str] = frozenset(),  # type: ignore[assignment]
+    tileset_attempts: set[str] = frozenset(),  # type: ignore[assignment]
 ) -> None:
     """Drop the job-row record of artifacts that are now accounted for.
 
@@ -637,7 +671,7 @@ async def _clear_settled_artifact_records(
         UNPUBLISHED_STORAGE_KEYS_FIELD,
     )
 
-    if not storage_keys and not analysis_tables:
+    if not storage_keys and not analysis_tables and not tileset_attempts:
         return
     try:
         async with async_session() as session:
@@ -663,12 +697,22 @@ async def _clear_settled_artifact_records(
                         ),
                     )
                 )
+            if tileset_attempts:
+                await session.execute(
+                    text(_CLEAR_SETTLED_LIST_SQL).bindparams(
+                        bindparam("field", value=UNPUBLISHED_TILESET_ATTEMPTS_FIELD),
+                        bindparam(
+                            "settled", value=sorted(tileset_attempts), type_=ARRAY(Text)
+                        ),
+                    )
+                )
             await session.commit()
     except Exception:  # broad: costs one more sweep, never correctness
         log.warning(
             "Failed to clear settled artifact records",
             key_count=len(storage_keys),
             table_count=len(analysis_tables),
+            prefix_count=len(tileset_attempts),
         )
 
 
@@ -730,6 +774,70 @@ async def reap_unpublished_storage_keys(
             settled.add(key)
     await _clear_settled_artifact_records(storage_keys=settled)
     return (reaped, skipped, failures)
+
+
+async def reap_unpublished_tileset_attempts(
+    prefixes: tuple[str, ...],
+) -> tuple[int, int, int]:
+    """Delete what killed tileset attempts unpacked, but never a live attempt.
+
+    Returns ``(objects reaped, prefixes refused, prefixes failed)``. A prefix
+    a live pointer names is refused, and a failed survivor query deletes
+    nothing. A refused or emptied prefix comes off the job-row record; a
+    failed one stays on it for the next pass.
+    """
+    from app.core.db import async_session
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+    from app.modules.catalog.datasets.domain.service import get_tileset_href
+    from app.platform.storage.reap import delete_prefix
+
+    prefixes = tuple(dict.fromkeys(prefixes))
+    if not prefixes:
+        return (0, 0, 0)
+    live: set[str] = set()
+    try:
+        async with async_session() as session:
+            for prefix in prefixes:
+                # Only its dataset's pointer is served from under a prefix, and
+                # that pointer names its own attempt's tileset.json.
+                href = await get_tileset_href(session, tileset_attempt_dataset(prefix))
+                if href is not None and href.startswith(prefix):
+                    live.add(prefix)
+    except Exception:  # broad: an unreadable catalog must not license a delete
+        log.warning(
+            "Skipped tileset attempt reap, survivor query failed",
+            prefix_count=len(prefixes),
+        )
+        return (0, len(prefixes), 0)
+
+    tenant_id = current_tenant_var.get() if is_multi_tenant() else None
+    reaped = refused = failed = 0
+    settled: set[str] = set()
+    for prefix in prefixes:
+        if prefix in live:
+            refused += 1
+            outcome = "refused"
+            log.warning(
+                "Refused to reap a tileset attempt a live pointer names",
+                storage_prefix=prefix,
+            )
+        else:
+            try:
+                reaped += await delete_prefix(prefix, tenant_id=tenant_id)
+            except Exception:  # broad: the record stays for the next pass
+                failed += 1
+                outcome = "failed"
+                log.warning(
+                    "Failed to reap an unpublished tileset attempt",
+                    storage_prefix=prefix,
+                )
+            else:
+                outcome = "deleted"
+        if outcome in STORAGE_KEY_FINAL_OUTCOMES:
+            settled.add(prefix)
+    await _clear_settled_artifact_records(tileset_attempts=settled)
+    return (reaped, refused, failed)
 
 
 async def _reap_unadopted_analysis_outputs(
@@ -1520,6 +1628,7 @@ def _carries_unreaped_artifacts():
     return or_(
         IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(None),
         IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].is_not(None),
+        IngestJob.user_metadata[UNPUBLISHED_TILESET_ATTEMPTS_FIELD].is_not(None),
     )
 
 
@@ -1543,6 +1652,7 @@ async def collect_unreaped_artifacts(
     # The row id rides along so the drop can refuse a name that isn't this
     # job's, without a second read to re-derive ownership.
     unadopted_analysis_tables: list[tuple[uuid.UUID, str]] = []
+    unpublished_tileset_attempts: list[str] = []
     for artifact_id, artifact_metadata in artifact_rows.all():
         unpublished_storage_keys.extend(
             unpublished_storage_keys_from_metadata(artifact_metadata)
@@ -1551,10 +1661,14 @@ async def collect_unreaped_artifacts(
             (artifact_id, name)
             for name in unadopted_analysis_tables_from_metadata(artifact_metadata)
         )
+        unpublished_tileset_attempts.extend(
+            unpublished_tileset_attempts_from_metadata(artifact_metadata)
+        )
     return replace(
         outcome,
         _unpublished_storage_keys=tuple(sorted(set(unpublished_storage_keys))),
         _unadopted_analysis_tables=tuple(sorted(set(unadopted_analysis_tables))),
+        _unpublished_tileset_attempts=tuple(sorted(set(unpublished_tileset_attempts))),
     )
 
 

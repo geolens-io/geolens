@@ -1,4 +1,5 @@
-"""A tileset zip uploads, previews, commits and publishes, and never reaches GDAL."""
+"""A tileset zip uploads, previews, commits and publishes, never reaches GDAL, and an
+interrupted attempt is reaped by the job sweep."""
 
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ import os
 import uuid
 import zipfile
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -30,6 +32,11 @@ from app.core.tiles3d import (
 )
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.models import IngestJob
+from app.platform.jobs.sweep import (
+    fail_stale_jobs,
+    reap_unpublished_tileset_attempts,
+    unpublished_tileset_attempts_from_metadata,
+)
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.embeddings.tasks import embed_record
 from app.processing.ingest.tasks import ingest_file, ingest_tileset, task_app
@@ -678,6 +685,186 @@ async def test_a_member_past_the_multipart_threshold_streams_whole(
 
 
 # --- Interruption ----------------------------------------------------------
+
+
+class _DiesAfterTwoPuts:
+    """The configured storage, until the third put kills the attempt."""
+
+    def __init__(self, storage) -> None:
+        self._storage = storage
+        self.puts = 0
+
+    def __getattr__(self, name):
+        return getattr(self._storage, name)
+
+    async def put(self, key, data):
+        if self.puts == 2:
+            raise RuntimeError("worker killed")
+        self.puts += 1
+        return await self._storage.put(key, data)
+
+
+async def interrupted_attempt(client, headers, queued, monkeypatch) -> str:
+    """Commit a tileset whose attempt writes two objects and never cleans up."""
+    job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
+    assert (await commit(client, headers, job_id)).status_code == 202
+    real = storage_provider.get_storage()
+    monkeypatch.setattr(storage_provider, "_storage", _DiesAfterTwoPuts(real))
+    # As after a SIGKILL: the attempt's own cleanup never runs.
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_tileset.delete_prefix", AsyncMock(return_value=0)
+    )
+    with pytest.raises(RuntimeError, match="worker killed"):
+        await run_queued(queued)
+    monkeypatch.setattr(storage_provider, "_storage", real)
+    return job_id
+
+
+async def test_an_interrupted_attempts_objects_are_reaped(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch
+) -> None:
+    """The prefix named before the first put licenses reaping what was written."""
+    job_id = await interrupted_attempt(client, uploader[0], queued, monkeypatch)
+    job = await load_job(test_db_session, job_id)
+    (prefix,) = job.user_metadata[UNPUBLISHED_TILESET_ATTEMPTS_FIELD]
+    assert job.status == "failed"
+    assert len(await tileset_objects()) == 2
+
+    outcome = await fail_stale_jobs(test_db_session, detailed=True)
+
+    assert await tileset_objects() == []
+    assert outcome.storage_objects_reaped >= 2
+    job = await load_job(test_db_session, job_id)
+    assert UNPUBLISHED_TILESET_ATTEMPTS_FIELD not in job.user_metadata
+
+
+async def test_the_live_attempt_is_never_reaped(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch
+) -> None:
+    """After a retry publishes, the dead attempt is reaped and the live one kept."""
+    headers, _ = uploader
+    job_id = await interrupted_attempt(client, headers, queued, monkeypatch)
+    retried = await client.post(f"/jobs/{job_id}/retry", headers=headers)
+    assert retried.status_code == 202, retried.text
+    await run_queued(queued)
+    job = await load_job(test_db_session, job_id)
+    dead, live = job.user_metadata[UNPUBLISHED_TILESET_ATTEMPTS_FIELD]
+    assert job.status == "complete", job.error_message
+    assert live == tileset_attempt_prefix(job.dataset_id, job.attempt_id)
+    published = sorted(await storage_provider.get_storage().list(live))
+    assert len(published) == 3
+
+    await fail_stale_jobs(test_db_session, detailed=True)
+
+    assert await storage_provider.get_storage().list(dead) == []
+    assert await tileset_objects() == published
+    job = await load_job(test_db_session, job_id)
+    assert UNPUBLISHED_TILESET_ATTEMPTS_FIELD not in job.user_metadata
+
+
+@pytest.fixture
+async def job_row(test_db_session):
+    """Insert one ingest job row, removed afterwards."""
+    ids: list = []
+
+    async def _insert(**fields) -> IngestJob:
+        job = IngestJob(file_path="", **fields)
+        test_db_session.add(job)
+        await test_db_session.commit()
+        ids.append(job.id)
+        return job
+
+    yield _insert
+    await test_db_session.rollback()
+    await test_db_session.execute(
+        text("DELETE FROM catalog.ingest_jobs WHERE id = ANY(:ids)"), {"ids": ids}
+    )
+    await test_db_session.commit()
+
+
+async def test_a_killed_running_attempt_is_reaped_once_settled(
+    client: AsyncClient, test_db_session, job_row
+) -> None:
+    """A running row past its lease is settled failed, then its prefix is reaped."""
+    prefix = tileset_attempt_prefix(uuid.uuid4(), uuid.uuid4())
+    for key in (f"{prefix}tileset.json", f"{prefix}0/0.glb"):
+        await storage_provider.get_storage().put(key, b"{}")
+    stale = datetime.now(timezone.utc) - timedelta(hours=2)
+    job = await job_row(
+        status="running",
+        started_at=stale,
+        heartbeat_at=stale,
+        user_metadata={UNPUBLISHED_TILESET_ATTEMPTS_FIELD: [prefix]},
+    )
+
+    await fail_stale_jobs(test_db_session, detailed=True)
+
+    assert await tileset_objects() == []
+    row = await load_job(test_db_session, job.id)
+    assert row.status == "failed"
+    assert UNPUBLISHED_TILESET_ATTEMPTS_FIELD not in row.user_metadata
+
+
+async def test_a_hand_edited_record_is_ignored(
+    client: AsyncClient, test_db_session, job_row
+) -> None:
+    """Only the exact shape of one attempt's prefix is ever reaped."""
+    dataset_id = uuid.uuid4()
+    prefix = tileset_attempt_prefix(dataset_id, uuid.uuid4())
+    kept = sorted([f"{prefix}tileset.json", f"tiles3d/{dataset_id}/other/x.glb"])
+    for key in kept:
+        await storage_provider.get_storage().put(key, b"{}")
+    await job_row(
+        status="failed",
+        user_metadata={
+            UNPUBLISHED_TILESET_ATTEMPTS_FIELD: [
+                "tiles3d/",
+                f"tiles3d/{dataset_id}/",
+                prefix[:-1],
+                f"{prefix}../",
+                f"{prefix}0/",
+                prefix.upper(),
+            ]
+        },
+    )
+
+    await fail_stale_jobs(test_db_session, detailed=True)
+
+    assert await tileset_objects() == kept
+
+
+async def test_the_sweep_reaps_under_the_tenant_prefix(client, monkeypatch) -> None:
+    """A hosted sweep resolves each recorded prefix for its own tenant."""
+    tenant = str(uuid.uuid4())
+    prefix = tileset_attempt_prefix(uuid.uuid4(), uuid.uuid4())
+    storage = storage_provider.get_storage()
+    await storage.put(f"tenants/{tenant}/{prefix}tileset.json", b"{}")
+    await storage.put(f"{prefix}tileset.json", b"{}")
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+
+    token = current_tenant_var.set(tenant)
+    try:
+        counts = await reap_unpublished_tileset_attempts((prefix,))
+    finally:
+        current_tenant_var.reset(token)
+
+    assert counts == (1, 0, 0)
+    assert await storage.list(f"tenants/{tenant}/") == []
+    assert await storage.list(prefix) == [f"{prefix}tileset.json"]
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    [None, "tiles3d/a/b/", [1, None], ["tiles3d/"], ["tiles3d/x/y/"]],
+    ids=["missing", "string", "not-strings", "root", "not-uuids"],
+)
+def test_only_an_attempt_shaped_prefix_is_read_back(recorded) -> None:
+    """Anything but tiles3d/{uuid}/{uuid}/ is dropped before the reap."""
+    metadata = (
+        {} if recorded is None else {UNPUBLISHED_TILESET_ATTEMPTS_FIELD: recorded}
+    )
+
+    assert unpublished_tileset_attempts_from_metadata(metadata) == ()
 
 
 async def test_the_attempt_names_its_prefix_before_the_first_put(
