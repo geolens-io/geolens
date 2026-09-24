@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import structlog
-from sqlalchemy import Select, select, update
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import redact_failure_reason
@@ -35,6 +35,7 @@ from app.modules.admin.schemas import (
     BackfillRunProgress,
     BackfillRunSummary,
 )
+from app.platform.jobs.ledger import Outcome, abort, hold
 from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 from app.processing.ingest.tasks import task_app
 
@@ -434,9 +435,8 @@ async def _recover_unsettled(
             # Settled already — trail must describe what the row says, whoever
             # wrote it.
             #
-            # fix(#1556): status-matching suffices HERE (unlike in
-            # `_undispatched_settle_write_landed`) because this worker already
-            # took delivery. `complete` has exactly one producer (this
+            # fix(#1556): status-matching suffices HERE because this worker
+            # already took delivery. `complete` has exactly one producer (this
             # attempt's fenced `_finalize`), so a match proves authorship;
             # `failed` has several, but all share the same outcome and differ
             # only in `error_code`, and `worker_cancelled` is the conservative
@@ -481,52 +481,28 @@ UNDISPATCHED_RUN_MESSAGE = (
 )
 
 
-async def _fail_undispatched_pending_row(job_uuid: uuid.UUID) -> bool:
-    """Fail the still-``pending`` row and report whether it took the update."""
-    from app.core.db import async_session
+async def _fail_undispatched_pending_row(
+    job_uuid: uuid.UUID, *, ip_address: str | None = None
+) -> bool:
+    """Fail the still-``pending`` row and report whether it took the update.
 
-    async with async_session() as session:
-        result = await session.execute(
-            update(IngestJob)
-            .where(IngestJob.id == job_uuid, IngestJob.status == "pending")
-            .values(
-                status="failed",
-                completed_at=datetime.now(timezone.utc),
-                error_message=UNDISPATCHED_RUN_MESSAGE,
-            )
-        )
-        await session.commit()
-        return bool(result.rowcount)
-
-
-async def _undispatched_settle_write_landed(job_uuid: uuid.UUID) -> bool:
-    """Ask the row for evidence of THIS write, on a fresh connection.
-
-    fix(#1556): `status == "failed"` alone isn't proof — a worker could claim
-    and fail the job after this cleanup was cancelled, and a status-only read
-    would then record `dispatch_cancelled` (nothing deleted) over the real
-    `backfill_failed` (everything deleted), evicting the true terminal entry
-    (unique per job id, migration 0051).
-
-    ``UNDISPATCHED_RUN_MESSAGE`` is written at exactly one site — this one —
-    and once terminal, no other writer can overwrite it, so matching it proves
-    only this write could have landed.
-
-    Bounded separately, like ``_release_caller_transaction``: a shutdown that
-    already lost one round trip must not let a second one extend the drain.
+    The job ledger closes the run's audit trail in the same commit.
     """
     from app.core.db import async_session
 
-    async def _read() -> bool:
-        async with async_session() as fresh:
-            observed = await fresh.get(IngestJob, job_uuid)
-        return (
-            observed is not None
-            and observed.status == "failed"
-            and observed.error_message == UNDISPATCHED_RUN_MESSAGE
+    async with async_session() as session:
+        job = await hold(session, job_uuid, expect="pending")
+        if job is None:
+            return False
+        outcome = await abort(
+            session,
+            job,
+            code="dispatch_cancelled",
+            reason=UNDISPATCHED_RUN_MESSAGE,
+            ip_address=ip_address,
         )
-
-    return await asyncio.wait_for(_read(), timeout=5)
+        await session.commit()
+        return outcome is Outcome.ENDED
 
 
 async def settle_undispatched_run(
@@ -548,12 +524,9 @@ async def settle_undispatched_run(
     after all — dispatch may have reached the queue before the cancellation
     landed.
 
-    fix(#1556): this settle's own commit can itself lose its acknowledgement
-    under the cancellation that triggered it, leaving a terminal ``failed``
-    row no sweeper will revisit and a trail stuck on ``requested``. Same rule
-    as ``_recover_unsettled``: read the row for evidence of THIS write, not
-    for a status other actors also reach (see
-    ``_undispatched_settle_write_landed``).
+    The row and its audit trail commit together, so a commit that loses its
+    acknowledgement under the cancellation that triggered it leaves both
+    written or neither, and nothing is left to reconcile.
 
     fix(#1556): ``caller_session`` is released first, because a cancellation
     that landed inside that session's own commit leaves it holding the job
@@ -562,28 +535,23 @@ async def settle_undispatched_run(
     if caller_session is not None:
         await _release_caller_transaction(caller_session, audit_context["job_id"])
     try:
-        settled = await _fail_undispatched_pending_row(job_uuid)
-    except BaseException:  # broad: a lost acknowledgement is the case recovered here
+        settled = await _fail_undispatched_pending_row(
+            job_uuid, ip_address=audit_context.get("ip_address")
+        )
+    except BaseException:  # broad: both records landed or neither did
         logger.warning(
             "embedding_backfill_dispatch_settle_unacknowledged",
             job_id=audit_context["job_id"],
             exc_info=True,
         )
-        settled = await _undispatched_settle_write_landed(job_uuid)
+        return
     if not settled:
-        # A worker took it, or the lost write never landed after all — leave
-        # both records to whoever owns the row: a worker closes its own trail,
-        # a still-pending row is closed by the stale-pending sweep.
+        # A worker took it: it closes its own trail, and a still-pending row
+        # is closed by the stale-pending sweep.
         logger.info(
             "embedding_backfill_dispatch_cancel_found_run_in_progress",
             job_id=audit_context["job_id"],
         )
-        return
-    await _emit_outcome_audit(
-        **audit_context,
-        outcome="failed",
-        extra={"error_code": "dispatch_cancelled"},
-    )
 
 
 def _progress_writer(

@@ -8,19 +8,14 @@ sees a generic 500. IngestJob orphans get swept after 60 minutes; VRT
 it manually.
 
 Wraps the defer call in try/except and invokes a caller-supplied rollback
-closure to revert committed state before re-raising as HTTP 503. Each site
-supplies its own rollback:
-
-- Reupload paths: mark the ``IngestJob`` row failed.
-- VRT regeneration paths: revert ``vrt_asset.status`` /
-  ``current_generation_id`` AND mark the ``IngestJob`` / ``VrtGeneration`` failed.
+closure to revert committed state before re-raising as HTTP 503. The usual
+rollback fails the ``IngestJob`` through the job ledger, whose hooks settle
+the rows linked to it (a refresh run, a VRT generation, a backfill trail).
 """
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 import structlog
 from fastapi import HTTPException, status
@@ -30,17 +25,12 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.failure_reason import coded_failure_reason
 from app.core.logging_config import redact_nested
+from app.platform.jobs.ledger import Outcome, abort
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     IngestJob,
     commit_attempted_marker,
 )
-
-if TYPE_CHECKING:
-    # Typing-only: `platform/` must not import `processing/` at module scope
-    # (test_layering.py's _PLATFORM_PROCESSING_IMPORT_BURNDOWN may shrink,
-    # never grow), but the VRT factory signature below needs these two names.
-    from app.processing.raster.models import RasterAsset, VrtGeneration
 
 logger = structlog.get_logger()
 
@@ -285,6 +275,7 @@ async def settle_ingest_job_failed(
     *,
     message_prefix: str,
     expected_status: str = "pending",
+    ip_address: str | None = None,
 ) -> bool:
     """Fenced ``<expected_status> -> failed`` for a dispatch that never queued.
 
@@ -295,62 +286,34 @@ async def settle_ingest_job_failed(
     the caller actually committed, or a failed defer leaves the row running
     for the whole lease.
 
-    Returns whether the write landed; zero rows means something else already
-    settled the job, and doing nothing is correct.
+    Returns whether the write landed; a miss means something else already
+    settled the job, and doing nothing is correct. The fence is the state
+    and the attempt id captured when the closure was built, so a cancel that
+    committed mid-dispatch keeps its terminal state.
 
-    fix(#1709): replaces a blind in-place ORM mutation. That bug let a
-    cancel which committed mid-dispatch get overwritten back to `failed`,
-    handing the user a Retry affordance for work they'd just cancelled. The
-    fence is status ``pending`` AND the attempt id captured when the closure
-    was built — a settled job needs no rollback, whoever settled it owns its
-    terminal state.
-
-    ORM attributes are mutated ONLY when the CAS lands, so a lost CAS leaves
-    nothing dirty for the guard's own commit to flush onto the row. Expiring
-    the instance instead (an earlier draft) is wrong: callers read attributes
-    off it after the guard re-raises (``commit_import`` reads ``file_path``),
-    and a lazy reload outside a greenlet raises ``MissingGreenlet``.
+    Raises when ``job`` has no session: without one there is no fenced write
+    to make, and reporting the job settled would leave it pending unseen.
     """
-    completed_at = datetime.now(timezone.utc)
-    error_message = coded_failure_reason(message_prefix, defer_exc)
     session = async_object_session(job)
     if session is None:
-        # No session to fence through (detached instance). Still act — an
-        # orphaned pending row is the failure this guard exists to prevent.
-        job.status = "failed"
-        job.error_message = error_message
-        job.completed_at = datetime.now(timezone.utc)
-        return True
-
-    result = await session.execute(
-        update(IngestJob)
-        .where(
-            IngestJob.id == job.id,
-            IngestJob.status == expected_status,
-            (
-                IngestJob.attempt_id == job.attempt_id
-                if job.attempt_id is not None
-                else IngestJob.attempt_id.is_(None)
-            ),
-        )
-        .values(
-            status="failed",
-            error_message=error_message,
-            completed_at=completed_at,
-        )
+        raise RuntimeError("the job to settle is not attached to a session")
+    outcome = await abort(
+        session,
+        job,
+        code="dispatch_failed",
+        reason=coded_failure_reason(message_prefix, defer_exc),
+        expect=expected_status,
+        ip_address=ip_address,
     )
-    landed = bool(result.rowcount)
-    if landed:
-        job.status = "failed"
-        job.error_message = error_message
-        job.completed_at = completed_at
-    else:
-        logger.info(
-            "orphan_guard_rollback_skipped_job_already_settled",
-            job_id=str(job.id),
-            defer_error=_render_or_unreadable(lambda: redact_nested(str(defer_exc))),
-        )
-    return landed
+    if outcome is Outcome.ENDED:
+        return True
+    logger.info(
+        "orphan_guard_rollback_skipped_job_already_settled",
+        job_id=str(job.id),
+        outcome=outcome.value,
+        defer_error=_render_or_unreadable(lambda: redact_nested(str(defer_exc))),
+    )
+    return False
 
 
 def make_ingest_job_failed_rollback(
@@ -358,14 +321,14 @@ def make_ingest_job_failed_rollback(
     *,
     message_prefix: str = "Failed to queue ingest task",
     expected_status: str = "pending",
+    ip_address: str | None = None,
 ) -> Callable[[BaseException], Awaitable[bool]]:
     """Build a rollback closure that marks an ``IngestJob`` failed.
 
-    Convenience for the common case (reupload, vanilla ingest) where the
-    only committed state to revert is a pending ``IngestJob`` row. Caller
-    must supply ``job`` bound to the session that commits the rollback.
+    ``job`` must be bound to the session that commits the rollback. The
+    ledger's hooks fail the rows linked to it in the same write.
 
-    ``message_prefix`` is embedded before the exception so
+    ``message_prefix`` is embedded before the exception's type so
     ``job.error_message`` matches ``test_queue_ingest_job_*``'s expected format.
 
     fix(#1709): fenced — see ``settle_ingest_job_failed``. The closure
@@ -378,41 +341,7 @@ def make_ingest_job_failed_rollback(
             defer_exc,
             message_prefix=message_prefix,
             expected_status=expected_status,
-        )
-
-    return _rollback
-
-
-def make_vrt_regeneration_failed_rollback(
-    vrt_asset: RasterAsset,
-    generation: VrtGeneration,
-    job: IngestJob,
-    *,
-    previous_status: str,
-    previous_generation_id: uuid.UUID | None,
-) -> RollbackCallable:
-    """Build a rollback closure for a VRT regeneration defer failure.
-
-    Shared by the three VRT regeneration endpoints (add/remove-source,
-    refresh): reverts ``vrt_asset.status``/``current_generation_id`` to the
-    caller's pre-mutation values, marks the ``VrtGeneration`` failed, and
-    marks the ``IngestJob`` failed via ``make_ingest_job_failed_rollback``.
-    """
-
-    async def _rollback(defer_exc: BaseException) -> None:
-        # fix(#1709): the job fence decides. If the CAS misses, a cancel
-        # already reconciled the asset in the same transaction — restoring
-        # here would put it back to the 409-blocking `regenerating` state.
-        if not await settle_ingest_job_failed(
-            job, defer_exc, message_prefix="Failed to queue VRT regeneration"
-        ):
-            return
-        vrt_asset.status = previous_status
-        vrt_asset.current_generation_id = previous_generation_id
-        generation.status = "failed"
-        generation.completed_at = datetime.now(timezone.utc)
-        generation.error_message = coded_failure_reason(
-            "Failed to queue VRT regeneration", defer_exc
+            ip_address=ip_address,
         )
 
     return _rollback

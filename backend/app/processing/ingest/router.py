@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.identity import Identity
 from app.core.async_io import (
@@ -119,8 +118,9 @@ from app.processing.ingest.validation import (
 from app.platform.catalog_locks import admit_vrt_mutation
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
-    make_vrt_regeneration_failed_rollback,
+    make_ingest_job_failed_rollback,
 )
+from app.platform.jobs.ledger import abort
 from app.core.persistent_config import (
     UPLOAD_ALLOWED_EXTENSIONS,
     UPLOAD_MAX_SIZE_MB,
@@ -635,15 +635,9 @@ async def upload_file(
             try:
                 validate_file_content(validation_path, file.filename)
             except ValueError as exc:
-                # fix(#1848): guarded like the bind below, so a row the sweep
-                # already reclaimed keeps its terminal status and message.
-                await db.execute(
-                    _pending_upload_update(job_id).values(
-                        status="failed",
-                        error_message=redact_failure_reason(exc),
-                        completed_at=datetime.now(timezone.utc),
-                    )
-                )
+                # Fenced like the bind below, so a row the sweep already
+                # reclaimed keeps its terminal status and message.
+                await abort(db, job, code="content_rejected", reason=exc)
                 await db.commit()
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1614,10 +1608,6 @@ async def add_vrt_source(
         str(request.source_dataset_id)
     ]
 
-    # Capture pre-mutation values so the orphan-guard rollback (Theme H) can
-    # restore them if Procrastinate is unreachable.
-    previous_status = vrt_asset.status
-    previous_generation_id = vrt_asset.current_generation_id
     generation = VrtGeneration(
         vrt_dataset_id=dataset_id,
         status="pending",
@@ -1634,10 +1624,9 @@ async def add_vrt_source(
     job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
     job.dataset_id = dataset_id
 
-    # If Procrastinate is unreachable the rollback below reverts the VRT
-    # asset state and marks the job failed before re-raising as HTTP 503 —
-    # otherwise the VRT would sit 'regenerating' until sweep_stale_vrt_assets
-    # (#1267) reconciled it, 409-ing every mutation in between.
+    # A queue outage fails the job below and releases the VRT with it before
+    # the 503; otherwise the asset sits 'regenerating', 409-ing every mutation
+    # until sweep_stale_vrt_assets reconciles it.
     await db.commit()
 
     async def _defer() -> None:
@@ -1656,12 +1645,8 @@ async def add_vrt_source(
     # fix(#1327): no link-table rollback needed — with the member set staged
     # on the generation, an undispatched request never touched
     # vrt_source_links, so nothing needs to be put back.
-    rollback = make_vrt_regeneration_failed_rollback(
-        vrt_asset,
-        generation,
-        job,
-        previous_status=previous_status,
-        previous_generation_id=previous_generation_id,
+    rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue VRT regeneration"
     )
     await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 
@@ -1772,9 +1757,6 @@ async def remove_vrt_source(
         str(sid) for sid in existing_source_ids if sid != source_dataset_id
     ]
 
-    # Capture pre-mutation values for the orphan-guard rollback.
-    previous_status = vrt_asset.status
-    previous_generation_id = vrt_asset.current_generation_id
     generation = VrtGeneration(
         vrt_dataset_id=dataset_id,
         status="pending",
@@ -1793,7 +1775,7 @@ async def remove_vrt_source(
 
     # Commit + dispatch with orphan guard (Theme H) — a Procrastinate outage
     # would otherwise leave the VRT 'regenerating' until sweep_stale_vrt_assets
-    # reconciled it, 409-ing every mutation; the rollback below reverts state.
+    # reconciled it, 409-ing every mutation; the rollback below releases it.
     await db.commit()
 
     async def _defer() -> None:
@@ -1812,12 +1794,8 @@ async def remove_vrt_source(
     # fix(#1327): nothing to re-insert — the link row was never deleted, and
     # the post-removal set is staged on the generation until the artifact
     # swap, so an undispatched request leaves the catalog untouched.
-    rollback = make_vrt_regeneration_failed_rollback(
-        vrt_asset,
-        generation,
-        job,
-        previous_status=previous_status,
-        previous_generation_id=previous_generation_id,
+    rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue VRT regeneration"
     )
     await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 

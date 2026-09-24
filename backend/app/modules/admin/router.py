@@ -1185,58 +1185,48 @@ async def trigger_backfill(
         await defer_with_orphan_guard(
             _defer,
             rollback=make_ingest_job_failed_rollback(
-                job, message_prefix="Failed to queue embedding backfill"
+                job,
+                message_prefix="Failed to queue embedding backfill",
+                ip_address=ip_address,
             ),
             db=db,
             job=job,
         )
     except DeferFailed as dispatch_exc:
-        # fix(#1550): the orphan guard already failed+committed the job before
-        # raising 503, so nothing else closes the audit trail — this must write
-        # the terminal state too. Condition on rolled_back: if the rollback
-        # didn't land, the row is still `pending` (blocking later backfills) and
-        # audit_emit_durable's own session could still succeed later, so
-        # recording "failed" here would misrepresent it.
-        if dispatch_exc.rolled_back:
-            details: dict[str, Any] = {
-                "force": force,
-                "operation_id": operation_id,
-                "job_id": job_id,
-                "outcome": "failed",
-                "error_code": "dispatch_failed",
-            }
-        else:
-            details = {
-                "force": force,
-                "operation_id": operation_id,
-                "job_id": job_id,
-                "outcome": UNRESOLVED_OUTCOME,
-                "error_code": "dispatch_rollback_failed",
-                "intended_outcome": "failed",
-            }
+        # A landed rollback closed the trail with the row, and a missed one
+        # leaves both to the worker. Only an unlanded rollback leaves the row
+        # pending, so the trail says the outcome is unresolved.
+        if not dispatch_exc.rolled_back:
             logger.error(
                 "embedding_backfill_dispatch_rollback_failed",
                 user_id=str(current_user_id),
                 operation_id=operation_id,
                 job_id=job_id,
             )
-        try:
-            await audit_emit_durable(
-                AuditEvent(
-                    user_id=current_user_id,
-                    action="embedding.backfill",
-                    resource_type="record_embedding",
-                    details=details,
-                    ip_address=ip_address,
-                ),
-            )
-        except Exception:  # broad: the audit write must not mask the 503
-            logger.exception(
-                "embedding_backfill_dispatch_audit_failed",
-                user_id=str(current_user_id),
-                operation_id=operation_id,
-                job_id=job_id,
-            )
+            try:
+                await audit_emit_durable(
+                    AuditEvent(
+                        user_id=current_user_id,
+                        action="embedding.backfill",
+                        resource_type="record_embedding",
+                        details={
+                            "force": force,
+                            "operation_id": operation_id,
+                            "job_id": job_id,
+                            "outcome": UNRESOLVED_OUTCOME,
+                            "error_code": "dispatch_rollback_failed",
+                            "intended_outcome": "failed",
+                        },
+                        ip_address=ip_address,
+                    ),
+                )
+            except Exception:  # broad: the audit write must not mask the 503
+                logger.exception(
+                    "embedding_backfill_dispatch_audit_failed",
+                    user_id=str(current_user_id),
+                    operation_id=operation_id,
+                    job_id=job_id,
+                )
         raise
     except asyncio.CancelledError:
         # fix(#1550): the orphan guard catches `Exception`, so cancellation here

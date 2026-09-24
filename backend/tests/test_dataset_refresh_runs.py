@@ -37,6 +37,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.platform.jobs.models import IngestJob
+from app.platform.jobs.defer_guard import make_ingest_job_failed_rollback
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
     ABANDONED_ERROR_CODE,
@@ -50,7 +51,6 @@ from app.platform.refresh.service import (
     create_pending_run,
     drift_status_from_diff,
     list_runs_for_dataset,
-    make_refresh_run_failed_rollback,
     project_refresh_success,
     record_refresh_failure,
     record_refresh_success,
@@ -631,6 +631,7 @@ class TestRunLifecycle:
     async def test_defer_failure_finalizes_the_run(self, test_db_session) -> None:
         """The orphan guard's rollback must not leave a ghost `pending` row."""
         dataset, job = await _seed(test_db_session)
+        job.status = "pending"
         run = await create_pending_run(
             test_db_session,
             dataset_id=dataset.id,
@@ -642,20 +643,13 @@ class TestRunLifecycle:
         )
         await test_db_session.commit()
 
-        inner_calls: list[BaseException] = []
-
-        async def _inner(exc: BaseException) -> bool:
-            inner_calls.append(exc)
-            return True
-
-        rollback = make_refresh_run_failed_rollback(
-            _inner, db=test_db_session, ingest_job_id=job.id
+        rollback = make_ingest_job_failed_rollback(
+            job, message_prefix="Failed to queue refresh task"
         )
-        await rollback(RuntimeError("queue unreachable"))
+        assert await rollback(RuntimeError("queue unreachable"))
         await test_db_session.commit()
         await test_db_session.refresh(run)
 
-        assert len(inner_calls) == 1
         assert run.status == "failed"
         assert run.error_code == "dispatch_failed"
 

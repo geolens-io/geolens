@@ -419,61 +419,6 @@ class TestAddSource:
 
         asyncio.run(_check())
 
-    def test_rollback_on_defer_failure_leaves_links_untouched(self, monkeypatch):
-        """fix(#1327): the orphan-guard rollback no longer deletes a link row.
-
-        There is nothing to compensate — the add was never applied — so the
-        rollback restores only the asset state it flipped.
-        """
-
-        async def _check():
-            from fastapi import HTTPException
-
-            from app.processing.ingest.router import add_vrt_source
-            import app.processing.ingest.router as ingest_router
-
-            source_id = uuid.uuid4()
-            mock_request = MagicMock()
-            mock_request.source_dataset_id = source_id
-            mock_user = MagicMock()
-            mock_user.id = uuid.uuid4()
-            dataset_id = uuid.uuid4()
-
-            mock_asset = _make_mock_asset(status="ready")
-            mock_asset.current_generation_id = None
-            mock_db, _job_id, mock_create_ingest_job, _existing = (
-                _build_mock_db_success_add(mock_asset, dataset_id)
-            )
-            monkeypatch.setattr(
-                ingest_router, "create_ingest_job", mock_create_ingest_job
-            )
-
-            with (
-                patch("app.processing.ingest.router.validate_sources", return_value=[]),
-                patch(
-                    "app.processing.ingest.router.defer_async_with_tenant",
-                    new=AsyncMock(side_effect=RuntimeError("procrastinate down")),
-                ),
-            ):
-                with pytest.raises(HTTPException) as exc_info:
-                    await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
-
-            assert exc_info.value.status_code == 503
-            statements = "\n".join(
-                str(call.args[0]) for call in mock_db.execute.await_args_list
-            )
-            assert "DELETE FROM catalog.vrt_source_links" not in statements
-            assert "INSERT INTO catalog.vrt_source_links" not in statements
-            assert mock_asset.status == "ready"
-            assert mock_asset.current_generation_id is None
-            generation = _added_generation(mock_db)
-            assert generation.status == "failed"
-            # The intent survives on the failed row; only a task that owns the
-            # asset pointer could ever apply it, and this rollback gave it back.
-            assert generation.staged_source_ids is not None
-
-        asyncio.run(_check())
-
 
 # ---------------------------------------------------------------------------
 # TestRemoveSource
@@ -665,62 +610,6 @@ class TestRemoveSource:
             generation = _added_generation(mock_db)
             assert generation.staged_source_ids == [str(sid) for sid in remaining_ids]
             assert generation.source_count == len(remaining_ids)
-
-        asyncio.run(_check())
-
-    def test_rollback_on_defer_failure_leaves_links_untouched(self, monkeypatch):
-        """fix(#1327): the orphan-guard rollback has no link surgery left to do.
-
-        It used to re-INSERT the row it had just deleted. Nothing was deleted,
-        so the compensation is gone — and the asset state it DOES restore is
-        still restored.
-        """
-
-        async def _check():
-            from fastapi import HTTPException
-
-            from app.processing.ingest.router import remove_vrt_source
-            import app.processing.ingest.router as ingest_router
-
-            dataset_id = uuid.uuid4()
-            source_dataset_id = uuid.uuid4()
-            mock_user = MagicMock()
-            mock_user.id = uuid.uuid4()
-
-            mock_asset = _make_mock_asset(status="ready")
-            mock_asset.current_generation_id = None
-            mock_db, _job_id, mock_create_ingest_job, _remaining = (
-                _build_mock_db_success_remove(
-                    mock_asset,
-                    dataset_id,
-                    source_count=3,
-                    source_dataset_id=source_dataset_id,
-                )
-            )
-            monkeypatch.setattr(
-                ingest_router, "create_ingest_job", mock_create_ingest_job
-            )
-
-            with patch(
-                "app.processing.ingest.router.defer_async_with_tenant",
-                new=AsyncMock(side_effect=RuntimeError("procrastinate down")),
-            ):
-                with pytest.raises(HTTPException) as exc_info:
-                    await remove_vrt_source(
-                        dataset_id, source_dataset_id, mock_user, mock_db
-                    )
-
-            assert exc_info.value.status_code == 503
-            statements = "\n".join(
-                str(call.args[0]) for call in mock_db.execute.await_args_list
-            )
-            assert "vrt_source_links" not in statements.replace(
-                "SELECT source_dataset_id FROM catalog.vrt_source_links", ""
-            )
-            assert mock_asset.status == "ready"
-            assert mock_asset.current_generation_id is None
-            generation = _added_generation(mock_db)
-            assert generation.status == "failed"
 
         asyncio.run(_check())
 

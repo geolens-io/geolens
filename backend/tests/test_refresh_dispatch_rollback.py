@@ -22,7 +22,6 @@ from app.platform.refresh.service import (
     cancel_active_run_for_job,
     claim_run_for_job,
     create_pending_run,
-    make_refresh_run_failed_rollback,
 )
 from tests.factories import create_dataset, get_user_id
 from tests.test_import_token_lease_1676 import (
@@ -145,12 +144,8 @@ async def _committed_dispatch(session) -> tuple[IngestJob, uuid.UUID]:
 async def _fail_the_defer(session, job: IngestJob, *, claimed: bool) -> None:
     """Dispatch through the orphan guard with a defer that raises."""
     job_id, attempt_id = job.id, job.attempt_id
-    rollback = make_refresh_run_failed_rollback(
-        make_ingest_job_failed_rollback(
-            job, message_prefix="Failed to queue refresh task"
-        ),
-        db=session,
-        ingest_job_id=job_id,
+    rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue refresh task"
     )
     defer = _failing_defer(claimed=claimed)
 

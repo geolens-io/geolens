@@ -19,7 +19,6 @@ from fastapi import (
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.upload_errors import (
     IngestCeilingError,
@@ -53,17 +52,14 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+from app.platform.jobs.ledger import abort, hold
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.credentials import (
     CredentialStoreUnavailable,
     discard_service_credential,
     resolve_dispatch_credential,
 )
-from app.platform.refresh.service import (
-    DatasetBusyError,
-    create_pending_run,
-    make_refresh_run_failed_rollback,
-)
+from app.platform.refresh.service import DatasetBusyError, create_pending_run
 from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
@@ -375,17 +371,11 @@ async def reupload_dataset(
         try:
             get_catalog_port().validate_file_content(validation_path, file.filename)
         except ValueError as exc:
-            # Preserve the existing failed-job audit trail for a user content
-            # error.
-            # fix(#1848): guarded like the bind below, so a row the sweep
-            # already reclaimed keeps its terminal status and message.
-            await db.execute(
-                _pending_reupload_update(job.id, dataset_id).values(
-                    status="failed",
-                    error_message=redact_failure_reason(exc),
-                    completed_at=datetime.now(timezone.utc),
-                )
-            )
+            # The failed-job trail for a content error, written only while the
+            # row is still pending and bound here, as the bind below is.
+            held = await hold(db, job.id, expect="pending")
+            if held is not None and held.dataset_id == dataset_id:
+                await abort(db, held, code="content_rejected", reason=exc)
             await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1095,12 +1085,8 @@ async def reupload_commit(
     # returns 503 instead of a ghost ``pending`` row for 60 minutes. The
     # run row rides along -- an hour of `pending` for a provably failed
     # dispatch is the silent-failure shape this table exists to remove.
-    inner_rollback = make_refresh_run_failed_rollback(
-        make_ingest_job_failed_rollback(
-            job, message_prefix="Failed to queue reupload task"
-        ),
-        db=db,
-        ingest_job_id=job.id,
+    inner_rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue reupload task"
     )
 
     async def rollback(defer_exc: BaseException) -> None:
@@ -1453,8 +1439,7 @@ async def complete_presigned_reupload(
         # size refusal gets the same stamp, while transport failures (502)
         # leave the job retryable exactly as they do on the upload door.
         if exc.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT:
-            job.status = "failed"
-            job.error_message = redact_failure_reason(str(exc.detail))
+            await abort(db, job, code="content_rejected", reason=str(exc.detail))
             await db.commit()
         raise
 
