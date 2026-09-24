@@ -165,7 +165,12 @@ async def create_tileset_dataset(
 
 
 async def _notify(
-    event_key: str, *, subject: str, body: str, extra: dict, reason: str | None = None
+    event_key: str,
+    *,
+    subject: str,
+    body: str,
+    extra: dict,
+    exc: Exception | None = None,
 ) -> None:
     from app.platform.notifications.events import (
         build_event_notification,
@@ -178,7 +183,7 @@ async def _notify(
             event_key,
             subject=subject,
             body=body,
-            reason=reason,
+            reason=redact_failure_reason(exc) if exc is not None else None,
             extra={**extra, "task": _TASK},
         ),
     )
@@ -392,7 +397,7 @@ async def ingest_tileset(
             subject="3D Tiles ingest failed",
             body="3D Tiles ingest job failed.",
             extra={"job_id": job_id},
-            reason=redact_failure_reason(exc),
+            exc=exc,
         )
         raise
     finally:
