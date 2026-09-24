@@ -9,9 +9,9 @@ import { Label } from '@/components/ui/label';
 import { ImportMetadataForm } from './ImportMetadataForm';
 import { TypeTag } from './TypeTag';
 import { StatusPill } from './StatusPill';
-import { isRasterPreview, isFilePreview, fileExt, kindFromEntry, isSpreadsheetExt } from './utils';
-import { getGeometryTypeLabel } from '@/i18n/labels';
-import { formatNumber } from '@/lib/format';
+import { isRasterPreview, isFilePreview, isTilesetPreview, fileExt, kindFromEntry, isSpreadsheetExt } from './utils';
+import { getBoundingVolumeLabel, getGeometryTypeLabel } from '@/i18n/labels';
+import { formatBbox, formatBytes, formatNumber } from '@/lib/format';
 import { useReportDialog } from '@/lib/report';
 import type { FileEntry, CommitImportRequest, FilePreviewResponse } from '@/types/api';
 
@@ -46,6 +46,30 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
   const { t } = useTranslation('import');
   const preview = entry.previewData;
   if (!preview) return null;
+
+  if (isTilesetPreview(preview)) {
+    const facts: [string, string][] = [
+      [t('detect.labels.version'), preview.version],
+      [t('detect.labels.geometricError'), preview.geometric_error != null ? formatNumber(preview.geometric_error) : '—'],
+      [t('detect.labels.volume'), getBoundingVolumeLabel(t, preview.bounding_volume)],
+      [t('detect.labels.extent'), preview.extent_bbox ? formatBbox(preview.extent_bbox, '—') : t('detect.noExtent')],
+      [t('detect.labels.unpacked'), formatBytes(preview.unpacked_bytes)],
+      [t('detect.labels.entries'), formatNumber(preview.entry_count)],
+    ];
+    return (
+      <div className="col-span-full mt-3 border-t border-dashed border-border pt-4">
+        <h5 className="eyebrow mb-2">{t('detect.tilesetInfo')}</h5>
+        <dl className="grid grid-cols-[92px_1fr] gap-x-3 gap-y-1 text-xs">
+          {facts.map(([label, value]) => (
+            <div key={label} className="contents">
+              <dt className="font-mono text-mini text-muted-foreground">{label}</dt>
+              <dd className="font-mono text-mini">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    );
+  }
 
   const raster = isRasterPreview(preview);
   const file = isFilePreview(preview) ? preview : null;
@@ -159,6 +183,20 @@ function ReviewFormBlock({
   const preview = entry.previewData;
   if (!preview) return null;
 
+  if (isTilesetPreview(preview)) {
+    return (
+      <div className="col-span-full border-t border-border pt-4 mt-2">
+        <ImportMetadataForm
+          defaultName={preview.source_filename ?? entry.fileName}
+          detectedCrs={null}
+          onCommit={(req) => onCommitSingle(entry.id, req)}
+          isCommitting={isCommitting}
+          isTileset
+        />
+      </div>
+    );
+  }
+
   const raster = isRasterPreview(preview);
   const fp = isFilePreview(preview) ? preview : null;
 
@@ -214,15 +252,16 @@ export function BulkReviewList({
   const { t } = useTranslation('import');
   const [expandedId, setExpandedId] = useState<string | null>(entries[0]?.id ?? null);
 
-  const { readyCount, rasterReadyCount, vectorCount, rasterCount, tableCount, hasMultiLayerFile } = useMemo(() => {
-    let ready = 0, rasterReady = 0, vec = 0, ras = 0, tab = 0, multiLayer = false;
+  const { readyCount, rasterReadyCount, vectorCount, rasterCount, tableCount, tilesetCount, hasMultiLayerFile } = useMemo(() => {
+    let ready = 0, rasterReady = 0, vec = 0, ras = 0, tab = 0, tiles = 0, multiLayer = false;
     for (const e of entries) {
       if (e.status === 'preview') {
         ready++;
         if (e.previewData && isRasterPreview(e.previewData)) rasterReady++;
       }
       if (!e.previewData) continue;
-      if (isRasterPreview(e.previewData)) { ras++; }
+      if (isTilesetPreview(e.previewData)) { tiles++; }
+      else if (isRasterPreview(e.previewData)) { ras++; }
       else if ((e.previewData as FilePreviewResponse).geometry_type) { vec++; }
       else { tab++; }
       if (isFilePreview(e.previewData) && (e.previewData.layers?.length ?? 0) > 1) multiLayer = true;
@@ -233,6 +272,7 @@ export function BulkReviewList({
       vectorCount: vec,
       rasterCount: ras,
       tableCount: tab,
+      tilesetCount: tiles,
       hasMultiLayerFile: multiLayer,
     };
   }, [entries]);
@@ -243,6 +283,14 @@ export function BulkReviewList({
 
   function formatPreviewSummary(preview: FileEntry['previewData']): string {
     if (!preview) return '';
+
+    if (isTilesetPreview(preview)) {
+      return t('review.tilesetSummary', {
+        version: preview.version,
+        size: formatBytes(preview.unpacked_bytes),
+        volume: getBoundingVolumeLabel(t, preview.bounding_volume),
+      });
+    }
 
     if (isRasterPreview(preview)) {
       const bands = t('review.bandCount', {
@@ -288,7 +336,7 @@ export function BulkReviewList({
   }
 
   function formatReviewCount(
-    key: 'fileCount' | 'vectorCount' | 'rasterCount' | 'tableCount',
+    key: 'fileCount' | 'vectorCount' | 'rasterCount' | 'tableCount' | 'tilesetCount',
     count: number,
   ) {
     return t(`review.${key}`, { count, value: formatNumber(count) });
@@ -491,12 +539,17 @@ export function BulkReviewList({
       <div className="flex items-center gap-3 border-t border-dashed border-border pt-4">
         <div className="flex-1">
           <p className="text-xs font-semibold">
-            {t('review.actionSummary', {
-              files: formatReviewCount('fileCount', entries.length),
-              vectors: formatReviewCount('vectorCount', vectorCount),
-              rasters: formatReviewCount('rasterCount', rasterCount),
-              tables: formatReviewCount('tableCount', tableCount),
-            })}
+            {tilesetCount > 0
+              ? t('review.tilesetActionSummary', {
+                  files: formatReviewCount('fileCount', entries.length),
+                  tilesets: formatReviewCount('tilesetCount', tilesetCount),
+                })
+              : t('review.actionSummary', {
+                  files: formatReviewCount('fileCount', entries.length),
+                  vectors: formatReviewCount('vectorCount', vectorCount),
+                  rasters: formatReviewCount('rasterCount', rasterCount),
+                  tables: formatReviewCount('tableCount', tableCount),
+                })}
           </p>
           <p className="font-mono text-mini text-muted-foreground tracking-wide">
             {t(hasMultiLayerFile ? 'review.actionHintMultiLayer' : 'review.actionHint')}

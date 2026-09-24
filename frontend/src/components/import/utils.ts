@@ -1,17 +1,25 @@
-import type { CommitImportRequest, FileEntry, FilePreviewResponse, RasterPreviewResponse } from '@/types/api';
+import type {
+  CommitImportRequest,
+  FileEntry,
+  FilePreviewResponse,
+  RasterPreviewResponse,
+  TilesetPreviewResponse,
+} from '@/types/api';
 import type { DataKind } from './TypeTag';
 import { kindFromExtension } from './TypeTag';
 
-export function isRasterPreview(
-  data: FilePreviewResponse | RasterPreviewResponse,
-): data is RasterPreviewResponse {
+type AnyPreview = FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse;
+
+export function isRasterPreview(data: AnyPreview): data is RasterPreviewResponse {
   return 'band_count' in data;
 }
 
-export function isFilePreview(
-  data: FilePreviewResponse | RasterPreviewResponse,
-): data is FilePreviewResponse {
+export function isFilePreview(data: AnyPreview): data is FilePreviewResponse {
   return 'layers' in data || 'layer_name' in data;
+}
+
+export function isTilesetPreview(data: AnyPreview): data is TilesetPreviewResponse {
+  return 'bounding_volume' in data;
 }
 
 export function stripExtension(filename: string): string {
@@ -24,6 +32,7 @@ export function inferImportedKind(
   request?: Pick<CommitImportRequest, 'x_column' | 'y_column' | 'geom_column'>,
 ): NonNullable<FileEntry['submittedKind']> {
   if (!entry.previewData) return 'table';
+  if (isTilesetPreview(entry.previewData)) return 'tiles3d';
   if (isRasterPreview(entry.previewData)) return 'raster';
 
   if (request?.x_column || request?.y_column || request?.geom_column) {
@@ -56,6 +65,7 @@ export function isSpreadsheetExt(ext: string): boolean {
 /** Derive display kind from a FileEntry (preview-aware, falls back to extension) */
 export function kindFromEntry(entry: Pick<FileEntry, 'previewData' | 'fileName'>): DataKind {
   if (entry.previewData) {
+    if (isTilesetPreview(entry.previewData)) return 'tiles3d';
     if (isRasterPreview(entry.previewData)) return 'raster';
     if ((entry.previewData as FilePreviewResponse).geometry_type) return 'vector';
     return 'table';

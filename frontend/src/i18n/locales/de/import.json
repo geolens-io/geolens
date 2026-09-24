@@ -76,7 +76,12 @@
     "quotaShort": "Übersprungen – Datensatzlimit erreicht",
     "quotaBannerTitle": "Datensatzlimit erreicht",
     "quotaBannerHint": "Löschen Sie vorhandene Datensätze, um Platz zu schaffen, oder bitten Sie einen Administrator, das Limit zu erhöhen.",
-    "reportProblem": "Dieses Problem melden"
+    "reportProblem": "Dieses Problem melden",
+    "kindLegend": "Was laden Sie hoch?",
+    "kindFiles": "Geodaten-Dateien",
+    "kindFilesHint": "Vektor-, Raster- oder Tabellendaten",
+    "kindTileset": "3D-Tiles-Tileset",
+    "kindTilesetHint": "Ein .zip-Archiv mit tileset.json im Stammverzeichnis oder in einem Ordner"
   },
   "warnings": {
     "bannerTitle": "Import mit Warnungen abgeschlossen",
@@ -117,7 +122,8 @@
     "fileRejected": "{{filename}}: {{reason}}",
     "browse": "Durchsuchen",
     "toUpload": "zum Hochladen",
-    "subtext": "GeoLens erkennt Geometrie, KRS und Schema, bevor es in den Katalog übernommen wird. Stapel bis zu {{max}} Dateien."
+    "subtext": "GeoLens erkennt Geometrie, KRS und Schema, bevor es in den Katalog übernommen wird. Stapel bis zu {{max}} Dateien.",
+    "tilesetSubtext": "GeoLens prüft jedes Archiv und liest dessen tileset.json, bevor etwas gespeichert wird."
   },
   "stac": {
     "label": "STAC-API-URL; Katalog-Stammendpunkt einfügen",
@@ -469,7 +475,11 @@
     "rasterCount_one": "{{value}} Raster",
     "rasterCount_other": "{{value}} Raster",
     "tableCount_one": "{{value}} tabellarischer Datensatz",
-    "tableCount_other": "{{value}} tabellarische Datensätze"
+    "tableCount_other": "{{value}} tabellarische Datensätze",
+    "tilesetSummary": "3D Tiles {{version}} · {{size}} · {{volume}}",
+    "tilesetCount_one": "{{value}} Tileset",
+    "tilesetCount_other": "{{value}} Tilesets",
+    "tilesetActionSummary": "{{files}} · {{tilesets}}"
   },
   "detect": {
     "rasterInfo": "Raster-Info",
@@ -489,12 +499,20 @@
       "cog": "COG",
       "type": "type",
       "features": "features",
-      "layer": "layer"
+      "layer": "layer",
+      "version": "version",
+      "geometricError": "geometrischer Fehler",
+      "volume": "volume",
+      "extent": "extent",
+      "unpacked": "unpacked",
+      "entries": "entries"
     },
     "table": {
       "column": "Spalte",
       "type": "Typ"
-    }
+    },
+    "tilesetInfo": "Tileset",
+    "noExtent": "keine; nur eine Region liefert eine"
   },
   "bulk": {
     "uploading_one": "{{count}} Datei wird hochgeladen...",

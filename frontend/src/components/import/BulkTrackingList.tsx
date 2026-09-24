@@ -161,7 +161,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
                   i < completedEntries.length - 1 && 'border-b border-border',
                 )}
               >
-                <TypeTag kind={entry.kind === 'vector' ? 'vector' : entry.kind === 'raster' ? 'raster' : 'table'} />
+                <TypeTag kind={entry.kind} />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium tracking-tight">{entry.title}</p>
                   <div className="flex items-center gap-2 mt-0.5">

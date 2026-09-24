@@ -34,6 +34,7 @@ import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 import { getVisibilityLabel } from '@/i18n/labels';
 import { DistributionsList } from '@/components/dataset/DistributionsList';
 import { ExportButton } from '@/components/dataset/ExportButton';
+import { TilesetAccess } from '@/components/dataset/TilesetAccess';
 import { recordTypeCapabilities } from '@/lib/record-types';
 import { cn } from '@/lib/utils';
 
@@ -378,6 +379,8 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
           </p>
         </CardContent>
       </Card>
+
+      {dataset.tileset && <TilesetAccess tileset={dataset.tileset} />}
 
       {/* API access snippet */}
       {featureTable && endpoints.ogcFeaturesUrl && publicApiBaseUrl && (

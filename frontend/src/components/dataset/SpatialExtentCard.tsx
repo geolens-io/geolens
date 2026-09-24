@@ -1,11 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { MapPin } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-
-function formatBbox(bbox: number[] | null, fallback: string): string {
-  if (!bbox || bbox.length < 4) return fallback;
-  return `(${bbox[0].toFixed(4)}, ${bbox[1].toFixed(4)}) to (${bbox[2].toFixed(4)}, ${bbox[3].toFixed(4)})`;
-}
+import { formatBbox } from '@/lib/format';
 
 function formatSrid(
   srid: number | null,

@@ -21,6 +21,8 @@ interface ImportMetadataFormProps {
   onCommit: (metadata: CommitImportRequest) => void;
   isCommitting: boolean;
   isRaster?: boolean;
+  /** A 3D Tiles tileset keeps its own coordinates, so it takes no CRS override. */
+  isTileset?: boolean;
   previewData?: RasterPreviewResponse;
   previewColumns?: { name: string; type: string }[];
   detectedGeometryType?: string | null;
@@ -56,6 +58,7 @@ export function ImportMetadataForm({
   onCommit,
   isCommitting,
   isRaster = false,
+  isTileset = false,
   previewData,
   previewColumns,
   detectedGeometryType,
@@ -218,7 +221,7 @@ export function ImportMetadataForm({
               instead.  When detectedCrs is null (unrecognised URI, true-unknown,
               or probe-CRS-not-available), the manual input stays visible as an
               escape hatch so the user can still supply an EPSG override. */}
-          {detectedCrs ? (
+          {isTileset ? null : detectedCrs ? (
             <div className="space-y-2">
               <Label>{t('metadata.crsLabel')}</Label>
               <p className="text-sm text-muted-foreground">

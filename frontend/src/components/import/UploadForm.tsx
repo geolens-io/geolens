@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useId, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { commitImport } from '@/api/ingest';
@@ -13,6 +13,7 @@ import {
   clearUploadBatch,
   queuePendingUploadFiles,
   peekPendingUploadFiles,
+  peekPendingUploadKind,
   clearPendingUploadFiles,
   type UploadSessionEntry,
 } from '@/api/upload-session';
@@ -34,9 +35,63 @@ import { BulkUploadProgress } from './BulkUploadProgress';
 import { inferImportedKind, isFilePreview, stripExtension } from './utils';
 import { BulkReviewList } from './BulkReviewList';
 import { BulkTrackingList } from './BulkTrackingList';
-import type { FileEntry, BatchPhase, CommitImportRequest } from '@/types/api';
+import type { FileEntry, BatchPhase, CommitImportRequest, UploadKind } from '@/types/api';
 import { ApiError } from '@/api/client';
 import { randomId } from '@/lib/random-id';
+import { cn } from '@/lib/utils';
+
+// The tileset doors take one archive format, whatever the deployment's list.
+const TILESET_EXTENSIONS = ['.zip'];
+
+/** Chooses, before the drop, whether the files are geospatial data or 3D Tiles tilesets. */
+function UploadKindChoice({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: UploadKind | null;
+  onChange: (kind: UploadKind | null) => void;
+  disabled: boolean;
+}) {
+  const { t } = useTranslation('import');
+  const id = useId();
+  const options = [
+    { kind: null, key: 'files', label: t('upload.kindFiles'), hint: t('upload.kindFilesHint') },
+    { kind: 'tiles3d' as const, key: 'tiles3d', label: t('upload.kindTileset'), hint: t('upload.kindTilesetHint') },
+  ];
+
+  return (
+    <fieldset disabled={disabled} className="space-y-2">
+      <legend className="text-sm font-medium">{t('upload.kindLegend')}</legend>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {options.map((option) => (
+          <div
+            key={option.key}
+            className={cn(
+              'rounded-lg border px-3 py-2.5',
+              value === option.kind ? 'border-primary bg-primary/5' : 'border-border',
+            )}
+          >
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium">
+              <input
+                type="radio"
+                name={`${id}-upload-kind`}
+                value={option.key}
+                checked={value === option.kind}
+                onChange={() => onChange(option.kind)}
+                aria-describedby={`${id}-${option.key}-hint`}
+              />
+              {option.label}
+            </label>
+            <p id={`${id}-${option.key}-hint`} className="ms-6 mt-0.5 text-xs text-muted-foreground">
+              {option.hint}
+            </p>
+          </div>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
 
 
 function getErrorHint(errorMsg: string, t: (key: string) => string): string | null {
@@ -144,11 +199,13 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // quota would briefly apply on remount before the live GET lands (Codex P2
   // on PR #274).
   const { data: uploadConfig, isFetching: configFetching } = useUploadConfig();
+  const [uploadKind, setUploadKind] = useState<UploadKind | null>(null);
 
-  const allowedExtensions = useMemo(
+  const configExtensions = useMemo(
     () => uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean),
     [uploadConfig?.allowed_extensions],
   );
+  const allowedExtensions = uploadKind === 'tiles3d' ? TILESET_EXTENSIONS : configExtensions;
   const maxSizeMb = uploadConfig ? Math.round(uploadConfig.max_file_size_bytes / (1024 * 1024)) : undefined;
 
   const updateEntry = useCallback((id: string, patch: Partial<FileEntry>) => {
@@ -223,6 +280,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     const queued = peekPendingUploadFiles();
     if (queued && queued.length > 0) {
       setPendingFiles(queued);
+      setUploadKind(peekPendingUploadKind());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -351,9 +409,9 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     // the batch is terminal), so nothing here awaits the batch directly.
     const presigned = !!uploadConfig?.presigned_uploads;
     for (const entry of newEntries) {
-      startUploadEntry(entry.id, entry.file!, presigned);
+      startUploadEntry(entry.id, entry.file!, presigned, uploadKind);
     }
-  }, [phase, entries, t, uploadConfig?.presigned_uploads, setPhase]);
+  }, [phase, entries, t, uploadConfig?.presigned_uploads, setPhase, uploadKind]);
 
   // Queue drops that land mid-fetch instead of processing them against an
   // unresolved/stale quota; merge (not replace) so a second drop in the same
@@ -368,7 +426,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   const handleFilesAccepted = (files: File[]) => {
     if (phase !== 'idle') return;
     if (configFetching) {
-      setPendingFiles(queuePendingUploadFiles(files));
+      setPendingFiles(queuePendingUploadFiles(files, uploadKind));
       return;
     }
     void processFiles(files);
@@ -743,11 +801,16 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // allows before they could queue — the flush validates all three against the
   // settled config instead (Codex P2 rounds 1-3 on PR #432).
   return (
-    <FileDropzone
-      onFilesAccepted={handleFilesAccepted}
-      allowedExtensions={configFetching ? undefined : allowedExtensions}
-      maxSizeMb={configFetching ? undefined : maxSizeMb}
-      remainingQuota={configFetching ? null : (uploadConfig?.remaining_dataset_quota ?? null)}
-    />
+    <div className="space-y-4">
+      {/* Locked while a drop waits on the config, so it uploads as the kind it was dropped as. */}
+      <UploadKindChoice value={uploadKind} onChange={setUploadKind} disabled={pendingFiles !== null} />
+      <FileDropzone
+        onFilesAccepted={handleFilesAccepted}
+        allowedExtensions={configFetching ? undefined : allowedExtensions}
+        maxSizeMb={configFetching ? undefined : maxSizeMb}
+        remainingQuota={configFetching ? null : (uploadConfig?.remaining_dataset_quota ?? null)}
+        tileset={uploadKind === 'tiles3d'}
+      />
+    </div>
   );
 }

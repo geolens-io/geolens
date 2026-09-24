@@ -76,7 +76,12 @@
     "quotaShort": "已跳过；已达数据集上限",
     "quotaBannerTitle": "已达到数据集上限",
     "quotaBannerHint": "删除现有数据集以释放空间，或联系管理员提高上限。",
-    "reportProblem": "报告此问题"
+    "reportProblem": "报告此问题",
+    "kindLegend": "要上传什么？",
+    "kindFiles": "地理空间文件",
+    "kindFilesHint": "矢量、栅格或表格数据",
+    "kindTileset": "3D Tiles 瓦片集",
+    "kindTilesetHint": "根目录或单个文件夹中包含 tileset.json 的 .zip 压缩包"
   },
   "warnings": {
     "bannerTitle": "导入已完成，但存在警告",
@@ -131,7 +136,8 @@
     "sizeLimit": "每个文件最大 500 MB",
     "sizeLimitDynamic": "每个文件最大 {{size}} MB",
     "batchLimit": "每批最多 {{max}} 个文件",
-    "fileRejected": "{{filename}}：{{reason}}"
+    "fileRejected": "{{filename}}：{{reason}}",
+    "tilesetSubtext": "GeoLens 会在存储前检查每个压缩包并读取其 tileset.json。"
   },
   "stac": {
     "label": "STAC API URL；粘贴目录根端点",
@@ -519,7 +525,11 @@
     "rasterCount_one": "{{value}} 个栅格",
     "rasterCount_other": "{{value}} 个栅格",
     "tableCount_one": "{{value}} 个表格数据集",
-    "tableCount_other": "{{value}} 个表格数据集"
+    "tableCount_other": "{{value}} 个表格数据集",
+    "tilesetSummary": "3D Tiles {{version}} · {{size}} · {{volume}}",
+    "tilesetCount_one": "{{value}} 个瓦片集",
+    "tilesetCount_other": "{{value}} 个瓦片集",
+    "tilesetActionSummary": "{{files}} · {{tilesets}}"
   },
   "detect": {
     "rasterInfo": "栅格信息",
@@ -539,12 +549,20 @@
       "cog": "COG",
       "type": "类型",
       "features": "要素",
-      "layer": "图层"
+      "layer": "图层",
+      "version": "版本",
+      "geometricError": "几何误差",
+      "volume": "包围体",
+      "extent": "范围",
+      "unpacked": "解压后",
+      "entries": "条目"
     },
     "table": {
       "column": "列",
       "type": "类型"
-    }
+    },
+    "tilesetInfo": "瓦片集",
+    "noExtent": "无；仅 region 包围体提供范围"
   },
   "eyebrow": "导入",
   "pageDescription": "上传文件、注册 Postgres 中的表，或连接远程服务。GeoLens 会检测几何、字段结构和 CRS，然后使其可查询、可设置样式、可嵌入。",

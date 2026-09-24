@@ -120,7 +120,8 @@
       "vrt_other": "{{vrtType}} 虚拟栅格，包含 {{count}} 个数据源",
       "table_one": "包含 {{count}} 行的表格",
       "table_other": "包含 {{count}} 行的表格",
-      "fallback": "地理空间数据集"
+      "fallback": "地理空间数据集",
+      "tiles3d": "3D Tiles 瓦片集"
     },
     "vector": "矢量",
     "raster": "栅格",

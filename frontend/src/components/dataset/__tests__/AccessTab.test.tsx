@@ -192,6 +192,30 @@ describe('AccessTab', () => {
     expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
   });
 
+  it('gives a tileset its client URL and no API snippet or export', () => {
+    render(
+      <AccessTab
+        dataset={makeDataset({
+          record_type: 'tiles3d_dataset',
+          tileset: {
+            url: '/api/datasets/ds-1/tiles3d/tileset.json',
+            size_bytes: 1024,
+            version: '1.1',
+            geometric_error: 16,
+            bounding_volume: 'region',
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Load in a 3D Tiles client' })).toBeInTheDocument();
+    expect(
+      screen.getByText(`${window.location.origin}/api/datasets/ds-1/tiles3d/tileset.json`),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Export format' })).not.toBeInTheDocument();
+  });
+
   it('offers no API snippet or export for an unknown record type', () => {
     render(<AccessTab dataset={makeDataset({ record_type: 'point_cloud_dataset' as RecordType })} />);
 

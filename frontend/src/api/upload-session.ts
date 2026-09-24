@@ -1,6 +1,11 @@
 import { uploadFile, uploadPresigned, previewFile } from './ingest';
 import { useAuthStore } from '@/stores/auth-store';
-import type { FilePreviewResponse, RasterPreviewResponse } from '@/types/api';
+import type {
+  FilePreviewResponse,
+  RasterPreviewResponse,
+  TilesetPreviewResponse,
+  UploadKind,
+} from '@/types/api';
 
 /**
  * fix(#1712): the in-flight upload BATCH, owned OUTSIDE React.
@@ -43,7 +48,7 @@ export interface UploadSessionEntry {
   fileName: string;
   status: UploadSessionEntryStatus;
   jobId: string | null;
-  previewData: FilePreviewResponse | RasterPreviewResponse | null;
+  previewData: FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | null;
   error: unknown;
   /** Byte-transfer progress (0-1) during `uploading`; null once known/done. */
   progress: number | null;
@@ -82,7 +87,12 @@ function ensureSession(): UploadBatchSession {
  * unlike `url-import-session.ts`'s single job, whose promise is also
  * awaited directly by the component and therefore must reject.
  */
-export function startUploadEntry(id: string, file: File, presigned: boolean): void {
+export function startUploadEntry(
+  id: string,
+  file: File,
+  presigned: boolean,
+  kind: UploadKind | null = null,
+): void {
   const session = ensureSession();
   const entry: UploadSessionEntry = {
     id,
@@ -105,8 +115,8 @@ export function startUploadEntry(id: string, file: File, presigned: boolean): vo
   void (async () => {
     try {
       const result = presigned
-        ? await uploadPresigned(file, onProgress)
-        : await uploadFile(file, onProgress);
+        ? await uploadPresigned(file, onProgress, kind)
+        : await uploadFile(file, onProgress, kind);
       entry.jobId = result.job_id;
       entry.status = 'previewing';
       entry.progress = null;
@@ -241,13 +251,22 @@ export function clearUploadBatch(): void {
  * from its own `useUploadConfig()` hook.
  */
 let pendingUploadFiles: File[] | null = null;
+// The upload kind chosen when the files were dropped, so a remount uploads
+// them as what they were dropped as.
+let pendingUploadKind: UploadKind | null = null;
 
 /** Queue files awaiting a still-fetching upload config; merges with any
  * already queued, matching the component-state behavior this replaces
  * (a second drop in the same window must not swallow the first). */
-export function queuePendingUploadFiles(files: File[]): File[] {
+export function queuePendingUploadFiles(files: File[], kind: UploadKind | null = null): File[] {
   pendingUploadFiles = pendingUploadFiles ? [...pendingUploadFiles, ...files] : files;
+  pendingUploadKind = kind;
   return pendingUploadFiles;
+}
+
+/** The upload kind the queued files were dropped under. */
+export function peekPendingUploadKind(): UploadKind | null {
+  return pendingUploadKind;
 }
 
 /** The queue, if a mount left one behind. Read on mount so a remount after
@@ -261,4 +280,5 @@ export function peekPendingUploadFiles(): File[] | null {
  * before validating each file). */
 export function clearPendingUploadFiles(): void {
   pendingUploadFiles = null;
+  pendingUploadKind = null;
 }

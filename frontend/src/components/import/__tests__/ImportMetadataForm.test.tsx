@@ -492,5 +492,25 @@ describe('ImportMetadataForm', () => {
         expect.objectContaining({ srid_override: null }),
       );
     });
+
+    it('offers a 3D Tiles tileset no CRS at all and commits it without an override', async () => {
+      const onCommit = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <ImportMetadataForm
+          {...defaultProps}
+          defaultName="campus.zip"
+          onCommit={onCommit}
+          detectedCrs={null}
+          isTileset
+        />,
+      );
+
+      expect(screen.queryByText('metadata.crsLabel')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
+      expect(onCommit).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'campus', srid_override: null }),
+      );
+    });
   });
 });

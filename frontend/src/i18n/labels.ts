@@ -39,6 +39,12 @@ const SOURCE_FORMAT_KEYS = {
   '3dtiles': 'common:enums.sourceFormat.tiles3d',
 } as const;
 
+const BOUNDING_VOLUME_KEYS = {
+  region: 'common:enums.boundingVolume.region',
+  box: 'common:enums.boundingVolume.box',
+  sphere: 'common:enums.boundingVolume.sphere',
+} as const;
+
 const SEARCH_SORT_KEYS = {
   relevance: 'search:filters.relevance',
   date_added: 'search:filters.dateAdded',
@@ -189,6 +195,23 @@ export function getSearchSortLabel(
   const defaultValue =
     SEARCH_SORT_DEFAULTS[normalized as keyof typeof SEARCH_SORT_DEFAULTS] ??
     humanizeToken(normalized);
+
+  return key ? resolveLabel(t, key, defaultValue) : defaultValue;
+}
+
+/** The label of a 3D Tiles root bounding volume kind: region, box or sphere. */
+export function getBoundingVolumeLabel(
+  t: Translate,
+  volume: string | null | undefined,
+): string {
+  const normalized = normalizeEnumValue(volume);
+
+  if (!normalized) {
+    return '';
+  }
+
+  const key = BOUNDING_VOLUME_KEYS[normalized as keyof typeof BOUNDING_VOLUME_KEYS];
+  const defaultValue = humanizeToken(normalized);
 
   return key ? resolveLabel(t, key, defaultValue) : defaultValue;
 }

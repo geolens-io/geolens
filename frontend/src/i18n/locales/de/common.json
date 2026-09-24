@@ -475,6 +475,11 @@
       "ogcapiFeatures": "OGC API Features",
       "created": "In GeoLens erstellt",
       "tiles3d": "3D Tiles"
+    },
+    "boundingVolume": {
+      "region": "Region",
+      "box": "Quader",
+      "sphere": "Kugel"
     }
   },
   "settingsToasts": {

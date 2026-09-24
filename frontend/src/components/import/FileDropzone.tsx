@@ -31,16 +31,18 @@ interface FileDropzoneProps {
   /** Remaining per-user dataset quota; null = unlimited. Caps the batch so the
    *  UI never offers more files than the user can actually create. */
   remainingQuota?: number | null;
+  /** The drop takes 3D Tiles tileset archives rather than geospatial files. */
+  tileset?: boolean;
 }
 
 /** Group deduped extensions by data kind for the format pills */
-function groupByKind(extensions: string[]): { kind: DataKind; ext: string }[] {
+function groupByKind(extensions: string[], only?: DataKind): { kind: DataKind; ext: string }[] {
   const deduped = deriveFormatBadges(extensions);
-  const order: DataKind[] = ['vector', 'raster', 'table'];
+  const order: DataKind[] = only ? [only] : ['vector', 'raster', 'table'];
   const groups = new Map<DataKind, string[]>();
 
   for (const ext of deduped) {
-    const kind = kindFromExtension(ext);
+    const kind = only ?? kindFromExtension(ext);
     if (!groups.has(kind)) groups.set(kind, []);
     groups.get(kind)!.push(ext);
   }
@@ -54,7 +56,7 @@ function groupByKind(extensions: string[]): { kind: DataKind; ext: string }[] {
   return result;
 }
 
-export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, remainingQuota }: FileDropzoneProps) {
+export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, remainingQuota, tileset = false }: FileDropzoneProps) {
   const { t } = useTranslation('import');
 
   // Client-side UX guard only; the cap is enforced server-side at
@@ -68,8 +70,8 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
 
   const formatPills = useMemo(() => {
     if (!allowedExtensions || allowedExtensions.length === 0) return [];
-    return groupByKind(allowedExtensions);
-  }, [allowedExtensions]);
+    return groupByKind(allowedExtensions, tileset ? 'tiles3d' : undefined);
+  }, [allowedExtensions, tileset]);
 
   const onDropRejected = useCallback((rejections: FileRejection[]) => {
     for (const { file, errors } of rejections) {
@@ -132,10 +134,12 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
       </h3>
 
       <p className="mb-5 text-xs text-muted-foreground">
-        {t('dropzone.subtext', {
-          max: effectiveMaxFiles,
-          defaultValue: 'GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to {{max}} files.',
-        })}
+        {tileset
+          ? t('dropzone.tilesetSubtext')
+          : t('dropzone.subtext', {
+              max: effectiveMaxFiles,
+              defaultValue: 'GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to {{max}} files.',
+            })}
       </p>
 
       {/* Format pills */}

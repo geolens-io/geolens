@@ -124,7 +124,8 @@
       "vrt_other": "Raster virtuel {{vrtType}} avec {{count}} sources",
       "table_one": "Table avec {{count}} ligne",
       "table_other": "Table avec {{count}} lignes",
-      "fallback": "Jeu de données géospatial"
+      "fallback": "Jeu de données géospatial",
+      "tiles3d": "Tileset 3D Tiles"
     },
     "moretags": "+{{count}} de plus",
     "updatedFallback": "Mis à jour il y a {{time}}",

@@ -130,6 +130,8 @@ function buildAutoDescription(
       });
     case 'table':
       return t('card.autoDesc.table', { count: properties.feature_count ?? 0 });
+    case 'tiles3d_dataset':
+      return t('card.autoDesc.tiles3d');
     default:
       break;
   }
