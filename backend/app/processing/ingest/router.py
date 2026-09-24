@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.failure_reason import is_composed_exception, redact_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.identity import Identity
 from app.core.async_io import (
@@ -92,6 +91,7 @@ from app.processing.ingest.service import (
     get_job_or_404,
     queue_ingest_job,
     register_existing_table,
+    registration_failure_reason,
     resolve_file_path,
     safe_upload_basename,
     save_upload_file,
@@ -127,11 +127,8 @@ from app.core.persistent_config import (
     UPLOAD_MAX_SIZE_MB,
     get_allowed_extensions_list,
 )
-from app.modules.quota.service import (
-    DatasetQuotaExceededError,
-    check_upload_quota,
-    get_user_quota_usage,
-)
+from app.modules.quota.service import check_upload_quota, get_user_quota_usage
+from app.modules.quota.service import DatasetQuotaExceededError
 from app.processing.raster.validation import validate_sources
 from app.platform.service_auth import (
     credential_or_422,
@@ -1315,14 +1312,9 @@ async def register_table(
     Verifies the table exists, extracts metadata, and creates a
     catalog entry.
     """
-    # feat(#1691): a non-admin may not register a public dataset when the
-    # restrict_public_visibility instance setting is on.
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
     await check_public_visibility_allowed(db, user, request.visibility)
-    # Read now: the rollback below expires the user, and a lazy reload there
-    # would fail outside the greenlet.
-    user_id = str(user.id)
 
     try:
         dataset = await register_existing_table(db, request, user)
@@ -1332,19 +1324,15 @@ async def register_table(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
-    except HTTPException:
-        raise
-    except DatasetQuotaExceededError:
-        # The app's handler answers it with 422; the broad except would make it a 500.
-        await db.rollback()
+    except (HTTPException, DatasetQuotaExceededError):
         raise
     except Exception:  # broad: metadata extraction involves PostGIS queries that can fail unpredictably
-        await db.rollback()
         logger.exception(
             "Unexpected error during table registration",
             table_name=request.table_name,
-            user_id=user_id,
+            user_id=str(user.id),
         )
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Registration failed — see server logs",
@@ -1430,15 +1418,10 @@ async def bulk_register_tables(
                 )
             except Exception as exc:  # broad: per-table registration is isolated; any failure is recorded per-item
                 await task_db.rollback()
-                if not is_composed_exception(exc):
-                    logger.exception(
-                        "Unexpected error during bulk table registration",
-                        table_name=table_req.table_name,
-                    )
                 return BulkRegisterResult(
                     table_name=table_req.table_name,
                     status="error",
-                    error=redact_failure_reason(exc),
+                    error=registration_failure_reason(exc, table_req.table_name),
                 )
 
     results = await asyncio.gather(

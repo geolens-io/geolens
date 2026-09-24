@@ -628,6 +628,17 @@ async def create_ingest_job(
     return job
 
 
+def registration_failure_reason(exc: Exception, table_name: str) -> str:
+    """What a failed bulk registration item reports: its refusal or a code."""
+    if not is_composed_exception(exc):
+        logger.error(
+            "Unexpected error during bulk table registration",
+            table_name=table_name,
+            exc_info=exc,
+        )
+    return redact_failure_reason(exc)
+
+
 def _step_refusal(message: str, exc: Exception) -> ValueError:
     """``message``, ending with the cause only when this codebase wrote it.
 
