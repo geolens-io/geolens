@@ -3161,6 +3161,27 @@ describe('SHARE-09 export PNG composition', () => {
     expect(addColorStopSpy.mock.calls).toEqual([[0, '#0000ff'], [0.1, '#00ff00'], [1, '#ff0000']]);
   });
 
+  it('draws no gradient for a stored heatmap ramp whose stops vary in alpha', () => {
+    const mockMap = makeExportMap();
+    const fading = {
+      ...SAVED_LAYERS.heatmapByExpression,
+      paint: { 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(255,0,0,0.2)', 1, 'rgb(0,0,255)'] },
+    };
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [fading],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(createGradientSpy).not.toHaveBeenCalled();
+    expect(addColorStopSpy).not.toHaveBeenCalled();
+  });
+
   it('an unparseable ramp color falls back to solid instead of aborting the export', () => {
     const mockMap = makeExportMap();
     // The empty-string second stop makes the mocked addColorStop throw (as the browser

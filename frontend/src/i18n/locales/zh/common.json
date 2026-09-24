@@ -158,6 +158,7 @@
       "colorLabel": "颜色：{{label}}",
       "widthLabel": "宽度：{{label}}",
       "weightedBy": "权重依据：{{column}}",
+      "weightedByScaled": "权重依据：{{column}}（缩放）",
       "other": "其他",
       "cluster": {
         "server": "服务端聚合",

@@ -1126,6 +1126,7 @@
       "low": "Faible",
       "high": "Élevé",
       "weightedBy": "Pondéré par : {{column}}",
+      "weightedByScaled": "Pondéré par : {{column}} (mis à l'échelle)",
       "unavailable": "(légende indisponible)",
       "terrain3d": "Terrain 3D",
       "titlePlaceholder": "Titre de la légende",
