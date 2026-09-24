@@ -369,10 +369,12 @@ async def test_worker_recovery_preserves_single_tenant_one_shot():
 
 
 @pytest.mark.anyio
-async def test_both_callers_run_the_settlement_pass_under_the_tenant_guc(
+async def test_every_caller_runs_the_settlement_pass_under_the_tenant_guc(
     test_db_session, monkeypatch
 ):
-    """Recovery and the sweep run `settle_stale_jobs` under the same tenant GUC."""
+    """Recovery, the sweep and the poll run `settle_stale_jobs` under one tenant GUC."""
+    from datetime import datetime, timedelta, timezone
+
     from sqlalchemy import text
 
     import app.core.db as core_db
@@ -381,24 +383,35 @@ async def test_both_callers_run_the_settlement_pass_under_the_tenant_guc(
         install_tenant_session_hook,
         tenant_job_context,
     )
+    from app.platform.jobs import router as jobs_router
     from app.platform.jobs import sweep as sweep_module
     from app.platform.jobs import worker as worker_module
+    from app.platform.jobs.models import IngestJob
 
     class _Observed(Exception):
         pass
+
+    stale = IngestJob(
+        source_filename="guc.geojson",
+        status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(hours=2),
+    )
+    test_db_session.add(stale)
+    await test_db_session.commit()
 
     # The production begin hook, which the test engine does not carry.
     install_tenant_session_hook(core_db.engine)
     tenant_id = str(uuid.uuid4())
     seen: list[str | None] = []
 
-    async def read_the_guc_and_stop(db, now):
+    async def read_the_guc_and_stop(db, now, **_scope):
         seen.append(
             await db.scalar(text("SELECT current_setting('app.current_tenant', true)"))
         )
         raise _Observed
 
-    monkeypatch.setattr(sweep_module, "settle_stale_jobs", read_the_guc_and_stop)
+    for module in (sweep_module, jobs_router):
+        monkeypatch.setattr(module, "settle_stale_jobs", read_the_guc_and_stop)
     with (
         patch("app.core.tenancy.is_multi_tenant", return_value=True),
         patch.object(
@@ -414,5 +427,14 @@ async def test_both_callers_run_the_settlement_pass_under_the_tenant_guc(
         with tenant_job_context(tenant_id), pytest.raises(_Observed):
             async with async_session() as session:
                 await sweep_module.fail_stale_jobs(session)
+        # The poll, inside the tenant context the request middleware sets.
+        with tenant_job_context(tenant_id), pytest.raises(_Observed):
+            async with async_session() as session:
+                await jobs_router.get_job_status(
+                    stale.id,
+                    SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
+                    SimpleNamespace(id=stale.created_by),
+                    session,
+                )
 
-    assert seen == [tenant_id, tenant_id]
+    assert seen == [tenant_id, tenant_id, tenant_id]

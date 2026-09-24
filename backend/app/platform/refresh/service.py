@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -1109,6 +1110,13 @@ _NO_OTHER_LIVE_LEGACY_TASK = """
       )
 """
 
+# NULL `:job_ids` keeps every run in play; a list keeps only the runs bound to
+# those jobs, for a caller that settles one job.
+_RUN_JOB_SCOPE = """
+      AND (CAST(:job_ids AS uuid[]) IS NULL
+           OR r.ingest_job_id = ANY(CAST(:job_ids AS uuid[])))
+"""
+
 
 # This statement is itself a compare-and-set: `status IN ('pending',
 # 'running')` is the expected-state test, RETURNING gives the rowcount, so
@@ -1169,6 +1177,7 @@ _ABANDONED_RUN_SQL = text(
             AND j.status IN ('running', 'complete')
       )
 """
+    + _RUN_JOB_SCOPE
     + _NO_OTHER_LIVE_LEGACY_TASK
     + """
     RETURNING r.id
@@ -1194,6 +1203,7 @@ _LEGACY_COMPLETED_RUN_SQL = text(
       AND r.status IN ('pending', 'running')
       AND j.status = 'complete'
 """
+    + _RUN_JOB_SCOPE
     + _NO_OTHER_LIVE_LEGACY_TASK
     + """
     RETURNING r.id
@@ -1202,7 +1212,10 @@ _LEGACY_COMPLETED_RUN_SQL = text(
 
 
 async def sweep_abandoned_refresh_runs(
-    session: AsyncSession, now: datetime | None = None
+    session: AsyncSession,
+    now: datetime | None = None,
+    *,
+    job_ids: Sequence[uuid.UUID] | None = None,
 ) -> int:
     """Finalize runs whose outcome is provable without a worker's report.
 
@@ -1214,10 +1227,14 @@ async def sweep_abandoned_refresh_runs(
     dies between the commit and the ``defer`` leaves a run ``pending`` with
     no task behind it.
 
+    ``job_ids`` limits both statements to the runs bound to those jobs.
     Returns the number of runs finalized by either statement.
     """
     resolved_now = now or datetime.now(timezone.utc)
-    completed = await session.execute(_LEGACY_COMPLETED_RUN_SQL, {"now": resolved_now})
+    scope = {"job_ids": None if job_ids is None else [str(j) for j in job_ids]}
+    completed = await session.execute(
+        _LEGACY_COMPLETED_RUN_SQL, {"now": resolved_now, **scope}
+    )
     result = await session.execute(
         _ABANDONED_RUN_SQL,
         {
@@ -1225,6 +1242,7 @@ async def sweep_abandoned_refresh_runs(
             "cutoff": resolved_now - timedelta(seconds=ABANDONED_RUN_CUTOFF_SECONDS),
             "error_code": ABANDONED_ERROR_CODE,
             "error_message": ABANDONED_ERROR_MESSAGE,
+            **scope,
         },
     )
     # RETURNING rows, not a rowcount: an ORM UPDATE..RETURNING carries no
