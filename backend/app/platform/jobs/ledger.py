@@ -2,21 +2,24 @@
 
 ``hold`` locks a job in the state its caller expects. ``abort`` fails a job no
 worker holds, ``cancel`` ends a pending or running job at a user's request,
-and ``retry`` returns a failed job to pending under a new attempt. Each fences
-on the attempt its caller read and writes nothing on a miss.
+``end_stale`` ends a job the stale pass found, and ``retry`` returns a failed
+job to pending under a new attempt. Each fences on the attempt its caller read
+and writes nothing on a miss.
 
-Rows linked to a job stay with their owners. When an abort or a cancel lands,
-each ``JobEndHook`` settles its owner's rows in the same transaction, after the
-job row is locked, and a hook that raises takes the job write back with it.
+Rows linked to a job stay with their owners. When an end lands, each owner's
+``job_ended`` hook settles its rows in the same transaction, after the job row
+is locked, and a hook that raises takes the job write back with it. Once per
+stale pass, each owner's ``stale_pass`` settles the rows it proves stale
+itself.
 """
 
 from __future__ import annotations
 
 import enum
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, inspect as sa_inspect, select, text, update
@@ -37,6 +40,9 @@ _ABORTABLE_STATUSES = ("pending", "running")
 # What a user's cancel stores on the job, and on a VRT generation it releases.
 _CANCEL_REASON = "Cancelled by user"
 
+# The job's columns an owner's hook reads when an end lands.
+_END_COLUMNS = ("dataset_id", "source_filename", "user_metadata", "created_by")
+
 
 class Outcome(enum.Enum):
     """What a ledger write did. Every value except ``LANDED`` wrote nothing."""
@@ -51,7 +57,9 @@ class Outcome(enum.Enum):
 class JobEnd:
     """A job end that landed, as the rows linked to the job see it.
 
-    ``actor`` is whoever ended the job, or None for its creator.
+    ``transition`` is the ledger call that ended the job: ``abort``,
+    ``cancel`` or ``settle_stale``. ``actor`` is whoever ended it, or None
+    for its creator.
     """
 
     job_id: uuid.UUID
@@ -59,6 +67,7 @@ class JobEnd:
     source_filename: str | None
     user_metadata: dict[str, Any] | None
     created_by: uuid.UUID | None
+    transition: str
     status: str
     code: str
     reason: str
@@ -69,6 +78,42 @@ class JobEnd:
 
 JobEndHook = Callable[[AsyncSession, JobEnd], Awaitable[uuid.UUID | None]]
 """Settles one owner's rows for a landed end; returns the row it ended, if any."""
+
+
+@dataclass(frozen=True, slots=True)
+class StalePassResult:
+    """What owners' stale passes settled, for the pass's outcome and reaper."""
+
+    vrt_assets_recovered: int = 0
+    vrt_generations_failed: int = 0
+    refresh_runs_cancelled: int = 0
+    storage_keys: tuple[str, ...] = ()
+
+    def __add__(self, other: StalePassResult) -> StalePassResult:
+        return StalePassResult(
+            self.vrt_assets_recovered + other.vrt_assets_recovered,
+            self.vrt_generations_failed + other.vrt_generations_failed,
+            self.refresh_runs_cancelled + other.refresh_runs_cancelled,
+            self.storage_keys + other.storage_keys,
+        )
+
+
+StalePass = Callable[
+    [AsyncSession, datetime, Sequence[uuid.UUID] | None], Awaitable[StalePassResult]
+]
+
+
+@dataclass(frozen=True, slots=True)
+class LinkedOwner:
+    """An owner of rows a job end would strand.
+
+    ``job_ended`` runs for each end that lands. ``stale_pass``, when an owner
+    has one, runs once per stale pass after its ends, for rows whose
+    staleness the owner proves by its own rule.
+    """
+
+    job_ended: JobEndHook
+    stale_pass: StalePass | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,13 +191,16 @@ async def abort(
         raise ValueError(f"abort cannot end a job from {expect!r}")
     ended = await _end(
         session,
-        job,
+        job.id,
+        job.attempt_id,
         expect=(expect,),
+        transition="abort",
         status="failed",
         code=code,
         reason=reason,
         actor=None,
         ip_address=ip_address,
+        mirror=job,
     )
     return ended.outcome
 
@@ -174,31 +222,98 @@ async def cancel(session: AsyncSession, job: IngestJob, *, actor: uuid.UUID) -> 
     await session.execute(text("SET LOCAL lock_timeout = '2s'"))
     return await _end(
         session,
-        job,
+        job.id,
+        job.attempt_id,
         expect=("pending", "running"),
+        transition="cancel",
         status="cancelled",
         code=USER_CANCELLED_ERROR_CODE,
         reason=_CANCEL_REASON,
         actor=actor,
         ip_address=None,
+        mirror=job,
     )
+
+
+async def end_stale(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    *,
+    expect: str,
+    still_stale: Sequence[Any],
+    status: str,
+    code: str,
+    reason: str,
+    values: Mapping[str, Any] | None = None,
+) -> Ended:
+    """End one job the stale pass found, fenced on the status and attempt it read.
+
+    ``still_stale`` is the pass's predicate for the job's class, checked again
+    under the row lock, so a job that was claimed, restaged or retried since
+    the pass read it is left alone. ``values`` are further columns the end
+    writes. The owners whose rows have their own staleness rule leave them to
+    their stale pass. Does not commit.
+    """
+    return await _end(
+        session,
+        job_id,
+        attempt_id,
+        expect=(expect,),
+        transition="settle_stale",
+        status=status,
+        code=code,
+        reason=reason,
+        actor=None,
+        ip_address=None,
+        recheck=still_stale,
+        values=values,
+    )
+
+
+async def run_stale_passes(
+    session: AsyncSession,
+    now: datetime,
+    *,
+    job_ids: Sequence[uuid.UUID] | None = None,
+) -> StalePassResult:
+    """Run each owner's stale pass once, after the stale pass's job ends.
+
+    ``job_ids`` limits every owner to the rows linked to those jobs. Does not
+    commit.
+    """
+    settled = StalePassResult()
+    for owner in _OWNERS.values():
+        if owner.stale_pass is not None:
+            settled += await owner.stale_pass(session, now, job_ids)
+    return settled
 
 
 async def _end(
     session: AsyncSession,
-    job: IngestJob,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
     *,
     expect: tuple[str, ...],
+    transition: str,
     status: str,
     code: str,
     reason: str | BaseException,
     actor: uuid.UUID | None,
     ip_address: str | None,
+    recheck: Sequence[Any] = (),
+    values: Mapping[str, Any] | None = None,
+    mirror: IngestJob | None = None,
 ) -> Ended:
-    """Write one fenced end and, when it lands, run every hook on it."""
+    """Write one fenced end and, when it lands, run every owner's hook on it.
+
+    What landed is mirrored onto ``mirror``, or else onto the session's own
+    instance of the row, if it holds one.
+    """
     reason = redact_failure_reason(reason)
-    job_id, attempt_id = job.id, job.attempt_id
     now = datetime.now(timezone.utc)
+    written = {"status": status, "error_message": reason, "completed_at": now}
+    written.update(values or {})
     linked: dict[str, uuid.UUID] = {}
     async with session.begin_nested():
         ended = (
@@ -208,13 +323,14 @@ async def _end(
                     IngestJob.id == job_id,
                     IngestJob.status.in_(expect),
                     _attempt_is(attempt_id),
+                    *recheck,
                 )
-                .values(status=status, error_message=reason, completed_at=now)
+                .values(**written)
                 .returning(
-                    IngestJob.dataset_id,
-                    IngestJob.source_filename,
-                    IngestJob.user_metadata,
-                    IngestJob.created_by,
+                    *(
+                        getattr(IngestJob, column)
+                        for column in dict.fromkeys((*_END_COLUMNS, *written))
+                    )
                 )
                 .execution_options(synchronize_session=False)
             )
@@ -226,6 +342,7 @@ async def _end(
                 source_filename=ended.source_filename,
                 user_metadata=ended.user_metadata,
                 created_by=ended.created_by,
+                transition=transition,
                 status=status,
                 code=code,
                 reason=reason,
@@ -233,13 +350,16 @@ async def _end(
                 actor=actor,
                 ip_address=ip_address,
             )
-            for owner, hook in _END_HOOKS.items():
-                row_id = await hook(session, end)
+            for name, owner in _OWNERS.items():
+                row_id = await owner.job_ended(session, end)
                 if row_id is not None:
-                    linked[owner] = row_id
+                    linked[name] = row_id
     if ended is None:
         return Ended(await _missed(session, job_id, attempt_id))
-    _mirror(job, {"status": status, "error_message": reason, "completed_at": now})
+    if mirror is None:
+        mirror = session.identity_map.get(session.identity_key(IngestJob, job_id))
+    if mirror is not None:
+        _mirror(mirror, {column: ended._mapping[column] for column in written})
     return Ended(Outcome.LANDED, linked)
 
 
@@ -399,7 +519,11 @@ async def _end_refresh_run(session: AsyncSession, end: JobEnd) -> uuid.UUID | No
         record_refresh_failure,
     )
 
-    if end.status == "cancelled":
+    if end.transition == "settle_stale":
+        # A stale job's run keeps its own proof: its stale pass cancels it
+        # only when no task can still finish it.
+        return None
+    if end.transition == "cancel":
         return await cancel_active_run_for_job(
             session, end.job_id, cancelled_by=end.actor
         )
@@ -429,17 +553,51 @@ async def _close_backfill_trail(session: AsyncSession, end: JobEnd) -> None:
 async def _release_vrt_generation(
     session: AsyncSession, end: JobEnd
 ) -> uuid.UUID | None:
-    if end.source_filename != VRT_REGENERATE_JOB_FILENAME or end.dataset_id is None:
+    if (
+        end.transition == "settle_stale"
+        or end.source_filename != VRT_REGENERATE_JOB_FILENAME
+        or end.dataset_id is None
+    ):
+        # A stale regeneration is failed by its own heartbeat, in the VRT
+        # stale pass.
         return None
     return await release_vrt_regeneration(
         session, end.dataset_id, end.at, message=end.reason
     )
 
 
-# One hook per owner of rows an ended job would strand, keyed by owner. Each is
-# a no-op for a job its owner has no rows for.
-_END_HOOKS: dict[str, JobEndHook] = {
-    "run": _end_refresh_run,
-    "backfill_trail": _close_backfill_trail,
-    "vrt": _release_vrt_generation,
+async def _cancel_abandoned_runs(
+    session: AsyncSession, now: datetime, job_ids: Sequence[uuid.UUID] | None
+) -> StalePassResult:
+    from app.platform.refresh.service import sweep_abandoned_refresh_runs
+
+    cancelled = await sweep_abandoned_refresh_runs(session, now, job_ids=job_ids)
+    return StalePassResult(refresh_runs_cancelled=cancelled)
+
+
+async def _reconcile_stale_regenerations(
+    session: AsyncSession, now: datetime, job_ids: Sequence[uuid.UUID] | None
+) -> StalePassResult:
+    from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS, sweep_stale_vrt_assets
+
+    recovered, failed, storage_keys = await sweep_stale_vrt_assets(
+        session,
+        now - timedelta(seconds=JOB_TIMEOUT_SECONDS),
+        dataset_ids=None
+        if job_ids is None
+        else select(IngestJob.dataset_id).where(IngestJob.id.in_(job_ids)),
+    )
+    return StalePassResult(
+        vrt_assets_recovered=recovered,
+        vrt_generations_failed=failed,
+        storage_keys=storage_keys,
+    )
+
+
+# One entry per owner of rows an ended job would strand. Each hook is a no-op
+# for a job its owner has no rows for.
+_OWNERS: dict[str, LinkedOwner] = {
+    "run": LinkedOwner(_end_refresh_run, _cancel_abandoned_runs),
+    "backfill_trail": LinkedOwner(_close_backfill_trail),
+    "vrt": LinkedOwner(_release_vrt_generation, _reconcile_stale_regenerations),
 }

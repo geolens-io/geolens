@@ -31,6 +31,17 @@ async def _job_status_poll(session: AsyncSession, *jobs) -> None:
     session.expire_all()
 
 
+async def _manifest_reservation_expiry(session: AsyncSession, *jobs) -> None:
+    from app.processing.ingest.manifest_reservation import (
+        expire_stale_manifest_reservations,
+    )
+
+    for key in dict.fromkeys(job.user_metadata["manifest_key"] for job in jobs):
+        await expire_stale_manifest_reservations(session, key)
+    await session.commit()
+    session.expire_all()
+
+
 # Gives a test a `settle(session)` argument, run once per caller.
 STALE_SETTLERS = pytest.mark.parametrize(
     "settle", [_lifespan_sweep, _startup_recovery], ids=["sweep", "recovery"]
@@ -41,4 +52,17 @@ EVERY_SETTLER = pytest.mark.parametrize(
     "settle",
     [_lifespan_sweep, _startup_recovery, _job_status_poll],
     ids=["sweep", "recovery", "poll"],
+)
+
+# EVERY_SETTLER plus manifest reservation expiry, which settles only the
+# downloading reservations of the keys its jobs carry.
+RESERVATION_SETTLERS = pytest.mark.parametrize(
+    "settle",
+    [
+        _lifespan_sweep,
+        _startup_recovery,
+        _job_status_poll,
+        _manifest_reservation_expiry,
+    ],
+    ids=["sweep", "recovery", "poll", "manifest"],
 )

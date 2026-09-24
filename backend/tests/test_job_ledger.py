@@ -24,7 +24,15 @@ from app.platform.jobs.heartbeat import (
     claim_ingest_job_attempt,
     require_ingest_job_update,
 )
-from app.platform.jobs.ledger import Ended, Outcome, abort, cancel, hold, retry
+from app.platform.jobs.ledger import (
+    Ended,
+    LinkedOwner,
+    Outcome,
+    abort,
+    cancel,
+    hold,
+    retry,
+)
 from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
@@ -785,7 +793,7 @@ class TestHookContract:
                     seen.append(True)
                 await other.rollback()
 
-        monkeypatch.setattr(ledger, "_END_HOOKS", {"probe": _probe})
+        monkeypatch.setattr(ledger, "_OWNERS", {"probe": LinkedOwner(_probe)})
         assert (
             await abort(test_db_session, job, code="dispatch_failed", reason=_REASON)
             is Outcome.LANDED
@@ -807,7 +815,9 @@ class TestHookContract:
             raise RuntimeError("linked row refused")
 
         monkeypatch.setattr(
-            ledger, "_END_HOOKS", {"run": ledger._end_refresh_run, "raises": _raises}
+            ledger,
+            "_OWNERS",
+            {"run": ledger._OWNERS["run"], "raises": LinkedOwner(_raises)},
         )
         with pytest.raises(RuntimeError, match="linked row refused"):
             if end == "abort":

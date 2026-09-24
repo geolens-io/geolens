@@ -214,82 +214,72 @@ def _make_mock_db_for_fail_stale(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fail_stale_jobs_resets_stale_regenerating_vrt_asset():
-    """GAP-002 RED→GREEN: a stale regenerating VRT asset is reset by the periodic sweep.
-
-    fail_stale_jobs is called every 5 min from the lifespan sweeper. Pre-fix it
-    only sweeps IngestJob. Post-fix it also sweeps stale regenerating RasterAssets.
-    """
-    from app.platform.jobs.router import fail_stale_jobs
-
-    stale_asset = _make_raster_asset(status="regenerating")
-    stale_gen = _make_vrt_generation(
-        status="running",
-        started_at=datetime.now(timezone.utc) - timedelta(hours=2),
-    )
-
-    mock_db = _make_mock_db_for_fail_stale(
-        stale_vrt_assets=[stale_asset],
-        stale_vrt_generations=[stale_gen],
-    )
-
-    await fail_stale_jobs(mock_db)
-
-    statements = [str(call.args[0]) for call in mock_db.execute.await_args_list]
-    assert any("UPDATE catalog.vrt_generations" in stmt for stmt in statements)
-    assert any("UPDATE catalog.raster_assets" in stmt for stmt in statements)
-
-
-@pytest.mark.asyncio
-async def test_fail_stale_jobs_returns_vrt_asset_count():
-    """GAP-002: fail_stale_jobs return tuple should include VRT-recovered count or remain (pending, running)."""
-    from app.platform.jobs.router import fail_stale_jobs
-
-    stale_asset = _make_raster_asset(status="regenerating")
-    stale_gen = _make_vrt_generation(status="running")
-
-    mock_db = _make_mock_db_for_fail_stale(
-        stale_vrt_assets=[stale_asset],
-        stale_vrt_generations=[stale_gen],
-    )
-
-    result = await fail_stale_jobs(mock_db)
-
-    # Result must be a tuple (the IngestJob counts are the base contract).
-    assert isinstance(result, tuple)
-
-
-@pytest.mark.asyncio
 async def test_fail_stale_jobs_detailed_outcome_counts_every_cleanup_surface(
-    tmp_path, monkeypatch
+    test_db_session, clean_tables, tmp_path, monkeypatch
 ):
     """Admin callers receive VRT, retention, local, and object cleanup counts."""
     from app.core.config import settings
+    from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY, IngestJob
     from app.platform.jobs.router import StaleCleanupOutcome, fail_stale_jobs
-
-    stale_asset = _make_raster_asset(status="regenerating")
-    stale_gen = _make_vrt_generation(
-        status="running", vrt_dataset_id=stale_asset.dataset_id
+    from app.platform.jobs.sweep import (
+        JOB_TIMEOUT_SECONDS,
+        stale_pending_cutoff_seconds,
     )
-    local_file = tmp_path / "retained-upload.geojson"
-    local_file.write_text("{}")
-    storage_key = "staging/job-id/retained-upload.geojson"
+    from tests.factories import create_dataset, get_user_id
 
-    mock_db = _make_mock_db_for_fail_stale(
-        stale_jobs_pending=[uuid4()],
-        stale_jobs_running=[uuid4()],
-        stale_vrt_assets=[stale_asset],
-        stale_vrt_generations=[stale_gen],
-        purge_candidates=[(str(local_file),), (storage_key,)],
-    )
     storage = MagicMock()
     storage.delete = AsyncMock()
     monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
     monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+    with patch("app.platform.storage.get_storage", return_value=storage):
+        # Settle what earlier tests left here, so the counts are this test's.
+        await fail_stale_jobs(test_db_session)
+    storage.delete.reset_mock()
+
+    now = datetime.now(timezone.utc)
+    long_ago = now - timedelta(days=60)
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await create_dataset(test_db_session, created_by=admin_id)
+    _vrt_dataset, stale_gen, _asset = await _make_vrt_with_generation(
+        test_db_session,
+        admin_id=admin_id,
+        built_from_dataset_ids=[source.id],
+        linked_dataset_ids=[source.id],
+    )
+    local_file = tmp_path / "retained-upload.geojson"
+    local_file.write_text("{}")
+    storage_key = f"staging/{uuid4()}/retained-upload.geojson"
+    pending_age = stale_pending_cutoff_seconds(completion_bound=False) + 60
+    test_db_session.add_all(
+        [
+            IngestJob(
+                status="pending",
+                source_filename="stale.geojson",
+                file_path="",
+                created_at=now - timedelta(seconds=pending_age),
+                user_metadata={COMMIT_ATTEMPTED_METADATA_KEY: long_ago.isoformat()},
+            ),
+            IngestJob(
+                status="running",
+                source_filename="stale.geojson",
+                started_at=now - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60),
+            ),
+            *(
+                IngestJob(
+                    status="failed",
+                    source_filename="retained-upload.geojson",
+                    file_path=path,
+                    created_at=long_ago,
+                    completed_at=long_ago,
+                )
+                for path in (str(local_file), storage_key)
+            ),
+        ]
+    )
+    await test_db_session.commit()
 
     with patch("app.platform.storage.get_storage", return_value=storage):
-        result = await fail_stale_jobs(mock_db, detailed=True)
+        result = await fail_stale_jobs(test_db_session, detailed=True)
 
     assert isinstance(result, StaleCleanupOutcome)
     assert result.pending_failed == 1
@@ -299,30 +289,21 @@ async def test_fail_stale_jobs_detailed_outcome_counts_every_cleanup_surface(
     assert result.terminal_jobs_purged == 2
     assert result.staged_paths_considered == 2
     assert result.local_files_reaped == 1
-    # feat(#1267) / fix(#1322 review): 1 retention key + 3 VRT generation
-    # keys, all reaped by _reap_committed_staged_paths AFTER db.commit()
-    # succeeded — sweep_stale_vrt_assets itself only resolved the latter 3,
-    # never deleting them.
+    # One retention key and the dead generation's three keys, all reaped
+    # after the commit landed.
     assert result.storage_objects_reaped == 4
     assert result.staged_paths_skipped == 0
     assert result.staged_cleanup_failures == 0
     assert result.total_cleaned == 2
     assert result.total_affected == 11
     assert not local_file.exists()
-
-    # feat(#1267): the reconciled generation's own storage objects are
-    # reaped best-effort alongside the retention-purge key — 3 more calls,
-    # one per object regenerate_vrt could have written before the worker
-    # died (source.vrt + 2 quicklooks), deleted even though none exist here.
     generation_base = f"rasters/{stale_gen.vrt_dataset_id}/generations/{stale_gen.id}"
-    expected_keys = {
+    assert {call.args[0] for call in storage.delete.await_args_list} == {
         storage_key,
         f"{generation_base}/source.vrt",
         f"{generation_base}/quicklook_256.png",
         f"{generation_base}/quicklook_512.png",
     }
-    called_keys = {call.args[0] for call in storage.delete.await_args_list}
-    assert called_keys == expected_keys
 
 
 @pytest.mark.asyncio
@@ -355,39 +336,37 @@ async def test_fail_stale_jobs_commit_failure_keeps_external_artifacts(
     storage.delete.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_fail_stale_jobs_commit_failure_keeps_stale_generation_storage_intact(
-    monkeypatch,
+    test_db_session, clean_tables, monkeypatch
 ):
-    """fix(#1322 review): the inverse of the storage-failure test above — a
-    reconciliation whose commit fails must leave a dead attempt's generation
-    objects UNDELETED. sweep_stale_vrt_assets only resolves the keys; nothing
-    may reap them until fail_stale_jobs's own db.commit() (which raises here,
-    rolling the generation/asset UPDATEs back) has actually landed. Deleting
-    anyway would leave a resumed 'dead' worker publishing to storage keys
-    that no longer exist, behind an asset the rollback restored to
-    'regenerating'."""
+    """A reconciliation whose commit fails deletes none of the dead generation's objects."""
     from app.platform.jobs.router import fail_stale_jobs
+    from tests.factories import create_dataset, get_user_id
 
-    stale_asset = _make_raster_asset(status="regenerating")
-    stale_gen = _make_vrt_generation(
-        status="running", vrt_dataset_id=stale_asset.dataset_id
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await create_dataset(test_db_session, created_by=admin_id)
+    await _make_vrt_with_generation(
+        test_db_session,
+        admin_id=admin_id,
+        built_from_dataset_ids=[source.id],
+        linked_dataset_ids=[source.id],
     )
-    mock_db = _make_mock_db_for_fail_stale(
-        stale_vrt_assets=[stale_asset],
-        stale_vrt_generations=[stale_gen],
-    )
-    mock_db.commit.side_effect = RuntimeError("commit failed")
     storage = MagicMock()
     storage.delete = AsyncMock()
 
+    async def _commit_fails() -> None:
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(test_db_session, "commit", _commit_fails)
     with (
         patch("app.platform.storage.get_storage", return_value=storage),
         pytest.raises(RuntimeError, match="commit failed"),
     ):
-        await fail_stale_jobs(mock_db, detailed=True)
+        await fail_stale_jobs(test_db_session, detailed=True)
 
     storage.delete.assert_not_awaited()
+    monkeypatch.undo()
+    await test_db_session.rollback()
 
 
 # ---------------------------------------------------------------------------

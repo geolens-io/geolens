@@ -7,7 +7,7 @@ stage exits answer one question, so they live together rather than in step.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import structlog
 from sqlalchemy import desc, func, select, text, update
@@ -17,19 +17,15 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.failure_reason import redact_failure_reason
 from app.platform.jobs.models import IngestJob
-from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
+from app.platform.jobs.sweep import settle_stale_jobs
 
 log = structlog.get_logger()
 
 # fix(#1814): the pre-queue stage a manifest job is in. This module's exits
-# clear it; a row the running sweep or worker recovery settles keeps it, which
-# is inert because the in-flight read filters on status.
+# clear it; a row the stale-job pass settles, including through the expiry
+# below, keeps it, which is inert because the in-flight read filters on status.
 MANIFEST_STAGE_METADATA_KEY = "manifest_stage"
 MANIFEST_STAGE_DOWNLOADING = "downloading"
-
-# fix(#1814): what the running sweep would have written, when a later apply
-# reaches the row first.
-STALE_RESERVATION_MESSAGE = "Stale: manifest source was never staged"
 
 # fix(#1814): names no id. The row this attempt owned is terminal, and the row
 # that replaced it belongs to a different request.
@@ -70,22 +66,6 @@ async def latest_in_flight_manifest_job(db: AsyncSession, key: str) -> IngestJob
     return result.scalar_one_or_none()
 
 
-def _reservation_lease_clauses(now: datetime, key: str) -> tuple:
-    """Every predicate that identifies an abandoned reservation for ``key``.
-
-    fix(#1814): the running sweep's own predicate, narrowed to one key's
-    downloading stage, so the two cannot disagree about which rows are live.
-    """
-    return (
-        IngestJob.status == "running",
-        func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
-        < now - timedelta(seconds=JOB_TIMEOUT_SECONDS),
-        IngestJob.user_metadata["manifest_key"].astext == key,
-        IngestJob.user_metadata[MANIFEST_STAGE_METADATA_KEY].astext
-        == MANIFEST_STAGE_DOWNLOADING,
-    )
-
-
 def _without_stage_marker():
     """The row's metadata with the downloading marker removed, as SQL.
 
@@ -102,22 +82,30 @@ async def expire_stale_manifest_reservations(
 ) -> int:
     """Settle reservations for ``key`` whose apply never came back. Returns the count.
 
+    The stale-job pass, limited to this key's downloading reservations, so the
+    expiry and the running sweep cannot disagree about which rows are live or
+    what a settled one says. Does not commit.
+
     fix(#1814): settling rather than ignoring is what lets the staging bind's
     fence catch a slow attempt whose reservation was replaced.
     """
-    now = now or datetime.now(timezone.utc)
-    result = await db.execute(
-        update(IngestJob)
-        .where(*_reservation_lease_clauses(now, key))
-        .values(
-            status="failed",
-            error_message=STALE_RESERVATION_MESSAGE,
-            completed_at=now,
-            user_metadata=_without_stage_marker(),
+    reservations = (
+        await db.execute(
+            select(IngestJob.id).where(
+                IngestJob.status == "running",
+                IngestJob.user_metadata["manifest_key"].astext == key,
+                IngestJob.user_metadata[MANIFEST_STAGE_METADATA_KEY].astext
+                == MANIFEST_STAGE_DOWNLOADING,
+            )
         )
-        .execution_options(synchronize_session=False)
+    ).scalars()
+    job_ids = list(reservations)
+    if not job_ids:
+        return 0
+    outcome = await settle_stale_jobs(
+        db, now or datetime.now(timezone.utc), job_ids=job_ids
     )
-    return result.rowcount or 0
+    return outcome.running_failed
 
 
 async def bind_reservation_to_staged_source(

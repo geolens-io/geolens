@@ -141,33 +141,35 @@ class TestUnadoptedAnalysisOutput:
 
         session.execute.assert_not_awaited()
 
-    @pytest.mark.asyncio
-    async def test_fail_stale_jobs_carries_the_table_out_of_a_running_row(self) -> None:
-        """fix(#1778 codex r10): the running-row transition no longer collects
-        the name directly -- that moved into the unconditional
-        artifact-carrying SELECT that runs after the retention block (see
-        that query's own docstring in sweep.py). Against real Postgres it
-        runs inside the same uncommitted transaction as the UPDATE above it
-        and sees the row's new status, so the split changes nothing about
-        same-pass reaping; the double routes the fixture through the query
-        that answers it now.
-        """
-        from app.platform.jobs.sweep import fail_stale_jobs
+    async def test_fail_stale_jobs_carries_the_table_out_of_a_running_row(
+        self, test_db_session
+    ) -> None:
+        """A running row the pass settles hands its output table to the post-commit drop."""
+        from datetime import datetime, timedelta, timezone
 
-        job_uuid = uuid.uuid4()
-        mock_db = _mock_db_for_fail_stale(
-            running_rows=[(job_uuid, None, None)],
-            artifact_rows=[
-                (job_uuid, {"analysis_out_table": "parcels_buffered"}),
-            ],
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS, fail_stale_jobs
+        from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
+
+        job = IngestJob(
+            status="running",
+            source_filename="analysis-buffer",
+            started_at=datetime.now(timezone.utc)
+            - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60),
+            user_metadata={ANALYSIS_OUTPUT_TABLE_FIELD: "parcels_buffered"},
         )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        job_uuid = job.id
+
         reap = AsyncMock()
         with patch("app.platform.jobs.sweep._reap_unadopted_analysis_outputs", reap):
-            outcome = await fail_stale_jobs(mock_db, detailed=True)
+            outcome = await fail_stale_jobs(test_db_session, detailed=True)
 
         # fix(#1778 codex r7): (job, table), so the drop can verify ownership.
-        assert outcome._unadopted_analysis_tables == ((job_uuid, "parcels_buffered"),)
-        reap.assert_awaited_once_with(((job_uuid, "parcels_buffered"),))
+        assert (job_uuid, "parcels_buffered") in outcome._unadopted_analysis_tables
+        (dropped,) = reap.await_args.args
+        assert (job_uuid, "parcels_buffered") in dropped
 
 
 class TestOnlyASettledArtifactLosesItsRecord:

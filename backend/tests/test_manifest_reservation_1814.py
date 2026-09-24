@@ -1242,8 +1242,11 @@ class TestStaleReservations:
         reaped = await test_db_session.get(
             IngestJob, abandoned_id, populate_existing=True
         )
-        assert reaped.status == "failed"
-        assert MANIFEST_STAGE_METADATA_KEY not in reaped.user_metadata
+        # Settled by the stale-job pass, so it reads as the running sweep's.
+        assert (reaped.status, reaped.error_message) == (
+            "failed",
+            f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes",
+        )
 
     async def test_a_reservation_inside_the_lease_still_holds_the_key(
         self, test_db_session, clean_tables
