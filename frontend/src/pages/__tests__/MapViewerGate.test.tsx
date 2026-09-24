@@ -43,13 +43,9 @@ describe('MapViewerGate', () => {
     } as never);
   });
 
-  // An editor-role render fires MapViewerGate's own optimistic
-  // `void import('./MapBuilderPage')` without awaiting it. A test that never
-  // renders MapBuilderPage itself (the stale-cache and ?preview=viewer cases
-  // below) never awaits that promise either, so it can still be pending when
-  // this file's environment tears down — the real module then fails to load
-  // without jsdom. Settling it here, while the mock above still applies,
-  // closes that window.
+  // Editor renders fire an unawaited `import('./MapBuilderPage')`. Settle it
+  // while the mock applies, or it can resolve after teardown and load the
+  // real module without jsdom.
   afterEach(async () => {
     await import('../MapBuilderPage');
   });
