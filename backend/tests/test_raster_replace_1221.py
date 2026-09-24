@@ -5569,23 +5569,20 @@ def _publish_commit_never_lands_and_the_probe_fails(job_id):
     from sqlalchemy.ext.asyncio import AsyncSession
 
     import app.core.db as db_module
-    from app.platform.jobs import heartbeat as heartbeat_module
+    from app.platform.jobs import ledger as ledger_module
 
     real_commit = AsyncSession.commit
     real_async_session = db_module.async_session
-    real_update = heartbeat_module.update_ingest_job_for_attempt
+    real_complete = ledger_module.complete
     armed = {"publish_pending": False}
 
     def _unreachable_session(*args, **kwargs):
         raise RuntimeError("the pool is gone too")
 
-    async def _update(session, jid, attempt_id, *, values, expected_status="running"):
-        result = await real_update(
-            session, jid, attempt_id, values=values, expected_status=expected_status
-        )
-        if str(jid) == str(job_id) and values.get("status") == "complete":
+    async def _complete(session, jid, attempt_id, **kwargs):
+        await real_complete(session, jid, attempt_id, **kwargs)
+        if str(jid) == str(job_id):
             armed["publish_pending"] = True
-        return result
 
     async def _commit(self, *args, **kwargs):
         if armed["publish_pending"]:
@@ -5594,14 +5591,14 @@ def _publish_commit_never_lands_and_the_probe_fails(job_id):
             raise ConnectionResetError("dropped before COMMIT reached the server")
         return await real_commit(self, *args, **kwargs)
 
-    heartbeat_module.update_ingest_job_for_attempt = _update
+    ledger_module.complete = _complete
     AsyncSession.commit = _commit
     try:
         yield
     finally:
         AsyncSession.commit = real_commit
         db_module.async_session = real_async_session
-        heartbeat_module.update_ingest_job_for_attempt = real_update
+        ledger_module.complete = real_complete
 
 
 @contextlib.contextmanager
@@ -5616,11 +5613,15 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.platform.jobs import heartbeat as heartbeat_module
+    from app.platform.jobs import ledger as ledger_module
 
     real_commit = AsyncSession.commit
     real_update = heartbeat_module.update_ingest_job_for_attempt
+    real_complete = ledger_module.complete
     fired = {"count": 0, "pending": False}
 
+    # The settlement seam still completes through heartbeat's update; the
+    # other publish tails complete through the ledger.
     async def _update(session, jid, attempt_id, *, values, expected_status="running"):
         result = await real_update(
             session, jid, attempt_id, values=values, expected_status=expected_status
@@ -5628,6 +5629,11 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
         if str(jid) == str(job_id) and values.get("status") == "complete":
             fired["pending"] = True
         return result
+
+    async def _complete(session, jid, attempt_id, **kwargs):
+        await real_complete(session, jid, attempt_id, **kwargs)
+        if str(jid) == str(job_id):
+            fired["pending"] = True
 
     async def _commit(self, *args, **kwargs):
         if fired["pending"]:
@@ -5639,6 +5645,7 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
         return await real_commit(self, *args, **kwargs)
 
     heartbeat_module.update_ingest_job_for_attempt = _update
+    ledger_module.complete = _complete
     AsyncSession.commit = _commit
     try:
         with patch(
@@ -5648,6 +5655,7 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
     finally:
         AsyncSession.commit = real_commit
         heartbeat_module.update_ingest_job_for_attempt = real_update
+        ledger_module.complete = real_complete
 
 
 @contextlib.contextmanager

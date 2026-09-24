@@ -1302,7 +1302,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # raising further. Each upload door branches once for a 3D Tiles tileset.
     "backend/app/processing/ingest/router.py": 1645,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1718,
+    "backend/app/processing/ingest/tasks_common.py": 1716,
     # The file and service strategies: retrieval, staging, verification and cleanup.
     "backend/app/processing/ingest/tasks_reupload.py": 1263,
     # Refresh strategies share access, admission and dispatch rules at this API
@@ -1328,7 +1328,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1476,
     # VRT creation and regeneration share publication and superseded-object cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1708,
+    "backend/app/processing/ingest/tasks_vrt.py": 1694,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 616,
     # File/service tasks share publication fencing, heartbeat phases and failure
@@ -1354,7 +1354,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1607,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
-    "backend/app/processing/analysis/tasks.py": 1419,
+    "backend/app/processing/analysis/tasks.py": 1414,
     # Maps API router debt; split endpoint families before raising.
     "backend/app/modules/catalog/maps/router.py": 1507,
     # Native search and OGC Records share visibility, query parsing and pagination.

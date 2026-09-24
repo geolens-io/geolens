@@ -49,10 +49,10 @@ from app.platform.analysis_sql import (
 from app.processing.analysis.provenance import apply_analysis_provenance
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
+    StaleIngestAttempt,
     maintain_ingest_job_heartbeat,
     resolve_ingest_job_attempt,
     stop_ingest_job_heartbeat,
-    update_ingest_job_for_attempt,
     write_job_failure_for_attempt,
 )
 from app.processing.ingest.metadata import _sql_quote_ident
@@ -590,21 +590,16 @@ async def _complete_job_for_attempt(
     job they were told failed. The fence shares the registration transaction,
     so a miss rolls the Dataset row back with it.
     """
-    if await update_ingest_job_for_attempt(
-        session,
-        uuid.UUID(job_id),
-        attempt_id,
-        values={
-            "status": "complete",
-            "dataset_id": dataset_id,
-            # fix(#813): stamp completion time like ingest does.
-            "completed_at": datetime.now(timezone.utc),
-        },
-    ):
+    try:
+        await ledger.complete(
+            session, uuid.UUID(job_id), attempt_id, values={"dataset_id": dataset_id}
+        )
+    except StaleIngestAttempt:
+        await session.rollback()
+    else:
         await session.commit()
         ANALYSIS_JOBS.labels(operation=operation, status="complete").inc()
         return
-    await session.rollback()
     logger.warning("analysis.complete_write_superseded", job_id=job_id)
     # fix(#814): the output table is durable from the build commit and this
     # attempt's registration is rolled back, so gate the drop on the adoption

@@ -1218,18 +1218,16 @@ async def test_a_failing_terminal_write_does_not_wedge_the_slot(
     session — which is the point of using a fresh one, since the session that
     just raised may be unusable.
     """
-    real_update = backfill_jobs.update_ingest_job_for_attempt
+    real_complete = backfill_jobs.ledger.complete
     calls = {"n": 0}
 
     async def _first_write_blows_up(*args, **kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("connection reset during terminal update")
-        return await real_update(*args, **kwargs)
+        return await real_complete(*args, **kwargs)
 
-    monkeypatch.setattr(
-        backfill_jobs, "update_ingest_job_for_attempt", _first_write_blows_up
-    )
+    monkeypatch.setattr(backfill_jobs.ledger, "complete", _first_write_blows_up)
 
     async def _worked_fine(
         session, *, force=False, should_continue=None, on_progress=None
@@ -1420,7 +1418,7 @@ async def test_recovery_does_not_block_on_the_transaction_it_is_recovering_from(
     the unique slot until the stale sweep. Measured, not asserted: the recovery
     has a 15s budget, so blocking is visible as elapsed time.
     """
-    real_update = backfill_jobs.update_ingest_job_for_attempt
+    real_complete = backfill_jobs.ledger.complete
     calls = {"n": 0}
 
     async def _locks_the_row_then_dies(*args, **kwargs):
@@ -1429,14 +1427,12 @@ async def test_recovery_does_not_block_on_the_transaction_it_is_recovering_from(
         # Only the FIRST call: the recovery's own write must be allowed to
         # proceed, because whether it can is the thing being measured.
         calls["n"] += 1
-        result = await real_update(*args, **kwargs)
+        result = await real_complete(*args, **kwargs)
         if calls["n"] == 1:
             raise RuntimeError("connection lost while committing")
         return result
 
-    monkeypatch.setattr(
-        backfill_jobs, "update_ingest_job_for_attempt", _locks_the_row_then_dies
-    )
+    monkeypatch.setattr(backfill_jobs.ledger, "complete", _locks_the_row_then_dies)
 
     async def _worked_fine(
         session, *, force=False, should_continue=None, on_progress=None

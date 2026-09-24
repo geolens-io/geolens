@@ -36,10 +36,8 @@ def _fence_vrt_worker_helpers(monkeypatch):
     UPDATE statements and intentionally model only the VRT domain queries.
     """
 
-    # fix(#836): the claim/commit/heartbeat prologue is now the shared
-    # claim_job_attempt_and_start_heartbeat helper. Model a successful claim by
-    # returning a live dummy task the finally-block heartbeat teardown can
-    # cancel, mirroring the old claim_ingest_job_attempt=True double.
+    # A successful claim returns a live dummy task the finally-block heartbeat
+    # teardown can cancel.
     async def _claim_and_start_heartbeat(session, job_uuid, attempt_uuid, **kwargs):
         del session, job_uuid, attempt_uuid, kwargs
         return asyncio.create_task(asyncio.sleep(3600))
@@ -49,7 +47,7 @@ def _fence_vrt_worker_helpers(monkeypatch):
         _claim_and_start_heartbeat,
     )
     monkeypatch.setattr(
-        "app.processing.ingest.tasks_vrt.require_ingest_job_update",
+        "app.processing.ingest.tasks_vrt.ledger.complete",
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(

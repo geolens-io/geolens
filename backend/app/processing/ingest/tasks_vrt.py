@@ -22,13 +22,13 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     arm_job_error_write_budget,
     claim_job_attempt_and_start_heartbeat,
     log_job_error_write_failure,
     maintain_vrt_generation_heartbeat,
-    require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
@@ -820,15 +820,8 @@ async def ingest_vrt(
                 await note_publish_followups(
                     session, job_uuid, attempt_uuid, "ingest_vrt"
                 )
-                await require_ingest_job_update(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "complete",
-                        "dataset_id": dataset.id,
-                        "completed_at": datetime.now(timezone.utc),
-                    },
+                await ledger.complete(
+                    session, job_uuid, attempt_uuid, values={"dataset_id": dataset.id}
                 )
                 xid = publishing_xid(session)
                 try:
@@ -1516,15 +1509,8 @@ async def regenerate_vrt(
                 )
 
                 # 14. Finalize job
-                await require_ingest_job_update(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "complete",
-                        "dataset_id": vrt_id,
-                        "completed_at": datetime.now(timezone.utc),
-                    },
+                await ledger.complete(
+                    session, job_uuid, attempt_uuid, values={"dataset_id": vrt_id}
                 )
                 xid = publishing_xid(session)
                 try:

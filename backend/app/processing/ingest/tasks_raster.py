@@ -8,11 +8,11 @@ from sqlalchemy.exc import DBAPIError
 
 from app.core.failure_reason import redact_failure_reason
 from app.core.db.tenant_session import tenant_task
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     claim_job_attempt_and_start_heartbeat,
     log_job_error_write_failure,
-    require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
@@ -665,14 +665,12 @@ async def ingest_raster(
             await note_publish_followups(
                 session, job_uuid, attempt_uuid, "ingest_raster"
             )
-            await require_ingest_job_update(
+            await ledger.complete(
                 session,
                 job_uuid,
                 attempt_uuid,
                 values={
-                    "status": "complete",
                     "dataset_id": dataset.id,
-                    "completed_at": datetime.now(timezone.utc),
                     "current_step": "complete",
                     "progress": 1.0,
                 },
