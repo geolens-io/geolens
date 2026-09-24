@@ -34,8 +34,12 @@ from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.ingest.schemas import TilesetPreviewResponse
 from app.processing.ingest.validation import (
+    _ZIP64_EOCD,
+    _ZIP64_LOCATOR,
+    _ZIP64_LOCATOR_SIGNATURE,
     MAX_CENTRAL_DIRECTORY_BYTES,
     MAX_COMPRESSION_RATIO,
+    _end_record_index,
     _member_read_errors,
     _validate_zip_directory_cardinality,
     _zip_directory_metadata,
@@ -90,8 +94,8 @@ _URI_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 _NOT_A_BRACKET = re.compile(r"[^\[\]{}]+")
 
 # The end-of-central-directory record, its longest comment, and the ZIP64
-# locator and record that sit right before it.
-_ARCHIVE_TAIL_BYTES = 22 + 0xFFFF + 20 + 56
+# locator right before it.
+_ARCHIVE_TAIL_BYTES = 22 + 0xFFFF + 20
 _LOCAL_HEADER_BYTES = 30
 
 
@@ -491,18 +495,29 @@ def _write_at(path: str, offset: int, data: bytes) -> None:
 
 async def _copy_range(
     storage: StorageProvider, key: str, probe: str, offset: int, length: int
-) -> None:
-    if length > 0:
-        data = await storage.get_range(key, offset, length)
-        await asyncio.to_thread(_write_at, probe, offset, data)
+) -> bytes:
+    if length <= 0:
+        return b""
+    data = await storage.get_range(key, offset, length)
+    await asyncio.to_thread(_write_at, probe, offset, data)
+    return data
+
+
+def _zip64_record_offset(tail: bytes) -> int | None:
+    """The offset of the ZIP64 end record that the locator in ``tail`` names."""
+    end = _end_record_index(tail)
+    locator = end - _ZIP64_LOCATOR.size
+    if end < 0 or locator < 0 or not tail.startswith(_ZIP64_LOCATOR_SIGNATURE, locator):
+        return None
+    return _ZIP64_LOCATOR.unpack_from(tail, locator)[2]
 
 
 async def inspect_stored_tileset(storage: StorageProvider, key: str) -> Tileset:
     """``inspect_tileset`` for an object in storage, without downloading it.
 
     A sparse local file of the object's size gets only the ranges the checks
-    read: the archive's tail, its central directory, and the tileset.json
-    entry. ``key`` is the physical key.
+    read: the archive's tail, a ZIP64 end record, the central directory, and
+    the tileset.json entry. ``key`` is the physical key.
     """
     size = await storage.size(key)
     handle, probe = tempfile.mkstemp(
@@ -513,7 +528,12 @@ async def inspect_stored_tileset(storage: StorageProvider, key: str) -> Tileset:
         os.close(handle)
         handle = -1
         tail = min(size, _ARCHIVE_TAIL_BYTES)
-        await _copy_range(storage, key, probe, size - tail, tail)
+        tail_bytes = await _copy_range(storage, key, probe, size - tail, tail)
+        # Extensible data can put a ZIP64 end record any distance before its
+        # locator, so it is read from wherever the locator says.
+        record = _zip64_record_offset(tail_bytes)
+        if record is not None and record + _ZIP64_EOCD.size <= size:
+            await _copy_range(storage, key, probe, record, _ZIP64_EOCD.size)
         try:
             _, offset, length = await asyncio.to_thread(_zip_directory_metadata, probe)
         except zipfile.BadZipFile as exc:

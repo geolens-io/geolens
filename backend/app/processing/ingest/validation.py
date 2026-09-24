@@ -602,6 +602,25 @@ def validate_content_directives(file_path: str, filename: str | None = None) -> 
         _scan_archive_members(file_path, source)
 
 
+def _end_record_index(tail: bytes) -> int:
+    """Where the end-of-central-directory record starts in a file's tail, or -1.
+
+    The record's comment runs to the end of the file, which tells the record
+    from its signature appearing inside a comment.
+    """
+    search_end = len(tail)
+    while search_end > 0:
+        candidate = tail.rfind(_EOCD_SIGNATURE, 0, search_end)
+        if candidate < 0:
+            break
+        if candidate + _EOCD.size <= len(tail):
+            comment_length = _EOCD.unpack_from(tail, candidate)[7]
+            if candidate + _EOCD.size + comment_length == len(tail):
+                return candidate
+        search_end = candidate
+    return -1
+
+
 def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
     """Return member count, central-directory offset, and size without parsing members."""
     path = Path(file_path)
@@ -612,24 +631,10 @@ def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
         archive.seek(file_size - tail_size)
         tail = archive.read(tail_size)
 
-        search_end = len(tail)
-        eocd_offset = -1
-        eocd: tuple | None = None
-        while search_end > 0:
-            candidate = tail.rfind(_EOCD_SIGNATURE, 0, search_end)
-            if candidate < 0:
-                break
-            if candidate + _EOCD.size <= len(tail):
-                unpacked = _EOCD.unpack_from(tail, candidate)
-                comment_length = unpacked[7]
-                if candidate + _EOCD.size + comment_length == len(tail):
-                    eocd_offset = file_size - tail_size + candidate
-                    eocd = unpacked
-                    break
-            search_end = candidate
-
-        if eocd is None:
+        candidate = _end_record_index(tail)
+        if candidate < 0:
             raise zipfile.BadZipFile("End of central directory not found")
+        eocd_offset = file_size - tail_size + candidate
 
         (
             _signature,
@@ -640,7 +645,7 @@ def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
             directory_size,
             directory_offset,
             _comment_length,
-        ) = eocd
+        ) = _EOCD.unpack_from(tail, candidate)
 
         uses_zip64 = (
             entries_on_disk == 0xFFFF

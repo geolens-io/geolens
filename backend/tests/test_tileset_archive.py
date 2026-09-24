@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import io
 import json
 import math
@@ -701,3 +702,42 @@ async def test_a_stored_archive_that_fails_a_check_is_refused(
 
     with pytest.raises(UnsafeUploadError, match="below the archive root"):
         await inspect_stored_tileset(storage, "staging/job/frozen/t.zip")
+
+
+@functools.cache
+def _zip64_tileset(extensible: int) -> bytes:
+    """A tileset with more entries than a classic end record counts.
+
+    ``extensible`` bytes of ZIP64 extensible data move the ZIP64 end record
+    that much further from the end of the file.
+    """
+    data = zip_bytes(
+        [("tileset.json", tileset_json()), *((f"t/{i}", b"") for i in range(0x10000))],
+        compression=zipfile.ZIP_STORED,
+    )
+    record = data.rindex(b"PK\x06\x06")
+    (length,) = struct.unpack_from("<Q", data, record + 4)
+    return (
+        data[: record + 4]
+        + struct.pack("<Q", length + extensible)
+        + data[record + 12 : record + 56]
+        + bytes(extensible)
+        + data[record + 56 :]
+    )
+
+
+@pytest.mark.parametrize("extensible", [0, 70_000], ids=["zip64", "extensible-data"])
+async def test_a_zip64_end_record_is_found_through_its_locator(
+    tmp_path: Path, storage, extensible: int
+) -> None:
+    """A ZIP64 archive is read wherever its locator puts the end record."""
+    data = _zip64_tileset(extensible)
+    path = tmp_path / "t.zip"
+    path.write_bytes(data)
+    await storage.put("staging/job/frozen/t.zip", io.BytesIO(data))
+
+    stored = await inspect_stored_tileset(storage, "staging/job/frozen/t.zip")
+    local = inspect_tileset(str(path))
+
+    assert stored.layout.entry_count == local.layout.entry_count == 0x10001
+    assert stored.facts == local.facts
