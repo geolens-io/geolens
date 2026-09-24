@@ -467,32 +467,97 @@ class TestClipAccounting(_FixtureTable):
             "details": {"dropped_features": 0, "clipped_features": 1},
         }
 
-    async def test_a_measured_polygon_clips_without_forcing_a_z(self, test_db_session):
-        """A PolygonM straddling ±85.06° clips and keeps its M, not a forced Z.
+    async def test_a_measured_line_crossing_the_envelope_is_refused(
+        self, test_db_session
+    ):
+        """A LineStringM crossing ±85.06° is refused, not silently clipped.
 
-        ``ST_Force3D`` on an XYM geometry drops the M and fabricates a Z=0,
-        and writing that back into an M-typed column then fails with
-        "Geometry has Z dimension but column does not".
+        Clipping would ask GEOS to interpolate a measure at the new boundary
+        vertex, which it cannot do; forcing the dimension back afterward
+        would fabricate 0 there instead of a real value.
         """
         await _seed_wkt(
             test_db_session,
-            ["POLYGON M ((0 80 1, 10 80 1, 10 89 1, 0 89 1, 0 80 1))"],
-            "PolygonM",
+            ["LINESTRING M (0 80 1, 0 89 2)"],
+            "LineStringM",
+        )
+
+        with pytest.raises(ValueError, match=r"measured \(M\) layer"):
+            await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT ST_Zmflag(geom), ST_M(ST_StartPoint(geom)), "
+                    f"ST_M(ST_EndPoint(geom)), ST_NPoints(geom) FROM data.{TABLE}"
+                )
+            )
+        ).first()
+        assert row is not None
+        assert int(row[0]) == 1  # still plain M; no dimension was forced
+        assert (float(row[1]), float(row[2])) == (1.0, 2.0)
+        assert int(row[3]) == 2  # no boundary vertex was added
+
+    async def test_a_measured_line_inside_the_envelope_keeps_its_measures(
+        self, test_db_session
+    ):
+        """A LineStringM entirely inside ±85.06° is untouched."""
+        await _seed_wkt(
+            test_db_session,
+            ["LINESTRING M (0 10 1, 0 20 2)"],
+            "LineStringM",
         )
 
         counts = await clip_to_mercator_bounds(test_db_session, TABLE)
 
         assert counts is not None
         assert counts["dropped_features"] == 0
-        assert counts["clipped_features"] == 1
+        assert counts["clipped_features"] == 0
         row = (
             await test_db_session.execute(
-                text(f"SELECT ST_YMax(geom), ST_Zmflag(geom) FROM data.{TABLE}")
+                text(
+                    f"SELECT ST_M(ST_StartPoint(geom)), ST_M(ST_EndPoint(geom)) "
+                    f"FROM data.{TABLE}"
+                )
             )
         ).first()
         assert row is not None
-        assert float(row[0]) == pytest.approx(85.06)
-        assert int(row[1]) == 1  # still M-only; ST_Force3D was not applied
+        assert (float(row[0]), float(row[1])) == (1.0, 2.0)
+
+    async def test_a_measured_line_entirely_outside_the_envelope_is_dropped(
+        self, test_db_session
+    ):
+        """A LineStringM entirely past the clamp drops; it has no measure to lose."""
+        await _seed_wkt(
+            test_db_session,
+            ["LINESTRING M (0 87 1, 0 89 2)"],
+            "LineStringM",
+        )
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts == {
+            "shifted_longitudes": False,
+            "dropped_features": 1,
+            "clipped_features": 0,
+        }
+        is_empty = await test_db_session.scalar(
+            text(f"SELECT ST_IsEmpty(geom) FROM data.{TABLE}")
+        )
+        assert is_empty is True
+
+    async def test_a_measured_zm_line_crossing_the_envelope_is_also_refused(
+        self, test_db_session
+    ):
+        """The XYZM variant of the crossing case is refused the same way."""
+        await _seed_wkt(
+            test_db_session,
+            ["LINESTRING ZM (0 80 100 1, 0 89 200 2)"],
+            "LineStringZM",
+        )
+
+        with pytest.raises(ValueError, match=r"measured \(M\) layer"):
+            await clip_to_mercator_bounds(test_db_session, TABLE)
 
     async def test_in_bounds_dataset_reports_no_loss(self, test_db_session):
         """The overwhelmingly common case stays a silent no-op."""

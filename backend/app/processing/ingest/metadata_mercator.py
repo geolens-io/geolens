@@ -223,14 +223,20 @@ async def clip_to_mercator_bounds(
     Two CRS quirks the SQL handles: (1) the envelope is SRID 4326 and gets
     transformed to match the column's SRID, else PostGIS raises `coveredby:
     Operation on mixed SRID geometries`; (2) the envelope is always 2D, so a
-    Z or M column (e.g. `MultiPointZ`, `MultiPointM`) needs that dimension
-    forced back after `ST_Intersection` or the UPDATE fails with `Column
-    has Z/M dimension but geometry does not` (clipped vertices land at 0 in
-    the forced dimension).
+    Z or M column needs that dimension forced back after `ST_Intersection`
+    or the UPDATE fails with `Column has Z/M dimension but geometry does
+    not`. For Z this lands the clipped vertices at 0; GEOS cannot
+    interpolate a measure the same way, so a measured feature that actually
+    crosses the envelope raises instead of silently zeroing its M values. A
+    feature entirely outside the envelope still drops, since it has no
+    measure left to lose.
 
     fix(#888): returns the clip accounting (``dropped_features``,
     ``clipped_features``) so the caller can surface loss at the point it
-    happens. Returns None when the table has no registered ``geom`` metadata.
+    happens. Returns None when the table has no registered ``geom``
+    metadata. Raises ``ValueError`` when a measured feature crosses the
+    envelope; the ingest task's failure handling turns this into a job
+    failure naming the count.
     """
     _validate_table_name(table_name)
     _validate_table_name(schema)
@@ -288,6 +294,25 @@ async def clip_to_mercator_bounds(
                 "clipped_features": 0,
                 "clip_skipped": True,
             }
+
+    if typmod.endswith("M"):  # PointM and PointZM both end in M
+        # See the docstring: a measured feature that crosses the envelope
+        # cannot be clipped without losing its M values.
+        crossing = await session.scalar(
+            text(
+                f"SELECT count(*) FROM {_qtable(table_name, schema=schema)} "
+                f"WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) "
+                f"  AND ST_Intersects(geom, {envelope}) "
+                f"  AND NOT ST_CoveredBy(geom, {envelope})"
+            )
+        )
+        if crossing:
+            noun = "feature" if crossing == 1 else "features"
+            raise ValueError(
+                f"{crossing} {noun} in this measured (M) layer extend past Web "
+                "Mercator's latitude limit, and clipping them would lose their "
+                "measure values. Trim or remove them, then import again."
+            )
 
     clipped = f"ST_CollectionExtract(ST_Intersection(geom, {envelope}), ST_Dimension(geom) + 1)"
     if force_dims is not None:
