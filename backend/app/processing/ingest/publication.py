@@ -20,7 +20,11 @@ from app.platform.catalog_locks import (
     WORKER_LOCK_TIMEOUT,
     CatalogLockConflict,
     lock_catalog_rows,
+    worker_lock_budget,
 )
+from app.platform.jobs.heartbeat import StaleIngestAttempt
+from app.platform.jobs.ledger import hold
+from app.platform.jobs.models import IngestJob
 from app.platform.refresh import verification as refresh_policy
 from app.platform.refresh.service import (
     drift_status_from_diff,
@@ -364,6 +368,24 @@ async def commit_publication(
     return PublicationCommit.ACKNOWLEDGED
 
 
+async def hold_publishing_job(
+    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID
+) -> IngestJob:
+    """Lock this attempt's running job row, the first row a publication takes.
+
+    Waits at most ``WORKER_LOCK_TIMEOUT``, and raises ``CatalogLockConflict``
+    after a rollback when the wait fails. Raises ``StaleIngestAttempt``,
+    having written nothing, when the attempt no longer owns a running job.
+    """
+    async with worker_lock_budget(session):
+        job = await hold(session, job_id, expect="running", attempt_id=attempt_id)
+    if job is None:
+        raise StaleIngestAttempt(
+            f"Ingest attempt {attempt_id} no longer owns job {job_id}"
+        )
+    return job
+
+
 async def _invalidate_after_commit(
     job_id: uuid.UUID, live_table_name: str | None = None
 ) -> None:
@@ -383,12 +405,7 @@ async def settle_publication(
     try:
         from app.platform.jobs.heartbeat import require_ingest_job_update
 
-        await require_ingest_job_update(
-            command.session,
-            command.job_id,
-            command.attempt_id,
-            values={"heartbeat_at": datetime.now(timezone.utc)},
-        )
+        await hold_publishing_job(command.session, command.job_id, command.attempt_id)
         verification = _verification(command)
         if verification is not None and verification["decision"] != "allowed":
             outcome = await _settle_nonpublication(command, verification)

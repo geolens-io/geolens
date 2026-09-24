@@ -9,6 +9,8 @@ them, and both the catalog and the ingest router reach the VRT admission here.
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any
 
@@ -86,8 +88,11 @@ class CatalogLockConflict(Exception):
     """Another transaction holds the catalog rows this one needs.
 
     One handler (``app/api/main.py``) answers 409 for it, wherever the
-    acquisition was reached from. A worker lets it propagate and fails its job.
+    acquisition was reached from. A worker lets it propagate and fails its job
+    with ``error_code``.
     """
+
+    error_code = CATALOG_LOCK_CONFLICT_CODE
 
 
 async def lock_catalog_rows(
@@ -168,6 +173,36 @@ async def lock_ingest_jobs(
         if not is_lock_conflict(exc):
             raise
         await _raise_rolled_back_conflict(session, exc)
+
+
+@asynccontextmanager
+async def worker_lock_budget(session: AsyncSession) -> AsyncIterator[None]:
+    """Wait at most ``WORKER_LOCK_TIMEOUT`` for each row lock taken in the block.
+
+    The transaction's previous budget is restored when the block ends, so a
+    later wait keeps it. A wait in the block that fails rolls back and raises
+    ``CatalogLockConflict``.
+    """
+    # A flush here would run a pending write ahead of the budget and of the
+    # caller's lock order.
+    with session.no_autoflush:
+        previous = await session.scalar(text("SELECT current_setting('lock_timeout')"))
+        await _set_lock_timeout(session, WORKER_LOCK_TIMEOUT)
+    try:
+        yield
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        await _raise_rolled_back_conflict(session, exc)
+    with session.no_autoflush:
+        await _set_lock_timeout(session, previous)
+
+
+async def _set_lock_timeout(session: AsyncSession, value: str) -> None:
+    # `set_config(..., true)` is `SET LOCAL` taking a bind parameter.
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :value, true)"), {"value": value}
+    )
 
 
 async def _install_lock_timeout(

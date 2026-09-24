@@ -40,6 +40,11 @@ from app.core.service_tokens import (
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.catalog_locks import (
+    bump_tile_cache_version_on,
+    lock_catalog_rows,
+    worker_lock_budget,
+)
 from app.platform.dataset_origin import set_dataset_origin
 from app.platform.jobs.heartbeat import (
     claim_job_attempt_and_start_heartbeat,
@@ -58,7 +63,10 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
-from app.processing.ingest.publication import commit_publication
+from app.processing.ingest.publication import (
+    commit_publication,
+    hold_publishing_job,
+)
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
@@ -581,39 +589,39 @@ async def refresh_stac(
 
         # Phase 3: WRITE what phase 2 resolved.
         async with async_session() as session:
-            # Lock the row, THEN compare the binding — same order as the
+            # Lock the rows, THEN compare the binding — same order as the
             # registered-table strategy's content token. The binding is
             # this task's subject, so the guard is an equality check on it,
             # not a version counter: a re-upload or raster replace that
             # committed while the publisher was being asked has already
             # written where this dataset points, and applying an answer
-            # about the OLD origin would undo that. `FOR UPDATE` makes
-            # compare-and-write one indivisible step; a single-column select
-            # keeps the statement off any joined relationship (PostgreSQL
-            # won't lock through an outer join).
-            # fix(#1847): job row, then raster child, then datasets row —
-            # the order the replace worker and dataset delete hold.
+            # about the OLD origin would undo that. The lock makes
+            # compare-and-write one indivisible step. The job row comes
+            # first, then the raster child, then the pair: the order the
+            # replace worker and dataset delete hold.
             from app.processing.raster.models import RasterAsset
 
-            await session.execute(
-                select(IngestJob.id)
-                .where(IngestJob.id == job_uuid)
-                .with_for_update(key_share=True)
+            await hold_publishing_job(session, job_uuid, attempt_uuid)
+            record_id = await session.scalar(
+                select(Dataset.record_id).where(Dataset.id == dataset_uuid)
             )
-            await session.execute(
-                select(RasterAsset.dataset_id)
-                .where(RasterAsset.dataset_id == dataset_uuid)
-                .with_for_update()
-            )
+            async with worker_lock_budget(session):
+                await lock_catalog_rows(
+                    session,
+                    dataset_cls=Dataset,
+                    record_cls=port.get_record_orm_class(),
+                    dataset_id=dataset_uuid,
+                    record_id=record_id,
+                    lock_timeout=None,
+                    raster_asset_cls=RasterAsset,
+                )
             locked = (
                 await session.execute(
                     select(
                         Dataset.origin_uri,
                         Dataset.origin_ref,
                         Dataset.source_format,
-                    )
-                    .where(Dataset.id == dataset_uuid)
-                    .with_for_update()
+                    ).where(Dataset.id == dataset_uuid)
                 )
             ).one_or_none()
             if locked is None:
@@ -700,7 +708,7 @@ async def refresh_stac(
                 # `regenerate_vrt` bump the same counter for the same effect.
                 # A request still on the OLD version keeps the pre-refresh
                 # href until that cache entry expires (60s).
-                dataset.bump_tile_cache_version()
+                await bump_tile_cache_version_on(session, dataset)
 
             # feat(#1692): unconditional on purpose — not gated on `moved` or
             # `rebound`. For an unchanged answer it rewrites the row with the

@@ -310,16 +310,11 @@ async def test_phase_session_require_status_refuses_a_terminal_row(test_db_sessi
 
 
 def test_every_phase2_site_requires_running() -> None:
-    """fix(#1778 audit r11): the mechanism above is only as good as its
-    callers. Enumerated across the four sites that go through
-    ``_job_phase_session`` and the two in ``tasks_vrt.py`` that predate the
-    helper and match the fence by hand, so a future phase-2 site cannot be
-    added without answering this too.
-    """
+    """Every phase-2 site fences on ``running``: its bracket, the publication hold or by hand."""
     # (relative path, needle, minimum occurrences)
     expectations = [
         ("processing/ingest/tasks_raster.py", 'require_status="running"', 1),
-        ("processing/ingest/tasks_raster_replace.py", 'require_status="running"', 1),
+        ("processing/ingest/tasks_raster_replace.py", "hold_publishing_job(", 1),
         ("processing/ingest/tasks_vector.py", 'require_status="running"', 2),
         ("processing/ingest/tasks_vrt.py", 'IngestJob.status == "running"', 2),
     ]

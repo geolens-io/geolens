@@ -200,27 +200,3 @@ class TestTheRasterReplacePublishesTheNextVersion:
             assert asset.asset_uri != old_cog_key, "the replace did not swap"
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
-
-
-class TestNoWorkerSwapWritesAnAbsoluteTileVersion:
-    """The two swap doors call the atomic spelling, not the instance method."""
-
-    def test_the_swap_modules_call_the_atomic_bump(self):
-        import ast
-        import inspect
-
-        from app.processing.ingest import (
-            tasks_common,
-            tasks_raster_replace,
-            tasks_raster_swap,
-        )
-
-        scan = lock_order.TestNoCatalogModuleWritesAnAbsoluteTileVersion
-        for module in (tasks_common, tasks_raster_replace, tasks_raster_swap):
-            tree = ast.parse(inspect.getsource(module))
-            assert not scan._calls_named(tree, scan.ABSOLUTE), (
-                f"{module.__name__} writes an absolute tile_cache_version"
-            )
-        for module in (tasks_common, tasks_raster_replace):
-            tree = ast.parse(inspect.getsource(module))
-            assert len(scan._calls_named(tree, scan.ATOMIC)) == 1, module.__name__

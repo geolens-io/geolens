@@ -228,8 +228,9 @@ async def delete_dataset(
         # These prefixes are returned, not reaped: the caller commits first and
         # then reaps best-effort, so a reap failure leaves orphaned objects
         # rather than a catalog row pointing at deleted bytes.
-        # Includes the raster child, which the record delete
-        # cascades to and the replace worker holds across its upload.
+        # Includes the raster child, which the record delete cascades to. A
+        # replace holds its job row across its upload, so the job rows taken
+        # above keep this delete behind it.
         await lock_catalog_rows_for_write(session, dataset, with_raster_asset=True)
 
         storage_prefixes = tuple(prefixes)

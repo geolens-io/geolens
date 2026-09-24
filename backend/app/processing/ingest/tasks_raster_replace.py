@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.core.failure_reason import redact_failure_reason
 from app.core.db.tenant_session import tenant_task
@@ -44,6 +44,7 @@ from app.platform.catalog_locks import (
 )
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
+    StaleIngestAttempt,
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
@@ -77,7 +78,11 @@ from app.processing.ingest.tasks_staging import (
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
 )
-from app.processing.ingest.publication import PublicationCommit, commit_publication
+from app.processing.ingest.publication import (
+    PublicationCommit,
+    commit_publication,
+    hold_publishing_job,
+)
 from app.processing.ingest.tasks_raster_common import (
     _cleanup_orphaned_storage_keys,
     _enforce_strict_cog,
@@ -99,11 +104,6 @@ from app.processing.ingest.tasks_raster_swap import (
 
 logger = structlog.get_logger(__name__)
 
-# fix(#1937): bounds the job-row SELECT `_job_phase_session` runs before the
-# caller gets control, then the catalog wait alone. Sized against holders of
-# the catalog rows, which are short writers, not against object-storage work.
-_PHASE2_TIMEOUT_MS = 30_000
-
 
 @contextmanager
 def _reporting_catalog_wait(*, job_id: str, dataset_id: str):
@@ -112,6 +112,8 @@ def _reporting_catalog_wait(*, job_id: str, dataset_id: str):
     ``dataset_id`` must be a value read BEFORE the wait: the acquisition rolls
     back before it raises, and that expires every loaded instance.
     """
+    from app.platform.catalog_locks import WORKER_LOCK_TIMEOUT
+
     wait_started = time.perf_counter()
     try:
         yield
@@ -124,7 +126,7 @@ def _reporting_catalog_wait(*, job_id: str, dataset_id: str):
             job_id=job_id,
             dataset_id=dataset_id,
             waited_ms=round((time.perf_counter() - wait_started) * 1000),
-            budget=_PHASE2_TIMEOUT_MS,
+            budget=WORKER_LOCK_TIMEOUT,
             sqlstate=code,
             hint=hint,
         )
@@ -559,25 +561,20 @@ async def reupload_raster(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): write the new objects, then swap the
         # pointer and all its dependent rows in ONE transaction.
-        #
-        # fix(#1778): require_status="running", same reason as the
-        # sibling in tasks_raster.py -- an (job, attempt)-only fence still
-        # matches a row the stale sweep already failed without a retry
-        # rotating the attempt, and this phase puts objects to storage.
         # ----------------------------------------------------------------- #
         async with _job_phase_session(
-            job_uuid,
-            phase="phase2",
-            attempt_id=attempt_uuid,
-            require_status="running",
-            lock_and_statement_timeout_ms=_PHASE2_TIMEOUT_MS,
+            job_uuid, phase="phase2", attempt_id=attempt_uuid
         ) as (session, job):
-            if job is None:
+            # A row the stale sweep failed keeps its attempt until a retry
+            # rotates it, so the hold fences on `running` too: this phase puts
+            # objects to storage.
+            try:
+                job = await hold_publishing_job(session, job_uuid, attempt_uuid)
+            except StaleIngestAttempt:
+                logger.warning(
+                    "Raster replace no longer owns its job, skipping", job_id=job_id
+                )
                 return
-            # fix(#1937): the kwarg has bounded the SELECT above, which is the
-            # whole of its job. Clearing it leaves the catalog wait below to
-            # lock_timeout, so expiry is 55P03 and maps to CatalogLockConflict.
-            await session.execute(text("SET LOCAL statement_timeout = 0"))
             job.current_step = "finalize"
             job.progress = 0.8
 
@@ -590,9 +587,7 @@ async def reupload_raster(
             ).scalar_one()
             raster_asset = (
                 await session.execute(
-                    select(RasterAsset)
-                    .where(RasterAsset.dataset_id == dataset_uuid)
-                    .with_for_update()
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_uuid)
                 )
             ).scalar_one()
 
@@ -695,29 +690,28 @@ async def reupload_raster(
             # for why the ordering is load-bearing. Raises
             # StorageQuotaExceededError, which the task's broad handler records
             # as a failed run, leaving the previous raster serving.
-            # fix(#1847): below `archive_lossy_original`, which PUTs the whole
-            # original raster; holding the pair across that upload is the #1848
-            # class. Still ahead of the first write, the autoflush below.
+            # Taken after `archive_lossy_original`'s upload, before the first
+            # write. The budget ends with the wait: the reservation below waits
+            # on a quota lock a sibling first ingest holds across its upload.
             from app.platform.catalog_locks import (
                 bump_tile_cache_version_on,
                 lock_catalog_rows,
+                worker_lock_budget,
             )
 
             # fix(#1937): the id is read before the wait — the rollback inside
             # a failed acquisition expires every loaded instance.
             with _reporting_catalog_wait(job_id=job_id, dataset_id=str(dataset.id)):
-                await lock_catalog_rows(
-                    session,
-                    dataset_cls=Dataset,
-                    record_cls=type(dataset.record),
-                    dataset_id=dataset.id,
-                    record_id=dataset.record_id,
-                    lock_timeout=None,
-                )
-            # fix(#1937): the reservation below waits on a per-user advisory
-            # lock a sibling first ingest holds across a whole COG upload, and
-            # both GUCs clamp an advisory wait. It must be unbounded.
-            await session.execute(text("SET LOCAL lock_timeout = 0"))
+                async with worker_lock_budget(session):
+                    await lock_catalog_rows(
+                        session,
+                        dataset_cls=Dataset,
+                        record_cls=type(dataset.record),
+                        dataset_id=dataset.id,
+                        record_id=dataset.record_id,
+                        lock_timeout=None,
+                        raster_asset_cls=RasterAsset,
+                    )
             # fix(#1911): evaluated at write time, under the lock, so the counter
             # read into `dataset` before the wait is never written back over a
             # peer's commit.
