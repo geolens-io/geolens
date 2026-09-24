@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCategoricalExpression, buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { buildNullableSafeNumericAccessor } from '@/lib/maplibre-filter-utils';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
 import { describeLayers } from '@/components/builder/layer-description';
 import { toSyncInput } from '@/components/builder/map-sync';
@@ -366,6 +367,16 @@ const sizedByMagnitude = (circleColor: unknown) => savedLayer({
 });
 /** A line gradient along each line, which MapLibre draws instead of its line colour. */
 const LINE_GRADIENT = ['interpolate', ['linear'], ['line-progress'], 0, '#0000ff', 1, '#ff0000'];
+/** Points the style builder classes by a `code` column of the given type, under a saved filter. */
+const codedPoints = (arms: [number, string][], filter: unknown, type = 'integer') => savedLayer({
+  dataset_geometry_type: 'MULTIPOINT',
+  dataset_column_info: [{ name: 'code', type }],
+  paint: { 'circle-color': buildCategoricalExpression('code', arms, '#cccccc') },
+  style_config: { mode: 'categorical', column: 'code', categories: arms.map(([value, color]) => ({ value, color })) },
+  filter: filter as MapLayerResponse['filter'],
+});
+/** The filter editor's equality on a numeric `code` column. */
+const codeEquals = (value: number) => ['all', ['==', buildNullableSafeNumericAccessor('code', '==', value), value]];
 /** The graduated-colour fixture with its fill-color replaced. */
 const graduatedPop = (fillColor: unknown) => ({ ...SAVED_LAYERS.graduatedColor, paint: { 'fill-color': fillColor } });
 
@@ -741,6 +752,52 @@ const classRows: ClassRow[] = [
       dataset_geometry_type: 'GEOMETRY',
       paint: { 'fill-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'], 'circle-color': '#111111', 'line-color': '#222222' },
       style_config: { mode: 'graduated', column: 'pop', colors: ['#fee8c8', '#e34a33'], breaks: [1000] },
+    }),
+    null,
+  ],
+  [
+    "a match fallback that the filter editor's numeric equality keeps every value from",
+    codedPoints([[1, '#f472b6'], [2, '#60a5fa']], codeEquals(1)),
+    [categories('code', [{ color: '#f472b6', label: '1' }, { color: '#60a5fa', label: '2' }])],
+  ],
+  [
+    'a numeric equality with 0, which lets nulls reach the fallback',
+    codedPoints([[0, '#f472b6'], [1, '#60a5fa']], codeEquals(0)),
+    [categories('code', [{ color: '#f472b6', label: '0' }, { color: '#60a5fa', label: '1' }, other('#cccccc')])],
+  ],
+  [
+    'a number accessor on a column the layer types as text, which reaches the fallback',
+    codedPoints([[1, '#f472b6'], [2, '#60a5fa']], codeEquals(1), 'text'),
+    [categories('code', [{ color: '#f472b6', label: '1' }, { color: '#60a5fa', label: '2' }, other('#cccccc')])],
+  ],
+  [
+    'a fill pattern that draws over a classed fill colour',
+    { ...SAVED_LAYERS.graduatedColor, paint: { ...SAVED_LAYERS.graduatedColor.paint, 'fill-pattern': 'geolens-fill-hatch' } },
+    null,
+  ],
+  [
+    'a fill pattern of null, which leaves the classed fill colour drawing',
+    { ...SAVED_LAYERS.graduatedColor, paint: { ...SAVED_LAYERS.graduatedColor.paint, 'fill-pattern': null } },
+    [graduated('color', 'pop', colored(['#fee8c8', '#fdbb84', '#e34a33']), [1000, 5000])],
+  ],
+  [
+    'a line pattern that draws over a classed line colour',
+    savedLayer({
+      dataset_geometry_type: 'MULTILINESTRING',
+      paint: { 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'], 'line-pattern': 'rail-ties' },
+    }),
+    null,
+  ],
+  [
+    'a mixed layer whose fills draw a pattern over the shared step',
+    savedLayer({
+      dataset_geometry_type: 'GEOMETRY',
+      paint: {
+        'fill-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'line-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'circle-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'fill-pattern': 'geolens-fill-hatch',
+      },
     }),
     null,
   ],
