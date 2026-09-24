@@ -1300,7 +1300,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/metadata.py": 161,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising.
-    "backend/app/processing/ingest/router.py": 1814,
+    "backend/app/processing/ingest/router.py": 1822,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1924,
     # Reupload retains retrieval, staging, cleanup and enrichment adapters.

@@ -127,7 +127,11 @@ from app.core.persistent_config import (
     UPLOAD_MAX_SIZE_MB,
     get_allowed_extensions_list,
 )
-from app.modules.quota.service import check_upload_quota, get_user_quota_usage
+from app.modules.quota.service import (
+    DatasetQuotaExceededError,
+    check_upload_quota,
+    get_user_quota_usage,
+)
 from app.processing.raster.validation import validate_sources
 from app.platform.service_auth import (
     credential_or_422,
@@ -1329,6 +1333,10 @@ async def register_table(
             detail=str(exc),
         )
     except HTTPException:
+        raise
+    except DatasetQuotaExceededError:
+        # The app's handler answers it with 422; the broad except would make it a 500.
+        await db.rollback()
         raise
     except Exception:  # broad: metadata extraction involves PostGIS queries that can fail unpredictably
         await db.rollback()

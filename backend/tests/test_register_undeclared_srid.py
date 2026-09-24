@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -122,6 +123,57 @@ async def test_a_refused_bulk_item_reports_the_refusal(
         assert item["status"] == "error"
         assert item["error"] == (
             f"Table '{table}' cannot be registered. {UNDECLARED_SRID_REASON}"
+        )
+    finally:
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+        await test_db_session.commit()
+
+
+async def test_a_registration_over_the_dataset_quota_answers_422(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """A registration over the dataset quota answers the app's 422 and keeps the table as it was."""
+    table = f"srid_quota_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, geom geometry(Point, 4326))"
+        )
+    )
+    await test_db_session.commit()
+    before = await _columns(test_db_session, table)
+    try:
+        with (
+            patch(
+                "app.modules.quota.service.MAX_DATASETS_PER_USER.get",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch(
+                "app.modules.quota.service.get_user_quota_usage",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(dataset_count=1),
+            ),
+            patch(
+                "app.processing.ingest.service.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
+        ):
+            response = await client.post(
+                "/ingest/register/",
+                json={"table_name": table, "title": "Quota", "visibility": "private"},
+                headers=admin_auth_header,
+            )
+
+        assert response.status_code == 422, response.text
+        assert (
+            response.json()["detail"] == "Dataset quota exceeded: 1 of 1 datasets used"
+        )
+        assert await _columns(test_db_session, table) == before
+        assert (
+            await test_db_session.scalar(
+                select(Dataset.id).where(Dataset.table_name == table)
+            )
+            is None
         )
     finally:
         await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
