@@ -1227,25 +1227,31 @@ class TestReapScalesAndStaysRetryable:
         done_id, partial_id = done.id, partial.id
         await test_db_session.commit()
 
-        await _clear_settled_artifact_records(
-            storage_keys={"rasters/a/x.tif", "rasters/a/y.png"}
-        )
+        try:
+            await _clear_settled_artifact_records(
+                storage_keys={"rasters/a/x.tif", "rasters/a/y.png"}
+            )
 
-        test_db_session.expire_all()
-        rows = {
-            row.id: row.user_metadata
-            for row in (
-                await test_db_session.execute(
-                    select(IngestJob).where(IngestJob.id.in_([done_id, partial_id]))
-                )
-            ).scalars()
-        }
-        assert rows[done_id] == {"keep_me": True}, (
-            "a fully settled row loses the record and keeps everything else"
-        )
-        assert "unpublished_storage_keys" in rows[partial_id], (
-            "a row with an unsettled key keeps its whole record for the retry"
-        )
+            test_db_session.expire_all()
+            rows = {
+                row.id: row.user_metadata
+                for row in (
+                    await test_db_session.execute(
+                        select(IngestJob).where(IngestJob.id.in_([done_id, partial_id]))
+                    )
+                ).scalars()
+            }
+            assert rows[done_id] == {"keep_me": True}, (
+                "a fully settled row loses the record and keeps everything else"
+            )
+            assert "unpublished_storage_keys" in rows[partial_id], (
+                "a row with an unsettled key keeps its whole record for the retry"
+            )
+        finally:
+            # partial's row is left naming rasters/b/z.tif on purpose (that's
+            # what's under test); a later fail_stale_jobs pass in this process
+            # would otherwise pick it up as a real unreaped artifact.
+            await _clear_settled_artifact_records(storage_keys={"rasters/b/z.tif"})
 
 
 class TestTheRecordAccumulatesAcrossAttempts:
@@ -1295,7 +1301,10 @@ class TestTheRecordAccumulatesAcrossAttempts:
         self, test_db_session
     ) -> None:
         from app.platform.jobs.models import IngestJob
-        from app.platform.jobs.sweep import unpublished_storage_keys_from_metadata
+        from app.platform.jobs.sweep import (
+            _clear_settled_artifact_records,
+            unpublished_storage_keys_from_metadata,
+        )
 
         attempt_one, attempt_two = uuid.uuid4(), uuid.uuid4()
         job = IngestJob(status="failed", file_path="", attempt_id=attempt_one)
@@ -1305,20 +1314,26 @@ class TestTheRecordAccumulatesAcrossAttempts:
         await test_db_session.commit()
 
         first = ["rasters/a/attempts/one/h/source.cog.tif"]
-        await self._record(job_id, attempt_one, first)
-
-        # The retry keeps user_metadata and takes a new attempt token.
-        row = await self._reload(test_db_session, job_id)
-        row.attempt_id = attempt_two
-        await test_db_session.commit()
-
         second = ["rasters/a/attempts/two/h/source.cog.tif"]
-        await self._record(job_id, attempt_two, second)
+        try:
+            await self._record(job_id, attempt_one, first)
 
-        row = await self._reload(test_db_session, job_id)
-        assert unpublished_storage_keys_from_metadata(row.user_metadata) == tuple(
-            first + second
-        ), "attempt 1's objects lost their last durable pointer"
+            # The retry keeps user_metadata and takes a new attempt token.
+            row = await self._reload(test_db_session, job_id)
+            row.attempt_id = attempt_two
+            await test_db_session.commit()
+
+            await self._record(job_id, attempt_two, second)
+
+            row = await self._reload(test_db_session, job_id)
+            assert unpublished_storage_keys_from_metadata(row.user_metadata) == tuple(
+                first + second
+            ), "attempt 1's objects lost their last durable pointer"
+        finally:
+            # The row is left naming both keys on purpose (that's what's under
+            # test), which any later fail_stale_jobs pass in this process would
+            # otherwise pick up as a real unreaped artifact.
+            await _clear_settled_artifact_records(storage_keys={*first, *second})
 
     @pytest.mark.anyio
     async def test_clearing_removes_only_the_settled_keys(
