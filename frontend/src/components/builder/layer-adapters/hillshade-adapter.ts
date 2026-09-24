@@ -1,5 +1,5 @@
 import type { AdapterLayerInput, LayerAdapter, LayerDrawing, LayerSpec } from './types';
-import { normalizeRasterBounds } from './shared';
+import { normalizeRasterBounds, paintValueChanged } from './shared';
 import { DEFAULT_HILLSHADE_PAINT } from './builder-defaults';
 import { COLOR_RELIEF_SUFFIX } from '../companion-ids';
 import { buildElevationExpression } from '../color-relief-sync';
@@ -190,11 +190,17 @@ export const hillshadeAdapter: LayerAdapter = {
 
   syncPaint(map, input) {
     if (!map.getLayer(input.layerId)) return;
-    // setPaintProperty does not reliably rebuild the relief's colour-ramp texture,
-    // so the relief is removed here and the write adds it back below the hillshade.
+    const drawing = describeHillshade(input);
+    // setPaintProperty does not reliably rebuild the relief's colour-ramp texture, so a
+    // new ramp removes the relief here and the write adds it back below the hillshade.
+    // Each rebuild reloads the DEM source, so an unchanged relief stays in place.
     const reliefId = `${input.layerId}${COLOR_RELIEF_SUFFIX}`;
-    if (map.getLayer(reliefId)) map.removeLayer(reliefId);
-    writeDescribedLayer(map, describeHillshade(input));
+    const relief = drawing.specs.find(({ layer }) => layer.id === reliefId)?.layer;
+    if (map.getLayer(reliefId)
+      && (!relief || paintValueChanged(map.getPaintProperty(reliefId, 'color-relief-color'), relief.paint['color-relief-color']))) {
+      map.removeLayer(reliefId);
+    }
+    writeDescribedLayer(map, drawing);
   },
 
   syncVisibility(map, input) {

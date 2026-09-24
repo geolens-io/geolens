@@ -291,6 +291,17 @@ describe("the raster adapters' own methods", () => {
     expect(recording.layerIds().map((id) => recording.layer(id))).toEqual(held(blues.described.specs));
   });
 
+  it('hillshade syncPaint leaves a colour relief whose ramp is unchanged in place', () => {
+    const { recording, adapter, adapterInput } = setUp({ ...dem, paint: HYPSO });
+    adapter.addLayers(recording.map, adapterInput);
+    recording.calls.length = 0;
+
+    adapter.syncPaint(recording.map, { ...adapterInput, opacity: 0.5 });
+
+    expect(recording.callsTo('removeLayer')).toEqual([]);
+    expect(recording.callsTo('addLayer')).toEqual([]);
+  });
+
   it('hillshade syncPaint adds a colour relief the layer turns on below the hillshade, and removes it once turned off', () => {
     const { recording, adapter, adapterInput } = setUp(dem);
     adapter.addLayers(recording.map, adapterInput);
@@ -340,6 +351,20 @@ describe('raster layers through syncLayersToMap', () => {
     expect(zoomOf(recording, 'layer-layer-relief-colorrelief')).toEqual([6, 14]);
     expect(recording.layer('layer-layer-relief-colorrelief')?.paint['color-relief-color'])
       .toEqual(buildElevationExpression('Blues'));
+  });
+
+  it('leaves the colour relief in place on a repeat pass', () => {
+    const recording = new RecordingMap();
+    const managed = { current: new Set<string>() };
+    const order = { current: '' };
+    const pass = () => syncLayersToMap(recording.map, [toSyncInput(zoomedRelief)], new Map(FIXTURE_TOKENS), undefined, managed, order);
+    pass();
+    recording.calls.length = 0;
+
+    pass();
+
+    expect(recording.callsTo('removeLayer')).toEqual([]);
+    expect(recording.callsTo('addLayer')).toEqual([]);
   });
 
   it('draws nothing for a terrain-mode DEM', () => {
