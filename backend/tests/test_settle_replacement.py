@@ -598,3 +598,9 @@ async def test_a_lost_catalog_wait_ends_the_job_without_waiting_on_the_held_row(
     assert _events(notifications) == ["ingest_failed"]
     async with db_module.async_session() as reader:
         assert (await reader.get(Dataset, seed.dataset_id)).last_checked_at == checked
+
+
+async def test_a_held_back_verdict_without_a_settle_step_is_refused() -> None:
+    """A verdict that holds the candidate back must say how its run ends."""
+    with pytest.raises(ValueError, match="settle step"):
+        Verdict(publish=False, reason="Held back.")

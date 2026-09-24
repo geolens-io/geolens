@@ -73,15 +73,19 @@ class Verdict:
     """What staging decided about the candidate.
 
     A verdict that holds the candidate back ends the job ``failed`` with
-    ``reason``. ``settle`` writes what the hold-back records, under the catalog
-    rows and only when the job's end lands, and ``notify`` sends
-    ``ingest_failed``.
+    ``reason``. Its ``settle``, which it must have, writes what the hold-back
+    records, under the catalog rows and only when the job's end lands, and
+    ``notify`` sends ``ingest_failed``.
     """
 
     publish: bool = True
     reason: str = ""
     settle: Linked | None = None
     notify: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.publish and self.settle is None:
+            raise ValueError("A held-back verdict needs a settle step for its run")
 
 
 PUBLISH = Verdict()
