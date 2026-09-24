@@ -5,6 +5,7 @@ import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
 import { FIXTURE_TOKENS, RENDER_CONTEXTS } from '@/test/fixtures/render-contexts';
 import type { RasterTileToken } from '@/api/tiles';
 import type { MapLayerResponse } from '@/types/api';
+import { VIEWER_PREFIX } from '@/components/viewer/viewer-query-layer-ids';
 import { getSourceIdForLayer, syncLayersToMap, toSyncInput } from '../map-sync';
 import { describeLayers } from '../layer-description';
 import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
@@ -281,6 +282,54 @@ describe('a sync pass that writes a layer and a new tile URL together', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('a labelled layer that switches family through state only, with no swapLayerOnMap (#2154)', () => {
+  /** Two full sync passes on the same map/tracking refs, standing in for a
+   *  state-only update (bulk style apply, restore) that never calls
+   *  swapLayerOnMap's own unconditional label removal. */
+  function syncPasses(first: MapLayerResponse, second: MapLayerResponse, idPrefix?: string) {
+    const recording = new RecordingMap();
+    const managed = { current: new Set<string>() };
+    const order = { current: '' };
+    const tokens = new Map(FIXTURE_TOKENS);
+    const options = idPrefix ? { idPrefix } : undefined;
+    syncLayersToMap(recording.map, [toSyncInput(first)], tokens, undefined, managed, order, undefined, options);
+    syncLayersToMap(recording.map, [toSyncInput(second)], tokens, undefined, managed, order, undefined, options);
+    return recording;
+  }
+
+  const schemes: [string, string | undefined][] = [
+    ['builder', undefined],
+    ['viewer', VIEWER_PREFIX],
+  ];
+
+  it.each(schemes)('%s: a labelled circle layer that becomes heatmap loses its label', (_scheme, idPrefix) => {
+    const labelled = { ...SAVED_LAYERS.point, label_config: { column: 'name' } };
+    const heatmap = {
+      ...labelled,
+      paint: SAVED_LAYERS.heatmapByRamp.paint,
+      style_config: SAVED_LAYERS.heatmapByRamp.style_config,
+    };
+
+    const recording = syncPasses(labelled, heatmap, idPrefix);
+
+    expect(recording.layer(`${idPrefix ?? ''}layer-${labelled.id}-label`)).toBeUndefined();
+  });
+
+  it.each(schemes)('%s: a labelled circle layer that becomes symbol loses its label companion, keeping only the inline text', (_scheme, idPrefix) => {
+    const labelled = { ...SAVED_LAYERS.point, label_config: { column: 'name' } };
+    const symbol = {
+      ...labelled,
+      paint: SAVED_LAYERS.symbolWithLeftoverClassification.paint,
+      style_config: SAVED_LAYERS.symbolWithLeftoverClassification.style_config,
+    };
+
+    const recording = syncPasses(labelled, symbol, idPrefix);
+
+    expect(recording.layer(`${idPrefix ?? ''}layer-${labelled.id}-label`)).toBeUndefined();
+    expect(recording.layer(`${idPrefix ?? ''}layer-${labelled.id}`)?.layout['text-field']).toBeDefined();
   });
 });
 
