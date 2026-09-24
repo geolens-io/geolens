@@ -4763,6 +4763,11 @@ def _sentinel2_items() -> list[dict]:
     if feats:
         newest = feats[0]["properties"].get("datetime", "?")[:10]
         print(f"  newest low-cloud scene: {newest} ({collection})")
+    if not any((f.get("assets") or {}).get("visual", {}).get("href") for f in feats):
+        # A pin resolving T18TWL is not evidence the AOI search itself is
+        # healthy: a wider outage here would otherwise leave every OTHER
+        # tile silently missing, and --force would rebind the map to one.
+        raise RuntimeError("no low-cloud Sentinel-2 TCI items matched the NYC AOI")
 
     pinned_feat = _sentinel2_pinned_item()
     items = [_sentinel2_item(pinned_feat)]

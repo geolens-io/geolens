@@ -832,9 +832,37 @@ def test_sentinel2_pins_t18twl_even_when_a_newer_scene_comes_first(monkeypatch):
 
 def test_sentinel2_raises_when_the_pinned_scene_is_missing(monkeypatch):
     """A search that cannot find the pinned item fails loudly, not silently."""
-    monkeypatch.setattr(
-        seeder.httpx, "post", lambda url, *, json, timeout: _FakeStacResponse([])
+    other = _fake_sentinel_feature(
+        "S2A_T19TCH_20260829T155705_L2A", datetime="2026-08-29T15:57:05Z"
     )
 
+    def fake_post(url, *, json, timeout):
+        if "ids" in json:
+            return _FakeStacResponse([])
+        return _FakeStacResponse([other])
+
+    monkeypatch.setattr(seeder.httpx, "post", fake_post)
+
     with pytest.raises(RuntimeError, match="pinned Sentinel-2 scene"):
+        seeder._sentinel2_items()
+
+
+def test_sentinel2_raises_on_an_empty_aoi_search_even_with_a_pinned_hit(monkeypatch):
+    """A dead AOI search fails loudly even though the pinned lookup succeeds.
+
+    Otherwise every OTHER MGRS tile silently drops out and --force rebinds
+    the map to the one pinned tile alone.
+    """
+    pinned = _fake_sentinel_feature(
+        seeder.PINNED_HARBOR_SCENE_ID, datetime="2026-08-29T15:57:05Z"
+    )
+
+    def fake_post(url, *, json, timeout):
+        if "ids" in json:
+            return _FakeStacResponse([pinned])
+        return _FakeStacResponse([])
+
+    monkeypatch.setattr(seeder.httpx, "post", fake_post)
+
+    with pytest.raises(RuntimeError, match="no low-cloud Sentinel-2 TCI items"):
         seeder._sentinel2_items()
