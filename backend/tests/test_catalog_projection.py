@@ -31,7 +31,11 @@ from app.processing.ingest.catalog_projection import (
     project,
     scored,
 )
-from app.processing.ingest.metadata import refresh_attribute_metadata
+from app.processing.ingest.metadata import (
+    detect_3d_metadata,
+    extract_metadata,
+    refresh_attribute_metadata,
+)
 from app.processing.ingest.tasks_staging import StagingResult
 from tests.factories import create_dataset, get_user_id
 
@@ -295,6 +299,46 @@ async def test_3d_points_record_their_dimensions_and_z_range(test_db_session) ->
             {"t": dataset.table_name},
         )
         assert "elev" not in set(columns)
+    finally:
+        await _drop(session, dataset.table_name)
+
+
+async def test_an_empty_staged_3d_table_measures_3d_from_its_declaration(
+    test_db_session,
+) -> None:
+    """An empty staged PointZ table measures as 3D, with no z range."""
+    session = test_db_session
+    dataset = await _dataset(
+        session, geometry_type="POINT", record_type="vector_dataset"
+    )
+    await _table(session, dataset.table_name, geometry="PointZ")
+    try:
+        staged = StagingResult(
+            metadata=await extract_metadata(session, dataset.table_name, schema="data"),
+            sample_values={},
+            three_d=await detect_3d_metadata(
+                session, dataset.table_name, schema="data"
+            ),
+            has_geometry=True,
+            geometry_type=None,
+        )
+        assert (staged.three_d["is_3d"], staged.three_d["n_dims"]) == (False, 2)
+
+        measurement = await measure(
+            session,
+            dataset,
+            table=dataset.table_name,
+            schema="data",
+            staged=staged,
+            score=False,
+        )
+
+        assert measurement.three_d == {
+            "is_3d": True,
+            "n_dims": 3,
+            "z_min": None,
+            "z_max": None,
+        }
     finally:
         await _drop(session, dataset.table_name)
 

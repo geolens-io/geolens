@@ -127,6 +127,31 @@ async def _registered_dataset(
     return dataset
 
 
+async def _load_3d_points(session, table: str, *, geom_type: str) -> None:
+    """Retype the seed table's ``geom`` as ``geom_type`` and load two 3D points."""
+    await session.execute(
+        text(  # noqa: S608
+            f"ALTER TABLE data.{table} "
+            f"ALTER COLUMN geom TYPE {geom_type}, "
+            "ALTER COLUMN geom_4326 TYPE geometry(Point, 4326)"
+        )
+    )
+    await session.execute(
+        text(  # noqa: S608
+            f"INSERT INTO data.{table} (name, geom, geom_4326) VALUES "
+            "('a', ST_GeomFromText('POINT Z (1 1 5)', 4326), "
+            "ST_GeomFromText('POINT (1 1)', 4326)), "
+            "('b', ST_GeomFromText('POINT Z (2 2 40)', 4326), "
+            "ST_GeomFromText('POINT (2 2)', 4326))"
+        )
+    )
+    await session.commit()
+
+
+def _three_d(dataset: Dataset) -> tuple:
+    return dataset.is_3d, dataset.n_dims, dataset.z_min, dataset.z_max
+
+
 @asynccontextmanager
 async def _dispatch_harness():
     """Patch the deferred task and yield the mock the door should reach for."""
@@ -976,30 +1001,15 @@ class TestPostgisRefreshExecution:
             test_db_session, created_by=admin_id, rows=0
         )
         table = dataset.table_name
-        await test_db_session.execute(
-            text(  # noqa: S608
-                f"ALTER TABLE data.{table} "
-                "ALTER COLUMN geom TYPE geometry(PointZ, 4326), "
-                "ALTER COLUMN geom_4326 TYPE geometry(Point, 4326)"
-            )
+        await _load_3d_points(
+            test_db_session, table, geom_type="geometry(PointZ, 4326)"
         )
-        await test_db_session.execute(
-            text(  # noqa: S608
-                f"INSERT INTO data.{table} (name, geom, geom_4326) VALUES "
-                "('a', ST_GeomFromText('POINT Z (1 1 5)', 4326), "
-                "ST_GeomFromText('POINT (1 1)', 4326)), "
-                "('b', ST_GeomFromText('POINT Z (2 2 40)', 4326), "
-                "ST_GeomFromText('POINT (2 2)', 4326))"
-            )
-        )
-        await test_db_session.commit()
 
         payload = await _dispatch(client, admin_auth_header, dataset.id)
         await _execute(test_db_session, payload)
 
         refreshed = await _reload(test_db_session, dataset.id)
-        assert (refreshed.is_3d, refreshed.n_dims) == (True, 3)
-        assert (refreshed.z_min, refreshed.z_max) == (5.0, 40.0)
+        assert _three_d(refreshed) == (True, 3, 5.0, 40.0)
         columns = await test_db_session.scalars(
             text(
                 "SELECT column_name FROM information_schema.columns "
@@ -1008,6 +1018,65 @@ class TestPostgisRefreshExecution:
             {"t": table},
         )
         assert "elev" not in set(columns)
+
+    @pytest.mark.parametrize(
+        "geom_type",
+        ["geometry(PointZ, 4326)", "geometry"],
+        ids=["declared_z", "unconstrained"],
+    )
+    async def test_an_emptied_3d_table_stays_3d_with_no_z_range(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        geom_type: str,
+    ) -> None:
+        """An emptied 3D table stays 3D, from its declaration or else as stored."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(
+            test_db_session, created_by=admin_id, rows=0
+        )
+        table = dataset.table_name
+        await _load_3d_points(test_db_session, table, geom_type=geom_type)
+        # A legacy-style SRID check, since the catalog refuses SRID 0.
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"ALTER TABLE data.{table} ADD CHECK (ST_SRID(geom) = 4326)"
+            )
+        )
+        await test_db_session.commit()
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+        assert _three_d(await _reload(test_db_session, dataset.id))[:2] == (True, 3)
+        await test_db_session.execute(text(f"DELETE FROM data.{table}"))  # noqa: S608
+        await test_db_session.commit()
+
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert refreshed.feature_count == 0
+        assert _three_d(refreshed) == (True, 3, None, None)
+
+    async def test_a_populated_2d_table_records_two_dimensions(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """A 2D table with rows records is_3d false, two dimensions and no z range."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+
+        assert _three_d(await _reload(test_db_session, dataset.id)) == (
+            False,
+            2,
+            None,
+            None,
+        )
 
     async def test_an_emptied_table_keeps_its_geometry_type(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

@@ -39,7 +39,8 @@ class Measurement:
     # the field below is the type the catalog records.
     metadata: dict
     sample_values: dict
-    # is_3d, n_dims, z_min and z_max, as detect_3d_metadata returns them.
+    # is_3d, n_dims, z_min and z_max, as detect_3d_metadata returns them; a
+    # column with no geometry rows takes them from its declaration instead.
     three_d: dict
     # Measured from a row, else declared by the column, else the stored value.
     geometry_type: str | None
@@ -80,13 +81,18 @@ async def measure(
         )
         three_d = await detect_3d_metadata(session, table, schema=schema)
 
+    declared = await _declared_geometry_type(session, schema=schema, table=table)
+    if declared is not None and metadata.get("geometry_type") is None:
+        three_d = await _three_d_without_rows(
+            session, dataset, schema=schema, table=table
+        )
     measurement = Measurement(
         metadata=metadata,
         sample_values=sample_values,
         three_d=three_d,
         geometry_type=_effective_geometry_type(
             measured=metadata.get("geometry_type"),
-            declared=await _declared_geometry_type(session, schema=schema, table=table),
+            declared=declared,
             stored=dataset.geometry_type,
         ),
         quality_detail=None,
@@ -224,6 +230,32 @@ async def _declared_geometry_type(
         ),
         {"schema": schema, "table": table},
     )
+
+
+async def _three_d_without_rows(
+    session: AsyncSession, dataset: Any, *, schema: str, table: str
+) -> dict:
+    """The 3D facts of a ``geom`` column that has no geometry rows to measure.
+
+    The column's declared coordinate dimension decides them, and an
+    unconstrained column keeps the stored ones. The z range is cleared, as the
+    extent of an empty table is.
+    """
+    dims = await session.scalar(
+        text(
+            "SELECT postgis_typmod_dims(a.atttypmod) FROM pg_attribute a "
+            "JOIN pg_class c ON c.oid = a.attrelid "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = :schema AND c.relname = :table "
+            "AND a.attname = 'geom' AND NOT a.attisdropped"
+        ),
+        {"schema": schema, "table": table},
+    )
+    if dims is None:
+        is_3d, n_dims = dataset.is_3d, dataset.n_dims
+    else:
+        is_3d, n_dims = dims > 2, dims
+    return {"is_3d": is_3d, "n_dims": n_dims, "z_min": None, "z_max": None}
 
 
 def _effective_geometry_type(
