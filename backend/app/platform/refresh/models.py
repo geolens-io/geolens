@@ -40,18 +40,15 @@ class DatasetRefreshRun(Base):
             "status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled', 'blocked')",
             name="chk_refresh_runs_status",
         ),
-        # `scheduled` excluded on purpose (no scheduler in Community). The
-        # migration that adds it must, in the SAME migration, add
-        # `scheduled_for` and its UNIQUE (dataset_id, scheduled_for) partial
-        # index, or a scheduled occurrence loses its durable identity.
         CheckConstraint(
             "trigger IN ('manual', 'api', 'cli', 'scheduled')",
             name="chk_refresh_runs_trigger",
         ),
         CheckConstraint(
-            "trigger != 'scheduled' OR (scheduled_for IS NOT NULL "
+            "(trigger = 'scheduled' AND scheduled_for IS NOT NULL "
             "AND occurrence_key IS NOT NULL AND claim_deadline IS NOT NULL "
-            "AND execution_key IS NOT NULL)",
+            "AND execution_key IS NOT NULL) "
+            "OR (trigger <> 'scheduled' AND scheduled_for IS NULL)",
             name="chk_refresh_runs_scheduled_identity",
         ),
         # fix(#1325): origin_kind is the run's execution DOOR, written once
