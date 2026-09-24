@@ -40771,7 +40771,7 @@
     },
     "/datasets/{dataset_id}/tiles3d/{path}": {
       "get": {
-        "description": "Serve one file of a published 3D Tiles tileset.\n\nPoint a client at the dataset's ``tileset.url``, this route's\n``tileset.json``; the relative URIs inside the tileset resolve to this\nsame route. Send credentials in the ``X-Api-Key`` or\n``Authorization`` header. A browser client on another origin also needs\nthat origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).\nA private or missing tileset and a missing file all answer 404, and a\nstorage failure answers 502.",
+        "description": "Serve one file of a published 3D Tiles tileset.\n\nPoint a client at the dataset's ``tileset.url``, this route's\n``tileset.json``; the relative URIs inside the tileset resolve to this\nsame route. Header credentials (``X-Api-Key`` or ``Authorization``)\nauthenticate every file of a private tileset. A query-string ``api_key``\nauthenticates only the request it is on, so the tileset's relative URIs\nlose it unless the client carries it over, as CesiumJS does through\n``Resource`` query parameters. A browser client on another origin also\nneeds that origin on the deployment's CORS allowlist\n(``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing\nfile all answer 404, and a storage failure answers 502.",
         "operationId": "get_tileset_file_datasets__dataset_id__tiles3d__path__get",
         "parameters": [
           {

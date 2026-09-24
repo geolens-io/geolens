@@ -261,10 +261,10 @@ async def test_access_is_decided_before_any_storage_read(
     assert mine.content == _ROOT
 
 
-async def test_the_owner_reads_a_private_tileset_with_an_api_key(
+async def test_an_api_key_opens_one_private_file_by_header_or_query(
     client: AsyncClient, admin_auth_header: dict, make_tileset, storage, owner
 ) -> None:
-    """The owner's API key opens a private tileset in the header and in the query."""
+    """The owner's API key opens a private file sent as a header or in that request's query."""
     owner_id = owner[1]
     created = await client.post(
         "/admin/api-keys/",

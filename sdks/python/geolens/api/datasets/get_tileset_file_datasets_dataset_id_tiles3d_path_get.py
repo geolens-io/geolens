@@ -94,11 +94,14 @@ def sync_detailed(
 
     Point a client at the dataset's ``tileset.url``, this route's
     ``tileset.json``; the relative URIs inside the tileset resolve to this
-    same route. Send credentials in the ``X-Api-Key`` or
-    ``Authorization`` header. A browser client on another origin also needs
-    that origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).
-    A private or missing tileset and a missing file all answer 404, and a
-    storage failure answers 502.
+    same route. Header credentials (``X-Api-Key`` or ``Authorization``)
+    authenticate every file of a private tileset. A query-string ``api_key``
+    authenticates only the request it is on, so the tileset's relative URIs
+    lose it unless the client carries it over, as CesiumJS does through
+    ``Resource`` query parameters. A browser client on another origin also
+    needs that origin on the deployment's CORS allowlist
+    (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
+    file all answer 404, and a storage failure answers 502.
 
     Args:
         dataset_id (UUID):
@@ -136,11 +139,14 @@ def sync(
 
     Point a client at the dataset's ``tileset.url``, this route's
     ``tileset.json``; the relative URIs inside the tileset resolve to this
-    same route. Send credentials in the ``X-Api-Key`` or
-    ``Authorization`` header. A browser client on another origin also needs
-    that origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).
-    A private or missing tileset and a missing file all answer 404, and a
-    storage failure answers 502.
+    same route. Header credentials (``X-Api-Key`` or ``Authorization``)
+    authenticate every file of a private tileset. A query-string ``api_key``
+    authenticates only the request it is on, so the tileset's relative URIs
+    lose it unless the client carries it over, as CesiumJS does through
+    ``Resource`` query parameters. A browser client on another origin also
+    needs that origin on the deployment's CORS allowlist
+    (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
+    file all answer 404, and a storage failure answers 502.
 
     Args:
         dataset_id (UUID):
@@ -173,11 +179,14 @@ async def asyncio_detailed(
 
     Point a client at the dataset's ``tileset.url``, this route's
     ``tileset.json``; the relative URIs inside the tileset resolve to this
-    same route. Send credentials in the ``X-Api-Key`` or
-    ``Authorization`` header. A browser client on another origin also needs
-    that origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).
-    A private or missing tileset and a missing file all answer 404, and a
-    storage failure answers 502.
+    same route. Header credentials (``X-Api-Key`` or ``Authorization``)
+    authenticate every file of a private tileset. A query-string ``api_key``
+    authenticates only the request it is on, so the tileset's relative URIs
+    lose it unless the client carries it over, as CesiumJS does through
+    ``Resource`` query parameters. A browser client on another origin also
+    needs that origin on the deployment's CORS allowlist
+    (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
+    file all answer 404, and a storage failure answers 502.
 
     Args:
         dataset_id (UUID):
@@ -213,11 +222,14 @@ async def asyncio(
 
     Point a client at the dataset's ``tileset.url``, this route's
     ``tileset.json``; the relative URIs inside the tileset resolve to this
-    same route. Send credentials in the ``X-Api-Key`` or
-    ``Authorization`` header. A browser client on another origin also needs
-    that origin on the deployment's CORS allowlist (``CORS_ALLOWED_ORIGINS``).
-    A private or missing tileset and a missing file all answer 404, and a
-    storage failure answers 502.
+    same route. Header credentials (``X-Api-Key`` or ``Authorization``)
+    authenticate every file of a private tileset. A query-string ``api_key``
+    authenticates only the request it is on, so the tileset's relative URIs
+    lose it unless the client carries it over, as CesiumJS does through
+    ``Resource`` query parameters. A browser client on another origin also
+    needs that origin on the deployment's CORS allowlist
+    (``CORS_ALLOWED_ORIGINS``). A private or missing tileset and a missing
+    file all answer 404, and a storage failure answers 502.
 
     Args:
         dataset_id (UUID):
