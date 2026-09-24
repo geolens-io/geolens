@@ -1,24 +1,26 @@
-"""The job ledger: the dispatch-side ends of an ``ingest_jobs`` row.
+"""The job ledger: the ``ingest_jobs`` transitions no worker makes.
 
-``hold`` locks a job in the state its caller expects, and ``abort`` fails a job
-no worker holds. Both fence on the attempt the caller read and write nothing
-on a miss.
+``hold`` locks a job in the state its caller expects. ``abort`` fails a job no
+worker holds, ``cancel`` ends a pending or running job at a user's request,
+and ``retry`` returns a failed job to pending under a new attempt. Each fences
+on the attempt its caller read and writes nothing on a miss.
 
-Rows linked to a job stay with their owners. When an abort lands, each
-``JobEndHook`` settles its owner's rows in the same transaction, after the job
-row is locked, and a hook that raises takes the job write back with it.
+Rows linked to a job stay with their owners. When an abort or a cancel lands,
+each ``JobEndHook`` settles its owner's rows in the same transaction, after the
+job row is locked, and a hook that raises takes the job write back with it.
 """
 
 from __future__ import annotations
 
 import enum
 import uuid
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import inspect as sa_inspect, select, text, update
+from sqlalchemy import func, inspect as sa_inspect, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -32,11 +34,14 @@ VRT_REGENERATE_JOB_FILENAME = "vrt_regenerate"
 # The URL import commits its row ``running`` before it dispatches.
 _ABORTABLE_STATUSES = ("pending", "running")
 
+# What a user's cancel stores on the job, and on a VRT generation it releases.
+_CANCEL_REASON = "Cancelled by user"
+
 
 class Outcome(enum.Enum):
-    """What a ledger write did. Every value except ``ENDED`` wrote nothing."""
+    """What a ledger write did. Every value except ``LANDED`` wrote nothing."""
 
-    ENDED = "ended"
+    LANDED = "landed"
     MISSING = "missing"
     MOVED = "moved"
     SUPERSEDED = "superseded"
@@ -44,20 +49,34 @@ class Outcome(enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class JobEnd:
-    """A job end that landed, as the rows linked to the job see it."""
+    """A job end that landed, as the rows linked to the job see it.
+
+    ``actor`` is whoever ended the job, or None for its creator.
+    """
 
     job_id: uuid.UUID
     dataset_id: uuid.UUID | None
     source_filename: str | None
     user_metadata: dict[str, Any] | None
     created_by: uuid.UUID | None
+    status: str
     code: str
     reason: str
     at: datetime
+    actor: uuid.UUID | None
     ip_address: str | None
 
 
-JobEndHook = Callable[[AsyncSession, JobEnd], Awaitable[None]]
+JobEndHook = Callable[[AsyncSession, JobEnd], Awaitable[uuid.UUID | None]]
+"""Settles one owner's rows for a landed end; returns the row it ended, if any."""
+
+
+@dataclass(frozen=True, slots=True)
+class Ended:
+    """A job end's outcome, and the linked rows its hooks ended, by owner."""
+
+    outcome: Outcome
+    linked: Mapping[str, uuid.UUID] = field(default_factory=dict)
 
 
 def _attempt_is(attempt_id: uuid.UUID | None):
@@ -66,6 +85,13 @@ def _attempt_is(attempt_id: uuid.UUID | None):
         if attempt_id is not None
         else IngestJob.attempt_id.is_(None)
     )
+
+
+def _mirror(job: IngestJob, values: Mapping[str, Any]) -> None:
+    """Show the caller's instance what landed, without a reload or a flush."""
+    if sa_inspect(job, raiseerr=False) is not None:
+        for key, value in values.items():
+            set_committed_value(job, key, value)
 
 
 async def hold(
@@ -118,19 +144,72 @@ async def abort(
     """
     if expect not in _ABORTABLE_STATUSES:
         raise ValueError(f"abort cannot end a job from {expect!r}")
+    ended = await _end(
+        session,
+        job,
+        expect=(expect,),
+        status="failed",
+        code=code,
+        reason=reason,
+        actor=None,
+        ip_address=ip_address,
+    )
+    return ended.outcome
+
+
+async def cancel(session: AsyncSession, job: IngestJob, *, actor: uuid.UUID) -> Ended:
+    """End a pending or running job at ``actor``'s request, fenced on its attempt.
+
+    Needs no proof that the work stopped. A worker's finalize fences on the
+    same row, so once the cancel commits, a late swap matches nothing and
+    rolls back. ``Ended.linked["run"]`` is the refresh run the cancel ended.
+
+    Sets a 2 s ``lock_timeout`` for the rest of the caller's transaction, so
+    when a finalize holds the row this raises the lock-timeout error, having
+    written nothing, instead of waiting out the swap. Reads the instance and
+    shares a SAVEPOINT with its hooks as ``abort`` does. Does not commit.
+    """
+    from app.platform.refresh.service import USER_CANCELLED_ERROR_CODE
+
+    await session.execute(text("SET LOCAL lock_timeout = '2s'"))
+    return await _end(
+        session,
+        job,
+        expect=("pending", "running"),
+        status="cancelled",
+        code=USER_CANCELLED_ERROR_CODE,
+        reason=_CANCEL_REASON,
+        actor=actor,
+        ip_address=None,
+    )
+
+
+async def _end(
+    session: AsyncSession,
+    job: IngestJob,
+    *,
+    expect: tuple[str, ...],
+    status: str,
+    code: str,
+    reason: str | BaseException,
+    actor: uuid.UUID | None,
+    ip_address: str | None,
+) -> Ended:
+    """Write one fenced end and, when it lands, run every hook on it."""
     reason = redact_failure_reason(reason)
     job_id, attempt_id = job.id, job.attempt_id
     now = datetime.now(timezone.utc)
+    linked: dict[str, uuid.UUID] = {}
     async with session.begin_nested():
         ended = (
             await session.execute(
                 update(IngestJob)
                 .where(
                     IngestJob.id == job_id,
-                    IngestJob.status == expect,
+                    IngestJob.status.in_(expect),
                     _attempt_is(attempt_id),
                 )
-                .values(status="failed", error_message=reason, completed_at=now)
+                .values(status=status, error_message=reason, completed_at=now)
                 .returning(
                     IngestJob.dataset_id,
                     IngestJob.source_filename,
@@ -147,20 +226,75 @@ async def abort(
                 source_filename=ended.source_filename,
                 user_metadata=ended.user_metadata,
                 created_by=ended.created_by,
+                status=status,
                 code=code,
                 reason=reason,
                 at=now,
+                actor=actor,
                 ip_address=ip_address,
             )
-            for hook in _END_HOOKS:
-                await hook(session, end)
+            for owner, hook in _END_HOOKS.items():
+                row_id = await hook(session, end)
+                if row_id is not None:
+                    linked[owner] = row_id
     if ended is None:
+        return Ended(await _missed(session, job_id, attempt_id))
+    _mirror(job, {"status": status, "error_message": reason, "completed_at": now})
+    return Ended(Outcome.LANDED, linked)
+
+
+async def retry(session: AsyncSession, job: IngestJob) -> Outcome:
+    """Return a failed job to pending under a new attempt, fenced on ``job``'s.
+
+    Clears what the failed attempt left: its reason, its clocks and its
+    dataset binding. ``staged_at`` is stamped now, because the stale-pending
+    sweep ages a pending row from it and an hour-old failure would otherwise
+    be stale the moment the retry commits. A late worker on the old attempt
+    then matches no row. When the write lands, the new state, new attempt
+    included, is mirrored onto the instance. Ends no linked rows, and does
+    not commit.
+    """
+    job_id, attempt_id = job.id, job.attempt_id
+    retried_at = datetime.now(timezone.utc)
+    retried = (
+        await session.execute(
+            update(IngestJob)
+            .where(
+                IngestJob.id == job_id,
+                IngestJob.status == "failed",
+                _attempt_is(attempt_id),
+            )
+            .values(
+                status="pending",
+                attempt_id=uuid.uuid4(),
+                error_message=None,
+                started_at=None,
+                heartbeat_at=None,
+                completed_at=None,
+                dataset_id=None,
+                user_metadata=func.coalesce(
+                    IngestJob.user_metadata, text("'{}'::jsonb")
+                ).op("||", return_type=JSONB)(
+                    func.jsonb_build_object("staged_at", retried_at.isoformat())
+                ),
+            )
+            .returning(
+                IngestJob.status,
+                IngestJob.attempt_id,
+                IngestJob.error_message,
+                IngestJob.started_at,
+                IngestJob.heartbeat_at,
+                IngestJob.completed_at,
+                IngestJob.dataset_id,
+                IngestJob.user_metadata,
+            )
+            .execution_options(synchronize_session=False)
+        )
+    ).one_or_none()
+    if retried is None:
         return await _missed(session, job_id, attempt_id)
-    if sa_inspect(job, raiseerr=False) is not None:
-        set_committed_value(job, "status", "failed")
-        set_committed_value(job, "error_message", reason)
-        set_committed_value(job, "completed_at", now)
-    return Outcome.ENDED
+    _mirror(job, retried._mapping)
+    return Outcome.LANDED
 
 
 async def _missed(
@@ -181,7 +315,7 @@ async def _missed(
 
 async def release_vrt_regeneration(
     session: AsyncSession, dataset_id: uuid.UUID, now: datetime, *, message: str
-) -> None:
+) -> uuid.UUID | None:
     """Release the VRT state an ended ``vrt_regenerate`` job would strand.
 
     VRT dispatch commits a ``pending`` VrtGeneration and flips the RasterAsset
@@ -205,6 +339,7 @@ async def release_vrt_regeneration(
       arrival on either side matches no row.
 
     The caller holds the job row, locked first as every worker phase does.
+    Returns the generation it failed, if any.
     """
     # platform reaches processing only at call time; the sweep imports the
     # run module, which imports this one.
@@ -219,7 +354,7 @@ async def release_vrt_regeneration(
     )
     if pointer is None:
         # Nothing in flight: already published or already reconciled.
-        return
+        return None
     generation_cas = await session.execute(
         update(VrtGeneration)
         .where(
@@ -236,7 +371,7 @@ async def release_vrt_regeneration(
     if generation_cas.scalar_one_or_none() is None:
         # The pointed-at generation is already terminal: another actor's
         # record stands, and the asset is that actor's to reconcile.
-        return
+        return None
     asset_predicate = (
         RasterAsset.dataset_id == dataset_id,
         RasterAsset.status == "regenerating",
@@ -254,13 +389,21 @@ async def release_vrt_regeneration(
             .where(*asset_predicate, text(f"NOT ({_READY_WORTHY_SQL})"))
             .values(status="failed", current_generation_id=None)
         )
+    return pointer
 
 
 # Each hook imports its owner at call time: the run module imports this one.
-async def _fail_refresh_run(session: AsyncSession, end: JobEnd) -> None:
-    from app.platform.refresh.service import record_refresh_failure
+async def _end_refresh_run(session: AsyncSession, end: JobEnd) -> uuid.UUID | None:
+    from app.platform.refresh.service import (
+        cancel_active_run_for_job,
+        record_refresh_failure,
+    )
 
-    await record_refresh_failure(
+    if end.status == "cancelled":
+        return await cancel_active_run_for_job(
+            session, end.job_id, cancelled_by=end.actor
+        )
+    return await record_refresh_failure(
         session,
         ingest_job_id=end.job_id,
         error_code=end.code,
@@ -278,24 +421,25 @@ async def _close_backfill_trail(session: AsyncSession, end: JobEnd) -> None:
         user_metadata=end.user_metadata,
         created_by=end.created_by,
         error_code=end.code,
+        settled_by=end.actor,
         ip_address=end.ip_address,
     )
 
 
-async def _release_vrt_generation(session: AsyncSession, end: JobEnd) -> None:
-    if (
-        end.source_filename == VRT_REGENERATE_JOB_FILENAME
-        and end.dataset_id is not None
-    ):
-        await release_vrt_regeneration(
-            session, end.dataset_id, end.at, message=end.reason
-        )
+async def _release_vrt_generation(
+    session: AsyncSession, end: JobEnd
+) -> uuid.UUID | None:
+    if end.source_filename != VRT_REGENERATE_JOB_FILENAME or end.dataset_id is None:
+        return None
+    return await release_vrt_regeneration(
+        session, end.dataset_id, end.at, message=end.reason
+    )
 
 
-# One hook per owner of rows an ended job would strand. Each is a no-op for a
-# job its owner has no rows for.
-_END_HOOKS: tuple[JobEndHook, ...] = (
-    _fail_refresh_run,
-    _close_backfill_trail,
-    _release_vrt_generation,
-)
+# One hook per owner of rows an ended job would strand, keyed by owner. Each is
+# a no-op for a job its owner has no rows for.
+_END_HOOKS: dict[str, JobEndHook] = {
+    "run": _end_refresh_run,
+    "backfill_trail": _close_backfill_trail,
+    "vrt": _release_vrt_generation,
+}
