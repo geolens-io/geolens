@@ -364,6 +364,8 @@ const sizedByMagnitude = (circleColor: unknown) => savedLayer({
   paint: { 'circle-radius': magnitudeRadius, 'circle-color': circleColor },
   style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7], sizeLabel: 'Magnitude', colorLabel: 'Depth (km)' },
 });
+/** A line gradient along each line, which MapLibre draws instead of its line colour. */
+const LINE_GRADIENT = ['interpolate', ['linear'], ['line-progress'], 0, '#0000ff', 1, '#ff0000'];
 /** The graduated-colour fixture with its fill-color replaced. */
 const graduatedPop = (fillColor: unknown) => ({ ...SAVED_LAYERS.graduatedColor, paint: { 'fill-color': fillColor } });
 
@@ -739,6 +741,54 @@ const classRows: ClassRow[] = [
       dataset_geometry_type: 'GEOMETRY',
       paint: { 'fill-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'], 'circle-color': '#111111', 'line-color': '#222222' },
       style_config: { mode: 'graduated', column: 'pop', colors: ['#fee8c8', '#e34a33'], breaks: [1000] },
+    }),
+    null,
+  ],
+  [
+    'a line whose gradient draws over its classed colour',
+    savedLayer({
+      dataset_geometry_type: 'MULTILINESTRING',
+      paint: { 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'], 'line-gradient': LINE_GRADIENT },
+    }),
+    null,
+  ],
+  [
+    'an arrow line with a classed colour and no gradient',
+    savedLayer({
+      dataset_geometry_type: 'MULTILINESTRING',
+      paint: { 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'] },
+      style_config: { render_mode: 'arrow' },
+    }),
+    [graduated('color', 'basin', colored(['#bae6fd', '#0369a1']), [3])],
+  ],
+  [
+    'an arrow line whose gradient draws over its classed colour',
+    savedLayer({
+      dataset_geometry_type: 'MULTILINESTRING',
+      paint: { 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'], 'line-gradient': LINE_GRADIENT },
+      style_config: { render_mode: 'arrow' },
+    }),
+    null,
+  ],
+  [
+    'a labelled line with a classed colour',
+    savedLayer({
+      dataset_geometry_type: 'MULTILINESTRING',
+      paint: { 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'] },
+      label_config: { column: 'name' },
+    }),
+    [graduated('color', 'basin', colored(['#bae6fd', '#0369a1']), [3])],
+  ],
+  [
+    'a mixed layer whose lines draw a gradient over the shared step',
+    savedLayer({
+      dataset_geometry_type: 'GEOMETRY',
+      paint: {
+        'fill-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'line-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'circle-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'line-gradient': LINE_GRADIENT,
+      },
     }),
     null,
   ],

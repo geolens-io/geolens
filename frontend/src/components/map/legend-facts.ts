@@ -491,12 +491,20 @@ function sizeClassesFor(kind: LayerAdapter['type'], paint: Record<string, unknow
   return { target: size.target, column, sizes, breaks: config.breaks ?? [], expression, painted: false };
 }
 
+/** The colour a line draws with: a line gradient draws over its line colour. */
+function lineColor(linePaint: Record<string, unknown>): unknown {
+  return linePaint['line-gradient'] ?? linePaint['line-color'];
+}
+
 /** The colour a layer's features draw with; for a mixed layer, the one its fills, lines and points share, if any. */
 function drawnColor(paint: Record<string, unknown>, kind: LayerAdapter['type'], geometry: string | null): unknown {
-  if (kind !== 'mixed') return paint[getColorProperty(geometry)];
+  if (kind !== 'mixed') {
+    const property = getColorProperty(geometry);
+    return property === 'line-color' ? lineColor(paint) : paint[property];
+  }
   const [fill, ...others] = [
     resolveMixedFillPaint(paint)['fill-color'],
-    resolveLinePaint(paint)['line-color'],
+    lineColor(resolveLinePaint(paint)),
     resolveCirclePaint(paint)['circle-color'],
   ];
   return others.every((color) => JSON.stringify(color) === JSON.stringify(fill)) ? fill : undefined;
