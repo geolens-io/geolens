@@ -263,7 +263,8 @@ export function getLayerColors(facts: LegendFacts | null): string[] {
   if (constant) return [constant];
   const classes = facts?.classes ?? [];
   const colorClasses = classes.find((entry) => entry.target === 'color');
-  if (colorClasses) return colorClasses.items.map((item) => item.color);
+  // The class of every other value is a catch-all, not one of the layer's colours.
+  if (colorClasses) return colorClasses.items.filter((item) => !item.other).map((item) => item.color);
   // A size classification's items carry the colour each size class draws in.
   if (classes.length) return [...new Set(classes[0].items.map((item) => item.color))];
   return [MAP_COLORS.icon.fallback];

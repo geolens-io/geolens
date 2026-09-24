@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors } from '@/lib/color-ramps';
+import { buildCategoricalExpression, buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
 import { describeLayers } from '@/components/builder/layer-description';
@@ -69,6 +69,10 @@ const graduated = (target: LegendClasses['target'], title: string, items: Legend
   ({ mode: 'graduated', target, title, items, breaks });
 const sized = (color: string, sizes: number[]) => sizes.map((size) => ({ color, size }));
 const colored = (colors: string[]) => colors.map((color) => ({ color }));
+/** The class of every value a `match` doesn't list. */
+const other = (color: string) => ({ color, other: true });
+const categories = (title: string, items: LegendClasses['items']): LegendClasses =>
+  ({ mode: 'categorical', target: 'color', title, items, breaks: [] });
 
 const ZONING_CLASSES: LegendClasses = {
   mode: 'categorical',
@@ -78,6 +82,7 @@ const ZONING_CLASSES: LegendClasses = {
     { color: '#66c2a5', label: 'Residential' },
     { color: '#fc8d62', label: 'Commercial' },
     { color: '#8da0cb', label: 'Industrial' },
+    other('#cccccc'),
   ],
   breaks: [],
 };
@@ -346,7 +351,7 @@ const KIND_CLASSES: LegendClasses = {
   mode: 'categorical',
   target: 'color',
   title: 'kind',
-  items: [{ color: '#f472b6', label: 'School' }, { color: '#60a5fa', label: 'Clinic' }],
+  items: [{ color: '#f472b6', label: 'School' }, { color: '#60a5fa', label: 'Clinic' }, other('#cccccc')],
   breaks: [],
 };
 const depthColor = [
@@ -359,6 +364,8 @@ const sizedByMagnitude = (circleColor: unknown) => savedLayer({
   paint: { 'circle-radius': magnitudeRadius, 'circle-color': circleColor },
   style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7], sizeLabel: 'Magnitude', colorLabel: 'Depth (km)' },
 });
+/** A line gradient along each line, which MapLibre draws instead of its line colour. */
+const LINE_GRADIENT = ['interpolate', ['linear'], ['line-progress'], 0, '#0000ff', 1, '#ff0000'];
 /** The graduated-colour fixture with its fill-color replaced. */
 const graduatedPop = (fillColor: unknown) => ({ ...SAVED_LAYERS.graduatedColor, paint: { 'fill-color': fillColor } });
 
@@ -378,15 +385,86 @@ const classRows: ClassRow[] = [
     null,
   ],
   [
-    'categories of a column the paint does not read',
+    'categories of a column other than the stored one',
     categoricalPoint({ paint: { 'circle-radius': 5, 'circle-color': ['match', ['get', 'use'], 'school', '#f472b6', '#cccccc'] } }),
+    [categories('use', [{ color: '#f472b6', label: 'school' }, other('#cccccc')])],
+  ],
+  [
+    'categories whose match draws other colours than the stored ones',
+    { ...SAVED_LAYERS.categorical, paint: { 'fill-color': ['match', ['get', 'zone'], 'R', '#000000', 'C', '#111111', '#222222'] } },
+    [categories('zone', [{ color: '#000000', label: 'Residential' }, { color: '#111111', label: 'Commercial' }, other('#222222')])],
+  ],
+  [
+    'a match arm that lists several values',
+    categoricalPoint({ paint: { 'circle-color': ['match', ['get', 'kind'], ['school', 'clinic'], '#f472b6', '#cccccc'] } }),
+    [categories('kind', [{ color: '#f472b6', label: 'School, Clinic' }, other('#cccccc')])],
+  ],
+  [
+    'a match whose fallback draws nothing',
+    categoricalPoint({ paint: { 'circle-color': ['match', ['get', 'kind'], 'school', '#f472b6', 'clinic', '#60a5fa', 'rgba(0,0,0,0)'] } }),
+    [categories('kind', [{ color: '#f472b6', label: 'School' }, { color: '#60a5fa', label: 'Clinic' }])],
+  ],
+  [
+    'a match fallback that a filter keeps every value from',
+    categoricalPoint({ filter: ['in', ['get', 'kind'], ['literal', ['school', 'clinic']]] }),
+    [categories('kind', [{ color: '#f472b6', label: 'School' }, { color: '#60a5fa', label: 'Clinic' }])],
+  ],
+  [
+    'a match fallback that an equality inside all keeps every value from',
+    categoricalPoint({ filter: ['all', ['==', ['get', 'kind'], 'school'], ['>', ['get', 'beds'], 10]] }),
+    [categories('kind', [{ color: '#f472b6', label: 'School' }, { color: '#60a5fa', label: 'Clinic' }])],
+  ],
+  ['a match fallback that a filter lets other values reach', categoricalPoint({ filter: ['in', ['get', 'kind'], ['literal', ['school', 'park']]] }), [KIND_CLASSES]],
+  ['a match fallback under a filter on another column', categoricalPoint({ filter: ['==', ['get', 'use'], 'school'] }), [KIND_CLASSES]],
+  [
+    'a match on a to-string of the column under a filter on a number',
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': ['match', ['to-string', ['get', 'code']], '1', '#f472b6', '#cccccc'] },
+      filter: ['==', ['get', 'code'], 1],
+    }),
+    [categories('code', [{ color: '#f472b6', label: '1' }])],
+  ],
+  [
+    'a match on a to-number of the column under a filter on strings',
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': ['match', ['to-number', ['get', 'ada'], 0], 1, '#22c55e', 2, '#a3e635', '#94a3b8'] },
+      filter: ['in', ['get', 'ada'], ['literal', ['1', '2']]],
+    }),
+    [categories('ada', [{ color: '#22c55e', label: '1' }, { color: '#a3e635', label: '2' }])],
+  ],
+  [
+    'a filtered value the match input cannot convert, which reaches the fallback',
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': ['match', ['number', ['get', 'code']], 1, '#f472b6', '#cccccc'] },
+      filter: ['==', ['get', 'code'], 'x'],
+    }),
+    [categories('code', [{ color: '#f472b6', label: '1' }, other('#cccccc')])],
+  ],
+  [
+    "the style builder's null guard, which draws nulls in the fallback colour",
+    categoricalPoint({ paint: { 'circle-color': buildCategoricalExpression('kind', [['school', '#f472b6'], ['clinic', '#60a5fa']], '#cccccc') } }),
+    [KIND_CLASSES],
+  ],
+  [
+    'a null guard that draws nulls in another colour than the fallback',
+    categoricalPoint({ paint: { 'circle-color': ['case', ['==', ['get', 'kind'], null], '#ff0000', kindMatch] } }),
     null,
+  ],
+  [
+    'a match fallback that one stored category no arm lists names',
+    categoricalPoint({
+      paint: { 'circle-color': ['match', ['get', 'kind'], 'school', '#f472b6', '#60a5fa'] },
+    }),
+    [categories('kind', [{ color: '#f472b6', label: 'School' }, { color: '#60a5fa', label: 'Clinic' }])],
   ],
   ['categories on a cluster layer', categoricalPoint({ style_config: { ...categoricalPoint().style_config, render_mode: 'cluster' } }), [KIND_CLASSES]],
   ['categories on a heatmap layer', categoricalPoint({ style_config: { ...categoricalPoint().style_config, render_mode: 'heatmap' } }), null],
   ['categories with no geometry', categoricalPoint({ dataset_geometry_type: null }), [KIND_CLASSES]],
   [
-    'categories without labels',
+    'categories without stored labels',
     categoricalPoint({
       style_config: {
         mode: 'categorical',
@@ -394,13 +472,49 @@ const classRows: ClassRow[] = [
         categories: [{ value: 'school', color: '#f472b6' }, { value: 3, color: '#60a5fa' }, { value: null, color: '#cccccc' }],
       },
     }),
-    [{ ...KIND_CLASSES, items: [{ color: '#f472b6', label: 'school' }, { color: '#60a5fa', label: '3' }, { color: '#cccccc', label: 'null' }] }],
+    [categories('kind', [{ color: '#f472b6', label: 'school' }, { color: '#60a5fa', label: 'clinic' }, { color: '#cccccc', label: 'null' }])],
   ],
-  ['a categorical mode with no categories', categoricalPoint({ style_config: { mode: 'categorical', column: 'kind', categories: [] } }), null],
   [
-    'graduated colours without breaks',
+    'a categorical config with no categories',
+    categoricalPoint({ style_config: { mode: 'categorical', column: 'kind', categories: [] } }),
+    [categories('kind', [{ color: '#f472b6', label: 'school' }, { color: '#60a5fa', label: 'clinic' }, other('#cccccc')])],
+  ],
+  [
+    'a match with no stored classification',
+    categoricalPoint({ style_config: null }),
+    [categories('kind', [{ color: '#f472b6', label: 'school' }, { color: '#60a5fa', label: 'clinic' }, other('#cccccc')])],
+  ],
+  [
+    'graduated colours without stored breaks',
     { ...SAVED_LAYERS.graduatedColor, style_config: { ...SAVED_LAYERS.graduatedColor.style_config, breaks: undefined } },
-    [graduated('color', 'pop', colored(['#fee8c8', '#fdbb84', '#e34a33']), [])],
+    [graduated('color', 'pop', colored(['#fee8c8', '#fdbb84', '#e34a33']), [1000, 5000])],
+  ],
+  [
+    'a colour step with no stored classification',
+    savedLayer({ paint: { 'fill-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'] }, style_config: null }),
+    [graduated('color', 'pop', colored(['#fee8c8', '#e34a33']), [1000])],
+  ],
+  ['graduated colours over a constant colour', graduatedPop('#123456'), null],
+  [
+    'graduated colours on another column than the stored one',
+    graduatedPop(['step', ['get', 'density'], '#000000', 10, '#111111']),
+    [graduated('color', 'density', colored(['#000000', '#111111']), [10])],
+  ],
+  [
+    'a step on another column inside a null guard on the stored one',
+    graduatedPop(['case', ['==', ['get', 'pop'], null], '#cccccc', ['step', ['get', 'density'], '#000000', 10, '#111111', 50, '#222222']]),
+    null,
+  ],
+  [
+    'graduated colours over an exponential interpolate',
+    graduatedPop(['interpolate', ['exponential', 2], ['get', 'pop'], 0, '#000000', 9000, '#ffffff']),
+    null,
+  ],
+  ['graduated colours over a transformed input', graduatedPop(['step', ['/', ['get', 'pop'], 1000], '#000000', 1, '#111111', 5, '#222222']), null],
+  [
+    'graduated colours over a zoom ramp of steps',
+    graduatedPop(['interpolate', ['linear'], ['zoom'], 5, ['step', ['get', 'pop'], '#000000', 1000, '#111111'], 10, ['step', ['get', 'pop'], '#000000', 1000, '#111111']]),
+    null,
   ],
   [
     'a title from a snake_case column',
@@ -456,12 +570,61 @@ const classRows: ClassRow[] = [
   [
     'radius classes whose size paint steps at other breaks',
     magnitudeSizedBy(['step', ['get', 'mag'], 4, 5, 8, 8, 14]),
-    [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+    [
+      graduated('radius', 'Magnitude', sized('#fee8c8', [4, 8, 14]), [5, 8]),
+      graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7]),
+    ],
   ],
   [
     'radius classes whose size paint is a constant',
     magnitudeSizedBy(6),
-    [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+    [graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+  ],
+  ['radius classes over a constant radius and colour', { ...SAVED_LAYERS.graduatedRadius, paint: { 'circle-color': '#dc2626', 'circle-radius': 6 } }, null],
+  [
+    'radius classes over a size step on another column',
+    { ...SAVED_LAYERS.graduatedRadius, paint: { 'circle-color': '#dc2626', 'circle-radius': ['step', ['get', 'depth'], 2, 100, 10] } },
+    [graduated('radius', 'depth', sized('#dc2626', [2, 10]), [100])],
+  ],
+  [
+    'radius classes whose size paint scales with zoom alone',
+    { ...SAVED_LAYERS.graduatedRadius, paint: { 'circle-color': '#dc2626', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 2, 12, 6] } },
+    null,
+  ],
+  ['width classes over a constant width', { ...SAVED_LAYERS.graduatedWidth, paint: { 'line-color': '#0284c7', 'line-width': 2 } }, null],
+  [
+    'a size config with no sizes over constant paint',
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': '#dc2626' },
+      style_config: { mode: 'graduated', column: 'mag', target: 'radius', colors: ['#fee8c8', '#e34a33'], breaks: [6] },
+    }),
+    null,
+  ],
+  [
+    'a size step with no stored classification',
+    savedLayer({ dataset_geometry_type: 'MULTIPOINT', paint: { 'circle-color': '#dc2626', 'circle-radius': ['step', ['get', 'mag'], 4, 6, 8] }, style_config: null }),
+    [graduated('radius', 'mag', sized('#dc2626', [4, 8]), [6])],
+  ],
+  [
+    "the showcase's meteorites, sized by mass and coloured by how they were found",
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: {
+        'circle-radius': ['step', ['to-number', ['get', 'mass_kg'], 0], 3, 1, 4.5, 10, 6, 100, 9, 1000, 13],
+        'circle-color': ['case', ['==', ['get', 'fall'], null], '#94a3b8', ['match', ['get', 'fall'], 'Fell', '#f59e0b', 'Found', '#94a3b8', '#94a3b8']],
+      },
+      style_config: {
+        mode: 'categorical',
+        column: 'fall',
+        render_mode: 'cluster',
+        categories: [{ value: 'Fell', color: '#f59e0b', label: 'Seen falling' }, { value: 'Found', color: '#94a3b8', label: 'Found later' }],
+      },
+    }),
+    [
+      graduated('radius', 'mass kg', sized(MAP_COLORS.fallback, [3, 4.5, 6, 9, 13]), [1, 10, 100, 1000]),
+      categories('fall', [{ color: '#f59e0b', label: 'Seen falling' }, { color: '#94a3b8', label: 'Found later' }, other('#94a3b8')]),
+    ],
   ],
   [
     "the style builders' guarded size and colour steps at the same breaks",
@@ -553,24 +716,93 @@ const classRows: ClassRow[] = [
     [graduated('width', 'flow', sized('#bae6fd', [1, 3, 6]), [10, 100]), graduated('color', 'basin', colored(['#bae6fd', '#0369a1']), [3])],
   ],
   [
-    'graduated colours the paint no longer draws',
+    'graduated colours other than the stored ones',
     graduatedPop(['case', ['==', ['get', 'pop'], null], '#cccccc', ['step', ['get', 'pop'], '#000000', 1000, '#fdbb84', 5000, '#e34a33']]),
-    null,
+    [graduated('color', 'pop', colored(['#000000', '#fdbb84', '#e34a33']), [1000, 5000])],
   ],
   [
-    'graduated breaks the paint no longer uses',
+    'graduated breaks other than the stored ones',
     graduatedPop(['case', ['==', ['get', 'pop'], null], '#cccccc', ['step', ['get', 'pop'], '#fee8c8', 1000, '#fdbb84', 6000, '#e34a33']]),
-    null,
+    [graduated('color', 'pop', colored(['#fee8c8', '#fdbb84', '#e34a33']), [1000, 6000])],
   ],
   [
-    'graduated colours over paint the legend cannot read',
+    'a graduated config over a match',
     graduatedPop(['match', ['get', 'pop'], 0, '#fee8c8', '#e34a33']),
+    [categories('pop', [{ color: '#fee8c8', label: '0' }, other('#e34a33')])],
+  ],
+  [
+    'a graduated config with neither colours nor sizes',
+    { ...SAVED_LAYERS.graduatedColor, style_config: { mode: 'graduated', column: 'pop', breaks: [1000] } },
     [graduated('color', 'pop', colored(['#fee8c8', '#fdbb84', '#e34a33']), [1000, 5000])],
   ],
   [
-    'a graduated mode with neither colours nor sizes',
-    { ...SAVED_LAYERS.graduatedColor, style_config: { mode: 'graduated', column: 'pop', breaks: [1000] } },
+    'a mixed layer whose points and lines draw other colours than its fills',
+    savedLayer({
+      dataset_geometry_type: 'GEOMETRY',
+      paint: { 'fill-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'], 'circle-color': '#111111', 'line-color': '#222222' },
+      style_config: { mode: 'graduated', column: 'pop', colors: ['#fee8c8', '#e34a33'], breaks: [1000] },
+    }),
     null,
+  ],
+  [
+    'a line whose gradient draws over its classed colour',
+    savedLayer({
+      dataset_geometry_type: 'MULTILINESTRING',
+      paint: { 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'], 'line-gradient': LINE_GRADIENT },
+    }),
+    null,
+  ],
+  [
+    'an arrow line with a classed colour and no gradient',
+    savedLayer({
+      dataset_geometry_type: 'MULTILINESTRING',
+      paint: { 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'] },
+      style_config: { render_mode: 'arrow' },
+    }),
+    [graduated('color', 'basin', colored(['#bae6fd', '#0369a1']), [3])],
+  ],
+  [
+    'an arrow line whose gradient draws over its classed colour',
+    savedLayer({
+      dataset_geometry_type: 'MULTILINESTRING',
+      paint: { 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'], 'line-gradient': LINE_GRADIENT },
+      style_config: { render_mode: 'arrow' },
+    }),
+    null,
+  ],
+  [
+    'a labelled line with a classed colour',
+    savedLayer({
+      dataset_geometry_type: 'MULTILINESTRING',
+      paint: { 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'] },
+      label_config: { column: 'name' },
+    }),
+    [graduated('color', 'basin', colored(['#bae6fd', '#0369a1']), [3])],
+  ],
+  [
+    'a mixed layer whose lines draw a gradient over the shared step',
+    savedLayer({
+      dataset_geometry_type: 'GEOMETRY',
+      paint: {
+        'fill-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'line-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'circle-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'line-gradient': LINE_GRADIENT,
+      },
+    }),
+    null,
+  ],
+  [
+    'a mixed layer whose fills, lines and points share one step',
+    savedLayer({
+      dataset_geometry_type: 'GEOMETRY',
+      paint: {
+        'fill-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'line-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+        'circle-color': ['step', ['get', 'pop'], '#fee8c8', 1000, '#e34a33'],
+      },
+    }),
+    [graduated('color', 'pop', colored(['#fee8c8', '#e34a33']), [1000])],
   ],
 ];
 

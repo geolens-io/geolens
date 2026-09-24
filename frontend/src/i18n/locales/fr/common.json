@@ -322,6 +322,7 @@
       "colorLabel": "Couleur : {{label}}",
       "widthLabel": "Largeur : {{label}}",
       "weightedBy": "Pondéré par : {{column}}",
+      "other": "Autres",
       "cluster": {
         "server": "Regroupement côté serveur",
         "bounded": "Regroupement limité",

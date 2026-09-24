@@ -103,16 +103,18 @@ interface ClassListProps {
   breaks: number[];
   geometryType?: string | null;
   style?: LegendSwatch | null;
+  /** The label of the class every other value falls in. */
+  otherLabel: string;
 }
 
 /** Colour classes: a swatch per class, labelled by its category or break range. */
-function ColorClassList({ items, breaks, geometryType, style: s }: ClassListProps) {
+function ColorClassList({ items, breaks, geometryType, style: s, otherLabel }: ClassListProps) {
   return (
     <ul className="space-y-0.5">
       {items.map((item, i) => (
         <li key={i} className="flex items-center gap-1.5">
           <GeometrySwatch geometryType={geometryType} color={item.color} style={s} />
-          <span className="text-muted-foreground truncate">{item.label ?? breakLabel(i, breaks)}</span>
+          <span className="text-muted-foreground truncate">{item.label ?? (item.other ? otherLabel : breakLabel(i, breaks))}</span>
         </li>
       ))}
     </ul>
@@ -187,7 +189,13 @@ export const LegendClassesList = memo(function LegendClassesList({ classes, geom
             {title && (
               <div className={cn('text-mini font-medium text-muted-foreground', i > 0 && 'pt-1')}>{title}</div>
             )}
-            <ClassList items={entry.items} breaks={entry.breaks} geometryType={geometryType} style={style} />
+            <ClassList
+              items={entry.items}
+              breaks={entry.breaks}
+              geometryType={geometryType}
+              style={style}
+              otherLabel={t('viewer.legend.other')}
+            />
           </Fragment>
         );
       })}
