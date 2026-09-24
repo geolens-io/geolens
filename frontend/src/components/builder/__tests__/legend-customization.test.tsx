@@ -80,7 +80,7 @@ describe('builder legend (LegendPlugin)', () => {
     const { container } = render(<LegendPlugin ctx={makeCtx({ layers: [zoning] })} />);
 
     const borders = classSwatchBorders(container);
-    expect(borders).toHaveLength(3);
+    expect(borders).toHaveLength(4);
     expect(new Set(borders)).toEqual(new Set([cssColor(MAP_COLORS.default.stroke)]));
   });
 });
@@ -103,7 +103,7 @@ describe('viewer legend (LayerLegend)', () => {
     const { container } = renderViewerLegend(undefined, zoning);
 
     const borders = classSwatchBorders(container);
-    expect(borders).toHaveLength(3);
+    expect(borders).toHaveLength(4);
     expect(new Set(borders)).toEqual(new Set([cssColor(MAP_COLORS.default.stroke)]));
   });
 });
@@ -129,6 +129,13 @@ describe('classes in both legends', () => {
     ...SAVED_LAYERS.graduatedWidth,
     paint: { ...SAVED_LAYERS.graduatedWidth.paint, 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'] },
   };
+
+  it.each(Object.entries(legends))('%s legend lists the colour every other category draws as its own class', (_legend, draw) => {
+    draw(zoning);
+
+    expect(screen.getByText('Residential')).toBeInTheDocument();
+    expect(screen.getByText('viewer.legend.other')).toBeInTheDocument();
+  });
 
   it.each(Object.entries(legends))('%s legend lists no classes for a symbol layer', (_legend, draw) => {
     draw(symbolLayer);

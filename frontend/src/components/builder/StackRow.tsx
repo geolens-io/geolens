@@ -200,8 +200,8 @@ export const StackRow = memo(function StackRow({
   const categories = legendFacts(layer)?.classes?.find((entry) => entry.mode === 'categorical');
   const categoricalSummary = categories
     ? t('stackRow.categoricalSummary', {
-        column: layer.style_config?.column,
-        count: categories.items.length,
+        column: layer.style_config?.column || categories.title,
+        count: categories.items.filter((item) => !item.other).length,
         defaultValue: '{{column}} · {{count}} categories',
       })
     : null;

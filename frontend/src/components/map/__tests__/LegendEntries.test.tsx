@@ -77,6 +77,14 @@ describe('LegendClassesList', () => {
 
     expect(screen.queryByText(/Color:/)).not.toBeInTheDocument();
   });
+
+  it('labels the class of every other value Other', () => {
+    const zoning = categories([{ value: 'R', label: 'Residential', color: '#ff5a5f' }]);
+    render(<LegendClassesList geometryType="Polygon" classes={[{ ...zoning, items: [...zoning.items, { color: '#cccccc', other: true }] }]} />);
+
+    expect(screen.getByText('Residential')).toBeInTheDocument();
+    expect(screen.getByText('Other')).toBeInTheDocument();
+  });
 });
 
 // fix(#951): MapLibre draws a fill-pattern INSTEAD of the fill, so a solid chip

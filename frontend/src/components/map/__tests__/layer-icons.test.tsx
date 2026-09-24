@@ -34,11 +34,13 @@ describe('ColorizedGeometryIcon raster/vrt contract', () => {
 // at its band edges) instead of a smooth ramp, capped at 4 bands. Graduated
 // ramps keep the smooth gradient.
 describe('discrete bands for categorical styles (ux #840)', () => {
-  const layerWith = (style_config: NonNullable<LayerTypeIconLayer['style_config']>): LayerTypeIconLayer => ({
+  const layerWith = (
+    style_config: NonNullable<LayerTypeIconLayer['style_config']>,
+    circleColor: unknown = ['match', ['get', style_config.column], 'Fell', '#f59e0b', '#94a3b8'],
+  ): LayerTypeIconLayer => ({
     dataset_geometry_type: 'POINT',
     layer_type: 'vector_geolens',
-    // The paint reads the classified column, so the classification is live.
-    paint: { 'circle-color': ['match', ['get', style_config.column], 'Fell', '#f59e0b', '#94a3b8'] },
+    paint: { 'circle-color': circleColor },
     layout: {},
     opacity: 1,
     style_config,
@@ -70,11 +72,24 @@ describe('discrete bands for categorical styles (ux #840)', () => {
     ]);
   });
 
+  it('leaves the class of every other value out of the bands', () => {
+    const style_config = {
+      mode: 'categorical' as const,
+      column: 'fall',
+      categories: [{ value: 'Fell', color: '#f59e0b' }, { value: 'Found', color: '#94a3b8' }],
+    };
+    const paint = buildCategoricalExpression('fall', [['Fell', '#f59e0b'], ['Found', '#94a3b8']], '#cccccc');
+    const { container } = render(<LayerTypeIcon layer={layerWith(style_config, paint)} iconId="cat-other" />);
+    const colors = Array.from(container.querySelectorAll('stop'), (stop) => stop.getAttribute('stop-color'));
+    expect(new Set(colors)).toEqual(new Set(['#f59e0b', '#94a3b8']));
+  });
+
   it('caps the icon at 4 bands for many-category layers', () => {
     const categories = ['#111111', '#222222', '#333333', '#444444', '#555555', '#666666']
       .map((color, i) => ({ value: `c${i}`, color }));
+    const match = ['match', ['get', 'c'], ...categories.flatMap(({ value, color }) => [value, color]), '#cccccc'];
     const { container } = render(
-      <LayerTypeIcon layer={layerWith({ mode: 'categorical', column: 'c', categories })} iconId="cat-6" />,
+      <LayerTypeIcon layer={layerWith({ mode: 'categorical', column: 'c', categories }, match)} iconId="cat-6" />,
     );
     expect(container.querySelectorAll('stop')).toHaveLength(8);
   });
@@ -91,7 +106,7 @@ describe('discrete bands for categorical styles (ux #840)', () => {
       layer_type: 'vector_geolens',
       paint: {
         'circle-radius': ['step', ['get', 'pop'], 4, 1000, 8],
-        'circle-color': buildCategoricalExpression('kind', [['school', '#f472b6']], '#cccccc'),
+        'circle-color': ['step', ['zoom'], '#f472b6', 10, '#cccccc'],
       },
       style_config: { mode: 'graduated', column: 'pop', target: 'radius', sizes: [4, 8], breaks: [1000] },
     };
@@ -102,7 +117,10 @@ describe('discrete bands for categorical styles (ux #840)', () => {
   it('keeps the smooth ramp for graduated colors (no categories)', () => {
     const { container } = render(
       <LayerTypeIcon
-        layer={layerWith({ mode: 'graduated', column: 'mass', colors: ['#111111', '#222222', '#333333'] })}
+        layer={layerWith(
+          { mode: 'graduated', column: 'mass', colors: ['#111111', '#222222', '#333333'] },
+          ['step', ['get', 'mass'], '#111111', 10, '#222222', 100, '#333333'],
+        )}
         iconId="grad-3"
       />,
     );

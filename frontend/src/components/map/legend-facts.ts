@@ -11,12 +11,13 @@ import {
 } from '@/components/builder/layer-adapters/shared';
 import type { LayerAdapter } from '@/components/builder/layer-adapters/types';
 import { isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
-import { colorClassificationIsOrphaned, getColorProperty, getSizeProperty } from '@/lib/color-ramps';
+import { getColorProperty } from '@/lib/color-ramps';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import { inferGeometryType } from '@/lib/geo-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { expressionReadsColumn } from '@/lib/maplibre-expressions';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import type { StyleConfig } from '@/types/api';
 
@@ -36,6 +37,8 @@ export interface LegendLayer {
   /** The viewer shape's feature count. */
   feature_count?: number | null;
   paint?: Record<string, unknown> | null;
+  /** The saved filter, which can keep every value from a `match`'s fallback colour. */
+  filter?: unknown;
   opacity?: number | null;
   style_config?: StyleConfig | null;
 }
@@ -58,8 +61,11 @@ export interface LegendClasses {
   target: 'color' | 'radius' | 'width';
   /** The classified attribute, named for the legend. */
   title: string;
-  /** One entry per class: its colour, its size on a size target, and a category's label. */
-  items: { color: string; size?: number; label?: string }[];
+  /**
+   * One entry per class: its colour, its size on a size target, and a category's
+   * label. `other` marks the class of every value the other classes don't list.
+   */
+  items: { color: string; size?: number; label?: string; other?: boolean }[];
   /** Graduated class breaks; empty for categories. */
   breaks: number[];
 }
@@ -268,18 +274,18 @@ function getColumn(value: unknown): string | null {
     : null;
 }
 
-/** The input a step or interpolate expression is classed on; undefined for any other value. */
+/** The input a step, interpolate or match expression classes on; undefined for any other value. */
 function rampInput(value: unknown): unknown {
   if (!Array.isArray(value)) return undefined;
-  if (value[0] === 'step') return value[1];
+  if (value[0] === 'step' || value[0] === 'match') return value[1];
   if (value[0] === 'interpolate') return value[2];
   return undefined;
 }
 
 /**
- * The ramp inside the null guard the style builders wrap around their classes,
- * `['case', ['==', ['get', column], null], fallback, ramp]`, when the ramp is
- * classed on that same column; any other value as it is.
+ * The classes inside the null guard the style builders wrap around them,
+ * `['case', ['==', ['get', column], null], fallback, classes]`, when a step,
+ * interpolate or match classes on that same column; any other value as it is.
  */
 function unwrapNullGuard(value: unknown): unknown {
   if (!Array.isArray(value) || value[0] !== 'case' || value.length !== 4) return value;
@@ -328,66 +334,189 @@ function sizeStepsMatch(value: unknown, column: string, breaks: number[]): boole
   return zoomStops.length > 0 && zoomStops.every((stop) => sizeStepsMatch(stop, column, breaks));
 }
 
+/** A colour `match` the legend can list: each arm's values and colour, and the colour of every other value. */
+interface MatchClasses {
+  column: string;
+  arms: { values: (string | number)[]; color: string }[];
+  fallback: string;
+}
+
+/** The values one `match` arm lists, one label or an array of them; null for anything else. */
+function armValues(label: unknown): (string | number)[] | null {
+  const values: unknown[] = Array.isArray(label) ? label : [label];
+  return values.length > 0 && values.every((value) => typeof value === 'string' || typeof value === 'number')
+    ? (values as (string | number)[])
+    : null;
+}
+
+/** A colour `match` on a column the legend can name, null guard or not; null for any other value. */
+function matchClasses(value: unknown): MatchClasses | null {
+  const match = unwrapNullGuard(value);
+  if (!Array.isArray(match) || match[0] !== 'match' || match.length < 5 || match.length % 2 === 0) return null;
+  const column = plainColumn(match[1]);
+  const fallback = match[match.length - 1];
+  if (column === null || typeof fallback !== 'string') return null;
+  const arms: MatchClasses['arms'] = [];
+  for (let i = 2; i < match.length - 1; i += 2) {
+    const values = armValues(match[i]);
+    const color = match[i + 1];
+    if (values === null || typeof color !== 'string') return null;
+    arms.push({ values, color });
+  }
+  return { column, arms, fallback };
+}
+
+/**
+ * The values a layer filter lets through on `column`, from an `==` or a literal
+ * `in` on it, alone or inside `all`; null when the filter names none.
+ */
+function filteredValues(filter: unknown, column: string): unknown[] | null {
+  if (!Array.isArray(filter)) return null;
+  const [op, input, operand] = filter;
+  if (op === 'all') {
+    const limits = filter.slice(1)
+      .map((entry) => filteredValues(entry, column))
+      .filter((limit): limit is unknown[] => limit !== null);
+    return limits.length > 0 ? limits.reduce((kept, limit) => kept.filter((value) => limit.includes(value))) : null;
+  }
+  if (filter.length !== 3 || getColumn(input) !== column) return null;
+  if (op === '==' && isLiteral(operand)) return [operand];
+  if (op === 'in' && Array.isArray(operand) && operand[0] === 'literal' && Array.isArray(operand[1])) return operand[1];
+  return null;
+}
+
+/**
+ * Categories from a colour `match`: each arm, then its fallback when a value the
+ * filter lets through reaches it. Stored categories on its column lend their
+ * labels, and one that no arm lists, in the fallback's colour, names the fallback.
+ */
+function categoricalClasses(match: MatchClasses, config: StyleConfig, filter: unknown, title: string): LegendClasses {
+  const stored = config.column === match.column && Array.isArray(config.categories) ? config.categories : [];
+  // A paint that coerces its input matches a stored value of another type.
+  const isListed = (value: unknown) => match.arms.some((arm) => arm.values.some((armValue) => String(armValue) === String(value)));
+  const items: LegendClasses['items'] = match.arms.map(({ values, color }) => ({
+    color,
+    label: values.map((value) => stored.find((category) => String(category.value) === String(value))?.label ?? String(value)).join(', '),
+  }));
+  const allowed = filteredValues(filter, match.column);
+  const reachesFallback = allowed === null || allowed.some((value) => !match.arms.some((arm) => arm.values.some((armValue) => armValue === value)));
+  if (reachesFallback && !isTransparentColor(match.fallback)) {
+    const named = stored.filter((category) => !isListed(category.value)
+      && String(category.color).toLowerCase() === match.fallback.toLowerCase());
+    items.push(named.length === 1
+      ? { color: match.fallback, label: named[0].label ?? String(named[0].value) }
+      : { color: match.fallback, other: true });
+  }
+  return { mode: 'categorical', target: 'color', title, items, breaks: [] };
+}
+
+/** The sizes, breaks and column of a size `step` on a column the legend can name, null guard or not. */
+function sizeSteps(value: unknown): { sizes: number[]; breaks: number[]; column: string } | null {
+  const step = unwrapNullGuard(value);
+  if (!Array.isArray(step) || step[0] !== 'step') return null;
+  const column = plainColumn(step[1]);
+  const parsed = parseStepOrInterpolate(step);
+  if (column === null || !parsed || !parsed.values.every((size) => typeof size === 'number')) return null;
+  return { sizes: parsed.values as number[], breaks: parsed.breaks, column };
+}
+
+/** The size property, and its class target, of each kind that can size features by data. */
+const SIZE_PAINT: Partial<Record<LayerAdapter['type'], { property: string; target: 'radius' | 'width' }>> = {
+  circle: { property: 'circle-radius', target: 'radius' },
+  cluster: { property: 'circle-radius', target: 'radius' },
+  line: { property: 'line-width', target: 'width' },
+};
+
+interface SizeClasses {
+  target: 'radius' | 'width';
+  column: string;
+  sizes: number[];
+  breaks: number[];
+  /** The size paint the classes come from, or stand in for. */
+  expression: unknown;
+  /** False for stored classes the paint reads in a way the legend can't list. */
+  painted: boolean;
+}
+
+/** Size classes from a size step, else the stored ones while the paint reads their column in a way the legend can't list. */
+function sizeClassesFor(kind: LayerAdapter['type'], paint: Record<string, unknown>, config: StyleConfig): SizeClasses | null {
+  const size = SIZE_PAINT[kind];
+  if (!size) return null;
+  const expression = paint[size.property];
+  const steps = sizeSteps(expression);
+  if (steps) return { target: size.target, ...steps, expression, painted: true };
+  // Sizes that also scale with zoom have no one size per class, so the stored
+  // classes stand in, unchecked, while the paint reads their column.
+  const { column, sizes } = config;
+  if (config.target !== size.target || !column || !sizes?.length || !expressionReadsColumn(expression, column)) return null;
+  return { target: size.target, column, sizes, breaks: config.breaks ?? [], expression, painted: false };
+}
+
+/** The colour a layer's features draw with; for a mixed layer, the one its fills, lines and points share, if any. */
+function drawnColor(paint: Record<string, unknown>, kind: LayerAdapter['type'], geometry: string | null): unknown {
+  if (kind !== 'mixed') return paint[getColorProperty(geometry)];
+  const [fill, ...others] = [
+    resolveMixedFillPaint(paint)['fill-color'],
+    resolveLinePaint(paint)['line-color'],
+    resolveCirclePaint(paint)['circle-color'],
+  ];
+  return others.every((color) => JSON.stringify(color) === JSON.stringify(fill)) ? fill : undefined;
+}
+
+/** A colour classification's title: the stored colour label for it, else the stored column's size label, else the column. */
+function colorTitle(config: StyleConfig, column: string): string {
+  const storedColumn = config.column === column;
+  // A size classification's colour label names its colours whichever column they read.
+  if (config.colorLabel && (storedColumn || config.target === 'radius' || config.target === 'width')) return config.colorLabel;
+  return (storedColumn ? config.sizeLabel : undefined) ?? displayColumn(column);
+}
+
 // Symbol icons, heatmaps and rasters draw none of the vector colour or size classes.
 const CLASSED_KINDS = new Set<LayerAdapter['type']>(['fill', 'line', 'circle', 'cluster', 'mixed']);
 
+/**
+ * The classes the paint draws, or null when it draws none the legend can read.
+ * Stored state lends labels and titles, and stands in for sizes that scale with zoom.
+ */
 function classesFor(
   layer: LegendLayer,
   kind: LayerAdapter['type'],
   swatch: LegendSwatch | null,
 ): LegendClasses[] | null {
-  const config = layer.style_config;
-  const column = config?.column;
-  if (!config || !column || !CLASSED_KINDS.has(kind)) return null;
+  if (!CLASSED_KINDS.has(kind)) return null;
+  const config = layer.style_config ?? {};
   const paint = layer.paint ?? {};
-  const geometry = inferGeometryType(paint, layer.dataset_geometry_type ?? layer.geometry_type);
-  // A classification stays in style_config after the paint stops reading its column.
-  if (colorClassificationIsOrphaned(config, paint, geometry)) return null;
-  const breaks = config.breaks ?? [];
-  if (config.mode === 'categorical') {
-    const items = (config.categories ?? []).map((category) => ({
-      color: category.color,
-      label: category.label ?? String(category.value ?? 'null'),
-    }));
-    if (!items.length) return null;
-    return [{ mode: 'categorical', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks: [] }];
-  }
-  if (config.mode !== 'graduated') return null;
-  if ((config.target === 'radius' || config.target === 'width') && config.sizes?.length) {
-    const steps = colorSteps(paint[getColorProperty(geometry)]);
-    // Colour steps the legend can't list, on zoom or a transformed input, lend the sizes no colour.
-    const listed = steps?.column ? { ...steps, column: steps.column } : null;
-    const color = listed?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
-    const sizeTitle = config.sizeLabel ?? displayColumn(column);
-    // A colour step on the size column at the size breaks, over sizes that step there
-    // too, gives each size class one colour, so the legend lists one classification.
-    const sizeProperty = getSizeProperty(geometry, config.target);
-    const colorsEachSize = listed !== null && listed.isStep && listed.column === column && sameValues(listed.breaks, breaks)
-      && sizeProperty !== null && sizeStepsMatch(paint[sizeProperty], column, breaks);
-    const sized: LegendClasses = {
-      mode: 'graduated',
-      target: config.target,
-      title: sizeTitle,
-      items: config.sizes.map((size, i) => ({ color: (colorsEachSize ? listed.colors[i] : undefined) ?? color, size })),
-      breaks,
-    };
-    if (!listed || colorsEachSize) return [sized];
-    return [sized, {
+  const color = drawnColor(paint, kind, inferGeometryType(paint, layer.dataset_geometry_type ?? layer.geometry_type));
+  const match = matchClasses(color);
+  const steps = match ? null : colorSteps(color);
+  // Colour steps on zoom or a transformed input have no column, and list nothing.
+  const listed = steps?.column ? { ...steps, column: steps.column } : null;
+  const colors: LegendClasses | null = match
+    ? categoricalClasses(match, config, layer.filter, colorTitle(config, match.column))
+    : listed && {
       mode: 'graduated',
       target: 'color',
-      title: config.colorLabel ?? (listed.column === column ? sizeTitle : displayColumn(listed.column)),
+      title: colorTitle(config, listed.column),
       items: listed.colors.map((stepColor) => ({ color: stepColor })),
       breaks: listed.breaks,
-    }];
-  }
-  const items = (config.colors ?? []).map((classColor) => ({ color: classColor }));
-  if (!items.length) return null;
-  // Stored classes that the paint's own ramp on the column contradicts are stale.
-  const painted = colorSteps(paint[getColorProperty(geometry)]);
-  const contradicted = painted?.column === column
-    && (!sameValues(painted.colors, items.map((item) => item.color)) || (config.breaks !== undefined && !sameValues(painted.breaks, breaks)));
-  if (contradicted) return null;
-  return [{ mode: 'graduated', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks }];
+    };
+  const sized = sizeClassesFor(kind, paint, config);
+  if (!sized) return colors && [colors];
+  // A colour step on the size column at the size breaks, over sizes that step there
+  // too, gives each size class one colour, so the legend lists one classification.
+  const colorsEachSize = listed !== null && listed.isStep && listed.column === sized.column
+    && sameValues(listed.breaks, sized.breaks)
+    && (sized.painted || sizeStepsMatch(sized.expression, sized.column, sized.breaks));
+  // A ramp's first colour stands in for the sizes; one category's colour would claim them all.
+  const sizeColor = listed?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
+  const sizes: LegendClasses = {
+    mode: 'graduated',
+    target: sized.target,
+    title: (sized.column === config.column ? config.sizeLabel : undefined) ?? displayColumn(sized.column),
+    items: sized.sizes.map((size, i) => ({ color: (colorsEachSize ? listed.colors[i] : undefined) ?? sizeColor, size })),
+    breaks: sized.breaks,
+  };
+  return colors && !colorsEachSize ? [sizes, colors] : [sizes];
 }
 
 /** Whether a value is the argument-free expression `[name]`, such as `['linear']`. */
