@@ -2347,11 +2347,12 @@ class TestArchiveRunsAfterTheSwapCommit:
         real_refresh = AsyncSession.refresh
         calls = {"n": 0}
 
-        async def _raising_once_refresh(self, *args, **kwargs):
-            calls["n"] += 1
-            if calls["n"] == 1:
+        async def _raising_once_refresh(self, instance, *args, **kwargs):
+            # The job's post-commit refresh; the swap also re-reads the dataset.
+            if isinstance(instance, IngestJob) and calls["n"] == 0:
+                calls["n"] += 1
                 raise RuntimeError("pool checkout timed out")
-            return await real_refresh(self, *args, **kwargs)
+            return await real_refresh(self, instance, *args, **kwargs)
 
         put_calls = []
 

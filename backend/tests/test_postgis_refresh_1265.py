@@ -941,15 +941,7 @@ class TestPostgisRefreshExecution:
     async def test_an_emptied_table_clears_the_stored_extent(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """Where this parts from the swap path, deliberately.
-
-        ``_apply_reupload_swap`` only ever writes a non-NULL extent, so an
-        emptied source leaves the old footprint in place. That is tolerable
-        for a path installing bytes it fetched; it is not tolerable for the
-        one operation whose entire job is making the stored metadata agree
-        with the live table, because the footprint is what spatial search
-        matches on.
-        """
+        """An emptied table clears the stored extent that spatial search matches on."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _registered_dataset(test_db_session, created_by=admin_id)
         await test_db_session.execute(
@@ -974,6 +966,48 @@ class TestPostgisRefreshExecution:
             {"rid": refreshed.record_id},
         )
         assert extent is None
+
+    async def test_a_3d_point_table_records_its_z_range_without_an_elev_column(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """A 3D point table records is_3d, n_dims and its z range, and gains no column."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(
+            test_db_session, created_by=admin_id, rows=0
+        )
+        table = dataset.table_name
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"ALTER TABLE data.{table} "
+                "ALTER COLUMN geom TYPE geometry(PointZ, 4326), "
+                "ALTER COLUMN geom_4326 TYPE geometry(Point, 4326)"
+            )
+        )
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"INSERT INTO data.{table} (name, geom, geom_4326) VALUES "
+                "('a', ST_GeomFromText('POINT Z (1 1 5)', 4326), "
+                "ST_GeomFromText('POINT (1 1)', 4326)), "
+                "('b', ST_GeomFromText('POINT Z (2 2 40)', 4326), "
+                "ST_GeomFromText('POINT (2 2)', 4326))"
+            )
+        )
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert (refreshed.is_3d, refreshed.n_dims) == (True, 3)
+        assert (refreshed.z_min, refreshed.z_max) == (5.0, 40.0)
+        columns = await test_db_session.scalars(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'data' AND table_name = :t"
+            ),
+            {"t": table},
+        )
+        assert "elev" not in set(columns)
 
     async def test_an_emptied_table_keeps_its_geometry_type(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

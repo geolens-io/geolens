@@ -1781,52 +1781,123 @@ class TestCommitTimeRecompute:
         assert run.schema_diff["row_count_new"] == 31
         assert run.feature_count_after == 31
 
-    def test_the_recompute_runs_before_the_swap_overwrites_its_inputs(self) -> None:
-        """Order is the whole correctness argument, so pin it.
+    async def test_a_file_reupload_run_stores_the_staged_table_against_the_stored_one(
+        self, client, test_db_session, tmp_path
+    ) -> None:
+        """A file re-upload's run stores the staged columns and count against the stored ones."""
+        from unittest.mock import AsyncMock, patch
 
-        `_apply_reupload_swap` assigns dataset.column_info and feature_count
-        from the staging metadata. Compute the diff after that call and both
-        sides of the comparison are the NEW data, so every diff comes back
-        empty and every dataset reports schema_drift_status='none'. That
-        failure is silent — a permissive default with no symptom — which is
-        exactly why it gets a structural test rather than trust.
-        """
-        source = (
-            Path(__file__).resolve().parents[1]
-            / "app/processing/ingest/tasks_reupload.py"
-        ).read_text(encoding="utf-8")
-        tree = ast.parse(source)
+        import app.core.db as db_module
+        from app.processing.ingest.tasks import reupload_file
 
-        checked = 0
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            diff_lines = [
-                call.lineno
-                for call in ast.walk(node)
-                if isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Attribute)
-                and call.func.attr == "compute_schema_diff"
-            ]
-            settlement_lines = [
-                call.lineno
-                for call in ast.walk(node)
-                if isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Name)
-                and call.func.id in {"_apply_reupload_swap", "settle_publication"}
-            ]
-            if not diff_lines or not settlement_lines:
-                continue
-            checked += 1
-            assert max(diff_lines) < min(settlement_lines), (
-                f"{node.name}: compute_schema_diff must run BEFORE "
-                "publication settlement overwrites dataset.column_info"
+        user_id = await get_user_id(test_db_session, "admin")
+        table = f"rundiff_{uuid.uuid4().hex[:10]}"
+        dataset = await _create_dataset(
+            test_db_session,
+            created_by=user_id,
+            table_name=table,
+            visibility="private",
+            record_type="vector_dataset",
+            geometry_type="POINT",
+            feature_count=5,
+            column_info=[{"name": "retired", "type": "text"}],
+        )
+        await test_db_session.execute(
+            sa.text(
+                f'CREATE TABLE data."{table}" '
+                "(gid serial PRIMARY KEY, geom geometry(Point, 4326), retired text)"
+            )
+        )
+        source = tmp_path / "update.geojson"
+        source.write_text('{"type":"FeatureCollection","features":[]}')
+        job = IngestJob(
+            dataset_id=dataset.id,
+            status="pending",
+            attempt_id=uuid.uuid4(),
+            source_filename="update.geojson",
+            file_path=str(source),
+            created_by=user_id,
+            user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+        )
+        test_db_session.add(job)
+        await test_db_session.flush()
+        await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=user_id,
+            ingest_job_id=job.id,
+            feature_count_before=5,
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        async def _stage(file_path, staging_tn, db_conn_str, **kwargs):
+            async with db_module.async_session() as session:
+                await session.execute(
+                    sa.text(
+                        f'CREATE TABLE data."{staging_tn}" (gid serial PRIMARY KEY, '
+                        "geom geometry(Point, 4326), name text, population integer)"
+                    )
+                )
+                await session.execute(
+                    sa.text(
+                        f'INSERT INTO data."{staging_tn}" (geom, name) VALUES '
+                        "(ST_SetSRID(ST_MakePoint(1, 1), 4326), 'a'), "
+                        "(ST_SetSRID(ST_MakePoint(2, 2), 4326), 'b')"
+                    )
+                )
+                await session.commit()
+
+        ogrinfo = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "update",
+            "feature_count": 2,
+            "columns": [{"name": "name", "type": "String"}],
+        }
+        with (
+            patch(
+                "app.processing.ingest.service.resolve_file_path",
+                new=AsyncMock(side_effect=lambda path, job_id: path),
+            ),
+            patch(
+                "app.processing.ingest.tasks_reupload._validate_upload_file_safety",
+                new=AsyncMock(),
+            ),
+            patch(
+                "app.processing.ingest.ogr.run_ogrinfo",
+                new=AsyncMock(return_value=ogrinfo),
+            ),
+            patch(
+                "app.processing.ingest.ogr.run_ogr2ogr",
+                new=AsyncMock(side_effect=_stage),
+            ),
+            # A real grant would put this module in the tenancy test group.
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access", new=AsyncMock()
+            ),
+            patch("app.processing.ingest.tasks_staging.get_storage", AsyncMock),
+        ):
+            await reupload_file(
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                file_path=str(source),
+                user_id=str(user_id),
+                attempt_id=str(job.attempt_id),
             )
 
-        assert checked == 2, (
-            f"expected both reupload tasks to recompute the diff before settlement; "
-            f"found {checked}"
+        run = await test_db_session.scalar(
+            select(DatasetRefreshRun)
+            .where(DatasetRefreshRun.ingest_job_id == job.id)
+            .execution_options(populate_existing=True)
         )
+        assert run.status == "succeeded"
+        diff = run.schema_diff
+        assert [c["name"] for c in diff["columns_added"]] == ["name", "population"]
+        assert [c["name"] for c in diff["columns_removed"]] == ["retired"]
+        assert (diff["row_count_old"], diff["row_count_new"]) == (5, 2)
 
 
 class TestHistoryPaging:

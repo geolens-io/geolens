@@ -1,7 +1,6 @@
 """Integration tests for PROV-03 provenance attribution across edit paths."""
 
 import uuid
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -10,6 +9,7 @@ from sqlalchemy.orm import joinedload
 
 from app.modules.audit.models import AuditLog
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.processing.ingest.catalog_projection import measure
 from app.processing.ingest.tasks import _apply_reupload_swap
 
 from tests.factories import get_user_id
@@ -291,43 +291,21 @@ async def test_reupload_swap_stamps_actor_and_emits_reupload_commit_audit(
         )
     )
 
-    metadata = {
-        "srid": 4326,
-        "geometry_type": "POINT",
-        "feature_count": 5,
-        "extent_wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))",
-        "column_info": [
-            {"name": "name", "type": "character varying", "ordinal_position": 1},
-        ],
-    }
-
-    with (
-        patch(
-            "app.processing.ingest.metadata.refresh_attribute_metadata",
-            new_callable=AsyncMock,
-        ) as mock_refresh,
-        patch(
-            "app.processing.ingest.metadata.compute_quality_score",
-            new_callable=AsyncMock,
-        ) as mock_quality,
-    ):
-        mock_refresh.return_value = None
-        mock_quality.return_value = {"overall": 90}
-
-        await _apply_reupload_swap(
-            test_db_session,
-            dataset=dataset,
-            staging_table=staging_table,
-            metadata=metadata,
-            sample_values={"name": ["A"]},
-            three_d={},
-            user_id=str(admin_id),
-            source_filename="reupload.geojson",
-            source_format="geojson",
-            original_srid=4326,
-            file_hash="abc123",
-        )
-        await test_db_session.commit()
+    measurement = await measure(
+        test_db_session, dataset, table=staging_table, schema="data"
+    )
+    await _apply_reupload_swap(
+        test_db_session,
+        dataset=dataset,
+        staging_table=staging_table,
+        measurement=measurement,
+        user_id=str(admin_id),
+        source_filename="reupload.geojson",
+        source_format="geojson",
+        original_srid=4326,
+        file_hash="abc123",
+    )
+    await test_db_session.commit()
 
     await test_db_session.refresh(dataset)
     assert dataset.record.updated_by == admin_id

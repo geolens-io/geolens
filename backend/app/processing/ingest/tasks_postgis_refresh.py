@@ -22,11 +22,10 @@ import asyncio
 import uuid
 from collections.abc import Iterator
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Any, NamedTuple
 
 import structlog
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.core.failure_reason import redact_failure_reason
@@ -46,16 +45,13 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
+from app.processing.ingest.catalog_projection import measure, project
 from app.processing.ingest.publication import commit_publication
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
     _current_tenant_role,
     _current_tenant_schema,
-    _declared_geometry_type,
-    _derived_record_type,
-    _effective_geometry_type,
-    _retire_geometry_attribute_row,
     invalidate_tile_cache_for_table,
     stamp_failed_origin_health,
     task_app,
@@ -491,67 +487,6 @@ async def _repair_geom_4326(
     return report
 
 
-class _RecordAs:
-    """The record as the measurement implies it, for scoring only.
-
-    fix(#1313): ``compute_quality_score`` branches on ``record_type``, but
-    the loaded record still carries the PRE-refresh modality — scoring a
-    table that just gained geometry under the tabular branch would drop the
-    geometry/CRS dimensions and persist that mismatch beside a
-    ``vector_dataset`` record. Delegates everything else to the real record.
-    """
-
-    def __init__(self, record: Any, record_type: str | None) -> None:
-        self._record = record
-        self.record_type = record_type
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._record, name)
-
-
-def _apply_measurement(
-    dataset: Any,
-    metadata: dict,
-    sample_values: Any,
-    *,
-    effective_geometry_type: str | None,
-) -> None:
-    """Write one measurement of the live table onto the catalog row.
-
-    ``effective_geometry_type`` is resolved by :func:`_effective_geometry_type`
-    in the measure phase rather than here, so the value written and the
-    value the quality score was computed under are the same derivation.
-
-    ``spatial_extent`` is CLEARED when the table has no extent — unlike
-    ``_apply_reupload_swap``, which only ever writes a non-NULL extent. This
-    path exists solely to make stored metadata agree with the live table, so
-    an emptied table still claiming its old footprint is the exact lie this
-    operation corrects.
-
-    The column is POLYGON-typed; ``extract_metadata`` already pads a
-    degenerate extent and emits a two-ring MULTIPOLYGON for a seam-crossing
-    one, so the WKT here is always a shape the column accepts.
-    """
-    dataset.srid = metadata.get("srid")
-    dataset.geometry_type = effective_geometry_type
-    # fix(#1313): keep the derivation registration makes
-    # (`record_type = "table" if geometry_type is None else "vector_dataset"`)
-    # current — this task is the only thing that can change it afterward
-    # (an empty table gains rows, or a geom column is dropped).
-    # `build_assets` reads `record_type` live, so a stale value means a
-    # now-spatial dataset never advertises tiles/features, or vice versa.
-    dataset.record.record_type = _derived_record_type(
-        dataset.record.record_type, effective_geometry_type
-    )
-    dataset.feature_count = metadata.get("feature_count")
-    dataset.column_info = metadata.get("column_info") or []
-    dataset.sample_values = sample_values
-    extent_wkt = metadata.get("extent_wkt")
-    dataset.record.spatial_extent = (
-        func.ST_GeomFromText(extent_wkt, 4326) if extent_wkt is not None else None
-    )
-
-
 @task_app.task(queue="ingest", retry=0)
 @tenant_task
 async def refresh_postgis(
@@ -562,9 +497,10 @@ async def refresh_postgis(
 ) -> None:
     """Background task: re-measure the registered table behind this dataset.
 
-    Recounts features, recomputes the extent, and rebuilds the column schema
-    snapshot, the sample values, the attribute metadata and the quality score
-    from the live relation. Nothing is copied and nothing is swapped.
+    Recounts features, recomputes the extent and the 3D facts, and rebuilds
+    the column schema snapshot, the sample values, the attribute metadata and
+    the quality score from the live relation. Nothing is copied and nothing is
+    swapped.
 
     No ``user_id`` argument, unlike the re-upload tasks — a measurement is
     not a new version of the data, so it stamps no ``DatasetVersion`` or
@@ -646,13 +582,6 @@ async def refresh_postgis(
         # REPEATABLE READ transaction would collide with it and abort the
         # run with a serialization failure. READ ONLY makes a future write
         # from this phase fail loudly instead of silently.
-        from app.processing.ingest.metadata import (
-            compute_quality_score,
-            extract_metadata,
-            get_sample_values,
-            refresh_attribute_metadata,
-        )
-
         schema = _current_tenant_schema()
 
         # Phase 1.5: REPAIR the render column, before anything measures it.
@@ -721,44 +650,8 @@ async def refresh_postgis(
                         health=_MISSING_VERDICT.health,
                         detail=_MISSING_VERDICT.detail,
                     )
-                metadata = await extract_metadata(session, table_name, schema=schema)
-                sample_values = await get_sample_values(
-                    session,
-                    table_name,
-                    metadata.get("column_info") or [],
-                    schema=schema,
-                )
-                declared_geometry_type = await _declared_geometry_type(
-                    session, schema=schema, table=table_name
-                )
-                # Resolved BEFORE the score, which depends on it: an emptied
-                # spatial table (type from the declared column) is still
-                # spatial, but scoring off the sampled None would drop the
-                # geometry/CRS dimensions.
-                effective_geometry_type = _effective_geometry_type(
-                    measured=metadata.get("geometry_type"),
-                    declared=declared_geometry_type,
-                    stored=dataset.geometry_type,
-                )
-                # Scored against the measurement, not the values it replaces:
-                # a stand-in rather than the loaded row, because this
-                # transaction is READ ONLY and mutating the ORM instance
-                # would let an autoflush attempt a write under it.
-                quality_detail = await compute_quality_score(
-                    session,
-                    table_name,
-                    metadata.get("column_info") or [],
-                    SimpleNamespace(
-                        record=_RecordAs(
-                            dataset.record,
-                            _derived_record_type(
-                                dataset.record.record_type, effective_geometry_type
-                            ),
-                        ),
-                        srid=metadata.get("srid"),
-                        geometry_type=effective_geometry_type,
-                    ),
-                    schema=schema,
+                measurement = await measure(
+                    session, dataset, table=table_name, schema=schema
                 )
             except DBAPIError as exc:
                 # The relation can be dropped or its GRANT revoked between
@@ -767,7 +660,7 @@ async def refresh_postgis(
                 raise _classify_db_failure(exc) from exc
             await session.rollback()
 
-        feature_count = metadata.get("feature_count")
+        feature_count = measurement.metadata.get("feature_count")
 
         # Phase 3: WRITE what phase 2 measured, at the ordinary isolation
         # level. The dataset is re-loaded rather than carried over — the
@@ -783,10 +676,9 @@ async def refresh_postgis(
             # column keeps the statement off the joined record, which
             # PostgreSQL won't lock through an outer join.
             #
-            # fix(#1847): job row locked first — the datasets/records lock
-            # order stated in `app/platform/catalog_locks.py`, since
-            # `_apply_measurement` writes the record row below, and the
-            # finalize write touches the job row too.
+            # The job row first, then the datasets row: the order
+            # `app/platform/catalog_locks.py` states, since `project` writes
+            # the record row below and the finalize write touches the job row.
             #
             # This guard does NOT detect the table owner writing directly —
             # nothing outside GeoLens bumps a catalog field, and being atomic
@@ -823,56 +715,9 @@ async def refresh_postgis(
                     error_code=_ERROR_CODE_SUPERSEDED,
                 )
 
-            # Measured against the values still stored, before the writes
-            # below overwrite them — same ordering rule the swap paths
-            # follow. No staging copy on this path, so the diff is
-            # live-vs-recorded. Recorded, never refused (#1223, Amendment A5).
-            schema_diff = port.compute_schema_diff(
-                dataset.column_info or [],
-                metadata.get("column_info") or [],
-                dataset.feature_count,
-                feature_count,
-            )
-            # Read before `_apply_measurement` overwrites it — same reason
-            # as the diff above: the only place the PRE-refresh value exists.
-            stored_geometry_type = dataset.geometry_type
-
-            _apply_measurement(
-                dataset,
-                metadata,
-                sample_values,
-                effective_geometry_type=effective_geometry_type,
-            )
-            await refresh_attribute_metadata(
-                session,
-                dataset.id,
-                metadata.get("column_info") or [],
-                geometry_type=effective_geometry_type,
-                sample_values=sample_values,
-            )
-            # fix(#1313): since fix(#1380) the reupload swap retires this
-            # same row through the same function — two paths whose relation
-            # can lose its geometry column while keeping identity, one retirement.
-            await _retire_geometry_attribute_row(
-                session, dataset.id, geometry_type=effective_geometry_type
-            )
-            # fix(#1314): the persisted half of the modality change.
-            # `_apply_measurement` restamps `record_type`, but
-            # `record_distributions` rows are generated once at creation and
-            # never re-derived — left alone, a table that gained geometry
-            # never advertises vector tiles, and one that lost it keeps
-            # advertising formats it can't serve. Gated on the modality FLIP:
-            # a refresh with no modality change has no business rewriting
-            # `is_primary`.
-            if (stored_geometry_type is None) != (effective_geometry_type is None):
-                await port.reconcile_distributions(
-                    session,
-                    dataset.id,
-                    dataset.record_id,
-                    dataset.table_name,
-                    geometry_type=effective_geometry_type,
-                )
-            dataset.quality_detail = quality_detail
+            # With no staging copy, the diff is the live table against what
+            # was recorded. Drift is recorded, never refused.
+            schema_diff = await project(session, dataset, measurement)
 
             now = datetime.now(timezone.utc)
             # The measurement succeeded, so the relation demonstrably exists

@@ -88,6 +88,7 @@ from app.processing.ingest.metadata_quality import (
     _score_geometry_validity,  # noqa: F401
     _score_metadata_completeness,  # noqa: F401
     compute_quality_score,  # noqa: F401
+    score_quality,  # noqa: F401
 )
 from app.processing.ingest.metadata_sql import (
     _TABLE_NAME_RE,  # noqa: F401
@@ -154,4 +155,5 @@ __all__ = [
     "rederive_geom_4326",
     "refresh_attribute_metadata",
     "rename_reserved_columns",
+    "score_quality",
 ]
