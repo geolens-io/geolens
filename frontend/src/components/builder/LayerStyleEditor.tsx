@@ -81,12 +81,12 @@ function StyleControlSection({
 
 function StylePreview({ layer, onRevert }: { layer: MapLayerResponse; onRevert: () => void }) {
   const { t } = useTranslation('builder');
-  const swatch = legendFacts(layer)?.swatch ?? null;
-  const swatchColor = getLayerColors(layer, swatch)[0] ?? MAP_COLORS.icon.fallback;
+  const facts = legendFacts(layer);
+  const swatchColor = getLayerColors(layer, facts)[0] ?? MAP_COLORS.icon.fallback;
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border bg-background p-2">
       <div className="flex min-w-0 items-center gap-2">
-        <GeometrySwatch geometryType={layer.dataset_geometry_type} color={swatchColor} style={swatch} />
+        <GeometrySwatch geometryType={layer.dataset_geometry_type} color={swatchColor} style={facts?.swatch} />
         <div className="min-w-0">
           <div className="truncate text-xs font-medium">{t('style.preview.title')}</div>
           <p className="truncate text-mini text-muted-foreground">{t('style.preview.description')}</p>

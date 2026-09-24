@@ -7,7 +7,7 @@ import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
 import { resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import type { MapLayerResponse } from '@/types/api';
 import { legendFacts } from './legend-facts';
-import type { LegendSwatch } from './legend-facts';
+import type { LegendFacts, LegendSwatch } from './legend-facts';
 
 /** Shape hints for the icon glyph. Its stroke, fill opacity and pattern come from the layer's legend swatch. */
 export interface StyleHints {
@@ -73,18 +73,11 @@ function fillOpacityOf(swatch?: LegendSwatch | null): number | undefined {
 }
 
 /**
- * ux(#840): a categorical style is a set of discrete classes — its icon must
- * not blur them into a continuous ramp. Heatmaps keep their smooth ramp icon.
- * codex(#841): symbol mode keeps the top-level column/categories only for
- * round-tripping back to points while rendering marker icons (possibly
- * categorized on a different column via builder.symbol) — exclude it too.
+ * Categories are discrete classes, so their icon draws bands instead of blurring
+ * them into a continuous ramp.
  */
-export function isDiscreteColorStyle(styleConfig: MapLayerResponse['style_config']): boolean {
-  return (
-    !!styleConfig?.categories?.length
-    && styleConfig.render_mode !== 'heatmap'
-    && styleConfig.render_mode !== 'symbol'
-  );
+export function isDiscreteColorStyle(facts: LegendFacts | null): boolean {
+  return facts?.classes?.some((classes) => classes.mode === 'categorical') ?? false;
 }
 
 // ux(#840): bands inside the existing glyph, not separate chips — keeps the
@@ -259,23 +252,24 @@ export function ColorizedGeometryIcon({
 
 /**
  * The colours a layer's icon draws: the heatmap ramp, else the swatch's constant
- * colour or pattern tint, else the class colours.
+ * colour or pattern tint, else the colour classes.
  */
 export function getLayerColors(
   layer: Pick<MapLayerResponse, 'paint' | 'style_config'>,
-  swatch: LegendSwatch | null,
+  facts: LegendFacts | null,
 ): string[] {
   // Heatmap: extract from ramp name
   if (layer.style_config?.render_mode === 'heatmap') {
     const { rampName, reversed } = resolveHeatmapRamp(layer.paint, layer.style_config);
     return getRampColors(rampName, 5, reversed);
   }
-  const constant = swatch?.fill ?? swatch?.pattern?.tint;
+  const constant = facts?.swatch?.fill ?? facts?.swatch?.pattern?.tint;
   if (constant) return [constant];
-  if (layer.style_config?.categories?.length)
-    return layer.style_config.categories.map((c) => c.color);
-  if (layer.style_config?.colors?.length)
-    return layer.style_config.colors;
+  const classes = facts?.classes ?? [];
+  const colorClasses = classes.find((entry) => entry.target === 'color');
+  if (colorClasses) return colorClasses.items.map((item) => item.color);
+  // A size classification draws every class in one colour.
+  if (classes.length) return [classes[0].items[0].color];
   return [MAP_COLORS.icon.fallback];
 }
 
@@ -331,7 +325,7 @@ export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; ic
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
   );
-  const swatch = useMemo(
+  const facts = useMemo(
     () => legendFacts({
       layer_type: layer.layer_type,
       is_dem: layer.is_dem,
@@ -339,7 +333,7 @@ export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; ic
       paint: layer.paint,
       opacity: layer.opacity,
       style_config: layer.style_config,
-    })?.swatch ?? null,
+    }),
     [layer.layer_type, layer.is_dem, layer.dataset_geometry_type, layer.paint, layer.opacity, layer.style_config],
   );
 
@@ -351,12 +345,12 @@ export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; ic
   return (
     <ColorizedGeometryIcon
       geometryType={layer.dataset_geometry_type}
-      colors={getLayerColors({ paint, style_config: layer.style_config ?? null }, swatch)}
+      colors={getLayerColors({ paint, style_config: layer.style_config ?? null }, facts)}
       layerId={iconId}
       layerType={caps.kind}
       styleHints={styleHints}
-      swatch={swatch}
-      discrete={isDiscreteColorStyle(layer.style_config ?? null)}
+      swatch={facts?.swatch ?? null}
+      discrete={isDiscreteColorStyle(facts)}
     />
   );
 }

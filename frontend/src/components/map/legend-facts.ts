@@ -10,9 +10,13 @@ import {
 } from '@/components/builder/layer-adapters/shared';
 import type { LayerAdapter } from '@/components/builder/layer-adapters/types';
 import { isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
+import { colorClassificationIsOrphaned, getColorProperty } from '@/lib/color-ramps';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
+import { inferGeometryType } from '@/lib/geo-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { MAP_COLORS } from '@/lib/map-colors';
+import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import type { StyleConfig } from '@/types/api';
 
 /** The saved-layer fields legend facts read. MapLayerResponse and SharedLayerResponse both satisfy it. */
@@ -42,12 +46,29 @@ export interface LegendSwatch {
   pattern: { id: string; tint: string | null } | null;
 }
 
+/** One classification the map draws, as the legend lists it. */
+export interface LegendClasses {
+  mode: 'categorical' | 'graduated';
+  target: 'color' | 'radius' | 'width';
+  /** The classified attribute, named for the legend. */
+  title: string;
+  /** One entry per class: its colour, its size on a size target, and a category's label. */
+  items: { color: string; size?: number; label?: string }[];
+  /** Graduated class breaks; empty for categories. */
+  breaks: number[];
+}
+
 /** What a legend entry shows for one layer. */
 export interface LegendFacts {
   name: string;
   drawsAs: LayerAdapter['type'];
   /** Null for heatmap, raster and hillshade layers. */
   swatch: LegendSwatch | null;
+  /**
+   * The classifications the map draws, or null for none. A size classification
+   * comes first, followed by the colour classes its symbols are painted in.
+   */
+  classes: LegendClasses[] | null;
 }
 
 function nonBlank(value: unknown): string | null {
@@ -142,6 +163,84 @@ function swatchFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendSwatch
   }
 }
 
+/** A column name as a legend title. */
+function displayColumn(column: string): string {
+  return column
+    .replace(/^_+/, '')
+    .replace(/_/g, ' ')
+    .replace(/\bmhi\b/i, 'income')
+    .replace(/\bkm\b/i, 'km');
+}
+
+/** The first column an expression reads with `get`. */
+function expressionColumn(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  if (value[0] === 'get' && typeof value[1] === 'string') return value[1];
+  for (const entry of value) {
+    const column = expressionColumn(entry);
+    if (column) return column;
+  }
+  return null;
+}
+
+/** The colours and breaks of a step or linear interpolate colour expression. */
+function colorSteps(value: unknown): { colors: string[]; breaks: number[] } | null {
+  const parsed = parseStepOrInterpolate(value);
+  if (!parsed || !parsed.values.every((v) => typeof v === 'string')) return null;
+  return { colors: parsed.values as string[], breaks: parsed.breaks };
+}
+
+// Symbol icons, heatmaps and rasters draw none of the vector colour or size classes.
+const CLASSED_KINDS = new Set<LayerAdapter['type']>(['fill', 'line', 'circle', 'cluster', 'mixed']);
+
+function classesFor(
+  layer: LegendLayer,
+  kind: LayerAdapter['type'],
+  swatch: LegendSwatch | null,
+): LegendClasses[] | null {
+  const config = layer.style_config;
+  const column = config?.column;
+  if (!config || !column || !CLASSED_KINDS.has(kind)) return null;
+  const paint = layer.paint ?? {};
+  const geometry = inferGeometryType(paint, layer.dataset_geometry_type ?? layer.geometry_type);
+  // A classification stays in style_config after the paint stops reading its column.
+  if (colorClassificationIsOrphaned(config, paint, geometry)) return null;
+  const breaks = config.breaks ?? [];
+  if (config.mode === 'categorical') {
+    const items = (config.categories ?? []).map((category) => ({
+      color: category.color,
+      label: category.label ?? String(category.value ?? 'null'),
+    }));
+    if (!items.length) return null;
+    return [{ mode: 'categorical', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks: [] }];
+  }
+  if (config.mode !== 'graduated') return null;
+  if ((config.target === 'radius' || config.target === 'width') && config.sizes?.length) {
+    const painted = paint[getColorProperty(geometry)];
+    const steps = colorSteps(painted);
+    const colorColumn = expressionColumn(painted);
+    const color = steps?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
+    const sized: LegendClasses = {
+      mode: 'graduated',
+      target: config.target,
+      title: config.sizeLabel ?? displayColumn(column),
+      items: config.sizes.map((size) => ({ color, size })),
+      breaks,
+    };
+    if (!steps || !colorColumn) return [sized];
+    return [sized, {
+      mode: 'graduated',
+      target: 'color',
+      title: config.colorLabel ?? displayColumn(colorColumn),
+      items: steps.colors.map((stepColor) => ({ color: stepColor })),
+      breaks: steps.breaks,
+    }];
+  }
+  const items = (config.colors ?? []).map((classColor) => ({ color: classColor }));
+  if (!items.length) return null;
+  return [{ mode: 'graduated', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks }];
+}
+
 /**
  * Legend facts for one saved layer, or null when the map draws nothing for it.
  * Folder rows copy their first child's fields but render nothing, and a DEM in
@@ -150,5 +249,6 @@ function swatchFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendSwatch
 export function legendFacts(layer: LegendLayer): LegendFacts | null {
   if (isFolderGroupLayer(layer) || isDemTerrainVisualSuppressed(layer)) return null;
   const kind = drawsAs(layer);
-  return { name: legendEntryName(layer) ?? '', drawsAs: kind, swatch: swatchFor(layer, kind) };
+  const swatch = swatchFor(layer, kind);
+  return { name: legendEntryName(layer) ?? '', drawsAs: kind, swatch, classes: classesFor(layer, kind, swatch) };
 }

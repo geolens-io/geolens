@@ -1,4 +1,4 @@
-/** Both legends draw the map's custom title, each entry's name and its swatches from legendFacts. */
+/** Both legends draw the map's custom title, each entry's name, its swatches and its classes from legendFacts. */
 
 import { render, screen } from '@/test/test-utils';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { legendFacts } from '@/components/map/legend-facts';
 import type { PluginContext } from '@/components/map-plugins/types';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { SAVED_LAYERS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
+import type { MapLayerResponse } from '@/types/api';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -104,5 +105,65 @@ describe('viewer legend (LayerLegend)', () => {
     const borders = classSwatchBorders(container);
     expect(borders).toHaveLength(3);
     expect(new Set(borders)).toEqual(new Set([cssColor(MAP_COLORS.default.stroke)]));
+  });
+});
+
+describe('classes in both legends', () => {
+  const legends = {
+    builder: (layer: MapLayerResponse) => render(<LegendPlugin ctx={makeCtx({ layers: [layer] })} />).container,
+    viewer: (layer: MapLayerResponse) => renderViewerLegend(undefined, layer).container,
+  };
+  const symbolLayer = SAVED_LAYERS.symbolWithLeftoverClassification;
+  const orphanedZoning = { ...zoning, paint: { 'fill-color': '#66c2a5', 'fill-opacity': 0.7 } };
+  const magnitudeCircles = savedLayer({
+    dataset_geometry_type: 'MULTIPOINT',
+    paint: {
+      'circle-radius': ['step', ['get', 'mag'], 4, 6, 8, 7, 14],
+      'circle-color': ['step', ['get', 'mag'], '#fee8c8', 6, '#fdbb84', 7, '#e34a33'],
+    },
+    style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7] },
+  });
+  const riversByBasin = {
+    ...SAVED_LAYERS.graduatedWidth,
+    paint: { ...SAVED_LAYERS.graduatedWidth.paint, 'line-color': ['step', ['get', 'basin'], '#bae6fd', 3, '#0369a1'] },
+  };
+
+  it.each(Object.entries(legends))('%s legend lists no classes for a symbol layer', (_legend, draw) => {
+    draw(symbolLayer);
+
+    expect(screen.queryByText('School')).not.toBeInTheDocument();
+  });
+
+  it.each(Object.entries(legends))('%s legend lists no classes the paint no longer draws', (_legend, draw) => {
+    draw(orphanedZoning);
+
+    expect(screen.queryByText('Residential')).not.toBeInTheDocument();
+  });
+
+  it.each(Object.entries(legends))('%s legend lists the colour classes a size classification is painted in', (_legend, draw) => {
+    const container = draw(magnitudeCircles);
+
+    expect(screen.getByText(/viewer\.legend\.colorLabel/)).toBeInTheDocument();
+    expect(container.querySelectorAll('svg[viewBox="0 0 14 14"] circle')).toHaveLength(3);
+  });
+
+  it.each(Object.entries(legends))('%s legend draws width classes in the colour the paint gives them', (_legend, draw) => {
+    const container = draw(riversByBasin);
+
+    // Three width classes and the first colour class.
+    expect(container.querySelectorAll('line[stroke="#bae6fd"]')).toHaveLength(4);
+  });
+
+  it('builder legend lists graduated classes that have no breaks', () => {
+    const noBreaks = { ...SAVED_LAYERS.graduatedColor, style_config: { ...SAVED_LAYERS.graduatedColor.style_config, breaks: undefined } };
+    const container = legends.builder(noBreaks);
+
+    expect(container.querySelectorAll('div[aria-hidden="true"]')).toHaveLength(3);
+  });
+
+  it('builder legend shows the icon row for a style that names a column but draws no classes', () => {
+    const container = legends.builder(savedLayer({ paint: { 'fill-color': '#3b82f6' }, style_config: { mode: 'categorical', column: 'zone', categories: [] } }));
+
+    expect(container.querySelector('.lucide-pentagon')).toBeInTheDocument();
   });
 });

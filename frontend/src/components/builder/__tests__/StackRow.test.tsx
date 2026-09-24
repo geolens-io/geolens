@@ -1033,11 +1033,18 @@ describe('categorical subtitle (ux #840)', () => {
       { value: 'Found', color: '#94a3b8' },
     ],
   } as MapLayerResponse['style_config'];
+  const fallPaint = { 'circle-color': ['match', ['get', 'fall'], 'Fell', '#f59e0b', '#94a3b8'] };
 
   it('shows "column · N categories" for a categorical layer', () => {
-    const layer = makeLayer({ dataset_geometry_type: 'POINT', style_config: categoricalConfig });
+    const layer = makeLayer({ dataset_geometry_type: 'POINT', paint: fallPaint, style_config: categoricalConfig });
     render(<StackRow {...defaultProps({ layer })} />);
     expect(screen.getByTestId('stack-row-categories')).toHaveTextContent('fall · 2 categories');
+  });
+
+  it('renders no subtitle for categories the paint no longer draws', () => {
+    const layer = makeLayer({ dataset_geometry_type: 'POINT', paint: { 'circle-color': '#f59e0b' }, style_config: categoricalConfig });
+    render(<StackRow {...defaultProps({ layer })} />);
+    expect(screen.queryByTestId('stack-row-categories')).not.toBeInTheDocument();
   });
 
   it('renders no subtitle for single-color, heatmap, or symbol layers', () => {
@@ -1050,6 +1057,7 @@ describe('categorical subtitle (ux #840)', () => {
     for (const render_mode of ['heatmap', 'symbol'] as const) {
       const layer = makeLayer({
         dataset_geometry_type: 'POINT',
+        paint: fallPaint,
         style_config: { ...categoricalConfig, render_mode } as MapLayerResponse['style_config'],
       });
       const r = render(<StackRow {...defaultProps({ layer })} />);

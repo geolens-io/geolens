@@ -31,7 +31,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LayerTypeIcon, isDiscreteColorStyle } from '@/components/map/layer-icons';
+import { LayerTypeIcon } from '@/components/map/layer-icons';
+import { legendFacts } from '@/components/map/legend-facts';
 import { isAnalysableLayer } from '@/components/builder/analysis-eligibility';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
@@ -195,12 +196,12 @@ export const StackRow = memo(function StackRow({
   const renderMode = (layer.style_config as Record<string, unknown> | null | undefined)?.render_mode as string | undefined;
   const hasLabels = !!layer.label_config?.column && renderMode !== 'heatmap';
 
-  // ux(#840): name the styled column — the banded swatch alone can't say what
-  // the colors mean. Same predicate that switches the row icon to discrete bands.
-  const categoricalSummary = isDiscreteColorStyle(layer.style_config) && layer.style_config?.column
+  // Name the styled column: the icon's category bands alone can't say what the colours mean.
+  const categories = legendFacts(layer)?.classes?.find((entry) => entry.mode === 'categorical');
+  const categoricalSummary = categories
     ? t('stackRow.categoricalSummary', {
-        column: layer.style_config.column,
-        count: layer.style_config.categories!.length,
+        column: layer.style_config?.column,
+        count: categories.items.length,
         defaultValue: '{{column}} · {{count}} categories',
       })
     : null;

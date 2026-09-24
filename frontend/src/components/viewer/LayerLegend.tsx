@@ -1,24 +1,16 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { MapTerrainConfig, SharedLayerResponse, StyleConfig } from '@/types/api';
+import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
-import {
-  CategoricalLegend,
-  GraduatedColorLegend,
-  GraduatedRadiusLegend,
-  GraduatedWidthLegend,
-  HeatmapLegend,
-} from '@/components/map/LegendEntries';
+import { HeatmapLegend, LegendClassesList } from '@/components/map/LegendEntries';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
-import { parseStepOrInterpolate, resolveHeatmapRamp } from '@/lib/normalize-style-config';
-import { MAP_COLORS } from '@/lib/map-colors';
+import { resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import {
   deriveTerrainLegendEntry,
   terrainSourceIsShownAsLayer,
 } from '@/components/builder/terrain-legend';
 import { legendFacts } from '@/components/map/legend-facts';
-import type { LegendSwatch } from '@/components/map/legend-facts';
 import { getClusterSourceStrategy, isClusterRenderMode } from '@/components/builder/cluster-source';
 
 interface LayerLegendProps {
@@ -37,113 +29,10 @@ interface LayerLegendProps {
   legendTitle?: string | null;
 }
 
-function parsePaintColors(paintColorValue: unknown): { colors: string[]; breaks: number[] } | null {
-  if (typeof paintColorValue === 'string' || !paintColorValue) return null;
-  const parsed = parseStepOrInterpolate(paintColorValue);
-  if (!parsed || !parsed.values.every((v) => typeof v === 'string')) return null;
-  return { colors: parsed.values as string[], breaks: parsed.breaks };
-}
-
-function expressionColumn(value: unknown): string | null {
-  if (!Array.isArray(value)) return null;
-  if (value[0] === 'get' && typeof value[1] === 'string') return value[1];
-  for (const entry of value) {
-    const column = expressionColumn(entry);
-    if (column) return column;
-  }
-  return null;
-}
-
-function displayColumn(value: string | undefined): string {
-  if (!value) return 'value';
-  return value
-    .replace(/^_+/, '')
-    .replace(/_/g, ' ')
-    .replace(/\bmhi\b/i, 'income')
-    .replace(/\bkm\b/i, 'km');
-}
-
 function clusterLegendKind(layer: SharedLayerResponse) {
   if (!isClusterRenderMode(layer)) return null;
   const strategy = getClusterSourceStrategy(layer);
   return strategy.kind;
-}
-
-function GraduatedLegend({
-  layer,
-  styleConfig,
-  swatch,
-}: {
-  layer: SharedLayerResponse;
-  styleConfig: StyleConfig;
-  swatch: LegendSwatch | null;
-}) {
-  const { t } = useTranslation('common');
-  const paint = layer.paint ?? {};
-  const breaks = styleConfig.breaks ?? [];
-  const metricLabel = styleConfig.sizeLabel ?? displayColumn(styleConfig.column);
-  // Only the radius target carries a second colour legend, and radius sizes circles.
-  const rawColor = paint['circle-color'];
-  const parsedColor = parsePaintColors(rawColor);
-  const colorColumn = expressionColumn(rawColor);
-  const constantColor = swatch?.fill ?? MAP_COLORS.fallback;
-
-  if (styleConfig.target === 'radius' && styleConfig.sizes) {
-    return (
-      <div className="space-y-1">
-        <div className="text-mini font-medium text-muted-foreground">
-          {t('viewer.legend.sizeLabel', { label: metricLabel })}
-        </div>
-        <GraduatedRadiusLegend
-          sizes={styleConfig.sizes}
-          breaks={breaks}
-          circleColor={parsedColor?.colors[0] ?? constantColor}
-          style={swatch}
-        />
-        {parsedColor && colorColumn && colorColumn !== styleConfig.column && (
-          <>
-            <div className="pt-1 text-mini font-medium text-muted-foreground">
-              {t('viewer.legend.colorLabel', {
-                label: styleConfig.colorLabel ?? displayColumn(colorColumn),
-              })}
-            </div>
-            <GraduatedColorLegend
-              colors={parsedColor.colors}
-              breaks={parsedColor.breaks}
-              geometryType={layer.geometry_type}
-              style={swatch}
-            />
-          </>
-        )}
-      </div>
-    );
-  }
-
-  if (styleConfig.target === 'width' && styleConfig.sizes) {
-    return (
-      <div className="space-y-1">
-        <div className="text-mini font-medium text-muted-foreground">
-          {t('viewer.legend.widthLabel', { label: metricLabel })}
-        </div>
-        <GraduatedWidthLegend
-          sizes={styleConfig.sizes}
-          breaks={breaks}
-          lineColor={constantColor}
-          style={swatch}
-        />
-      </div>
-    );
-  }
-
-  if (!styleConfig.colors) return null;
-  return (
-    <GraduatedColorLegend
-      colors={styleConfig.colors}
-      breaks={breaks}
-      geometryType={layer.geometry_type}
-      style={swatch}
-    />
-  );
 }
 
 export function LayerLegend({
@@ -324,18 +213,9 @@ export function LayerLegend({
                         highLabel={t('viewer.heatmapHigh')}
                       />
                     </div>
-                  ) : sc?.column ? (
+                  ) : facts.classes ? (
                     <div className="mt-1.5 ms-6">
-                      {sc.mode === 'categorical' && sc.categories && (
-                        <CategoricalLegend categories={sc.categories} geometryType={layer.geometry_type} style={facts.swatch} />
-                      )}
-                      {sc.mode === 'graduated' && (sc.colors || sc.sizes) && (
-                        <GraduatedLegend
-                          layer={layer}
-                          styleConfig={sc}
-                          swatch={facts.swatch}
-                        />
-                      )}
+                      <LegendClassesList classes={facts.classes} geometryType={layer.geometry_type} style={facts.swatch} />
                     </div>
                   ) : null
                 )}

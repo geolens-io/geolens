@@ -178,8 +178,8 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   const caps = useMemo(() => getLayerCapabilities(layer), [layer]);
   const isRaster = caps.kind !== 'vector';
   const isHeatmap = layer.style_config?.render_mode === 'heatmap';
-  const swatch = useMemo(() => legendFacts(layer)?.swatch ?? null, [layer]);
-  const layerColors = useMemo(() => getLayerColors(layer, swatch), [layer, swatch]);
+  const facts = useMemo(() => legendFacts(layer), [layer]);
+  const layerColors = useMemo(() => getLayerColors(layer, facts), [layer, facts]);
   const styleHints = useMemo(
     () => extractStyleHints(
       layer.paint ?? {},
@@ -375,8 +375,8 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               layerId={layer.id}
               layerType={caps.kind}
               styleHints={styleHints}
-              swatch={swatch}
-              discrete={isDiscreteColorStyle(layer.style_config)}
+              swatch={facts?.swatch ?? null}
+              discrete={isDiscreteColorStyle(facts)}
             />
           )}
 

@@ -1412,7 +1412,7 @@ export function useBuilderSave(state: SaveState) {
               // stroke the map draws as the border, so a hollow circle (light fill,
               // coloured ring) doesn't export blank.
               const { swatch } = facts;
-              const colors = getLayerColors(layer, swatch);
+              const colors = getLayerColors(layer, facts);
               const rowY = cursorY + (legendRowH - swatchSize) / 2;
               const solidFill = colors.find((c) => !!c) || MAP_COLORS.icon.fallback;
               let filled = false;

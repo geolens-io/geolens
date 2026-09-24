@@ -1,9 +1,10 @@
-import { memo, useMemo } from 'react';
+import { Fragment, memo, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { breakLabel } from '@/lib/legend-utils';
 import { getRampColors } from '@/lib/color-ramps';
 import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
-import type { LegendSwatch } from './legend-facts';
+import type { LegendClasses, LegendSwatch } from './legend-facts';
 
 /* ── Shared swatch rendering ─────────────────────── */
 
@@ -95,71 +96,41 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
   );
 }
 
-/* ── Categorical legend ──────────────────────────── */
+/* ── Class legends ───────────────────────────────── */
 
-interface CategoricalLegendProps {
-  categories: { value: string | number | null; label?: string; color: string }[];
-  geometryType?: string | null;
-  style?: LegendSwatch | null;
-}
-
-export const CategoricalLegend = memo(function CategoricalLegend({ categories, geometryType, style: s }: CategoricalLegendProps) {
-  return (
-    <ul className="space-y-0.5">
-      {categories.map((cat, i) => (
-        <li key={i} className="flex items-center gap-1.5">
-          <GeometrySwatch geometryType={geometryType} color={cat.color} style={s} />
-          <span className="text-muted-foreground truncate">{cat.label ?? String(cat.value ?? 'null')}</span>
-        </li>
-      ))}
-    </ul>
-  );
-});
-
-/* ── Graduated color legend ──────────────────────── */
-
-interface GraduatedColorLegendProps {
-  colors: string[];
+interface ClassListProps {
+  items: LegendClasses['items'];
   breaks: number[];
   geometryType?: string | null;
   style?: LegendSwatch | null;
 }
 
-export const GraduatedColorLegend = memo(function GraduatedColorLegend({ colors, breaks, geometryType, style: s }: GraduatedColorLegendProps) {
+/** Colour classes: a swatch per class, labelled by its category or break range. */
+function ColorClassList({ items, breaks, geometryType, style: s }: ClassListProps) {
   return (
     <ul className="space-y-0.5">
-      {colors.map((color, i) => (
+      {items.map((item, i) => (
         <li key={i} className="flex items-center gap-1.5">
-          <GeometrySwatch geometryType={geometryType} color={color} style={s} />
-          <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
+          <GeometrySwatch geometryType={geometryType} color={item.color} style={s} />
+          <span className="text-muted-foreground truncate">{item.label ?? breakLabel(i, breaks)}</span>
         </li>
       ))}
     </ul>
   );
-});
-
-/* ── Graduated radius legend (SVG circles) ───────── */
-
-interface GraduatedRadiusLegendProps {
-  sizes: number[];
-  breaks: number[];
-  circleColor: string;
-  colors?: string[];
-  style?: LegendSwatch | null;
 }
 
-export const GraduatedRadiusLegend = memo(function GraduatedRadiusLegend({ sizes, breaks, circleColor, colors, style: s }: GraduatedRadiusLegendProps) {
-  const safeColors = colors?.length ? colors : undefined;
+/** Radius classes as circles of each class's size. */
+function RadiusClassList({ items, breaks, style: s }: ClassListProps) {
   const opacityStyle = swatchOpacityStyle(s);
   return (
     <ul className="space-y-0.5">
-      {sizes.map((size, i) => (
+      {items.map((item, i) => (
         <li key={i} className="flex items-center gap-1.5">
           <svg viewBox="0 0 24 24" width="24" height="24" className="shrink-0" style={opacityStyle}>
             <circle
               cx="12" cy="12"
-              r={Math.min(size, 12)}
-              fill={safeColors?.[Math.min(i, safeColors.length - 1)] ?? circleColor}
+              r={Math.min(item.size ?? 0, 12)}
+              fill={item.color}
               fillOpacity={s?.fillOpacity}
               {...ringProps(s)}
             />
@@ -169,30 +140,58 @@ export const GraduatedRadiusLegend = memo(function GraduatedRadiusLegend({ sizes
       ))}
     </ul>
   );
-});
-
-/* ── Graduated width legend (SVG lines) ──────────── */
-
-interface GraduatedWidthLegendProps {
-  sizes: number[];
-  breaks: number[];
-  lineColor: string;
-  style?: LegendSwatch | null;
 }
 
-export const GraduatedWidthLegend = memo(function GraduatedWidthLegend({ sizes, breaks, lineColor, style: s }: GraduatedWidthLegendProps) {
+/** Width classes as lines of each class's width. */
+function WidthClassList({ items, breaks, style: s }: ClassListProps) {
   const opacityStyle = swatchOpacityStyle(s);
   return (
     <ul className="space-y-0.5">
-      {sizes.map((size, i) => (
+      {items.map((item, i) => (
         <li key={i} className="flex items-center gap-1.5">
           <svg width="24" height="16" className="shrink-0" style={opacityStyle}>
-            <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeOpacity={s?.fillOpacity} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
+            <line x1="0" y1="8" x2="24" y2="8" stroke={item.color} strokeOpacity={s?.fillOpacity} strokeWidth={Math.min(item.size ?? 0, 8)} strokeLinecap="round" />
           </svg>
           <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
         </li>
       ))}
     </ul>
+  );
+}
+
+const CLASS_LISTS = { color: ColorClassList, radius: RadiusClassList, width: WidthClassList };
+
+interface LegendClassesListProps {
+  classes: LegendClasses[];
+  geometryType?: string | null;
+  style?: LegendSwatch | null;
+}
+
+/**
+ * Every classification a layer draws. Size classes are titled, and so are colour
+ * classes that follow another classification.
+ */
+export const LegendClassesList = memo(function LegendClassesList({ classes, geometryType, style }: LegendClassesListProps) {
+  const { t } = useTranslation('common');
+  return (
+    <div className="space-y-1">
+      {classes.map((entry, i) => {
+        const title = entry.target === 'radius'
+          ? t('viewer.legend.sizeLabel', { label: entry.title })
+          : entry.target === 'width'
+            ? t('viewer.legend.widthLabel', { label: entry.title })
+            : i > 0 ? t('viewer.legend.colorLabel', { label: entry.title }) : null;
+        const ClassList = CLASS_LISTS[entry.target];
+        return (
+          <Fragment key={i}>
+            {title && (
+              <div className={cn('text-mini font-medium text-muted-foreground', i > 0 && 'pt-1')}>{title}</div>
+            )}
+            <ClassList items={entry.items} breaks={entry.breaks} geometryType={geometryType} style={style} />
+          </Fragment>
+        );
+      })}
+    </div>
   );
 });
 
