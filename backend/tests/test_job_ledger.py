@@ -15,6 +15,8 @@ from sqlalchemy.orm import joinedload
 
 import app.core.db as db_module
 from app.core.db.sqlstate import is_lock_conflict
+from app.core.service_tokens import register_credential_secret
+from app.core.url_redaction import REDACTED_SECRET
 from app.modules.audit.models import AuditLog
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs import ledger
@@ -372,6 +374,23 @@ class TestAbort:
             await _row(test_db_session, library.id)
         ).error_message == "internal_error"
 
+    async def test_scrubs_a_registered_credential_from_the_reason(
+        self, test_db_session
+    ):
+        """abort scrubs a credential registered in its context out of the stored reason."""
+        job = await _job(test_db_session)
+        job_id = job.id
+        register_credential_secret("user")
+
+        await abort(
+            test_db_session, job, code="dispatch_failed", reason="Refused for user"
+        )
+        await test_db_session.commit()
+
+        assert (await _row(test_db_session, job_id)).error_message == (
+            f"Refused for {REDACTED_SECRET}"
+        )
+
 
 class TestCancel:
     @pytest.mark.parametrize("status", _STATUSES)
@@ -410,6 +429,18 @@ class TestCancel:
         assert ended == Ended(Outcome.SUPERSEDED)
         row = await _row(test_db_session, job_id)
         assert (row.status, row.error_message) == ("pending", None)
+
+    async def test_stores_its_reason_as_written(self, test_db_session):
+        """cancel stores its own reason unchanged when a registered credential matches part of it."""
+        job = await _job(test_db_session)
+        job_id = job.id
+        register_credential_secret("user")
+
+        await cancel(test_db_session, job, actor=uuid.uuid4())
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, job_id)
+        assert (row.status, row.error_message) == ("cancelled", "Cancelled by user")
 
 
 class TestRetry:
@@ -566,6 +597,22 @@ class TestTheRefreshRunHook:
             assert ended == Ended(Outcome.MOVED)
             assert (run.status, run.error_code) == ("pending", None)
             assert cancelled_events == 0
+
+    async def test_a_cancel_stores_the_run_reason_as_written(
+        self, test_db_session, clean_tables
+    ):
+        """The run a cancel ends keeps the cancel's reason unchanged when a registered credential matches part of it."""
+        job, run_id = await _committed_dispatch(test_db_session)
+        actor = job.created_by
+        register_credential_secret("user")
+
+        await cancel(test_db_session, job, actor=actor)
+        await test_db_session.commit()
+
+        run = await test_db_session.get(
+            DatasetRefreshRun, run_id, populate_existing=True
+        )
+        assert (run.status, run.error_message) == ("cancelled", "Cancelled by user.")
 
 
 class TestTheBackfillTrailHook:
@@ -764,6 +811,27 @@ class TestTheVrtHook:
                 "regenerating",
                 generation_id,
             )
+
+    async def test_a_cancel_stores_the_generation_reason_as_written(
+        self, test_db_session, clean_tables
+    ):
+        """The generation a cancel fails keeps the cancel's reason unchanged when a registered credential matches part of it."""
+        _vrt, _asset, generation, job = await _seed_vrt_regeneration(
+            test_db_session, job_status="running"
+        )
+        generation_id, actor = generation.id, job.created_by
+        register_credential_secret("user")
+
+        await cancel(test_db_session, job, actor=actor)
+        await test_db_session.commit()
+
+        generation = await test_db_session.get(
+            VrtGeneration, generation_id, populate_existing=True
+        )
+        assert (generation.status, generation.error_message) == (
+            "failed",
+            "Cancelled by user",
+        )
 
 
 class TestHookContract:

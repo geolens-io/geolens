@@ -658,6 +658,19 @@ def _restore_global_logging_config():
 
 
 @pytest.fixture(autouse=True)
+def _reset_credential_registry():
+    """Start and end every test with an empty credential-secret registry.
+
+    A sync test registers in the main thread's context, which every later test copies.
+    """
+    from app.core.service_tokens import reset_registered_credential_secrets
+
+    reset_registered_credential_secrets()
+    yield
+    reset_registered_credential_secrets()
+
+
+@pytest.fixture(autouse=True)
 def _enable_dataset_editing(monkeypatch):
     """Turn on the `enable_dataset_editing` flag for the whole suite.
 

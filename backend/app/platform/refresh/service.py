@@ -26,7 +26,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.failure_reason import redact_failure_reason
+from app.core.failure_reason import FixedReason, redact_failure_reason
 from app.platform.jobs.ledger import Outcome, abort, hold
 from app.platform.refresh.models import DatasetRefreshRun
 
@@ -84,7 +84,7 @@ ABANDONED_ERROR_MESSAGE = (
 # "the task is provably gone and nobody reported an outcome"; this means
 # "a person asked in-flight work to stop".
 USER_CANCELLED_ERROR_CODE = "user_cancelled"
-USER_CANCELLED_ERROR_MESSAGE = "Cancelled by user."
+USER_CANCELLED_ERROR_MESSAGE = FixedReason("Cancelled by user.")
 
 
 def redact_run_error(message: str | BaseException) -> str:

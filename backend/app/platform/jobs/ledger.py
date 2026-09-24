@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from app.core.failure_reason import redact_failure_reason
+from app.core.failure_reason import FixedReason, redact_failure_reason
 from app.platform.jobs.models import IngestJob
 
 # The three VRT regeneration doors create their job under this filename, and
@@ -38,7 +38,7 @@ VRT_REGENERATE_JOB_FILENAME = "vrt_regenerate"
 _ABORTABLE_STATUSES = ("pending", "running")
 
 # What a user's cancel stores on the job, and on a VRT generation it releases.
-_CANCEL_REASON = "Cancelled by user"
+_CANCEL_REASON = FixedReason("Cancelled by user")
 
 # The job's columns an owner's hook reads when an end lands.
 _END_COLUMNS = ("dataset_id", "source_filename", "user_metadata", "created_by")
