@@ -78,6 +78,7 @@ _ERROR_CODE_MISSING = "source_missing"
 _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
 _ERROR_CODE_GENERIC = "postgis_refresh_failed"
 _ERROR_CODE_SUPERSEDED = "superseded"
+_ERROR_CODE_SRID_UNDECLARED = "source_srid_undeclared"
 
 # fix(#1738): repair phase's own statement deadline, in ms. Worker statements
 # have no deadline (`install_api_statement_timeout` only runs in the API
@@ -411,9 +412,12 @@ async def _repair_geom_4326(
             repair = None
             if state.rederivable:
                 srid = await get_table_srid(session, table_name, schema=schema)
-                repair = await rederive_geom_4326(
-                    session, table_name, srid or 4326, schema=schema, state=state
-                )
+                # SRID 0 says nothing about where the coordinates are, so the
+                # render column is left alone; the measurement refuses the table.
+                if srid:
+                    repair = await rederive_geom_4326(
+                        session, table_name, srid, schema=schema, state=state
+                    )
 
             # fix(#1738): index restored on the same rule as the grant below —
             # every outcome where the column EXISTS, not only a rewrite.
@@ -582,6 +586,8 @@ async def refresh_postgis(
         # REPEATABLE READ transaction would collide with it and abort the
         # run with a serialization failure. READ ONLY makes a future write
         # from this phase fail loudly instead of silently.
+        from app.processing.ingest.metadata import get_declared_srid
+
         schema = _current_tenant_schema()
 
         # Phase 1.5: REPAIR the render column, before anything measures it.
@@ -649,6 +655,14 @@ async def refresh_postgis(
                         error_code=_MISSING_VERDICT.error_code,
                         health=_MISSING_VERDICT.health,
                         detail=_MISSING_VERDICT.detail,
+                    )
+                if await get_declared_srid(session, table_name, schema=schema) == 0:
+                    raise PostgisRefreshError(
+                        "The registered table's geom column no longer declares an "
+                        "SRID, so GeoLens cannot tell where its coordinates are. "
+                        "The catalog entry is unchanged; set the SRID, then "
+                        "refresh again.",
+                        error_code=_ERROR_CODE_SRID_UNDECLARED,
                     )
                 measurement = await measure(
                     session, dataset, table=table_name, schema=schema

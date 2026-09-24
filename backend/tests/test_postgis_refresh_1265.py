@@ -1078,6 +1078,47 @@ class TestPostgisRefreshExecution:
             None,
         )
 
+    async def test_a_table_that_loses_its_srid_is_refused_before_any_write(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """A table whose geom declares SRID 0 fails with a code and keeps its render column."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        table = dataset.table_name
+        # Metres the repair would misread as degrees, with the SRID dropped.
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"ALTER TABLE data.{table} ALTER COLUMN geom "
+                "TYPE geometry(Polygon, 3857) USING ST_Transform(geom, 3857)"
+            )
+        )
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"ALTER TABLE data.{table} ALTER COLUMN geom "
+                "TYPE geometry(Polygon, 0) USING ST_SetSRID(geom, 0)"
+            )
+        )
+        await test_db_session.commit()
+        render_before = await test_db_session.scalar(
+            text(f"SELECT string_agg(ST_AsText(geom_4326), ';') FROM data.{table}")  # noqa: S608
+        )
+        version_before = (await _reload(test_db_session, dataset.id)).tile_cache_version
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        with pytest.raises(tasks_postgis_refresh.PostgisRefreshError):
+            await _execute(test_db_session, payload)
+
+        run = await _run_for(test_db_session, dataset.id)
+        assert (run.status, run.error_code) == ("failed", "source_srid_undeclared")
+        job = await _job_for(test_db_session, uuid.UUID(payload["job_id"]))
+        assert "declares an SRID" in job.error_message
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert (refreshed.srid, refreshed.tile_cache_version) == (4326, version_before)
+        render_after = await test_db_session.scalar(
+            text(f"SELECT string_agg(ST_AsText(geom_4326), ';') FROM data.{table}")  # noqa: S608
+        )
+        assert render_after == render_before
+
     async def test_an_emptied_table_keeps_its_geometry_type(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:

@@ -1350,7 +1350,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/service.py": 1457,
     # PostGIS refresh coordinates geometry repair, measurement, fenced catalog
     # updates and fenced post-commit steps.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 835,
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 849,
     # Dataset request and verification response families share this public contract.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1574,
     # Analysis validation, bounded execution and fenced registration share one task
