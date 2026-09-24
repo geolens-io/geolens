@@ -172,8 +172,13 @@ async def _run_for(session, dataset_id: uuid.UUID) -> DatasetRefreshRun | None:
 
 
 async def _job_for(session, job_id: uuid.UUID) -> IngestJob:
+    """Read the job back from the database, past the identity map."""
     return (
-        await session.execute(select(IngestJob).where(IngestJob.id == job_id))
+        await session.execute(
+            select(IngestJob)
+            .where(IngestJob.id == job_id)
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one()
 
 
