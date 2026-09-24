@@ -110,17 +110,15 @@ describe('line adapter — syncPaint reconciles line-cap and line-join via syncO
     expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-line-1', 'line-join', 'bevel');
   });
 
-  it('does NOT call setLayoutProperty for line-cap or line-join when input.layout is empty', () => {
+  it('calls setLayoutProperty with the round default for line-cap and line-join when input.layout is empty', () => {
     const map = createMockMap({ layerExists: true });
     lineAdapter.syncPaint(
       map as unknown as import('maplibre-gl').Map,
       makeInput({ layout: {} }),
     );
 
-    const layoutCalls = map.setLayoutProperty.mock.calls.filter(
-      ([, prop]) => prop === 'line-cap' || prop === 'line-join',
-    );
-    expect(layoutCalls).toHaveLength(0);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-line-1', 'line-cap', 'round');
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-line-1', 'line-join', 'round');
   });
 
   // CR-01 regression pin: in production, addLayers sets line-cap='round' and

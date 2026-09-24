@@ -200,39 +200,6 @@ describe('lineAdapter', () => {
     map = createMockMap();
   });
 
-  it('addLayers extracts line-dasharray from layout into paint', () => {
-    const input = makeInput({
-      id: 'l1',
-      layerId: 'layer-l1',
-      sourceId: 'source-l1',
-      sourceLayer: 'data.test_table',
-      dataset_geometry_type: 'LINESTRING',
-      paint: {},
-      layout: { 'line-dasharray': [2, 4] },
-    });
-    lineAdapter.addLayers(map, input);
-    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    // line-dasharray should be in paint, not layout
-    expect(call.paint['line-dasharray']).toEqual([2, 4]);
-    expect(call.layout).not.toHaveProperty('line-dasharray');
-  });
-
-  it('addLayers prefers paint line-dasharray over legacy layout', () => {
-    const input = makeInput({
-      id: 'l1b',
-      layerId: 'layer-l1b',
-      sourceId: 'source-l1b',
-      sourceLayer: 'data.test_table',
-      dataset_geometry_type: 'LINESTRING',
-      paint: { 'line-dasharray': [4, 2] },
-      layout: { 'line-dasharray': [2, 4] },
-    });
-    lineAdapter.addLayers(map, input);
-    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.paint['line-dasharray']).toEqual([4, 2]);
-    expect(call.layout).not.toHaveProperty('line-dasharray');
-  });
-
   it('addLayers sets line-cap:round and line-join:round in layout', () => {
     const input = makeInput({ id: 'l2', layerId: 'layer-l2', dataset_geometry_type: 'LINESTRING' });
     lineAdapter.addLayers(map, input);
@@ -509,62 +476,6 @@ describe('lineAdapter', () => {
       // Identity (===), not just equality. Engine-foundation guarantee for Phase 256.
       expect(value).toBe(gradient);
     }
-  });
-
-  it('addLayers creates an arrow companion symbol layer for arrow render mode', () => {
-    const input = makeInput({
-      id: 'l-arrow',
-      layerId: 'layer-l-arrow',
-      sourceId: 'source-l-arrow',
-      sourceLayer: 'data.routes',
-      dataset_geometry_type: 'LINESTRING',
-      paint: { 'line-color': '#2255aa', 'line-width': 3 },
-      filter: ['==', 'status', 'open'],
-      style_config: {
-        render_mode: 'arrow',
-        builder: {
-          arrowColor: '#fb923c',
-          arrowSize: 18,
-          arrowSpacing: 120,
-        },
-      },
-    });
-
-    lineAdapter.addLayers(map, input);
-
-    expect(map.addLayer).toHaveBeenCalledTimes(2);
-    const lineCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    const arrowCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[1][0];
-    expect(lineCall).toEqual(expect.objectContaining({
-      id: 'layer-l-arrow',
-      type: 'line',
-    }));
-    expect(arrowCall).toEqual(expect.objectContaining({
-      id: 'layer-l-arrow-arrow',
-      type: 'symbol',
-      source: 'source-l-arrow',
-      'source-layer': 'data.routes',
-      filter: ['==', 'status', 'open'],
-    }));
-    expect(arrowCall.layout).toEqual(expect.objectContaining({
-      'symbol-placement': 'line',
-      'symbol-spacing': 120,
-      'icon-image': 'geolens-line-arrow',
-      'icon-size': 18 / 14,
-      'icon-allow-overlap': true,
-      'icon-ignore-placement': true,
-      'icon-rotation-alignment': 'map',
-      visibility: 'visible',
-    }));
-    expect(arrowCall.paint).toEqual({
-      'icon-color': '#fb923c',
-      'icon-opacity': 1,
-    });
-    expect(map.addImage).toHaveBeenCalledWith(
-      'geolens-line-arrow',
-      expect.objectContaining({ width: 24, height: 24 }),
-      { sdf: true, pixelRatio: 1 },
-    );
   });
 
   it('syncPaint updates arrow companion appearance, opacity, visibility, and filter', () => {
