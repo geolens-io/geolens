@@ -16,10 +16,11 @@ import type { LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 import { getClusterSourceStrategy } from './cluster-source';
 import { getCompanionLayerIds } from './companion-ids';
 import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
+import { resolveHeightColumn } from './layer-adapters/fill-adapter';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
 import { getAdapter } from './layer-adapters/registry';
-import { normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
+import { getBuilderStyleConfig, normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
 import { resolveSymbolConfig } from './layer-adapters/symbol-adapter';
 import type { AdapterLayerInput, ImageSpec, LayerAdapter, LayerSpec } from './layer-adapters/types';
 import type { SyncLayerInput } from './map-sync';
@@ -139,8 +140,8 @@ export function getDataDrivenColumnsForLayer(
   const paint = layer.paint ?? {};
   const heatmapWeight = paint['_heatmap-weight-column'];
   if (typeof heatmapWeight === 'string' && heatmapWeight) cols.add(heatmapWeight);
-  const heightCol = paint['_height_column'];
-  if (typeof heightCol === 'string' && heightCol) cols.add(heightCol);
+  const heightCol = resolveHeightColumn(getBuilderStyleConfig(layer), paint);
+  if (heightCol) cols.add(heightCol);
   // The label text and a symbol's category icon are layout expressions the paint walk never sees.
   const labelCol = layer.label_config?.column;
   if (typeof labelCol === 'string' && labelCol) cols.add(labelCol);
