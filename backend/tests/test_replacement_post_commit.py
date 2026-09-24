@@ -572,9 +572,7 @@ _STEPS = {
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "raster": {
-        "catalog cache": (
-            "app.processing.ingest.tasks_raster_swap.invalidate_catalog_cache"
-        ),
+        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "postgis": {
@@ -622,8 +620,21 @@ async def replace(test_db_session, tmp_path, storage):
 
     yield _seed
     # Data tables outlive the test on the shared database unless dropped here.
+    # The record's delete cascades to the dataset and its runs, so a job or
+    # run a test leaves running never reaches a later test's unscoped sweep.
     async with db_module.async_session() as cleanup:
         for replacement in created:
+            await cleanup.execute(
+                text("DELETE FROM catalog.ingest_jobs WHERE id = :id"),
+                {"id": replacement.job_id},
+            )
+            await cleanup.execute(
+                text(
+                    "DELETE FROM catalog.records WHERE id = "
+                    "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+                ),
+                {"id": replacement.dataset_id},
+            )
             if replacement.live_table is not None:
                 await cleanup.execute(
                     text(

@@ -950,7 +950,7 @@ class TestFailedReplaceKeepsServing:
             raise RuntimeError("the swap transaction died after the puts")
 
         monkeypatch.setattr(
-            "app.processing.ingest.tasks_raster_replace.record_refresh_success",
+            "app.processing.ingest.publication.record_refresh_success",
             _die,
             raising=True,
         )
@@ -1556,7 +1556,11 @@ class TestLossyConversionRetainsSource:
             # The gate is two facts now: the COG preserved the samples, OR the
             # original was relocated somewhere durable. Either makes the staged
             # copy redundant; neither alone is enough.
-            names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+            names = {
+                node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+            } | {
+                node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+            }
             assert {"source_preserved_in_cog", "lossy_original_archived"} <= names, (
                 f"{module.__name__} reaps the upload without consulting both "
                 "whether the COG preserved it and whether it was archived "
@@ -1600,7 +1604,7 @@ class TestPostCommitFailureCannotUnpublish:
         # The first thing the post-commit block does. A transient failure here
         # says nothing about the swap, which is already durable.
         monkeypatch.setattr(
-            "app.processing.ingest.tasks_raster_swap.invalidate_catalog_cache",
+            "app.processing.ingest.publication.invalidate_catalog_cache",
             _die,
             raising=True,
         )
@@ -2192,9 +2196,10 @@ class TestLocalStorageHonoursTheRetentionPromise:
                 for node in ast.walk(tree)
                 if isinstance(node, ast.BoolOp)
                 and any(
-                    isinstance(v, ast.Name)
-                    and v.id in ("source_preserved_in_cog", "lossy_original_archived")
+                    (getattr(v, "id", None) or getattr(v, "attr", None))
+                    in ("source_preserved_in_cog", "lossy_original_archived")
                     for v in ast.walk(node)
+                    if isinstance(v, (ast.Name, ast.Attribute))
                 )
             ]
             assert gated, (
@@ -2396,7 +2401,7 @@ class TestFirstIngestPersistsTheServedCogToo:
 
         for module, task_name in (
             (tasks_raster, "ingest_raster"),
-            (tasks_raster_replace, "reupload_raster"),
+            (tasks_raster_replace, "_RasterReplace"),
         ):
             tree = ast.parse(inspect.getsource(module))
             # Scoped to the TASK body. `create_raster_dataset` legitimately
@@ -2406,10 +2411,16 @@ class TestFirstIngestPersistsTheServedCogToo:
             task = next(
                 node
                 for node in ast.walk(tree)
-                if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+                if isinstance(
+                    node, (ast.AsyncFunctionDef, ast.FunctionDef, ast.ClassDef)
+                )
                 and node.name == task_name
             )
-            names = {node.id for node in ast.walk(task) if isinstance(node, ast.Name)}
+            names = {
+                node.id for node in ast.walk(task) if isinstance(node, ast.Name)
+            } | {
+                node.attr for node in ast.walk(task) if isinstance(node, ast.Attribute)
+            }
             assert "cog_meta" in names, (
                 f"{task_name} never reads the converted COG's metadata"
             )
@@ -2814,7 +2825,7 @@ class TestArchiveCannotDestroyThePreviousOriginal:
                 raise RuntimeError("the swap transaction died after the archive")
 
             monkeypatch.setattr(
-                "app.processing.ingest.tasks_raster_replace.record_refresh_success",
+                "app.processing.ingest.publication.record_refresh_success",
                 _die,
                 raising=True,
             )
@@ -3087,7 +3098,7 @@ class TestRolledBackArchivesDoNotLeakOrClobber:
             raise RuntimeError("commit died after the archive")
 
         monkeypatch.setattr(
-            "app.processing.ingest.tasks_raster_replace.record_refresh_success",
+            "app.processing.ingest.publication.record_refresh_success",
             _die,
             raising=True,
         )
@@ -3169,7 +3180,7 @@ class TestRolledBackArchivesDoNotLeakOrClobber:
                 raise RuntimeError("commit died after the archive")
 
             monkeypatch.setattr(
-                "app.processing.ingest.tasks_raster_replace.record_refresh_success",
+                "app.processing.ingest.publication.record_refresh_success",
                 _die,
                 raising=True,
             )
@@ -3852,7 +3863,7 @@ class TestBothTailsReserveBeforeTheyUpsert:
             (tasks_raster, "ingest_raster", {"reserve_storage_bytes"}),
             (
                 tasks_raster_replace,
-                "reupload_raster",
+                "_RasterReplace",
                 {"reserve_replacement_bytes"},
             ),
         ):
@@ -3860,7 +3871,9 @@ class TestBothTailsReserveBeforeTheyUpsert:
             task = next(
                 node
                 for node in ast.walk(tree)
-                if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+                if isinstance(
+                    node, (ast.AsyncFunctionDef, ast.FunctionDef, ast.ClassDef)
+                )
                 and node.name == task_name
             )
             reserve_lines = [
@@ -4161,7 +4174,7 @@ class TestIndeterminateProbeNeverArmsTheReap:
                 raise RuntimeError("swap died after the archive")
 
             monkeypatch.setattr(
-                "app.processing.ingest.tasks_raster_replace.record_refresh_success",
+                "app.processing.ingest.publication.record_refresh_success",
                 _die,
                 raising=True,
             )
@@ -5424,7 +5437,9 @@ class TestCrsAssignmentPreservesTheSamples:
             for call in calls:
                 passed = {kw.arg: kw.value for kw in call.keywords if kw.arg == kwarg}
                 assert passed, f"{module.__name__}: {callee} got no {kwarg}="
-                assert getattr(passed[kwarg], "id", None) == "cog_meta", (
+                value = passed[kwarg]
+                named = getattr(value, "id", None) or getattr(value, "attr", None)
+                assert named == "cog_meta", (
                     f"{module.__name__}: {callee} was handed "
                     f"{ast.dump(passed[kwarg])} — the catalog's extent must "
                     "come from the converted COG, whose CRS is the assigned one"

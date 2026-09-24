@@ -2267,7 +2267,6 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
     """
 
     SITES = [
-        ("processing/ingest/tasks_raster_replace.py", "reupload_raster"),
         ("processing/ingest/tasks_vrt.py", "regenerate_vrt"),
     ]
 
@@ -2286,62 +2285,10 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
             for n in ast.walk(tree)
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name
         )
-        key = f"{module}.{name}"
-        if key in _INMEMORY_UNTIL_ACQUIRED:
-            pytest.skip(f"exempt: {_INMEMORY_UNTIL_ACQUIRED[key]}")
         ok, why = acquisition_dominates_writes(
             fn, bindings, module, _acquiring_functions()
         )
         assert ok, f"{rel}::{name}: {why}"
-
-    def test_the_deferred_flush_exemption_still_holds(self):
-        """The `no_autoflush` the exemption rests on must actually be there.
-
-        Without it the in-memory assignments reach the database at whatever
-        statement the archive path runs next, ahead of the acquisition.
-        """
-        import ast
-        from pathlib import Path
-
-        app_dir = Path(__file__).resolve().parents[1] / "app"
-        src = (app_dir / "processing/ingest/tasks_raster_replace.py").read_text()
-        tree = ast.parse(src)
-        fn = next(
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, ast.AsyncFunctionDef) and n.name == "reupload_raster"
-        )
-        swap = next(
-            n.lineno
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Name)
-            and n.func.id == "_write_swapped_fields"
-        )
-        acquire = next(
-            n.lineno
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Name)
-            and n.func.id == "lock_catalog_rows"
-        )
-        guarded = [
-            n.lineno
-            for n in ast.walk(fn)
-            if isinstance(n, ast.With)
-            and any(
-                isinstance(item.context_expr, ast.Attribute)
-                and item.context_expr.attr == "no_autoflush"
-                for item in n.items
-            )
-        ]
-        assert swap < acquire, "the swap helper must precede the acquisition here"
-        assert any(swap < line < acquire for line in guarded), (
-            "reupload_raster is exempt from the ordering check because its "
-            "in-memory assignments are held under `no_autoflush` until the "
-            "acquisition. That block is gone, so the exemption is now false: "
-            f"swap at {swap}, acquisition at {acquire}, no_autoflush at {guarded}"
-        )
 
     def test_the_worker_takes_the_raster_row_before_the_pair(self):
         """The reason the VRT exemption rests on, checked not asserted.
@@ -2460,23 +2407,12 @@ _PAIR_WRITER_EXEMPTIONS = {
     "app.processing.analysis.provenance.apply_analysis_provenance": "record of a pair being created",
     # --- writes one half; the caller owns the ordering ---------------------
     "app.processing.ingest.tasks_common.apply_manifest_record_metadata": "record only",
-    "app.processing.ingest.tasks_raster_swap._write_swapped_fields": "sync, no session; reupload_raster acquires before calling it",
+    "app.processing.ingest.tasks_raster_swap._write_swapped_fields": "sync, no session; the raster strategy's write calls it holding the rows",
     # --- writes both rows under its callers' acquisition -------------------
     "app.processing.ingest.catalog_projection.project": "the settlement seam and refresh_postgis take the job row and the pair first",
     "app.processing.ingest.tasks_common._write_reupload_catalog": "the settlement seam takes the job row and the pair before a strategy writes",
     "app.processing.ingest.tasks_reupload.write": "the file and service strategies' write step, which the settlement seam calls holding the job row and the pair",
-}
-
-
-# Assigns catalog fields in memory before acquiring, held under `no_autoflush`
-# until after it. The reason is enforced by
-# test_the_deferred_flush_exemption_still_holds.
-_INMEMORY_UNTIL_ACQUIRED = {
-    "app.processing.ingest.tasks_raster_replace.reupload_raster": (
-        "`_write_swapped_fields` only assigns; the acquisition sits below "
-        "`archive_lossy_original`, which uploads the whole original raster, "
-        "and `no_autoflush` holds the assignments until after it."
-    ),
+    "app.processing.ingest.tasks_raster_replace.write": "the raster strategy's write step, which the settlement seam calls holding the job row, the raster row and the pair",
 }
 
 
@@ -2971,11 +2907,7 @@ class TestEveryPairWriterTakesTheHouseOrder:
         failures = []
         for rel, module, bindings, fn in _walk_app_functions():
             key = f"{module}.{fn.name}"
-            if (
-                key in _PAIR_WRITER_EXEMPTIONS
-                or key in _CONDITIONAL_ACQUISITION
-                or key in _INMEMORY_UNTIL_ACQUIRED
-            ):
+            if key in _PAIR_WRITER_EXEMPTIONS or key in _CONDITIONAL_ACQUISITION:
                 continue
             # Every acquirer OR pair writer, whether its writes are its own
             # or a callee's: either selection alone has a blind spot.
