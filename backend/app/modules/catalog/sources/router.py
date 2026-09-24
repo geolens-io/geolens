@@ -784,8 +784,8 @@ async def _create_preview_job(
 ) -> IngestJob:
     """Create the pending IngestJob for a successful preview, audit, and commit.
 
-    Stores source_columns/geometry_type so ingest_service can skip geometry
-    flags for non-spatial tables and fall back to column_info when needed.
+    Stores geometry_type so ingest_service can skip geometry flags for
+    non-spatial tables.
 
     ``source_url``/``layer_id`` override the request values so commit ingests
     the exact previewed resource — matters for ArcGIS, where preview
@@ -807,7 +807,6 @@ async def _create_preview_job(
             "layer_id": effective_layer_id,
             "object_id_field": request.object_id_field,
             "geometry_type": preview_data.get("geometry_type"),
-            "source_columns": preview_data.get("columns") or [],
         },
     )
     db.add(job)

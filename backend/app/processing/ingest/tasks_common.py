@@ -330,27 +330,6 @@ async def cleanup_step(what: str, *, job_id: str) -> AsyncGenerator[None, None]:
         )
 
 
-# ArcGIS esriFieldType → column_info type mapping
-_ARCGIS_TYPE_MAP = {
-    "esriFieldTypeString": "text",
-    "esriFieldTypeSmallInteger": "integer",
-    "esriFieldTypeInteger": "integer",
-    "esriFieldTypeSingle": "real",
-    "esriFieldTypeDouble": "double precision",
-    "esriFieldTypeDate": "timestamp without time zone",
-    "esriFieldTypeOID": "integer",
-    "esriFieldTypeGlobalID": "text",
-    "esriFieldTypeGUID": "text",
-    "esriFieldTypeBlob": "text",
-    "esriFieldTypeXML": "text",
-}
-
-
-def _arcgis_type_to_column_type(esri_type: str) -> str:
-    """Map an ArcGIS esriFieldType string to a PostgreSQL column type name."""
-    return _ARCGIS_TYPE_MAP.get(esri_type, "text")
-
-
 def _append_job_warning(job, warning: "IngestJobWarning") -> None:
     """Append a structured warning to ``job.user_metadata['warnings']``.
 
@@ -1297,22 +1276,6 @@ async def _finalize_ingest(ctx: IngestContext):
     three_d = await _detect_3d_and_promote_elev(
         session, table_name, metadata, schema=_schema
     )
-
-    # ArcGIS column_info fallback: if the DB-based extraction returned empty
-    # column_info (e.g., non-spatial table where ogr2ogr only created a gid column),
-    # fall back to the ArcGIS fields captured at preview time and stored in user_metadata.
-    if not metadata.get("column_info") and user_metadata.get("source_columns"):
-        source_columns = user_metadata["source_columns"]
-        metadata["column_info"] = [
-            {
-                "name": col["name"],
-                "type": _arcgis_type_to_column_type(col.get("type", "string")),
-                "ordinal_position": idx + 1,
-                "is_nullable": True,
-            }
-            for idx, col in enumerate(source_columns)
-            if col.get("name")  # skip columns without a name
-        ]
 
     # Extract sample values for attribute search
     sample_values = await get_sample_values(

@@ -1285,7 +1285,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/sources/adapters/arcgis.py": 1045,
     # Source API router debt; split discovery, preview and dispatch endpoints before
     # raising.
-    "backend/app/modules/catalog/sources/router.py": 1736,
+    "backend/app/modules/catalog/sources/router.py": 1735,
     # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2093,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
@@ -1302,7 +1302,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # raising.
     "backend/app/processing/ingest/router.py": 1805,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1924,
+    "backend/app/processing/ingest/tasks_common.py": 1887,
     # Reupload retains retrieval, staging, cleanup and enrichment adapters.
     "backend/app/processing/ingest/tasks_reupload.py": 1601,
     # Refresh strategies share access, admission and dispatch rules at this API

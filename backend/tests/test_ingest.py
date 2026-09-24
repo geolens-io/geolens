@@ -8,13 +8,14 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import shutil
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.modules.auth.models import User
 from app.platform.jobs.models import IngestJob, commit_attempted_marker
@@ -711,11 +712,6 @@ class TestCsvNonSpatialPipeline:
             await test_db_session.commit()
 
 
-# ---------------------------------------------------------------------------
-# ArcGIS column_info fallback test (260408-iny)
-# ---------------------------------------------------------------------------
-
-
 async def _get_admin_id_for_ingest(session):
     """Helper to get admin user id for Task 3 tests."""
     from tests.factories import get_user_id
@@ -723,126 +719,67 @@ async def _get_admin_id_for_ingest(session):
     return await get_user_id(session, "admin")
 
 
-@pytest.mark.anyio
-async def test_arcgis_table_ingest_populates_column_info(test_db_session):
-    """When ogr2ogr creates a table with no attribute columns (only gid),
-    the ArcGIS fields fallback in _finalize_ingest should populate column_info
-    from source_columns stored in user_metadata.
+# ---------------------------------------------------------------------------
+# A non-spatial ArcGIS service load keeps its attribute columns (#2200)
+# ---------------------------------------------------------------------------
 
-    Verifies _arcgis_type_to_column_type helper and the fallback branch.
+# A Table layer's query response: attributes only, no "geometry" key and no
+# top-level "geometryType" -- the shape run_ogr2ogr_service's is_non_spatial
+# branch is built for.
+_NONSPATIAL_ESRIJSON = """{
+  "objectIdFieldName": "OBJECTID",
+  "fields": [
+    {"name": "OBJECTID", "type": "esriFieldTypeOID", "alias": "OBJECTID"},
+    {"name": "NAME", "type": "esriFieldTypeString", "alias": "NAME", "length": 255},
+    {"name": "SCORE", "type": "esriFieldTypeDouble", "alias": "SCORE"}
+  ],
+  "features": [
+    {"attributes": {"OBJECTID": 1, "NAME": "Alpha", "SCORE": 1.5}},
+    {"attributes": {"OBJECTID": 2, "NAME": "Bravo", "SCORE": 2.5}}
+  ]
+}"""
+
+
+@pytest.mark.skipif(
+    shutil.which("ogr2ogr") is None,
+    reason="ogr2ogr binary not available on host (runs in backend Docker image / CI)",
+)
+@pytest.mark.requires_ogr2ogr
+async def test_nonspatial_arcgis_service_load_keeps_attribute_columns(
+    test_db_session, tmp_path
+):
+    """A non-spatial ArcGIS Table layer keeps its fields, not just gid.
+
+    #2200: ogr2ogr once needed a column_info fallback for this shape because
+    it produced a gid-only table. Current GDAL does not; this pins that so a
+    future regression is caught directly instead of relying on a fallback.
     """
-    import uuid as _uuid
+    from app.processing.ingest.metadata import get_column_info
+    from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr_service
 
-    from sqlalchemy import text
-
-    from app.modules.catalog.datasets.domain.models import Dataset
-    from app.processing.ingest.tasks import (
-        IngestContext,
-        _arcgis_type_to_column_type,
-        _finalize_ingest,
-    )
-    from app.platform.jobs.models import IngestJob
-
-    admin_id = await _get_admin_id_for_ingest(test_db_session)
-
-    source_columns = [
-        {"name": "Opportunity_Number", "type": "esriFieldTypeString"},
-        {"name": "Federal_Agency", "type": "esriFieldTypeString"},
-        {"name": "Category", "type": "esriFieldTypeString"},
-        {"name": "Opening_Date", "type": "esriFieldTypeDate"},
-        {"name": "FID2", "type": "esriFieldTypeOID"},
-    ]
-    user_metadata = {
-        "service_type": "ArcGIS:FeatureServer",
-        "layer_id": 0,
-        "geometry_type": None,
-        "source_columns": source_columns,
-        "title": "ArcGIS Column Info Test",
-        "visibility": "private",
-    }
-
-    job = IngestJob(
-        source_filename="TestTable",
-        source_url="https://example.arcgis.com/FeatureServer/0",
-        source_layer="0",
-        created_by=admin_id,
-        status="running",
-        user_metadata=user_metadata,
-    )
-    test_db_session.add(job)
-    await test_db_session.flush()
-
-    # Simulate Case 2: ogr2ogr created only the gid column (no attribute columns)
-    table_name = f"tbl_arcgis_{_uuid.uuid4().hex[:10]}"
-    await test_db_session.execute(
-        text(f"CREATE TABLE IF NOT EXISTS data.{table_name} (gid serial PRIMARY KEY)")
-    )
-    await test_db_session.commit()
+    fixture = tmp_path / "nonspatial.json"
+    fixture.write_text(_NONSPATIAL_ESRIJSON)
+    table_name = f"tbl_arcgis_ns_{uuid.uuid4().hex[:10]}"
 
     try:
-        await _finalize_ingest(
-            IngestContext(
-                session=test_db_session,
-                job=job,
-                table_name=table_name,
-                user_id=str(admin_id),
-                has_geometry=False,
-                effective_srid=None,
-                source_format="arcgis_featureserver",
-                source_filename="TestTable",
-                original_srid=None,
-                user_metadata=user_metadata,
-            )
+        await run_ogr2ogr_service(
+            gdal_source=f"ESRIJSON:{fixture}",
+            layer_name="",
+            table_name=table_name,
+            db_conn_str=build_pg_conn_str(),
+            service_type="arcgis_featureserver",
+            is_non_spatial=True,
+            schema="data",
         )
 
-        from sqlalchemy import select
-
-        result = await test_db_session.execute(
-            select(Dataset).where(Dataset.table_name == table_name)
-        )
-        dataset = result.scalar_one()
-
-        assert dataset.column_info is not None
-        assert len(dataset.column_info) == 5
-
-        names = [c["name"] for c in dataset.column_info]
-        assert "Opportunity_Number" in names
-        assert "Federal_Agency" in names
-        assert "Opening_Date" in names
-
-        # Verify type mapping
-        by_name = {c["name"]: c for c in dataset.column_info}
-        assert by_name["Opportunity_Number"]["type"] == "text"
-        assert by_name["Opening_Date"]["type"] == "timestamp without time zone"
-        assert by_name["FID2"]["type"] == "integer"
-
-        # Verify ordinal_position is sequential from 1
-        assert by_name["Opportunity_Number"]["ordinal_position"] == 1
-        assert by_name["FID2"]["ordinal_position"] == 5
-
-        # fix(#1271 review): a first service ingest fetched from the origin
-        # moments ago, so the import IS a contact and stamps last_checked_at.
-        # The health verdict itself stays with the probe's classifier.
-        assert dataset.last_checked_at is not None
-        assert dataset.source_health is None
-
-        # Verify _arcgis_type_to_column_type helper directly
-        assert _arcgis_type_to_column_type("esriFieldTypeString") == "text"
-        assert _arcgis_type_to_column_type("esriFieldTypeInteger") == "integer"
-        assert _arcgis_type_to_column_type("esriFieldTypeDouble") == "double precision"
-        assert (
-            _arcgis_type_to_column_type("esriFieldTypeDate")
-            == "timestamp without time zone"
-        )
-        assert _arcgis_type_to_column_type("esriFieldTypeOID") == "integer"
-        assert _arcgis_type_to_column_type("esriFieldTypeUnknown") == "text"  # fallback
-
+        columns = await get_column_info(test_db_session, table_name, schema="data")
+        names = {c["name"] for c in columns}
+        assert names == {"objectid", "name", "score"}
     finally:
-        await test_db_session.rollback()
-        async with test_db_session.begin_nested():
-            await test_db_session.execute(
-                text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
-            )
+        await test_db_session.execute(
+            text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+        )
+        await test_db_session.commit()
 
 
 # ---------------------------------------------------------------------------
