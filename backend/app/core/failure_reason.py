@@ -54,6 +54,10 @@ def is_composed_exception(exc: BaseException) -> bool:
     )
 
 
+class FixedReason(str):
+    """A reason written here as a literal, which no redaction pass rewrites."""
+
+
 def redact_failure_reason(reason: str | BaseException) -> str:
     """Failure text safe to store in a reason column or return in a response.
 
@@ -61,8 +65,10 @@ def redact_failure_reason(reason: str | BaseException) -> str:
     caller already flattened, so the raw-exception clause is enforced for
     both. A library exception becomes ``INTERNAL_FAILURE_REASON``; text
     keeps only its first line, which is where an exception's own summary
-    ends and its payload dump begins.
+    ends and its payload dump begins. A ``FixedReason`` is returned as is.
     """
+    if isinstance(reason, FixedReason):
+        return reason
     if isinstance(reason, BaseException):
         if not is_composed_exception(reason):
             return INTERNAL_FAILURE_REASON
