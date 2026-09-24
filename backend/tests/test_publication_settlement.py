@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -12,7 +13,9 @@ import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
+import app.core.db as db_module
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE
 from app.platform.jobs.heartbeat import attempt_scoped_staging_table
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.service import claim_run_for_job, create_pending_run
@@ -257,6 +260,100 @@ async def test_blocked_cache_failure_keeps_blocked_diagnostic(
         select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job_id)
     )
     assert run.status == "blocked"
+
+
+async def _hold_dataset_row_then_release(
+    dataset_id: uuid.UUID, ready: asyncio.Event, hold_seconds: float
+) -> None:
+    """Hold a lock on the dataset row from a second session, then commit."""
+    async with db_module.async_session() as holder:
+        try:
+            # KEY SHARE: the job row was inserted in this test's transaction, so
+            # updating it re-checks its foreign key against this row. Key share
+            # lets that check through and still blocks lock_catalog_rows.
+            await holder.execute(
+                select(Dataset.id)
+                .where(Dataset.id == dataset_id)
+                .with_for_update(key_share=True)
+            )
+            ready.set()
+            await asyncio.sleep(hold_seconds)
+        finally:
+            await holder.commit()
+
+
+async def test_a_blocked_verdict_settles_blocked_through_held_contention(
+    test_db_session, monkeypatch
+):
+    """Settlement waits out a 3s hold on the dataset row and still ends the
+    run blocked, with the job carrying the review message."""
+    dataset, job, staging, admin_id = await _prepared_candidate(
+        test_db_session, refresh=True
+    )
+    job_id = job.id
+    monkeypatch.setattr(
+        "app.processing.ingest.publication.invalidate_catalog_cache", AsyncMock()
+    )
+
+    ready = asyncio.Event()
+    holder = asyncio.create_task(
+        _hold_dataset_row_then_release(dataset.id, ready, hold_seconds=3)
+    )
+    try:
+        await ready.wait()
+        outcome = await settle_publication(
+            replace(
+                _command(
+                    test_db_session, dataset, job, staging, admin_id, refresh=True
+                ),
+                expected_feature_count=None,
+            )
+        )
+    finally:
+        await holder
+
+    assert outcome is PublicationOutcome.BLOCKED
+    test_db_session.expire_all()
+    run = await test_db_session.scalar(
+        select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job_id)
+    )
+    assert run.status == "blocked"
+    updated_job = await test_db_session.get(IngestJob, job_id)
+    assert "Review the detected changes" in (updated_job.error_message or "")
+
+
+async def test_a_rejected_verdict_settles_failed_through_held_contention(
+    test_db_session, monkeypatch
+):
+    """Settlement waits out a 3s hold on the dataset row and still ends the
+    run with its own rejection code, not a lock-conflict code."""
+    dataset, job, staging, admin_id = await _prepared_candidate(
+        test_db_session, refresh=True
+    )
+    job_id = job.id
+    monkeypatch.setattr(
+        "app.processing.ingest.publication.invalidate_catalog_cache", AsyncMock()
+    )
+
+    ready = asyncio.Event()
+    holder = asyncio.create_task(
+        _hold_dataset_row_then_release(dataset.id, ready, hold_seconds=3)
+    )
+    try:
+        await ready.wait()
+        outcome = await settle_publication(
+            _command(test_db_session, dataset, job, staging, admin_id, refresh=True)
+        )
+    finally:
+        await holder
+
+    assert outcome is PublicationOutcome.REJECTED
+    test_db_session.expire_all()
+    run = await test_db_session.scalar(
+        select(DatasetRefreshRun).where(DatasetRefreshRun.ingest_job_id == job_id)
+    )
+    assert run.status == "failed"
+    assert run.error_code != CATALOG_LOCK_CONFLICT_CODE
 
 
 async def test_post_commit_cache_failure_keeps_the_published_job_complete(

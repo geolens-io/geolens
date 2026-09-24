@@ -16,6 +16,7 @@ from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
+    WORKER_LOCK_TIMEOUT,
     CatalogLockConflict,
     lock_catalog_rows,
 )
@@ -219,6 +220,7 @@ async def _settle_nonpublication(
         record_cls=port.get_record_orm_class(),
         dataset_id=command.dataset.id,
         record_id=command.dataset.record_id,
+        lock_timeout=WORKER_LOCK_TIMEOUT,
     )
     command.dataset.last_checked_at = datetime.now(timezone.utc)
     command.dataset.schema_drift_status = drift_status_from_diff(command.schema_diff)
