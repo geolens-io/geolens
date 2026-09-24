@@ -58,6 +58,8 @@ async def test_a_failure_write_past_its_budget_leaves_the_replace_own_error(
     )
     replacement = await replace("raster")
     holder = db_module.async_session()
+    loop = asyncio.get_running_loop()
+    held_at: list[float] = []
 
     async def _hold_the_job_row_then_fail(*args, **kwargs):
         await holder.execute(
@@ -65,6 +67,7 @@ async def test_a_failure_write_past_its_budget_leaves_the_replace_own_error(
             .where(IngestJob.id == replacement.job_id)
             .with_for_update()
         )
+        held_at.append(loop.time())
         raise RasterReplaceError("the conversion failed")
 
     monkeypatch.setattr(
@@ -78,9 +81,13 @@ async def test_a_failure_write_past_its_budget_leaves_the_replace_own_error(
         ):
             with pytest.raises(RasterReplaceError, match="the conversion failed"):
                 await asyncio.wait_for(replacement.run(), timeout=20)
+        waited = loop.time() - held_at[0]
     finally:
         await holder.rollback()
         await holder.close()
+
+    # The default budget is 10 s, so an exit well inside it shows this one held.
+    assert waited < 5, f"the replace waited {waited:.1f}s on the held job row"
 
     expired = [e for e in logs if e["event"] == "job_error_write_timeout"]
     assert [e["budget_ms"] for e in expired] == [_TEST_BUDGET_MS]

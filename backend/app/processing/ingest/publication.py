@@ -30,8 +30,8 @@ from app.platform.catalog_locks import (
     lock_conflict_report,
     worker_lock_budget,
 )
+from app.platform.jobs import heartbeat
 from app.platform.jobs.heartbeat import (
-    JOB_ERROR_WRITE_TIMEOUT_MS,
     StaleIngestAttempt,
     arm_job_error_write_budget,
     attempt_scoped_staging_table,
@@ -565,7 +565,8 @@ async def _record_failure(
             # The pool checkout first, on its own deadline: `SET LOCAL` cannot
             # bound a wait for a connection.
             await asyncio.wait_for(
-                session.connection(), timeout=JOB_ERROR_WRITE_TIMEOUT_MS / 1000
+                session.connection(),
+                timeout=heartbeat.JOB_ERROR_WRITE_TIMEOUT_MS / 1000,
             )
             await arm_job_error_write_budget(session)
             landed = await _fail(

@@ -144,15 +144,14 @@ async def _stamp_progress(
 ) -> None:
     """Advance the job's mid-flight progress in its own brief session.
 
-    REMED-02 / REMED-03: COG conversion and quicklook generation are the two
-    multi-minute steps, and without a checkpoint between them the UI shows a
-    dead spinner. The session is opened and closed around the write only — the
-    GDAL work either side of it must never see a live session (gh #100).
+    Conversion and quicklooks are the two multi-minute steps, and without a
+    checkpoint between them the UI shows a dead spinner. Only a running job is
+    stamped, so the step a cancel or sweep wrote stands. The session never
+    spans the GDAL work either side of it.
     """
-    async with _job_phase_session(job_uuid, phase=phase, attempt_id=attempt_uuid) as (
-        session,
-        job,
-    ):
+    async with _job_phase_session(
+        job_uuid, phase=phase, attempt_id=attempt_uuid, require_status="running"
+    ) as (session, job):
         if job is None:
             return
         job.current_step = step
@@ -223,8 +222,9 @@ class _RasterReplace:
         self.refused = False
         self.owned_staging_key: str | None = None
         self.tmp_dir: str | None = None
-        # Their difference decides every reap: an identical re-upload puts the
-        # same bytes back at the live asset's keys, which no path may reap.
+        # Each reap takes one list minus the other, so no path deletes a key
+        # the live asset names. Attempt-scoped keys never overlap the live
+        # ones, so this is a second guard.
         self.written_storage_keys: list[str] = []
         self.prior_physical_keys: list[str] = []
         # The upload may be deleted only once the COG is known to carry
@@ -318,9 +318,8 @@ class _RasterReplace:
         self.cog_size = os.path.getsize(self.local_cog_path)
 
         # Named on the job row before any put, so a worker killed between the
-        # puts and its cleanup leaves them to the stale-job reaper. The live
-        # asset's keys, in logical form, are excluded: an identical re-upload
-        # reproduces them.
+        # puts and its cleanup leaves them to the stale-job reaper. Excluding
+        # the live keys is defensive: attempt-scoped keys never match them.
         base_key = attempt_scoped_raster_base_key(
             self.dataset_uuid, self.attempt_uuid, self.asset_sha256
         )

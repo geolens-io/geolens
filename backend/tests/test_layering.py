@@ -1330,7 +1330,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1696,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 617,
+    "backend/app/processing/ingest/tasks_raster_replace.py": 616,
     # File/service tasks share publication fencing, heartbeat phases and failure
     # cleanup.
     "backend/app/processing/ingest/tasks_vector.py": 1173,

@@ -466,6 +466,32 @@ async def test_a_refused_raster_upload_fails_its_job_notifies_and_returns(
     assert await _live_state(replacement) == before
 
 
+async def test_a_raster_progress_stamp_leaves_a_job_that_left_running(
+    replace,
+) -> None:
+    """A progress stamp writes nothing on a job a cancel already ended."""
+    replacement = await replace("raster")
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, replacement.job_id)
+        attempt_id = job.attempt_id
+        job.status = "cancelled"
+        job.current_step = "queued"
+        await session.commit()
+
+    await tasks_raster_replace._stamp_progress(
+        replacement.job_id,
+        attempt_id,
+        phase="progress_write_validating",
+        step="validating",
+        progress=0.0,
+    )
+
+    job = await _fresh_scalar(
+        select(IngestJob).where(IngestJob.id == replacement.job_id)
+    )
+    assert (job.status, job.current_step) == ("cancelled", "queued")
+
+
 @pytest.mark.parametrize("kind", ["file", "service"])
 async def test_a_job_warning_recorded_before_the_hold_survives_it(
     replace, monkeypatch, kind: str
