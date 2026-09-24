@@ -47,12 +47,24 @@ function resolveLayerAdapterType(layer: MapLayerResponse, paint: Record<string, 
   return resolveAdapterType(layer.dataset_geometry_type, styleConfig ?? layer.style_config, paint);
 }
 
-// The handlers have no cluster GeoJSON, so they pick adapters with
-// resolveLayerAdapterType rather than the description's drawsAs.
-const HANDLER_CONTEXT: RenderContext = { idPrefix: '', boundedGeoJson: new Map() };
+// The handlers have neither tile tokens nor cluster GeoJSON, so they read ids,
+// layout and filter from the description, never its sources or drawsAs.
+function handlerContext(mvtSourceLayerPrefix: string | null | undefined): RenderContext {
+  return {
+    idPrefix: '',
+    origin: window.location.origin,
+    tileBaseUrl: undefined,
+    sourceLayerPrefix: mvtSourceLayerPrefix,
+    tokens: new Map(),
+    boundedGeoJson: new Map(),
+  };
+}
 
-function describeBuilderLayer(input: SyncLayerInput): DescribedLayer | undefined {
-  return describeLayers([input], HANDLER_CONTEXT).layers[0];
+function describeBuilderLayer(
+  input: SyncLayerInput,
+  mvtSourceLayerPrefix: string | null | undefined,
+): DescribedLayer | undefined {
+  return describeLayers([input], handlerContext(mvtSourceLayerPrefix)).layers[0];
 }
 
 /**
@@ -62,16 +74,11 @@ function describeBuilderLayer(input: SyncLayerInput): DescribedLayer | undefined
 export function builderAdapterInput(
   layer: MapLayerResponse,
   mvtSourceLayerPrefix: string | null | undefined,
-  { tileUrl = '', ...pending }: { tileUrl?: string; paint?: Record<string, unknown>; opacity?: number } = {},
+  pending: { tileUrl?: string; paint?: Record<string, unknown>; opacity?: number } = {},
 ): AdapterLayerInput | null {
   const input = toSyncInput(layer);
-  const described = describeBuilderLayer(input);
-  if (!described) return null;
-  return adapterInputFor(input, described, {
-    sourceId: getSourceIdForLayer(layer),
-    sourceLayer: getMvtSourceLayerName(layer.dataset_table_name, mvtSourceLayerPrefix),
-    tileUrl,
-  }, pending);
+  const described = describeBuilderLayer(input, mvtSourceLayerPrefix);
+  return described ? adapterInputFor(input, described, pending) : null;
 }
 
 // STATE-01 / SYNC-04: the canonical per-layer visibility map side-effect. The
@@ -714,7 +721,7 @@ export function useLayerMapSync(
           if (!map.getLayer(mapLayerId)) return;
 
           // Apply layer zoom range from custom layout props (main + outline companion)
-          const { minzoom, maxzoom } = describeBuilderLayer(toSyncInput(layer))?.zoom ?? FULL_ZOOM_RANGE;
+          const { minzoom, maxzoom } = describeBuilderLayer(toSyncInput(layer), mvtSourceLayerPrefix)?.zoom ?? FULL_ZOOM_RANGE;
           map.setLayerZoomRange(mapLayerId, minzoom, maxzoom);
           if (map.getLayer(ids.outline)) {
             map.setLayerZoomRange(ids.outline, minzoom, maxzoom);
@@ -763,7 +770,7 @@ export function useLayerMapSync(
         },
       );
     },
-    [applyLayerUpdate],
+    [applyLayerUpdate, mvtSourceLayerPrefix],
   );
 
   const handleFilterChange = useCallback(

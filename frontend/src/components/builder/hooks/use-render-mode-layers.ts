@@ -5,7 +5,6 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getLayerType, getSourceIdForLayer } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
-import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
@@ -61,14 +60,8 @@ export function useRenderModeLayers({
 }: UseRenderModeLayersParams) {
   const { t } = useTranslation('builder');
 
-  /** Swap the MapLibre layer for a given dataset between adapter types (e.g. circle <-> heatmap).
-   *
-   *  Phase 1050 SF-04: sourceId now routes through `getSourceIdForLayer` so
-   *  non-cluster vector layers correctly inherit the deduped
-   *  `source-data-${dataset_table_name}` source's tile URL. Cluster and
-   *  raster/hillshade layers keep their per-layer source id via the helper's
-   *  branching contract.
-   */
+  /** Swap the MapLibre layer for a given dataset between vector adapter types (e.g. circle <-> heatmap).
+   *  An image or hillshade switch is left to the sync pass. */
   // STATE-02: named function expression so the BUG-018 idle-retry recursion
   // targets the function's own (immutable) name binding `runSwapLayerOnMap`
   // instead of the reactive useCallback identity — the React Compiler rejects
@@ -79,6 +72,9 @@ export function useRenderModeLayers({
     adapterType: RenderAsAdapterType,
     updatedPaint: Record<string, unknown>,
   ): void {
+    // A raster source's URL comes from the dataset's tile token, which only the
+    // sync pass holds, so that pass replaces the layer and its source.
+    if (adapterType === 'raster' || adapterType === 'hillshade') return;
     const map = mapInstanceRef.current;
     if (!map) return;
     // BUG-018: mirror the idle-retry pattern from BuilderMap.tsx (~:923).
@@ -119,17 +115,8 @@ export function useRenderModeLayers({
     if (map.getLayer(ids.mixedPoints)) {
       map.removeLayer(ids.mixedPoints);
     }
-    // Per-layer raster/hillshade source removal — these layer types keep
-    // their per-layer source id via `getSourceIdForLayer`'s raster branch,
-    // so this is still safe (no sibling layer shares it).
-    if ((adapterType === 'raster' || adapterType === 'hillshade') && map.getSource(sourceId)) {
-      map.removeSource(sourceId);
-    }
 
-    // Get tile URL from existing source
-    const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
-    const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined, layer.tile_version ?? undefined);
-    const adapterInput = builderAdapterInput(layer, mvtSourceLayerPrefix, { paint: updatedPaint, tileUrl });
+    const adapterInput = builderAdapterInput(layer, mvtSourceLayerPrefix, { paint: updatedPaint });
     if (!adapterInput) return;
     const { sourceLayer } = adapterInput;
 

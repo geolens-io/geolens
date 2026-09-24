@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
  *  - HINT:     single-band only, when stretch != minmax AND colormap != gray — RASTER-STRETCH-UI-02
  *
  * `_colormap` / `_stretch` / `_pmin` / `_pmax` / `_sigma` are builder-private paint keys.
- * They mutate the tile URL via buildColormapTileUrl (map-sync.ts) and never reach
+ * They mutate the tile URL via buildColormapTileUrl (layer-description.ts) and never reach
  * MapLibre setPaintProperty (intentionally absent from RASTER_OWNED_PAINT_PROPERTIES).
  *
  * Not shown for DEM layers — stretch corrupts terrainrgb encoding and the backend

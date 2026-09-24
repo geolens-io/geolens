@@ -32,7 +32,7 @@ export type RasterTileToken = {
 
 /** The same shape MINUS the signature, built locally rather than fetched.
  *
- * fix(#688): `rasterTokenFromLayer` (map-sync.ts) assembles this from a saved
+ * fix(#688): `rasterTokenFromLayer` (layer-description.ts) assembles this from a saved
  * layer row, which has no signature and cannot have one — the in-app map
  * authenticates with a bearer token through `setTransformRequest` instead. It
  * is a separate type rather than four optional fields on `RasterTileToken`

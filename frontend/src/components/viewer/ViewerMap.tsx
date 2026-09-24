@@ -12,7 +12,7 @@ import {
   BLANK_BASEMAP_ID,
   FALLBACK_BASEMAP_STYLE_URL,
 } from '@/lib/basemap-utils';
-import { buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { buildTileTransformRequest, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
@@ -36,7 +36,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { adapterInputFor, describeLayers } from '@/components/builder/layer-description';
-import { getSourceIdForLayer, prefixed, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration } from '@/components/builder/map-sync';
+import { prefixed, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration, syncRenderContext } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
@@ -46,7 +46,7 @@ import {
   createViewerLayerEntries,
   isTerrainBackingLiveVisible,
 } from '@/components/viewer/layer-identity';
-import { getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
+import { getClusterSourceEligibility, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import { AccessibleMapDataPanel } from '@/components/viewer/AccessibleMapDataPanel';
 import {
   toAccessibleMapFeatures,
@@ -130,6 +130,7 @@ export function toViewerSyncInput(
     // fix(#394) VT-02: thread the dataset content version through so the
     // viewer's tile URLs carry the same `_v=` cache-buster as the builder.
     tile_version: layer.tile_version,
+    bounds: layer.dataset_extent_bbox ?? null,
   };
 }
 
@@ -238,13 +239,10 @@ export const ViewerMap = memo(function ViewerMap({
     return () => clearTimeout(timer);
   }, [revealed]);
 
-  // Bounded GeoJSON data for small 3D datasets and eligible cluster layers.
+  // Bounded GeoJSON for cluster layers small enough to cluster in the browser.
   const geojsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
   const boundedGeoJsonLayers = useMemo(
-    () => layerEntries.filter(({ layer }) => (
-      (layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000)
-      || shouldFetchClusterGeoJson(layer)
-    )),
+    () => layerEntries.filter(({ layer }) => shouldFetchClusterGeoJson(layer)),
     [layerEntries],
   );
   const boundedGeoJsonRequest = useMemo(() => ({
@@ -352,8 +350,7 @@ export const ViewerMap = memo(function ViewerMap({
     setTilesIdle(false);
   }, []);
 
-  // Fetch bounded GeoJSON data for small 3D datasets (auto-switch from MVT per D-07)
-  // and for eligible point cluster layers.
+  // Fetch bounded GeoJSON for the eligible cluster layers.
   // Fetch is independent of map readiness — data lands in a ref, repaint is separate.
   useEffect(() => {
     if (boundedGeoJsonLayers.length === 0) {
@@ -370,12 +367,8 @@ export const ViewerMap = memo(function ViewerMap({
         boundedGeoJsonLayers.map(async ({ layer, key }) => {
           try {
             const data = await fetchBoundedGeoJson(layer.dataset_id, { apiKey, embedToken });
-            if (!cancelled) {
-              const eligibility = getClusterSourceEligibility(layer);
-              const isClusterLayer = isClusterRenderMode(layer);
-              if (!isClusterLayer || (!data.truncated && data.total_count <= eligibility.limit)) {
-                newMap.set(key, asFeatureCollection(data));
-              }
+            if (!cancelled && !data.truncated && data.total_count <= getClusterSourceEligibility(layer).limit) {
+              newMap.set(key, asFeatureCollection(data));
             }
           } catch (e) {
             if (import.meta.env.DEV) console.warn(`[ViewerMap] Bounded GeoJSON fetch failed for ${layer.dataset_id}:`, e);
@@ -395,7 +388,7 @@ export const ViewerMap = memo(function ViewerMap({
     return () => { cancelled = true; };
   }, [boundedGeoJsonLayers, boundedGeoJsonRequest, apiKey, embedToken, t]);
 
-  // Trigger repaint when GeoJSON-Z data arrives and map is ready
+  // Trigger repaint when bounded GeoJSON arrives and map is ready
   useEffect(() => {
     if (geojsonVersion === 0) return;
     const map = mapRef.current;
@@ -928,7 +921,11 @@ export const ViewerMap = memo(function ViewerMap({
 
     const applyVisibilityDiff = () => {
       const prev = prevVisibleRef.current;
-      const context = { idPrefix: VIEWER_PREFIX, boundedGeoJson: geojsonDataRef.current };
+      // A toggle reads ids and adapters, never sources, so it needs no tokens.
+      const context = syncRenderContext(new Map(), undefined, geojsonDataRef.current, {
+        idPrefix: VIEWER_PREFIX,
+        mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
+      });
       for (const { layer, key } of layerEntries) {
         const wasVisible = prev.has(key);
         const isVisible = visibleLayers.has(key);
@@ -937,11 +934,7 @@ export const ViewerMap = memo(function ViewerMap({
         const input = toViewerSyncInput(layer, key, visibleLayers);
         const [described] = describeLayers([input], context).layers;
         if (described) {
-          getAdapter(described.drawsAs).syncVisibility(map, adapterInputFor(input, described, {
-            sourceId: getSourceIdForLayer(input, VIEWER_PREFIX),
-            sourceLayer: getMvtSourceLayerName(layer.table_name, tileConfig?.mvt_source_layer_prefix),
-            tileUrl: '',
-          }));
+          getAdapter(described.drawsAs).syncVisibility(map, adapterInputFor(input, described));
         }
 
         const labelId = prefixed('label', key, VIEWER_PREFIX);

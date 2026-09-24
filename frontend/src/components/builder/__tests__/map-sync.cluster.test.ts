@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { syncLayersToMap } from '../map-sync';
 import type { SyncLayerInput } from '../map-sync';
 import type { TileToken } from '@/api/tiles';
-import { buildClusterTileUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 
 vi.mock('@/lib/tile-utils', () => ({
   getMvtSourceLayerName: (table: string) => `data.${table}`,
@@ -161,7 +161,7 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(buildClusterTileUrl).toHaveBeenCalledWith('points', VECTOR_TOKEN, undefined, undefined, {
+    expect(buildClusterTileUrl).toHaveBeenCalledWith('points', VECTOR_TOKEN, `${window.location.origin}/api`, undefined, {
       clusterRadius: 64,
       clusterMaxZoom: 12,
     }, []);
@@ -201,7 +201,7 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(buildClusterTileUrl).toHaveBeenCalledWith(
       'points',
       VECTOR_TOKEN,
-      undefined,
+      `${window.location.origin}/api`,
       undefined,
       expect.any(Object),
       expect.arrayContaining(['fall', 'mass_kg']),
@@ -281,6 +281,23 @@ describe('syncLayersToMap cluster rendering', () => {
       clusterRadius: 80,
       clusterMaxZoom: 12,
     });
+  });
+
+  it('keeps a bounded cluster source when its tile token rotates', () => {
+    vi.mocked(buildSignedTileUrl).mockImplementation(
+      (table: string, token: { sig: string } | null) => `/tiles/${table}/{z}/{x}/{y}.pbf?sig=${token?.sig ?? ''}`,
+    );
+    const map = makeMockMap();
+    const layer = makeLayer();
+    const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' }, geojsonData);
+
+    const rotated = new Map<string, TileToken>([[layer.dataset_id, { ...VECTOR_TOKEN, sig: 'rotated' }]]);
+    syncLayersToMap(map, [layer], rotated, undefined, { current: new Set(['source-cluster-1']) }, { current: '' }, geojsonData);
+
+    vi.mocked(buildSignedTileUrl).mockImplementation(() => '/tiles/mock/{z}/{x}/{y}.pbf');
+    expect(map.removeSource).not.toHaveBeenCalled();
+    expect(map.addSource).toHaveBeenCalledTimes(1);
   });
 
   it('removes stale cluster companion layers before removing the source', () => {

@@ -269,5 +269,6 @@ export function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     feature_count: layer.dataset_feature_count,
     tile_version: layer.tile_version,
     dataset_attribution: layer.dataset_attribution,
+    dataset_extent_bbox: layer.dataset_extent_bbox,
   };
 }
