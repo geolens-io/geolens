@@ -310,9 +310,7 @@ class TestNormalizeGeometryType:
         assert _normalize_geometry_type("custom_type") == "CUSTOM_TYPE"
 
     def test_measured_suffix_stripped_before_concrete_lookup(self) -> None:
-        """PostGIS suffixes a measured (XYM) type with M; only the plain base
-        name satisfies chk_datasets_geometry_type.
-        """
+        """A measured (XYM) type name loses its M suffix."""
         from app.processing.ingest.metadata import _normalize_geometry_type
 
         assert _normalize_geometry_type("POINTM") == "POINT"
