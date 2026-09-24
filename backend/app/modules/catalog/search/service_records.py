@@ -14,7 +14,7 @@ import structlog
 
 from app.core.config import settings
 from app.core.raster_bands import band_display_name, stac_band_nodata
-from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import republished_tile_url, tile_template_query
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.source_freshness import (
@@ -56,6 +56,17 @@ _TABLE_FORMAT_MEDIA = {
     "gpkg": "application/geopackage+sqlite3",
     "geojson": "application/geo+json",
 }
+
+
+def _record_formats(record_type: str) -> list[str]:
+    """Media types a record advertises; the vector exports need a feature table."""
+    if record_type in RASTER_FAMILY_RECORD_TYPES:
+        return list(_RASTER_FORMAT_MEDIA.values())
+    if record_type == "table":
+        return list(_TABLE_FORMAT_MEDIA.values())
+    if capabilities(record_type).feature_table:
+        return list(_FORMAT_MEDIA.values())
+    return []
 
 
 def build_assets(
@@ -295,7 +306,7 @@ def dataset_to_ogc_record(
         keywords = list(record.theme_category or [])
     license_value = record.license or "proprietary"
 
-    # Used both for has_quicklook dispatch below and the STAC raster block.
+    # Used for has_quicklook and formats below and for the STAC raster block.
     record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
 
     ogc_record: dict = {
@@ -342,16 +353,7 @@ def dataset_to_ogc_record(
             )
             if record_type in RASTER_FAMILY_RECORD_TYPES
             else (dataset.quicklook_256_uri is not None),
-            "formats": (
-                list(_RASTER_FORMAT_MEDIA.values())
-                if (
-                    getattr(record, "record_type", "vector_dataset") or "vector_dataset"
-                )
-                in RASTER_FAMILY_RECORD_TYPES
-                else list(_TABLE_FORMAT_MEDIA.values())
-                if getattr(record, "record_type", None) == "table"
-                else list(_FORMAT_MEDIA.values())
-            ),
+            "formats": _record_formats(record_type),
             "language": localized.language,
             "externalIds": build_external_ids(dataset),
             "themes": build_themes(record.theme_category, record.keywords),
