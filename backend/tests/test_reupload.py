@@ -2337,3 +2337,52 @@ class TestArchiveRunsAfterTheSwapCommit:
             )
 
         assert not local_file.exists()
+
+    async def test_a_failed_post_commit_refresh_does_not_fail_the_task(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        """The swap already committed; archive bookkeeping is best-effort too."""
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        real_refresh = AsyncSession.refresh
+        calls = {"n": 0}
+
+        async def _raising_once_refresh(self, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("pool checkout timed out")
+            return await real_refresh(self, *args, **kwargs)
+
+        put_calls = []
+
+        async def _recording_put(key, fobj):
+            put_calls.append(key)
+
+        dataset, job = await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_recording_put,
+            extra_patches=(
+                patch(
+                    "sqlalchemy.ext.asyncio.AsyncSession.refresh",
+                    new=_raising_once_refresh,
+                ),
+            ),
+        )
+
+        # The refresh raised before _archive_original_file ever ran.
+        assert put_calls == []
+        await test_db_session.refresh(job)
+        assert job.status == "complete"
+
+        from app.platform.refresh.models import DatasetRefreshRun
+
+        run = (
+            await test_db_session.execute(
+                select(DatasetRefreshRun).where(
+                    DatasetRefreshRun.ingest_job_id == job.id
+                )
+            )
+        ).scalar_one()
+        assert run.status == "succeeded"

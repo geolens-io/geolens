@@ -280,6 +280,33 @@ async def _detect_reupload_crs(
     return info, effective_srid
 
 
+async def _archive_after_commit(
+    session, *, job, dataset_id: uuid.UUID, file_path: str, job_id: str
+) -> None:
+    """Refresh the job and archive its original file; log, never raise.
+
+    The swap, the completed job and the run are already durable by the time
+    this runs, so a failure here (the refresh included) must not fail an
+    otherwise-successful reupload.
+    """
+    try:
+        await session.refresh(job)
+        await _archive_original_file(
+            session,
+            job=job,
+            dataset_id=dataset_id,
+            file_path=file_path,
+            log_message="Failed to archive re-uploaded file to storage",
+        )
+    except Exception:  # broad: bookkeeping must not fail an already-committed reupload
+        structlog.get_logger().warning(
+            "Post-commit archive bookkeeping failed",
+            job_id=job_id,
+            dataset_id=str(dataset_id),
+            exc_info=True,
+        )
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
 @tenant_task
 async def reupload_file(
@@ -642,15 +669,14 @@ async def reupload_file(
             await invalidate_tile_cache_for_table(live_table_name)
 
             # 10. Archive the original after the commit, so the upload never
-            # runs under the rename's exclusive lock. The helper records a
-            # failure on the job itself; the refresh reloads the committed row.
-            await session.refresh(job)
-            await _archive_original_file(
+            # runs under the rename's exclusive lock. Best-effort and logged
+            # rather than raised — see _archive_after_commit.
+            await _archive_after_commit(
                 session,
                 job=job,
                 dataset_id=dataset.id,
                 file_path=file_path,
-                log_message="Failed to archive re-uploaded file to storage",
+                job_id=job_id,
             )
 
         # Generate embedding (non-fatal). Use a fresh session to load the
