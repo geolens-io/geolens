@@ -23,7 +23,6 @@ from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     StaleIngestAttempt,
     attempt_scoped_staging_table,
-    claim_ingest_job_attempt,
     require_ingest_job_update,
 )
 from app.platform.jobs.ledger import (
@@ -512,7 +511,7 @@ class TestRetry:
         await test_db_session.commit()
         new_attempt = job.attempt_id
 
-        assert not await claim_ingest_job_attempt(test_db_session, job_id, old_attempt)
+        assert not await ledger.claim(test_db_session, job_id, old_attempt)
         with pytest.raises(StaleIngestAttempt):
             await require_ingest_job_update(
                 test_db_session,
@@ -904,9 +903,7 @@ class TestTheRefreshRunHook:
         job, run_id = await _committed_dispatch(test_db_session)
         job_id, dataset_id = job.id, job.dataset_id
         if claimed:
-            assert await claim_ingest_job_attempt(
-                test_db_session, job_id, job.attempt_id
-            )
+            assert await ledger.claim(test_db_session, job_id, job.attempt_id)
             assert await claim_run_for_job(test_db_session, job_id) == run_id
             await test_db_session.commit()
 
@@ -1373,9 +1370,7 @@ async def test_an_abort_racing_a_claim_ends_the_job_once(
             )
 
         async def _claim() -> None:
-            results["claim"] = await claim_ingest_job_attempt(
-                worker, job_id, attempt_id
-            )
+            results["claim"] = await ledger.claim(worker, job_id, attempt_id)
             if results["claim"]:
                 assert await claim_run_for_job(worker, job_id) == run_id
 

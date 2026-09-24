@@ -7,10 +7,10 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import text, update
 
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     StaleIngestAttempt,
     attempt_scoped_staging_table,
-    claim_ingest_job_attempt,
     renew_ingest_job_heartbeat,
     resolve_ingest_job_attempt,
     update_ingest_job_for_attempt,
@@ -50,7 +50,7 @@ async def test_expired_attempt_cannot_renew_or_finalize_retried_job(test_db_sess
         )
     )
     await test_db_session.commit()
-    assert await claim_ingest_job_attempt(test_db_session, job.id, attempt_b)
+    assert await ledger.claim(test_db_session, job.id, attempt_b)
     await test_db_session.commit()
 
     # The resumed delivery for A cannot adopt B's token.
@@ -61,7 +61,7 @@ async def test_expired_attempt_cannot_renew_or_finalize_retried_job(test_db_sess
         attempt_a,
         values={"status": "complete", "completed_at": datetime.now(timezone.utc)},
     )
-    assert not await claim_ingest_job_attempt(test_db_session, job.id, attempt_a)
+    assert not await ledger.claim(test_db_session, job.id, attempt_a)
     await test_db_session.rollback()
 
     await test_db_session.refresh(job)

@@ -47,8 +47,8 @@ from app.platform.analysis_sql import (
     spatial_join_output_columns,
 )
 from app.processing.analysis.provenance import apply_analysis_provenance
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
-    claim_ingest_job_attempt,
     maintain_ingest_job_heartbeat,
     resolve_ingest_job_attempt,
     stop_ingest_job_heartbeat,
@@ -1104,9 +1104,7 @@ async def _materialize(
         # token, stamping the liveness signals the sweep and the lease need.
         # Without it a row another actor already made terminal is resurrected.
         attempt_id = job.attempt_id or await resolve_ingest_job_attempt(job.id, None)
-        if attempt_id is None or not await claim_ingest_job_attempt(
-            session, job.id, attempt_id
-        ):
+        if attempt_id is None or not await ledger.claim(session, job.id, attempt_id):
             await session.rollback()
             logger.warning("analysis.attempt_not_claimed", job_id=job_id)
             return

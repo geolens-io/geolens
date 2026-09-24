@@ -11,6 +11,7 @@ from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.sqlstate import sqlstate
+from app.platform.jobs import ledger
 from app.platform.jobs.ledger import StaleIngestAttempt
 from app.platform.jobs.models import IngestJob
 
@@ -81,25 +82,6 @@ async def resolve_ingest_job_attempt(
         if result.rowcount:  # type: ignore[attr-defined]
             return adopted_attempt
     return None
-
-
-async def claim_ingest_job_attempt(
-    session: AsyncSession,
-    job_id: uuid.UUID,
-    attempt_id: uuid.UUID,
-) -> bool:
-    """Atomically move the matching pending attempt to running."""
-    now = datetime.now(timezone.utc)
-    result = await session.execute(
-        update(IngestJob)
-        .where(
-            IngestJob.id == job_id,
-            IngestJob.attempt_id == attempt_id,
-            IngestJob.status == "pending",
-        )
-        .values(status="running", started_at=now, heartbeat_at=now)
-    )
-    return bool(result.rowcount)  # type: ignore[attr-defined]
 
 
 # fix(#1950): the budget an attempt-fenced failure write spends on its own
@@ -291,7 +273,7 @@ async def claim_job_attempt_and_start_heartbeat(
     progress step in the same commit so polling sees a fresh signal on its
     first poll after pickup (REMED-02 / ingest-audit P2-07).
     """
-    if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
+    if not await ledger.claim(session, job_uuid, attempt_uuid):
         await session.rollback()
         return None
     if job is not None and current_step is not None:

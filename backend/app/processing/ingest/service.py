@@ -16,7 +16,7 @@ from typing import Any
 
 import structlog
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import String, and_, literal, or_, select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
@@ -57,7 +57,6 @@ from app.platform.jobs.heartbeat import (
 )
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
-    FAN_OUT_INTERRUPTED_METADATA_KEY,
     IngestJob,
     commit_attempted_marker,
 )
@@ -1148,26 +1147,9 @@ async def claim_fan_out_parent(
 
     Returns whether the claim landed. The caller renders the refusal.
     """
-    from datetime import datetime, timezone
-
-    from sqlalchemy import update as sa_update
-
-    attempt_predicate = (
-        IngestJob.attempt_id == parent_attempt_id
-        if parent_attempt_id is not None
-        else IngestJob.attempt_id.is_(None)
-    )
-    claim = await session.execute(
-        sa_update(IngestJob)
-        .where(
-            IngestJob.id == job.id,
-            IngestJob.status == "pending",
-            attempt_predicate,
-        )
-        .values(status="fanned_out", completed_at=datetime.now(timezone.utc))
-    )
+    claimed = await ledger.fan_out(session, job.id, parent_attempt_id)
     await session.commit()
-    return bool(claim.rowcount)
+    return claimed
 
 
 async def restore_fan_out_parent_pending(
@@ -1195,38 +1177,9 @@ async def restore_fan_out_parent_pending(
 
     Returns whether the CAS matched, so the caller can report a lost undo.
     """
-    from sqlalchemy import update as sa_update
-
-    attempt_predicate = (
-        IngestJob.attempt_id == parent_attempt_id
-        if parent_attempt_id is not None
-        else IngestJob.attempt_id.is_(None)
-    )
-    restored = await session.execute(
-        sa_update(IngestJob)
-        .where(
-            IngestJob.id == job.id,
-            or_(
-                IngestJob.status == "fanned_out",
-                and_(
-                    IngestJob.status == "failed",
-                    IngestJob.user_metadata[FAN_OUT_INTERRUPTED_METADATA_KEY].astext
-                    == "true",
-                ),
-            ),
-            attempt_predicate,
-        )
-        .values(
-            status="pending",
-            completed_at=None,
-            error_message=None,
-            user_metadata=IngestJob.user_metadata.op("-")(
-                literal(FAN_OUT_INTERRUPTED_METADATA_KEY, String)
-            ),
-        )
-    )
+    restored = await ledger.restore(session, job.id, parent_attempt_id)
     await session.commit()
-    return bool(restored.rowcount)
+    return restored
 
 
 def job_service_format(job: IngestJob) -> str | None:

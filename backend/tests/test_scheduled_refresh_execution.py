@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import select
 
 from app.platform.jobs.models import IngestJob
-from app.platform.jobs.heartbeat import claim_ingest_job_attempt
+from app.platform.jobs import ledger
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
     claim_admitted_run_for_job,
@@ -156,7 +156,7 @@ async def test_keyed_execution_has_a_wall_clock_timeout(
     await claim_admitted_run_for_job(
         test_db_session, job.id, execution_key=run.execution_key
     )
-    assert await claim_ingest_job_attempt(test_db_session, job.id, attempt_id)
+    assert await ledger.claim(test_db_session, job.id, attempt_id)
     await test_db_session.commit()
     monkeypatch.setattr(
         "app.processing.ingest.tasks_reupload._KEYED_REFRESH_EXECUTION_TIMEOUT_SECONDS",
@@ -200,7 +200,7 @@ async def test_keyed_timeout_does_not_settle_a_reclaimed_job_attempt(
     assert await claim_admitted_run_for_job(
         test_db_session, job.id, execution_key=run.execution_key
     )
-    assert await claim_ingest_job_attempt(test_db_session, job.id, job.attempt_id)
+    assert await ledger.claim(test_db_session, job.id, job.attempt_id)
     await test_db_session.commit()
     monkeypatch.setattr(
         "app.processing.ingest.tasks_reupload._KEYED_REFRESH_EXECUTION_TIMEOUT_SECONDS",

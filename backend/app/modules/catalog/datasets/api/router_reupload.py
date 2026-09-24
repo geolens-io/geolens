@@ -1066,26 +1066,14 @@ async def reupload_commit(
     # now-cancelled job that holds `uq_refresh_runs_one_active` for up to
     # an hour of false "busy" after a successful cancel.
     #
-    # The same-value CAS below re-evaluates pending+attempt under the row
-    # lock, atomically with the run flush: a committed cancel matches zero
-    # rows and rolls the whole request back into a clean 409; if this side
-    # wins the lock first, the cancel's own CAS then cancels job AND run
-    # together. No deadlock: this transaction's run row is invisible to
-    # the cancel's CAS until commit.
-    commit_fence = await db.execute(
-        update(IngestJob)
-        .where(
-            IngestJob.id == job.id,
-            IngestJob.status == "pending",
-            (
-                IngestJob.attempt_id == job.attempt_id
-                if job.attempt_id is not None
-                else IngestJob.attempt_id.is_(None)
-            ),
-        )
-        .values(status="pending")
-    )
-    if not commit_fence.rowcount:
+    # The hold below re-reads pending+attempt under the row lock, atomically
+    # with the run flush: a committed cancel fails it and rolls the whole
+    # request back into a clean 409; if this side takes the lock first, the
+    # cancel's own CAS then cancels job AND run together. No deadlock: this
+    # transaction's run row is invisible to the cancel's CAS until commit.
+    committing_attempt = job.attempt_id
+    held = await ledger.hold(db, job.id, expect="pending")
+    if held is None or held.attempt_id != committing_attempt:
         await db.rollback()
         await db.refresh(job)
         raise HTTPException(

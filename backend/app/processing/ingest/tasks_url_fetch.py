@@ -26,6 +26,7 @@ from app.core.config import settings
 from app.core.db.tenant_session import tenant_task
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.core.upload_errors import UnsafeUploadError
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     maintain_ingest_job_heartbeat,
     stop_ingest_job_heartbeat,
@@ -143,7 +144,6 @@ async def _staged_values(
     carried = {k: v for k, v in existing.items() if k not in dropped}
     return {
         "file_path": staged_path,
-        "status": "pending",
         "current_step": None,
         "progress": None,
         "user_metadata": {
@@ -341,14 +341,13 @@ async def _stage_downloaded_file(
             # UPDATE), so an external flip — a cancel, or a lease reap —
             # matches zero rows and is SURFACED instead of silently
             # part-updating a dead row.
-            if not await update_ingest_job_for_attempt(
+            if not await ledger.stage(
                 session,
                 job_uuid,
                 attempt_uuid,
                 values=await _staged_values(
                     session, job_uuid, staged_path, filename, tileset_metadata
                 ),
-                expected_status="running",
             ):
                 raise UrlImportRefused(_LEASE_LOST_DETAIL)
             await _commit_staged_transition_guarded(session)
