@@ -11,6 +11,7 @@ branch is SQL a mocked session cannot exercise.
 """
 
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.modules.catalog.datasets.domain.service import reap_managed_storage
@@ -18,6 +19,7 @@ from app.modules.catalog.datasets.domain.service import reap_managed_storage
 import pytest
 
 from app.modules.catalog.datasets.domain.service import DependentVrtError
+from app.platform.storage.provider import StoredObject
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +51,17 @@ def _mock_session() -> AsyncMock:
     session.delete = AsyncMock()
     session.execute = AsyncMock(return_value=result)
     return session
+
+
+def _pages_of(listing) -> MagicMock:
+    """An ``iter_object_pages`` fake that serves ``listing(prefix)`` as one page."""
+
+    async def pages(prefix, *, start_after=None):
+        if keys := await listing(prefix):
+            now = datetime.now(timezone.utc)
+            yield [StoredObject(key=key, last_modified=now) for key in keys]
+
+    return MagicMock(side_effect=pages)
 
 
 def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMock:
@@ -351,7 +364,7 @@ class TestVrtDeletion:
 
     @pytest.mark.asyncio
     async def test_delete_vrt_cleans_rasters_prefix_only(self):
-        """Deleting VRT calls storage.list/delete with rasters/{id}/ but NOT originals/{id}/."""
+        """Deleting VRT walks and deletes rasters/{id}/ but NOT originals/{id}/."""
         from app.modules.catalog.datasets.domain.service import delete_dataset
 
         dataset_id = uuid.uuid4()
@@ -367,7 +380,7 @@ class TestVrtDeletion:
                 return [rasters_key]
             return []
 
-        mock_storage.list = AsyncMock(side_effect=fake_list)
+        mock_storage.iter_object_pages = _pages_of(fake_list)
         mock_storage.delete = AsyncMock()
 
         mock_session = _mock_session()
@@ -388,7 +401,7 @@ class TestVrtDeletion:
         assert result.table_name == "test_table"
 
         # Should list rasters/ prefix
-        list_calls = [c.args[0] for c in mock_storage.list.call_args_list]
+        list_calls = [c.args[0] for c in mock_storage.iter_object_pages.call_args_list]
         assert f"rasters/{dataset_id}/" in list_calls
 
         # Should NOT list originals/ prefix for VRT
@@ -411,7 +424,9 @@ class TestVrtDeletion:
         physical_key = f"{physical_prefix}source.vrt"
 
         mock_storage = AsyncMock()
-        mock_storage.list = AsyncMock(return_value=[physical_key])
+        mock_storage.iter_object_pages = _pages_of(
+            AsyncMock(return_value=[physical_key])
+        )
         mock_storage.delete = AsyncMock()
         mock_session = _mock_session()
 
@@ -433,7 +448,7 @@ class TestVrtDeletion:
         finally:
             current_tenant_var.reset(token)
 
-        mock_storage.list.assert_awaited_once_with(physical_prefix)
+        mock_storage.iter_object_pages.assert_called_once_with(physical_prefix)
         mock_storage.delete.assert_awaited_once_with(physical_key)
 
     @pytest.mark.asyncio
@@ -461,7 +476,7 @@ class TestVrtDeletion:
         mock_vrt_result = MagicMock()
         mock_vrt_result.all.return_value = []
 
-        mock_storage.list = AsyncMock(side_effect=fake_list)
+        mock_storage.iter_object_pages = _pages_of(fake_list)
         mock_storage.delete = AsyncMock()
 
         mock_session = AsyncMock()
@@ -482,7 +497,7 @@ class TestVrtDeletion:
                     list(_deletion.storage_prefixes), _deletion.tenant_id
                 )
 
-        list_calls = [c.args[0] for c in mock_storage.list.call_args_list]
+        list_calls = [c.args[0] for c in mock_storage.iter_object_pages.call_args_list]
         assert f"rasters/{dataset_id}/" in list_calls
         assert f"originals/{dataset_id}/" in list_calls
 
@@ -514,7 +529,7 @@ class TestVrtDeletion:
                 return [source_cog_key]
             return []
 
-        mock_storage.list = AsyncMock(side_effect=fake_list)
+        mock_storage.iter_object_pages = _pages_of(fake_list)
         mock_storage.delete = AsyncMock()
 
         mock_session = _mock_session()
@@ -547,7 +562,7 @@ class TestVrtDeletion:
         mock_dataset.id = dataset_id
 
         mock_storage = AsyncMock()
-        mock_storage.list = AsyncMock(return_value=[])
+        mock_storage.iter_object_pages = _pages_of(AsyncMock(return_value=[]))
         mock_storage.delete = AsyncMock()
 
         mock_session = _mock_session()

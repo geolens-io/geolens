@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import Any, NamedTuple
 
@@ -24,7 +23,7 @@ from app.core.tenancy import is_multi_tenant
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.tiles3d import tileset_prefix
 from app.platform.dataset_origin import geolens_owns_table
-from app.platform.storage.titiler_url import resolve_storage_key
+from app.platform.storage.reap import delete_prefix
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -62,16 +61,19 @@ class DatasetDeletion(NamedTuple):
 async def reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> None:
     """Delete every object under GeoLens-managed prefixes for one dataset.
 
-    Import the storage provider locally so callers and tests can replace it.
+    Every prefix is walked even when an earlier one fails; the first failure
+    is raised once all have been tried.
     """
-    from app.platform.storage.provider import get_storage
-
-    storage = get_storage()
+    failure: Exception | None = None
     for prefix in prefixes:
-        physical_prefix = resolve_storage_key(prefix, tenant_id=tenant_id)
-        keys = await storage.list(physical_prefix)
-        if keys:
-            await asyncio.gather(*(storage.delete(key) for key in keys))
+        try:
+            await delete_prefix(prefix, tenant_id=tenant_id)
+        except (
+            Exception
+        ) as exc:  # broad: one prefix's failure must not strand the others
+            failure = failure or exc
+    if failure is not None:
+        raise failure
 
 
 async def _relation_oid(
