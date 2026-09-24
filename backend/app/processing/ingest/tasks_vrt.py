@@ -55,7 +55,9 @@ from app.processing.ingest.tasks_common import (
 from app.processing.ingest.tasks_staging import _cleanup_staging_on_failure
 from app.processing.ingest.tasks_raster_common import (
     absorb_cancellation,
+    observe_publish_commit,
     publish_commit_landed,
+    PublishObservation,
     record_unpublished_storage_keys,
 )
 
@@ -1521,9 +1523,10 @@ async def regenerate_vrt(
                 try:
                     await session.commit()
                 except BaseException as exc:
-                    if not await publish_commit_landed(
+                    observation = await observe_publish_commit(
                         job_uuid, attempt_uuid, job_id=job_id, task="regenerate_vrt"
-                    ):
+                    )
+                    if observation is PublishObservation.NOT_LANDED:
                         raise
                     # fix(#1778): stand down rather than re-raise. The
                     # generation swap is durable, so every write the failure
@@ -1532,19 +1535,22 @@ async def regenerate_vrt(
                     # not fenced the way the job and asset writes are.
                     publish_committed = True
                     absorb_cancellation(exc)
-                    # fix(#1778): standing down from the FAILURE
-                    # handler is not standing down from the success work. This
-                    # is the only deletion of the superseded generation's
-                    # objects, and the committed asset already names the new
-                    # ones, so returning without it strands bytes no row
-                    # references and no quota counts. No guard: the reaper
-                    # swallows a missing provider and every per-key error, so
-                    # it cannot turn a durable publish back into a failure.
-                    await _reap_superseded_generation_objects(
-                        prior_storage_keys=prior_storage_keys,
-                        written_storage_keys=written_storage_keys,
-                        job_id=job_id,
-                    )
+                    if observation is PublishObservation.LANDED:
+                        # The only reap of the superseded generation. The asset
+                        # names the new objects once the publish is confirmed,
+                        # and the reaper swallows every per-key error.
+                        await _reap_superseded_generation_objects(
+                            prior_storage_keys=prior_storage_keys,
+                            written_storage_keys=written_storage_keys,
+                            job_id=job_id,
+                        )
+                    else:
+                        # The probe failed, so the prior generation may still be
+                        # live. A leaked object is recoverable; a deleted one isn't.
+                        structlog.get_logger().warning(
+                            "vrt_regenerate_reap_skipped_unknown_publish",
+                            job_id=job_id,
+                        )
                     return
                 publish_committed = True
 
