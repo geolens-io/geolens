@@ -966,9 +966,8 @@ function syncDrawnLayer(
   removeOrphanedLabelCompanion(map, described.drawsAs, adapterInput);
 }
 
-/** Remove a layer's label companion when the family it now draws as has no
- *  label spec. A state-only family change (bulk style apply, restore) doesn't
- *  go through `swapLayerOnMap`, which removes it on a UI switch. */
+/** Remove a layer's label companion when its drawing has none: the label config
+ *  was cleared, or the layer now draws as a family without labels. */
 function removeOrphanedLabelCompanion(
   map: MaplibreMap,
   drawsAs: DescribedLayer['drawsAs'],

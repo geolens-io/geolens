@@ -21,7 +21,7 @@ import { FILL_PATTERN_IMAGES } from './fill-pattern-images';
 import { LINE_OWNED_LAYOUT_PROPERTIES, LINE_OWNED_PAINT_PROPERTIES, resolveLinePaint } from './line-adapter';
 import { DEFAULT_FILL_PAINT } from './builder-defaults';
 import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
-import { labelLayerId, removeLabelCompanionIfCleared, withLabelCompanion } from '../label-layer-utils';
+import { labelLayerId, withLabelCompanion } from '../label-layer-utils';
 
 /**
  * fix(#430 codex r23): renderer for the generic GEOMETRY sentinel.
@@ -211,7 +211,6 @@ export const mixedAdapter: LayerAdapter = {
   // Self-heals missing sublayers (cluster-adapter pattern) so a partial
   // teardown never leaves a family invisible until remount.
   syncPaint(map, input) {
-    removeLabelCompanionIfCleared(map, input);
     writeDescribedLayer(map, describeMixed(input));
   },
 

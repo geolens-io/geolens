@@ -199,14 +199,3 @@ export function withLabelCompanion(input: AdapterLayerInput, drawing: LayerDrawi
   const spec = labelSpec(input);
   return spec ? { specs: [...drawing.specs, spec], images: drawing.images } : drawing;
 }
-
-/** Remove a labelled family's label companion when the input no longer carries
- *  one. The writer never removes layers, so every labelled adapter calls this
- *  from its own `syncPaint`, the way the line adapter drops a stale arrow. */
-export function removeLabelCompanionIfCleared(
-  map: Pick<MaplibreMap, 'getLayer' | 'removeLayer'>,
-  input: AdapterLayerInput,
-): void {
-  const id = labelLayerId(input.layerId);
-  if (!input.label_config?.column && map.getLayer(id)) map.removeLayer(id);
-}

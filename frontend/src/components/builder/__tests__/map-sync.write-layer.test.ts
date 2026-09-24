@@ -101,6 +101,19 @@ describe('writeLayerToMap', () => {
     expect(sourceCalls).toEqual([]);
   });
 
+  it('removes a cleared label, in a pass and in a write', () => {
+    const labelled = { ...point, label_config: { column: 'name' } };
+    const written = syncedMap([labelled]);
+    const passed = syncedMap([labelled]);
+    expect(written.recording.layer(`layer-${point.id}-label`)).toBeDefined();
+
+    writeLayerToMap(written.recording.map, toSyncInput(point));
+    passed.sync([point]);
+
+    expect(written.recording.layer(`layer-${point.id}-label`)).toBeUndefined();
+    expect(passed.recording.layer(`layer-${point.id}-label`)).toBeUndefined();
+  });
+
   it('writes nothing to a map no pass has drawn', () => {
     const recording = new RecordingMap();
     recording.addSource('source-data-parcels', { type: 'vector', tiles: ['https://maps.example.test/tiles/{z}/{x}/{y}.pbf'] });
