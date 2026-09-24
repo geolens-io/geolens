@@ -1918,6 +1918,7 @@ export interface FileEntry {
   status: FileEntryStatus;
   jobId: string | null;
   previewData: FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | null;
+  uploadKind?: UploadKind | null;
   error: string | null;
   /** Byte-transfer progress (0–1) during the `uploading` phase; null when unknown/done. */
   progress?: number | null;

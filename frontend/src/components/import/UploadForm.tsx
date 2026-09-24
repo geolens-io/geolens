@@ -40,7 +40,7 @@ import { ApiError } from '@/api/client';
 import { randomId } from '@/lib/random-id';
 import { cn } from '@/lib/utils';
 
-// The tileset doors take one archive format, whatever the deployment's list.
+// Both doors check the deployment's extension list before they require a tileset's .zip.
 const TILESET_EXTENSIONS = ['.zip'];
 
 /** Chooses, before the drop, whether the files are geospatial data or 3D Tiles tilesets. */
@@ -48,21 +48,34 @@ function UploadKindChoice({
   value,
   onChange,
   disabled,
+  tilesetAvailable,
 }: {
   value: UploadKind | null;
   onChange: (kind: UploadKind | null) => void;
   disabled: boolean;
+  tilesetAvailable: boolean;
 }) {
   const { t } = useTranslation('import');
   const id = useId();
   const options = [
-    { kind: null, key: 'files', label: t('upload.kindFiles'), hint: t('upload.kindFilesHint') },
-    { kind: 'tiles3d' as const, key: 'tiles3d', label: t('upload.kindTileset'), hint: t('upload.kindTilesetHint') },
+    { kind: null, key: 'files', label: t('upload.kindFiles'), hint: t('upload.kindFilesHint'), available: true },
+    {
+      kind: 'tiles3d' as const,
+      key: 'tiles3d',
+      label: t('upload.kindTileset'),
+      hint: tilesetAvailable ? t('upload.kindTilesetHint') : t('upload.kindTilesetUnavailable'),
+      available: tilesetAvailable,
+    },
   ];
 
   return (
-    <fieldset disabled={disabled} className="space-y-2">
+    <fieldset disabled={disabled} aria-describedby={disabled ? `${id}-locked` : undefined} className="space-y-2">
       <legend className="text-sm font-medium">{t('upload.kindLegend')}</legend>
+      {disabled && (
+        <p id={`${id}-locked`} className="text-xs text-muted-foreground">
+          {t('upload.kindLocked')}
+        </p>
+      )}
       <div className="grid gap-2 sm:grid-cols-2">
         {options.map((option) => (
           <div
@@ -79,6 +92,7 @@ function UploadKindChoice({
                 value={option.key}
                 checked={value === option.kind}
                 onChange={() => onChange(option.kind)}
+                disabled={!option.available}
                 aria-describedby={`${id}-${option.key}-hint`}
               />
               {option.label}
@@ -199,12 +213,15 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // quota would briefly apply on remount before the live GET lands (Codex P2
   // on PR #274).
   const { data: uploadConfig, isFetching: configFetching } = useUploadConfig();
-  const [uploadKind, setUploadKind] = useState<UploadKind | null>(null);
+  const [chosenKind, setChosenKind] = useState<UploadKind | null>(null);
 
   const configExtensions = useMemo(
     () => uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean),
     [uploadConfig?.allowed_extensions],
   );
+  const tilesetAvailable = configExtensions?.includes('.zip') ?? true;
+  // A tileset choice the config rules out falls back to files, queued drops included.
+  const uploadKind = tilesetAvailable ? chosenKind : null;
   const allowedExtensions = uploadKind === 'tiles3d' ? TILESET_EXTENSIONS : configExtensions;
   const maxSizeMb = uploadConfig ? Math.round(uploadConfig.max_file_size_bytes / (1024 * 1024)) : undefined;
 
@@ -258,6 +275,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
           status: se.status,
           jobId: se.jobId,
           previewData: se.previewData,
+          uploadKind: se.kind,
           error: deriveSessionEntryError(se, t, setQuotaNotice),
           progress: se.progress,
           submittedTitle: null,
@@ -280,7 +298,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     const queued = peekPendingUploadFiles();
     if (queued && queued.length > 0) {
       setPendingFiles(queued);
-      setUploadKind(peekPendingUploadKind());
+      setChosenKind(peekPendingUploadKind());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -391,6 +409,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
       status: 'uploading' as const,
       jobId: null,
       previewData: null,
+      uploadKind,
       error: null,
       progress: 0,
       submittedTitle: null,
@@ -803,7 +822,12 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   return (
     <div className="space-y-4">
       {/* Locked while a drop waits on the config, so it uploads as the kind it was dropped as. */}
-      <UploadKindChoice value={uploadKind} onChange={setUploadKind} disabled={pendingFiles !== null} />
+      <UploadKindChoice
+        value={uploadKind}
+        onChange={setChosenKind}
+        disabled={pendingFiles !== null}
+        tilesetAvailable={tilesetAvailable}
+      />
       <FileDropzone
         onFilesAccepted={handleFilesAccepted}
         allowedExtensions={configFetching ? undefined : allowedExtensions}

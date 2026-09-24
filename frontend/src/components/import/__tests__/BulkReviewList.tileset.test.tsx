@@ -74,6 +74,15 @@ describe('BulkReviewList with a tileset', () => {
     expect(screen.queryByText('Geometry & projection')).not.toBeInTheDocument();
   });
 
+  it('tags a failed tileset upload as a tileset', () => {
+    renderList([
+      { ...entry(), status: 'upload-failed', jobId: null, previewData: null, uploadKind: 'tiles3d', error: 'Upload failed' },
+    ]);
+
+    expect(screen.getByText('3DT')).toBeInTheDocument();
+    expect(screen.queryByText('VEC')).not.toBeInTheDocument();
+  });
+
   it('says a box volume gives no extent', () => {
     renderList([entry({ ...PREVIEW, bounding_volume: 'box', extent_bbox: null })]);
 

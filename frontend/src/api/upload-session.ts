@@ -49,6 +49,7 @@ export interface UploadSessionEntry {
   status: UploadSessionEntryStatus;
   jobId: string | null;
   previewData: FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | null;
+  kind: UploadKind | null;
   error: unknown;
   /** Byte-transfer progress (0-1) during `uploading`; null once known/done. */
   progress: number | null;
@@ -100,6 +101,7 @@ export function startUploadEntry(
     status: 'uploading',
     jobId: null,
     previewData: null,
+    kind,
     error: null,
     progress: 0,
   };

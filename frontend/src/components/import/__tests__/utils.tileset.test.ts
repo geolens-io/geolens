@@ -24,4 +24,9 @@ describe('tileset previews', () => {
     expect(inferImportedKind({ previewData: TILESET_PREVIEW })).toBe('tiles3d');
     expect(kindFromEntry({ previewData: TILESET_PREVIEW, fileName: 'campus.zip' })).toBe('tiles3d');
   });
+
+  it('displays an entry uploaded as a tileset as tiles3d before it has a preview', () => {
+    expect(kindFromEntry({ previewData: null, fileName: 'campus.zip', uploadKind: 'tiles3d' })).toBe('tiles3d');
+    expect(kindFromEntry({ previewData: null, fileName: 'campus.zip', uploadKind: null })).toBe('vector');
+  });
 });

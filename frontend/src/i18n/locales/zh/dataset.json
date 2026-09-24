@@ -1171,7 +1171,7 @@
     "noExtent": "不可用。GeoLens 仅从 region 类型的包围体读取范围。",
     "accessTitle": "在 3D Tiles 客户端中加载",
     "urlLabel": "瓦片集 URL",
-    "headerHint": "公开瓦片集无需密钥。对于私有瓦片集，请在 X-Api-Key 请求头中发送 API 密钥，这样密钥不会出现在 URL 和服务器日志中。",
+    "headerHint": "内部、受限和私有瓦片集都需要在 X-Api-Key 请求头中提供 API 密钥。请使用只读密钥，因为 CesiumJS 加载瓦片集时发出的每个请求都会带上它。",
     "copySnippet": "复制 CesiumJS 代码片段"
   }
 }

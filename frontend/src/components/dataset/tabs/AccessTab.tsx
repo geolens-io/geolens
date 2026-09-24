@@ -387,7 +387,7 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
         </Card>
       )}
 
-      {dataset.tileset && <TilesetAccess tileset={dataset.tileset} />}
+      {dataset.tileset && <TilesetAccess tileset={dataset.tileset} visibility={dataset.visibility} />}
 
       {/* API access snippet */}
       {featureTable && endpoints.ogcFeaturesUrl && publicApiBaseUrl && (

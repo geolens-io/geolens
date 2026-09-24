@@ -81,7 +81,9 @@
     "kindFiles": "Archivos geoespaciales",
     "kindFilesHint": "Datos vectoriales, ráster o tabulares",
     "kindTileset": "Tileset de 3D Tiles",
-    "kindTilesetHint": "Un archivo .zip con tileset.json en la raíz o en una carpeta"
+    "kindTilesetHint": "Un archivo .zip con tileset.json en la raíz o en una carpeta",
+    "kindTilesetUnavailable": "No disponible hasta que un administrador permita subir archivos .zip",
+    "kindLocked": "Bloqueado mientras los archivos soltados esperan a que se cargue la configuración de subida"
   },
   "warnings": {
     "bannerTitle": "Importación completada con advertencias",
@@ -560,10 +562,12 @@
     "heroTitle_many": "{{count}} de conjuntos de datos añadidos al catálogo",
     "heroTitle_other": "{{count}} conjuntos de datos añadidos al catálogo",
     "heroDesc": "Todos los archivos ingestados, teselados e indexados. Listos para consultar, estilizar y mapear.",
+    "heroDescTilesets": "Listos para cargarse en un cliente de 3D Tiles. La URL del tileset está en la pestaña Acceso del conjunto de datos.",
     "statDatasets": "Conjuntos de datos",
     "statVector": "Vector",
     "statRaster": "Ráster",
     "statTabular": "Tabular",
+    "statTilesets": "3D Tiles",
     "next": "Siguiente:",
     "viewCatalog": "Ver en el catálogo",
     "importMore": "Importar más",

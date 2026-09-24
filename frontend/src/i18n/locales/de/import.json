@@ -81,7 +81,9 @@
     "kindFiles": "Geodaten-Dateien",
     "kindFilesHint": "Vektor-, Raster- oder Tabellendaten",
     "kindTileset": "3D-Tiles-Tileset",
-    "kindTilesetHint": "Ein .zip-Archiv mit tileset.json im Stammverzeichnis oder in einem Ordner"
+    "kindTilesetHint": "Ein .zip-Archiv mit tileset.json im Stammverzeichnis oder in einem Ordner",
+    "kindTilesetUnavailable": "Nicht verfügbar, bis ein Administrator .zip-Uploads erlaubt",
+    "kindLocked": "Gesperrt, während die abgelegten Dateien auf die Upload-Einstellungen warten"
   },
   "warnings": {
     "bannerTitle": "Import mit Warnungen abgeschlossen",
@@ -560,10 +562,12 @@
     "heroTitle_many": "{{count}} Datensätze zum Katalog hinzugefügt",
     "heroTitle_other": "{{count}} Datensätze zum Katalog hinzugefügt",
     "heroDesc": "Alle Dateien aufgenommen, gekachelt und indiziert. Bereit zum Abfragen, Gestalten und Kartografieren.",
+    "heroDescTilesets": "Bereit zum Laden in einem 3D-Tiles-Client. Die Tileset-URL steht im Tab „Zugriff“ des Datensatzes.",
     "statDatasets": "Datensätze",
     "statVector": "Vektor",
     "statRaster": "Raster",
     "statTabular": "Tabellarisch",
+    "statTilesets": "3D Tiles",
     "next": "Weiter:",
     "viewCatalog": "Im Katalog anzeigen",
     "importMore": "Mehr importieren",

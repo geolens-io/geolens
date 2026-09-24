@@ -81,7 +81,9 @@
     "kindFiles": "Geospatial files",
     "kindFilesHint": "Vector, raster or tabular data",
     "kindTileset": "3D Tiles tileset",
-    "kindTilesetHint": "A .zip archive with tileset.json at its root or in one folder"
+    "kindTilesetHint": "A .zip archive with tileset.json at its root or in one folder",
+    "kindTilesetUnavailable": "Unavailable until an administrator allows .zip uploads",
+    "kindLocked": "Locked while your dropped files wait for the upload settings to load"
   },
   "warnings": {
     "bannerTitle": "Import completed with warnings",
@@ -116,10 +118,12 @@
     "heroTitle_many": "{{count}} datasets added to the catalog",
     "heroTitle_other": "{{count}} datasets added to the catalog",
     "heroDesc": "All files ingested, tiled, and indexed. Ready to query, style, and map.",
+    "heroDescTilesets": "Ready to load in a 3D Tiles client. The tileset URL is on the dataset's Access tab.",
     "statDatasets": "Datasets",
     "statVector": "Vector",
     "statRaster": "Raster",
     "statTabular": "Tabular",
+    "statTilesets": "3D Tiles",
     "next": "Next:",
     "viewCatalog": "View in Catalog",
     "importMore": "Import more",

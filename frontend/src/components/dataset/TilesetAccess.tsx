@@ -2,14 +2,15 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { CopyButton } from '@/components/ui/copy-button';
 import { appOriginUrl } from '@/lib/dataset-access';
-import type { TilesetMetadata } from '@/types/api';
+import type { DatasetVisibility, TilesetMetadata } from '@/types/api';
 
-function cesiumSnippet(url: string): string {
+// An unresolvable key gets a 401 rather than anonymous access, so a public tileset's snippet sends none.
+function cesiumSnippet(url: string, withKey: boolean): string {
   return [
     'const tileset = await Cesium.Cesium3DTileset.fromUrl(',
     '  new Cesium.Resource({',
     `    url: "${url}",`,
-    '    headers: { "X-Api-Key": "YOUR_API_KEY" },',
+    ...(withKey ? ['    headers: { "X-Api-Key": "YOUR_API_KEY" },'] : []),
     '  }),',
     ');',
     'viewer.scene.primitives.add(tileset);',
@@ -17,10 +18,16 @@ function cesiumSnippet(url: string): string {
 }
 
 /** Where a 3D Tiles client loads the tileset from, and how it authenticates. */
-export function TilesetAccess({ tileset }: { tileset: TilesetMetadata }) {
+export function TilesetAccess({
+  tileset,
+  visibility,
+}: {
+  tileset: TilesetMetadata;
+  visibility: DatasetVisibility;
+}) {
   const { t } = useTranslation('dataset');
   const url = appOriginUrl(tileset.url);
-  const snippet = cesiumSnippet(url);
+  const snippet = cesiumSnippet(url, visibility !== 'public');
 
   return (
     <section aria-labelledby="tileset-access-title" className="space-y-3">
@@ -48,7 +55,7 @@ export function TilesetAccess({ tileset }: { tileset: TilesetMetadata }) {
           <span className="flex-1" />
           <CopyButton value={snippet} label={t('tileset.copySnippet')} />
         </div>
-        <pre className="px-5 py-4 font-mono text-xs leading-7 overflow-x-auto m-0">{snippet}</pre>
+        <pre className="px-5 py-4 font-mono text-xs leading-7 overflow-x-auto whitespace-pre-wrap m-0">{snippet}</pre>
       </div>
     </section>
   );

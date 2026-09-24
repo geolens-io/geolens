@@ -3,6 +3,7 @@ import { render, screen, act, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { UploadForm } from '../UploadForm';
 import { clearPendingUploadFiles, clearUploadBatch } from '@/api/upload-session';
+import type { FileEntry } from '@/types/api';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -52,7 +53,9 @@ vi.mock('../FileDropzone', async (importOriginal) => {
 });
 
 vi.mock('../BulkUploadProgress', () => ({
-  BulkUploadProgress: () => <div data-testid="bulk-upload-progress" />,
+  BulkUploadProgress: ({ entries }: { entries: FileEntry[] }) => (
+    <div data-testid="bulk-upload-progress" data-upload-kinds={entries.map((e) => e.uploadKind).join(',')} />
+  ),
 }));
 vi.mock('../BulkReviewList', () => ({
   BulkReviewList: () => <div data-testid="bulk-review-list" />,
@@ -65,14 +68,17 @@ vi.mock('sonner', () => ({
 }));
 
 import { uploadFile, uploadPresigned, previewFile } from '@/api/ingest';
+import { toast } from 'sonner';
 
 const CONFIG = {
   presigned_uploads: false,
   presigned_threshold_bytes: 0,
   max_file_size_bytes: 500 * 1024 * 1024,
-  allowed_extensions: '.geojson,.gpkg',
+  allowed_extensions: '.geojson,.gpkg,.zip',
   remaining_dataset_quota: null,
 };
+
+const NO_ZIP_CONFIG = { ...CONFIG, allowed_extensions: '.geojson,.gpkg' };
 
 function tilesetRadio() {
   return within(screen.getByRole('group', { name: 'upload.kindLegend' })).getByRole('radio', {
@@ -167,5 +173,59 @@ describe('UploadForm upload kind', () => {
 
     await waitFor(() => expect(uploadFile).toHaveBeenCalledTimes(1));
     expect(vi.mocked(uploadFile).mock.calls[0][2]).toBe('tiles3d');
+  });
+
+  it('keeps the tileset kind on an uploading entry, including after a remount adopts it', async () => {
+    vi.mocked(uploadFile).mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    const first = render(<UploadForm />);
+    await user.click(tilesetRadio());
+    await user.click(screen.getByTestId('drop-zip'));
+
+    expect(screen.getByTestId('bulk-upload-progress')).toHaveAttribute('data-upload-kinds', 'tiles3d');
+    first.unmount();
+
+    render(<UploadForm />);
+    expect(screen.getByTestId('bulk-upload-progress')).toHaveAttribute('data-upload-kinds', 'tiles3d');
+  });
+
+  it('disables the tileset option and says why when the deployment does not allow .zip', () => {
+    mockConfig = { data: NO_ZIP_CONFIG, isFetching: false };
+    render(<UploadForm />);
+
+    expect(tilesetRadio()).toBeDisabled();
+    expect(tilesetRadio()).toHaveAccessibleDescription('upload.kindTilesetUnavailable');
+    expect(screen.getByText('upload.kindTilesetUnavailable')).toBeVisible();
+  });
+
+  it('checks a queued tileset drop as files when the config that arrives does not allow .zip', async () => {
+    mockConfig = { data: null, isFetching: true };
+    const user = userEvent.setup();
+    const view = render(<UploadForm />);
+    await user.click(tilesetRadio());
+    await user.click(screen.getByTestId('drop-zip'));
+
+    mockConfig = { data: NO_ZIP_CONFIG, isFetching: false };
+    await act(async () => {
+      view.rerender(<UploadForm />);
+    });
+
+    expect(toast.error).toHaveBeenCalledWith('dropzone.fileRejected');
+    expect(uploadFile).not.toHaveBeenCalled();
+    expect(screen.getByRole('radio', { name: 'upload.kindFiles' })).toBeChecked();
+  });
+
+  it('says why the kind is locked while a drop waits for the config', async () => {
+    mockConfig = { data: null, isFetching: true };
+    const user = userEvent.setup();
+    render(<UploadForm />);
+    const group = screen.getByRole('group', { name: 'upload.kindLegend' });
+    expect(group).not.toHaveAccessibleDescription();
+
+    await user.click(screen.getByTestId('drop-zip'));
+
+    expect(group).toBeDisabled();
+    expect(group).toHaveAccessibleDescription('upload.kindLocked');
+    expect(screen.getByText('upload.kindLocked')).toBeVisible();
   });
 });

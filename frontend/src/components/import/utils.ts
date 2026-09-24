@@ -62,15 +62,15 @@ export function isSpreadsheetExt(ext: string): boolean {
   return ext === '.xlsx' || ext === '.xls';
 }
 
-/** Derive display kind from a FileEntry (preview-aware, falls back to extension) */
-export function kindFromEntry(entry: Pick<FileEntry, 'previewData' | 'fileName'>): DataKind {
+/** Derive display kind from a FileEntry (preview-aware, then the upload kind, then the extension) */
+export function kindFromEntry(entry: Pick<FileEntry, 'previewData' | 'fileName' | 'uploadKind'>): DataKind {
   if (entry.previewData) {
     if (isTilesetPreview(entry.previewData)) return 'tiles3d';
     if (isRasterPreview(entry.previewData)) return 'raster';
     if ((entry.previewData as FilePreviewResponse).geometry_type) return 'vector';
     return 'table';
   }
-  return kindFromExtension(fileExt(entry.fileName));
+  return entry.uploadKind ?? kindFromExtension(fileExt(entry.fileName));
 }
 
 /**

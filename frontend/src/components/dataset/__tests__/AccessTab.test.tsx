@@ -221,6 +221,17 @@ describe('AccessTab', () => {
       expect(screen.queryByRole('combobox', { name: 'Export format' })).not.toBeInTheDocument();
     });
 
+    it('puts the key header in the snippet only for a tileset that is not public', () => {
+      mockUseDistributions.mockReturnValue(noDistributions);
+      const snippet = () => screen.getByText(/Cesium3DTileset\.fromUrl/).textContent;
+      const { unmount } = render(<AccessTab dataset={tilesetDataset} />);
+      expect(snippet()).not.toContain('X-Api-Key');
+      unmount();
+
+      render(<AccessTab dataset={{ ...tilesetDataset, visibility: 'restricted' }} />);
+      expect(snippet()).toContain('headers: { "X-Api-Key": "YOUR_API_KEY" }');
+    });
+
     it('keeps the access points when it has distributions', () => {
       render(<AccessTab dataset={tilesetDataset} />);
 

@@ -81,7 +81,9 @@
     "kindFiles": "地理空间文件",
     "kindFilesHint": "矢量、栅格或表格数据",
     "kindTileset": "3D Tiles 瓦片集",
-    "kindTilesetHint": "根目录或单个文件夹中包含 tileset.json 的 .zip 压缩包"
+    "kindTilesetHint": "根目录或单个文件夹中包含 tileset.json 的 .zip 压缩包",
+    "kindTilesetUnavailable": "需管理员允许上传 .zip 文件后才能使用",
+    "kindLocked": "已锁定：拖入的文件正在等待上传设置加载"
   },
   "warnings": {
     "bannerTitle": "导入已完成，但存在警告",
@@ -116,10 +118,12 @@
     "heroTitle_many": "已将 {{count}} 个数据集添加到目录",
     "heroTitle_other": "已将 {{count}} 个数据集添加到目录",
     "heroDesc": "所有文件均已完成导入、切片和索引。可随时查询、设置样式并添加到地图。",
+    "heroDescTilesets": "可在 3D Tiles 客户端中加载。瓦片集 URL 位于数据集的“访问”选项卡中。",
     "statDatasets": "数据集",
     "statVector": "矢量",
     "statRaster": "栅格",
     "statTabular": "表格",
+    "statTilesets": "3D Tiles",
     "next": "下一步：",
     "viewCatalog": "在目录中查看",
     "importMore": "导入更多",
