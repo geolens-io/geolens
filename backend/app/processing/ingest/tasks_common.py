@@ -1222,15 +1222,8 @@ async def _finalize_ingest(ctx: IngestContext):
     for field descriptions. Returns the created Dataset ORM instance.
     """
     from app.platform.extensions import get_processing_port
-    from app.processing.ingest.metadata import (
-        add_4326_column,
-        clip_to_mercator_bounds,
-        compute_quality_score,
-        ensure_geom_column,
-        extract_metadata,
-        get_sample_values,
-        grant_reader_access,
-    )
+    from app.processing.ingest.metadata import compute_quality_score
+    from app.processing.ingest.tasks_staging import _run_staging_pipeline
 
     port = get_processing_port()
 
@@ -1240,47 +1233,18 @@ async def _finalize_ingest(ctx: IngestContext):
     user_metadata = ctx.user_metadata
     source_filename = ctx.source_filename
 
-    # Normalize geometry column name to 'geom'
     _schema = _current_tenant_schema()
-    has_geometry = ctx.has_geometry
-    if has_geometry is None:
-        has_geometry = await ensure_geom_column(session, table_name, schema=_schema)
-    elif has_geometry:
-        await ensure_geom_column(session, table_name, schema=_schema)
-
-    # Clip geometries to Web Mercator bounds and add 4326 column.
-    # When has_geometry is truthy, callers always supply a non-null
-    # effective_srid — guard for mypy since the two params are independent
-    # at the signature level.
-    if has_geometry:
-        assert ctx.effective_srid is not None, (
-            "effective_srid must be set when has_geometry is True"
-        )
-        # fix(#888): the clamp is intentional, staying silent about it was not.
-        _append_mercator_clip_warning(
-            job, await clip_to_mercator_bounds(session, table_name, schema=_schema)
-        )
-        await add_4326_column(session, table_name, ctx.effective_srid, schema=_schema)
-
-    # Grant reader access (per-tenant schema+role in multi_tenant; data/geolens_reader in single_tenant)
-    await grant_reader_access(
+    staging = await _run_staging_pipeline(
         session,
-        table_name,
-        schema=_schema,
-        role=_current_tenant_role(),
+        table_name=table_name,
+        has_geometry=ctx.has_geometry,
+        effective_srid=ctx.effective_srid,
     )
-
-    # Extract metadata (CR-03: pass per-tenant schema so catalog queries target
-    # data_t_{tid} in multi_tenant, not the shared 'data' schema)
-    metadata = await extract_metadata(session, table_name, schema=_schema)
-    three_d = await _detect_3d_and_promote_elev(
-        session, table_name, metadata, schema=_schema
-    )
-
-    # Extract sample values for attribute search
-    sample_values = await get_sample_values(
-        session, table_name, metadata.get("column_info", []), schema=_schema
-    )
+    _append_mercator_clip_warning(job, staging.mercator_clip)
+    has_geometry = staging.has_geometry
+    metadata = staging.metadata
+    three_d = staging.three_d
+    sample_values = staging.sample_values
 
     # Create Dataset record
     dataset_name = user_metadata.get("title") or source_filename or table_name

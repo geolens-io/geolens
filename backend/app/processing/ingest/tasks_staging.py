@@ -263,20 +263,17 @@ async def _run_staging_pipeline(
     session,
     *,
     table_name: str,
-    has_geometry: bool,
+    has_geometry: bool | None,
     effective_srid: int | None,
 ) -> StagingResult:
-    """Run the post-ogr2ogr staging pipeline on a table.
+    """Post-process a table ogr2ogr just loaded.
 
-    fix(#1018): the only production caller is ``tasks_reupload.reupload_file``.
-    ``_ingest_vector_into_staging`` also calls it but is test-only; NEW
-    vector ingest does NOT — ``_finalize_ingest`` reruns these same steps
-    inline instead.
-
-    Performs: ensure_geom_column,
-    clip_to_mercator_bounds, add_4326_column, grant_reader_access,
-    extract_metadata, detect_3d_metadata, promote_z_to_elev, and
-    get_sample_values. Does not commit.
+    ``has_geometry`` is what the caller knows: None detects it, and False
+    skips the geometry steps. ``effective_srid`` is the SRID ``geom`` is in.
+    Normalizes the geometry column, clips it to Web Mercator bounds and adds
+    ``geom_4326``, then grants the reader and reads the metadata, the 3D
+    facts (a 3D point table gains ``elev``) and the samples. Returns the clip
+    accounting for the caller to warn with. Does not commit.
     """
     from app.processing.ingest.metadata import (
         add_4326_column,
@@ -289,16 +286,14 @@ async def _run_staging_pipeline(
 
     _schema = _current_tenant_schema()
     mercator_clip = None
-    if has_geometry:
+    if has_geometry is not False:
         has_geometry = await ensure_geom_column(session, table_name, schema=_schema)
-        if has_geometry:
-            mercator_clip = await clip_to_mercator_bounds(
-                session, table_name, schema=_schema
-            )
-            if effective_srid is not None:
-                await add_4326_column(
-                    session, table_name, effective_srid, schema=_schema
-                )
+    if has_geometry:
+        assert effective_srid is not None, "a spatial table needs its source SRID"
+        mercator_clip = await clip_to_mercator_bounds(
+            session, table_name, schema=_schema
+        )
+        await add_4326_column(session, table_name, effective_srid, schema=_schema)
 
     await grant_reader_access(
         session,
@@ -508,13 +503,8 @@ async def _ingest_vector_into_staging(
     the override); ``tasks_reupload.reupload_file`` runs only the first
     three and passes its detected type straight to ``run_ogr2ogr``.
 
-    Calls the real ``_run_staging_pipeline``, but that eight-step sequence
-    also exists inlined in ``_finalize_ingest`` (used by ``tasks_vector.
-    ingest_file``) and as a SHORTER copy (no 3D detection, no elevation
-    promotion) in ``tasks_reupload.reupload_service`` — do not "fix" that
-    shorter copy by symmetry without finding out why first. A change to the
-    shared six steps has three sites; this test covers the one production
-    reaches least.
+    Then calls the real ``_run_staging_pipeline``, which first ingest and
+    the file re-upload also call.
 
     Performs no commits.
     """
