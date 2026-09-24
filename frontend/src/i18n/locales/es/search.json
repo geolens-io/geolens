@@ -112,6 +112,7 @@
     "vrt": "Ráster virtual",
     "collection": "Colección",
     "table": "Tabla",
+    "tiles3d": "3D Tiles",
     "sourceCount_one": "{{count}} fuente",
     "sourceCount_other": "{{count}} fuentes",
     "autoDesc": {

@@ -471,7 +471,8 @@
       "wfs": "WFS",
       "arcgisFeatureServer": "ArcGIS FeatureServer",
       "ogcapiFeatures": "OGC API Features",
-      "created": "Creado en GeoLens"
+      "created": "Creado en GeoLens",
+      "tiles3d": "3D Tiles"
     }
   },
   "settingsToasts": {

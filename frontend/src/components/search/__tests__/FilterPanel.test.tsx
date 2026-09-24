@@ -48,6 +48,25 @@ describe('FilterPanel', () => {
     expect(vrtButtons[0]).toBeDisabled();
   });
 
+  it.each(['toolbar', 'rail'] as const)('offers a 3D Tiles toggle, counted in All, when the catalog holds tilesets (%s)', (desktopLayout) => {
+    const counts = mockFacets.record_type as Record<string, number>;
+    counts.tiles3d_dataset = 2;
+    try {
+      render(<FilterPanel totalResults={20} showMobile={false} desktopLayout={desktopLayout} />);
+
+      expect(screen.getByRole('radio', { name: /3D Tiles/ })).toHaveTextContent('2');
+      expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('18');
+    } finally {
+      delete counts.tiles3d_dataset;
+    }
+  });
+
+  it.each(['toolbar', 'rail'] as const)('shows no 3D Tiles toggle when the catalog holds no tilesets (%s)', (desktopLayout) => {
+    render(<FilterPanel totalResults={18} showMobile={false} desktopLayout={desktopLayout} />);
+
+    expect(screen.queryByRole('radio', { name: /3D Tiles/ })).not.toBeInTheDocument();
+  });
+
   it('does not show collection as a record type toggle', () => {
     render(<FilterPanel totalResults={15} />);
 

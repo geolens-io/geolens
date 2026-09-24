@@ -27,6 +27,7 @@ import { useResetOnEpoch } from '@/hooks/use-reset-on-epoch';
 import { useAuthStore } from '@/stores/auth-store';
 import { useCatalogSummary, useFacets } from '@/components/search/hooks/use-search';
 import { getGeometryTypeLabel, getSearchSortLabel } from '@/i18n/labels';
+import { recordTypeCapabilities } from '@/lib/record-types';
 
 const GEOMETRY_TYPES = [
   'POINT',
@@ -107,7 +108,8 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
     (counts.vector_dataset ?? 0) +
     (counts.raster_dataset ?? 0) +
     (counts.vrt_dataset ?? 0) +
-    (counts.table ?? 0);
+    (counts.table ?? 0) +
+    (counts.tiles3d_dataset ?? 0);
 
   const { data: summaries } = useCatalogSummary();
 
@@ -130,7 +132,9 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
   const activeFilterCount = [geometryType, bbox, dateFrom || dateTo, recordType, collectionId, sourceOrganization, srid, datetime, selectedKeywords.length > 0 ? 'kw' : ''].filter(Boolean).length;
   const activeGeomLabel = geometryType ? getGeometryTypeLabel(t, geometryType) : null;
   const showsTableToggle = counts.table !== undefined;
-  const showGeometryFilter = recordType !== 'raster_dataset' && recordType !== 'vrt_dataset' && recordType !== 'table';
+  const showsTiles3dToggle = counts.tiles3d_dataset !== undefined;
+  const showGeometryFilter =
+    !recordType || (recordTypeCapabilities(recordType).tileToken === 'vector' && recordType !== 'table');
   const showSridFilter = srids.length > 0 && recordType !== 'table';
   const getRecordTypeLabel = (value: string) => {
     switch (value) {
@@ -142,6 +146,8 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
         return t('filters.vrt', { defaultValue: 'Virtual Raster' });
       case 'table':
         return t('card.table', { defaultValue: 'Table' });
+      case 'tiles3d_dataset':
+        return t('card.tiles3d', { defaultValue: '3D Tiles' });
       default:
         return value;
     }
@@ -371,6 +377,12 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
                 <ToggleGroupItem value="table" className="flex-1 text-xs" disabled={counts.table === 0}>
                   {t('card.table', { defaultValue: 'Table' })}
                   {counts.table !== undefined && ` (${counts.table})`}
+                </ToggleGroupItem>
+              )}
+              {showsTiles3dToggle && (
+                <ToggleGroupItem value="tiles3d_dataset" className="flex-1 text-xs" disabled={counts.tiles3d_dataset === 0}>
+                  {t('card.tiles3d', { defaultValue: '3D Tiles' })}
+                  {` (${counts.tiles3d_dataset})`}
                 </ToggleGroupItem>
               )}
             </ToggleGroup>

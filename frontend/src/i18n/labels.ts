@@ -36,6 +36,7 @@ const SOURCE_FORMAT_KEYS = {
   arcgis_featureserver: 'common:enums.sourceFormat.arcgisFeatureServer',
   ogcapi_features: 'common:enums.sourceFormat.ogcapiFeatures',
   created: 'common:enums.sourceFormat.created',
+  '3dtiles': 'common:enums.sourceFormat.tiles3d',
 } as const;
 
 const SEARCH_SORT_KEYS = {
@@ -65,6 +66,7 @@ const SOURCE_FORMAT_DEFAULTS = {
   arcgis_featureserver: 'ArcGIS FeatureServer',
   ogcapi_features: 'OGC API Features',
   created: 'Created in GeoLens',
+  '3dtiles': '3D Tiles',
 } as const;
 
 function resolveLabel(t: Translate, key: string, defaultValue: string): string {

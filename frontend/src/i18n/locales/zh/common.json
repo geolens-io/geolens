@@ -488,7 +488,8 @@
       "wfs": "WFS",
       "arcgisFeatureServer": "ArcGIS 要素服务",
       "ogcapiFeatures": "OGC API Features",
-      "created": "在 GeoLens 中创建"
+      "created": "在 GeoLens 中创建",
+      "tiles3d": "3D Tiles"
     }
   },
   "settingsToasts": {
