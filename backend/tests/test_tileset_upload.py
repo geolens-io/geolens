@@ -295,6 +295,34 @@ async def test_a_box_or_sphere_tileset_has_no_extent(
     assert body["tileset"]["bounding_volume"] == kind
 
 
+async def test_a_finder_zip_publishes_without_its_metadata(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """Only the tileset's own files are stored from a zip Finder compressed."""
+    headers, _ = uploader
+    appledouble = b"\x00\x05\x16\x07" + bytes(28)
+    data = zip_bytes(
+        [
+            ("campus/", b""),
+            ("campus/tileset.json", tileset_json()),
+            ("campus/0/0.glb", _GLB),
+            ("campus/.DS_Store", b"Bud1" + bytes(64)),
+            ("__MACOSX/", b""),
+            ("__MACOSX/campus/._tileset.json", appledouble),
+            ("__MACOSX/campus/0/._0.glb", appledouble),
+        ]
+    )
+
+    job = await load_job(test_db_session, await publish(client, headers, queued, data))
+
+    assert job.status == "complete", job.error_message
+    attempt = tileset_attempt_prefix(job.dataset_id, job.attempt_id)
+    assert await tileset_objects(job.dataset_id) == [
+        f"{attempt}0/0.glb",
+        f"{attempt}tileset.json",
+    ]
+
+
 # --- Refusals ------------------------------------------------------------
 
 

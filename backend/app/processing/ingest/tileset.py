@@ -237,19 +237,30 @@ def _tileset_root(paths: list[tuple[str, bool]]) -> str:
     )
 
 
+def _is_macos_metadata(path: str) -> bool:
+    """Whether an entry is what Finder's Compress adds: never part of a tileset."""
+    name = path.rpartition("/")[2]
+    return (
+        path.partition("/")[0] == "__MACOSX"
+        or name.startswith("._")
+        or name == ".DS_Store"
+    )
+
+
 def read_layout(archive: zipfile.ZipFile) -> TilesetLayout:
     """Check every entry the central directory lists and locate tileset.json."""
     entries = archive.infolist()
-    paths: list[tuple[str, bool]] = []
+    kept: list[tuple[zipfile.ZipInfo, str]] = []
     for info in entries:
-        paths.append((_entry_path(info), info.is_dir()))
+        path = _entry_path(info)
         _check_entry_contents(info)
+        if not _is_macos_metadata(path):
+            kept.append((info, path))
+    paths = [(path, info.is_dir()) for info, path in kept]
     _refuse_collisions(paths)
     root = _tileset_root(paths)
 
-    files = tuple(
-        (info, info.filename[len(root) :]) for info in entries if not info.is_dir()
-    )
+    files = tuple((info, path[len(root) :]) for info, path in kept if not info.is_dir())
     unpacked_bytes = sum(info.file_size for info, _ in files)
     cap = settings.max_tileset_unpacked_mb * 1024 * 1024
     if unpacked_bytes > cap:

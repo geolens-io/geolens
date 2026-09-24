@@ -340,9 +340,8 @@ def test_one_top_level_folder_is_stripped(tmp_path: Path) -> None:
     [
         [("a/tileset.json", tileset_json()), ("b/tileset.json", tileset_json())],
         [("a/tileset.json", tileset_json()), ("readme.txt", b"hi")],
-        [("__MACOSX/._x", b""), ("a/tileset.json", tileset_json())],
     ],
-    ids=["two-folders", "folder-and-root-file", "macos-metadata-folder"],
+    ids=["two-folders", "folder-and-root-file"],
 )
 def test_more_than_one_top_level_entry_without_a_root_tileset_is_refused(
     tmp_path: Path, entries
@@ -366,6 +365,48 @@ def test_an_archive_without_a_reachable_tileset_json_is_refused(
 ) -> None:
     """tileset.json must sit at the root or inside the one top-level folder."""
     assert "no tileset.json" in refused(build_zip(tmp_path / "t.zip", entries))
+
+
+def _finder_zip(path: Path, folder: str) -> str:
+    """What Finder's Compress writes for a tileset, inside ``folder`` or not."""
+    appledouble = b"\x00\x05\x16\x07" + bytes(28)
+    return build_zip(
+        path,
+        [
+            *([(folder, b"")] if folder else []),
+            (f"{folder}tileset.json", tileset_json()),
+            (f"{folder}0/0.glb", b"glb"),
+            (f"{folder}.DS_Store", b"Bud1" + bytes(64)),
+            (f"{folder}0/._0.glb", appledouble),
+            ("__MACOSX/", b""),
+            (f"__MACOSX/{folder}._tileset.json", appledouble),
+            (f"__MACOSX/{folder}0/._0.glb", appledouble),
+        ],
+    )
+
+
+@pytest.mark.parametrize("folder", ["campus/", ""], ids=["folder", "root"])
+def test_finder_metadata_is_never_unpacked(tmp_path: Path, folder: str) -> None:
+    """__MACOSX, AppleDouble files and .DS_Store are left out of the tileset."""
+    layout = inspect_tileset(_finder_zip(tmp_path / "t.zip", folder)).layout
+
+    assert sorted(key for _, key in layout.files) == ["0/0.glb", "tileset.json"]
+    assert layout.unpacked_bytes == len(tileset_json()) + len(b"glb")
+
+
+@pytest.mark.parametrize(
+    "name", ["__MACOSX/../x.glb", "__MACOSX/campus/../../x", "0/../.DS_Store"]
+)
+def test_finder_metadata_names_are_still_checked(tmp_path: Path, name: str) -> None:
+    """A metadata entry is left out only once its name passes every check."""
+    assert "'..' path segment" in refused(tileset_zip(tmp_path / "t.zip", (name, b"x")))
+
+
+def test_a_finder_metadata_link_is_still_refused(tmp_path: Path) -> None:
+    """A metadata entry's attributes are checked like any other entry's."""
+    link = entry("__MACOSX/._0.glb", mode=stat.S_IFLNK | 0o777)
+
+    assert "symbolic link" in refused(tileset_zip(tmp_path / "t.zip", (link, b"/etc")))
 
 
 def test_a_file_that_is_not_a_zip_is_refused(tmp_path: Path) -> None:
