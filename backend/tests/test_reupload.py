@@ -10,6 +10,7 @@ Requirements:
 """
 
 import asyncio
+import contextlib
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -2122,7 +2123,13 @@ class TestArchiveRunsAfterTheSwapCommit:
             await session.commit()
 
     async def _run_reupload(
-        self, test_db_session, tmp_path, *, table_name: str, put_side_effect
+        self,
+        test_db_session,
+        tmp_path,
+        *,
+        table_name: str,
+        put_side_effect,
+        extra_patches: tuple = (),
     ):
         local_file = tmp_path / "update.geojson"
         local_file.write_text('{"type":"FeatureCollection","features":[]}')
@@ -2135,36 +2142,47 @@ class TestArchiveRunsAfterTheSwapCommit:
 
         from app.processing.ingest.tasks import reupload_file
 
-        with (
-            patch(
-                "app.processing.ingest.service.resolve_file_path",
-                new=AsyncMock(side_effect=lambda path, job_id: path),
-            ),
-            patch(
-                "app.processing.ingest.tasks_reupload._validate_upload_file_safety",
-                new=AsyncMock(),
-            ),
-            patch(
-                "app.processing.ingest.ogr.run_ogrinfo",
-                new=AsyncMock(
-                    return_value={
-                        "srid": 4326,
-                        "geometry_type": "Point",
-                        "layer_name": "update",
-                        "feature_count": 1,
-                        "columns": [{"name": "name", "type": "String"}],
-                    }
-                ),
-            ),
-            patch(
-                "app.processing.ingest.ogr.run_ogr2ogr",
-                new=AsyncMock(side_effect=self._fake_ogr2ogr),
-            ),
-            patch(
-                "app.processing.ingest.tasks_staging.get_storage",
-                lambda: mock_storage,
-            ),
-        ):
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.service.resolve_file_path",
+                    new=AsyncMock(side_effect=lambda path, job_id: path),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.tasks_reupload._validate_upload_file_safety",
+                    new=AsyncMock(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.ogr.run_ogrinfo",
+                    new=AsyncMock(
+                        return_value={
+                            "srid": 4326,
+                            "geometry_type": "Point",
+                            "layer_name": "update",
+                            "feature_count": 1,
+                            "columns": [{"name": "name", "type": "String"}],
+                        }
+                    ),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.ogr.run_ogr2ogr",
+                    new=AsyncMock(side_effect=self._fake_ogr2ogr),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "app.processing.ingest.tasks_staging.get_storage",
+                    lambda: mock_storage,
+                )
+            )
+            for extra in extra_patches:
+                stack.enter_context(extra)
             await reupload_file(
                 job_id=str(job.id),
                 dataset_id=str(dataset.id),
@@ -2255,3 +2273,67 @@ class TestArchiveRunsAfterTheSwapCommit:
         await test_db_session.refresh(job)
         assert job.status == "complete"
         assert "archive_failed" not in (job.user_metadata or {})
+
+    async def test_caches_are_invalidated_before_the_archive_runs(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        """Clients must not see a completed job with pre-swap tiles/metadata.
+
+        Records order rather than asserting inside ``put``'s side effect:
+        _archive_original_file catches any exception from a failed put,
+        including an AssertionError raised there, as a failed archive.
+        """
+        calls: list[str] = []
+
+        async def _recording_catalog_invalidate():
+            calls.append("catalog")
+
+        async def _recording_tile_invalidate(table_name):
+            calls.append("tile")
+
+        async def _recording_put(key, fobj):
+            calls.append("put")
+
+        await self._run_reupload(
+            test_db_session,
+            tmp_path,
+            table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
+            put_side_effect=_recording_put,
+            extra_patches=(
+                patch(
+                    "app.processing.ingest.tasks_reupload.invalidate_catalog_cache",
+                    new=AsyncMock(side_effect=_recording_catalog_invalidate),
+                ),
+                patch(
+                    "app.processing.ingest.tasks_reupload.invalidate_tile_cache_for_table",
+                    new=AsyncMock(side_effect=_recording_tile_invalidate),
+                ),
+            ),
+        )
+
+        assert calls == ["catalog", "tile", "put"], calls
+
+    async def test_a_cancellation_during_the_archive_still_completes_cleanup(
+        self, client: AsyncClient, test_db_session, tmp_path
+    ):
+        """A cancelled archive must not skip the completed-job cleanup path.
+
+        The local upload file is deleted only when ``final_status ==
+        "complete"``; setting that before the archive runs (not after) is
+        what the finally block's cleanup depends on.
+        """
+
+        async def _cancelling_put(key, fobj):
+            raise asyncio.CancelledError()
+
+        local_file = tmp_path / "update.geojson"
+
+        with pytest.raises(asyncio.CancelledError):
+            await self._run_reupload(
+                test_db_session,
+                tmp_path,
+                table_name=f"reup2175_{uuid.uuid4().hex[:10]}",
+                put_side_effect=_cancelling_put,
+            )
+
+        assert not local_file.exists()

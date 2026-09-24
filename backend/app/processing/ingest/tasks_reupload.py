@@ -634,6 +634,13 @@ async def reupload_file(
             )
             await session.commit()
 
+            final_status = "complete"
+            await invalidate_catalog_cache()
+            # fix(#394) B-019/VT-01: the swap replaced the table's contents under the
+            # same name — purge cached MVT tiles or they 304-serve stale data for up
+            # to tile_cache_ttl. Post-commit, mirroring the feature-edit path.
+            await invalidate_tile_cache_for_table(live_table_name)
+
             # 10. Archive the original after the commit, so the upload never
             # runs under the rename's exclusive lock. The helper records a
             # failure on the job itself; the refresh reloads the committed row.
@@ -645,13 +652,6 @@ async def reupload_file(
                 file_path=file_path,
                 log_message="Failed to archive re-uploaded file to storage",
             )
-
-        final_status = "complete"
-        await invalidate_catalog_cache()
-        # fix(#394) B-019/VT-01: the swap replaced the table's contents under the
-        # same name — purge cached MVT tiles or they 304-serve stale data for up
-        # to tile_cache_ttl. Post-commit, mirroring the feature-edit path.
-        await invalidate_tile_cache_for_table(live_table_name)
 
         # Generate embedding (non-fatal). Use a fresh session to load the
         # dataset since both phase 1 and phase 2 sessions are now closed.
