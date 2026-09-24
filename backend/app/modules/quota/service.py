@@ -42,6 +42,7 @@ from app.core.persistent_config import (
     MAX_DATASETS_PER_USER,
     MAX_STORAGE_BYTES_PER_USER,
 )
+from app.core.record_types import DATASET_RECORD_TYPES
 from app.modules.quota.schemas import UserQuotaUsage
 from app.platform.extensions.entitlement import enforce_limit
 
@@ -83,12 +84,12 @@ async def get_user_quota_usage(
                ON da.dataset_id = d.id
               AND (da.key = 'data' OR da.key LIKE 'archived_original:%')
         WHERE  r.created_by = :user_id
-          AND  r.record_type IN (
-                   'vector_dataset', 'raster_dataset', 'vrt_dataset', 'table'
-               )
+          AND  r.record_type = ANY(CAST(:record_types AS text[]))
         """
     )
-    result = await db.execute(sql, {"user_id": user_id})
+    result = await db.execute(
+        sql, {"user_id": user_id, "record_types": list(DATASET_RECORD_TYPES)}
+    )
     row = result.one()
 
     storage_cap = await MAX_STORAGE_BYTES_PER_USER.get(db)
@@ -134,13 +135,17 @@ async def get_user_quota_usage_bulk(
                ON da.dataset_id = d.id
               AND (da.key = 'data' OR da.key LIKE 'archived_original:%')
         WHERE  r.created_by = ANY(CAST(:user_ids AS uuid[]))
-          AND  r.record_type IN (
-                   'vector_dataset', 'raster_dataset', 'vrt_dataset', 'table'
-               )
+          AND  r.record_type = ANY(CAST(:record_types AS text[]))
         GROUP BY r.created_by
         """
     )
-    result = await db.execute(sql, {"user_ids": [str(uid) for uid in user_ids]})
+    result = await db.execute(
+        sql,
+        {
+            "user_ids": [str(uid) for uid in user_ids],
+            "record_types": list(DATASET_RECORD_TYPES),
+        },
+    )
     by_user = {
         row.user_id: UserQuotaUsage(
             bytes_used=int(row.bytes_used),

@@ -137,6 +137,8 @@
   --type-table-bg: oklch(0.94 0.03 200);
   --type-vrt: oklch(0.50 0.16 300);
   --type-vrt-bg: oklch(0.94 0.04 300);
+  --type-tiles3d: oklch(0.50 0.15 350);
+  --type-tiles3d-bg: oklch(0.94 0.04 350);
 
   /* fix(#438): synthetic-data badge, was a raw violet-* Tailwind palette (DS-01).
      Distinct from --type-vrt: that hue marks a record type, this marks provenance. */
@@ -260,6 +262,8 @@
   --type-table-bg: oklch(0.28 0.04 200);
   --type-vrt: oklch(0.68 0.15 300);
   --type-vrt-bg: oklch(0.28 0.06 300);
+  --type-tiles3d: oklch(0.72 0.14 350);
+  --type-tiles3d-bg: oklch(0.28 0.06 350);
 
   --synthetic: oklch(0.72 0.15 285);
   --synthetic-bg: oklch(0.28 0.06 285);
@@ -385,6 +389,8 @@
   --color-type-table-bg: var(--type-table-bg);
   --color-type-vrt: var(--type-vrt);
   --color-type-vrt-bg: var(--type-vrt-bg);
+  --color-type-tiles3d: var(--type-tiles3d);
+  --color-type-tiles3d-bg: var(--type-tiles3d-bg);
   --color-synthetic: var(--synthetic);
   --color-synthetic-bg: var(--synthetic-bg);
   --color-type-folder: var(--type-folder);

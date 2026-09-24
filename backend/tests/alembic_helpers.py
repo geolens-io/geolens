@@ -22,6 +22,10 @@ This module is the one place that knows about refuse-to-coerce downgrades:
   its own cleanup.
 - ``0005_dormant_tenancy``: refuses while tenant-scoped data exists. Same
   reasoning; no current test trips it.
+- ``0065_tiles3d_record_type``: refuses while any record uses
+  ``tiles3d_dataset`` or any dataset uses ``3dtiles``. Not auto-cleaned; the
+  tests that commit such rows (test_tiles3d_record_type and
+  test_tiles3d_record_type_migration) remove them themselves.
 
 If a future migration gains a refuse-to-coerce downgrade, teach this module
 about it rather than adding cleanup to individual test files.

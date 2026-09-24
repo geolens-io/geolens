@@ -19,6 +19,7 @@ above it runs anywhere.
 
 import ast
 import codecs
+import importlib.util
 import shutil
 import uuid
 import zipfile
@@ -288,7 +289,7 @@ class TestSourceFormatConstraint:
 
     async def test_live_constraint_carries_the_tier1_values(self, test_db_session):
         """The migration ran, not just the model. The test DB is migrated to
-        head by the session fixture, so this reads what 0053 actually built."""
+        head by the session fixture, so this reads what the migrations built."""
         rows = await test_db_session.execute(
             text(
                 "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
@@ -305,19 +306,24 @@ class TestSourceFormatConstraint:
         """The migration is the source of truth; drift here is a silent 500."""
         from app.modules.catalog.datasets.domain.models import Dataset
 
-        migration = (
+        path = (
             Path(__file__).parents[1]
             / "alembic"
             / "versions"
-            / "0053_source_format_fgb.py"
-        ).read_text()
+            / "0065_tiles3d_record_type.py"
+        )
+        spec = importlib.util.spec_from_file_location("migration_0065", path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
         constraint = next(
             c
             for c in Dataset.__table__.constraints
             if getattr(c, "name", None) == "chk_datasets_source_format"
         )
         model_values = set(_quoted_values(str(constraint.sqltext)))
-        migration_values = set(_quoted_values(migration))
+        migration_values = set(
+            _quoted_values(f"{migration._BASE_FORMATS}, {migration._NEW_FORMATS}")
+        )
         assert model_values == migration_values
 
 

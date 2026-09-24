@@ -147,7 +147,8 @@ export function FilterPanel({
     (counts.vector_dataset ?? 0) +
     (counts.raster_dataset ?? 0) +
     (counts.vrt_dataset ?? 0) +
-    (counts.table ?? 0);
+    (counts.table ?? 0) +
+    (counts.tiles3d_dataset ?? 0);
 
   const { data: summaries } = useCatalogSummary();
 
@@ -170,6 +171,7 @@ export function FilterPanel({
   const hasSearchState = hasToolbarChanges || q !== '';
   const activeGeomLabel = geometryType ? getGeometryTypeLabel(t, geometryType) : null;
   const showsTableToggle = counts.table !== undefined;
+  const showsTiles3dToggle = counts.tiles3d_dataset !== undefined;
   const showSridFilter = srids.length > 0 && recordType !== 'table';
   const showSecondaryFilterRow = Boolean(recordType) && (
     recordType === 'vector_dataset' || organizations.length > 0 || showSridFilter
@@ -184,6 +186,8 @@ export function FilterPanel({
         return t('filters.vrt', { defaultValue: 'Virtual Raster' });
       case 'table':
         return t('card.table', { defaultValue: 'Table' });
+      case 'tiles3d_dataset':
+        return t('card.tiles3d', { defaultValue: '3D Tiles' });
       default:
         return value;
     }
@@ -724,6 +728,12 @@ export function FilterPanel({
               {counts.table !== undefined && <span className="readout text-muted-foreground">{counts.table}</span>}
             </ToggleGroupItem>
           )}
+          {showsTiles3dToggle && (
+            <ToggleGroupItem value="tiles3d_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.tiles3d_dataset === 0}>
+              {t('card.tiles3d', { defaultValue: '3D Tiles' })}
+              <span className="readout text-muted-foreground">{counts.tiles3d_dataset}</span>
+            </ToggleGroupItem>
+          )}
         </ToggleGroup>
       </div>
 
@@ -877,6 +887,12 @@ export function FilterPanel({
                   <ToggleGroupItem value="table" className="text-xs px-2.5 h-7" disabled={counts.table === 0}>
                     {t('card.table', { defaultValue: 'Table' })}
                     {counts.table !== undefined && ` (${counts.table})`}
+                  </ToggleGroupItem>
+                )}
+                {showsTiles3dToggle && (
+                  <ToggleGroupItem value="tiles3d_dataset" className="text-xs px-2.5 h-7" disabled={counts.tiles3d_dataset === 0}>
+                    {t('card.tiles3d', { defaultValue: '3D Tiles' })}
+                    {` (${counts.tiles3d_dataset})`}
                   </ToggleGroupItem>
                 )}
               </ToggleGroup>

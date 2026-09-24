@@ -83,6 +83,7 @@ export const recordTypeColors: Record<string, string> = {
   raster_dataset: 'border-type-raster/30 bg-type-raster-bg text-type-raster',
   vrt_dataset: 'border-type-vrt/30 bg-type-vrt-bg text-type-vrt',
   table: 'border-type-table/30 bg-type-table-bg text-type-table',
+  tiles3d_dataset: 'border-type-tiles3d/30 bg-type-tiles3d-bg text-type-tiles3d',
   collection: semanticBadgeColors.warning,
   unknown: 'border-border bg-muted text-muted-foreground',
 };

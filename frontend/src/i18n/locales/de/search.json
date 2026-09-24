@@ -112,6 +112,7 @@
     "vrt": "Virtuelles Raster",
     "collection": "Sammlung",
     "table": "Tabelle",
+    "tiles3d": "3D Tiles",
     "sourceCount_one": "{{count}} Quelle",
     "sourceCount_other": "{{count}} Quellen",
     "autoDesc": {

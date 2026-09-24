@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Combine, FolderOpen, Grid3X3, Layers, Table2 } from 'lucide-react';
+import { Box, Combine, FolderOpen, Grid3X3, Layers, Table2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { recordTypeColors } from '@/lib/status-colors';
 
@@ -23,6 +23,10 @@ const TYPE_CONFIG = {
   table: {
     icon: Table2,
     labelKey: 'card.table',
+  },
+  tiles3d_dataset: {
+    icon: Box,
+    labelKey: 'card.tiles3d',
   },
 } as const;
 

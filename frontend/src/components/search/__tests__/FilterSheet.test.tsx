@@ -2,8 +2,10 @@ import { act, fireEvent, render, screen } from '@/test/test-utils';
 import { FilterSheet } from '../FilterSheet';
 import { useSearchStore } from '@/stores/search-store';
 
+const facetCounts = vi.hoisted(() => ({ record_type: {} as Record<string, number> }));
+
 vi.mock('@/components/search/hooks/use-search', () => ({
-  useFacets: () => ({ data: { record_type: {} }, isLoading: false }),
+  useFacets: () => ({ data: facetCounts, isLoading: false }),
   useCatalogSummary: () => ({ data: undefined, isLoading: false }),
 }));
 
@@ -73,5 +75,35 @@ describe('FilterSheet date field accessible names (#1778)', () => {
 
     expect(screen.getAllByLabelText('From')).toHaveLength(2);
     expect(screen.getAllByLabelText('To')).toHaveLength(2);
+  });
+});
+
+describe('FilterSheet 3D Tiles filter', () => {
+  afterEach(() => {
+    facetCounts.record_type = {};
+    useSearchStore.getState().resetFilters();
+  });
+
+  it('offers a 3D Tiles toggle, counted in All, when the catalog holds tilesets', () => {
+    facetCounts.record_type = { vector_dataset: 3, tiles3d_dataset: 2 };
+    render(<FilterSheet totalResults={5} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
+
+    expect(screen.getByRole('radio', { name: /3D Tiles/ })).toHaveTextContent('(2)');
+    expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(5)');
+  });
+
+  it.each([
+    ['vector_dataset', true],
+    ['tiles3d_dataset', false],
+  ])('offers the geometry filter only for a type with vector tiles (%s)', (recordType, offered) => {
+    facetCounts.record_type = { vector_dataset: 3, tiles3d_dataset: 2 };
+    useSearchStore.getState().setFilter('record_type', recordType);
+    render(<FilterSheet totalResults={5} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
+
+    expect(Boolean(screen.queryByRole('combobox', { name: 'Geometry Type' }))).toBe(offered);
   });
 });

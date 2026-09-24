@@ -10,18 +10,11 @@ from typing import Literal
 from fastapi import HTTPException, Query, status
 from pydantic import BaseModel, field_validator
 
+from app.core.record_types import RECORD_TYPES
 from app.modules.catalog.features.service import parse_bbox
 from app.modules.catalog.search.service import SearchFilters
 
-_ALLOWED_RECORD_TYPES = {
-    "vector_dataset",
-    "raster_dataset",
-    "vrt_dataset",
-    "map",
-    "service",
-    "collection",
-    "table",
-}
+_ALLOWED_RECORD_TYPES = frozenset(RECORD_TYPES)
 _ALLOWED_SORT_BY = {"relevance", "date_added", "name", "title", "last_updated"}
 
 # fix(#687): page-size ceiling for offset-paged routes (SearchQueryParams),

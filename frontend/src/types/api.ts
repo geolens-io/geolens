@@ -161,7 +161,7 @@ export interface RasterPreviewResponse {
 }
 
 // Mirrors backend chk_records_record_type CHECK constraint
-// (catalog/datasets/domain/models.py:52). Keep in sync if values change.
+// (catalog/datasets/domain/models.py). Keep in sync if values change.
 export type RecordType =
   | 'vector_dataset'
   | 'raster_dataset'
@@ -169,7 +169,8 @@ export type RecordType =
   | 'map'
   | 'service'
   | 'collection'
-  | 'table';
+  | 'table'
+  | 'tiles3d_dataset';
 // Mirrors backend chk_records_visibility CHECK constraint
 // (catalog/datasets/domain/models.py:35). Keep in sync if values change.
 export type DatasetVisibility = 'public' | 'internal' | 'restricted' | 'private';
