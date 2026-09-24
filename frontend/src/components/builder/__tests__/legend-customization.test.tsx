@@ -171,6 +171,33 @@ describe('classes in both legends', () => {
     expect(container.querySelector('.lucide-circle')).toHaveAttribute('fill-opacity', '0.95');
   });
 
+  it.each(Object.entries(legends))('%s legend draws the stored heatmap colour the map draws', (_legend, draw) => {
+    const container = draw(SAVED_LAYERS.heatmapByExpression);
+
+    const gradient = (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+    expect(gradient).toContain('rgb(124, 58, 237)');
+    expect(gradient).toContain('rgb(240, 171, 252)');
+  });
+
+  it.each(Object.entries(legends))('%s legend draws a heatmap ramp in the five colours the map draws', (_legend, draw) => {
+    const container = draw(SAVED_LAYERS.heatmapByRamp);
+
+    const gradient = (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+    expect(gradient.match(/rgb\(/g)).toHaveLength(5);
+  });
+
+  it.each(Object.entries(legends))('%s legend draws no heatmap ramp for a stored colour it cannot read', (_legend, draw) => {
+    const container = draw({ ...SAVED_LAYERS.heatmapByRamp, paint: { ...SAVED_LAYERS.heatmapByRamp.paint, 'heatmap-color': ['get', 'color'] } });
+
+    expect(container.querySelector('.h-3.rounded-sm.w-full')).not.toBeInTheDocument();
+  });
+
+  it('builder legend names the column a heatmap is weighted by', () => {
+    legends.builder(SAVED_LAYERS.heatmapByRamp);
+
+    expect(screen.getByText('plugins.legend.weightedBy')).toBeInTheDocument();
+  });
+
   it('builder legend lists graduated classes that have no breaks', () => {
     const noBreaks = { ...SAVED_LAYERS.graduatedColor, style_config: { ...SAVED_LAYERS.graduatedColor.style_config, breaks: undefined } };
     const container = legends.builder(noBreaks);

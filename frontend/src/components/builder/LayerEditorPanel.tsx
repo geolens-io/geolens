@@ -179,7 +179,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   const isRaster = caps.kind !== 'vector';
   const isHeatmap = layer.style_config?.render_mode === 'heatmap';
   const facts = useMemo(() => legendFacts(layer), [layer]);
-  const layerColors = useMemo(() => getLayerColors(layer, facts), [layer, facts]);
+  const layerColors = useMemo(() => getLayerColors(facts), [facts]);
   const styleHints = useMemo(
     () => extractStyleHints(
       layer.paint ?? {},

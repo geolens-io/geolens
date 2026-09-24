@@ -243,28 +243,3 @@ describe('LegendPlugin folder-group exclusion (#769)', () => {
     expect(screen.getByText('No visible layers')).toBeInTheDocument();
   });
 });
-
-describe('LegendPlugin heatmap ramp direction', () => {
-  const heatmapLayer = (paintOverrides: Record<string, unknown> = {}) => layer({
-    id: 'heat-1',
-    display_name: 'Heat',
-    style_config: { render_mode: 'heatmap', ramp: 'YlOrRd' } as MapLayerResponse['style_config'],
-    paint: { '_heatmap-ramp': 'YlOrRd', ...paintOverrides },
-  });
-
-  function swatchStyleAttr(reversed: boolean): string {
-    const ctx = createCtx({ layers: [heatmapLayer({ '_heatmap-reversed': reversed })] });
-    const { container } = render(<LegendPlugin ctx={ctx} />);
-    return container.querySelector('.h-3.rounded-sm.w-full')?.getAttribute('style') ?? '';
-  }
-
-  it('reverses the gradient direction when _heatmap-reversed is set', () => {
-    const forward = swatchStyleAttr(false);
-    const reversed = swatchStyleAttr(true);
-    // YlOrRd's first (#ffffcc, jsdom renders it rgb(255, 255, 204)) and last
-    // (#800026 / rgb(128, 0, 38)) stops always sit at the ends of the sampled
-    // gradient, regardless of sample count.
-    expect(forward.indexOf('rgb(255, 255, 204)')).toBeLessThan(forward.indexOf('rgb(128, 0, 38)'));
-    expect(reversed.indexOf('rgb(128, 0, 38)')).toBeLessThan(reversed.indexOf('rgb(255, 255, 204)'));
-  });
-});

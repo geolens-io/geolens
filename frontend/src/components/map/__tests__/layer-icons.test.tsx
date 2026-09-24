@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { ColorizedGeometryIcon, LayerTypeIcon, getLayerColors, type LayerTypeIconLayer } from '../layer-icons';
+import { ColorizedGeometryIcon, LayerTypeIcon, type LayerTypeIconLayer } from '../layer-icons';
 import type { LegendSwatch } from '../legend-facts';
 import { buildCategoricalExpression } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
-import type { MapLayerResponse } from '@/types/api';
 
 function legendSwatch(overrides: Partial<LegendSwatch> = {}): LegendSwatch {
   return { fill: null, fillOpacity: 1, opacity: 1, stroke: null, pattern: null, ...overrides };
@@ -354,17 +353,11 @@ describe('ColorizedGeometryIcon line gradients (fix #1494)', () => {
   });
 });
 
-describe('getLayerColors heatmap ramp direction', () => {
-  it('reverses the sampled ramp when _heatmap-reversed is set', () => {
-    const layerWithRamp = (reversed: boolean): Parameters<typeof getLayerColors>[0] => ({
-      paint: { '_heatmap-ramp': 'YlOrRd', '_heatmap-reversed': reversed },
-      style_config: { render_mode: 'heatmap', ramp: 'YlOrRd' } as MapLayerResponse['style_config'],
-    });
-
-    const forward = getLayerColors(layerWithRamp(false), null);
-    const reversed = getLayerColors(layerWithRamp(true), null);
-    expect(reversed).toEqual([...forward].reverse());
-    expect(reversed[0]).not.toBe(forward[0]);
+describe('LayerTypeIcon heatmap', () => {
+  it('draws the stored heatmap colour the map draws', () => {
+    const { container } = render(<LayerTypeIcon layer={SAVED_LAYERS.heatmapByExpression} iconId="calls" />);
+    const stops = Array.from(container.querySelectorAll('stop'), (stop) => stop.getAttribute('stop-color'));
+    expect(stops).toEqual(['#7c3aed', '#f0abfc']);
   });
 });
 

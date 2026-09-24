@@ -1,4 +1,5 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { StyleConfig } from '@/types/api';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import { getBuilderStyleConfig, syncOwnedPaintProperties, syncSingleLayerVisibility, syncLayerFilter } from './shared';
 // builder-audit #338 ADAPT-05: the radius/weight/intensity/opacity defaults come from the
@@ -49,6 +50,27 @@ export const DEFAULT_HEATMAP_PAINT: Record<string, unknown> = {
   'heatmap-color': buildHeatmapColorExpression(DEFAULT_RAMP),
 };
 
+export interface HeatmapColor {
+  /** The heatmap-color expression the layer draws. */
+  expression: unknown;
+  /** The named ramp the expression is built from; null for a stored expression. */
+  ramp: { name: string; reversed: boolean } | null;
+}
+
+/**
+ * The heatmap-color a heatmap layer draws: a stored expression, else one built
+ * from the builder ramp and direction, else YlOrRd forward.
+ */
+export function resolveHeatmapColor(
+  paint: Record<string, unknown>,
+  builder: NonNullable<StyleConfig['builder']>,
+): HeatmapColor {
+  const stored = paint['heatmap-color'];
+  if (stored != null) return { expression: stored, ramp: null };
+  const ramp = { name: builder.heatmapRamp ?? DEFAULT_RAMP, reversed: builder.heatmapReversed ?? false };
+  return { expression: buildHeatmapColorExpression(ramp.name, ramp.reversed), ramp };
+}
+
 export const heatmapAdapter: LayerAdapter = {
   type: 'heatmap',
 
@@ -72,8 +94,7 @@ export const heatmapAdapter: LayerAdapter = {
     const storedHeatmapOpacity = finiteNumber(rawPaint['heatmap-opacity']) ?? HEATMAP_PAINT_DEFAULTS['heatmap-opacity'];
     const heatmapOpacity = storedHeatmapOpacity * (opacity ?? 1);
 
-    // Use stored color expression or build the default
-    const heatmapColor: unknown = rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP, builder.heatmapReversed ?? false);
+    const heatmapColor = resolveHeatmapColor(rawPaint, builder).expression;
 
     try {
       map.addLayer({
@@ -107,7 +128,7 @@ export const heatmapAdapter: LayerAdapter = {
       'heatmap-radius': rawPaint['heatmap-radius'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-radius'],
       'heatmap-weight': rawPaint['heatmap-weight'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-weight'],
       'heatmap-intensity': rawPaint['heatmap-intensity'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-intensity'],
-      'heatmap-color': rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP, builder.heatmapReversed ?? false),
+      'heatmap-color': resolveHeatmapColor(rawPaint, builder).expression,
     }, { ownedProperties: HEATMAP_OWNED_PAINT_PROPERTIES.filter((prop) => prop !== 'heatmap-opacity') });
 
     // Compound stored heatmap-opacity with master opacity. Single source of truth.

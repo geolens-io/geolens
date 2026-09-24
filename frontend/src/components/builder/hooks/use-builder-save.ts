@@ -1407,12 +1407,12 @@ export function useBuilderSave(state: SaveState) {
               );
               cursorY += legendRowH;
             }
-            for (const { layer, facts } of legendRows) {
+            for (const { facts } of legendRows) {
               // Mirror the on-screen swatch: a gradient for multi-stop ramps, and the
               // stroke the map draws as the border, so a hollow circle (light fill,
               // coloured ring) doesn't export blank.
               const { swatch } = facts;
-              const colors = getLayerColors(layer, facts);
+              const colors = getLayerColors(facts);
               const rowY = cursorY + (legendRowH - swatchSize) / 2;
               const solidFill = colors.find((c) => !!c) || MAP_COLORS.icon.fallback;
               let filled = false;

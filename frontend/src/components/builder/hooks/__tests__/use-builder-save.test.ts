@@ -3125,6 +3125,22 @@ describe('SHARE-09 export PNG composition', () => {
     expect(stops).toEqual(['#111111', '#999999']);
   });
 
+  it('draws a heatmap swatch in the stored heatmap colour the map draws', () => {
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [SAVED_LAYERS.heatmapByExpression],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(addColorStopSpy.mock.calls.map((c: unknown[]) => c[1])).toEqual(['#7c3aed', '#f0abfc']);
+  });
+
   it('an unparseable ramp color falls back to solid instead of aborting the export', () => {
     const mockMap = makeExportMap();
     // The empty-string second stop makes the mocked addColorStop throw (as the browser

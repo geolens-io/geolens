@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { LegendClassesList } from '../LegendEntries';
+import { HeatmapLegend, LegendClassesList } from '../LegendEntries';
 import type { LegendClasses, LegendSwatch } from '../legend-facts';
 
 function legendSwatch(overrides: Partial<LegendSwatch> = {}): LegendSwatch {
@@ -258,5 +258,21 @@ describe('GeometrySwatch — points', () => {
     expect(ringed).toHaveAttribute('stroke-width', '2');
     expect(ringless).not.toHaveAttribute('stroke');
     expect(ringless).toHaveAttribute('stroke-width', '0');
+  });
+});
+
+describe('HeatmapLegend', () => {
+  function gradientOf(colors: string[]): string {
+    const { container } = render(<HeatmapLegend name="Heat" colors={colors} lowLabel="Low" highLabel="High" />);
+    return (container.querySelector('.h-3.rounded-sm.w-full') as HTMLElement).style.background;
+  }
+
+  it('draws its colours low to high', () => {
+    const gradient = gradientOf(['#fde725', '#440154']);
+    expect(gradient.indexOf('rgb(253, 231, 37)')).toBeLessThan(gradient.indexOf('rgb(68, 1, 84)'));
+  });
+
+  it('draws a single colour as a solid bar', () => {
+    expect(gradientOf(['#dc2626']).match(/rgb\(220, 38, 38\)/g)).toHaveLength(2);
   });
 });

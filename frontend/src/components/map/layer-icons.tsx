@@ -1,10 +1,8 @@
 import { useMemo } from 'react';
 import { Circle, Pentagon, Grid3x3, Layers } from 'lucide-react';
-import { getRampColors } from '@/lib/color-ramps';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
-import { resolveHeatmapRamp } from '@/lib/normalize-style-config';
 import type { MapLayerResponse } from '@/types/api';
 import { legendFacts } from './legend-facts';
 import type { LegendFacts, LegendSwatch } from './legend-facts';
@@ -254,15 +252,8 @@ export function ColorizedGeometryIcon({
  * The colours a layer's icon draws: the heatmap ramp, else the swatch's constant
  * colour or pattern tint, else the colour classes.
  */
-export function getLayerColors(
-  layer: Pick<MapLayerResponse, 'paint' | 'style_config'>,
-  facts: LegendFacts | null,
-): string[] {
-  // Heatmap: extract from ramp name
-  if (layer.style_config?.render_mode === 'heatmap') {
-    const { rampName, reversed } = resolveHeatmapRamp(layer.paint, layer.style_config);
-    return getRampColors(rampName, 5, reversed);
-  }
+export function getLayerColors(facts: LegendFacts | null): string[] {
+  if (facts?.ramp) return facts.ramp.colors;
   const constant = facts?.swatch?.fill ?? facts?.swatch?.pattern?.tint;
   if (constant) return [constant];
   const classes = facts?.classes ?? [];
@@ -345,7 +336,7 @@ export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; ic
   return (
     <ColorizedGeometryIcon
       geometryType={layer.dataset_geometry_type}
-      colors={getLayerColors({ paint, style_config: layer.style_config ?? null }, facts)}
+      colors={getLayerColors(facts)}
       layerId={iconId}
       layerType={caps.kind}
       styleHints={styleHints}

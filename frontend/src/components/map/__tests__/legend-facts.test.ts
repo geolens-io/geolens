@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraduatedExpression, buildGraduatedSizeExpression } from '@/lib/color-ramps';
+import { buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
 import { SAVED_LAYERS, ZOOM_FADED_STATIONS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
@@ -14,7 +14,10 @@ function swatch(overrides: Partial<LegendSwatch> = {}): LegendSwatch {
   return { fill: null, fillOpacity: 1, opacity: 1, stroke: null, pattern: null, ...overrides };
 }
 
-const fixtureFacts: Record<keyof typeof SAVED_LAYERS, Omit<LegendFacts, 'name' | 'classes'> | null> = {
+/** No classes, heatmap ramp or weight column, as for any unclassified layer that is not a heatmap. */
+const PLAIN = { classes: null, ramp: null, weightColumn: null } as const;
+
+const fixtureFacts: Record<keyof typeof SAVED_LAYERS, Omit<LegendFacts, 'name' | keyof typeof PLAIN> | null> = {
   polygon: { drawsAs: 'fill', swatch: swatch({ fill: '#3b82f6', fillOpacity: 0.3, stroke: DEFAULT_OUTLINE }) },
   strokeOnlyPolygon: {
     drawsAs: 'fill',
@@ -77,10 +80,18 @@ const fixtureClasses: Partial<Record<keyof typeof SAVED_LAYERS, LegendClasses[]>
   graduatedWidth: [graduated('width', 'flow', sized('#0284c7', [1, 3, 6]), [10, 100])],
 };
 
+/** The heatmap fixtures' ramps and weight columns. */
+const fixtureHeat: Partial<Record<keyof typeof SAVED_LAYERS, Pick<LegendFacts, 'ramp' | 'weightColumn'>>> = {
+  heatmapByRamp: { ramp: { colors: getRampColors('Blues', 5), name: 'Blues', reversed: false }, weightColumn: 'severity' },
+  reversedHeatmap: { ramp: { colors: getRampColors('Viridis', 5, true), name: 'Viridis', reversed: true }, weightColumn: null },
+  heatmapByExpression: { ramp: { colors: ['#7c3aed', '#f0abfc'], name: null, reversed: false }, weightColumn: null },
+};
+
 const fixtureRows: Row[] = Object.entries(SAVED_LAYERS).map(([key, layer]) => {
   const facts = fixtureFacts[key as keyof typeof SAVED_LAYERS];
   const classes = fixtureClasses[key as keyof typeof SAVED_LAYERS] ?? null;
-  return [key, layer, facts && { name: layer.display_name ?? '', ...facts, classes }];
+  const heat = fixtureHeat[key as keyof typeof SAVED_LAYERS];
+  return [key, layer, facts && { name: layer.display_name ?? '', ...facts, ...PLAIN, classes, ...heat }];
 });
 
 /** Facts for `savedLayer()`'s unstyled polygon under the given name. */
@@ -88,7 +99,7 @@ const unstyledPolygon = (name: string): LegendFacts => ({
   name,
   drawsAs: 'fill',
   swatch: swatch({ fill: MAP_COLORS.default.fill, fillOpacity: 0.3, stroke: DEFAULT_OUTLINE }),
-  classes: null,
+  ...PLAIN,
 });
 
 const nameRows: Row[] = [
@@ -112,9 +123,9 @@ const polygon = (paint: Record<string, unknown>, builder?: BuilderStyleConfig) =
 const point = (paint: Record<string, unknown>, builder?: BuilderStyleConfig) =>
   savedLayer({ dataset_geometry_type: 'MULTIPOINT', paint, style_config: builder ? { builder } : null });
 const fillFacts = (overrides: Partial<LegendSwatch>): LegendFacts =>
-  ({ name: 'Layer 1', drawsAs: 'fill', swatch: swatch({ fillOpacity: 0.3, ...overrides }), classes: null });
+  ({ name: 'Layer 1', drawsAs: 'fill', swatch: swatch({ fillOpacity: 0.3, ...overrides }), ...PLAIN });
 const circleFacts = (overrides: Partial<LegendSwatch>): LegendFacts =>
-  ({ name: 'Layer 1', drawsAs: 'circle', swatch: swatch(overrides), classes: null });
+  ({ name: 'Layer 1', drawsAs: 'circle', swatch: swatch(overrides), ...PLAIN });
 const ring = { color: '#ea580c', width: 2 };
 
 const swatchRows: Row[] = [
@@ -172,7 +183,7 @@ const swatchRows: Row[] = [
   [
     'line opacity faded in by zoom',
     savedLayer({ dataset_geometry_type: 'MULTILINESTRING', paint: { 'line-color': '#ef4444', 'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0, 10, 0.8] } }),
-    { name: 'Layer 1', drawsAs: 'line', swatch: swatch({ fill: '#ef4444', fillOpacity: 0.8 }), classes: null },
+    { name: 'Layer 1', drawsAs: 'line', swatch: swatch({ fill: '#ef4444', fillOpacity: 0.8 }), ...PLAIN },
   ],
   [
     'circle opacity from a zoom ramp over a data case',
@@ -235,6 +246,7 @@ const swatchRows: Row[] = [
       name: 'Stations (green = ADA accessible)',
       drawsAs: 'circle',
       swatch: swatch({ fillOpacity: 0.95, stroke: { color: '#0b0f14', width: 1 } }),
+      ...PLAIN,
       classes: [{
         mode: 'categorical',
         target: 'color',
@@ -261,7 +273,7 @@ const swatchRows: Row[] = [
   [
     'line with no paint',
     savedLayer({ dataset_geometry_type: 'MULTILINESTRING' }),
-    { name: 'Layer 1', drawsAs: 'line', swatch: swatch({ fill: MAP_COLORS.default.fill }), classes: null },
+    { name: 'Layer 1', drawsAs: 'line', swatch: swatch({ fill: MAP_COLORS.default.fill }), ...PLAIN },
   ],
   [
     'patterned GEOMETRYCOLLECTION layer',
@@ -270,7 +282,7 @@ const swatchRows: Row[] = [
       name: 'Layer 1',
       drawsAs: 'mixed',
       swatch: swatch({ fill: '#8b5cf6', fillOpacity: 0.3, stroke: DEFAULT_OUTLINE, pattern: { id: 'geolens-fill-grid', tint: '#8b5cf6' } }),
-      classes: null,
+      ...PLAIN,
     },
   ],
   [
@@ -280,7 +292,7 @@ const swatchRows: Row[] = [
       paint: { 'fill-color': '#8b5cf6' },
       style_config: { builder: { strokeDisabled: true, outlineColor: '#ec4b7f' } },
     }),
-    { name: 'Layer 1', drawsAs: 'mixed', swatch: swatch({ fill: '#8b5cf6', fillOpacity: 0.3, stroke: DEFAULT_OUTLINE }), classes: null },
+    { name: 'Layer 1', drawsAs: 'mixed', swatch: swatch({ fill: '#8b5cf6', fillOpacity: 0.3, stroke: DEFAULT_OUTLINE }), ...PLAIN },
   ],
   [
     'no geometry, circle paint',
@@ -441,5 +453,67 @@ describe('legendFacts classes', () => {
   it.each(classRows)('%s gives the same classes in the builder and viewer shapes', (_label, layer, expected) => {
     expect(legendFacts(layer)?.classes).toEqual(expected);
     expect(legendFacts(toSharedLayer(layer))?.classes).toEqual(expected);
+  });
+});
+
+type HeatRow = [label: string, layer: MapLayerResponse, expected: Pick<LegendFacts, 'ramp' | 'weightColumn'>];
+
+const heatmap = (paint: Record<string, unknown>, style_config: Record<string, unknown> = {}) => savedLayer({
+  dataset_geometry_type: 'MULTIPOINT',
+  paint: { 'heatmap-radius': 30, ...paint },
+  style_config: { mode: 'graduated', column: '', render_mode: 'heatmap', ...style_config },
+});
+const builderRamp = (name: string, reversed = false) => ({ colors: getRampColors(name, 5, reversed), name, reversed });
+
+const heatRows: HeatRow[] = [
+  ['no ramp at all', heatmap({}), { ramp: builderRamp('YlOrRd'), weightColumn: null }],
+  [
+    'a stored expression over a reversed builder ramp',
+    heatmap(
+      { 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 0.5, '#7c3aed', 1, '#f0abfc'] },
+      { builder: { heatmapRamp: 'Blues', heatmapReversed: true } },
+    ),
+    { ramp: { colors: ['#7c3aed', '#f0abfc'], name: null, reversed: false }, weightColumn: null },
+  ],
+  [
+    'a builder ramp over a stale top-level ramp',
+    heatmap({}, { ramp: 'YlOrRd', builder: { heatmapRamp: 'Viridis' } }),
+    { ramp: builderRamp('Viridis'), weightColumn: null },
+  ],
+  [
+    'a builder ramp over a leftover paint mirror',
+    heatmap({ '_heatmap-ramp': 'Blues', '_heatmap-reversed': true }, { builder: { heatmapRamp: 'YlOrRd' } }),
+    { ramp: builderRamp('YlOrRd'), weightColumn: null },
+  ],
+  [
+    'snake_case builder keys',
+    heatmap({}, { builder: { heatmap_ramp: 'Blues', heatmap_reversed: true, heatmap_weight_column: 'mag' } }),
+    { ramp: builderRamp('Blues', true), weightColumn: 'mag' },
+  ],
+  [
+    'a stored step colour',
+    heatmap({ 'heatmap-color': ['step', ['heatmap-density'], 'rgba(0,0,0,0)', 0.3, '#fde725', 0.7, '#440154'] }),
+    { ramp: { colors: ['rgba(0,0,0,0)', '#fde725', '#440154'], name: null, reversed: false }, weightColumn: null },
+  ],
+  [
+    'a stored single colour',
+    heatmap({ 'heatmap-color': '#dc2626' }),
+    { ramp: { colors: ['#dc2626'], name: null, reversed: false }, weightColumn: null },
+  ],
+  ['a stored expression with no colours to read', heatmap({ 'heatmap-color': ['get', 'color'] }), { ramp: null, weightColumn: null }],
+  ['an empty weight column', heatmap({}, { builder: { heatmapWeightColumn: '' } }), { ramp: builderRamp('YlOrRd'), weightColumn: null }],
+  [
+    'a weight column left on a layer that is not a heatmap',
+    savedLayer({ dataset_geometry_type: 'MULTIPOINT', paint: { 'circle-color': '#f59e0b' }, style_config: { builder: { heatmapWeightColumn: 'mag' } } }),
+    { ramp: null, weightColumn: null },
+  ],
+];
+
+describe('legendFacts heatmap ramp', () => {
+  it.each(heatRows)('%s gives the same ramp and weight column in the builder and viewer shapes', (_label, layer, expected) => {
+    for (const shape of [layer, toSharedLayer(layer)]) {
+      const facts = legendFacts(shape);
+      expect({ ramp: facts?.ramp, weightColumn: facts?.weightColumn }).toEqual(expected);
+    }
   });
 });

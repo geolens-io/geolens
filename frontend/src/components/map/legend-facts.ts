@@ -1,5 +1,6 @@
 import { resolveCirclePaint, resolvePointStroke } from '@/components/builder/layer-adapters/circle-adapter';
 import { resolveFillPaint, resolvePolygonStroke } from '@/components/builder/layer-adapters/fill-adapter';
+import { resolveHeatmapColor } from '@/components/builder/layer-adapters/heatmap-adapter';
 import { resolveLinePaint } from '@/components/builder/layer-adapters/line-adapter';
 import { resolveMixedFillPaint, resolveMixedOutline } from '@/components/builder/layer-adapters/mixed-adapter';
 import {
@@ -68,6 +69,10 @@ export interface LegendFacts {
    * comes first, followed by the colour classes its symbols are painted in.
    */
   classes: LegendClasses[] | null;
+  /** A heatmap's colours from low to high density, and the named ramp they come from; null for other layers. */
+  ramp: { colors: string[]; name: string | null; reversed: boolean } | null;
+  /** The column a heatmap weights its points by; null when unweighted or not a heatmap. */
+  weightColumn: string | null;
 }
 
 function nonBlank(value: unknown): string | null {
@@ -307,6 +312,34 @@ function classesFor(
   return [{ mode: 'graduated', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks }];
 }
 
+/** The colours a heatmap-color expression draws above zero density; null when they can't be read. */
+function heatmapColors(expression: unknown): string[] | null {
+  if (typeof expression === 'string') return [expression];
+  if (!Array.isArray(expression)) return null;
+  let outputs: unknown[];
+  if (expression[0] === 'interpolate' || expression[0] === 'interpolate-hcl' || expression[0] === 'interpolate-lab') {
+    // Zero density is the floor where no heat draws, transparent in the built ramps.
+    outputs = expression.filter((_, i) => i >= 4 && i % 2 === 0 && expression[i - 1] !== 0);
+  } else if (expression[0] === 'step') {
+    outputs = expression.filter((_, i) => i >= 2 && i % 2 === 0);
+  } else {
+    return null;
+  }
+  return outputs.length && outputs.every((color) => typeof color === 'string') ? outputs as string[] : null;
+}
+
+function rampFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts['ramp'] {
+  if (kind !== 'heatmap') return null;
+  const { expression, ramp } = resolveHeatmapColor(layer.paint ?? {}, getBuilderStyleConfig(layer));
+  const colors = heatmapColors(expression);
+  return colors ? { colors, name: ramp?.name ?? null, reversed: ramp?.reversed ?? false } : null;
+}
+
+function weightColumnFor(layer: LegendLayer, kind: LayerAdapter['type']): string | null {
+  const column = kind === 'heatmap' ? getBuilderStyleConfig(layer).heatmapWeightColumn : undefined;
+  return typeof column === 'string' && column ? column : null;
+}
+
 /**
  * Legend facts for one saved layer, or null when the map draws nothing for it.
  * Folder rows copy their first child's fields but render nothing, and a DEM in
@@ -316,5 +349,12 @@ export function legendFacts(layer: LegendLayer): LegendFacts | null {
   if (isFolderGroupLayer(layer) || isDemTerrainVisualSuppressed(layer)) return null;
   const kind = drawsAs(layer);
   const swatch = swatchFor(layer, kind);
-  return { name: legendEntryName(layer) ?? '', drawsAs: kind, swatch, classes: classesFor(layer, kind, swatch) };
+  return {
+    name: legendEntryName(layer) ?? '',
+    drawsAs: kind,
+    swatch,
+    classes: classesFor(layer, kind, swatch),
+    ramp: rampFor(layer, kind),
+    weightColumn: weightColumnFor(layer, kind),
+  };
 }
