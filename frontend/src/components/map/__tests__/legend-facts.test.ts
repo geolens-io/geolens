@@ -341,6 +341,12 @@ const sizedByMagnitude = (circleColor: unknown) => savedLayer({
   paint: { 'circle-radius': magnitudeRadius, 'circle-color': circleColor },
   style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7], sizeLabel: 'Magnitude', colorLabel: 'Depth (km)' },
 });
+/** Magnitude size classes coloured by a step on magnitude at the same breaks, over the given size paint. */
+const magnitudeSizedBy = (circleRadius: unknown) => savedLayer({
+  dataset_geometry_type: 'MULTIPOINT',
+  paint: { 'circle-radius': circleRadius, 'circle-color': ['step', ['get', 'mag'], '#fee8c8', 6, '#fdbb84', 7, '#e34a33'] },
+  style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7], sizeLabel: 'Magnitude' },
+});
 const MAGNITUDE_SIZES = (color: string) => graduated('radius', 'Magnitude', sized(color, [4, 8, 14]), [6, 7]);
 const DEPTH_COLORS = graduated('color', 'Depth (km)', colored(['#fde725', '#f39c12', '#e74c3c', '#7d3c98']), [50, 200, 700]);
 
@@ -420,6 +426,33 @@ const classRows: ClassRow[] = [
       style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7], sizeLabel: 'Magnitude' },
     }),
     [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+  ],
+  [
+    'radius classes whose size paint steps on a shifted column',
+    magnitudeSizedBy(['step', ['+', ['get', 'mag'], 1], 4, 6, 8, 7, 14]),
+    [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+  ],
+  [
+    'radius classes whose size paint steps at other breaks',
+    magnitudeSizedBy(['step', ['get', 'mag'], 4, 5, 8, 8, 14]),
+    [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+  ],
+  [
+    'radius classes whose size paint is a constant',
+    magnitudeSizedBy(6),
+    [MAGNITUDE_SIZES('#fee8c8'), graduated('color', 'Magnitude', colored(['#fee8c8', '#fdbb84', '#e34a33']), [6, 7])],
+  ],
+  [
+    "the style builders' guarded size and colour steps at the same breaks",
+    savedLayer({
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: {
+        'circle-radius': buildGraduatedSizeExpression('mag', [6, 7], [4, 8, 14]),
+        'circle-color': buildGraduatedExpression('mag', [6, 7], ['#fee8c8', '#fdbb84', '#e34a33']),
+      },
+      style_config: { mode: 'graduated', column: 'mag', target: 'radius', sizes: [4, 8, 14], breaks: [6, 7], sizeLabel: 'Magnitude' },
+    }),
+    [graduated('radius', 'Magnitude', [{ color: '#fee8c8', size: 4 }, { color: '#fdbb84', size: 8 }, { color: '#e34a33', size: 14 }], [6, 7])],
   ],
   [
     'radius classes coloured by the same column at other breaks',

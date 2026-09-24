@@ -10,7 +10,7 @@ import {
 } from '@/components/builder/layer-adapters/shared';
 import type { LayerAdapter } from '@/components/builder/layer-adapters/types';
 import { isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
-import { colorClassificationIsOrphaned, getColorProperty } from '@/lib/color-ramps';
+import { colorClassificationIsOrphaned, getColorProperty, getSizeProperty } from '@/lib/color-ramps';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import { inferGeometryType } from '@/lib/geo-utils';
@@ -294,6 +294,24 @@ function sameNumbers(a: number[], b: number[]): boolean {
   return a.length === b.length && a.every((value, i) => value === b[i]);
 }
 
+/**
+ * Whether a size expression steps on `column` at `breaks`, null guard or not, or is
+ * a zoom ramp whose every stop is such a step: then its sizes change where the classes do.
+ */
+function sizeStepsMatch(value: unknown, column: string, breaks: number[]): boolean {
+  const expression = unwrapNullGuard(value);
+  if (!Array.isArray(expression)) return false;
+  if (expression[0] === 'step' && plainColumn(expression[1]) === column) {
+    return sameNumbers(expression.filter((_, i) => i >= 3 && i % 2 === 1), breaks);
+  }
+  const zoomStops = expression[0] === 'interpolate' && isExpression(expression[2], 'zoom')
+    ? expression.filter((_, i) => i >= 4 && i % 2 === 0)
+    : expression[0] === 'step' && isExpression(expression[1], 'zoom')
+      ? expression.filter((_, i) => i >= 2 && i % 2 === 0)
+      : [];
+  return zoomStops.length > 0 && zoomStops.every((stop) => sizeStepsMatch(stop, column, breaks));
+}
+
 // Symbol icons, heatmaps and rasters draw none of the vector colour or size classes.
 const CLASSED_KINDS = new Set<LayerAdapter['type']>(['fill', 'line', 'circle', 'cluster', 'mixed']);
 
@@ -325,9 +343,11 @@ function classesFor(
     const listed = steps?.column ? { ...steps, column: steps.column } : null;
     const color = listed?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
     const sizeTitle = config.sizeLabel ?? displayColumn(column);
-    // A colour step on the size column at the size breaks gives each size class one
-    // colour, so the legend lists one classification. An interpolate blends within a class.
-    const colorsEachSize = listed !== null && listed.isStep && listed.column === column && sameNumbers(listed.breaks, breaks);
+    // A colour step on the size column at the size breaks, over sizes that step there
+    // too, gives each size class one colour, so the legend lists one classification.
+    const sizeProperty = getSizeProperty(geometry, config.target);
+    const colorsEachSize = listed !== null && listed.isStep && listed.column === column && sameNumbers(listed.breaks, breaks)
+      && sizeProperty !== null && sizeStepsMatch(paint[sizeProperty], column, breaks);
     const sized: LegendClasses = {
       mode: 'graduated',
       target: config.target,
