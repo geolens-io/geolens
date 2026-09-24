@@ -43,6 +43,13 @@ describe('MapViewerGate', () => {
     } as never);
   });
 
+  // Editor renders fire an unawaited `import('./MapBuilderPage')`. Settle it
+  // while the mock applies, or it can resolve after teardown and load the
+  // real module without jsdom.
+  afterEach(async () => {
+    await import('../MapBuilderPage');
+  });
+
   function renderRoute(route = '/maps/map-1') {
     return render(
       <Routes>
