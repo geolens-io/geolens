@@ -252,16 +252,17 @@ class DatasetAsset(Base):
     (512px), 'metadata' (sidecar JSON), 'archived_original:<hash>' (one row
     per pre-conversion upload kept when COG conversion was lossy, ADR-002
     Decision 7 — hash-suffixed so every kept original counts, not just the
-    newest). The archived key is INTERNAL: it feeds the per-user storage
-    sum but is never published as a STAC asset (see
-    ``app.platform.assets.keys``).
+    newest), 'tileset' (a 3D Tiles dataset's live unpack attempt, sized to
+    the unpacked bytes). The archived and tileset keys are INTERNAL: they
+    feed the per-user storage sum but are never published as STAC assets
+    (see ``app.platform.assets.keys``).
     """
 
     __tablename__ = "dataset_assets"
     __table_args__ = (
         UniqueConstraint("dataset_id", "key", name="uq_dataset_assets_key"),
         CheckConstraint(
-            "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata') "
+            "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata', 'tileset') "
             "OR key LIKE 'archived_original:%'",
             name="chk_dataset_assets_key",
         ),

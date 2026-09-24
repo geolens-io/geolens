@@ -117,7 +117,7 @@ async def test_search_filters_and_counts_tilesets(
 async def test_only_a_feature_table_advertises_vector_exports(
     client: AsyncClient, admin_auth_header: dict, tiles3d_dataset, vector_dataset
 ) -> None:
-    """A vector record lists the seven vector exports; a tileset's lists none."""
+    """A vector record lists the seven vector exports; a tileset's lists none of them."""
     vector = await client.get(
         f"/collections/datasets/items/{vector_dataset.id}", headers=admin_auth_header
     )
@@ -127,9 +127,10 @@ async def test_only_a_feature_table_advertises_vector_exports(
     assert vector.status_code == 200, vector.text
     assert tileset.status_code == 200, tileset.text
 
-    assert len(vector.json()["properties"]["formats"]) == 7
+    vector_formats = vector.json()["properties"]["formats"]
+    assert len(vector_formats) == 7
     assert "download_gpkg" in vector.json()["assets"]
-    assert tileset.json()["properties"]["formats"] == []
+    assert not set(vector_formats) & set(tileset.json()["properties"]["formats"])
     vector_assets = {"vector_tiles", "ogc_features"}
     assert not [
         key

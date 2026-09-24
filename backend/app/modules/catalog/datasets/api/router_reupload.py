@@ -232,9 +232,10 @@ def _assert_compatible_record_type(
     after dataset lookup, before pipeline work, so this gives one
     identical error class instead of a deep-pipeline 500.
 
-    VRT is rejected here since it's defined by membership, not a file.
-    Raster IS supported (#1221), constrained to raster payloads; file
-    paths additionally reject raster inputs for vector/table datasets.
+    VRT is rejected here since it's defined by membership, not a file, and a
+    3D Tiles dataset because v1 has no replace path for a tileset. Raster IS
+    supported (#1221), constrained to raster payloads; file paths
+    additionally reject raster inputs for vector/table datasets.
 
     Audit action `reupload.commit` is shipped -- see
     test_provenance_attribution.py. Do not rename to `dataset.reupload`.
@@ -257,6 +258,15 @@ def _assert_compatible_record_type(
             detail=(
                 "VRT datasets do not support file reupload — "
                 "edit the VRT membership instead."
+            ),
+        )
+
+    if record_type == "tiles3d_dataset":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "3D Tiles datasets do not support reupload. "
+                "Upload the new tileset as a new dataset instead."
             ),
         )
 

@@ -119,6 +119,11 @@ export interface StacAsset {
   size_bytes?: number;
 }
 
+/** A 3D Tiles dataset's published tileset. */
+export interface TilesetMetadata {
+  size_bytes: number | null;
+}
+
 export interface RasterMetadata {
   epsg: number | null;
   /** True when the CRS is geographic (res_x/res_y are degrees, not meters). */
@@ -325,6 +330,7 @@ export interface DatasetResponse {
   } | null;
   record_type: RecordType;
   raster: RasterMetadata | null;
+  tileset?: TilesetMetadata | null;
   stac_assets?: Record<string, StacAsset> | null;
   stac_extensions?: string[];
   language?: string;

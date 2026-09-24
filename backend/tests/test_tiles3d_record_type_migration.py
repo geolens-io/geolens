@@ -1,7 +1,8 @@
-"""Migration 0065 admits the 3D Tiles values; its downgrade refuses while any row uses them."""
+"""Migrations 0065 and 0066 admit the 3D Tiles values; each downgrade refuses while a row uses one."""
 
 from __future__ import annotations
 
+import re
 import uuid
 
 import pytest
@@ -18,7 +19,7 @@ pytestmark = pytest.mark.skipif(
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
 
-_REVISION = "0065_tiles3d_record_type"
+_TILES3D_REVISION = "0065_tiles3d_record_type"
 _PREVIOUS = "0064_scheduled_refresh"
 _TITLE_PREFIX = "migration-0065-"
 
@@ -44,6 +45,20 @@ async def _insert_dataset(record_id: str, source_format: str) -> None:
     )
 
 
+async def _insert_tileset_asset(record_id: str) -> None:
+    await _fresh_query(
+        "INSERT INTO catalog.dataset_assets (dataset_id, key, href, size_bytes) "
+        "SELECT id, 'tileset', 'tiles3d/' || id || '/a1/tileset.json', 1 "
+        "FROM catalog.datasets WHERE record_id = CAST(:record_id AS uuid)",
+        {"record_id": record_id},
+    )
+
+
+def _current_revision() -> list[str]:
+    # stdout also carries log lines; a revision line is the id, then "(head)".
+    return re.findall(r"^(\w+)(?: \(head\))?$", _run_alembic("current").stdout, re.M)
+
+
 async def _remove_rows_and_restore_head() -> None:
     await _fresh_query(
         "DELETE FROM catalog.records WHERE title LIKE :p", {"p": f"{_TITLE_PREFIX}%"}
@@ -62,18 +77,37 @@ async def _remove_rows_and_restore_head() -> None:
 async def test_downgrade_refuses_while_a_row_uses_a_new_value(
     record_type: str, source_format: str | None, constraint: str
 ) -> None:
-    """The downgrade fails on the constraint the row would violate and stays at 0065."""
+    """The downgrade fails on the constraint the row would violate and stays at head."""
     try:
         record_id = await _insert_record(record_type)
         if source_format is not None:
             await _insert_dataset(record_id, source_format)
+        head = _current_revision()
+        assert head, "alembic current printed no revision"
 
         refused = _run_alembic("downgrade", _PREVIOUS)
-        current = _run_alembic("current")
 
         assert refused.returncode != 0
         assert constraint in refused.stderr
-        assert _REVISION in current.stdout
+        assert _current_revision() == head
+    finally:
+        await _remove_rows_and_restore_head()
+
+
+async def test_the_asset_key_downgrade_refuses_while_a_tileset_row_exists() -> None:
+    """Removing 'tileset' from the asset keys fails while a tileset points somewhere."""
+    try:
+        record_id = await _insert_record("tiles3d_dataset")
+        await _insert_dataset(record_id, "3dtiles")
+        await _insert_tileset_asset(record_id)
+        head = _current_revision()
+        assert head, "alembic current printed no revision"
+
+        refused = _run_alembic("downgrade", _TILES3D_REVISION)
+
+        assert refused.returncode != 0
+        assert "chk_dataset_assets_key" in refused.stderr
+        assert _current_revision() == head
     finally:
         await _remove_rows_and_restore_head()
 
@@ -90,5 +124,6 @@ async def test_round_trip_closes_and_reopens_the_vocabulary() -> None:
         assert up.returncode == 0, up.stderr
         record_id = await _insert_record("tiles3d_dataset")
         await _insert_dataset(record_id, "3dtiles")
+        await _insert_tileset_asset(record_id)
     finally:
         await _remove_rows_and_restore_head()

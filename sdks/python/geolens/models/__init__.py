@@ -740,6 +740,7 @@ from .tile_token_batch_response_tokens import TileTokenBatchResponseTokens
 from .tile_token_batch_response_tokens_additional_property_type_2 import (
     TileTokenBatchResponseTokensAdditionalPropertyType2,
 )
+from .tileset_metadata import TilesetMetadata
 from .token_response import TokenResponse
 from .translation_list_response import TranslationListResponse
 from .translation_response import TranslationResponse
@@ -1319,6 +1320,7 @@ __all__ = (
     "TerrainConfig",
     "ThumbnailUploadRequest",
     "TileConfigResponse",
+    "TilesetMetadata",
     "TileTokenBatchRequest",
     "TileTokenBatchResponse",
     "TileTokenBatchResponseTokens",

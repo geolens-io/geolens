@@ -19,6 +19,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     RasterBandInfo,
     RasterConnect,
     RasterMetadata,
+    TilesetMetadata,
 )
 from app.modules.catalog.sources.provenance import (
     UNKNOWN_ACTOR_LABEL,
@@ -130,6 +131,7 @@ def dataset_to_response(
     collections=None,
     actors_by_id: Mapping[uuid.UUID, Identity] | None = None,
     raster_asset=None,
+    tileset_asset=None,
     is_admin: bool = False,
     source_count: int | None = None,
     base_url: str | None = None,
@@ -173,6 +175,12 @@ def dataset_to_response(
             source_count=source_count,
             base_url=base_url,
         )
+
+    tileset = (
+        TilesetMetadata(size_bytes=tileset_asset.size_bytes)
+        if record_type == "tiles3d_dataset" and tileset_asset is not None
+        else None
+    )
 
     # feat(#1218/#1224): resolved once -- serves as `origin` below and gates
     # source freshness, so the badge and freshness chip can't disagree.
@@ -260,6 +268,7 @@ def dataset_to_response(
         updated_by=record.updated_by,
         record_type=record_type,
         raster=raster_metadata,
+        tileset=tileset,
         stac_assets=stac_assets,
         language=getattr(record, "language", None),
     )

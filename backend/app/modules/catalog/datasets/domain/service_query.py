@@ -18,6 +18,7 @@ from sqlalchemy.orm import joinedload
 from app.core.db.sqlstate import TABLE_ABSENT, sqlstate
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.tiles3d import TILESET_ASSET_KEY
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     can_view_dataset_provenance,
@@ -236,6 +237,9 @@ async def get_dataset_detail(
         source_count = sc_result.scalar()
 
     dataset_asset_rows = await get_catalog_port().get_dataset_assets(db, dataset.id)
+    tileset_asset = next(
+        (da for da in dataset_asset_rows if da.key == TILESET_ASSET_KEY), None
+    )
     stac_assets_dict = {}
     for da in dataset_asset_rows:
         # Apply the asset allowlist before exposing href, filename, or size.
@@ -266,6 +270,7 @@ async def get_dataset_detail(
         collections=collections_data,
         actors_by_id=actors_by_id,
         raster_asset=raster_asset,
+        tileset_asset=tileset_asset,
         is_admin=is_admin,
         source_count=source_count,
         base_url=base_url,
