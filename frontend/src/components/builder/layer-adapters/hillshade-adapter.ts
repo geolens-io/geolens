@@ -115,8 +115,9 @@ function buildHillshadePaint(input: AdapterLayerInput): Record<string, number | 
 export const COLOR_RELIEF_OWNED_PAINT_PROPERTIES = ['color-relief-color', 'color-relief-opacity'] as const;
 
 /**
- * The hypsometric tint under a DEM's hillshade, when the layer turns it on. It is
- * rebuilt on every paint write, so it carries the layer's saved zoom range itself.
+ * The hypsometric tint under a DEM's hillshade, when the layer turns it on. A new
+ * ramp rebuilds it in a paint write that can run outside map-sync's zoom-range
+ * pass, so it carries the layer's saved zoom range itself.
  */
 function colorReliefSpec(input: AdapterLayerInput): LayerSpec | null {
   if (input.is_dem !== true || input.paint['_hypso-enabled'] !== true) return null;
