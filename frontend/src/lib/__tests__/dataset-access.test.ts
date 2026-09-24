@@ -1,3 +1,5 @@
+import type { RecordType } from '@/types/api';
+
 // fix(#1877): isSameOriginAbsoluteUrl must compare canonical URL.origin
 // values against getRuntimeApiBaseUrl() (reads API_BASE from lib/constants.ts)
 // — each vi.doMock below exercises a different API_BASE per case.
@@ -58,5 +60,18 @@ describe('isSameOriginAbsoluteUrl (#1877)', () => {
     const mod = await import('@/lib/dataset-access');
 
     expect(mod.isSameOriginAbsoluteUrl('/datasets/1/export?format=gpkg')).toBe(false);
+  });
+});
+
+describe('getDatasetAccessEndpoints', () => {
+  it('derives no OGC, CSV or vector tile URL for an unknown record type', async () => {
+    const { getDatasetAccessEndpoints } = await import('@/lib/dataset-access');
+    const dataset = { id: 'ds-1', record_type: 'point_cloud_dataset' as RecordType, table_name: 'cloud' };
+
+    expect(getDatasetAccessEndpoints(dataset, null)).toEqual({
+      csvExportUrl: null,
+      ogcFeaturesUrl: null,
+      vectorTilesUrl: null,
+    });
   });
 });

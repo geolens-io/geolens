@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { recordTypeCapabilities } from '@/lib/record-types';
 import { truncateGraphemes } from '@/lib/text';
 import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
 import { useAuthStore } from '@/stores/auth-store';
@@ -42,14 +43,16 @@ export function ConnectDropdown({ dataset, onShowInstructions }: ConnectDropdown
   const isAdmin = user?.roles?.includes('admin') ?? false;
   const { endpoints, publicApiBaseUrl } = useDatasetAccessEndpoints(dataset);
 
+  const { featureTable, tileToken } = recordTypeCapabilities(dataset.record_type);
   const isRaster = dataset.record_type === 'raster_dataset';
-  const isVrt = dataset.record_type === 'vrt_dataset';
   const isTable = dataset.record_type === 'table';
 
   const cogUrl = dataset.raster?.connect?.download_url;
   const tileUrl = dataset.raster?.connect?.tile_url;
   const s3Uri = dataset.raster?.connect?.s3_uri;
-  const hasApiInstructions = !isRaster && !isVrt && Boolean(endpoints.ogcFeaturesUrl && publicApiBaseUrl);
+  const hasApiInstructions = featureTable && Boolean(endpoints.ogcFeaturesUrl && publicApiBaseUrl);
+
+  if (!featureTable && tileToken === null) return null;
 
   return (
     <DropdownMenu>
@@ -73,19 +76,19 @@ export function ConnectDropdown({ dataset, onShowInstructions }: ConnectDropdown
             {t('connect.copyCogUrl')}
           </DropdownMenuItem>
         )}
-        {(isRaster || isVrt) && tileUrl && (
+        {tileToken === 'raster' && tileUrl && (
           <DropdownMenuItem onClick={() => copyToClipboard(tileUrl, t)}>
             <Copy className="me-2 size-3.5" />
             {t('connect.copyXyzTileUrl')}
           </DropdownMenuItem>
         )}
-        {(isRaster || isVrt) && isAdmin && s3Uri && (
+        {tileToken === 'raster' && isAdmin && s3Uri && (
           <DropdownMenuItem onClick={() => copyToClipboard(s3Uri, t)}>
             <Copy className="me-2 size-3.5" />
             {t('connect.copyS3Uri')}
           </DropdownMenuItem>
         )}
-        {!isRaster && !isVrt && (
+        {featureTable && (
           <>
             {endpoints.ogcFeaturesUrl && (
               <DropdownMenuItem

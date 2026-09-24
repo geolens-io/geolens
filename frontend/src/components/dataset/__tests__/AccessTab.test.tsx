@@ -8,7 +8,7 @@ import { useCanSetPublicVisibility, useTileConfig } from '@/hooks/use-settings';
 import { listKeywords } from '@/api/records';
 import { toast } from 'sonner';
 import { AccessTab } from '../tabs/AccessTab';
-import type { DatasetResponse } from '@/types/api';
+import type { DatasetResponse, RecordType } from '@/types/api';
 
 vi.mock('@/components/dataset/hooks/use-records', () => ({
   useDistributions: vi.fn(),
@@ -190,6 +190,13 @@ describe('AccessTab', () => {
     );
 
     expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
+  });
+
+  it('offers no API snippet or export for an unknown record type', () => {
+    render(<AccessTab dataset={makeDataset({ record_type: 'point_cloud_dataset' as RecordType })} />);
+
+    expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Export format' })).not.toBeInTheDocument();
   });
   // fix(#927): visibility was read-only after import — the only way to publish a
   // private dataset was to re-import it.

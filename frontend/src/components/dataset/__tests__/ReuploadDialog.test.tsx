@@ -14,7 +14,7 @@ import { getDataset } from '@/api/datasets';
 import { ApiError } from '@/api/client';
 import { queryKeys } from '@/lib/query-keys';
 import { ReuploadDialog } from '../ReuploadDialog';
-import type { DatasetResponse, ProbeResponse, ReuploadPreviewResponse } from '@/types/api';
+import type { DatasetResponse, ProbeResponse, RecordType, ReuploadPreviewResponse } from '@/types/api';
 
 let dropHandler: ((acceptedFiles: File[]) => void) | null = null;
 
@@ -309,6 +309,18 @@ describe('ReuploadDialog', () => {
 
     await user.click(screen.getByRole('button', { name: 'File' }));
     expect(screen.getByTestId('reupload-file-dropzone')).toBeInTheDocument();
+  });
+
+  it('renders nothing for an unknown record type', () => {
+    render(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), record_type: 'point_cloud_dataset' as RecordType }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   // fix(#1746): this is a request-only service token, not a login credential,

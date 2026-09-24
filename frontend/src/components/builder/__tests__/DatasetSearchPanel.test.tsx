@@ -235,6 +235,20 @@ describe('DatasetSearchPanel', () => {
     expect(screen.getByRole('link', { name: 'Import data...' })).toHaveAttribute('href', '/import');
   });
 
+  it('offers no Add to map, drag or Vector label for an unknown record type', async () => {
+    const cloud = makeRecord({ id: 'cloud', title: 'Cloud', recordType: 'point_cloud_dataset' as RecordType });
+    cloud.properties.geometry_type = null;
+    mockSearchDatasets.mockResolvedValue({ ...searchResponse, numberMatched: 1, numberReturned: 1, features: [cloud] });
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand Cloud' }));
+    const row = screen.getByText('Cloud description').closest('.group\\/row') as HTMLElement;
+
+    expect(screen.queryByRole('button', { name: /^Add to map/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drag into map' })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(row).queryByText('Vector')).not.toBeInTheDocument();
+  });
+
   // fix(#1778): featureMeta/DatasetMetadata read width/height/epsg off
   // OGCRecordProperties, none of which the API ever returned under those
   // flat names -- the raster size/CRS rows were always blank. Now sourced

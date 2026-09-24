@@ -1,0 +1,14 @@
+{
+  "_rule": "capabilities() from backend/app/core/record_types.py for every record type, plus one unknown value. backend/tests/test_record_type_capabilities.py asserts this equals the live table, and record-types.test.ts asserts the frontend mirror in src/lib/record-types.ts equals this.",
+  "unknown": "point_cloud_dataset",
+  "capabilities": {
+    "vector_dataset": {"feature_table": true, "map_layer_type": "vector_geolens", "tile_token": "vector", "ogc_item_type": "feature"},
+    "raster_dataset": {"feature_table": false, "map_layer_type": "raster_geolens", "tile_token": "raster", "ogc_item_type": "coverage"},
+    "vrt_dataset": {"feature_table": false, "map_layer_type": "raster_geolens", "tile_token": "raster", "ogc_item_type": "coverage"},
+    "map": {"feature_table": true, "map_layer_type": "vector_geolens", "tile_token": "vector", "ogc_item_type": "feature"},
+    "service": {"feature_table": true, "map_layer_type": "vector_geolens", "tile_token": "vector", "ogc_item_type": "feature"},
+    "collection": {"feature_table": true, "map_layer_type": "vector_geolens", "tile_token": "vector", "ogc_item_type": "feature"},
+    "table": {"feature_table": true, "map_layer_type": "vector_geolens", "tile_token": "vector", "ogc_item_type": "feature"},
+    "point_cloud_dataset": {"feature_table": false, "map_layer_type": null, "tile_token": null, "ogc_item_type": null}
+  }
+}

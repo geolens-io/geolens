@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useDistributions } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
 import { ConnectDropdown } from '../ConnectDropdown';
-import type { DatasetResponse } from '@/types/api';
+import type { DatasetResponse, RecordType } from '@/types/api';
 
 vi.mock('@/stores/auth-store', () => ({
   useAuthStore: (selector: (s: Record<string, unknown>) => unknown) =>
@@ -206,5 +206,16 @@ describe('ConnectDropdown', () => {
     await user.click(screen.getByRole('button', { name: /connect/i }));
 
     expect(screen.queryByRole('menuitem', { name: /connection instructions/i })).not.toBeInTheDocument();
+  });
+
+  it('offers no connection for an unknown record type', () => {
+    render(
+      <ConnectDropdown
+        dataset={makeDataset({ record_type: 'point_cloud_dataset' as RecordType })}
+        onShowInstructions={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: /connect/i })).not.toBeInTheDocument();
   });
 });
