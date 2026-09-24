@@ -7,6 +7,8 @@ paths all do exactly that, and those artifacts can exceed the 2 GB container lim
 """
 
 import asyncio
+import io
+import os
 import time
 from pathlib import Path
 
@@ -234,3 +236,47 @@ async def test_repeated_cancellation_still_drains_the_copy_thread(
     reader.close()  # the caller's `with open(...)` block closes the handle next
     await asyncio.sleep(0.05)
     assert not reader.read_after_close
+
+
+class _VanishingOnce(io.BytesIO):
+    """Raises FileNotFoundError on its second read, once, as a lost folder would."""
+
+    def __init__(self, data: bytes) -> None:
+        super().__init__(data)
+        self.reads = 0
+
+    def read(self, size: int | None = -1) -> bytes:
+        self.reads += 1
+        if self.reads == 2:
+            raise FileNotFoundError("the folder vanished")
+        return super().read(size)
+
+
+class _OneWay:
+    """The same stream without seek, like an archive member."""
+
+    def __init__(self, data: bytes) -> None:
+        self._stream = _VanishingOnce(data)
+
+    def read(self, size: int = -1) -> bytes:
+        return self._stream.read(size)
+
+
+async def test_a_retried_put_rewinds_a_seekable_stream(tmp_path: Path) -> None:
+    """The retry writes a stream that can seek again from its start."""
+    provider = LocalStorageProvider(str(tmp_path))
+    payload = os.urandom(3 * 1024 * 1024)
+
+    path = await provider.put("a/b.bin", _VanishingOnce(payload))
+
+    assert Path(path).read_bytes() == payload
+
+
+async def test_a_stream_that_cannot_rewind_is_not_retried(tmp_path: Path) -> None:
+    """A part-read stream without seek fails the put rather than storing its tail."""
+    provider = LocalStorageProvider(str(tmp_path))
+
+    with pytest.raises(FileNotFoundError):
+        await provider.put("a/b.bin", _OneWay(os.urandom(3 * 1024 * 1024)))
+
+    assert list((tmp_path / "a").iterdir()) == []
