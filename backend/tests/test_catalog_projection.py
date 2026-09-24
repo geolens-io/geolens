@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 import pytest
 import sqlalchemy as sa
@@ -28,6 +29,7 @@ from app.processing.ingest.catalog_projection import (
     _effective_geometry_type,
     measure,
     project,
+    scored,
 )
 from app.processing.ingest.metadata import refresh_attribute_metadata
 from app.processing.ingest.tasks_staging import StagingResult
@@ -320,9 +322,18 @@ async def test_a_table_that_gains_geometry_becomes_a_vector_dataset(
         await _drop(session, dataset.table_name)
 
 
-async def _assert_refused_without_a_write(session, dataset: Dataset, table: str):
-    measurement = await measure(session, dataset, table=table, schema="data")
-    with pytest.raises(ProjectionRefused):
+async def _assert_refused_without_a_write(
+    session,
+    dataset: Dataset,
+    table: str,
+    *,
+    score: bool = True,
+    error: type[Exception] = ProjectionRefused,
+):
+    measurement = await measure(
+        session, dataset, table=table, schema="data", score=score
+    )
+    with pytest.raises(error):
         await project(session, dataset, measurement)
     # Flushed so that anything project assigned before refusing shows below.
     await session.flush()
@@ -373,6 +384,49 @@ async def test_a_record_type_missing_from_the_table_is_refused(
         )
         assert row == ("POINT", 2, "vector_dataset")
         assert geom_current is True
+    finally:
+        await _drop(session, dataset.table_name)
+
+
+async def test_an_unscored_measurement_is_refused_before_anything_is_written(
+    test_db_session,
+) -> None:
+    """A measurement taken without scoring is refused, and nothing changes."""
+    session = test_db_session
+    dataset = await _dataset(
+        session, geometry_type="POINT", record_type="vector_dataset"
+    )
+    await _table(session, dataset.table_name, geometry=None)
+    try:
+        row, geom_current = await _assert_refused_without_a_write(
+            session, dataset, dataset.table_name, score=False, error=ValueError
+        )
+        assert row == ("POINT", 2, "vector_dataset")
+        assert geom_current is True
+    finally:
+        await _drop(session, dataset.table_name)
+
+
+async def test_scoring_after_the_measurement_scores_the_measured_table(
+    test_db_session,
+) -> None:
+    """scored() adds the quality of the table measure read and changes nothing else."""
+    session = test_db_session
+    dataset = await _dataset(session, geometry_type=None, record_type="table")
+    await _table(session, dataset.table_name, geometry="Point", wkts=_POINTS)
+    try:
+        unscored = await measure(
+            session, dataset, table=dataset.table_name, schema="data", score=False
+        )
+        assert unscored.quality_detail is None
+
+        measurement = await scored(
+            session, dataset, unscored, table=dataset.table_name, schema="data"
+        )
+
+        assert measurement.quality_detail["geometry_validity"] == 100.0
+        assert measurement.quality_detail["crs_defined"] == 100.0
+        assert replace(measurement, quality_detail=None) == unscored
     finally:
         await _drop(session, dataset.table_name)
 

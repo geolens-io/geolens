@@ -7,7 +7,7 @@ and returns the schema diff between the values it replaced and the measurement.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, text, update
@@ -43,7 +43,8 @@ class Measurement:
     three_d: dict
     # Measured from a row, else declared by the column, else the stored value.
     geometry_type: str | None
-    quality_detail: dict
+    # None until the table is scored; project refuses an unscored measurement.
+    quality_detail: dict | None
 
 
 async def measure(
@@ -53,17 +54,19 @@ async def measure(
     table: str,
     schema: str,
     staged: StagingResult | None = None,
+    score: bool = True,
 ) -> Measurement:
     """Measure ``table`` as ``dataset``'s feature table, writing nothing.
 
     ``staged`` supplies the metadata, samples and 3D facts the staging pipeline
     already read. Without it they are read here, and no ``elev`` column is added.
+    ``score=False`` skips the quality scan for a caller that may not publish;
+    :func:`scored` adds it later.
     """
     from app.processing.ingest.metadata import (
         detect_3d_metadata,
         extract_metadata,
         get_sample_values,
-        score_quality,
     )
 
     if staged is not None:
@@ -77,28 +80,46 @@ async def measure(
         )
         three_d = await detect_3d_metadata(session, table, schema=schema)
 
-    geometry_type = _effective_geometry_type(
-        measured=metadata.get("geometry_type"),
-        declared=await _declared_geometry_type(session, schema=schema, table=table),
-        stored=dataset.geometry_type,
-    )
-    quality_detail = await score_quality(
-        session,
-        table,
-        metadata.get("column_info") or [],
-        record=dataset.record,
-        record_type=_record_type_for(dataset.record.record_type, geometry_type),
-        geometry_type=geometry_type,
-        srid=metadata.get("srid"),
-        schema=schema,
-    )
-    return Measurement(
+    measurement = Measurement(
         metadata=metadata,
         sample_values=sample_values,
         three_d=three_d,
-        geometry_type=geometry_type,
-        quality_detail=quality_detail,
+        geometry_type=_effective_geometry_type(
+            measured=metadata.get("geometry_type"),
+            declared=await _declared_geometry_type(session, schema=schema, table=table),
+            stored=dataset.geometry_type,
+        ),
+        quality_detail=None,
     )
+    if not score:
+        return measurement
+    return await scored(session, dataset, measurement, table=table, schema=schema)
+
+
+async def scored(
+    session: AsyncSession,
+    dataset: Any,
+    measurement: Measurement,
+    *,
+    table: str,
+    schema: str,
+) -> Measurement:
+    """``measurement`` with ``table``'s quality scored against what it measured."""
+    from app.processing.ingest.metadata import score_quality
+
+    quality_detail = await score_quality(
+        session,
+        table,
+        measurement.metadata.get("column_info") or [],
+        record=dataset.record,
+        record_type=_record_type_for(
+            dataset.record.record_type, measurement.geometry_type
+        ),
+        geometry_type=measurement.geometry_type,
+        srid=measurement.metadata.get("srid"),
+        schema=schema,
+    )
+    return replace(measurement, quality_detail=quality_detail)
 
 
 def schema_diff(dataset: Any, measurement: Measurement) -> dict:
@@ -121,7 +142,8 @@ async def project(
     The caller holds the job row and the catalog rows, in the order
     ``lock_catalog_rows`` takes them. The diff compares the measurement with the
     stored values it replaces, read under that lock. A record type without a
-    feature table is refused before anything is written.
+    feature table, or an unscored measurement, is refused before anything is
+    written.
     """
     current_type = dataset.record.record_type
     if not capabilities(current_type).feature_table:
@@ -129,6 +151,8 @@ async def project(
             f"A {current_type!r} dataset has no feature table to derive its "
             "catalog entry from."
         )
+    if measurement.quality_detail is None:
+        raise ValueError("project needs a measurement whose quality was scored.")
 
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import refresh_attribute_metadata

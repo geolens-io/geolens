@@ -48,15 +48,7 @@ def _measurement() -> Measurement:
         sample_values={},
         three_d={},
         geometry_type="POINT",
-        # Complete: a published row outlives the test, and list responses
-        # validate this detail.
-        quality_detail={
-            "overall": 90.0,
-            "metadata_completeness": 90.0,
-            "geometry_validity": 100.0,
-            "attribute_completeness": 90.0,
-            "crs_defined": 100.0,
-        },
+        quality_detail=None,
     )
 
 

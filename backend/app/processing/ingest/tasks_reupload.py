@@ -1453,6 +1453,7 @@ async def reupload_service(
                     has_geometry=has_geom,
                     geometry_type=metadata.get("geometry_type"),
                 ),
+                score=False,
             )
             # Verification compares this fetch, not the preview's: a live
             # service can have changed since the preview was taken.

@@ -28,8 +28,10 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
+from app.processing.ingest.catalog_projection import scored
 from app.processing.ingest.tasks_common import (
     _apply_reupload_swap,
+    _current_tenant_schema,
     cleanup_step,
     invalidate_tile_cache_for_table,
     load_job_for_error_write,
@@ -77,6 +79,7 @@ class PublicationSettlementCommand:
     job_id: uuid.UUID
     attempt_id: uuid.UUID
     staging_table: str
+    # Unscored: settlement scores the staged table once publication is allowed.
     measurement: Measurement
     user_id: str
     source_filename: str | None
@@ -392,11 +395,18 @@ async def settle_publication(
             await _invalidate_after_commit(command.job_id)
             return outcome
 
+        measurement = await scored(
+            command.session,
+            command.dataset,
+            command.measurement,
+            table=command.staging_table,
+            schema=_current_tenant_schema(),
+        )
         version, schema_diff = await _apply_reupload_swap(
             command.session,
             dataset=command.dataset,
             staging_table=command.staging_table,
-            measurement=command.measurement,
+            measurement=measurement,
             user_id=command.user_id,
             source_filename=command.source_filename,
             source_format=command.source_format,
