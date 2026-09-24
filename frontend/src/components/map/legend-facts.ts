@@ -227,14 +227,21 @@ function displayColumn(column: string): string {
     .replace(/\bkm\b/i, 'km');
 }
 
-/** The first column an expression reads with `get`. */
-function expressionColumn(value: unknown): string | null {
+const COERCIONS = new Set(['to-number', 'number', 'to-string', 'string']);
+
+function isLiteral(value: unknown): boolean {
+  return value === null || ['string', 'number', 'boolean'].includes(typeof value);
+}
+
+/**
+ * The column an expression reads unchanged: `['get', column]`, or a type coercion
+ * or `coalesce` of it with literal fallbacks. Null for anything that transforms it.
+ */
+function plainColumn(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
-  if (value[0] === 'get' && typeof value[1] === 'string') return value[1];
-  for (const entry of value) {
-    const column = expressionColumn(entry);
-    if (column) return column;
-  }
+  const [op, first, ...rest] = value;
+  if (op === 'get') return value.length === 2 && typeof first === 'string' ? first : null;
+  if (COERCIONS.has(op) || op === 'coalesce') return rest.every(isLiteral) ? plainColumn(first) : null;
   return null;
 }
 
@@ -263,12 +270,13 @@ function unwrapNullGuard(value: unknown): unknown {
   const [, test, , ramp] = value;
   const isNullTest = Array.isArray(test) && test.length === 3 && test[0] === '==' && test[2] === null;
   const guarded = isNullTest ? getColumn(test[1]) : null;
-  return guarded !== null && getColumn(rampInput(ramp)) === guarded ? ramp : value;
+  return guarded !== null && plainColumn(rampInput(ramp)) === guarded ? ramp : value;
 }
 
 /**
  * The colours, breaks and column of a step or linear interpolate colour ramp,
- * null guard or not. The column comes from the ramp's input, so a zoom ramp has none.
+ * null guard or not. The column is the one the ramp's input reads unchanged, so a
+ * zoom ramp or a transformed input has none.
  */
 function colorSteps(value: unknown): { colors: string[]; breaks: number[]; column: string | null; isStep: boolean } | null {
   const ramp = unwrapNullGuard(value);
@@ -277,7 +285,7 @@ function colorSteps(value: unknown): { colors: string[]; breaks: number[]; colum
   return {
     colors: parsed.values as string[],
     breaks: parsed.breaks,
-    column: expressionColumn(rampInput(ramp)),
+    column: plainColumn(rampInput(ramp)),
     isStep: Array.isArray(ramp) && ramp[0] === 'step',
   };
 }
@@ -313,30 +321,37 @@ function classesFor(
   if (config.mode !== 'graduated') return null;
   if ((config.target === 'radius' || config.target === 'width') && config.sizes?.length) {
     const steps = colorSteps(paint[getColorProperty(geometry)]);
-    const color = steps?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
+    // Colour steps the legend can't list, on zoom or a transformed input, lend the sizes no colour.
+    const listed = steps?.column ? { ...steps, column: steps.column } : null;
+    const color = listed?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
     const sizeTitle = config.sizeLabel ?? displayColumn(column);
     // A colour step on the size column at the size breaks gives each size class one
     // colour, so the legend lists one classification. An interpolate blends within a class.
-    const colorsEachSize = steps !== null && steps.isStep && steps.column === column && sameNumbers(steps.breaks, breaks);
+    const colorsEachSize = listed !== null && listed.isStep && listed.column === column && sameNumbers(listed.breaks, breaks);
     const sized: LegendClasses = {
       mode: 'graduated',
       target: config.target,
       title: sizeTitle,
-      items: config.sizes.map((size, i) => ({ color: (colorsEachSize ? steps.colors[i] : undefined) ?? color, size })),
+      items: config.sizes.map((size, i) => ({ color: (colorsEachSize ? listed.colors[i] : undefined) ?? color, size })),
       breaks,
     };
-    if (!steps?.column || colorsEachSize) return [sized];
+    if (!listed || colorsEachSize) return [sized];
     return [sized, {
       mode: 'graduated',
       target: 'color',
-      title: config.colorLabel ?? (steps.column === column ? sizeTitle : displayColumn(steps.column)),
-      items: steps.colors.map((stepColor) => ({ color: stepColor })),
-      breaks: steps.breaks,
+      title: config.colorLabel ?? (listed.column === column ? sizeTitle : displayColumn(listed.column)),
+      items: listed.colors.map((stepColor) => ({ color: stepColor })),
+      breaks: listed.breaks,
     }];
   }
   const items = (config.colors ?? []).map((classColor) => ({ color: classColor }));
   if (!items.length) return null;
   return [{ mode: 'graduated', target: 'color', title: config.colorLabel ?? displayColumn(column), items, breaks }];
+}
+
+/** Whether a value is the argument-free expression `[name]`, such as `['linear']`. */
+function isExpression(value: unknown, name: string): boolean {
+  return Array.isArray(value) && value.length === 1 && value[0] === name;
 }
 
 /** Whether a CSS colour has zero alpha: `transparent`, an rgb(a) or hsl(a) alpha of 0, or a 4- or 8-digit hex ending in 0. */
@@ -357,7 +372,9 @@ function heatmapRamp(expression: unknown): Pick<LegendRamp, 'colors' | 'stops' |
   if (typeof expression === 'string') return { colors: [expression], stops: [0], mode: 'interpolate' };
   if (!Array.isArray(expression)) return null;
   const isStep = expression[0] === 'step';
-  if (!isStep && !['interpolate', 'interpolate-hcl', 'interpolate-lab'].includes(expression[0])) return null;
+  const isLinear = expression[0] === 'interpolate' && isExpression(expression[1], 'linear');
+  // The gradient can draw only hard steps and linear blends in RGB, over density.
+  if (!(isStep || isLinear) || !isExpression(isStep ? expression[1] : expression[2], 'heatmap-density')) return null;
   // [density, colour]: a step's first band starts at zero density.
   const pairs: [unknown, unknown][] = isStep ? [[0, expression[2]]] : [];
   for (let i = 3; i + 1 < expression.length; i += 2) {

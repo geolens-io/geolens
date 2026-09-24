@@ -463,12 +463,32 @@ const classRows: ClassRow[] = [
   [
     'radius classes over a zoom step with a stray get after its stops',
     sizedByMagnitude(['step', ['zoom'], '#fee8c8', 10, '#e34a33', ['get', 'depth_km'], '#7d3c98']),
-    [MAGNITUDE_SIZES('#fee8c8')],
+    [MAGNITUDE_SIZES(MAP_COLORS.fallback)],
   ],
   [
     'radius classes with a zoom-stepped colour',
     sizedByMagnitude(['step', ['zoom'], '#fee8c8', 10, '#e34a33']),
-    [MAGNITUDE_SIZES('#fee8c8')],
+    [MAGNITUDE_SIZES(MAP_COLORS.fallback)],
+  ],
+  [
+    'radius classes coloured by a step on a shifted column',
+    sizedByMagnitude(['step', ['+', ['get', 'mag'], 1], '#fee8c8', 6, '#fdbb84', 7, '#e34a33']),
+    [MAGNITUDE_SIZES(MAP_COLORS.fallback)],
+  ],
+  [
+    'radius classes coloured by a number coercion of the same column',
+    sizedByMagnitude(['step', ['number', ['get', 'mag']], '#fee8c8', 6, '#fdbb84', 7, '#e34a33']),
+    [graduated('radius', 'Magnitude', [{ color: '#fee8c8', size: 4 }, { color: '#fdbb84', size: 8 }, { color: '#e34a33', size: 14 }], [6, 7])],
+  ],
+  [
+    'radius classes coloured through a coalesce of two columns',
+    sizedByMagnitude(['step', ['coalesce', ['get', 'mag'], ['get', 'mag_estimate']], '#fee8c8', 6, '#fdbb84', 7, '#e34a33']),
+    [MAGNITUDE_SIZES(MAP_COLORS.fallback)],
+  ],
+  [
+    'radius classes coloured through a let binding',
+    sizedByMagnitude(['let', 'm', ['get', 'mag'], ['step', ['var', 'm'], '#fee8c8', 6, '#fdbb84', 7, '#e34a33']]),
+    [MAGNITUDE_SIZES(MAP_COLORS.fallback)],
   ],
   [
     'width classes with a data-driven line colour',
@@ -559,6 +579,26 @@ const heatRows: HeatRow[] = [
     'a stored ramp whose stops start above zero density',
     heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0.5, '#0000ff', 0.75, '#00ff00', 1, '#ff0000'] }),
     { ramp: storedRamp(['#0000ff', '#00ff00', '#ff0000'], [0, 0.5, 1]), weightColumn: null },
+  ],
+  [
+    'a stored exponential ramp',
+    heatmap({ 'heatmap-color': ['interpolate', ['exponential', 2], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 1, '#ff0000'] }),
+    { ramp: null, weightColumn: null },
+  ],
+  [
+    'a stored ramp blended in HCL',
+    heatmap({ 'heatmap-color': ['interpolate-hcl', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 1, '#ff0000'] }),
+    { ramp: null, weightColumn: null },
+  ],
+  [
+    'a stored ramp blended in Lab',
+    heatmap({ 'heatmap-color': ['interpolate-lab', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 1, '#ff0000'] }),
+    { ramp: null, weightColumn: null },
+  ],
+  [
+    'a stored ramp over zoom instead of density',
+    heatmap({ 'heatmap-color': ['interpolate', ['linear'], ['zoom'], 0, '#0000ff', 10, '#ff0000'] }),
+    { ramp: null, weightColumn: null },
   ],
   [
     'a stored step colour',
