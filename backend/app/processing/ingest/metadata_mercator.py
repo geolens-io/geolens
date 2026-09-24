@@ -307,11 +307,13 @@ async def clip_to_mercator_bounds(
             )
         )
         if crossing:
-            noun = "feature" if crossing == 1 else "features"
+            noun, verb = (
+                ("feature", "extends") if crossing == 1 else ("features", "extend")
+            )
             raise ValueError(
-                f"{crossing} {noun} in this measured (M) layer extend past Web "
-                "Mercator's latitude limit, and clipping them would lose their "
-                "measure values. Trim or remove them, then import again."
+                f"{crossing} {noun} in this measured (M) layer {verb} past Web "
+                "Mercator's latitude limit (±85.06°), and clipping would lose the "
+                "measure values. Trim the data to that limit, then import again."
             )
 
     clipped = f"ST_CollectionExtract(ST_Intersection(geom, {envelope}), ST_Dimension(geom) + 1)"

@@ -482,7 +482,9 @@ class TestClipAccounting(_FixtureTable):
             "LineStringM",
         )
 
-        with pytest.raises(ValueError, match=r"measured \(M\) layer"):
+        with pytest.raises(
+            ValueError, match=r"^1 feature in this measured \(M\) layer extends past"
+        ):
             await clip_to_mercator_bounds(test_db_session, TABLE)
 
         row = (
