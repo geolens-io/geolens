@@ -176,12 +176,7 @@ def _fallback_allowed_extensions() -> list[str]:
 
 
 def _reject_standalone_vrt(filename: str) -> None:
-    """Reject raw VRT XML uploads at every HTTP upload boundary.
-
-    A VRT is only valid when GeoLens builds it from catalog-tracked raster
-    sources. Accepting an arbitrary .vrt file would create a ready-looking
-    dataset with no source links and may retain external paths in the XML.
-    """
+    """Reject a raw VRT XML upload; unlike one GeoLens builds, it has no catalog-tracked sources and may carry external paths."""
     if Path(filename).suffix.lower() == ".vrt":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -216,6 +211,17 @@ async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
             error=str(exc),
         )
         return _fallback_allowed_extensions()
+
+
+async def _refuse_upload(db: AsyncSession, filename: str, kind: str | None) -> None:
+    """Refuse a standalone VRT, a disallowed extension, or a mismatched tileset kind."""
+    _reject_standalone_vrt(filename)
+    allowed_list = await _get_allowed_extensions_safely(db)
+    try:
+        validate_file_extension(filename, allowed_list)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    require_tileset_archive(kind, filename)
 
 
 @router.get(
@@ -271,10 +277,7 @@ async def request_presigned_upload(
             detail="Presigned uploads only available in S3 mode",
         )
 
-    allowed_list = await _get_allowed_extensions_safely(db)
-    _reject_standalone_vrt(request.filename)
-    validate_file_extension(request.filename, allowed_list)
-    require_tileset_archive(request.kind, request.filename)
+    await _refuse_upload(db, request.filename, request.kind)
 
     # Reject files exceeding configured size limit at request time
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
@@ -634,10 +637,7 @@ async def upload_file(
             detail="Upload missing filename",
         )
     try:
-        allowed_list = await _get_allowed_extensions_safely(db)
-        _reject_standalone_vrt(file.filename)
-        validate_file_extension(file.filename, allowed_list)
-        require_tileset_archive(kind, file.filename)
+        await _refuse_upload(db, file.filename, kind)
 
         # IA-P0-02: enforce max_file_size_bytes at HTTP entry. Symmetric
         # with the presigned path's request-time check (:158-165).

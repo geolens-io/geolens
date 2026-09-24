@@ -1170,7 +1170,13 @@ async def request_presigned_reupload(
         # see _fallback_allowed_extensions in processing/ingest/router.py for
         # why a narrower fallback is not a safer one.
         allowed_list = list(settings.allowed_extensions_list)
-    get_catalog_port().validate_file_extension(request.filename, allowed_list)
+    try:
+        get_catalog_port().validate_file_extension(request.filename, allowed_list)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     # Reject files exceeding configured size limit at request time
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
