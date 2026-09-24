@@ -669,8 +669,7 @@ async def reupload_file(
             await invalidate_tile_cache_for_table(live_table_name)
 
             # 10. Archive the original after the commit, so the upload never
-            # runs under the rename's exclusive lock. Best-effort and logged
-            # rather than raised — see _archive_after_commit.
+            # runs under the rename's exclusive lock.
             await _archive_after_commit(
                 session,
                 job=job,
