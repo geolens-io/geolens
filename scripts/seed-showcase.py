@@ -353,6 +353,10 @@ ETOPO_2022 = (
 # Element84 Earth Search STAC (sentinel-2-l2a true-color COGs, by reference).
 SENTINEL_STAC = "https://earth-search.aws.element84.com/v1"
 SENTINEL_BBOX = [-74.30, 40.55, -73.65, 41.00]  # NYC metro (W, S, E, N)
+# geolens-examples' sentinelNYHarbor fixture names this scene by id. Without a
+# pin, build_sentinel2 reselects MGRS tile T18TWL's newest low-cloud scene on
+# every reseed and moves the fixture out from under it.
+PINNED_HARBOR_SCENE_ID = "S2A_T18TWL_20260829T155705_L2A"
 
 # Official MTA route colors (hardcoded - the service feed carries no colors).
 MTA_ROUTE_COLORS = {
@@ -548,6 +552,10 @@ PINNED_DATASET_TITLES = (
     # search/catalog.html's fixture expects "space rocks that fell to earth" to
     # find it - a re-ingest under a new id breaks all three at once.
     "Meteorite Landings (Meteoritical Society)",
+    # The title embeds PINNED_HARBOR_SCENE_ID (build_sentinel2), so it only
+    # stays constant across a reseed because that scene id is pinned;
+    # geolens-examples' sentinelNYHarbor fixture names the same scene.
+    f"Sentinel-2 TCI {PINNED_HARBOR_SCENE_ID}",
 )
 
 # Maps the examples address by an id THIS seeder minted, so the row itself
@@ -4662,6 +4670,120 @@ def build_matterhorn(api: Api, force: bool = False, force_pinned: bool = False) 
     return map_id
 
 
+def _sentinel2_tile(f: dict) -> str:
+    """The MGRS tile a Sentinel-2 STAC feature belongs to."""
+    return f["properties"].get("grid:code") or (
+        f["id"].split("_")[1] if "_" in f["id"] else f["id"]
+    )
+
+
+def _sentinel2_item(f: dict) -> dict:
+    """One build_sentinel2 import item from a Sentinel-2 STAC feature."""
+    # Collection-1 items use projection-extension v2 "proj:code"
+    # ("EPSG:32618"); legacy items carry integer "proj:epsg".
+    epsg = f["properties"].get("proj:epsg")
+    if epsg is None:
+        code = f["properties"].get("proj:code") or ""
+        epsg = int(code.split(":")[1]) if code.upper().startswith("EPSG:") else None
+    dt = f["properties"].get("datetime", "")
+    return {
+        "id": f["id"],
+        "collection": f.get("collection", "sentinel-2-l2a"),
+        "title": f"Sentinel-2 TCI {f['id']}",
+        "data_asset_href": (f.get("assets") or {}).get("visual", {}).get("href"),
+        # feat(#1222): the item's rel=self link. The backend records it
+        # as origin_ref.item_href, which is what makes the dataset
+        # REFRESHABLE - without it every refresh 409s origin_unavailable.
+        # The in-app import flow captures this server-side via the
+        # search proxy; this direct-import path must supply it itself.
+        # None-tolerant: a catalog that publishes no self link still
+        # imports, it just cannot refresh (and the seed-end refresh
+        # pass reports exactly that).
+        "item_href": next(
+            (
+                link.get("href")
+                for link in f.get("links", [])
+                if link.get("rel") == "self"
+            ),
+            None,
+        ),
+        "bbox": f.get("bbox"),
+        "epsg": epsg,
+        "datetime_start": dt,
+        "datetime_end": dt,
+        "keywords": ["sentinel-2", "true-color", "imagery", "esa", "copernicus"],
+    }
+
+
+def _sentinel2_pinned_item() -> dict:
+    """The T18TWL item PINNED_HARBOR_SCENE_ID names, fetched by id.
+
+    geolens-examples' sentinelNYHarbor fixture names this scene, so a search
+    that could not find it must fail loudly rather than let T18TWL fall back
+    to its newest scene in silence.
+    """
+    for collection in ("sentinel-2-c1-l2a", "sentinel-2-l2a"):
+        body = {"collections": [collection], "ids": [PINNED_HARBOR_SCENE_ID]}
+        r = httpx.post(f"{SENTINEL_STAC}/search", json=body, timeout=60.0)
+        r.raise_for_status()
+        found = r.json().get("features", [])
+        if found and (found[0].get("assets") or {}).get("visual", {}).get("href"):
+            return found[0]
+    raise RuntimeError(
+        f"pinned Sentinel-2 scene {PINNED_HARBOR_SCENE_ID!r} (tile T18TWL) was "
+        "not found with a usable visual asset in sentinel-2-c1-l2a or "
+        "sentinel-2-l2a; geolens-examples' sentinelNYHarbor fixture names it "
+        "by id, so falling back to the newest tile would silently break it"
+    )
+
+
+def _sentinel2_items() -> list[dict]:
+    """Newest low-cloud Sentinel-2 TCI item per MGRS tile, T18TWL pinned.
+
+    Query the STAC API DIRECTLY (the backend /services/stac/search proxy 502s
+    on the SSRF IP-pin against Element84's CloudFront edge). Collection-1
+    (sentinel-2-c1-l2a) supersedes the legacy sentinel-2-l2a collection and
+    is where NEW acquisitions land - fall back to legacy only if c1 returns
+    nothing for the AOI.
+    """
+    feats: list = []
+    for collection in ("sentinel-2-c1-l2a", "sentinel-2-l2a"):
+        body = {
+            "collections": [collection],
+            "bbox": SENTINEL_BBOX,
+            "query": {"eo:cloud_cover": {"lt": 10}},
+            "sortby": [{"field": "properties.datetime", "direction": "desc"}],
+            "limit": 24,
+        }
+        r = httpx.post(f"{SENTINEL_STAC}/search", json=body, timeout=60.0)
+        r.raise_for_status()
+        feats = r.json().get("features", [])
+        if feats:
+            break
+    if feats:
+        newest = feats[0]["properties"].get("datetime", "?")[:10]
+        print(f"  newest low-cloud scene: {newest} ({collection})")
+
+    pinned_feat = _sentinel2_pinned_item()
+    items = [_sentinel2_item(pinned_feat)]
+    seen_tiles = {_sentinel2_tile(pinned_feat)}
+    for f in feats:
+        a = (f.get("assets") or {}).get("visual")  # TCI COG
+        if not a or not a.get("href"):
+            continue
+        # One scene per MGRS tile, newest first - a per-DATE dedupe stacked
+        # revisits of the SAME tile and left neighboring tiles uncovered, so
+        # half the metro showed basemap instead of imagery.
+        tile = _sentinel2_tile(f)
+        if tile in seen_tiles:
+            continue
+        seen_tiles.add(tile)
+        items.append(_sentinel2_item(f))
+        if len(items) >= 6:
+            break
+    return items
+
+
 def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """The by-reference hero: recent low-cloud Sentinel-2 true color over NYC,
     streamed straight from the AWS open-data COGs - zero download at seed
@@ -4692,88 +4814,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
             "the override destroys the id rather than leaving it behind)"
         )
     print("\n[sentinel2] New York From Orbit (COGs by reference)")
-    # Query the STAC API DIRECTLY (the backend /services/stac/search proxy 502s
-    # on the SSRF IP-pin against Element84's CloudFront edge). Collection-1
-    # (sentinel-2-c1-l2a) supersedes the legacy sentinel-2-l2a collection and
-    # is where NEW acquisitions land - fall back to legacy only if c1 returns
-    # nothing for the AOI.
-    feats: list = []
-    for collection in ("sentinel-2-c1-l2a", "sentinel-2-l2a"):
-        body = {
-            "collections": [collection],
-            "bbox": SENTINEL_BBOX,
-            "query": {"eo:cloud_cover": {"lt": 10}},
-            "sortby": [{"field": "properties.datetime", "direction": "desc"}],
-            "limit": 24,
-        }
-        r = httpx.post(f"{SENTINEL_STAC}/search", json=body, timeout=60.0)
-        r.raise_for_status()
-        feats = r.json().get("features", [])
-        if feats:
-            break
-    if feats:
-        newest = feats[0]["properties"].get("datetime", "?")[:10]
-        print(f"  newest low-cloud scene: {newest} ({collection})")
-    items, seen_tiles = [], set()
-    for f in feats:
-        a = (f.get("assets") or {}).get("visual")  # TCI COG
-        if not a or not a.get("href"):
-            continue
-        dt = f["properties"].get("datetime", "")
-        # One scene per MGRS tile, newest first - a per-DATE dedupe stacked
-        # revisits of the SAME tile and left neighboring tiles uncovered, so
-        # half the metro showed basemap instead of imagery.
-        tile = f["properties"].get("grid:code") or (
-            f["id"].split("_")[1] if "_" in f["id"] else f["id"]
-        )
-        if tile in seen_tiles:
-            continue
-        seen_tiles.add(tile)
-        # Collection-1 items use projection-extension v2 "proj:code"
-        # ("EPSG:32618"); legacy items carry integer "proj:epsg".
-        epsg = f["properties"].get("proj:epsg")
-        if epsg is None:
-            code = f["properties"].get("proj:code") or ""
-            epsg = int(code.split(":")[1]) if code.upper().startswith("EPSG:") else None
-        items.append(
-            {
-                "id": f["id"],
-                "collection": f.get("collection", "sentinel-2-l2a"),
-                "title": f"Sentinel-2 TCI {f['id']}",
-                "data_asset_href": a["href"],
-                # feat(#1222): the item's rel=self link. The backend records it
-                # as origin_ref.item_href, which is what makes the dataset
-                # REFRESHABLE - without it every refresh 409s origin_unavailable.
-                # The in-app import flow captures this server-side via the
-                # search proxy; this direct-import path must supply it itself.
-                # None-tolerant: a catalog that publishes no self link still
-                # imports, it just cannot refresh (and the seed-end refresh
-                # pass reports exactly that).
-                "item_href": next(
-                    (
-                        link.get("href")
-                        for link in f.get("links", [])
-                        if link.get("rel") == "self"
-                    ),
-                    None,
-                ),
-                "bbox": f.get("bbox"),
-                "epsg": epsg,
-                "datetime_start": dt,
-                "datetime_end": dt,
-                "keywords": [
-                    "sentinel-2",
-                    "true-color",
-                    "imagery",
-                    "esa",
-                    "copernicus",
-                ],
-            }
-        )
-        if len(items) >= 6:
-            break
-    if not items:
-        raise RuntimeError("no low-cloud Sentinel-2 TCI items matched the NYC AOI")
+    items = _sentinel2_items()
     # href -> own dataset id for holdings the force preflight proved the
     # skip-fallback can use; consulted before the by-title fallback because
     # titles are NOT unique (see datasets_by_title) and the newest same-titled

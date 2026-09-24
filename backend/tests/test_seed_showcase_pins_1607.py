@@ -62,6 +62,9 @@ def test_pinned_dataset_titles_name_every_externally_referenced_dataset():
         "swissALTI3D Matterhorn DEM (2m mosaic)",
         # geolens-examples ci/fixtures.json -> fixtures.meteorites
         "Meteorite Landings (Meteoritical Society)",
+        # geolens-examples' sentinelNYHarbor fixture; the title embeds the
+        # pinned scene id (build_sentinel2).
+        f"Sentinel-2 TCI {seeder.PINNED_HARBOR_SCENE_ID}",
     )
 
 
@@ -776,3 +779,62 @@ def test_pinned_summary_is_best_effort_on_an_http_failure(capsys, monkeypatch):
     seeder._print_pinned_summary("http://x", "admin", "pw")
 
     assert "skipped" in capsys.readouterr().out.lower()
+
+
+# --- the pinned Sentinel-2 harbor scene ---------------------------------------
+
+
+class _FakeStacResponse:
+    def __init__(self, features: list[dict]):
+        self._features = features
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"features": self._features}
+
+
+def _fake_sentinel_feature(item_id: str, *, datetime: str) -> dict:
+    return {
+        "id": item_id,
+        "collection": "sentinel-2-c1-l2a",
+        "properties": {"datetime": datetime, "proj:code": "EPSG:32618"},
+        "assets": {"visual": {"href": f"https://example.test/{item_id}.tif"}},
+        "links": [{"rel": "self", "href": f"https://example.test/items/{item_id}"}],
+        "bbox": [-74.0, 40.7, -73.9, 40.8],
+    }
+
+
+def test_sentinel2_pins_t18twl_even_when_a_newer_scene_comes_first(monkeypatch):
+    """The newest-per-tile search never displaces the pinned harbor scene."""
+    newer = _fake_sentinel_feature(
+        "S2A_T18TWL_20260915T155705_L2A", datetime="2026-09-15T15:57:05Z"
+    )
+    pinned = _fake_sentinel_feature(
+        seeder.PINNED_HARBOR_SCENE_ID, datetime="2026-08-29T15:57:05Z"
+    )
+
+    def fake_post(url, *, json, timeout):
+        if "ids" in json:
+            matched = json["ids"] == [seeder.PINNED_HARBOR_SCENE_ID]
+            return _FakeStacResponse([pinned] if matched else [])
+        return _FakeStacResponse([newer])
+
+    monkeypatch.setattr(seeder.httpx, "post", fake_post)
+
+    items = seeder._sentinel2_items()
+
+    ids = [it["id"] for it in items]
+    assert seeder.PINNED_HARBOR_SCENE_ID in ids
+    assert "S2A_T18TWL_20260915T155705_L2A" not in ids
+
+
+def test_sentinel2_raises_when_the_pinned_scene_is_missing(monkeypatch):
+    """A search that cannot find the pinned item fails loudly, not silently."""
+    monkeypatch.setattr(
+        seeder.httpx, "post", lambda url, *, json, timeout: _FakeStacResponse([])
+    )
+
+    with pytest.raises(RuntimeError, match="pinned Sentinel-2 scene"):
+        seeder._sentinel2_items()
