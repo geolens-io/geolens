@@ -2,10 +2,10 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
-import { RENDER_CONTEXTS } from '@/test/fixtures/render-contexts';
+import { FIXTURE_TOKENS, RENDER_CONTEXTS } from '@/test/fixtures/render-contexts';
 import { RecordingMap } from '@/test/recording-map';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { toSyncInput } from '../map-sync';
+import { syncLayersToMap, toSyncInput } from '../map-sync';
 import { adapterInputFor, describeLayers, type RenderContext } from '../layer-description';
 import { DEFAULT_CIRCLE_PAINT } from '../layer-adapters/builder-defaults';
 import { CIRCLE_OWNED_PAINT_PROPERTIES } from '../layer-adapters/circle-adapter';
@@ -535,5 +535,27 @@ describe("the point adapters' own methods", () => {
     adapter.syncPaint(recording.map, adapterInput);
 
     expect(recording.layerIds()).toEqual(described.specs.map(({ layer }) => layer.id));
+  });
+});
+
+describe('a layer whose saved style an adapter cannot read', () => {
+  const brokenHeatmap = {
+    ...heatmapByRamp,
+    style_config: { ...heatmapByRamp.style_config, builder: { heatmapRamp: 42 } },
+  } as unknown as MapLayerResponse;
+
+  it('gets no map layers, and every other layer is described', () => {
+    const { layers } = describeLayers([toSyncInput(brokenHeatmap), toSyncInput(point)], builder);
+
+    expect(layers.map(({ id, specs }) => [id, specs.length])).toEqual([[`layer-${brokenHeatmap.id}`, 0], [`layer-${point.id}`, 1]]);
+  });
+
+  it('leaves every other layer drawn by a sync pass', () => {
+    const recording = new RecordingMap();
+
+    syncLayersToMap(recording.map, [toSyncInput(brokenHeatmap), toSyncInput(point)], new Map(FIXTURE_TOKENS), undefined, { current: new Set() }, { current: '' });
+
+    expect(recording.layerIds()).toEqual([`layer-${point.id}`]);
+    expect(recording.layer(`layer-${point.id}`)).toEqual({ ...circle(point, { ...pointPaint, 'circle-opacity': 1 }).layer, minzoom: 0, maxzoom: 22 });
   });
 });

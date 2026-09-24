@@ -352,10 +352,16 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
       if (source) sources.set(entry.sourceId, source);
     }
     const sourceType = sources.get(entry.sourceId)?.type === 'geojson' ? 'geojson' : 'vector';
-    const drawing = getAdapter(entry.drawsAs).describe?.({ ...adapterInputFor(layer, entry), sourceType });
-    if (drawing) {
-      entry.specs = drawing.specs;
-      entry.images = drawing.images;
+    // An adapter can throw on a saved style it cannot read. That layer draws
+    // nothing, and every other layer is still described.
+    try {
+      const drawing = getAdapter(entry.drawsAs).describe?.({ ...adapterInputFor(layer, entry), sourceType });
+      if (drawing) {
+        entry.specs = drawing.specs;
+        entry.images = drawing.images;
+      }
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn(`[map-sync] describing ${entry.id} failed:`, e);
     }
   }
   return { sources, layers: described };

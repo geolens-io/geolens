@@ -123,6 +123,26 @@ describe('writeDescribedLayer', () => {
     expect(recording.layer('points')).not.toHaveProperty('filter');
   });
 
+  it('leaves the filter alone on a layer that has none', () => {
+    const recording = mapWithSource();
+    writeDescribedLayer(recording.map, drawn([circleSpec()]));
+
+    writeDescribedLayer(recording.map, drawn([circleSpec({ paint: { 'circle-color': '#000000', 'circle-radius': 4 } })]));
+
+    expect(recording.callsTo('setFilter')).toEqual([]);
+  });
+
+  it('clears the filter of a layer whose spec drops it', () => {
+    const recording = mapWithSource();
+    writeDescribedLayer(recording.map, drawn([circleSpec({ filter: FILTER })]));
+    recording.calls.length = 0;
+
+    writeDescribedLayer(recording.map, drawn([circleSpec()]));
+
+    expect(recording.callsTo('setFilter')).toEqual([['points', null]]);
+    expect(recording.layer('points')).not.toHaveProperty('filter');
+  });
+
   it('makes no further writes for a spec MapLibre refuses', () => {
     const recording = new RecordingMap();
 

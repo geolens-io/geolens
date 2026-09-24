@@ -13,6 +13,7 @@ export type LayerWriteTarget = Pick<
   MaplibreMap,
   | 'getLayer'
   | 'addLayer'
+  | 'getFilter'
   | 'setFilter'
   | 'getPaintProperty'
   | 'setPaintProperty'
@@ -88,7 +89,9 @@ function updateSpec(map: LayerWriteTarget, spec: LayerSpec): void {
   const { id, layout, filter } = spec.layer;
   reconcilePaint(map, spec);
   syncOwnedLayoutProperties(map, id, layout, { ownedProperties: spec.ownedLayout });
-  map.setFilter(id, hasFilter(filter) ? filter : null);
+  // MapLibre reloads the source even when it clears a filter the layer never had.
+  if (hasFilter(filter)) map.setFilter(id, filter);
+  else if (map.getFilter(id)) map.setFilter(id, null);
 }
 
 function writeSpecs(map: LayerWriteTarget, drawing: LayerDrawing, write: (spec: LayerSpec) => void): void {
