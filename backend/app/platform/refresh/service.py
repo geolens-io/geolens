@@ -899,8 +899,8 @@ async def record_refresh_failure(
     write is unreachable.
 
     Accepts both non-terminal states: a run can fail while still ``pending``
-    (SSRF revalidation before phase 1, or the defer-guard rollback), not
-    just after being claimed. Terminal states are excluded either way.
+    (a task failing before its claim commits, or the defer-guard rollback),
+    not just after being claimed. Terminal states are excluded either way.
     """
     if contacted_origin and origin_binding is None:
         raise ValueError(
