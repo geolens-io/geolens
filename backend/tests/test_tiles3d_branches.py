@@ -75,16 +75,17 @@ def storage(request, tmp_path, monkeypatch):
     if request.param == "local":
         yield LocalStorageProvider(base_dir=str(tmp_path))
         return
+    credential = uuid.uuid4().hex
     for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
-        monkeypatch.setenv(name, "testing")
+        monkeypatch.setenv(name, credential)
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
     with mock_aws():
         boto3.client("s3", region_name="us-east-1").create_bucket(Bucket="tiles3d")
         yield S3StorageProvider(
             bucket="tiles3d",
             region="us-east-1",
-            access_key_id="testing",
-            secret_access_key="testing",
+            access_key_id=credential,
+            secret_access_key=credential,
         )
 
 
