@@ -150,31 +150,14 @@ class TestUnpublishedStorageKeys:
             "originals/d/abc",
         }
 
-    @pytest.mark.asyncio
-    async def test_fail_stale_jobs_carries_them_out_of_a_running_row(self) -> None:
-        """The keys reach the outcome, and only after the settling commit.
-
-        fix(#1778 codex r10): the running-row transition no longer collects
-        keys directly -- that collection moved into the unconditional
-        artifact-carrying SELECT that runs after the retention block, so a
-        row this pass just failed is seen through that query instead. Against
-        real Postgres the SELECT runs inside the same uncommitted
-        transaction as the UPDATE above it and sees the new status, so the
-        two-query split changes nothing about same-pass reaping; the double
-        has to route the fixture through the query that actually answers it
-        now, which is why this passes the row as ``purged_rows`` rather than
-        ``running_rows``.
-        """
+    async def test_fail_stale_jobs_carries_them_out_of_a_running_row(
+        self, test_db_session
+    ) -> None:
+        """A running row the pass settles hands its keys to the reap, which runs after the commit."""
         from app.platform.jobs.sweep import fail_stale_jobs
 
-        job_uuid = uuid.uuid4()
         keys = ["rasters/d/abc/source.cog.tif", "rasters/d/abc/quicklook_256.png"]
-        mock_db = _mock_db_for_fail_stale(
-            running_rows=[(job_uuid, None, None)],
-            purged_rows=[
-                (job_uuid, None, {"unpublished_storage_keys": keys}),
-            ],
-        )
+        await _stale_running_row_naming(test_db_session, keys)
         storage = MagicMock()
         storage.delete = AsyncMock()
         with (
@@ -184,34 +167,58 @@ class TestUnpublishedStorageKeys:
                 AsyncMock(return_value=set()),
             ),
         ):
-            outcome = await fail_stale_jobs(mock_db, detailed=True)
+            outcome = await fail_stale_jobs(test_db_session, detailed=True)
 
-        assert outcome._unpublished_storage_keys == tuple(sorted(keys))
-        assert {call.args[0] for call in storage.delete.await_args_list} == set(keys)
+        assert set(keys) <= set(outcome._unpublished_storage_keys)
+        assert set(keys) <= {call.args[0] for call in storage.delete.await_args_list}
 
-    @pytest.mark.asyncio
-    async def test_a_rolled_back_settle_deletes_nothing(self) -> None:
+    async def test_a_rolled_back_settle_deletes_nothing(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """A pass whose commit fails deletes none of the keys its rows name."""
         from app.platform.jobs.sweep import fail_stale_jobs
 
-        mock_db = _mock_db_for_fail_stale(
-            running_rows=[
-                (
-                    uuid.uuid4(),
-                    {"unpublished_storage_keys": ["rasters/d/abc/source.cog.tif"]},
-                    None,
-                ),
-            ]
+        await _stale_running_row_naming(
+            test_db_session, ["rasters/d/abc/source.cog.tif"]
         )
-        mock_db.commit.side_effect = RuntimeError("commit failed")
         storage = MagicMock()
         storage.delete = AsyncMock()
+
+        async def _commit_fails() -> None:
+            raise RuntimeError("commit failed")
+
+        monkeypatch.setattr(test_db_session, "commit", _commit_fails)
         with (
             patch("app.platform.storage.get_storage", return_value=storage),
             pytest.raises(RuntimeError, match="commit failed"),
         ):
-            await fail_stale_jobs(mock_db, detailed=True)
+            await fail_stale_jobs(test_db_session, detailed=True)
 
         storage.delete.assert_not_awaited()
+        monkeypatch.undo()
+        await test_db_session.rollback()
+
+
+async def _stale_running_row_naming(session, keys: list[str]) -> None:
+    """A running job past its lease whose row names unpublished storage keys."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.platform.jobs.models import IngestJob
+    from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
+    from app.processing.ingest.tasks_raster_common import (
+        UNPUBLISHED_STORAGE_KEYS_FIELD,
+    )
+
+    session.add(
+        IngestJob(
+            status="running",
+            source_filename="raster.tif",
+            started_at=datetime.now(timezone.utc)
+            - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60),
+            user_metadata={UNPUBLISHED_STORAGE_KEYS_FIELD: keys},
+        )
+    )
+    await session.commit()
 
 
 class TestRecorderChecksItsOwnFence:

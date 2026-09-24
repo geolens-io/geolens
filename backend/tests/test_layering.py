@@ -1311,8 +1311,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Config planning, signed dry runs and application share one transaction workflow.
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
-    # lifespan sweep, admin cleanup and the job status poll.
-    "backend/app/platform/jobs/sweep.py": 1648,
+    # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
+    "backend/app/platform/jobs/sweep.py": 1632,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1237,

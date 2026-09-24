@@ -1,4 +1,4 @@
-"""Every caller of the stale-job settlement pass settles the same rows, once."""
+"""Every caller of the stale-job settlement pass settles the same rows, once, through the job ledger."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -7,13 +7,15 @@ from unittest.mock import patch
 
 import anyio
 import pytest
-from sqlalchemy import event, func, select, text
+from sqlalchemy import event, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.models import AuditLog
+from app.platform.jobs import ledger
 from app.platform.jobs import router as router_module
 from app.platform.jobs import sweep as sweep_module
 from app.platform.jobs import worker as worker_module
+from app.platform.jobs.ledger import LinkedOwner
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
@@ -34,7 +36,11 @@ from app.platform.refresh.service import (
     create_pending_run,
 )
 from tests.factories import create_dataset, get_user_id
-from tests.stale_settlers import EVERY_SETTLER, STALE_SETTLERS
+from app.processing.ingest.manifest_reservation import (
+    MANIFEST_STAGE_DOWNLOADING,
+    MANIFEST_STAGE_METADATA_KEY,
+)
+from tests.stale_settlers import EVERY_SETTLER, RESERVATION_SETTLERS, STALE_SETTLERS
 from tests.test_vrt_stale_sweep_gap002 import _make_vrt_with_generation
 from tests.test_worker_startup_recovery_2145 import _queue_todo_entry
 
@@ -591,3 +597,204 @@ async def test_a_concurrent_poll_and_sweep_settle_a_stale_job_once(
     assert abandoned_events == 1
     await test_db_session.refresh(run)
     assert (run.status, run.error_code) == ("cancelled", ABANDONED_ERROR_CODE)
+
+
+async def _reservation(session: AsyncSession, *, age: float) -> IngestJob:
+    """A manifest apply's downloading reservation, last alive ``age`` seconds ago."""
+    return await _add(
+        session,
+        status="running",
+        started_at=_ago(age),
+        created_by=await get_user_id(session, "admin"),
+        user_metadata={
+            "manifest_key": f"settle-{uuid.uuid4().hex[:8]}",
+            MANIFEST_STAGE_METADATA_KEY: MANIFEST_STAGE_DOWNLOADING,
+        },
+    )
+
+
+@RESERVATION_SETTLERS
+async def test_every_caller_settles_a_manifest_reservation_alike(
+    test_db_session, settle
+) -> None:
+    """Every caller, manifest expiry included, fails a lapsed reservation alike and keeps a live one."""
+    lapsed = await _reservation(test_db_session, age=JOB_TIMEOUT_SECONDS + 60)
+    live = await _reservation(test_db_session, age=JOB_TIMEOUT_SECONDS - 60)
+
+    await settle(test_db_session, lapsed, live)
+
+    await test_db_session.refresh(lapsed)
+    await test_db_session.refresh(live)
+    assert (lapsed.status, lapsed.error_message) == ("failed", _STALE_RUNNING)
+    # The stage marker stays on a settled row; the in-flight read skips it.
+    assert lapsed.user_metadata[MANIFEST_STAGE_METADATA_KEY] == (
+        MANIFEST_STAGE_DOWNLOADING
+    )
+    assert (live.status, live.error_message) == ("running", None)
+
+
+def _record_ends(monkeypatch) -> dict:
+    """Add an owner that records every end the ledger hands its owners."""
+    ends: dict = {}
+
+    async def _record(session, end) -> None:
+        ends[end.job_id] = (end.transition, end.status, end.code, end.reason)
+
+    monkeypatch.setattr(
+        ledger, "_OWNERS", {**ledger._OWNERS, "recorder": LinkedOwner(_record)}
+    )
+    return ends
+
+
+async def test_each_stale_class_ends_through_the_ledger(
+    test_db_session, monkeypatch
+) -> None:
+    """Each stale class ends through the ledger, which hands its owners the class's code and reason."""
+    ends = _record_ends(monkeypatch)
+    jobs = {
+        "stale running": await _stale_running(test_db_session),
+        "live running": await _add(
+            test_db_session,
+            status="running",
+            started_at=_ago(JOB_TIMEOUT_SECONDS + 60),
+            heartbeat_at=_ago(30),
+        ),
+        "dispatched pending": await _stale_pending(test_db_session, bound=False),
+        "abandoned upload": await _stale_pending(
+            test_db_session, bound=False, stamped=False
+        ),
+        "bound pending": await _stale_pending(test_db_session, bound=True),
+        "young pending": await _add(test_db_session, status="pending", file_path=""),
+        "childless fan-out": await _add(
+            test_db_session,
+            status="fanned_out",
+            completed_at=_ago(FAN_OUT_CHILDLESS_GRACE_SECONDS + 60),
+        ),
+    }
+
+    await sweep_module.fail_stale_jobs(test_db_session)
+
+    stale_end = "settle_stale"
+    assert {name: ends.get(job.id) for name, job in jobs.items()} == {
+        "stale running": (stale_end, "failed", "worker_lost", _STALE_RUNNING),
+        "live running": None,
+        "dispatched pending": (
+            stale_end,
+            "failed",
+            "never_started",
+            STALE_PENDING_UNBOUND_MESSAGE,
+        ),
+        "abandoned upload": (
+            stale_end,
+            "cancelled",
+            "never_started",
+            ABANDONED_UPLOAD_MESSAGE,
+        ),
+        "bound pending": (
+            stale_end,
+            "failed",
+            "never_started",
+            STALE_PENDING_BOUND_MESSAGE,
+        ),
+        "young pending": None,
+        "childless fan-out": (
+            stale_end,
+            "failed",
+            "dispatch_interrupted",
+            FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE,
+        ),
+    }
+
+
+@pytest.mark.parametrize("moved", ["claimed", "retried", "restaged"])
+async def test_a_row_that_moves_under_the_pass_is_left_alone(
+    test_db_session, monkeypatch, moved
+) -> None:
+    """A stale row claimed, re-attempted or restaged after the pass read it ends nothing."""
+    ends = _record_ends(monkeypatch)
+    job = await _stale_pending(test_db_session, bound=False)
+    job_id, attempt_id = job.id, job.attempt_id
+    change = {
+        "claimed": {"status": "running", "started_at": _ago(0)},
+        "retried": {"attempt_id": uuid.uuid4()},
+        "restaged": {
+            "user_metadata": {**job.user_metadata, "staged_at": _ago(0).isoformat()}
+        },
+    }[moved]
+    end_stale = sweep_module.end_stale
+
+    async def _moved_first(session, target_id, *args, **kwargs):
+        if target_id == job_id:
+            from app.core.db import async_session
+
+            async with async_session() as other:
+                await other.execute(
+                    update(IngestJob).where(IngestJob.id == job_id).values(**change)
+                )
+                await other.commit()
+        return await end_stale(session, target_id, *args, **kwargs)
+
+    monkeypatch.setattr(sweep_module, "end_stale", _moved_first)
+    outcome = await sweep_module.settle_stale_jobs(
+        test_db_session, datetime.now(timezone.utc), job_ids=(job_id,)
+    )
+    await test_db_session.commit()
+
+    assert job_id not in ends
+    assert (outcome.pending_failed, outcome.pending_cancelled) == (0, 0)
+    row = (
+        await test_db_session.execute(
+            select(
+                IngestJob.status, IngestJob.attempt_id, IngestJob.error_message
+            ).where(IngestJob.id == job_id)
+        )
+    ).one()
+    expected_attempt = change.get("attempt_id", attempt_id)
+    assert tuple(row) == (change.get("status", "pending"), expected_attempt, None)
+
+
+async def test_a_raising_hook_rolls_back_its_row_and_stops_the_pass(
+    test_db_session, monkeypatch
+) -> None:
+    """A hook that raises undoes its own row's end and stops the pass, so its caller commits nothing."""
+    age = stale_pending_cutoff_seconds(completion_bound=False) + 60
+    oldest, refused, newest = [
+        await _add(
+            test_db_session,
+            status="pending",
+            file_path="",
+            created_at=_ago(age + offset),
+            user_metadata={COMMIT_ATTEMPTED_METADATA_KEY: _ago(age).isoformat()},
+        )
+        for offset in (20, 10, 0)
+    ]
+    ids = [oldest.id, refused.id, newest.id]
+
+    async def _refuse(session, end) -> None:
+        if end.job_id == ids[1]:
+            raise RuntimeError("linked row refused")
+
+    monkeypatch.setattr(
+        ledger, "_OWNERS", {**ledger._OWNERS, "refuses": LinkedOwner(_refuse)}
+    )
+
+    async def _statuses() -> list[str]:
+        rows = await test_db_session.execute(
+            select(IngestJob.id, IngestJob.status).where(IngestJob.id.in_(ids))
+        )
+        found = dict(rows.all())
+        return [found[job_id] for job_id in ids]
+
+    with pytest.raises(RuntimeError, match="linked row refused"):
+        await sweep_module.settle_stale_jobs(
+            test_db_session, datetime.now(timezone.utc), job_ids=ids
+        )
+    # Inside the pass's transaction: the rows before it ended, its own did
+    # not, and the pass stopped before the rows after it.
+    assert await _statuses() == ["failed", "pending", "pending"]
+    await test_db_session.rollback()
+
+    with pytest.raises(RuntimeError, match="linked row refused"):
+        await sweep_module.fail_stale_jobs(test_db_session)
+    await test_db_session.rollback()
+    assert await _statuses() == ["pending", "pending", "pending"]

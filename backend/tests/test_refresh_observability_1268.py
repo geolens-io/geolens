@@ -341,7 +341,7 @@ class TestReconciliationCounterPublishesOnlyAfterCommit:
 
         settle = inspect.getsource(jobs_sweep.settle_stale_jobs)
         assert "refresh_sweep_reconciled_total.inc" not in settle
-        assert "_refresh_runs_reconciled=cancelled_runs" in settle
+        assert "_refresh_runs_reconciled=linked.refresh_runs_cancelled" in settle
         for commit_site in (
             jobs_sweep.fail_stale_jobs,
             jobs_worker._recover_stale_jobs_for_current_scope,
