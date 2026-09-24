@@ -114,10 +114,13 @@ function label(layer: MapLayerResponse, overrides: Overrides = {}): LayerSpec {
       ...overrides,
     },
     ownedPaint: ['text-color', 'text-halo-color', 'text-halo-width', 'text-opacity'],
+    // 'visibility' is not owned: writeDescribedVisibility is the label's only
+    // visibility writer after the initial add, so a stale syncPaint input
+    // cannot roll it back.
     ownedLayout: [
       'text-field', 'text-size', 'symbol-placement', 'text-allow-overlap',
       'text-font', 'text-max-width', 'text-anchor', 'text-offset',
-      'symbol-avoid-edges', 'visibility',
+      'symbol-avoid-edges',
     ],
   };
 }

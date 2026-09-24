@@ -934,7 +934,7 @@ function ensureVectorSource(
 }
 
 /** Add or update a vector (MVT / GeoJSON) layer. Each labelled adapter's own
- *  `describe()` carries its label companion now, so addLayers/syncPaint/
+ *  `describe()` carries its label companion, so addLayers/syncPaint/
  *  syncVisibility already cover it — this orchestrates only source resolution
  *  and zoom range. */
 function syncVectorLayer(

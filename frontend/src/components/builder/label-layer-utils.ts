@@ -139,6 +139,11 @@ export function labelLayerId(layerId: string): string {
   return `${layerId}-label`;
 }
 
+// 'visibility' is deliberately absent: syncPaint's owned-layout reconciliation
+// runs from an input that a coalesced write can carry stale, and visibility
+// must not roll back to it. writeDescribedVisibility is the only writer of
+// this layer's visibility after the initial add, matching every other family
+// (none of which owns 'visibility' either).
 const LABEL_OWNED_LAYOUT_PROPERTIES = [
   'text-field',
   'text-size',
@@ -149,7 +154,6 @@ const LABEL_OWNED_LAYOUT_PROPERTIES = [
   'text-anchor',
   'text-offset',
   'symbol-avoid-edges',
-  'visibility',
 ] as const;
 
 const LABEL_OWNED_PAINT_PROPERTIES = [
@@ -160,13 +164,10 @@ const LABEL_OWNED_PAINT_PROPERTIES = [
 ] as const;
 
 /**
- * The label companion spec for a layer, or null when it has none. Shared by
- * every vector family except symbol (its own inline text) and heatmap (no
- * per-feature labels) — the two exclusions `syncLabelCompanion` used to
- * enforce by hand, now expressed by which adapters call `withLabelCompanion`.
- *
- * `layer.minzoom`/`maxzoom` reuse the writer's existing zoom-range support
- * (added for raster in 5c) rather than a label-specific mechanism.
+ * The label companion spec for a layer, or null when it has none. Symbol
+ * carries its own inline text and heatmap has no per-feature labels, so
+ * neither calls `withLabelCompanion`. The zoom range comes from the label
+ * config through the writer's minzoom/maxzoom.
  */
 export function labelSpec(input: AdapterLayerInput): LayerSpec | null {
   const lc = input.label_config;

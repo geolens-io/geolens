@@ -846,12 +846,12 @@ export function useLayerMapSync(
           const input = builderAdapterInput(normalized, mvtSourceLayerPrefix);
           if (!input) return;
 
-          // B-008/B-009: symbol-mode point layers carry their text in the
-          // PRIMARY symbol layer; a companion label layer would duplicate it
-          // for one sync cycle (flicker). Heatmaps carry no feature labels at
-          // all — the UI gates the Labels tab, but the AI `set_label` action
-          // can bypass that gate. Neither family's describe() ever includes a
-          // label spec, so a companion from a PRIOR mode is stale.
+          // Symbol-mode point layers carry their text in the PRIMARY symbol
+          // layer; a companion label layer would duplicate it for one sync
+          // cycle (flicker). Heatmaps carry no feature labels at all — the UI
+          // gates the Labels tab, but the AI `set_label` action can bypass
+          // that gate. Neither family's describe() ever includes a label
+          // spec, so a companion from a PRIOR mode is stale.
           const adapterType = resolveAdapterType(normalized.dataset_geometry_type, normalized.style_config, normalized.paint);
           if (adapterType === 'symbol' || adapterType === 'heatmap') {
             if (map.getLayer(labelLayerId(input.layerId))) map.removeLayer(labelLayerId(input.layerId));
