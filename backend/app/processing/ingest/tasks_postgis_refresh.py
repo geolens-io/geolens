@@ -32,7 +32,12 @@ from app.core.failure_reason import redact_failure_reason
 from app.core.db.sqlstate import sqlstate
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.catalog_locks import bump_tile_cache_version_atomic
+from app.platform.catalog_locks import (
+    bump_tile_cache_version_atomic,
+    bump_tile_cache_version_on,
+    lock_catalog_rows,
+    worker_lock_budget,
+)
 from app.platform.jobs.heartbeat import (
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
@@ -46,7 +51,10 @@ from app.platform.refresh.service import (
     record_refresh_success,
 )
 from app.processing.ingest.catalog_projection import measure, project
-from app.processing.ingest.publication import commit_publication
+from app.processing.ingest.publication import (
+    commit_publication,
+    hold_publishing_job,
+)
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
@@ -676,19 +684,14 @@ async def refresh_postgis(
         # level. The dataset is re-loaded rather than carried over — the
         # phase 2 instance belongs to a transaction that is gone.
         async with async_session() as session:
-            # fix(#1313): lock the row, THEN check the token. Feature writes
-            # aren't blocked during measurement, and `refresh_dataset_metadata`
+            # Lock the rows, THEN check the token. Feature writes aren't
+            # blocked during measurement, and `refresh_dataset_metadata`
             # recomputes `feature_count`/extent from the live table on every
             # one — applying this snapshot over that would roll the catalog
-            # back. `FOR UPDATE` makes check-and-write indivisible: a
-            # concurrent write either commits before this lock (caught by
-            # the token check) or waits behind this transaction. A single
-            # column keeps the statement off the joined record, which
-            # PostgreSQL won't lock through an outer join.
-            #
-            # The job row first, then the datasets row: the order
-            # `app/platform/catalog_locks.py` states, since `project` writes
-            # the record row below and the finalize write touches the job row.
+            # back. The lock makes check-and-write indivisible: a concurrent
+            # write either commits before it (caught by the token check) or
+            # waits behind this transaction. The job row comes first, then the
+            # pair, in the order `app/platform/catalog_locks.py` states.
             #
             # This guard does NOT detect the table owner writing directly —
             # nothing outside GeoLens bumps a catalog field, and being atomic
@@ -697,16 +700,19 @@ async def refresh_postgis(
             # again is the ordinary condition this feature corrects on
             # demand; what the guard closes is GeoLens rolling BACK its own
             # newer measurement.
-            await session.execute(
-                select(IngestJob.id)
-                .where(IngestJob.id == job_uuid)
-                .with_for_update(key_share=True)
+            await hold_publishing_job(session, job_uuid, attempt_uuid)
+            record_id = await session.scalar(
+                select(Dataset.record_id).where(Dataset.id == dataset_uuid)
             )
-            locked_version = await session.scalar(
-                select(Dataset.tile_cache_version)
-                .where(Dataset.id == dataset_uuid)
-                .with_for_update()
-            )
+            async with worker_lock_budget(session):
+                await lock_catalog_rows(
+                    session,
+                    dataset_cls=Dataset,
+                    record_cls=port.get_record_orm_class(),
+                    dataset_id=dataset_uuid,
+                    record_id=record_id,
+                    lock_timeout=None,
+                )
             dataset = (
                 await session.execute(
                     select(Dataset)
@@ -717,7 +723,7 @@ async def refresh_postgis(
             if dataset is None:
                 logger.warning("Dataset not found, skipping", dataset_id=dataset_id)
                 return
-            if locked_version != content_version:
+            if dataset.tile_cache_version != content_version:
                 raise PostgisRefreshError(
                     "This dataset's data changed while it was being measured, "
                     "so the older measurement was discarded rather than "
@@ -744,7 +750,7 @@ async def refresh_postgis(
             # parameter is what busts browser/CDN caches. In the write
             # transaction beside the content change it describes, per the
             # contract on this method.
-            dataset.bump_tile_cache_version()
+            await bump_tile_cache_version_on(session, dataset)
 
             await require_ingest_job_update(
                 session,

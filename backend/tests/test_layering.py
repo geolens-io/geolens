@@ -1302,9 +1302,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # raising.
     "backend/app/processing/ingest/router.py": 1805,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1887,
+    "backend/app/processing/ingest/tasks_common.py": 1883,
     # Reupload retains retrieval, staging, cleanup and enrichment adapters.
-    "backend/app/processing/ingest/tasks_reupload.py": 1601,
+    "backend/app/processing/ingest/tasks_reupload.py": 1597,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1399,
@@ -1331,7 +1331,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vrt.py": 1696,
     # Raster conversion, verification and fenced publication share one failure
     # lifecycle.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 966,
+    "backend/app/processing/ingest/tasks_raster_replace.py": 960,
     # File/service tasks share publication fencing, heartbeat phases and failure
     # cleanup.
     "backend/app/processing/ingest/tasks_vector.py": 1172,
@@ -1350,7 +1350,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/service.py": 1481,
     # PostGIS refresh coordinates geometry repair, measurement, fenced catalog
     # updates and fenced post-commit steps.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 845,
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 851,
     # Dataset request and verification response families share this public contract.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1574,
     # Analysis validation, bounded execution and fenced registration share one task

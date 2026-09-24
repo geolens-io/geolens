@@ -1555,11 +1555,6 @@ _SWAP_FIRST_TIMEOUT = "5s"
 _SWAP_RETRY_TIMEOUT = "15s"
 _SWAP_RETRY_SLEEP_MS = 200
 
-# fix(#1921): the budget for the catalog wait that FOLLOWS the swap. The
-# transaction holds AccessExclusiveLock on the table it just installed across
-# it, so a holder that outlasts this is stuck, not working.
-_POST_SWAP_CATALOG_TIMEOUT = "60s"
-
 # fix(#1921): `lock_catalog_rows` reports an expired budget and a lost
 # deadlock alike, and the two send an operator looking for different things.
 _POST_SWAP_WAIT_FAILURES = {
@@ -1744,11 +1739,12 @@ async def _apply_reupload_swap(
 
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
-    # fix(#1847, #1917, #1921): the catalog writes start here and dirty both
-    # rows. The swap's DDL budget was put back above; this wait gets its own,
-    # and the value the transaction arrived with is restored after it.
+    # The catalog writes start here and dirty both rows. The swap's DDL budget
+    # was put back above; this wait gets the worker budget, and the value the
+    # transaction arrived with is restored after it.
     from app.core.db.sqlstate import sqlstate
     from app.platform.catalog_locks import (
+        WORKER_LOCK_TIMEOUT,
         CatalogLockConflict,
         bump_tile_cache_version_on,
         lock_catalog_rows,
@@ -1768,7 +1764,7 @@ async def _apply_reupload_swap(
             record_cls=_port.get_record_orm_class(),
             dataset_id=dataset.id,
             record_id=dataset.record_id,
-            lock_timeout=_POST_SWAP_CATALOG_TIMEOUT,
+            lock_timeout=WORKER_LOCK_TIMEOUT,
         )
     except CatalogLockConflict as conflict:
         cause = conflict.__cause__
@@ -1779,7 +1775,7 @@ async def _apply_reupload_swap(
             dataset_id=_log_dataset_id,
             table_name=table_name,
             waited_ms=round((time.perf_counter() - _wait_started) * 1000),
-            budget=_POST_SWAP_CATALOG_TIMEOUT,
+            budget=WORKER_LOCK_TIMEOUT,
             sqlstate=code,
             hint=(
                 f"{hint} The whole swap rolled back, so no half-swapped table is left."
@@ -1792,7 +1788,7 @@ async def _apply_reupload_swap(
         dataset_id=_log_dataset_id,
         table_name=table_name,
         waited_ms=round((time.perf_counter() - _wait_started) * 1000),
-        budget=_POST_SWAP_CATALOG_TIMEOUT,
+        budget=WORKER_LOCK_TIMEOUT,
     )
     # A caller with a publication fence runs it only after the canonical
     # dataset -> record lock is held.  Its failure rolls back the preceding

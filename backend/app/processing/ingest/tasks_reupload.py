@@ -44,6 +44,7 @@ from app.processing.ingest.publication import (
     PublicationSettlementFailure,
     _service_refresh_error_code,
     commit_publication,
+    hold_publishing_job,
     settle_publication,
 )
 from app.processing.ingest.source_format import derive_source_format
@@ -598,12 +599,7 @@ async def reupload_file(
             _append_mercator_clip_warning(job, staging_result.mercator_clip)
 
             # 8. Apply shared reupload swap/version invariants
-            await require_ingest_job_update(
-                session,
-                job_uuid,
-                attempt_uuid,
-                values={"heartbeat_at": datetime.now(timezone.utc)},
-            )
+            await hold_publishing_job(session, job_uuid, attempt_uuid)
             version, schema_diff = await _apply_reupload_swap(
                 session,
                 dataset=dataset,
