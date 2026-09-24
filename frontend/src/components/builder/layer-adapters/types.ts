@@ -59,6 +59,9 @@ export interface LayerSpec {
     source: string;
     'source-layer'?: string;
     filter?: FilterSpecification;
+    /** A zoom range of the spec's own. */
+    minzoom?: number;
+    maxzoom?: number;
     layout: Record<string, unknown>;
     paint: Record<string, unknown>;
   };

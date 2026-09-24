@@ -2,8 +2,8 @@ import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
 import { getLayerType, getSourceIdForLayer, resolveAdapterType, applyMasterOpacity, isDemTerrainVisualSuppressed, toSyncInput } from '@/components/builder/map-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
+import { FULL_ZOOM_RANGE } from '@/components/builder/layer-adapters/builder-defaults';
 import {
-  FULL_ZOOM_RANGE,
   adapterInputFor,
   describeLayers,
   type DescribedLayer,

@@ -1,4 +1,4 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { ImageSpec } from './types';
 
 /** Namespaced ids for the curated built-in fill-pattern set. */
 export const FILL_PATTERN_IDS = [
@@ -115,49 +115,26 @@ export function makeFillPatternImage(id: string, rgb: Rgb = DEFAULT_PATTERN_RGB)
   return gen(rgb);
 }
 
-/**
- * Idempotently register all built-in fill-pattern images in the MapLibre image registry.
- * Mirrors ensureArrowImage in line-adapter.ts — skips ids already present, wraps in try/catch.
- * Patterns are full-color tiles: do NOT use sdf:true.
- */
-export function ensureFillPatternImages(map: MaplibreMap): void {
-  for (const id of FILL_PATTERN_IDS) {
-    try {
-      if (map.hasImage?.(id)) continue;
-      map.addImage(id, makeFillPatternImage(id));
-    } catch (e) {
-      if (import.meta.env.DEV) console.warn('[map-sync] Fill pattern registration failed:', e);
-    }
-  }
-}
+/** The built-in patterns as images the writer registers. They are full-colour tiles, so not SDF icons. */
+export const FILL_PATTERN_IMAGES: readonly ImageSpec[] = FILL_PATTERN_IDS.map((id) => ({
+  kind: 'image',
+  id,
+  data: () => makeFillPatternImage(id),
+}));
 
 /**
- * fix(#914): the runtime id for a pattern drawn in `color`, registering the tinted
- * tile on first use. Returns the plain id when there is no tint to apply or the
- * colour is not a hex string we can turn into pixels, which keeps every existing
- * saved map rendering exactly as before.
+ * The image for a built-in pattern drawn in `color`, or null when the pattern
+ * stays plain: no tint, a colour that is not hex, or an id that is not built in.
  *
- * INVARIANT: the returned id is a MapLibre registry key, never a style value.
- * Saved paint, the wire format and exported style.json all keep the plain
- * `geolens-fill-*` id — a tinted id names an image that exists only inside the
- * one browser session that happened to have that layer open.
+ * The image id is a MapLibre registry key, never a style value. Saved paint, the
+ * wire format and exported style.json all keep the plain `geolens-fill-*` id; a
+ * tinted id names an image that exists only in the session that drew the layer.
  */
-export function ensureTintedFillPatternImage(
-  map: MaplibreMap,
-  id: string,
-  color: string | undefined,
-): string {
-  if (!GENERATORS[id] || !color) return id;
+export function tintedFillPattern(id: string, color: string | undefined): ImageSpec | null {
+  if (!GENERATORS[id] || !color) return null;
   const rgb = hexToRgb(color);
-  if (!rgb) return id;
-  const tintedId = tintedFillPatternId(id, rgb);
-  try {
-    if (!map.hasImage?.(tintedId)) map.addImage(tintedId, makeFillPatternImage(id, rgb));
-  } catch (e) {
-    if (import.meta.env.DEV) console.warn('[map-sync] Tinted fill pattern registration failed:', e);
-    return id;
-  }
-  return tintedId;
+  if (!rgb) return null;
+  return { kind: 'image', id: tintedFillPatternId(id, rgb), data: () => makeFillPatternImage(id, rgb) };
 }
 
 /** `geolens-fill-hatch#1d4ed8` — normalised so `#1D4ED8` and `#1d4ed8` share a tile. */

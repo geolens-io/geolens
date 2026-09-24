@@ -17,6 +17,7 @@ import { getClusterSourceStrategy } from './cluster-source';
 import { getCompanionLayerIds } from './companion-ids';
 import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
+import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
 import { getAdapter } from './layer-adapters/registry';
 import { normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
 import { resolveSymbolConfig } from './layer-adapters/symbol-adapter';
@@ -44,9 +45,6 @@ export interface ZoomRange {
   minzoom: number;
   maxzoom: number;
 }
-
-/** The builder's zoom bounds, which stand in for an end of the range the layout does not save. */
-export const FULL_ZOOM_RANGE: ZoomRange = { minzoom: 0, maxzoom: 22 };
 
 /** How the map draws one saved layer. */
 export interface DescribedLayer {

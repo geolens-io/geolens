@@ -23,8 +23,8 @@ import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
+import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
 import {
-  FULL_ZOOM_RANGE,
   adapterInputFor,
   describeLayers,
   type DescribedLayer,

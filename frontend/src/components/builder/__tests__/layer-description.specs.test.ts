@@ -435,7 +435,7 @@ describe('describeLayers specs', () => {
   });
 
   it('leaves the specs empty for an adapter that still adds its own layers', () => {
-    const [described] = describeLayers([toSyncInput(SAVED_LAYERS.polygon)], builder).layers;
+    const [described] = describeLayers([toSyncInput(SAVED_LAYERS.line)], builder).layers;
     expect(described.specs).toEqual([]);
     expect(described.images).toEqual([]);
   });

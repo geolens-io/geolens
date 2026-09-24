@@ -254,13 +254,12 @@ describe('useLayerMapSync — rAF paint coalescing (PERF-04)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#1778 codex round 4 P2): the deferred-write replay drain has to be
-// deterministic. A paint write does not touch the map itself, it queues
-// adapter.syncPaint on the next animation frame, so replaying it alongside
-// synchronous writes put it LAST in wall-clock order however early it was made.
-// fillAdapter.syncPaint applies the input.opacity it captured (via
-// applyMasterOpacity), so a queued paint edit followed by an opacity edit ended
-// with the older frame overwriting the newer opacity.
+// The deferred-write replay drain has to be deterministic. A paint write does
+// not touch the map itself, it queues adapter.syncPaint on the next animation
+// frame, so replaying it alongside synchronous writes put it LAST in wall-clock
+// order however early it was made. fillAdapter.syncPaint applies the
+// input.opacity it captured, so a queued paint edit followed by an opacity edit
+// ended with the older frame overwriting the newer opacity.
 // Counterfactual: remove the flushCoalescedFrame call from drainLayerWrites and
 // the order assertion below inverts.
 // ---------------------------------------------------------------------------

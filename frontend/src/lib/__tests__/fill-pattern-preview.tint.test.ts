@@ -1,12 +1,4 @@
-/**
- * fix(#910, codex P2): `fillPatternTint` resolves the colour a built-in pattern draws
- * in, and its `builder` argument is DECLARED `{ fillColorSaved?: string }` while the
- * runtime value comes from an open `style_config` that gets serialized-size validation
- * only. Handing a non-string through fed a junk tint to `ensureTintedFillPatternImage`,
- * whose throw is swallowed by fillAdapter.addLayers' catch — so the entire layer failed
- * to build rather than merely losing its tint. Caught only when #914 and #910 were
- * composed: each half passed its own suite.
- */
+// fillPatternTint gives the colour a built-in pattern draws in, and only ever a string.
 import { describe, it, expect } from 'vitest';
 import { fillPatternTint } from '@/lib/fill-pattern-preview';
 
