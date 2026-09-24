@@ -362,6 +362,36 @@ async def test_content_outside_the_tileset_is_refused_at_the_door(
     assert await tileset_objects() == []
 
 
+async def test_an_external_tileset_is_checked_before_the_first_put(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """The worker refuses an external tileset naming outside content, writing nothing."""
+    root = json.loads(tileset_json())
+    root["root"]["content"] = {"uri": "sub/tileset.json"}
+    nested = json.loads(tileset_json())
+    nested["root"]["content"] = {"uri": "https://example.com/0.b3dm"}
+    data = zip_bytes(
+        [
+            ("tileset.json", json.dumps(root).encode()),
+            ("sub/tileset.json", json.dumps(nested).encode()),
+        ]
+    )
+
+    headers, _ = uploader
+    uploaded = await upload(client, headers, data)
+    assert uploaded.status_code == 201, uploaded.text
+    job_id = uploaded.json()["job_id"]
+    assert (await commit(client, headers, job_id)).status_code == 202
+
+    with pytest.raises(UnsafeUploadError):
+        await run_queued(queued)
+
+    job = await load_job(test_db_session, job_id)
+    assert job.status == "failed"
+    assert "sub/tileset.json names content outside" in job.error_message
+    assert await tileset_objects() == []
+
+
 @pytest.mark.parametrize("door", ["multipart", "presigned"])
 async def test_kind_on_a_file_that_is_not_a_zip_is_refused(
     client: AsyncClient, test_db_session, uploader, monkeypatch, door

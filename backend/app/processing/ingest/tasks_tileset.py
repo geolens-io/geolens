@@ -231,7 +231,8 @@ async def ingest_tileset(
     """Background task: check a staged tileset archive, unpack it and publish it.
 
     1. Claim the attempt and start the heartbeat.
-    2. Check the archive again: every entry, the unpacked total and tileset.json.
+    2. Check the archive again: every entry, the unpacked total, tileset.json
+       and the external tilesets it names.
     3. Name the attempt's prefix on the job row, then unpack under it.
     4. In one transaction, reserve the quota and create the Record, the
        Dataset with its extent and facts, and the pointer row, and complete
@@ -275,7 +276,7 @@ async def ingest_tileset(
         from app.processing.ingest.service import resolve_file_path
 
         file_path = await resolve_file_path(file_path, job_id)
-        tileset = await asyncio.to_thread(inspect_tileset, file_path)
+        tileset = await asyncio.to_thread(inspect_tileset, file_path, external=True)
 
         dataset_id = uuid.uuid4()
         attempt_prefix = tileset_attempt_prefix(dataset_id, attempt_uuid)

@@ -39,9 +39,9 @@ from tests.tiles3d_archives import (
 )
 
 
-def refused(path: str) -> str:
+def refused(path: str, **kwargs) -> str:
     with pytest.raises(UnsafeUploadError) as refusal:
-        inspect_tileset(path)
+        inspect_tileset(path, **kwargs)
     return str(refusal.value)
 
 
@@ -567,6 +567,143 @@ def test_content_inside_the_tileset_is_accepted(tmp_path: Path, uri: str) -> Non
     )
 
     assert inspect_tileset(path).facts.version == "1.1"
+
+
+def _external(*uris: str) -> bytes:
+    """A tileset whose child tiles name ``uris``."""
+    document = json.loads(tileset_json())
+    document["root"]["children"] = [{"content": {"uri": uri}} for uri in uris]
+    return json.dumps(document).encode()
+
+
+def _nested_zip(path: Path, *files: tuple[str, bytes]) -> str:
+    """tileset.json naming the external tileset sub/tileset.json, plus ``files``."""
+    return build_zip(path, [("tileset.json", _external("sub/tileset.json")), *files])
+
+
+@pytest.mark.parametrize(
+    "uri",
+    ["https://example.com/0.glb", "../../0.glb", "/srv/0.glb", "..%2F..%2F0.glb"],
+    ids=["absolute", "climbs-out", "absolute-path", "encoded-climb"],
+)
+def test_an_external_tileset_is_held_to_the_same_rules(
+    tmp_path: Path, uri: str
+) -> None:
+    """Content an external tileset names must stay inside the tileset too."""
+    path = _nested_zip(tmp_path / "t.zip", ("sub/tileset.json", _external(uri)))
+
+    message = refused(path, external=True)
+
+    assert "sub/tileset.json names content outside the tileset" in message
+    assert uri not in message
+
+
+def test_an_external_tileset_named_in_another_case_is_checked(tmp_path: Path) -> None:
+    """A case-insensitive disk would serve it under that name, so it is read."""
+    path = build_zip(
+        tmp_path / "t.zip",
+        [
+            ("tileset.json", _external("SUB/TileSet.json")),
+            ("sub/tileset.json", _external("https://example.com/0.glb")),
+        ],
+    )
+
+    message = refused(path, external=True)
+
+    assert "sub/tileset.json names content outside" in message
+
+
+def test_an_external_tileset_two_levels_down_is_checked(tmp_path: Path) -> None:
+    """The walk follows the external tilesets an external tileset names."""
+    path = _nested_zip(
+        tmp_path / "t.zip",
+        ("sub/tileset.json", _external("deeper/tileset.json")),
+        ("sub/deeper/tileset.json", _external("../../../0.glb")),
+    )
+
+    message = refused(path, external=True)
+
+    assert "sub/deeper/tileset.json names content outside" in message
+
+
+def test_an_external_tileset_may_name_content_anywhere_inside(tmp_path: Path) -> None:
+    """'..' from an external tileset's folder is fine while it stays inside."""
+    path = _nested_zip(
+        tmp_path / "t.zip",
+        ("sub/tileset.json", _external("../0/0.glb", "deeper/t.json", "gone.json")),
+        ("sub/deeper/t.json", _external("../../0/0.glb")),
+        ("0/0.glb", b"glb"),
+    )
+
+    assert inspect_tileset(path, external=True).facts.version == "1.1"
+
+
+def test_external_tilesets_that_cycle_are_read_once_each(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Tilesets that name each other end the walk, each read a single time."""
+    reads: list[str] = []
+    read = tileset_module._read_tileset_json
+
+    def _counted(archive, info, name):
+        reads.append(name)
+        return read(archive, info, name)
+
+    monkeypatch.setattr(tileset_module, "_read_tileset_json", _counted)
+    path = _nested_zip(
+        tmp_path / "t.zip",
+        ("sub/tileset.json", _external("../other.json", "../tileset.json")),
+        ("other.json", _external("sub/tileset.json")),
+    )
+
+    inspect_tileset(path, external=True)
+
+    assert sorted(reads) == ["other.json", "sub/tileset.json", "tileset.json"]
+
+
+@pytest.mark.parametrize(
+    ("bound", "value"),
+    [("MAX_EXTERNAL_TILESETS", 1), ("MAX_EXTERNAL_TILESET_BYTES", 100)],
+    ids=["count", "bytes"],
+)
+def test_external_tilesets_past_a_cap_are_refused(
+    tmp_path: Path, monkeypatch, bound: str, value: int
+) -> None:
+    """The walk reads a bounded number of files and bytes of JSON."""
+    monkeypatch.setattr(tileset_module, bound, value)
+    path = build_zip(
+        tmp_path / "t.zip",
+        [
+            ("tileset.json", _external("a.json", "b.json")),
+            ("a.json", _external()),
+            ("b.json", _external()),
+        ],
+    )
+
+    assert "more external tilesets than this server reads" in refused(
+        path, external=True
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ({"pad": "x" * 2048}, "is larger than"),
+        (_nested(MAX_TILESET_JSON_DEPTH + 1), "nests deeper"),
+    ],
+    ids=["size", "depth"],
+)
+def test_an_external_tileset_is_held_to_the_json_bounds(
+    tmp_path: Path, monkeypatch, extra: dict, message: str
+) -> None:
+    """An external tileset is read within tileset.json's size and depth bounds."""
+    monkeypatch.setattr(tileset_module, "MAX_TILESET_JSON_BYTES", 1024)
+    nested = {**json.loads(_external()), **extra}
+    path = _nested_zip(
+        tmp_path / "t.zip", ("sub/tileset.json", json.dumps(nested).encode())
+    )
+
+    assert f"sub/tileset.json {message}" in refused(path, external=True)
 
 
 # --- 10. Extent ----------------------------------------------------------

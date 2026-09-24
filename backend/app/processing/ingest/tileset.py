@@ -59,6 +59,11 @@ TILESET_UNPACKED_BYTES_FIELD = "tileset_unpacked_bytes"
 MAX_TILESET_JSON_BYTES = 16 * 1024 * 1024
 MAX_TILESET_JSON_DEPTH = 128
 
+# The worker reads external tilesets one at a time, each within the bounds
+# above; these cap how many it reads and how much JSON that is in all.
+MAX_EXTERNAL_TILESETS = 10_000
+MAX_EXTERNAL_TILESET_BYTES = 1024**3
+
 # Every name becomes a storage key under a tenant and attempt prefix, which S3
 # caps at 1024 bytes, and the local adapter writes a temporary file named
 # after each segment plus 37 bytes, which a filesystem caps at 255.
@@ -197,13 +202,17 @@ def _check_entry_contents(info: zipfile.ZipInfo) -> None:
         )
 
 
+def _fold(path: str) -> str:
+    """The one spelling a case-insensitive disk gives every form of ``path``."""
+    return unicodedata.normalize("NFC", path).casefold()
+
+
 def _refuse_collisions(paths: list[tuple[str, bool]]) -> None:
     """Refuse two entries that would land on one path of a case-insensitive disk."""
     # "/" becomes NUL, which no name holds, so each path sorts right before the
     # paths inside it and only neighbours need comparing.
     keyed = sorted(
-        (unicodedata.normalize("NFC", path).casefold().replace("/", "\0"), is_dir, path)
-        for path, is_dir in paths
+        (_fold(path).replace("/", "\0"), is_dir, path) for path, is_dir in paths
     )
     for (key, is_dir, path), (next_key, next_is_dir, _) in pairwise(keyed):
         if key == next_key and not (is_dir or next_is_dir):
@@ -337,26 +346,38 @@ def _region_extent(region: list[float]) -> tuple[float, float, float, float]:
     )
 
 
-def _parse_entry_point(raw: bytes) -> dict:
+def _read_tileset_json(
+    archive: zipfile.ZipFile, info: zipfile.ZipInfo, name: str
+) -> dict:
+    """Parse one tileset JSON member of the archive, within the size and depth bounds."""
+    if max(info.file_size, info.compress_size) > MAX_TILESET_JSON_BYTES:
+        _refuse(
+            f"{name} is larger than the {MAX_TILESET_JSON_BYTES // 1024**2} MB "
+            "this server reads.",
+            reason="tileset_json_size",
+        )
+    with _member_read_errors(name):
+        with archive.open(info) as handle:
+            raw = handle.read(MAX_TILESET_JSON_BYTES + 1)
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
-        _refuse(f"{TILESET_ENTRY_POINT} is not UTF-8.", reason="tileset_json")
+        _refuse(f"{name} is not UTF-8.", reason="tileset_json")
     if _nesting_depth(text) > MAX_TILESET_JSON_DEPTH:
         _refuse(
-            f"{TILESET_ENTRY_POINT} nests deeper than {MAX_TILESET_JSON_DEPTH} levels.",
+            f"{name} nests deeper than {MAX_TILESET_JSON_DEPTH} levels.",
             reason="tileset_json_depth",
         )
     try:
         document = json.loads(text, parse_constant=_reject_constant)
     except ValueError:
-        _refuse(f"{TILESET_ENTRY_POINT} is not valid JSON.", reason="tileset_json")
+        _refuse(f"{name} is not valid JSON.", reason="tileset_json")
     if not isinstance(document, dict):
-        _refuse(f"{TILESET_ENTRY_POINT} is not a JSON object.", reason="tileset_json")
+        _refuse(f"{name} is not a JSON object.", reason="tileset_json")
     return document
 
 
-def _content_uris(root: dict) -> Iterator[str]:
+def _content_uris(root: object) -> Iterator[str]:
     """Every content and subtree URI the tile tree under ``root`` names."""
     tiles: list[object] = [root]
     while tiles:
@@ -384,29 +405,74 @@ def _content_uris(root: dict) -> Iterator[str]:
             tiles.extend(children)
 
 
-def _stays_in_tileset(uri: str) -> bool:
-    """Whether a relative URI resolves inside the folder tileset.json sits in."""
+def _resolve(folder: str, uri: str) -> str | None:
+    """The key a relative URI names from ``folder``, or None if it leaves the tileset."""
     path = unquote(uri.split("#", 1)[0].split("?", 1)[0])
     if _URI_SCHEME.match(path) or path.startswith(("/", "\\")) or "\\" in path:
-        return False
-    depth = 0
+        return None
+    parts = folder.split("/") if folder else []
     for segment in path.split("/"):
         if segment == "..":
-            depth -= 1
-            if depth < 0:
-                return False
+            if not parts:
+                return None
+            parts.pop()
         elif segment not in ("", "."):
-            depth += 1
-    return True
+            parts.append(segment)
+    return "/".join(parts)
 
 
-def read_facts(archive: zipfile.ZipFile, entry_point: zipfile.ZipInfo) -> TilesetFacts:
+def check_content(
+    archive: zipfile.ZipFile,
+    layout: TilesetLayout,
+    document: dict,
+    *,
+    external: bool,
+) -> None:
+    """Refuse content named outside the tileset by tileset.json.
+
+    With ``external``, the same rule reaches the external tilesets it names: the
+    .json files in the archive a content URI points at, each read once however
+    the references cycle.
+    """
+    # Folded, since a case-insensitive disk serves a member under any spelling;
+    # the collision check leaves one member per folded name.
+    members = {_fold(key): (key, info) for info, key in layout.files}
+    seen = {_fold(TILESET_ENTRY_POINT)}
+    pending: list[tuple[str, zipfile.ZipInfo | None]] = [(TILESET_ENTRY_POINT, None)]
+    budget = MAX_EXTERNAL_TILESET_BYTES
+    while pending:
+        key, info = pending.pop()
+        tree = document if info is None else _read_tileset_json(archive, info, key)
+        folder = key.rpartition("/")[0]
+        for uri in _content_uris(tree.get("root")):
+            target = _resolve(folder, uri)
+            if target is None:
+                _refuse(
+                    f"{key} names content outside the tileset: an absolute URI, "
+                    "or a path that climbs out of it with '..'. Content must be "
+                    "a relative path to a file in the archive.",
+                    reason="tileset_content_uri",
+                )
+            folded = _fold(target)
+            member = members.get(folded)
+            if not external or member is None or folded in seen:
+                continue
+            if not folded.endswith(".json"):
+                continue
+            seen.add(folded)
+            budget -= member[1].file_size
+            if len(seen) > MAX_EXTERNAL_TILESETS + 1 or budget < 0:
+                _refuse(
+                    f"{TILESET_ENTRY_POINT} references more external tilesets than "
+                    f"this server reads: {MAX_EXTERNAL_TILESETS} files and "
+                    f"{MAX_EXTERNAL_TILESET_BYTES // 1024**2} MB at most.",
+                    reason="tileset_external_count",
+                )
+            pending.append(member)
+
+
+def read_facts(document: dict) -> TilesetFacts:
     """Read the version, root geometric error and bounding volume from tileset.json."""
-    with _member_read_errors(TILESET_ENTRY_POINT):
-        with archive.open(entry_point) as handle:
-            raw = handle.read(MAX_TILESET_JSON_BYTES + 1)
-    document = _parse_entry_point(raw)
-
     asset = document.get("asset")
     version = asset.get("version") if isinstance(asset, dict) else None
     if not isinstance(version, str) or version not in TILESET_VERSIONS:
@@ -443,14 +509,6 @@ def read_facts(archive: zipfile.ZipFile, entry_point: zipfile.ZipInfo) -> Tilese
             reason="tileset_bounding_volume",
         )
 
-    if not all(_stays_in_tileset(uri) for uri in _content_uris(root)):
-        _refuse(
-            f"{TILESET_ENTRY_POINT} names content outside the tileset: an absolute "
-            "URI, or a path that climbs out of it with '..'. Content must be a "
-            "relative path to a file in the archive.",
-            reason="tileset_content_uri",
-        )
-
     geometric_error = root.get("geometricError")
     if geometric_error is not None and not (
         _is_finite_number(geometric_error) and geometric_error >= 0
@@ -480,11 +538,17 @@ def _open_checked(path: str) -> zipfile.ZipFile:
         raise UnsafeUploadError(str(exc)) from exc
 
 
-def inspect_tileset(path: str) -> Tileset:
-    """Check a local tileset archive, reading only its directory and tileset.json."""
+def inspect_tileset(path: str, *, external: bool = False) -> Tileset:
+    """Check a local tileset archive from its directory and tileset.json.
+
+    With ``external``, the external tilesets tileset.json names are checked too.
+    """
     with _open_checked(path) as archive:
         layout = read_layout(archive)
-        return Tileset(layout=layout, facts=read_facts(archive, layout.entry_point))
+        document = _read_tileset_json(archive, layout.entry_point, TILESET_ENTRY_POINT)
+        facts = read_facts(document)
+        check_content(archive, layout, document, external=external)
+        return Tileset(layout=layout, facts=facts)
 
 
 def _write_at(path: str, offset: int, data: bytes) -> None:
@@ -571,7 +635,13 @@ async def inspect_stored_tileset(storage: StorageProvider, key: str) -> Tileset:
 
         def _facts() -> TilesetFacts:
             with _open_checked(probe) as archive:
-                return read_facts(archive, archive.getinfo(entry_point.filename))
+                info = archive.getinfo(entry_point.filename)
+                document = _read_tileset_json(archive, info, TILESET_ENTRY_POINT)
+                facts = read_facts(document)
+                # The probe holds no other member's bytes; the worker, which has
+                # the whole archive, checks external tilesets before its first put.
+                check_content(archive, layout, document, external=False)
+                return facts
 
         return Tileset(layout=layout, facts=await asyncio.to_thread(_facts))
     finally:
