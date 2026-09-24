@@ -966,11 +966,11 @@ class _ServiceReupload:
         self.service_type, self.source_format = resolve_service_type(
             self.service_type_raw
         )
-        # IA-P0-03 defense-in-depth: revalidate source_url at fetch time. The
-        # route-level check covers the preview→commit TOCTOU, but manifest
-        # reuploads skip that route entirely.
+        # Checked again here, on the URL this fetch uses: the route-level check
+        # covers the preview→commit TOCTOU, but manifest reuploads skip that
+        # route entirely.
         try:
-            await validate_url_for_ssrf(self.source_url)
+            await validate_url_for_ssrf(self.source_url_value)
         except SSRFError as exc:
             raise RuntimeError(
                 f"source_url failed safety check at worker fetch time: {exc}"

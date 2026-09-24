@@ -219,50 +219,35 @@ class TestReuploadServiceWorkerRevalidatesSourceUrl:
         await test_db_session.refresh(job)
         assert job.status == "failed"
 
-    @pytest.mark.anyio
-    async def test_a_host_now_resolving_to_a_private_address_sends_no_request(
-        self, test_db_session, monkeypatch
-    ):
-        """A host that resolves to a private address at fetch time fails the job before any request."""
+    @pytest.fixture
+    def network(self, monkeypatch):
+        """Answer DNS for listed hosts, and record every request and ogr2ogr spawn."""
         import socket
         from types import SimpleNamespace
 
         import httpx
-        from sqlalchemy import select
 
         from app.platform import security as security_mod
-        from app.platform.refresh.models import DatasetRefreshRun
         from app.processing.ingest import ogr
-        from app.processing.ingest.tasks_reupload import reupload_service
 
-        url = "https://rebound.example.test/arcgis/rest/services/Roads/FeatureServer"
-        dataset, job, admin_id = await _queued_service_reupload(
-            test_db_session,
-            source_url=url,
-            user_metadata={"service_type": "ArcGIS FeatureServer", "layer_id": 0},
+        seen = SimpleNamespace(
+            answers={}, resolved=[], requests=[], spawned=AsyncMock()
         )
 
         def _resolve(host, port, *args, **kwargs):
-            if host == "rebound.example.test":
-                return [
-                    (
-                        socket.AF_INET,
-                        socket.SOCK_STREAM,
-                        socket.IPPROTO_TCP,
-                        "",
-                        ("10.0.0.7", 443),
-                    )
-                ]
-            return socket.getaddrinfo(host, port, *args, **kwargs)
-
-        requests: list[httpx.Request] = []
+            if host not in seen.answers:
+                return socket.getaddrinfo(host, port, *args, **kwargs)
+            seen.resolved.append(host)
+            address = (seen.answers[host], 443)
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", address)
+            ]
 
         def _record(request: httpx.Request) -> httpx.Response:
-            requests.append(request)
+            seen.requests.append(request)
             return httpx.Response(503)
 
-        spawned = AsyncMock()
-        # Only the validator and its transport see the rebound answer.
+        # Only the validator and its transport see these answers.
         monkeypatch.setattr(
             security_mod,
             "socket",
@@ -275,26 +260,70 @@ class TestReuploadServiceWorkerRevalidatesSourceUrl:
         monkeypatch.setattr(
             security_mod, "make_safe_transport", lambda: httpx.MockTransport(_record)
         )
-        monkeypatch.setattr(ogr, "run_ogr2ogr_service", spawned)
+        monkeypatch.setattr(ogr, "run_ogr2ogr_service", seen.spawned)
+        return seen
 
+    @staticmethod
+    async def _refused(session, *, stored_url: str, argument_url: str):
+        """Run a service re-upload that the fetch-time check must refuse."""
+        from sqlalchemy import select
+
+        from app.platform.refresh.models import DatasetRefreshRun
+        from app.processing.ingest.tasks_reupload import reupload_service
+
+        dataset, job, admin_id = await _queued_service_reupload(
+            session,
+            source_url=stored_url,
+            user_metadata={"service_type": "ArcGIS FeatureServer", "layer_id": 0},
+        )
         with pytest.raises(Exception) as raised:
             await reupload_service.__wrapped__(  # type: ignore[attr-defined]
                 job_id=str(job.id),
                 dataset_id=str(dataset.id),
-                source_url=url,
+                source_url=argument_url,
                 source_layer="roads",
                 user_id=str(admin_id),
                 attempt_id=str(job.attempt_id),
             )
-
-        assert requests == []
-        spawned.assert_not_awaited()
-        assert "safety check at worker fetch time" in str(raised.value)
-        await test_db_session.refresh(job)
-        assert job.status == "failed"
-        run = await test_db_session.scalar(
+        await session.refresh(job)
+        run = await session.scalar(
             select(DatasetRefreshRun)
             .where(DatasetRefreshRun.ingest_job_id == job.id)
             .execution_options(populate_existing=True)
         )
-        assert run.status == "failed"
+        return raised.value, job.status, run.status
+
+    @pytest.mark.anyio
+    async def test_a_host_now_resolving_to_a_private_address_sends_no_request(
+        self, test_db_session, network
+    ):
+        """A host that resolves to a private address at fetch time fails the job before any request."""
+        url = "https://rebound.example.test/arcgis/rest/services/Roads/FeatureServer"
+        network.answers["rebound.example.test"] = "10.0.0.7"
+
+        error, job_status, run_status = await self._refused(
+            test_db_session, stored_url=url, argument_url=url
+        )
+
+        assert network.requests == []
+        network.spawned.assert_not_awaited()
+        assert "safety check at worker fetch time" in str(error)
+        assert (job_status, run_status) == ("failed", "failed")
+
+    @pytest.mark.anyio
+    async def test_the_url_checked_is_the_url_fetched(self, test_db_session, network):
+        """With the job's URL and the task argument differing, the job's URL is checked and nothing is fetched."""
+        network.answers["stored.example.test"] = "10.0.0.7"
+        network.answers["argument.example.test"] = "93.184.216.34"
+
+        error, job_status, run_status = await self._refused(
+            test_db_session,
+            stored_url="https://stored.example.test/arcgis/rest/services/Roads/FeatureServer",
+            argument_url="https://argument.example.test/arcgis/rest/services/Roads/FeatureServer",
+        )
+
+        assert network.requests == []
+        assert network.resolved == ["stored.example.test"]
+        network.spawned.assert_not_awaited()
+        assert "safety check at worker fetch time" in str(error)
+        assert (job_status, run_status) == ("failed", "failed")
