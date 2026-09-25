@@ -67,6 +67,9 @@ ACTIVE_BACKFILL_INDEX_NAME = "uq_ingest_jobs_active_embedding_backfill"
 # staging-orphan reconciliation may take the key over; one string, two readers.
 STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
 
+# Set by that sweep's first pass; the re-check pass adds the final marker.
+STAGING_REAPED_MARKER = "s3_key_reaped"
+
 # The pre-queue stage a manifest job is in. The manifest reservation's exits
 # clear it; a settled row that keeps it is inert, since the in-flight read
 # filters on status.
@@ -100,6 +103,7 @@ INTERNAL_METADATA_KEYS = frozenset(
         FAN_OUT_INTERRUPTED_METADATA_KEY,
         URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
         COMMIT_ATTEMPTED_METADATA_KEY,
+        STAGING_REAPED_MARKER,
         STAGING_REAPED_FINAL_MARKER,
         MANIFEST_STAGE_METADATA_KEY,
         TILESET_UNPACKED_BYTES_FIELD,

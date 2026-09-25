@@ -1,6 +1,8 @@
 """The admin job list shows a job's own metadata and leaves worker bookkeeping out."""
 
+import ast
 import uuid
+from pathlib import Path
 
 from httpx import AsyncClient
 from sqlalchemy import delete, select
@@ -27,6 +29,7 @@ BOOKKEEPING = {
     "fan_out_interrupted": True,
     "url_download_in_flight": True,
     "commit_attempted_at": "2026-09-25T00:00:00+00:00",
+    "s3_key_reaped": True,
     "s3_key_reaped_final": True,
     "manifest_stage": "downloading",
     "tileset_unpacked_bytes": 4096,
@@ -55,6 +58,37 @@ USER_METADATA = {
 
 # Job-metadata keys defined in models.py that stay visible to the admin.
 KEPT_KEYS = {EMBEDDING_BACKFILL_METADATA_KEY}
+
+# Keys the code writes into user_metadata that are the user's or describe the
+# job's outcome or request, so the admin list keeps them.
+PUBLIC_KEYS = {
+    "all_layers",
+    "analysis",
+    "archive_error",
+    "archive_failed",
+    "collision_warning",
+    "dataset_id",
+    EMBEDDING_BACKFILL_METADATA_KEY,
+    "fan_out_parent_id",
+    "file_type",
+    "geometry_type",
+    "layer_id",
+    "layer_name",
+    "object_id_field",
+    "origin_kind",
+    "refresh",
+    "reupload",
+    "service_type",
+    "source_type",
+    "summary",
+    "temporal_parse_errors",
+    "title",
+    "verification_policy",
+    "visibility",
+    "vrt_type",
+    "warnings",
+}
+BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
 
 
 async def _job(session, *, filename: str, metadata: dict) -> uuid.UUID:
@@ -147,3 +181,84 @@ def test_every_job_metadata_key_is_internal_or_kept() -> None:
 
     assert names - INTERNAL_METADATA_KEYS == KEPT_KEYS
     assert set(BOOKKEEPING) == INTERNAL_METADATA_KEYS
+
+
+def _written_metadata_keys() -> dict[str, str]:
+    """Each key the code writes into a job's user_metadata, with one place it does.
+
+    Reads key-name constants in platform/jobs, the first argument of each
+    ``jsonb_build_object`` call, and the keys of dict literals that are assigned
+    to ``user_metadata``, passed as ``user_metadata=``, nested under a
+    ``"user_metadata"`` key, or that spread an existing ``user_metadata``.
+    """
+    found: dict[str, str] = {}
+    for path in sorted(BACKEND_APP.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        where = str(path.relative_to(BACKEND_APP))
+        constants = {
+            node.targets[0].id: node.value.value
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        }
+        if where.startswith("platform/jobs/"):
+            for name, value in constants.items():
+                if name.endswith(("_METADATA_KEY", "_FIELD", "_MARKER")):
+                    found.setdefault(value, f"{where}:{name}")
+        names = {**vars(models), **constants}
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        for node in ast.walk(tree):
+            keys: list[ast.expr | None] = []
+            if isinstance(node, ast.Dict) and _is_job_metadata(node, parents.get(node)):
+                keys = node.keys
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "jsonb_build_object"
+            ):
+                keys = node.args[:1]
+            for key in keys:
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    found.setdefault(key.value, f"{where}:{key.lineno}")
+                elif isinstance(key, ast.Name) and isinstance(names.get(key.id), str):
+                    found.setdefault(names[key.id], f"{where}:{key.lineno}")
+    return found
+
+
+def _is_job_metadata(node: ast.Dict, parent: ast.AST | None) -> bool:
+    if isinstance(parent, ast.Assign):
+        return any(
+            isinstance(target, ast.Attribute) and target.attr == "user_metadata"
+            for target in parent.targets
+        )
+    if isinstance(parent, ast.keyword):
+        return parent.arg == "user_metadata"
+    if isinstance(parent, ast.Dict) and any(
+        value is node and isinstance(key, ast.Constant) and key.value == "user_metadata"
+        for key, value in zip(parent.keys, parent.values)
+    ):
+        return True
+    return any(
+        key is None and "user_metadata" in ast.unparse(value)
+        for key, value in zip(node.keys, node.values)
+    )
+
+
+def test_every_metadata_key_the_code_writes_is_classified() -> None:
+    """A key written into user_metadata is bookkeeping the list hides or a key it keeps."""
+    found = _written_metadata_keys()
+
+    unclassified = {
+        key: where
+        for key, where in found.items()
+        if key not in INTERNAL_METADATA_KEYS | PUBLIC_KEYS
+    }
+    assert unclassified == {}
+    assert "s3_key_reaped" in found and "s3_key" in found

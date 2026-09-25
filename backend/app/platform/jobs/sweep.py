@@ -43,6 +43,7 @@ from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     STAGING_REAPED_FINAL_MARKER,
+    STAGING_REAPED_MARKER,
     STATUSES_NEEDING_STAGED_INPUT,
     UNPUBLISHED_STORAGE_KEYS_FIELD,
     UNREAPED_ARTIFACT_FIELDS,
@@ -300,7 +301,7 @@ def post_expiry_sweep_after_seconds() -> int:
 
 
 # Set on the post-expiry sweep's first pass; not permanent on its own (#1236).
-_STAGING_REAPED_MARKER = "s3_key_reaped"
+_STAGING_REAPED_MARKER = STAGING_REAPED_MARKER
 
 # fix(#1236): set once the RE-CHECK pass has run past
 # MAX_PRESIGNED_URL_LIFETIME_SECONDS + the transfer margin; only rows
