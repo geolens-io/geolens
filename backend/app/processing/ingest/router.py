@@ -116,6 +116,7 @@ from app.processing.ingest.presigned import (
 from app.processing.ingest.pointcloud import (
     preview_staged_pointcloud,
     require_pointcloud_file,
+    staged_pointcloud_bytes,
     staged_pointcloud_metadata,
 )
 from app.processing.ingest.tasks import regenerate_vrt_staged
@@ -953,7 +954,8 @@ async def commit_import(
 
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
-    size is checked against the storage quota again here.
+    size and a point cloud's size are checked against the storage quota again
+    here.
     """
     job = await get_job_or_404(db, job_id, user)
 
@@ -1015,6 +1017,9 @@ async def commit_import(
     await check_public_visibility_allowed(db, user, commit.visibility)
     if Subclass is TilesetCommitRequest:
         await check_upload_quota(db, user.id, staged_unpacked_bytes(job), None)
+    if Subclass is PointCloudCommitRequest:
+        size = await staged_pointcloud_bytes(job.file_path)
+        await check_upload_quota(db, user.id, size, None)
 
     # Extract the credential only for service commits (ServiceCommitRequest is
     # the only subclass carrying one). AUTH-04: never persisted.

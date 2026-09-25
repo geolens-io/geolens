@@ -584,7 +584,7 @@ async def _live_referenced_storage_keys(keys: tuple[str, ...]) -> set[str]:
 
     Catalog rows hold LOGICAL keys, same form as the job row, so this is a
     plain match across the four schema columns naming an object under
-    `rasters/` or `originals/`.
+    `rasters/`, `originals/` or `pointclouds/`.
     """
     from sqlalchemy import Text, any_, bindparam, union_all
     from sqlalchemy.dialects.postgresql import ARRAY

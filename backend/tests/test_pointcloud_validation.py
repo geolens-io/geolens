@@ -15,6 +15,7 @@ import lazrs
 import pytest
 from moto import mock_aws
 from rasterio.crs import CRS
+from structlog.testing import capture_logs
 
 from app.core.config import settings
 from app.core.upload_errors import CodedUploadError, refusal_detail
@@ -22,6 +23,7 @@ from app.platform.storage.local import LocalStorageProvider
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.ingest import pointcloud as pointcloud_module
 from app.processing.ingest.pointcloud import (
+    MAX_EXTRA_BYTES,
     inspect_pointcloud,
     inspect_stored_pointcloud,
 )
@@ -305,9 +307,8 @@ def test_a_node_that_does_not_decode_as_declared_is_refused(tmp_path, data) -> N
     assert refused(tmp_path, data).code == "pointcloud_decode_failed"
 
 
-def test_a_lazrs_panic_is_a_decode_refusal(tmp_path, monkeypatch) -> None:
-    """A Rust panic inside lazrs, which is no Exception, still becomes a refusal."""
-    no_items = copc(laszip=lambda record: record[:32] + b"\0\0")
+def _lazrs_panic() -> BaseException:
+    """The exception a Rust panic inside lazrs raises, caught from a real one."""
     with pytest.raises(BaseException) as panic:
         lazrs.decompress_points_with_chunk_table(
             b"\1" * 64,
@@ -317,9 +318,31 @@ def test_a_lazrs_panic_is_a_decode_refusal(tmp_path, monkeypatch) -> None:
             lazrs.DecompressionSelection(lazrs.SELECTIVE_DECOMPRESS_ALL),
         )
     assert not isinstance(panic.value, Exception), "lazrs no longer panics here"
-    monkeypatch.setattr(pointcloud_module, "_check_laszip", lambda data, header: None)
+    return panic.value
 
-    assert refused(tmp_path, no_items).code == "pointcloud_decode_failed"
+
+def _lazrs_raising(monkeypatch, exc: BaseException) -> None:
+    def _decompress(*args, **kwargs):
+        raise exc
+
+    monkeypatch.setattr(
+        pointcloud_module.lazrs, "decompress_points_with_chunk_table", _decompress
+    )
+
+
+def test_a_lazrs_panic_is_a_decode_refusal(tmp_path, monkeypatch) -> None:
+    """A Rust panic inside lazrs, which is no Exception, still becomes a refusal."""
+    _lazrs_raising(monkeypatch, _lazrs_panic())
+
+    assert refused(tmp_path, copc()).code == "pointcloud_decode_failed"
+
+
+def test_an_interrupt_during_the_decode_is_not_swallowed(tmp_path, monkeypatch) -> None:
+    """Only a panic is turned into a refusal; an interrupt still propagates."""
+    _lazrs_raising(monkeypatch, KeyboardInterrupt())
+
+    with pytest.raises(KeyboardInterrupt):
+        inspect_pointcloud(write(tmp_path, copc()))
 
 
 @pytest.mark.parametrize(
@@ -356,6 +379,118 @@ def test_a_refusal_names_the_bound_it_hit(tmp_path, monkeypatch) -> None:
         "message": "The hierarchy has more than 1 entries.",
         "limit": 1,
     }
+
+
+def _lazrs_calls(monkeypatch) -> list:
+    """Each call that reaches lazrs, which then fails as a damaged chunk would."""
+    calls: list = []
+
+    def _decompress(*args, **kwargs):
+        calls.append(args)
+        raise lazrs.LazrsError("called")
+
+    monkeypatch.setattr(
+        pointcloud_module.lazrs, "decompress_points_with_chunk_table", _decompress
+    )
+    return calls
+
+
+@pytest.mark.parametrize(
+    "chunk",
+    [
+        lambda chunk: patched(chunk, 34, "<I", 0xFFFFFFFF),
+        lambda chunk: patched(chunk, 30, "<I", 99),
+        lambda chunk: chunk[:40],
+    ],
+    ids=["layer-size-past-the-chunk", "count-differs", "shorter-than-its-header"],
+)
+def test_a_chunk_whose_header_disagrees_is_refused_before_lazrs(
+    tmp_path, monkeypatch, chunk
+) -> None:
+    """lazrs sizes its buffers from the chunk header, so the header is checked first."""
+    data = copc(chunk=chunk)
+    calls = _lazrs_calls(monkeypatch)
+
+    assert (refused(tmp_path, data).code, calls) == ("pointcloud_decode_failed", [])
+
+
+def test_extra_bytes_within_the_bound_decode(tmp_path) -> None:
+    """Points that carry extra bytes pass the LASzip and chunk checks."""
+    cloud = inspect_pointcloud(write(tmp_path, copc(extra_bytes=8)))
+
+    assert cloud.point_count == 100
+
+
+def test_extra_bytes_past_the_bound_are_refused_before_lazrs(
+    tmp_path, monkeypatch
+) -> None:
+    """lazrs builds models per extra byte before reading a point, so the count is capped."""
+    data = copc(extra_bytes=MAX_EXTRA_BYTES + 1)
+    calls = _lazrs_calls(monkeypatch)
+
+    detail = refusal_detail(refused(tmp_path, data))
+
+    assert calls == []
+    assert detail == {
+        "code": "pointcloud_invalid",
+        "message": f"The file's points carry more than {MAX_EXTRA_BYTES} extra bytes.",
+        "limit": MAX_EXTRA_BYTES,
+    }
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        pytest.param(
+            patched(copc(padding=bytes(100_000)), 703, "<H", 2000),
+            "truncated",
+            id="record-past-its-block",
+        ),
+        pytest.param(
+            patched(copc(), 235, "<Q", 375),
+            "truncated",
+            id="evlrs-before-the-point-data",
+        ),
+        pytest.param(
+            patched(copc(), 96, "<I", 2 * 1024 * 1024),
+            "truncated",
+            id="point-data-past-the-end",
+        ),
+    ],
+)
+def test_each_range_check_refuses_its_own_fault(tmp_path, data, message) -> None:
+    """A range the header states is refused before anything reads past it."""
+    refusal = refused(tmp_path, data)
+
+    assert (refusal.code, message in str(refusal)) == ("pointcloud_invalid", True)
+
+
+def test_a_node_whose_compressed_size_is_past_the_bound_is_refused(
+    tmp_path, monkeypatch
+) -> None:
+    """The decode bound weighs the compressed bytes as well as the decoded ones."""
+    monkeypatch.setattr(pointcloud_module, "MAX_DECODE_BYTES", 2 * 30 + 1)
+
+    refusal = refused(tmp_path, copc(count=2))
+
+    assert (refusal.code, "decode limit" in str(refusal)) == (
+        "pointcloud_invalid",
+        True,
+    )
+
+
+def test_structural_refusals_are_security_events_and_others_are_not(tmp_path) -> None:
+    """A plain LAZ or a missing CRS is an ordinary refusal; a damaged file is a security event."""
+    with capture_logs() as logs:
+        refused(tmp_path, copc(info_first=False))
+        refused(tmp_path, copc(wkt=None))
+        refused(tmp_path, copc(header_point_count=99))
+
+    assert [(log["log_level"], log.get("event_type")) for log in logs] == [
+        ("info", None),
+        ("info", None),
+        ("warning", "security"),
+    ]
 
 
 # --- The probe reads only what the checks need ---------------------------
@@ -446,3 +581,38 @@ async def test_a_stored_point_cloud_is_refused_as_a_local_one_is(
 
     assert (stored.value.code, str(stored.value)) == (local.code, str(local))
     assert not any((tmp_path / "staging").iterdir())
+
+
+async def test_the_probe_copies_nothing_past_a_bad_header(
+    tmp_path: Path, storage
+) -> None:
+    """EVLRs claimed to start at byte 0 are refused without copying the file."""
+    data = patched(_two_nodes(), 235, "<Q", 0)
+    await storage.put("staging/job/frozen/c.laz", io.BytesIO(data))
+    counting = _CountingReads(storage)
+
+    with pytest.raises(CodedUploadError):
+        await inspect_stored_pointcloud(counting, "staging/job/frozen/c.laz")
+
+    assert counting.bytes_read < 16 * 1024 < len(data)
+
+
+async def test_the_probe_skips_a_node_past_the_decode_bound(
+    tmp_path: Path, storage, monkeypatch
+) -> None:
+    """A top node over the decode bound is refused without being copied."""
+    big = 64 * 1024
+    data = copc(
+        padding=bytes(big),
+        pages=lambda at: [
+            [(0, 0, 0, 0, at.chunk_offset, at.chunk_size + big, at.count)]
+        ],
+    )
+    await storage.put("staging/job/frozen/c.laz", io.BytesIO(data))
+    counting = _CountingReads(storage)
+    monkeypatch.setattr(pointcloud_module, "MAX_DECODE_BYTES", 8 * 1024)
+
+    with pytest.raises(CodedUploadError, match="decode limit"):
+        await inspect_stored_pointcloud(counting, "staging/job/frozen/c.laz")
+
+    assert counting.bytes_read < 8 * 1024 < big

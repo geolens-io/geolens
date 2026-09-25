@@ -49,11 +49,17 @@ MAX_DEPTH = 24
 # Both the compressed and the decoded size of the one node decoded.
 MAX_DECODE_BYTES = 64 * 1024 * 1024
 MAX_WKT_BYTES = 64 * 1024
+# lazrs builds four 256-symbol models, about 9.6 KB, per extra byte before it
+# reads a point, so the extra bytes a record may carry are bounded too.
+MAX_EXTRA_BYTES = 1024
 
 # LASzip item types each point format carries (POINT14, then RGB14 or
 # RGBNIR14), with their sizes; BYTE14 items hold extra bytes of any size.
 _ITEMS = {6: ((10, 30),), 7: ((10, 30), (11, 6)), 8: ((10, 30), (12, 8))}
 _BYTE14 = 14
+# The layers a chunk stores per item: POINT14 splits into nine, RGB14 is one,
+# RGBNIR14 two, and each extra byte is a layer of its own.
+_LAYERS = {10: 9, 11: 1, 12: 2}
 _LAYERED_CHUNKED = 3
 
 _VLR = struct.Struct("<2x16sHH32x")
@@ -132,12 +138,21 @@ class _Layout:
     wkt: bytes
     # The shallowest node holding points, as (offset, byte size, point count).
     node: tuple[int, int, int]
+    # The per-layer sizes a chunk's header lists, one per LASzip layer.
+    layers: int
+
+
+# Refusals of an ordinary file: plain LAS or LAZ, or one with no usable CRS.
+_ORDINARY_REFUSALS = frozenset({"pointcloud_not_copc", "pointcloud_no_crs"})
 
 
 def _refusal(
     code: str, message: str, *, reason: str, **values: object
 ) -> CodedUploadError:
-    logger.warning("Point cloud refused", event_type="security", reason=reason)
+    if code in _ORDINARY_REFUSALS:
+        logger.info("Point cloud refused", reason=reason)
+    else:
+        logger.warning("Point cloud refused", event_type="security", reason=reason)
     return CodedUploadError(code, message, **values)
 
 
@@ -237,8 +252,8 @@ def _read_records(
     return records
 
 
-def _check_laszip(data: bytes, header: _Header) -> None:
-    """Refuse a LASzip record lazrs would misread for this point format."""
+def _check_laszip(data: bytes, header: _Header) -> int:
+    """Refuse a LASzip record lazrs would misread; return its chunks' layer count."""
     fields = struct.unpack_from("<HHBBHIIqqH", data) if len(data) >= 34 else None
     if (
         fields is None
@@ -255,6 +270,14 @@ def _check_laszip(data: bytes, header: _Header) -> None:
         or sum(size for _, size in items) != header.record_length
     ):
         raise _invalid("The file's LASzip record is damaged.", reason="laszip")
+    extra_bytes = sum(size for _, size in extra)
+    if extra_bytes > MAX_EXTRA_BYTES:
+        raise _invalid(
+            f"The file's points carry more than {MAX_EXTRA_BYTES} extra bytes.",
+            reason="extra_bytes",
+            limit=MAX_EXTRA_BYTES,
+        )
+    return sum(_LAYERS[kind] for kind, _ in base) + extra_bytes
 
 
 def _walk(
@@ -352,7 +375,7 @@ def _read_layout(read: Read, size: int) -> _Layout:
     if _WKT not in found:
         raise _refusal("pointcloud_no_crs", _NO_CRS, reason="no_wkt")
     laszip = read(*found[_LASZIP])
-    _check_laszip(laszip, header)
+    layers = _check_laszip(laszip, header)
     wkt_offset, wkt_length = found[_WKT]
     if wkt_length > MAX_WKT_BYTES:
         raise _refusal("pointcloud_no_crs", _NO_CRS, reason="wkt_limit")
@@ -364,7 +387,27 @@ def _read_layout(read: Read, size: int) -> _Layout:
         root,
         range(hierarchy_offset, hierarchy_offset + hierarchy_length),
     )
-    return _Layout(header, laszip, read(wkt_offset, wkt_length), node)
+    return _Layout(header, laszip, read(wkt_offset, wkt_length), node, layers)
+
+
+def _check_chunk(chunk: bytes, layout: _Layout, count: int) -> None:
+    """Refuse a chunk whose header would size lazrs's buffers past the chunk.
+
+    A layered chunk opens with its first point stored raw, its point count and
+    one byte size per layer, and lazrs allocates each layer from that size
+    before reading it. The count must match the hierarchy's and the sizes must
+    add up to the chunk.
+    """
+    record_length = layout.header.record_length
+    fixed = record_length + 4 + 4 * layout.layers
+    if len(chunk) < fixed:
+        raise _refusal("pointcloud_decode_failed", _DECODE_FAILED, reason="chunk_size")
+    points = struct.unpack_from("<I", chunk, record_length)[0]
+    sizes = struct.unpack_from(f"<{layout.layers}I", chunk, record_length + 4)
+    if points != count or fixed + sum(sizes) != len(chunk):
+        raise _refusal(
+            "pointcloud_decode_failed", _DECODE_FAILED, reason="chunk_header"
+        )
 
 
 def _decode(read: Read, layout: _Layout) -> None:
@@ -378,10 +421,12 @@ def _decode(read: Read, layout: _Layout) -> None:
             reason="decode_limit",
             limit_mb=MAX_DECODE_BYTES // 1024**2,
         )
+    chunk = read(offset, size)
+    _check_chunk(chunk, layout, count)
     points = bytearray(count * header.record_length)
     try:
         lazrs.decompress_points_with_chunk_table(
-            read(offset, size),
+            chunk,
             layout.laszip,
             points,
             [(count, size)],
@@ -461,8 +506,12 @@ def _declared_crs(wkt: bytes) -> tuple[int, str]:
     ]
     if not codes:
         raise ValueError("no EPSG code")
+    srid = int(str(codes[-1]))
+    # The catalog's srid column is a positive 32-bit integer.
+    if not 0 < srid < 2**31:
+        raise ValueError("EPSG code out of range")
     name = vertical[1] if vertical and len(vertical) > 1 else ""
-    return int(str(codes[-1])), name if isinstance(name, str) else ""
+    return srid, name if isinstance(name, str) else ""
 
 
 def _crs_facts(
@@ -584,6 +633,16 @@ async def inspect_staged_pointcloud(file_path: str) -> PointCloud:
     if is_local:
         return await asyncio.to_thread(inspect_pointcloud, source)
     return await inspect_stored_pointcloud(get_storage(), source)
+
+
+async def staged_pointcloud_bytes(file_path: str) -> int:
+    """The size of a staged point cloud, wherever it sits."""
+    from app.platform.storage import get_storage
+
+    is_local, source = staged_source(file_path)
+    if is_local:
+        return os.path.getsize(source)
+    return await get_storage().size(source)
 
 
 def require_pointcloud_file(kind: str | None, filename: str | None) -> None:

@@ -42513,7 +42513,7 @@
     },
     "/ingest/commit/{job_id}": {
       "post": {
-        "description": "Commit a staged file for ingestion with user-supplied metadata.\n\nStores user metadata on the job and queues the ingest task.\nOnly callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked\nsize is checked against the storage quota again here.",
+        "description": "Commit a staged file for ingestion with user-supplied metadata.\n\nStores user metadata on the job and queues the ingest task.\nOnly callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked\nsize and a point cloud's size are checked against the storage quota again\nhere.",
         "operationId": "commit_import_ingest_commit__job_id__post",
         "parameters": [
           {

@@ -3129,7 +3129,8 @@ export const commitFanOutIngestCommitFanOutJobIdPost = <ThrowOnError extends boo
  *
  * Stores user metadata on the job and queues the ingest task.
  * Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
- * size is checked against the storage quota again here.
+ * size and a point cloud's size are checked against the storage quota again
+ * here.
  */
 export const commitImportIngestCommitJobIdPost = <ThrowOnError extends boolean = false>(options: Options<CommitImportIngestCommitJobIdPostData, ThrowOnError>): RequestResult<CommitImportIngestCommitJobIdPostResponses, CommitImportIngestCommitJobIdPostErrors, ThrowOnError> => (options.client ?? client).post<CommitImportIngestCommitJobIdPostResponses, CommitImportIngestCommitJobIdPostErrors, ThrowOnError>({
     security: [

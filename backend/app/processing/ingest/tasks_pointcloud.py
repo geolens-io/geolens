@@ -73,6 +73,25 @@ async def store_pointcloud(file_path: str, attempt_key: str) -> None:
         await storage.put(target, data)
 
 
+async def refuse_before_the_copy(user_id: uuid.UUID, cloud: PointCloud) -> None:
+    """Refuse, before any copy, a publish its own transaction would refuse.
+
+    The quota reservation that counts stays in the publish transaction; this
+    check only saves copying a file that could never be published.
+    """
+    from app.core.db import async_session
+    from app.core.geo import unknown_srid_refusal
+    from app.modules.quota.service import reserve_dataset_slot, reserve_storage_bytes
+
+    async with async_session() as session:
+        await reserve_dataset_slot(session, user_id)
+        await reserve_storage_bytes(session, user_id, cloud.size_bytes)
+        refusal = await unknown_srid_refusal(session, cloud.srid, field="srid")
+        await session.rollback()
+    if refusal:
+        raise ValueError(refusal)
+
+
 async def create_pointcloud_dataset(
     session,
     *,
@@ -223,6 +242,7 @@ async def ingest_pointcloud(
             source_filename: str | None = job.source_filename
 
         cloud = await inspect_staged_pointcloud(file_path)
+        await refuse_before_the_copy(uuid.UUID(user_id), cloud)
         dataset_id = uuid.uuid4()
         attempt_key = pointcloud_attempt_key(dataset_id, attempt_uuid)
         if not await record_unpublished_storage_keys(

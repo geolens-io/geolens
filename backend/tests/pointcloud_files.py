@@ -40,9 +40,9 @@ def evlr(user_id: bytes, record_id: int, data: bytes) -> bytes:
     return struct.pack("<H16sHQ32s", 0, user_id, record_id, len(data), b"") + data
 
 
-def records(count: int, point_format: int = 6) -> bytes:
+def records(count: int, point_format: int = 6, extra_bytes: int = 0) -> bytes:
     """``count`` points on a 10 m diagonal, each with one return."""
-    length = _RECORD_LENGTHS[point_format]
+    length = _RECORD_LENGTHS[point_format] + extra_bytes
     out = bytearray()
     for i in range(count):
         step = i * 1000 // max(count - 1, 1)
@@ -57,6 +57,7 @@ def copc(
     *,
     count: int = 100,
     point_format: int = 6,
+    extra_bytes: int = 0,
     version: tuple[int, int] = (1, 4),
     compressed: bool = True,
     wkt: bytes | None = WKT,
@@ -76,12 +77,14 @@ def copc(
     pages, root page first, laid out one after another from
     ``Layout.page_offset``.
     """
-    laz_vlr = lazrs.LazVlr.new_for_compression(point_format, 0)
+    laz_vlr = lazrs.LazVlr.new_for_compression(point_format, extra_bytes)
     laszip_data = bytearray(laz_vlr.record_data())
     struct.pack_into("<I", laszip_data, 12, _VARIABLE_CHUNKS)
     laszip_data = bytes(laszip(bytes(laszip_data)) if laszip else laszip_data)
     compressed_points = lazrs.compress_points(
-        laz_vlr, points if points is not None else records(count, point_format), False
+        laz_vlr,
+        points if points is not None else records(count, point_format, extra_bytes),
+        False,
     )
     table_offset = struct.unpack_from("<q", compressed_points)[0]
     chunk_bytes = compressed_points[8:table_offset]
@@ -133,7 +136,7 @@ def copc(
         point_offset,
         len(vlrs),
         point_format | (0x80 if compressed else 0),
-        _RECORD_LENGTHS[point_format],
+        _RECORD_LENGTHS[point_format] + extra_bytes,
     )
     struct.pack_into("<3d3d", header, 131, SCALE, SCALE, SCALE, *ORIGIN)
     struct.pack_into(

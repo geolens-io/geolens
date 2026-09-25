@@ -410,20 +410,57 @@ async def test_a_point_cloud_upload_never_reaches_gdal(
 # --- Quota and failure ---------------------------------------------------
 
 
-async def test_the_publish_reservation_refuses_an_overshoot(
-    client: AsyncClient, test_db_session, uploader, queued
+async def test_the_worker_refuses_an_overshoot_before_the_copy(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch
 ) -> None:
-    """The worker reserves under the per-user lock and publishes nothing past the cap."""
+    """Usage that grew after the commit is refused before the file is copied."""
     headers, _ = uploader
     job_id = (await upload(client, headers)).json()["job_id"]
     assert (await commit(client, headers, job_id)).status_code == 202
+    stored = AsyncMock()
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_pointcloud.store_pointcloud", stored
+    )
 
     with _quota(len(_CLOUD) - 1), pytest.raises(Exception, match="quota exceeded"):
         await run_queued(queued)
 
+    stored.assert_not_called()
     job = await load_job(test_db_session, job_id)
     assert (job.status, job.dataset_id) == ("failed", None)
     assert await pointcloud_objects() == []
+
+
+async def test_the_size_is_checked_again_at_commit(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """Usage that grew after the upload is caught at commit, before anything is queued."""
+    headers, _ = uploader
+    job_id = (await upload(client, headers)).json()["job_id"]
+
+    with _quota(len(_CLOUD) - 1):
+        resp = await commit(client, headers, job_id)
+
+    assert resp.status_code == 413, resp.text
+    assert queued == []
+    assert (await load_job(test_db_session, job_id)).status == "pending"
+
+
+async def test_another_user_cannot_preview_a_point_cloud(
+    client: AsyncClient, uploader, admin_auth_header, monkeypatch
+) -> None:
+    """The job's owner check runs before the file is read."""
+    job_id = (await upload(client, uploader[0])).json()["job_id"]
+    other, _ = await create_user(client, admin_auth_header, "editor")
+    inspected = AsyncMock()
+    monkeypatch.setattr(
+        "app.processing.ingest.pointcloud.inspect_staged_pointcloud", inspected
+    )
+
+    resp = await client.post(f"/ingest/preview/{job_id}", headers=other)
+
+    assert resp.status_code == 403, resp.text
+    inspected.assert_not_called()
 
 
 async def test_a_file_that_changed_since_the_door_is_refused_before_the_copy(
@@ -609,8 +646,21 @@ async def test_the_live_copy_is_never_reaped(
         f"pointclouds/{uuid.uuid4()}/../{uuid.uuid4()}/data.copc.laz",
         f"pointclouds/x/{uuid.uuid4()}/data.copc.laz",
         f"POINTCLOUDS/{uuid.uuid4()}/{uuid.uuid4()}/data.copc.laz",
+        f"x{pointcloud_attempt_key(uuid.uuid4(), uuid.uuid4())}",
+        f"{pointcloud_attempt_key(uuid.uuid4(), uuid.uuid4())}x",
+        f"{pointcloud_attempt_key(uuid.uuid4(), uuid.uuid4())}/",
     ],
-    ids=["root", "dataset", "other-name", "dotdot", "not-uuid", "upper"],
+    ids=[
+        "root",
+        "dataset",
+        "other-name",
+        "dotdot",
+        "not-uuid",
+        "upper",
+        "text-before",
+        "text-after",
+        "slash-after",
+    ],
 )
 def test_only_an_attempt_shaped_point_cloud_key_is_read_back(key) -> None:
     """Anything but pointclouds/{uuid}/{uuid}/data.copc.laz is dropped before the reap."""

@@ -26,6 +26,9 @@ asserts it).
 
 from pathlib import Path
 
+from app.core.pointcloud import LAZ_WITHOUT_KIND, POINTCLOUD_SUFFIX
+from app.core.upload_errors import UnsafeUploadError
+
 # Every driver a legitimate upload can need, none that reaches the network
 # or follows a pointer out of the document. A ZIP is the widest case: GDAL
 # opens ``/vsizip/<archive>`` and the member could be any of these. Names
@@ -106,8 +109,14 @@ _DRIVERS_BY_EXTENSION: dict[str, tuple[str, ...]] = {
 
 
 def allowed_input_drivers(file_path: str) -> tuple[str, ...]:
-    """The drivers that may be attempted for a staged upload path."""
+    """The drivers that may be attempted for a staged upload path.
+
+    A ``.laz`` point cloud is refused rather than given the archive union: no
+    GDAL driver may open one.
+    """
     suffix = Path(file_path).suffix.lower()
+    if suffix == POINTCLOUD_SUFFIX:
+        raise UnsafeUploadError(LAZ_WITHOUT_KIND)
     return _DRIVERS_BY_EXTENSION.get(suffix, ARCHIVE_MEMBER_DRIVERS)
 
 
