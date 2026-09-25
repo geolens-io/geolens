@@ -173,7 +173,8 @@ async def write_job_failure_for_attempt(
 ) -> bool | None:
     """Fail the running job through the ledger and commit, under the error-write budget.
 
-    ``reason`` is stored redacted.
+    ``reason`` is stored redacted; a missing or ``None`` reason raises TypeError
+    before the session is touched.
 
     Returns whether the fence matched, or ``None`` when the write did not
     happen at all and the transaction was ended: the budget expired or the
@@ -193,6 +194,8 @@ async def write_job_failure_for_attempt(
     """
     from sqlalchemy.exc import SQLAlchemyError
 
+    if reason is None:
+        raise TypeError("a failure write needs a reason")
     budget_ms = JOB_ERROR_WRITE_TIMEOUT_MS if budget_ms is None else budget_ms
     try:
         # The connection first, on its own deadline: `SET LOCAL` cannot bound a

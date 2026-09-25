@@ -227,13 +227,14 @@ async def test_attempt_owned_publish_rejects_stale_external_writer(test_db_sessi
     await test_db_session.commit()
 
 
-async def test_a_failure_write_without_a_reason_is_refused():
-    """A failure write given no reason raises before it touches the session."""
+@pytest.mark.parametrize("given", [{}, {"reason": None}], ids=["omitted", "none"])
+async def test_a_failure_write_without_a_reason_is_refused(given):
+    """A failure write given no reason, or None, raises before it touches the session."""
     untouched = object()
 
     with pytest.raises(TypeError):
         await write_job_failure_for_attempt(
-            untouched, uuid.uuid4(), uuid.uuid4(), task_name="ingest_file"
+            untouched, uuid.uuid4(), uuid.uuid4(), task_name="ingest_file", **given
         )
 
 
