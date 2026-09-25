@@ -41,6 +41,31 @@ async def _get_user(session, username: str) -> User:
     return result.scalar_one()
 
 
+@pytest.fixture
+async def tiles3d_table(test_db_session):
+    """Commit a tiles3d dataset, yield its table name, and delete it afterwards."""
+    admin = await _get_user(test_db_session, "admin")
+    table_name = f"tiles3d_{uuid.uuid4().hex[:8]}"
+    dataset = await create_dataset(
+        test_db_session,
+        created_by=admin.id,
+        table_name=table_name,
+        record_type="tiles3d_dataset",
+        source_format="3dtiles",
+        geometry_type=None,
+        feature_count=None,
+    )
+    record_id = dataset.record_id
+    yield table_name
+    # A committed tiles3d row blocks every later downgrade past 0065 in this
+    # worker's database (see tests/alembic_helpers.py).
+    await test_db_session.rollback()
+    await test_db_session.execute(
+        text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+    )
+    await test_db_session.commit()
+
+
 # ---------------------------------------------------------------------------
 # SAND-01: SQL validation (unit tests, no DB needed)
 # ---------------------------------------------------------------------------
@@ -405,23 +430,15 @@ class TestBuildTableAllowlist:
         allowlist = await build_table_allowlist(session, None)
         assert tbl in allowlist
 
-    async def test_tiles3d_dataset_excluded(self, client, test_db_session):
+    async def test_tiles3d_dataset_excluded(
+        self, client, test_db_session, tiles3d_table
+    ):
         """A tileset's table_name names no data.<table>, so it's kept out."""
         session = test_db_session
         admin = await _get_user(session, "admin")
-        tbl = f"tiles3d_{uuid.uuid4().hex[:8]}"
-        await create_dataset(
-            session,
-            created_by=admin.id,
-            table_name=tbl,
-            record_type="tiles3d_dataset",
-            source_format="3dtiles",
-            geometry_type=None,
-            feature_count=None,
-        )
 
         allowlist = await build_table_allowlist(session, admin, queryable_only=True)
-        assert tbl not in allowlist
+        assert tiles3d_table not in allowlist
 
     async def test_raster_dataset_excluded(self, client, test_db_session):
         """A raster's table_name also names no data.<table>."""
@@ -434,26 +451,16 @@ class TestBuildTableAllowlist:
         assert tbl not in allowlist
 
     async def test_tiles3d_and_raster_visible_when_not_restricted_to_queryable(
-        self, client, test_db_session
+        self, client, test_db_session, tiles3d_table
     ):
         """Without queryable_only, the visibility list still includes them (map chat)."""
         session = test_db_session
         admin = await _get_user(session, "admin")
-        tiles3d_tbl = f"tiles3d_{uuid.uuid4().hex[:8]}"
         raster_tbl = f"sandbox_raster_{uuid.uuid4().hex[:8]}"
-        await create_dataset(
-            session,
-            created_by=admin.id,
-            table_name=tiles3d_tbl,
-            record_type="tiles3d_dataset",
-            source_format="3dtiles",
-            geometry_type=None,
-            feature_count=None,
-        )
         await create_raster_dataset(session, created_by=admin.id, table_name=raster_tbl)
 
         allowlist = await build_table_allowlist(session, admin)
-        assert tiles3d_tbl in allowlist
+        assert tiles3d_table in allowlist
         assert raster_tbl in allowlist
 
 
