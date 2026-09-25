@@ -77,7 +77,11 @@ def followups(monkeypatch) -> _Ran:
 
 
 async def _owed_job(
-    session, *, status: str = "complete", task: str = "ingest_raster"
+    session,
+    *,
+    status: str = "complete",
+    task: str = "ingest_raster",
+    error_message: str | None = None,
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     """A job owing ``task``'s follow-ups for a fresh dataset: (job, dataset, record)."""
     admin_id = await get_user_id(session, "admin")
@@ -86,11 +90,17 @@ async def _owed_job(
         dataset_id=dataset.id,
         status=status,
         created_by=admin_id,
-        user_metadata={PUBLISH_FOLLOWUPS_FIELD: task},
+        error_message=error_message,
     )
     session.add(job)
+    await session.flush()
+    job.user_metadata = _owed(task, job.attempt_id)
     await session.commit()
     return job.id, dataset.id, dataset.record_id
+
+
+def _owed(task: str, attempt_id) -> dict:
+    return {PUBLISH_FOLLOWUPS_FIELD: {"task": task, "attempt_id": str(attempt_id)}}
 
 
 async def _drop(session, job_id, record_id) -> None:
@@ -162,10 +172,73 @@ async def test_a_deleted_dataset_clears_the_record_and_runs_nothing(
         await _drop(test_db_session, job_id, record_id)
 
 
-async def test_a_job_that_is_not_complete_owes_nothing_yet(
+async def test_a_failed_job_owes_only_its_failure_notice(
+    test_db_session, followups, monkeypatch
+) -> None:
+    """A failed job's claim mails ingest_failed once, with its stored reason, and nothing else."""
+    sent: list = []
+
+    async def _notice(*, event_key, build):
+        sent.append((event_key, build().data["reason"]))
+
+    monkeypatch.setattr("app.platform.notifications.events.emit_event_safe", _notice)
+    job_id, _, record_id = await _owed_job(
+        test_db_session,
+        status="failed",
+        task="reupload_file",
+        error_message="The refresh was rejected.",
+    )
+    try:
+        assert await run_publish_followups(job_id) is True
+        assert sent == [("ingest_failed", "The refresh was rejected.")]
+        assert followups == []
+        assert not await _owes(job_id)
+        assert await run_publish_followups(job_id) is False
+        assert len(sent) == 1
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_completed_job_carrying_a_failure_record_sends_nothing(
     test_db_session, followups
 ) -> None:
-    """Only a complete job's follow-ups are claimed."""
+    """A complete job whose record names a replacement task is cleared and runs nothing."""
+    job_id, _, record_id = await _owed_job(test_db_session, task="reupload_file")
+    try:
+        assert await run_publish_followups(job_id) is True
+        assert followups == []
+        assert not await _owes(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_record_an_earlier_attempt_wrote_is_cleared_and_runs_nothing(
+    test_db_session, followups
+) -> None:
+    """A record whose attempt no longer owns the job, as after a retry, sends nothing."""
+    job_id, _, record_id = await _owed_job(test_db_session)
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE catalog.ingest_jobs SET attempt_id = gen_random_uuid() "
+                    "WHERE id = :id"
+                ),
+                {"id": job_id},
+            )
+            await session.commit()
+
+        assert await run_publish_followups(job_id) is True
+        assert followups == []
+        assert not await _owes(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
+async def test_a_job_that_has_not_ended_owes_nothing_yet(
+    test_db_session, followups
+) -> None:
+    """Only a complete or failed job's follow-ups are claimed."""
     job_id, _, record_id = await _owed_job(test_db_session, status="running")
     try:
         assert await run_publish_followups(job_id) is False
@@ -210,7 +283,7 @@ async def test_retention_keeps_a_job_that_still_owes_its_followups(
         created_by=admin_id,
         created_at=long_ago,
         completed_at=long_ago,
-        user_metadata={PUBLISH_FOLLOWUPS_FIELD: "ingest_raster"},
+        user_metadata=_owed("ingest_raster", uuid.uuid4()),
     )
     test_db_session.add(job)
     await test_db_session.commit()

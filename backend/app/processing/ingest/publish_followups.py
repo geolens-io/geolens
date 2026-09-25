@@ -1,8 +1,9 @@
-"""The follow-ups a first ingest owes once its publish has landed.
+"""The follow-ups a job owes once its terminal commit has landed.
 
-The publish transaction records them on the job row, so the record exists
-exactly when the commit does. Whoever claims the record runs them: the task
-after its commit, or the stale-job sweep when the task could not.
+A first ingest owes its completion follow-ups, and a rejected replacement owes
+its failure notice. The terminal transaction records them on the job row, so
+the record exists exactly when the commit does. Whoever claims the record runs
+them: the task after its commit, or the stale-job sweep when the task could not.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import structlog
 from sqlalchemy import Text, func, literal, select, text, update
 from sqlalchemy.orm import joinedload
 
+from app.core.failure_reason import redact_failure_reason
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.tasks_common import _emit_billing_event, cleanup_step
@@ -21,7 +23,9 @@ from app.processing.ingest.tasks_common import _emit_billing_event, cleanup_step
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-# The job-row record of follow-ups a landed publish still owes.
+# The job-row record of follow-ups a landed terminal commit still owes: the
+# task (a complete job's first ingest, or a failed job's replacement) and the
+# attempt that wrote it, since a retry keeps the row and its metadata.
 PUBLISH_FOLLOWUPS_FIELD = "publish_followups"
 
 # Each first ingest's completion-notice label, or None when it sends no notice
@@ -38,8 +42,11 @@ _SWEEP_BATCH = 50
 async def note_publish_followups(
     session: AsyncSession, job_uuid: uuid.UUID, attempt_uuid: uuid.UUID, task: str
 ) -> None:
-    """Record, in the publish transaction, that ``task``'s follow-ups are owed."""
-    owed = func.jsonb_build_object(PUBLISH_FOLLOWUPS_FIELD, task)
+    """Record, in the terminal transaction, that this attempt's ``task`` follow-ups are owed."""
+    owed = func.jsonb_build_object(
+        PUBLISH_FOLLOWUPS_FIELD,
+        func.jsonb_build_object("task", task, "attempt_id", str(attempt_uuid)),
+    )
     await session.execute(
         update(IngestJob)
         .where(IngestJob.id == job_uuid, IngestJob.attempt_id == attempt_uuid)
@@ -53,11 +60,13 @@ async def note_publish_followups(
 
 
 async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
-    """Run a first ingest's owed follow-ups once its publish is visible, at most once.
+    """Run a job's owed follow-ups once its terminal commit is visible, at most once.
 
-    Claims the job's record. A job that isn't complete, or a row another caller
-    has locked, runs nothing, and a deleted dataset runs nothing either. Returns
-    whether this call claimed.
+    Claims the job's record. The job's status chooses what runs: a complete
+    first ingest's follow-ups, or a failed job's ``ingest_failed`` notice. A job
+    in neither status, or a row another caller has locked, runs nothing. A
+    record an earlier attempt wrote, or a deleted dataset, is cleared and runs
+    nothing. Returns whether this call claimed.
     """
     import app.core.db as db_module
     from app.core.db.tenant_session import current_tenant_var
@@ -73,10 +82,17 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
     async with db_module.async_session() as session:
         claim = (
             await session.execute(
-                select(IngestJob.dataset_id, owed.astext)
+                select(
+                    IngestJob.status,
+                    IngestJob.dataset_id,
+                    IngestJob.error_message,
+                    IngestJob.attempt_id,
+                    owed["task"].astext,
+                    owed["attempt_id"].astext,
+                )
                 .where(
                     IngestJob.id == job_uuid,
-                    IngestJob.status == "complete",
+                    IngestJob.status.in_(("complete", "failed")),
                     owed.is_not(None),
                 )
                 .with_for_update(skip_locked=True)
@@ -96,9 +112,16 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
         )
         await session.commit()
 
-    dataset_id, task = claim
+    status, dataset_id, error_message, attempt_id, task, owed_attempt = claim
     job_id = str(job_uuid)
     log = structlog.get_logger().bind(job_id=job_id, task=task)
+    if owed_attempt != str(attempt_id):
+        log.info("publish_followups_from_an_earlier_attempt")
+        return True
+    if status == "failed":
+        async with cleanup_step("failure notice", job_id=job_id):
+            await notify_ingest_failed(job_uuid, task=task, reason=error_message or "")
+        return True
     if task not in _LABELS:
         log.warning("publish_followups_unknown_task")
         return True
@@ -139,8 +162,30 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
     return True
 
 
+async def notify_ingest_failed(
+    job_id: uuid.UUID, *, task: str, reason: str | BaseException
+) -> None:
+    """Send ``ingest_failed`` for ``job_id``, with ``reason`` redacted."""
+    from app.platform.notifications.events import (
+        build_event_notification,
+        emit_event_safe,
+    )
+
+    message = redact_failure_reason(reason)
+    await emit_event_safe(
+        event_key="ingest_failed",
+        build=lambda: build_event_notification(
+            "ingest_failed",
+            subject=f"Ingest failed: {task}",
+            body=f"Ingest job (task={task}) failed.",
+            reason=message,
+            extra={"job_id": str(job_id), "task": task},
+        ),
+    )
+
+
 async def run_owed_publish_followups() -> int:
-    """Run the follow-ups landed publishes still owe, a bounded batch a call; never raises.
+    """Run the follow-ups landed terminal commits still owe, a bounded batch a call; never raises.
 
     Returns how many jobs this call claimed. A job whose follow-ups fail is
     logged and skipped.
@@ -154,7 +199,7 @@ async def run_owed_publish_followups() -> int:
                 await session.scalars(
                     select(IngestJob.id)
                     .where(
-                        IngestJob.status == "complete",
+                        IngestJob.status.in_(("complete", "failed")),
                         IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD].is_not(None),
                     )
                     .limit(_SWEEP_BATCH)
