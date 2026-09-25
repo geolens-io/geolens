@@ -18,8 +18,6 @@ _LEDGER = "platform/jobs/ledger.py"
 # entry must still write a status, so the change that moves its last write
 # deletes it.
 _NOT_YET_IN_THE_LEDGER: dict[str, str] = {
-    "processing/ingest/publication.py::_complete": "the settlement seam's complete",
-    "processing/ingest/publication.py::_fail": "the settlement seam's fail",
     "processing/ingest/tasks_reupload.py::_settle_keyed_execution_timeout": (
         "a keyed refresh's timeout"
     ),
