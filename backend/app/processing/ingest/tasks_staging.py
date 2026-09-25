@@ -512,7 +512,7 @@ async def _ingest_vector_into_staging(
     three and passes its detected type straight to ``run_ogr2ogr``.
 
     Then calls the real ``_run_staging_pipeline``, which first ingest and
-    the file re-upload also call.
+    both re-uploads also call.
 
     Performs no commits.
     """

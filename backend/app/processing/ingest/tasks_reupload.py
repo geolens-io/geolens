@@ -44,8 +44,6 @@ from app.processing.ingest.tasks_common import (
     cleanup_step,
     _append_mercator_clip_warning,
     _bind_task_log_context,
-    _detect_3d_and_promote_elev,
-    _current_tenant_role,
     _current_tenant_schema,
     _install_reupload_table,
     _run_service_import_with_wfs_fallback,
@@ -846,56 +844,28 @@ async def _stage_service_table(
     session, job, dataset, *, table: str, schema: str
 ) -> StagingResult:
     """Bring a fetched service layer's staging table to the shape first ingest builds."""
-    from app.processing.ingest.metadata import (
-        add_4326_column,
-        clip_to_mercator_bounds,
-        ensure_geom_column,
-        extract_metadata,
-        get_sample_values,
-        grant_reader_access,
-        rename_reserved_columns,
-    )
+    from app.processing.ingest.metadata import rename_reserved_columns
 
-    # Rename source columns that collide with GeoLens-internal names.
-    # Runs BEFORE ensure_geom_column / add_4326_column.
+    # Before staging, so no source column clashes with a GeoLens-internal name.
     reserved_renames = await rename_reserved_columns(session, table, schema=schema)
     if reserved_renames:
         from app.processing.ingest.warnings import make_reserved_rename_warning
 
         _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
-    has_geom = await ensure_geom_column(session, table, schema=schema)
-    # The file door's geometry-loss refusal, before the swap DDL. This path
-    # learns geometry from the staging table, not `_detect_reupload_crs`.
+    # A service layer is fetched into 4326, and whether it has geometry is
+    # learned from the staged table.
+    staged = await _run_staging_pipeline(
+        session, table_name=table, has_geometry=None, effective_srid=4326
+    )
+    # The file door's geometry-loss refusal, before the swap DDL.
     _assert_geometry_survives(
         record_type=dataset.record.record_type,
         geometry_type=dataset.geometry_type,
-        has_geometry=has_geom,
+        has_geometry=staged.has_geometry,
     )
-    if has_geom:
-        # The same clamp accounting as the file re-upload.
-        _append_mercator_clip_warning(
-            job, await clip_to_mercator_bounds(session, table, schema=schema)
-        )
-        await add_4326_column(session, table, 4326, schema=schema)
-    await grant_reader_access(
-        session, table, schema=schema, role=_current_tenant_role()
-    )
-
-    metadata = await extract_metadata(session, table, schema=schema)
-    # Before the samples, schema diff and content digest, so all three
-    # describe the table first ingest builds, `elev` included.
-    three_d = await _detect_3d_and_promote_elev(session, table, metadata, schema=schema)
-    sample_values = await get_sample_values(
-        session, table, metadata.get("column_info", []), schema=schema
-    )
-    return StagingResult(
-        metadata=metadata,
-        sample_values=sample_values,
-        three_d=three_d,
-        has_geometry=has_geom,
-        geometry_type=metadata.get("geometry_type"),
-    )
+    _append_mercator_clip_warning(job, staged.mercator_clip)
+    return staged
 
 
 class _ServiceReupload:
