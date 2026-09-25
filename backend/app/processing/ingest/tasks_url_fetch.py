@@ -42,6 +42,10 @@ from app.processing.ingest.tasks_common import (
     purge_queued_job_arg,
     task_app,
 )
+from app.processing.ingest.tileset import (
+    TILESET_UNPACKED_BYTES_FIELD,
+    staged_tileset_metadata,
+)
 from app.processing.ingest.url_fetch import fetch_url_to_path
 from app.processing.ingest.url_import_staging import (
     _SETTLED_ATTR,
@@ -99,8 +103,20 @@ async def _adopt_running_lease(
     return True
 
 
+async def _stamped_file_type(session, job_id: uuid.UUID) -> str | None:
+    """The file type the door stamped on the job, which picks the staged checks."""
+    metadata = await session.scalar(
+        select(IngestJob.user_metadata).where(IngestJob.id == job_id)
+    )
+    return (metadata or {}).get("file_type")
+
+
 async def _staged_values(
-    session, job_id: uuid.UUID, staged_path: str, filename: str
+    session,
+    job_id: uuid.UUID,
+    staged_path: str,
+    filename: str,
+    tileset_metadata: dict,
 ) -> dict[str, object]:
     """The columns the running -> pending transition writes.
 
@@ -131,6 +147,7 @@ async def _staged_values(
         "progress": None,
         "user_metadata": {
             **(raster_stamped_metadata(carried, filename) or {}),
+            **tileset_metadata,
             "staged_at": datetime.now(timezone.utc).isoformat(),
         },
     }
@@ -158,9 +175,10 @@ async def fetch_url(
     """Download a submitted file URL into staging and make the job previewable.
 
     Sequence: adopt the running lease, download under the size cap, sniff the
-    staged bytes, copy to object storage when that is the staging store,
-    re-charge the real byte count against quota, then CAS running -> pending.
-    Any failure deletes the bytes this task owns and stamps the row failed.
+    staged bytes and check a tileset archive, copy to object storage when that
+    is the staging store, re-charge the real byte count (and a tileset's
+    unpacked total) against quota, then CAS running -> pending. Any failure
+    deletes the bytes this task owns and stamps the row failed.
     """
     _bind_task_log_context(task_name="fetch_url", job_id=job_id)
 
@@ -282,6 +300,7 @@ async def _stage_downloaded_file(
             effective_cap_bytes, cap_error_detail = await _effective_stream_cap(
                 session, uuid.UUID(user_id), max_size_bytes
             )
+            file_type = await _stamped_file_type(session, job_uuid)
             await session.rollback()
 
         staging_dir.mkdir(parents=True, exist_ok=True)
@@ -292,8 +311,10 @@ async def _stage_downloaded_file(
             cap_error_detail=cap_error_detail,
         )
 
-        # The same staged-file content sniff a direct upload gets.
+        # The same staged-file checks a direct upload gets, before any copy
+        # reaches object storage.
         validate_file_content(str(local_dest), filename)
+        tileset_metadata = await staged_tileset_metadata(str(local_dest), file_type)
 
         if settings.storage_provider == "s3":
             s3_key = f"staging/{job_id}/{filename}"
@@ -307,6 +328,12 @@ async def _stage_downloaded_file(
             # The door charged zero: a remote server's Content-Length was
             # never evidence of anything.
             await _recheck_staged_quota(session, uuid.UUID(user_id), actual_size)
+            if TILESET_UNPACKED_BYTES_FIELD in tileset_metadata:
+                await _recheck_staged_quota(
+                    session,
+                    uuid.UUID(user_id),
+                    tileset_metadata[TILESET_UNPACKED_BYTES_FIELD],
+                )
 
             # fix(#1708): guarded CAS, running -> pending. A Core UPDATE, not
             # dirtied ORM attributes (which would flush a second, unguarded
@@ -317,7 +344,9 @@ async def _stage_downloaded_file(
                 session,
                 job_uuid,
                 attempt_uuid,
-                values=await _staged_values(session, job_uuid, staged_path, filename),
+                values=await _staged_values(
+                    session, job_uuid, staged_path, filename, tileset_metadata
+                ),
                 expected_status="running",
             ):
                 raise UrlImportRefused(_LEASE_LOST_DETAIL)

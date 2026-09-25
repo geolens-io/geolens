@@ -12,16 +12,10 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.quota.service import check_upload_quota
 from app.processing.ingest.ogr import IngestionError
-from app.processing.ingest.router import (
-    _get_allowed_extensions_safely,
-    _reject_standalone_vrt,
-)
+from app.processing.ingest.router import _refuse_upload, _reject_standalone_vrt
 from app.processing.ingest.schemas import UploadResponse, UrlUploadRequest
-from app.processing.ingest.service import (
-    create_ingest_job,
-    safe_upload_basename,
-    validate_file_extension,
-)
+from app.processing.ingest.service import create_ingest_job, safe_upload_basename
+from app.processing.ingest.tileset import tileset_job_metadata
 from app.processing.ingest.url_fetch import (
     PREFLIGHT_DNS_MAX_SECONDS,
     clamp_filename_bytes,
@@ -104,7 +98,9 @@ async def upload_from_url(
     """Start importing a geospatial file from an HTTP(S) URL.
 
     The server fetches the file and sends the staged bytes through the same
-    preview and commit pipeline as a direct upload.
+    preview and commit pipeline as a direct upload. With ``kind`` set to
+    ``tiles3d`` the URL names a 3D Tiles tileset archive, which the worker
+    checks as the upload door does before the job becomes previewable.
 
     The download runs as a background job. This call validates the URL and
     returns a job id immediately; poll ``GET /jobs/{job_id}`` and
@@ -171,8 +167,7 @@ async def upload_from_url(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
             ) from exc
 
-        allowed_list = await _get_allowed_extensions_safely(db)
-        validate_file_extension(filename, allowed_list)
+        await _refuse_upload(db, filename, body.kind)
 
         # Refuse at the dataset-count cap before queueing anything. The byte
         # half runs in the worker with the size that actually landed, since
@@ -197,6 +192,7 @@ async def upload_from_url(
         job.user_metadata = {
             **(job.user_metadata or {}),
             URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY: True,
+            **tileset_job_metadata(body.kind),
         }
         await db.commit()
 

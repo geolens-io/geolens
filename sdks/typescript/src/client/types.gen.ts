@@ -11085,6 +11085,12 @@ export type UrlUploadRequest = {
      * Filename override for URLs whose path does not end in the actual file name (e.g. download links keyed by query id). Must carry an allowed extension. Defaults to the URL path's basename.
      */
     filename?: string | null;
+    /**
+     * Kind
+     *
+     * 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
+     */
+    kind?: 'tiles3d' | null;
 };
 
 /**

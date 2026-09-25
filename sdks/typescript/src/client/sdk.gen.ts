@@ -3369,7 +3369,9 @@ export const completePresignedUploadIngestUploadPresignedJobIdCompletePost = <Th
  * Start importing a geospatial file from an HTTP(S) URL.
  *
  * The server fetches the file and sends the staged bytes through the same
- * preview and commit pipeline as a direct upload.
+ * preview and commit pipeline as a direct upload. With ``kind`` set to
+ * ``tiles3d`` the URL names a 3D Tiles tileset archive, which the worker
+ * checks as the upload door does before the job becomes previewable.
  *
  * The download runs as a background job. This call validates the URL and
  * returns a job id immediately; poll ``GET /jobs/{job_id}`` and
