@@ -691,4 +691,25 @@ describe('describeUploadRefusal', () => {
       "The request conflicts with the resource's current state.",
     );
   });
+
+  it('interpolates both values for a size refusal that knows the actual size', () => {
+    const detail = {
+      code: 'file_size_exceeded',
+      message: 'File size (2.0 MB) exceeds the maximum allowed (1 MB).',
+      size_mb: 2.0,
+      limit_mb: 1,
+    };
+
+    expect(translateApiErrorDetail(detail, 422)).not.toContain('{{');
+  });
+
+  it('interpolates the limit for a size refusal aborted mid-stream, with no actual size', () => {
+    const detail = {
+      code: 'file_size_limit_exceeded',
+      message: 'File size exceeds maximum allowed (1 MB).',
+      limit_mb: 1,
+    };
+
+    expect(translateApiErrorDetail(detail, 413)).not.toContain('{{');
+  });
 });

@@ -1180,7 +1180,9 @@ async def test_an_upload_refused_for_content_leaves_a_failed_job(
         resp = await _post_upload(client, admin_auth_header, filename)
 
     assert resp.status_code == 422, resp.text
-    assert resp.json()["detail"] == "a2b: not a recognised dataset"
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unsafe_upload_content"
+    assert detail["message"] == "a2b: not a recognised dataset"
     job = await _job_named(test_db_session, filename)
     assert job.status == "failed"
     assert job.error_message == "a2b: not a recognised dataset"

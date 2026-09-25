@@ -52,14 +52,18 @@ def _check_ingest_budget(num_rows: int, num_columns: int) -> None:
         raise IngestBudgetExceededError(
             f"Parquet file has {num_rows:,} rows, above the "
             f"{_MAX_TOTAL_ROWS:,}-row ingest limit. Split the file or load a "
-            "subset."
+            "subset.",
+            code="ingest_row_limit_exceeded",
+            values={"rows": num_rows, "limit": _MAX_TOTAL_ROWS},
         )
     cells = num_rows * num_columns
     if cells > _MAX_TOTAL_CELLS:
         raise IngestBudgetExceededError(
             f"Parquet file has {cells:,} cells ({num_rows:,} rows x "
             f"{num_columns:,} columns), above the {_MAX_TOTAL_CELLS:,}-cell "
-            "ingest limit. Split the file or drop columns you do not need."
+            "ingest limit. Split the file or drop columns you do not need.",
+            code="ingest_cell_limit_exceeded",
+            values={"cells": cells, "limit": _MAX_TOTAL_CELLS},
         )
 
 

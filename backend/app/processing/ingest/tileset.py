@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Iterator, NoReturn
 from urllib.parse import unquote
 
 import structlog
-from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.core.tiles3d import (
@@ -157,10 +156,19 @@ class Tileset:
     contents: TilesetContents | None = None
 
 
-def _refuse(message: str, *, reason: str) -> NoReturn:
+def _refuse(
+    message: str,
+    *,
+    reason: str,
+    code: str | None = None,
+    values: dict[str, str | int] | None = None,
+) -> NoReturn:
     # Never the entry name: the refusal may be about the characters in it.
     logger.warning("Tileset archive refused", event_type="security", reason=reason)
-    raise UnsafeUploadError(message)
+    # `reason` is the internal log tag; `code` is the public one on the
+    # wire, defaulting to it except where the zip-bomb checks below split
+    # one `reason` into several codes with different values.
+    raise UnsafeUploadError(message, code=code or reason, values=values)
 
 
 def _recorded_names(info: zipfile.ZipInfo) -> list[str]:
@@ -216,7 +224,15 @@ def _check_entry_contents(info: zipfile.ZipInfo) -> None:
             reason="tileset_unreadable_entry",
         )
     if refusal := compression_refusal(info):
-        _refuse(refusal, reason="tileset_unreadable_entry")
+        method = zipfile.compressor_names.get(
+            info.compress_type, f"method {info.compress_type}"
+        )
+        _refuse(
+            refusal,
+            reason="tileset_unreadable_entry",
+            code="unsupported_zip_compression",
+            values={"method": method},
+        )
     if info.file_size and (
         info.compress_size == 0
         or info.file_size > MAX_COMPRESSION_RATIO * info.compress_size
@@ -225,6 +241,8 @@ def _check_entry_contents(info: zipfile.ZipInfo) -> None:
             "An entry in the archive expands to more than "
             f"{MAX_COMPRESSION_RATIO} times its compressed size.",
             reason="zip_bomb_indicator",
+            code="zip_bomb_ratio",
+            values={"max_ratio": MAX_COMPRESSION_RATIO},
         )
 
 
@@ -246,11 +264,13 @@ def _refuse_collisions(paths: list[tuple[str, bool]]) -> None:
                 "Two entries in the archive differ only by letter case or "
                 f"Unicode form ({path!r}), so one would overwrite the other.",
                 reason="tileset_entry_collision",
+                values={"path": path},
             )
         if not is_dir and (key == next_key or next_key.startswith(f"{key}\0")):
             _refuse(
                 f"The archive has both a file and a folder at {path!r}.",
                 reason="tileset_entry_collision",
+                values={"path": path},
             )
 
 
@@ -308,6 +328,8 @@ def read_layout(archive: zipfile.ZipFile) -> TilesetLayout:
             f"The tileset unpacks to {unpacked_bytes / 1024**2:.1f} MB, more "
             f"than the {settings.max_tileset_unpacked_mb} MB this server accepts.",
             reason="zip_bomb_indicator",
+            code="tileset_unpacked_too_large",
+            values={"limit_mb": settings.max_tileset_unpacked_mb},
         )
     # Overlapping entries share compressed bytes, so only this sum keeps the
     # per-entry ratio a bound on the whole archive's expansion.
@@ -316,6 +338,7 @@ def read_layout(archive: zipfile.ZipFile) -> TilesetLayout:
             "The archive's entries claim more compressed data than the archive "
             "holds, so some of them overlap.",
             reason="zip_bomb_indicator",
+            code="zip_entries_overlap",
         )
     entry_point = archive.getinfo(root + TILESET_ENTRY_POINT)
     if max(entry_point.file_size, entry_point.compress_size) > MAX_TILESET_JSON_BYTES:
@@ -570,9 +593,13 @@ def _open_checked(path: str) -> zipfile.ZipFile:
     except UnsafeUploadError:
         raise
     except zipfile.BadZipFile as exc:
-        raise UnsafeUploadError("The upload is not a valid ZIP archive.") from exc
+        raise UnsafeUploadError(
+            "The upload is not a valid ZIP archive.", code="invalid_zip_container"
+        ) from exc
     except ValueError as exc:
-        raise UnsafeUploadError(str(exc)) from exc
+        # `_validate_zip_directory_cardinality`'s own refusals are already
+        # UnsafeUploadError and caught above; this is a defensive net.
+        raise UnsafeUploadError(str(exc), code="unsafe_upload_content") from exc
 
 
 def inspect_tileset(path: str) -> Tileset:
@@ -635,12 +662,17 @@ async def inspect_stored_tileset(storage: StorageProvider, key: str) -> Tileset:
         try:
             _, offset, length = await asyncio.to_thread(_zip_directory_metadata, probe)
         except zipfile.BadZipFile as exc:
-            raise UnsafeUploadError("The upload is not a valid ZIP archive.") from exc
+            raise UnsafeUploadError(
+                "The upload is not a valid ZIP archive.", code="invalid_zip_container"
+            ) from exc
         if length > MAX_CENTRAL_DIRECTORY_BYTES:
+            limit_mb = MAX_CENTRAL_DIRECTORY_BYTES // 1024**2
             _refuse(
-                "The archive's central directory exceeds the "
-                f"{MAX_CENTRAL_DIRECTORY_BYTES // 1024**2} MB metadata limit.",
+                f"The archive's central directory exceeds the {limit_mb} MB "
+                "metadata limit.",
                 reason="zip_bomb_indicator",
+                code="zip_directory_too_large",
+                values={"limit_mb": limit_mb},
             )
         await _copy_range(storage, key, probe, offset, length)
 
@@ -654,7 +686,9 @@ async def inspect_stored_tileset(storage: StorageProvider, key: str) -> Tileset:
             key, entry_point.header_offset, _LOCAL_HEADER_BYTES
         )
         if len(header) < _LOCAL_HEADER_BYTES:
-            raise UnsafeUploadError("The upload is not a valid ZIP archive.")
+            raise UnsafeUploadError(
+                "The upload is not a valid ZIP archive.", code="invalid_zip_container"
+            )
         name_length, extra_length = struct.unpack("<HH", header[26:30])
         await _copy_range(
             storage,
@@ -704,20 +738,22 @@ def require_tileset_archive(kind: str | None, filename: str | None) -> None:
     """Refuse a tileset upload that is not a .zip or .3tz, before any job exists.
 
     A .3tz holds only a tileset, so one sent without the tileset kind is refused.
+
+    Raises the module's own coded exception, like every other check here,
+    since every caller is a door that converts it.
     """
     suffix = Path(filename or "").suffix.lower()
     if kind == TILESET_FILE_TYPE and suffix not in TILESET_UPLOAD_SUFFIXES:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="A 3D Tiles tileset is uploaded as a .zip or .3tz archive.",
+        raise UnsafeUploadError(
+            "A 3D Tiles tileset is uploaded as a .zip or .3tz archive.",
+            code="tileset_extension_mismatch",
         )
     if kind != TILESET_FILE_TYPE and suffix == TILESET_ARCHIVE_SUFFIX:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                "A .3tz archive holds a 3D Tiles tileset. Upload it with "
-                f"kind={TILESET_FILE_TYPE}."
-            ),
+        raise UnsafeUploadError(
+            "A .3tz archive holds a 3D Tiles tileset. Upload it with "
+            f"kind={TILESET_FILE_TYPE}.",
+            code="tileset_kind_required",
+            values={"file_type": TILESET_FILE_TYPE},
         )
 
 
@@ -745,13 +781,12 @@ def staged_unpacked_bytes(job: "IngestJob") -> int:
 async def preview_staged_tileset(
     job_id: uuid.UUID, source_filename: str | None, file_path: str
 ) -> TilesetPreviewResponse:
-    """The preview of a staged tileset; an archive that fails a check is a 422."""
-    try:
-        tileset = await inspect_staged_tileset(file_path)
-    except UnsafeUploadError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-        ) from exc
+    """The preview of a staged tileset; an archive that fails a check is a 422.
+
+    Lets ``UnsafeUploadError`` propagate: the caller (``preview_file``) is
+    the door that converts it.
+    """
+    tileset = await inspect_staged_tileset(file_path)
     facts = tileset.facts
     return TilesetPreviewResponse(
         job_id=job_id,

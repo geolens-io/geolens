@@ -25,6 +25,7 @@ from app.core.upload_errors import (
     IngestCeilingError,
     UnsafeUploadError,
     geometry_loss_refusal,
+    refusal_detail,
 )
 from app.core.identity import Identity
 from app.core.async_io import (
@@ -347,7 +348,7 @@ async def reupload_dataset(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail=refusal_detail(exc),
         )
 
     # QUOTA-01/02: per-user quota check before any staging or job creation.
@@ -401,7 +402,7 @@ async def reupload_dataset(
             await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=str(exc),
+                detail=refusal_detail(exc),
             ) from exc
 
         # fix(#1848): bind only while the row is still pending and still bound
@@ -510,7 +511,10 @@ async def reupload_service_preview(
     except IngestionError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
+            detail={
+                "code": "service_preview_failed",
+                "message": "Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
+            },
         )
 
     diff = compute_schema_diff(
@@ -648,7 +652,7 @@ async def reupload_preview(
         # wrong for a file that is merely too large, and hides the way out.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
+            detail=refusal_detail(exc),
         ) from exc
     except UnsafeUploadError as exc:
         # fix(#1846): the same mapping `preview_file` gives it.
@@ -657,7 +661,7 @@ async def reupload_preview(
         # as a 500 on this endpoint alone.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
+            detail=refusal_detail(exc),
         ) from exc
     except Exception as exc:  # broad: GDAL subprocess can raise various errors on unsupported/malformed files
         # fix(#2036): the 422 the import preview answers for the same failure.
@@ -665,7 +669,10 @@ async def reupload_preview(
         logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Unable to preview file. The file may be malformed or unsupported.",
+            detail={
+                "code": "preview_failed",
+                "message": "Unable to preview file. The file may be malformed or unsupported.",
+            },
         ) from exc
     finally:
         if downloaded_preview_path is not None:
@@ -1174,16 +1181,25 @@ async def request_presigned_reupload(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail=refusal_detail(exc),
         )
 
     # Reject files exceeding configured size limit at request time
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
     max_size_bytes = max_size_mb * 1024 * 1024
     if request.file_size > max_size_bytes:
+        size_mb = round(request.file_size / (1024 * 1024), 1)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"File size ({request.file_size / (1024 * 1024):.1f} MB) exceeds the maximum allowed ({max_size_mb} MB).",
+            detail={
+                "code": "file_size_exceeded",
+                "message": (
+                    f"File size ({size_mb} MB) exceeds the maximum allowed "
+                    f"({max_size_mb} MB)."
+                ),
+                "size_mb": size_mb,
+                "limit_mb": max_size_mb,
+            },
         )
 
     # QUOTA-01/02: per-user quota check before any staging or job creation.

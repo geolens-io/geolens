@@ -254,7 +254,7 @@ class TestUrlImportFilename:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
-        assert "filename" in resp.json()["detail"]
+        assert "filename" in resp.json()["detail"]["message"]
 
     async def test_extensionless_path_needs_override(
         self, client: AsyncClient, admin_auth_header: dict
@@ -280,7 +280,7 @@ class TestUrlImportFilename:
             headers=admin_auth_header,
         )
         assert resp.status_code == 400
-        assert "not allowed" in resp.json()["detail"]
+        assert "not allowed" in resp.json()["detail"]["message"]
 
     async def test_ssrf_gate_runs_before_any_handler_db_work(
         self, client: AsyncClient, admin_auth_header: dict, monkeypatch
@@ -319,7 +319,7 @@ class TestUrlImportFilename:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
-        assert "VRT" in resp.json()["detail"]
+        assert "VRT" in resp.json()["detail"]["message"]
 
     def test_filename_from_url_shapes(self):
         assert filename_from_url("https://h/x/roads.geojson") == "roads.geojson"
@@ -759,7 +759,7 @@ class TestUrlImportMalformedUrl:
             headers=admin_auth_header,
         )
         assert resp.status_code == 400
-        assert "Invalid" in resp.json()["detail"]
+        assert "Invalid" in resp.json()["detail"]["message"]
 
     async def test_malformed_authority_with_override_is_400(
         self, client: AsyncClient, admin_auth_header: dict
@@ -1004,7 +1004,7 @@ class TestUrlImportControlCharacters:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
-        assert "control characters" in resp.json()["detail"]
+        assert "control characters" in resp.json()["detail"]["message"]
         result = await test_db_session.execute(
             select(IngestJob).where(IngestJob.source_filename.like("nulname%"))
         )
@@ -1030,7 +1030,7 @@ class TestUrlImportControlCharacters:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
-        assert "control characters" in resp.json()["detail"]
+        assert "control characters" in resp.json()["detail"]["message"]
 
 
 class TestUrlImportWallClock:

@@ -115,7 +115,9 @@ class TestUpload:
             headers=admin_auth_header,
         )
         assert resp.status_code == 400
-        assert "not allowed" in resp.json()["detail"].lower()
+        detail = resp.json()["detail"]
+        assert detail["code"] == "disallowed_extension"
+        assert "not allowed" in detail["message"].lower()
 
     async def test_upload_rejects_standalone_vrt_even_when_configured(
         self, client: AsyncClient, admin_auth_header: dict
@@ -126,7 +128,9 @@ class TestUpload:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
-        assert "standalone vrt" in resp.json()["detail"].lower()
+        detail = resp.json()["detail"]
+        assert detail["code"] == "standalone_vrt_not_supported"
+        assert "standalone vrt" in detail["message"].lower()
 
     async def test_s3_validation_download_failure_deletes_the_staged_source(
         self,

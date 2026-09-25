@@ -150,7 +150,8 @@ class TestS3SpoolUpload:
                     await save_upload_file(file, "job-413-spool", max_size_bytes=limit)
 
         assert exc_info.value.status_code == 413
-        assert "exceeds maximum" in exc_info.value.detail.lower()
+        assert exc_info.value.detail["code"] == "file_size_limit_exceeded"
+        assert "exceeds maximum" in exc_info.value.detail["message"].lower()
         mock_storage.put.assert_not_called()
 
     @pytest.mark.asyncio

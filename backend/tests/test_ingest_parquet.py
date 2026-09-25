@@ -263,8 +263,9 @@ class TestParquetIngestBudget:
         resp = await client.post(f"/ingest/preview/{job.id}", headers=admin_auth_header)
         assert resp.status_code == 422, resp.text
         detail = resp.json()["detail"]
-        assert "2 rows, above the 1-row ingest limit" in detail, detail
-        assert "may be malformed or unsupported" not in detail, detail
+        assert detail["code"] == "ingest_row_limit_exceeded", detail
+        assert "2 rows, above the 1-row ingest limit" in detail["message"], detail
+        assert "may be malformed or unsupported" not in detail["message"], detail
 
     @pytest.mark.anyio
     async def test_just_under_both_caps_still_loads(

@@ -302,4 +302,9 @@ async def _recheck_staged_quota(
     try:
         await check_upload_quota(db, user_id, actual_size, None)
     except HTTPException as exc:
-        raise UrlImportRefused(str(exc.detail)) from exc
+        # `exc.detail` may be a coded {"code", "message", ...} dict; str()'ing
+        # it whole would store a Python dict repr instead of the English
+        # message, so only the message is kept.
+        detail = exc.detail
+        message = detail["message"] if isinstance(detail, dict) else str(detail)
+        raise UrlImportRefused(message) from exc

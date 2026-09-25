@@ -240,7 +240,7 @@ async def test_both_doors_reject_a_mislabeled_payload_identically(
     assert direct.status_code == 422, direct.text
     assert presigned.status_code == direct.status_code, presigned.text
     assert presigned.json()["detail"] == direct.json()["detail"]
-    assert "'.gif'" in direct.json()["detail"]
+    assert "'.gif'" in direct.json()["detail"]["message"]
 
 
 async def test_both_doors_accept_a_legitimate_payload(
@@ -282,7 +282,7 @@ async def test_both_doors_reject_a_disallowed_extension_identically(
     assert direct.status_code == 400, direct.text
     assert presigned_resp.status_code == direct.status_code, presigned_resp.text
     assert presigned_resp.json()["detail"] == direct.json()["detail"]
-    assert "'.exe'" in direct.json()["detail"]
+    assert "'.exe'" in direct.json()["detail"]["message"]
 
 
 async def test_both_doors_reject_a_truncated_parquet_identically(
@@ -303,7 +303,7 @@ async def test_both_doors_reject_a_truncated_parquet_identically(
     assert direct.status_code == 422, direct.text
     assert presigned.status_code == direct.status_code, presigned.text
     assert presigned.json()["detail"] == direct.json()["detail"]
-    assert "PAR1" in direct.json()["detail"]
+    assert "PAR1" in direct.json()["detail"]["message"]
 
     # The footer can only have come from a read anchored to the end.
     size = len(_TRUNCATED_PARQUET)
@@ -374,7 +374,7 @@ async def test_both_doors_refuse_an_archive_member_by_its_method_unread(
     assert previews[0].json()["detail"] == previews[1].json()["detail"]
     assert (
         f"compressed with {zipfile.compressor_names[method]}"
-        in previews[0].json()["detail"]
+        in previews[0].json()["detail"]["message"]
     )
     assert zip_member_reads == []
 
@@ -627,9 +627,35 @@ async def test_an_oversize_object_is_refused_without_being_copied(
         )
 
     assert completion.status_code == 422, completion.text
-    assert "exceeds the maximum allowed" in completion.json()["detail"]
+    assert "exceeds the maximum allowed" in completion.json()["detail"]["message"]
     assert both_doors.copies == [], both_doors.copies
     assert both_doors.objects == {}, both_doors.objects
+
+
+async def test_a_declared_oversize_request_is_refused_with_a_coded_detail(
+    client, admin_auth_header, both_doors
+) -> None:
+    """The request-time check: a declared file_size over the cap is a coded 422
+    before any URL is signed, matching the completion-time check's shape."""
+    from app.processing.ingest import router
+
+    with patch.object(router.UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=0)):
+        resp = await client.post(
+            "/ingest/upload/presigned",
+            json={
+                "filename": "roads.geojson",
+                "file_size": 1024 * 1024,
+                "content_type": "application/octet-stream",
+            },
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "file_size_exceeded"
+    assert "exceeds the maximum allowed" in detail["message"]
+    assert detail["size_mb"] == 1.0
+    assert detail["limit_mb"] == 0
 
 
 # Big enough to cross the multipart threshold the fixture lowers to 1 MB, and
@@ -995,7 +1021,8 @@ class TestFinalizeCleanupContract:
                 )
 
         assert exc.value.status_code == 422
-        assert "exceeds the maximum allowed" in str(exc.value.detail)
+        assert exc.value.detail["code"] == "file_size_exceeded"
+        assert "exceeds the maximum allowed" in exc.value.detail["message"]
         assert staging_key not in storage.objects
         assert frozen_key not in storage.objects, (
             "the frozen copy from the earlier attempt survived a pre-copy "

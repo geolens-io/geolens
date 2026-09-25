@@ -453,7 +453,7 @@ async def test_a_zip_slip_archive_is_refused_before_any_write(
     refused = await upload(client, headers, data)
 
     assert refused.status_code == 422, refused.text
-    assert "below the archive root" in refused.json()["detail"]
+    assert "below the archive root" in refused.json()["detail"]["message"]
     job = (
         await test_db_session.execute(
             select(IngestJob).where(IngestJob.created_by == uploader[1])
@@ -475,7 +475,7 @@ async def test_content_outside_the_tileset_is_refused_at_the_door(
     refused = await upload(client, uploader[0], data)
 
     assert refused.status_code == 422, refused.text
-    assert "names content outside the tileset" in refused.json()["detail"]
+    assert "names content outside the tileset" in refused.json()["detail"]["message"]
     assert await tileset_objects() == []
 
 
@@ -538,7 +538,9 @@ async def test_kind_on_a_file_that_is_not_a_zip_is_refused(
         )
 
     assert resp.status_code == 422, resp.text
-    assert "uploaded as a .zip or .3tz archive" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["code"] == "tileset_extension_mismatch"
+    assert "uploaded as a .zip or .3tz archive" in detail["message"]
     jobs = await test_db_session.execute(
         select(IngestJob.id).where(IngestJob.created_by == user_id)
     )
@@ -565,7 +567,9 @@ async def test_a_3tz_without_the_tileset_kind_is_refused(
         )
 
     assert resp.status_code == 422, resp.text
-    assert "Upload it with kind=tiles3d" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["code"] == "tileset_kind_required"
+    assert "Upload it with kind=tiles3d" in detail["message"]
     jobs = await test_db_session.execute(
         select(IngestJob.id).where(IngestJob.created_by == user_id)
     )
@@ -597,7 +601,9 @@ async def test_a_stored_extension_list_without_3tz_refuses_it(
         )
 
     assert resp.status_code == 400, resp.text
-    assert "'.3tz' not allowed" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["code"] == "disallowed_extension"
+    assert "'.3tz' not allowed" in detail["message"]
 
 
 async def test_an_unknown_kind_is_refused(client: AsyncClient, uploader) -> None:
@@ -1072,7 +1078,7 @@ async def test_a_refused_archive_is_dropped_at_presigned_complete(
     body, completed = await presigned_upload(client, headers, s3_storage, data)
 
     assert completed.status_code == 422, completed.text
-    assert "below the archive root" in completed.json()["detail"]
+    assert "below the archive root" in completed.json()["detail"]["message"]
     assert await s3_storage.list(f"staging/{body['job_id']}/") == []
 
 

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
 from app.core.identity import Identity
+from app.core.upload_errors import CodedRefusal, UnsafeUploadError, refusal_detail
 from app.modules.auth.dependencies import require_permission
 from app.modules.quota.service import check_upload_quota
 from app.platform.jobs import ledger
@@ -60,7 +61,7 @@ def _url_import_filename(body: UrlUploadRequest) -> str:
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid URL: {exc}",
+            detail={"code": "invalid_import_url", "message": f"Invalid URL: {exc}"},
         ) from exc
     # fix(#1708): NUL and other control characters survive percent-
     # decoding ('/roads%00.geojson') or arrive verbatim in the override, and
@@ -71,15 +72,21 @@ def _url_import_filename(body: UrlUploadRequest) -> str:
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in filename):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Filename contains control characters that are not allowed.",
+            detail={
+                "code": "filename_control_characters",
+                "message": "Filename contains control characters that are not allowed.",
+            },
         )
     if not filename or not Path(filename).suffix:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                "Could not determine a filename with an extension from the "
-                "URL path. Provide 'filename' explicitly."
-            ),
+            detail={
+                "code": "filename_missing_extension",
+                "message": (
+                    "Could not determine a filename with an extension from the "
+                    "URL path. Provide 'filename' explicitly."
+                ),
+            },
         )
     return filename
 
@@ -135,7 +142,13 @@ async def upload_from_url(
     try:
         filename = _url_import_filename(body)
         _reject_standalone_vrt(filename)
-        require_tileset_archive(body.kind, filename)
+        try:
+            require_tileset_archive(body.kind, filename)
+        except UnsafeUploadError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=refusal_detail(exc),
+            ) from exc
 
         # fix(#1708): commit here to END the auth-phase transaction before the
         # DNS await — getaddrinfo has no bound of its own, and holding a
@@ -174,7 +187,13 @@ async def upload_from_url(
             ) from exc
 
         allowed_list = await _get_allowed_extensions_safely(db)
-        validate_file_extension(filename, allowed_list)
+        try:
+            validate_file_extension(filename, allowed_list)
+        except CodedRefusal as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=refusal_detail(exc),
+            ) from exc
 
         # Refuse at the dataset-count cap before queueing anything. The byte
         # half runs in the worker with the size that actually landed, since

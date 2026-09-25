@@ -1135,7 +1135,79 @@ async def test_preview_maps_a_damaged_archive_to_422(
     response = await client.post(f"/ingest/preview/{job.id}", headers=admin_auth_header)
 
     assert response.status_code == 422, response.text
-    assert "could not be read" in response.json()["detail"]
+    assert "could not be read" in response.json()["detail"]["message"]
+
+
+@pytest.mark.anyio
+async def test_preview_maps_an_unexpected_gdal_failure_to_a_coded_422(
+    client, admin_auth_header, test_db_session, tmp_path, monkeypatch
+):
+    """The broad `except Exception` catch still carries a stable code."""
+    from app.platform.jobs.models import IngestJob
+    from app.processing.ingest import router
+    from tests.factories import get_user_id
+
+    p = tmp_path / "update.geojson"
+    p.write_text('{"type":"FeatureCollection","features":[]}')
+    job = IngestJob(
+        source_filename="update.geojson",
+        file_path=str(p),
+        created_by=await get_user_id(test_db_session, "admin"),
+        status="pending",
+        user_metadata={"file_type": "vector"},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+
+    monkeypatch.setattr(
+        router,
+        "run_ogrinfo_preview",
+        mock.AsyncMock(side_effect=RuntimeError("ogrinfo subprocess crashed")),
+    )
+
+    response = await client.post(f"/ingest/preview/{job.id}", headers=admin_auth_header)
+
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "preview_failed"
+    assert detail["message"] == (
+        "Unable to preview file. The file may be malformed or unsupported."
+    )
+
+
+@pytest.mark.anyio
+async def test_raster_preview_maps_an_unexpected_failure_to_a_coded_422(
+    client, admin_auth_header, test_db_session, tmp_path, monkeypatch
+):
+    """The raster preview's own broad catch also carries a stable code."""
+    from app.platform.jobs.models import IngestJob
+    from tests.factories import get_user_id
+
+    p = tmp_path / "update.tif"
+    p.write_bytes(b"not a real tiff")
+    job = IngestJob(
+        source_filename="update.tif",
+        file_path=str(p),
+        created_by=await get_user_id(test_db_session, "admin"),
+        status="pending",
+        user_metadata={"file_type": "raster"},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+
+    monkeypatch.setattr(
+        "app.processing.raster.cog.extract_raster_metadata",
+        mock.Mock(side_effect=RuntimeError("rasterio could not open the file")),
+    )
+
+    response = await client.post(f"/ingest/preview/{job.id}", headers=admin_auth_header)
+
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "raster_preview_failed"
+    assert detail["message"] == (
+        "Unable to preview raster file. The file may be malformed or unsupported."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1431,4 +1503,4 @@ async def test_reupload_preview_maps_a_content_refusal_to_422(
         headers=admin_auth_header,
     )
     assert response.status_code == 422, response.text
-    assert detail in response.json()["detail"]
+    assert detail in response.json()["detail"]["message"]

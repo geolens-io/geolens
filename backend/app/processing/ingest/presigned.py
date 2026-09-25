@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.core.async_io import await_draining, run_in_thread_draining
-from app.core.upload_errors import UnsafeUploadError
+from app.core.upload_errors import UnsafeUploadError, refusal_detail
 from app.modules.quota.service import check_replacement_quota, check_upload_quota
 from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -164,12 +164,18 @@ def raise_if_over_max_upload_size(actual_size: int, max_size_mb: int) -> None:
     trips either one has to see the same status and the same wording.
     """
     if actual_size > max_size_mb * 1024 * 1024:
+        size_mb = round(actual_size / (1024 * 1024), 1)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"Uploaded file size ({actual_size / (1024 * 1024):.1f} MB) exceeds "
-                f"the maximum allowed ({max_size_mb} MB)."
-            ),
+            detail={
+                "code": "file_size_exceeded",
+                "message": (
+                    f"Uploaded file size ({size_mb} MB) exceeds "
+                    f"the maximum allowed ({max_size_mb} MB)."
+                ),
+                "size_mb": size_mb,
+                "limit_mb": max_size_mb,
+            },
         )
 
 
@@ -217,10 +223,15 @@ async def verify_completed_presigned_upload(
             await _cleanup_presigned_object(storage, key, job_id)
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=(
-                    f"Uploaded file size ({actual_size} bytes) does not match "
-                    f"the declared size ({expected_size} bytes)."
-                ),
+                detail={
+                    "code": "presigned_size_mismatch",
+                    "message": (
+                        f"Uploaded file size ({actual_size} bytes) does not match "
+                        f"the declared size ({expected_size} bytes)."
+                    ),
+                    "actual_size": actual_size,
+                    "declared_size": declared_size,
+                },
             )
 
     try:
@@ -399,8 +410,9 @@ async def validate_presigned_content(
     ``_assert_compatible_record_type``), different mechanisms, same
     unreachability.
 
-    Raises HTTPException 422 carrying ``str(exc)``, the same class, status
-    and body the direct doors raise at their ``validate_file_content`` call.
+    Raises HTTPException 422 carrying the refusal's code, message and
+    values, the same status and body the direct doors raise at their
+    ``validate_file_content`` call.
     """
     head = await storage.get_range(key, 0, HEADER_READ_SIZE)
 
@@ -418,7 +430,7 @@ async def validate_presigned_content(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=str(exc),
+                detail=refusal_detail(exc),
             ) from exc
 
 
@@ -578,7 +590,8 @@ async def admit_presigned_tileset(
             tileset = await inspect_stored_tileset(storage, physical_frozen_key)
         except UnsafeUploadError as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=refusal_detail(exc),
             ) from exc
         await check_upload_quota(db, user_id, tileset.layout.unpacked_bytes, request)
     except HTTPException:

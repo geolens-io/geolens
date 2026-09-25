@@ -69,7 +69,8 @@ class TestLocalModeSizeLimit:
                 await save_upload_file(file, "job-too-big", max_size_bytes=100 * 1024)
 
         assert exc.value.status_code == 413
-        assert "exceeds maximum" in exc.value.detail.lower()
+        assert exc.value.detail["code"] == "file_size_limit_exceeded"
+        assert "exceeds maximum" in exc.value.detail["message"].lower()
         # Partial cleanup: the dest file must not be left on disk
         for p in tmp_path.iterdir():
             assert not p.is_file() or not p.name.startswith("job-too-big_")
