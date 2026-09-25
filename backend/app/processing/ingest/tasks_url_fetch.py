@@ -25,6 +25,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.db.tenant_session import tenant_task
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
+from app.core.upload_errors import UnsafeUploadError
 from app.platform.jobs.heartbeat import (
     maintain_ingest_job_heartbeat,
     stop_ingest_job_heartbeat,
@@ -257,7 +258,7 @@ async def fetch_url(
             "url_import_failed",
             job_id=job_id,
             reason=type(exc).__name__,
-            exc_info=not isinstance(exc, UrlImportRefused),
+            exc_info=not isinstance(exc, (UrlImportRefused, UnsafeUploadError)),
         )
     finally:
         async with cleanup_step("fetch_url heartbeat", job_id=job_id):

@@ -19,6 +19,7 @@ import structlog
 from httpx import AsyncClient
 from moto import mock_aws
 from sqlalchemy import select, text
+from structlog.testing import capture_logs
 
 import app.platform.storage.provider as storage_provider
 from app.core.config import settings
@@ -391,6 +392,22 @@ async def test_a_refused_archive_fails_with_the_upload_doors_reason(
     assert TILESET_UNPACKED_BYTES_FIELD not in job.user_metadata
     assert staged_files() == []
     assert await storage_provider.get_storage().list("tiles3d/") == []
+
+
+async def test_a_refused_archive_logs_its_failure_without_a_traceback(
+    client: AsyncClient, test_db_session, uploader, deferred, monkeypatch
+) -> None:
+    """The failure event for a refused archive names the refusal and carries no traceback."""
+    headers, _ = uploader
+    Origin(monkeypatch, serve(refused_archive("no_tileset_json")))
+    submitted = await submit(client, headers, ARCHIVE_URL)
+    assert submitted.status_code == 201, submitted.text
+
+    with capture_logs() as events:
+        await download(deferred)
+
+    (failed,) = [event for event in events if event["event"] == "url_import_failed"]
+    assert (failed["reason"], failed["exc_info"]) == ("UnsafeUploadError", False)
 
 
 async def test_a_refused_archive_is_never_copied_to_object_storage(
