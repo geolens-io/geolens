@@ -5,6 +5,7 @@ import time
 import uuid
 import tempfile
 import warnings
+import zipfile
 from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import patch
 
@@ -735,6 +736,20 @@ def enterprise_edition(monkeypatch):
     init_edition(["enterprise"])
     yield
     init_edition([])
+
+
+@pytest.fixture
+def zip_member_reads(monkeypatch) -> list[str]:
+    """The names of the archive members ``zipfile`` decompresses from, in order."""
+    reads: list[str] = []
+    read = zipfile.ZipExtFile._read1
+
+    def spy(self, n):
+        reads.append(self.name)
+        return read(self, n)
+
+    monkeypatch.setattr(zipfile.ZipExtFile, "_read1", spy)
+    return reads
 
 
 def _quote_database_identifier(db_name: str) -> str:

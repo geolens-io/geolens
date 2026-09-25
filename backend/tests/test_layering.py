@@ -1339,7 +1339,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/ogr.py": 1351,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
-    "backend/app/processing/ingest/validation.py": 1112,
+    "backend/app/processing/ingest/validation.py": 1134,
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1111,

@@ -234,6 +234,33 @@ def test_an_entry_over_the_compression_ratio_is_refused(tmp_path: Path) -> None:
     assert "times its compressed size" in refused(path)
 
 
+@pytest.mark.parametrize(
+    "method", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA], ids=["bzip2", "lzma"]
+)
+def test_an_entry_neither_stored_nor_deflated_is_refused_unread(
+    tmp_path: Path, zip_member_reads: list[str], method: int
+) -> None:
+    """A bzip2 or LZMA entry is refused by its method before any entry is read."""
+    path = tileset_zip(tmp_path / "t.zip", compression=method)
+
+    message = refused(path)
+
+    assert f"compressed with {zipfile.compressor_names[method]}" in message
+    assert zip_member_reads == []
+
+
+@pytest.mark.parametrize(
+    "method", [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED], ids=["stored", "deflated"]
+)
+def test_a_stored_or_deflated_entry_is_read(
+    tmp_path: Path, zip_member_reads: list[str], method: int
+) -> None:
+    """Stored and deflated entries pass the method check and are read."""
+    inspect_tileset(tileset_zip(tmp_path / "t.zip", compression=method))
+
+    assert "tileset.json" in zip_member_reads
+
+
 def test_entries_that_overlap_are_refused(tmp_path: Path) -> None:
     """Entries whose compressed sizes add up to more than the archive are refused."""
     data = zip_bytes(
@@ -771,6 +798,23 @@ async def test_a_stored_archive_that_fails_a_check_is_refused(
 
     with pytest.raises(UnsafeUploadError, match="below the archive root"):
         await inspect_stored_tileset(storage, "staging/job/frozen/t.zip")
+
+
+@pytest.mark.parametrize(
+    "method", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA], ids=["bzip2", "lzma"]
+)
+async def test_a_stored_archive_entry_neither_stored_nor_deflated_is_refused_unread(
+    tmp_path: Path, storage, zip_member_reads: list[str], method: int
+) -> None:
+    """The probe refuses an entry by its compression method, as a local read does."""
+    path = tileset_zip(tmp_path / "t.zip", compression=method)
+    await storage.put("staging/job/frozen/t.zip", io.BytesIO(Path(path).read_bytes()))
+
+    with pytest.raises(
+        UnsafeUploadError, match=f"compressed with {zipfile.compressor_names[method]}"
+    ):
+        await inspect_stored_tileset(storage, "staging/job/frozen/t.zip")
+    assert zip_member_reads == []
 
 
 @functools.cache
