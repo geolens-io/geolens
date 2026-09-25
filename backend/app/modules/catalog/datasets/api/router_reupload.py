@@ -19,6 +19,7 @@ from fastapi import (
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.upload_errors import (
     IngestCeilingError,
@@ -1455,7 +1456,9 @@ async def complete_presigned_reupload(
         # size refusal gets the same stamp, while transport failures (502)
         # leave the job retryable exactly as they do on the upload door.
         if exc.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT:
-            await abort(db, job, code="content_rejected", reason=str(exc.detail))
+            # The error a refusal wraps decides what is stored, as on the direct doors.
+            reason = redact_failure_reason(exc.__cause__ or str(exc.detail))
+            await abort(db, job, code="content_rejected", reason=reason)
             await db.commit()
         raise
 

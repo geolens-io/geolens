@@ -266,6 +266,7 @@ _SANCTIONED_REDACTORS = frozenset(
 _REDACTING_SINKS: dict[str, str | int] = {
     "record_refresh_failure": "error_message",
     "release_manifest_reservation": 2,
+    "abort": "reason",
 }
 
 
@@ -472,6 +473,16 @@ class TestEverySinkGoesThroughTheOneDoor:
         assert len(reasons) == 1, "the guard's reason is composed elsewhere now"
         assert isinstance(reasons[0], ast.Call)
         assert getattr(reasons[0].func, "id", None) == "coded_failure_reason"
+
+    def test_the_gate_reads_the_reason_an_abort_is_handed(self) -> None:
+        tree = ast.parse(
+            "try:\n    pass\n"
+            "except Exception as exc:\n"
+            "    abort(session, job, code='content_rejected', reason=str(exc))\n"
+        )
+        [(value, callee)] = _reason_values(tree)
+        assert callee == "abort"
+        assert ast.unparse(value) == "str(exc)"
 
 
 @pytest.mark.anyio
