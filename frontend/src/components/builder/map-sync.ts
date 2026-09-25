@@ -37,6 +37,7 @@ import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-ad
 import { getClusterSourceStrategy } from './cluster-source';
 import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
 import { labelLayerId } from './label-layer-utils';
+import { DEFAULT_LAYER_MAXZOOM } from './layer-writer';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import {
@@ -620,6 +621,16 @@ function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], zoom: ZoomRang
   }
 }
 
+/** Put a layer still held to a range its saved layer dropped back on MapLibre's defaults. */
+function resetLayerZoomRange(map: MaplibreMap, layerIds: string[]) {
+  for (const id of layerIds) {
+    const layer = map.getLayer(id);
+    if (layer && ((layer.minzoom ?? 0) > 0 || (layer.maxzoom ?? DEFAULT_LAYER_MAXZOOM) < DEFAULT_LAYER_MAXZOOM)) {
+      map.setLayerZoomRange(id, 0, DEFAULT_LAYER_MAXZOOM);
+    }
+  }
+}
+
 // builder-audit #338 SYNC-05: the cluster signature and the tile-url signature are
 // kept in SEPARATE per-map WeakMaps. They were previously crammed into one Map
 // (cluster key = sourceId, tile-url key = `${sourceId}::tileurl`), where a
@@ -846,19 +857,16 @@ function syncVectorTiles(
   }
 }
 
-/** SYNC-05 unit 2 (ensureVectorSource): create / recreate the described geojson
- *  or vector source and reconcile its tiles. Returns true when the geojson path
- *  fully handled visibility + zoom range (caller returns early). */
+/** Create or recreate the described geojson or vector source, reconcile its
+ *  tiles, and add the layer's map layers or bring them in step. */
 function ensureVectorSource(
   map: MaplibreMap,
   layer: SyncLayerInput,
   adapterInput: AdapterLayerInput,
   mode: VectorSourceMode,
   source: VectorSourceSpecification | GeoJSONSourceSpecification,
-  zoom: ZoomRange,
-  specs: readonly LayerSpec[],
   prefix: string | undefined,
-): boolean {
+): void {
   const { sourceId, layerId } = adapterInput;
   const {
     adapter, canUseCluster, canUseServerCluster, canUseBoundedCluster, desiredClusterSignature,
@@ -908,9 +916,7 @@ function ensureVectorSource(
       if (!map.getLayer(layerId)) adapter.addLayers(map, adapterInput);
       else adapter.syncPaint(map, adapterInput);
     }
-    adapter.syncVisibility(map, adapterInput);
-    syncLayerZoomRange(map, adapter.getLayerIds(layerId), zoom, specs);
-    return true;
+    return;
   }
 
   if (!map.getSource(sourceId)) {
@@ -931,13 +937,9 @@ function ensureVectorSource(
     if (!map.getLayer(layerId)) adapter.addLayers(map, adapterInput);
     else adapter.syncPaint(map, adapterInput);
   }
-  return false;
 }
 
-/** Add or update a vector (MVT / GeoJSON) layer. Each labelled adapter's own
- *  `describe()` carries its label companion, so addLayers/syncPaint/
- *  syncVisibility already cover it — this orchestrates only source resolution
- *  and zoom range. */
+/** Add or update a vector (MVT or GeoJSON) layer's source and map layers. */
 function syncVectorLayer(
   map: MaplibreMap,
   layer: SyncLayerInput,
@@ -947,32 +949,35 @@ function syncVectorLayer(
   desiredSources: Set<string>,
   prefix: string | undefined,
 ) {
-  const { sourceId, layerId } = adapterInput;
-  desiredSources.add(sourceId);
-  const zoom = described.zoom ?? FULL_ZOOM_RANGE;
-
+  desiredSources.add(adapterInput.sourceId);
   const mode = resolveVectorSourceMode(layer, adapterInput, described.drawsAs, source);
-  const handledGeoJson = ensureVectorSource(map, layer, adapterInput, mode, source, zoom, described.specs, prefix);
-  if (handledGeoJson) return;
-
-  const outlineLayerId = prefixed('outline', layer.id, prefix);
-  const extrusionLayerId = prefixed('extrusion', layer.id, prefix);
-  const arrowLayerId = prefixed('arrow', layer.id, prefix);
-  // fix(#430 codex r23): union with the adapter's own ids so mixed-geometry
-  // sublayers (-lines/-points) honor the custom zoom range too.
-  syncLayerZoomRange(
-    map,
-    [...new Set([...mode.adapter.getLayerIds(layerId), outlineLayerId, extrusionLayerId, arrowLayerId])],
-    zoom,
-    described.specs,
-  );
-
-  mode.adapter.syncVisibility(map, adapterInput);
+  ensureVectorSource(map, layer, adapterInput, mode, source, prefix);
 }
 
-/** Remove a layer's label companion when the family it now draws as has no
- *  label spec. A state-only family change (bulk style apply, restore) doesn't
- *  go through `swapLayerOnMap`, which removes it on a UI switch. */
+/** Set the zoom range and visibility of each map layer a described layer draws,
+ *  and remove a label its family no longer draws. */
+function syncDrawnLayer(
+  map: MaplibreMap,
+  described: DescribedLayer,
+  adapterInput: AdapterLayerInput,
+  prefix: string | undefined,
+) {
+  const adapter = getAdapter(described.drawsAs);
+  const { outline, extrusion, arrow } = getCompanionLayerIds(adapterInput.id, prefix);
+  // The fixed ids also reach a companion that a previous family left on the map.
+  const ids = [...new Set([...adapter.getLayerIds(described.id), outline, extrusion, arrow])];
+  // A raster without a saved range keeps MapLibre's uncapped default, which
+  // FULL_ZOOM_RANGE would cut off at z22.
+  const raster = described.drawsAs === 'raster' || described.drawsAs === 'hillshade';
+  const zoom = described.zoom ?? (raster ? null : FULL_ZOOM_RANGE);
+  if (zoom) syncLayerZoomRange(map, ids, zoom, described.specs);
+  else resetLayerZoomRange(map, ids);
+  adapter.syncVisibility(map, adapterInput);
+  removeOrphanedLabelCompanion(map, described.drawsAs, adapterInput);
+}
+
+/** Remove a layer's label companion when its drawing has none: the label config
+ *  was cleared, or the layer now draws as a family without labels. */
 function removeOrphanedLabelCompanion(
   map: MaplibreMap,
   drawsAs: DescribedLayer['drawsAs'],
@@ -1073,6 +1078,25 @@ function removeOrphanManagedLayers(
 
 // ---------------------------------------------------------------------------
 
+/** The render context each map was last synced in, without its tokens. */
+const drawnContexts = new WeakMap<MaplibreMap, RenderContext>();
+
+/** Write one saved layer to the map layers a sync pass drew for it, as the pass would.
+ *  It adds no source or whole layer, and skips a layer the map draws as another type. */
+export function writeLayerToMap(map: MaplibreMap, layer: SyncLayerInput): void {
+  const context = drawnContexts.get(map);
+  if (!context) return;
+  const { layers: [described], sources } = describeLayers([layer], context);
+  const primary = described?.specs.find((spec) => spec.layer.id === described.id);
+  if (!primary || map.getLayer(described.id)?.type !== primary.layer.type) return;
+  const adapterInput: AdapterLayerInput = {
+    ...adapterInputFor(layer, described),
+    sourceType: sources.get(described.sourceId)?.type === 'geojson' ? 'geojson' : 'vector',
+  };
+  getAdapter(described.drawsAs).syncPaint(map, adapterInput);
+  syncDrawnLayer(map, described, adapterInput, context.idPrefix);
+}
+
 /** The render context syncLayersToMap describes its layers in. */
 export function syncRenderContext(
   tokenMap: ReadonlyMap<string, TileToken>,
@@ -1114,14 +1138,17 @@ export function syncLayersToMap(
 
   const currentSources = new Set(managedSourcesRef.current);
   const desiredSources = new Set<string>();
+  const context = syncRenderContext(tokenMap, tileBaseUrl, geojsonDataMap, options);
   let description: Description;
   try {
-    description = describeLayers(renderableLayers, syncRenderContext(tokenMap, tileBaseUrl, geojsonDataMap, options));
+    description = describeLayers(renderableLayers, context);
   } catch (err) {
     // Only an unresolved tenant prefix throws here, and every caller gates on it.
     for (const layer of renderableLayers) reportLayerSyncFailure(layer, err);
     return;
   }
+  // A layer write adds no source, so it has no use for the tokens.
+  drawnContexts.set(map, { ...context, tokens: new Map() });
   const describedById = new Map(description.layers.map((described) => [described.id, described]));
 
   for (const layer of renderableLayers) {
@@ -1139,20 +1166,10 @@ export function syncLayersToMap(
 
       if (source.type === 'raster' || source.type === 'raster-dem') {
         syncRasterLayer(map, adapterInput, source, desiredSources);
-        // A raster without a saved range keeps MapLibre's uncapped default,
-        // which FULL_ZOOM_RANGE would cut off at z22.
-        if (described.zoom) {
-          syncLayerZoomRange(
-            map,
-            [described.id, getCompanionLayerIds(layer.id, prefix).colorRelief],
-            described.zoom,
-            described.specs,
-          );
-        }
       } else if (source.type === 'vector' || source.type === 'geojson') {
         syncVectorLayer(map, layer, described, source, adapterInput, desiredSources, prefix);
-        removeOrphanedLabelCompanion(map, described.drawsAs, adapterInput);
       }
+      syncDrawnLayer(map, described, adapterInput, prefix);
     } catch (err) {
       reportLayerSyncFailure(layer, err);
     }

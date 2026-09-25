@@ -6,11 +6,9 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import { normalizeTerrainExaggeration } from '@/components/builder/map-sync';
 import {
-  applyLayerVisibilityToMap,
-  applyLayerOpacityToMap,
   resolveFillExclusions,
   stashExcludedFillColor,
-  clearExcludedPaintOnMap,
+  writeBuilderLayer,
 } from '@/components/builder/hooks/use-layer-map-sync';
 import {
   removePerLayerCompanions,
@@ -32,32 +30,15 @@ import {
 } from '@/lib/builder/layer-style-clipboard';
 import { randomId } from '@/lib/random-id';
 
-type SyncStyleConfigToMap = (
-  map: MaplibreMap,
-  layer: MapLayerResponse,
-  paint: Record<string, unknown>,
-) => void;
-
 /**
- * fix(#910/#918, codex P2): bulk apply-style, with the EDIT-05 fill exclusions the
- * style-editor funnel applies.
- *
- * Bulk apply reaches neither `handleStyleConfigChange` nor `handlePasteStyle`, so this
- * is the only boundary the rule can be enforced at for this path: without it, the pair
- * EDIT-05 forbids persisted and MapLibre drew one key while the legend and saved JSON
- * claimed the other. Returns the exclusions alongside the layer because the live map
- * needs them for the imperative clear.
- *
- * fix(#923): `applyCopiedStyleToLayer` now resolves the fill pair inside the merge, so
- * the paint arriving here can no longer carry both keys — re-running the resolver is
- * idempotent. The wrapper stays because the exclusions are more than the paint: this is
- * where the displaced colour is stashed (read off the target's previous paint) and where
- * a classification the resolved paint no longer backs is reconciled away.
+ * Bulk apply-style under the EDIT-05 fill exclusions, since bulk apply reaches neither
+ * `handleStyleConfigChange` nor `handlePasteStyle`. It also stashes the displaced colour
+ * and drops a classification the resolved paint no longer backs.
  */
 function applyStyleExcludingFillCollisions(
   layer: MapLayerResponse,
   source: CopiedStyle,
-): { layer: MapLayerResponse; exclusions: ReturnType<typeof resolveFillExclusions> } {
+): MapLayerResponse {
   const merged = applyCopiedStyleToLayer(layer, source);
   // The TARGET's paint is the provenance baseline: whichever fill key the merge just
   // introduced is the one the copied style asserted.
@@ -67,16 +48,13 @@ function applyStyleExcludingFillCollisions(
     layer.paint ?? {},
   );
   return {
-    layer: {
-      ...merged,
-      paint: exclusions.paint,
-      style_config: reconcileColorClassification(
-        stashExcludedFillColor(merged.style_config ?? null, exclusions),
-        exclusions.paint,
-        merged.dataset_geometry_type,
-      ),
-    },
-    exclusions,
+    ...merged,
+    paint: exclusions.paint,
+    style_config: reconcileColorClassification(
+      stashExcludedFillColor(merged.style_config ?? null, exclusions),
+      exclusions.paint,
+      merged.dataset_geometry_type,
+    ),
   };
 }
 
@@ -102,8 +80,6 @@ interface UseBulkLayerActionsParams {
    *  alongside the savedLayerBaselineRef prune below. */
   saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>;
   copiedStyleRef: React.RefObject<CopiedStyle | null>;
-  syncStyleConfigToMap: SyncStyleConfigToMap;
-  mvtSourceLayerPrefix?: string | null;
 }
 
 // fix(v1.6.0 audit B6): failure-path restore that does NOT clobber concurrent
@@ -171,8 +147,6 @@ export function useBulkLayerActions({
   savedLayerBaselineRef,
   saveBaselineSyncRef,
   copiedStyleRef,
-  syncStyleConfigToMap,
-  mvtSourceLayerPrefix,
 }: UseBulkLayerActionsParams) {
   const { t } = useTranslation('builder');
   const queryClient = useQueryClient();
@@ -226,29 +200,20 @@ export function useBulkLayerActions({
     // Single atomic write — replace every compatible target in one pass
     // (the multi-field clobber rule: never field-by-field per layer).
     setLocalLayers((prev) =>
-      prev.map((l) => (targetIds.has(l.id) ? applyStyleExcludingFillCollisions(l, source).layer : l)),
+      prev.map((l) => (targetIds.has(l.id) ? applyStyleExcludingFillCollisions(l, source) : l)),
     );
     setHasUnsavedChanges(true);
 
-    // Live-map sync: repaint each target via the map-ONLY adapter sync (it does
-    // NOT re-write React state — the single setLocalLayers above owns state).
-    // Gated internally on map.isStyleLoaded().
     const map = mapInstanceRef.current;
     if (map && map.isStyleLoaded()) {
-      for (const target of targets) {
-        const { layer: merged, exclusions } = applyStyleExcludingFillCollisions(target, source);
-        // fix(#910/#918, codex P2): the excluded key has to leave the live map too —
-        // omitting it from the paint object leaves the old value painted.
-        clearExcludedPaintOnMap(map, target.id, exclusions);
-        syncStyleConfigToMap(map, merged, merged.paint ?? {});
-      }
+      for (const target of targets) writeBuilderLayer(map, applyStyleExcludingFillCollisions(target, source));
     }
 
     toast.success(t('toasts.bulkStyleApplied', { count: targets.length }));
     if (skipped > 0) {
       toast.info(t('toasts.bulkStyleSkipped', { count: skipped }));
     }
-  }, [layersRef, copiedStyleRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef, syncStyleConfigToMap, t]);
+  }, [layersRef, copiedStyleRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef, t]);
 
   const handleBulkVisibility = useCallback((selectedIds: Set<string>) => {
     const current = layersRef.current;
@@ -265,16 +230,9 @@ export function useBulkLayerActions({
     );
     setHasUnsavedChanges(true);
 
-    // STATE-01: delegate the per-layer live-map sync to the SAME shared
-    // side-effect handleToggleVisibility uses, so the strokeDisabled gate and
-    // the full companion set (colorrelief + cluster) cannot diverge between the
-    // single and bulk paths. Still a single setLocalLayers write above — only
-    // the N map repaints are delegated.
     const map = mapInstanceRef.current;
     if (map && map.isStyleLoaded()) {
-      for (const l of selectedLayers) {
-        applyLayerVisibilityToMap(map, l, nextVisible);
-      }
+      for (const l of selectedLayers) writeBuilderLayer(map, { ...l, visible: nextVisible });
     }
   }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef]);
 
@@ -289,17 +247,11 @@ export function useBulkLayerActions({
     );
     setHasUnsavedChanges(true);
 
-    // STATE-03: delegate the per-layer live-map sync to the SAME shared
-    // side-effect handleOpacityChange uses, so applyMasterOpacity split and
-    // the dedicated cluster branch cannot diverge between single and bulk. The
-    // single setLocalLayers write above owns React state; this only repaints.
     const map = mapInstanceRef.current;
     if (map && map.isStyleLoaded()) {
-      for (const l of selectedLayers) {
-        applyLayerOpacityToMap(map, l, opacity, mvtSourceLayerPrefix);
-      }
+      for (const l of selectedLayers) writeBuilderLayer(map, { ...l, opacity });
     }
-  }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef, mvtSourceLayerPrefix]);
+  }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef]);
 
   // fix(#392): returns true only when a group was actually created, so the
   // caller (MapBuilderPage) can clear the multi-selection ONLY on success — a

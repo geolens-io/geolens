@@ -1,6 +1,6 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { LABEL_FONT_STACK, labelLayerId, removeLabelCompanionIfCleared, withLabelCompanion } from '../label-layer-utils';
+import { LABEL_FONT_STACK, labelLayerId, withLabelCompanion } from '../label-layer-utils';
 import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import type { AdapterLayerInput, LayerAdapter, LayerDrawing } from './types';
 import { getBuilderStyleConfig, getExpressionSafeOpacity, sourceLayerSpec } from './shared';
@@ -227,7 +227,6 @@ export const clusterAdapter: LayerAdapter = {
   },
 
   syncPaint(map, input) {
-    removeLabelCompanionIfCleared(map, input);
     writeDescribedLayer(map, describeCluster(input));
   },
 

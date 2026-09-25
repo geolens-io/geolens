@@ -1,53 +1,28 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getSourceIdForLayer, resolveAdapterType, applyMasterOpacity, isDemTerrainVisualSuppressed, toSyncInput } from '@/components/builder/map-sync';
+import { toSyncInput, writeLayerToMap } from '@/components/builder/map-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
-import { FULL_ZOOM_RANGE } from '@/components/builder/layer-adapters/builder-defaults';
 import {
   adapterInputFor,
   describeLayers,
   type DescribedLayer,
   type RenderContext,
 } from '@/components/builder/layer-description';
-import { getAdapter } from '@/components/builder/layer-adapters/registry';
-import {
-  getBuilderStyleConfig,
-  setDynamicLayoutProperty,
-  setDynamicPaintProperty,
-} from '@/components/builder/layer-adapters/shared';
-import type { PaintPropertyName } from '@/components/builder/layer-adapters/shared';
-import { mixedFamilyFilter } from '@/components/builder/layer-adapters/mixed-adapter';
-import { resolvePolygonStroke } from '@/components/builder/layer-adapters/fill-adapter';
-import { coalesceFrame, flushCoalescedFrame } from '@/lib/builder/raf-coalesce';
+import { setDynamicLayoutProperty } from '@/components/builder/layer-adapters/shared';
+import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import { reconcileColorClassification } from '@/lib/color-ramps';
 import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
-import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
+import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { labelLayerId, labelSpec, removeLabelCompanionIfCleared } from '@/components/builder/label-layer-utils';
-import { writeDescribedLayer } from '@/components/builder/layer-writer';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
-import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from '@/components/builder/companion-ids';
+import { getCompanionLayerIds } from '@/components/builder/companion-ids';
 
 type LayerUpdater = (layer: MapLayerResponse) => MapLayerResponse;
 type LayerSideEffect = (map: MaplibreMap, updated: MapLayerResponse) => void;
 
-function removeColorReliefLayer(map: MaplibreMap, layerId: string) {
-  const colorReliefId = `${layerId}${COLOR_RELIEF_SUFFIX}`;
-  if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
-}
-
-function resolveLayerAdapterType(layer: MapLayerResponse, paint: Record<string, unknown>, styleConfig?: StyleConfig | null): string {
-  if (layer.layer_type === 'raster_geolens') {
-    return layer.is_dem === true && effectiveDemRenderMode(styleConfig, layer.is_dem) === 'hillshade'
-      ? 'hillshade'
-      : 'raster';
-  }
-  return resolveAdapterType(layer.dataset_geometry_type, styleConfig ?? layer.style_config, paint);
-}
-
-// The handlers have neither tile tokens nor cluster GeoJSON, so they read ids,
-// layout and filter from the description, never its sources or drawsAs.
+// The render-mode swap has neither tile tokens nor cluster GeoJSON, so it reads
+// ids, layout and filter from the description, never its sources or drawsAs.
 function handlerContext(mvtSourceLayerPrefix: string | null | undefined): RenderContext {
   return {
     idPrefix: '',
@@ -67,7 +42,7 @@ function describeBuilderLayer(
 }
 
 /**
- * The input a builder handler hands its adapter, or null when the map draws
+ * The input the render-mode swap hands its adapter, or null when the map draws
  * nothing for the layer. A `pending` paint or opacity stands in for the layer's own.
  */
 export function builderAdapterInput(
@@ -80,84 +55,30 @@ export function builderAdapterInput(
   return described ? adapterInputFor(input, described, pending) : null;
 }
 
-// STATE-01 / SYNC-04: the canonical per-layer visibility map side-effect. The
-// single-layer (`handleToggleVisibility`) AND the bulk
-// (`handleBulkVisibility`) paths both call this so the strokeDisabled gate and
-// the full companion set (including colorrelief + cluster) can never diverge.
-// Companion ids are derived through `getCompanionLayerIds` — the one place the
-// suffix convention lives.
-export function applyLayerVisibilityToMap(
-  map: MaplibreMap,
-  layer: MapLayerResponse,
-  nextVisible: boolean,
-): void {
-  const ids = getCompanionLayerIds(layer.id);
-  const newVis = nextVisible ? 'visible' : 'none';
-  if (map.getLayer(ids.layer)) map.setLayoutProperty(ids.layer, 'visibility', newVis);
-  // BUG-036: a disabled fill outline carries its state as the outline layer's
-  // layout visibility. Restoring it on the raw newVis resurrects a 1px outline
-  // the user turned off (render-as 'Fill only'). Gate the outline on
-  // strokeDisabled — mirror of fillAdapter.syncVisibility.
-  if (map.getLayer(ids.outline)) {
-    const { disabled } = resolvePolygonStroke(layer.paint ?? {}, getBuilderStyleConfig(layer));
-    map.setLayoutProperty(ids.outline, 'visibility', nextVisible && !disabled ? 'visible' : 'none');
-  }
-  if (map.getLayer(ids.label)) map.setLayoutProperty(ids.label, 'visibility', newVis);
-  if (map.getLayer(ids.extrusion)) map.setLayoutProperty(ids.extrusion, 'visibility', newVis);
-  if (map.getLayer(ids.arrow)) map.setLayoutProperty(ids.arrow, 'visibility', newVis);
-  if (map.getLayer(ids.colorRelief)) map.setLayoutProperty(ids.colorRelief, 'visibility', newVis);
-  if (map.getLayer(ids.cluster)) map.setLayoutProperty(ids.cluster, 'visibility', newVis);
-  // codex(#841): mirror clusterAdapter.syncVisibility — re-showing a layer
-  // (single, bulk, or group path) must not resurrect counts the user turned
-  // off via ux(#839) clusterShowCounts.
-  if (map.getLayer(ids.clusterCount)) {
-    const countsOn = getBuilderStyleConfig(layer).clusterShowCounts !== false;
-    map.setLayoutProperty(ids.clusterCount, 'visibility', nextVisible && countsOn ? 'visible' : 'none');
-  }
-  if (map.getLayer(ids.mixedLines)) map.setLayoutProperty(ids.mixedLines, 'visibility', newVis);
-  if (map.getLayer(ids.mixedPoints)) map.setLayoutProperty(ids.mixedPoints, 'visibility', newVis);
+/** Write a builder layer to the map layers a sync pass drew for it. */
+export function writeBuilderLayer(map: MaplibreMap, layer: MapLayerResponse): void {
+  writeLayerToMap(map, toSyncInput(layer));
 }
 
-// STATE-03 / SYNC-04: the canonical per-layer opacity map side-effect. The
-// single-layer (`handleOpacityChange`) AND the bulk (`handleBulkOpacity`)
-// paths both call this so the applyMasterOpacity split and the dedicated
-// cluster branch can never diverge.
-export function applyLayerOpacityToMap(
+/**
+ * Set each key of the new layout on the layer's primary map layer, and clear each key
+ * it dropped. The sync pass writes only the layout keys a spec owns.
+ */
+function writeGenericLayout(
   map: MaplibreMap,
-  layer: MapLayerResponse,
-  opacity: number,
-  mvtSourceLayerPrefix?: string | null,
+  layerId: string,
+  previous: Record<string, unknown>,
+  next: Record<string, unknown>,
 ): void {
-  if (isDemTerrainVisualSuppressed(layer)) return;
-
-  const ids = getCompanionLayerIds(layer.id);
-  const mapLayerId = ids.layer;
-  const paint = layer.paint ?? {};
-  const adapterType = resolveLayerAdapterType(layer, paint, layer.style_config);
-
-  if (adapterType === 'hillshade' || adapterType === 'cluster' || adapterType === 'mixed') {
-    // A hillshade has no raster-opacity, and the cluster and mixed-geometry
-    // adapters spread opacity over their companion layers, so these repaint
-    // through the adapter rather than one paint property.
-    const input = builderAdapterInput(layer, mvtSourceLayerPrefix, { opacity });
-    if (input) getAdapter(adapterType).syncPaint(map, input);
-  } else if (layer.layer_type === 'raster_geolens') {
-    if (map.getLayer(mapLayerId)) {
-      map.setPaintProperty(mapLayerId, 'raster-opacity', opacity);
-    }
-  } else if (adapterType === 'heatmap') {
-    if (map.getLayer(mapLayerId)) {
-      const storedHeatmapOpacity = (paint['heatmap-opacity'] as number) ?? 0.8;
-      map.setPaintProperty(mapLayerId, 'heatmap-opacity', opacity * storedHeatmapOpacity);
-    }
-  } else if (adapterType === 'fill' || adapterType === 'line' || adapterType === 'circle') {
-    if (map.getLayer(mapLayerId)) {
-      // fix(#1625): same split as the adapters' syncPaint — fill/line put the
-      // master on `-layer-opacity`, circle still multiplies.
-      applyMasterOpacity(map, mapLayerId, paint, adapterType, opacity);
-    }
-    if (adapterType === 'fill' && map.getLayer(ids.outline)) {
-      map.setPaintProperty(ids.outline, 'line-layer-opacity', opacity);
+  const mapLayerId = getCompanionLayerIds(layerId).layer;
+  if (!map.getLayer(mapLayerId)) return;
+  for (const prop of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+    // Private keys are builder state, and the line spec draws a layout dash as paint.
+    if (prop.startsWith('_') || prop === 'line-dasharray') continue;
+    try {
+      setDynamicLayoutProperty(map, mapLayerId, prop, next[prop] ?? undefined);
+    } catch (e) {
+      if (import.meta.env.DEV) console.debug(`[builder] Failed to set layout ${prop}:`, e);
     }
   }
 }
@@ -176,10 +97,6 @@ export function applyLayerOpacityToMap(
  * anything else (a paste, a bulk apply) means the pattern is what arrived, so the
  * stray colour goes instead and is handed back through `strandedFillColor` for
  * the caller to stash.
- *
- * Returns the flags as well as the paint: the live map needs an imperative clear
- * for a key that merely *stopped being present*, which a paint object cannot
- * express — see `clearExcludedPaintOnMap`.
  */
 /**
  * fix(#910, codex P2): is this fill key ACTIVELY set, as opposed to merely present?
@@ -201,9 +118,6 @@ export function resolveFillExclusions(
   previousPaint?: Record<string, unknown>,
 ): {
   paint: Record<string, unknown>;
-  isDataDrivenColor: boolean;
-  dropsFillPattern: boolean;
-  patternOwnsFill: boolean;
   strandedFillColor: string | undefined;
 } {
   // P1-07: a data-driven SOLID color (categorical, or graduated with the color
@@ -277,7 +191,7 @@ export function resolveFillExclusions(
     const previousFillColor = previousPaint?.['fill-color'];
     if (typeof previousFillColor === 'string') strandedFillColor = previousFillColor;
   }
-  return { paint: effectivePaint, isDataDrivenColor, dropsFillPattern, patternOwnsFill, strandedFillColor };
+  return { paint: effectivePaint, strandedFillColor };
 }
 
 /**
@@ -323,73 +237,11 @@ export function stashExcludedFillColor(
   return next;
 }
 
-/**
- * fix(#910/#918, codex P2): drop an excluded key from the LIVE map.
- *
- * Handing the adapter a paint object that simply omits a key leaves the old value
- * painted, so the removal needs an explicit `undefined` write. Each is wrapped
- * because the property is invalid on the wrong geometry — `line-gradient` on a
- * fill layer throws rather than no-opping.
- */
-export function clearExcludedPaintOnMap(
-  map: MaplibreMap,
-  layerId: string,
-  flags: { isDataDrivenColor: boolean; dropsFillPattern: boolean; patternOwnsFill: boolean },
-) {
-  const mapLayerId = `layer-${layerId}`;
-  if (!map.getLayer(mapLayerId)) return;
-  // fix(#846): typed as the real MapLibre key union rather than `string[]` — the
-  // three keys pushed below are literals, so v6's generic `setPaintProperty` accepts
-  // them directly and no cast is needed for the clearing write.
-  const keys: PaintPropertyName[] = [];
-  if (flags.isDataDrivenColor) keys.push('line-gradient');
-  if (flags.dropsFillPattern) keys.push('fill-pattern');
-  if (flags.patternOwnsFill) keys.push('fill-color');
-  for (const key of keys) {
-    try {
-      map.setPaintProperty(mapLayerId, key, undefined);
-    } catch {
-      /* wrong geometry for this key — not a valid paint property here */
-    }
-  }
-}
-
-/** The rAF coalesce key for a layer's batched paint write. Owned here because
- *  handlePaintChange queues under it and applyLayerUpdate's replay drain has to
- *  flush the same entry. fix(#1778 codex round 4). */
-function paintCoalesceKey(layerId: string): string {
-  return `paint:${layerId}`;
-}
-
-/**
- * Replay a layer's deferred map writes in the order they were made.
- *
- * fix(#1778 codex round 4): a paint write does not touch the map itself, it
- * queues `adapter.syncPaint` on the next animation frame, so replaying it
- * alongside synchronous writes put it LAST in wall-clock order however early it
- * was made. `fillAdapter.syncPaint` applies the `input.opacity` it captured, so
- * a queued paint edit followed by an opacity edit ended with the older frame
- * overwriting the newer opacity. Flushing the layer's pending frame after each
- * replayed write restores chronological order and leaves the paint callback's
- * closure semantics alone.
- */
-function drainLayerWrites(
-  writes: readonly ((target: MaplibreMap) => void)[],
-  map: MaplibreMap,
-  layerId: string,
-): void {
-  for (const write of writes) {
-    write(map);
-    flushCoalescedFrame(paintCoalesceKey(layerId));
-  }
-}
-
 export function useLayerMapSync(
   localLayers: MapLayerResponse[],
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
   setHasUnsavedChanges: React.Dispatch<React.SetStateAction<boolean>>,
   mapInstanceRef: React.RefObject<MaplibreMap | null>,
-  mvtSourceLayerPrefix?: string | null,
 ) {
   // Mirror current layers in a ref so the memoized callbacks can read fresh
   // state without having `localLayers` in their dependency list. Without this
@@ -450,67 +302,45 @@ export function useLayerMapSync(
       // A reference-equal paint means the write never touched paint (visibility,
       // opacity, layout, popup), so there is no new intent to act on and the layer is
       // left alone.
-      const normalize = (prevLayer: MapLayerResponse, nextLayer: MapLayerResponse) => {
-        if (opts?.verbatim || nextLayer.paint === prevLayer.paint) {
-          return { layer: nextLayer, exclusions: null };
-        }
+      const normalize = (prevLayer: MapLayerResponse, nextLayer: MapLayerResponse): MapLayerResponse => {
+        if (opts?.verbatim || nextLayer.paint === prevLayer.paint) return nextLayer;
         const exclusions = resolveFillExclusions(
           nextLayer.style_config ?? null,
           nextLayer.paint ?? {},
           prevLayer.paint ?? {},
         );
         return {
-          layer: {
-            ...nextLayer,
-            paint: exclusions.paint,
-            // Same boundary, same reason: a classification the resolved paint does not
-            // carry is a claim no surface can honour. The write that breaks it is a
-            // paint replacement (Advanced JSON, an AI `replace_paint`), so it is caught
-            // here rather than wherever a downstream control first trips over it.
-            style_config: reconcileColorClassification(
-              stashExcludedFillColor(nextLayer.style_config ?? null, exclusions),
-              exclusions.paint,
-              nextLayer.dataset_geometry_type,
-            ),
-          },
-          exclusions,
+          ...nextLayer,
+          paint: exclusions.paint,
+          // Same boundary, same reason: a classification the resolved paint does not
+          // carry is a claim no surface can honour. The write that breaks it is a
+          // paint replacement (Advanced JSON, an AI `replace_paint`), so it is caught
+          // here rather than wherever a downstream control first trips over it.
+          style_config: reconcileColorClassification(
+            stashExcludedFillColor(nextLayer.style_config ?? null, exclusions),
+            exclusions.paint,
+            nextLayer.dataset_geometry_type,
+          ),
         };
       };
 
       setLocalLayers((prev) =>
-        prev.map((l) => (l.id === layerId ? normalize(l, updater(l)).layer : l)),
+        prev.map((l) => (l.id === layerId ? normalize(l, updater(l)) : l)),
       );
       setHasUnsavedChanges(true);
+
+      // The ref holds the layer as the next commit will, so a later edit in this
+      // tick, a paint frame and an idle replay all write the newest state.
+      const normalized = normalize(existing, updater(existing));
+      layersRef.current = layersRef.current.map((l) => (l.id === layerId ? normalized : l));
 
       if (!applyFn) return;
       const map = mapInstanceRef.current;
       if (!map) return;
-      // For the map side-effect we re-apply updater to the ref snapshot: the
-      // map call is idempotent and the stale-ref issue only affects React state
-      // composition, not the live-map sync. This keeps the applyFn signature
-      // stable (it receives the just-computed updated layer, not a stale one).
-      const { layer: normalized, exclusions } = normalize(existing, updater(existing));
-      const writeToMap = (target: MaplibreMap) => {
-        // A key that merely stopped being present cannot be expressed in a paint object,
-        // so the removal needs an explicit undefined write before the adapter repaint.
-        if (exclusions) clearExcludedPaintOnMap(target, layerId, exclusions);
-        applyFn(target, normalized);
-      };
-      // fix(#1778): React state is already committed above, so dropping the map
-      // write here left the two permanently out of step for anything
-      // syncLayersToMap does not re-apply, and generic LAYOUT is exactly that
-      // class, since only handleLayoutChange ever writes it. Retry on idle,
-      // matching BuilderMap's sync effect and use-render-mode-layers.
-      //
-      // fix(#1778 codex round 3): the deferred writes are QUEUED per layer and
-      // replayed in the order they were made, never as one captured value.
-      // isStyleLoaded() flips true before `idle` fires, so a second edit landing
-      // in that window used to write immediately and then be overwritten by the
-      // older queued callback: toggle a layer off during a basemap swap and back
-      // on before idle, and the map ended up hidden while state said visible.
-      // Each applyFn closes over its own value (nextVisible, newOpacity,
-      // newLayout), so re-reading the latest layer at fire time would not help;
-      // replaying oldest-first does, because the newest write lands last.
+      const writeToMap = (target: MaplibreMap) =>
+        applyFn(target, layersRef.current.find((l) => l.id === layerId) ?? normalized);
+      // State is committed already, so a write made mid style swap retries on idle.
+      // Replays run in order, since a layout write clears the keys its edit dropped.
       const pending = pendingMapWritesRef.current;
       const queued = pending.get(layerId);
       if (!map.isStyleLoaded()) {
@@ -524,7 +354,7 @@ export function useLayerMapSync(
           // Ignore a listener that was already flushed or superseded below.
           if (pending.get(layerId)?.listener !== listener) return;
           pending.delete(layerId);
-          drainLayerWrites(writes, map, layerId);
+          for (const write of writes) write(map);
         };
         pending.set(layerId, { writes, listener });
         map.once?.('idle', listener);
@@ -535,7 +365,7 @@ export function useLayerMapSync(
         // this newer write is applied last and wins.
         pending.delete(layerId);
         map.off?.('idle', queued.listener);
-        drainLayerWrites(queued.writes, map, layerId);
+        for (const write of queued.writes) write(map);
       }
       writeToMap(map);
     },
@@ -546,11 +376,7 @@ export function useLayerMapSync(
     (layerId: string, visible?: boolean) => {
       const current = layersRef.current.find((l) => l.id === layerId);
       const nextVisible = visible !== undefined ? visible : !current?.visible;
-      applyLayerUpdate(
-        layerId,
-        (l) => ({ ...l, visible: nextVisible }),
-        (map, updated) => applyLayerVisibilityToMap(map, updated, nextVisible),
-      );
+      applyLayerUpdate(layerId, (l) => ({ ...l, visible: nextVisible }), writeBuilderLayer);
     },
     [applyLayerUpdate],
   );
@@ -560,75 +386,14 @@ export function useLayerMapSync(
       applyLayerUpdate(
         layerId,
         (l) => ({ ...l, paint: newPaint }),
-        (map, layer) => {
-          // fix(#910/#918, codex P2): the EDIT-05 normalization happens at the commit
-          // boundary, so the winning paint is `layer.paint` — NOT the raw `newPaint`
-          // this handler was called with. Feeding the adapter the raw object would
-          // repaint the very key the commit just dropped.
-          const adapterType = resolveLayerAdapterType(layer, layer.paint ?? {});
-          const adapter = getAdapter(adapterType);
-          const input = builderAdapterInput(layer, mvtSourceLayerPrefix);
-          if (!input) return;
-
-          // Paint writes coalesce via rAF (PERF-04); visibility/filter/order remain
-          // synchronous because they're idempotent and cheap, and synchronous
-          // semantics let UI toggles feel instant.
-          coalesceFrame(paintCoalesceKey(layerId), () => adapter.syncPaint(map, input));
-        },
+        // Paint edits coalesce per frame, and the frame writes the layer as it is then.
+        (map) => coalesceFrame(`paint:${layerId}`, () => {
+          const layer = layersRef.current.find((l) => l.id === layerId);
+          if (layer) writeBuilderLayer(map, layer);
+        }),
       );
     },
-    [applyLayerUpdate, mvtSourceLayerPrefix],
-  );
-
-  // Map-only side-effect for a style_config change — extracted so the bulk
-  // "Apply style to selection" handler (ENH-03, Phase 1201-01) can drive the
-  // live-map repaint per target WITHOUT triggering a second setLocalLayers
-  // (its state write is a single atomic pass). `layer` must already carry the
-  // post-merge paint + style_config.
-  const syncStyleConfigToMap = useCallback(
-    (map: MaplibreMap, layer: MapLayerResponse, paint: Record<string, unknown>) => {
-      const mapLayerId = `layer-${layer.id}`;
-      const nextConfig = layer.style_config;
-      const sourceId = getSourceIdForLayer(layer);
-
-      if (isDemTerrainVisualSuppressed({ is_dem: layer.is_dem, style_config: nextConfig })) {
-        removeColorReliefLayer(map, mapLayerId);
-        if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
-        if (map.getSource(sourceId)) map.removeSource(sourceId);
-        return;
-      }
-
-      if (!map.getLayer(mapLayerId)) return;
-
-      const adapterType = resolveLayerAdapterType(layer, paint, nextConfig);
-      const adapter = getAdapter(adapterType);
-      // SF-04 dedupe: read from the shared per-dataset source for
-      // non-cluster vector layers so tile URL inheritance still works.
-      const existingSource = map.getSource(sourceId) as { tiles?: string[] } | undefined;
-      const rawTileUrl = existingSource?.tiles?.[0] ?? '';
-      const tileUrl = rawTileUrl.startsWith(window.location.origin)
-        ? rawTileUrl.slice(window.location.origin.length)
-        : rawTileUrl;
-      const input = builderAdapterInput(layer, mvtSourceLayerPrefix, { paint, tileUrl });
-      if (!input) return;
-
-      if (layer.layer_type === 'raster_geolens' && tileUrl) {
-        removeColorReliefLayer(map, mapLayerId);
-        if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
-        if (map.getSource(sourceId)) map.removeSource(sourceId);
-        adapter.addLayers(map, input);
-        // BUG-01: re-assert visibility after the raster re-add. The
-        // adapter's addLayers honors input.visible (raster-adapter:76-78),
-        // but this defense-in-depth call mirrors the swapLayerOnMap fix
-        // and guarantees the swap path never produces a layer in the
-        // wrong visibility state — even if a future adapter forgets the
-        // contract.
-        adapter.syncVisibility(map, input);
-      } else {
-        adapter.syncPaint(map, input);
-      }
-    },
-    [mvtSourceLayerPrefix],
+    [applyLayerUpdate],
   );
 
   const handleStyleConfigChange = useCallback(
@@ -680,34 +445,20 @@ export function useLayerMapSync(
             paint,
           };
         },
-        // `layer` arrives already normalized, and applyLayerUpdate has done the
-        // imperative clear for whichever key lost, so the repaint just follows it.
-        (map, layer) => syncStyleConfigToMap(map, layer, layer.paint ?? {}),
+        writeBuilderLayer,
         { verbatim: opts?.restore },
       );
     },
-    [applyLayerUpdate, syncStyleConfigToMap],
+    [applyLayerUpdate],
   );
 
   const handleOpacityChange = useCallback(
     (layerId: string, newOpacity: number) => {
-      applyLayerUpdate(
-        layerId,
-        (l) => ({ ...l, opacity: newOpacity }),
-        (map, layer) =>
-          applyLayerOpacityToMap(map, layer, newOpacity, mvtSourceLayerPrefix),
-      );
+      applyLayerUpdate(layerId, (l) => ({ ...l, opacity: newOpacity }), writeBuilderLayer);
     },
-    [applyLayerUpdate, mvtSourceLayerPrefix],
+    [applyLayerUpdate],
   );
 
-  // fix(#1778): this is the SOLE writer of generic layout on a live layer, by
-  // design rather than by accident. syncLayersToMap re-applies paint, filter and
-  // the private _minzoom/_maxzoom keys on every state change, but never a
-  // layer's `layout` block, and only the line/symbol/cluster/mixed adapters
-  // touch layout at all. The clear-removed-props loop below is likewise the only
-  // code anywhere that unsets a layout key. Anything that changes a layer's
-  // layout must therefore route through here, or the map keeps the old value.
   const handleLayoutChange = useCallback(
     (layerId: string, newLayout: Record<string, unknown>) => {
       const prevLayout = (layersRef.current.find((l) => l.id === layerId)?.layout ?? {}) as Record<string, unknown>;
@@ -715,119 +466,18 @@ export function useLayerMapSync(
         layerId,
         (l) => ({ ...l, layout: newLayout }),
         (map, layer) => {
-          const ids = getCompanionLayerIds(layerId);
-          const mapLayerId = ids.layer;
-          if (!map.getLayer(mapLayerId)) return;
-
-          // Apply layer zoom range from custom layout props (main + outline companion)
-          const { minzoom, maxzoom } = describeBuilderLayer(toSyncInput(layer), mvtSourceLayerPrefix)?.zoom ?? FULL_ZOOM_RANGE;
-          map.setLayerZoomRange(mapLayerId, minzoom, maxzoom);
-          if (map.getLayer(ids.outline)) {
-            map.setLayerZoomRange(ids.outline, minzoom, maxzoom);
-          }
-          // fix(HT-07): the DEM color-relief companion rides the same source
-          // and must honor the layer's custom zoom range too.
-          if (map.getLayer(ids.colorRelief)) {
-            map.setLayerZoomRange(ids.colorRelief, minzoom, maxzoom);
-          }
-          if (map.getLayer(ids.cluster)) {
-            map.setLayerZoomRange(ids.cluster, minzoom, maxzoom);
-          }
-          if (map.getLayer(ids.clusterCount)) {
-            map.setLayerZoomRange(ids.clusterCount, minzoom, maxzoom);
-          }
-
-          for (const [prop, value] of Object.entries(newLayout)) {
-            // Skip custom props — not real MapLibre layout properties
-            if (prop.startsWith('_')) continue;
-            try {
-              // line-dasharray is stored in layout JSON but is a MapLibre paint property
-              if (prop === 'line-dasharray') {
-                setDynamicPaintProperty(map, mapLayerId, prop, value ?? undefined);
-              } else {
-                setDynamicLayoutProperty(map, mapLayerId, prop, value ?? undefined);
-              }
-            } catch (e) {
-              if (import.meta.env.DEV) console.debug(`[builder] Failed to set layout ${prop}:`, e);
-            }
-          }
-          // Clear removed props (e.g., removing line-dasharray sets solid)
-          for (const prop of Object.keys(prevLayout)) {
-            if (prop.startsWith('_')) continue;
-            if (!(prop in newLayout)) {
-              try {
-                if (prop === 'line-dasharray') {
-                  setDynamicPaintProperty(map, mapLayerId, prop, undefined);
-                } else {
-                  setDynamicLayoutProperty(map, mapLayerId, prop, undefined);
-                }
-              } catch (e) {
-                if (import.meta.env.DEV) console.debug(`[builder] Failed to clear layout ${prop}:`, e);
-              }
-            }
-          }
+          writeGenericLayout(map, layerId, prevLayout, (layer.layout ?? {}) as Record<string, unknown>);
+          writeBuilderLayer(map, layer);
         },
       );
     },
-    [applyLayerUpdate, mvtSourceLayerPrefix],
+    [applyLayerUpdate],
   );
 
   const handleFilterChange = useCallback(
     (layerId: string, expression: FilterSpecification | null) => {
       const filter = sanitizeNullableNumericFilter(expression);
-      applyLayerUpdate(
-        layerId,
-        (l) => ({ ...l, filter }),
-        (map) => {
-          const ids = getCompanionLayerIds(layerId);
-          // fix(#430 codex r23): mixed-geometry sublayers carry per-family
-          // geometry-type filters as part of their identity — COMPOSE the data
-          // filter with them (never replace), mirroring the dataset-page fix
-          // for the same clobber class (codex r22).
-          if (map.getLayer(ids.mixedPoints)) {
-            map.setFilter(ids.layer, mixedFamilyFilter('polygon', filter));
-            map.setFilter(ids.outline, mixedFamilyFilter('polygon', filter));
-            map.setFilter(ids.mixedLines, mixedFamilyFilter('line', filter));
-            map.setFilter(ids.mixedPoints, mixedFamilyFilter('point', filter));
-            if (map.getLayer(ids.label)) {
-              map.setFilter(ids.label, filter);
-            }
-            return;
-          }
-          // fix(#394) FL-01/B-020: cluster layers keep the bare point_count
-          // predicate — cluster features carry no data properties, so ANDing
-          // the data filter in hid every cluster bubble (mirrors the same fix
-          // in cluster-adapter's clusterFilter).
-          const clusterFilter = ['has', 'point_count'] as FilterSpecification;
-          const unclusteredFilter = filter ? ['all', ['!', ['has', 'point_count']], filter] as FilterSpecification : ['!', ['has', 'point_count']] as FilterSpecification;
-          if (map.getLayer(ids.layer)) {
-            map.setFilter(ids.layer, map.getLayer(ids.cluster) ? unclusteredFilter : filter);
-          }
-          if (map.getLayer(ids.cluster)) {
-            map.setFilter(ids.cluster, clusterFilter);
-          }
-          if (map.getLayer(ids.clusterCount)) {
-            map.setFilter(ids.clusterCount, clusterFilter);
-          }
-          // Also filter outline layer for polygons
-          if (map.getLayer(ids.outline)) {
-            map.setFilter(ids.outline, filter);
-          }
-          // Also filter label layer
-          if (map.getLayer(ids.label)) {
-            map.setFilter(ids.label, filter);
-          }
-          // Also filter fill-extrusion companion layer
-          if (map.getLayer(ids.extrusion)) {
-            map.setFilter(ids.extrusion, filter);
-          }
-          // Also filter the line-arrow companion (B-004) so arrow symbols hide
-          // for features removed by the filter.
-          if (map.getLayer(ids.arrow)) {
-            map.setFilter(ids.arrow, filter);
-          }
-        },
-      );
+      applyLayerUpdate(layerId, (l) => ({ ...l, filter }), writeBuilderLayer);
     },
     [applyLayerUpdate],
   );
@@ -839,32 +489,9 @@ export function useLayerMapSync(
         config = null;
       }
 
-      applyLayerUpdate(
-        layerId,
-        (l) => ({ ...l, label_config: config }),
-        (map, normalized) => {
-          const input = builderAdapterInput(normalized, mvtSourceLayerPrefix);
-          if (!input) return;
-
-          // Symbol-mode point layers carry their text in the PRIMARY symbol
-          // layer; a companion label layer would duplicate it for one sync
-          // cycle (flicker). Heatmaps carry no feature labels at all — the UI
-          // gates the Labels tab, but the AI `set_label` action can bypass
-          // that gate. Neither family's describe() ever includes a label
-          // spec, so a companion from a PRIOR mode is stale.
-          const adapterType = resolveAdapterType(normalized.dataset_geometry_type, normalized.style_config, normalized.paint);
-          if (adapterType === 'symbol' || adapterType === 'heatmap') {
-            if (map.getLayer(labelLayerId(input.layerId))) map.removeLayer(labelLayerId(input.layerId));
-            return;
-          }
-
-          removeLabelCompanionIfCleared(map, input);
-          const spec = labelSpec(input);
-          if (spec) writeDescribedLayer(map, { specs: [spec], images: [] });
-        },
-      );
+      applyLayerUpdate(layerId, (l) => ({ ...l, label_config: config }), writeBuilderLayer);
     },
-    [applyLayerUpdate, mvtSourceLayerPrefix],
+    [applyLayerUpdate],
   );
 
   const handlePopupChange = useCallback(
@@ -884,8 +511,5 @@ export function useLayerMapSync(
     handleFilterChange,
     handleLabelChange,
     handlePopupChange,
-    // ENH-03 (Phase 1201-01): map-only style sync for bulk apply (single-setState
-    // state write is owned by the bulk handler; this only repaints the map).
-    syncStyleConfigToMap,
   };
 }

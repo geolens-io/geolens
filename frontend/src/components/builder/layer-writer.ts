@@ -87,7 +87,7 @@ function addSpec(map: LayerWriteTarget, spec: LayerSpec, beforeId: string | unde
 }
 
 /** MapLibre's maximum zoom for a layer that sets none. */
-const DEFAULT_LAYER_MAXZOOM = 24;
+export const DEFAULT_LAYER_MAXZOOM = 24;
 
 function updateSpec(map: LayerWriteTarget, spec: LayerSpec): void {
   const { id, layout, filter, minzoom, maxzoom } = spec.layer;

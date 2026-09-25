@@ -13,7 +13,7 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { FILL_PATTERN_IMAGES, tintedFillPattern } from './fill-pattern-images';
 import { fillPatternTint } from '@/lib/fill-pattern-preview';
 import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
-import { labelLayerId, removeLabelCompanionIfCleared, withLabelCompanion } from '../label-layer-utils';
+import { labelLayerId, withLabelCompanion } from '../label-layer-utils';
 // builder-audit #338 DRY-06: extrusion min-zoom (14) and opacity cap (0.85) come from the
 // single builder-defaults source of truth (shared with renderAs + backend mirror).
 import { DEFAULT_EXTRUSION_MIN_ZOOM, DEFAULT_EXTRUSION_OPACITY_CAP, FULL_ZOOM_RANGE } from './builder-defaults';
@@ -260,7 +260,6 @@ export const fillAdapter: LayerAdapter = {
     if (!map.getLayer(input.layerId)) return;
     const drawing = describeFill(input);
     const extrusionId = `${input.layerId}-extrusion`;
-    removeLabelCompanionIfCleared(map, input);
     writeDescribedLayer(map, {
       ...drawing,
       specs: drawing.specs.filter(({ layer }) => layer.id !== extrusionId || map.getLayer(layer.id)),

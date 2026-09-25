@@ -196,7 +196,7 @@ export function getFeatureOpacity(
 }
 
 /**
- * fix(#1625): drive the master `layer.opacity` slider on a live vector layer.
+ * Drive the master `layer.opacity` slider on a live vector layer.
  *
  * Fill and line layers carry two opacity tiers — the Style Editor's per-feature
  * `fill-opacity`/`line-opacity` and the master slider — and multiplying them into
@@ -206,10 +206,6 @@ export function getFeatureOpacity(
  * `fill-layer-opacity`/`line-layer-opacity` composite the whole layer once AFTER
  * the per-feature pass, which is exactly the two-tier model: per-feature stays on
  * `<geom>-opacity` unmultiplied, the master rides on `<geom>-layer-opacity`.
- *
- * Every master-opacity write for a fill/line/circle layer goes through here —
- * addLayers (via finalizeLayer), syncPaint, and the slider's direct path in
- * use-layer-map-sync — so the split cannot drift between entry points.
  */
 export function applyMasterOpacity(
   map: Pick<MaplibreMap, 'setPaintProperty'>,

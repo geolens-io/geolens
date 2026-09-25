@@ -8,7 +8,7 @@ import {
 } from './shared';
 import { DEFAULT_CIRCLE_PAINT } from './builder-defaults';
 import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
-import { labelLayerId, removeLabelCompanionIfCleared, withLabelCompanion } from '../label-layer-utils';
+import { labelLayerId, withLabelCompanion } from '../label-layer-utils';
 
 // builder-audit #338 ADAPT-03: exported so cluster-adapter's unclustered point reuses
 // this exact owned set (was a byte-identical UNCLUSTERED_OWNED_PAINT_PROPERTIES copy).
@@ -93,7 +93,6 @@ export const circleAdapter: LayerAdapter = {
 
   syncPaint(map, input) {
     if (!map.getLayer(input.layerId)) return;
-    removeLabelCompanionIfCleared(map, input);
     writeDescribedLayer(map, describeCircle(input));
   },
 

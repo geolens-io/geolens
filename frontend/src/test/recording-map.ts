@@ -45,6 +45,9 @@ export class RecordingMap {
   private readonly sources = new Map<string, RecordedSource>();
   private readonly images = new Map<string, unknown>();
   private readonly sprites: { id: string; url: string }[] = [];
+  private readonly onceListeners: [event: string, listener: () => void][] = [];
+  /** What `isStyleLoaded` reports; false models a style swap in progress. */
+  styleLoaded = true;
 
   /** The fake as the code under test takes it. */
   get map(): MaplibreMap {
@@ -241,7 +244,27 @@ export class RecordingMap {
   }
 
   isStyleLoaded() {
-    return true;
+    return this.styleLoaded;
+  }
+
+  once(event: string, listener: () => void) {
+    this.calls.push(['once', event]);
+    this.onceListeners.push([event, listener]);
+    return this.map;
+  }
+
+  off(event: string, listener: () => void) {
+    this.calls.push(['off', event]);
+    const at = this.onceListeners.findIndex(([name, registered]) => name === event && registered === listener);
+    if (at >= 0) this.onceListeners.splice(at, 1);
+    return this.map;
+  }
+
+  /** Run and drop the `once` listeners for an event, as MapLibre does when it fires one. */
+  fire(event: string) {
+    const due = this.onceListeners.filter(([name]) => name === event);
+    for (const entry of due) this.onceListeners.splice(this.onceListeners.indexOf(entry), 1);
+    for (const [, listener] of due) listener();
   }
 
   triggerRepaint() {

@@ -209,13 +209,11 @@ export function useBuilderLayers(
     handleFilterChange,
     handleLabelChange,
     handlePopupChange,
-    syncStyleConfigToMap,
   } = useLayerMapSync(
     localLayers,
     setLocalLayers,
     setHasUnsavedChanges,
     mapInstanceRef,
-    mvtSourceLayerPrefix,
   );
 
   // Per-row style clipboard. Owns the session clipboard
@@ -251,8 +249,6 @@ export function useBuilderLayers(
     savedLayerBaselineRef,
     saveBaselineSyncRef,
     copiedStyleRef,
-    syncStyleConfigToMap,
-    mvtSourceLayerPrefix,
   });
 
   // Folder-group handlers (create / rename / ungroup / toggle-vis /
