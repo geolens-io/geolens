@@ -27,6 +27,10 @@ from app.platform.refresh.service import (
     record_refresh_blocked,
     record_refresh_failure,
 )
+from app.processing.ingest.publish_followups import (
+    PUBLISH_FOLLOWUPS_FIELD,
+    run_owed_publish_followups,
+)
 from app.processing.ingest.publication import (
     PUBLISH,
     DatasetDeleted,
@@ -271,6 +275,14 @@ def notifications():
         yield sent
 
 
+async def _owes_followups(seed: _Seed) -> bool:
+    async with db_module.async_session() as session:
+        metadata = await session.scalar(
+            select(IngestJob.user_metadata).where(IngestJob.id == seed.job_id)
+        )
+    return PUBLISH_FOLLOWUPS_FIELD in (metadata or {})
+
+
 def _events(notifications: AsyncMock) -> list[str]:
     return [call.kwargs["event_key"] for call in notifications.await_args_list]
 
@@ -413,9 +425,12 @@ class _FailingCommit:
     in progress.
     """
 
-    def __init__(self, job_id: uuid.UUID, *, aborted: bool = True) -> None:
+    def __init__(
+        self, job_id: uuid.UUID, *, aborted: bool = True, ended: str = "complete"
+    ) -> None:
         self.job_id = job_id
         self.aborted = aborted
+        self.ended = ended
         self.failed = False
 
     def installed(self):
@@ -425,7 +440,7 @@ class _FailingCommit:
 
         async def _commit(session, *args, **kwargs):
             if not outer.failed:
-                if (await session.execute(own_status)).scalar() == "complete":
+                if (await session.execute(own_status)).scalar() == outer.ended:
                     outer.failed = True
                     if outer.aborted:
                         await session.rollback()
@@ -642,6 +657,7 @@ async def test_a_rejected_verdict_ends_the_job_failed_and_notifies(
     assert state["live"] == "before"
     assert "install" not in fake.seen
     assert _events(notifications) == ["ingest_failed"]
+    assert not await _owes_followups(seed)
 
 
 async def test_a_blocked_verdict_waits_for_review_without_notifying(
@@ -667,6 +683,8 @@ async def test_a_blocked_verdict_waits_for_review_without_notifying(
     state = await _state(seed)
     assert (state["job"], state["run"][0]) == ("failed", "blocked")
     assert state["catalog"] == (1, "Test Dataset", 1)
+    assert not await _owes_followups(seed)
+    await run_owed_publish_followups()
     assert _events(notifications) == []
     embedding.assert_not_awaited()
 
@@ -876,6 +894,57 @@ async def test_a_rejection_that_loses_its_acknowledgement_still_notifies(
     assert state["job"] == "failed"
     assert state["run"] == ("failed", "refresh_rejected")
     assert _events(notifications) == ["ingest_failed"]
+    assert not await _owes_followups(seed)
+
+
+async def test_a_rejection_the_task_cannot_settle_is_sent_once_by_the_sweep(
+    seed, notifications, monkeypatch
+) -> None:
+    """A landed rejection whose outcome reads unknown, and whose claim fails, is mailed once by the sweep."""
+    from app.processing.ingest.tasks_raster_common import PublishObservation
+
+    async def _unknown(*args, **kwargs):
+        return PublishObservation.UNKNOWN
+
+    async def _unreachable(job_id):
+        raise ConnectionResetError("the database is gone")
+
+    monkeypatch.setattr(
+        "app.processing.ingest.publication.observe_publish_commit", _unknown
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.publication.run_publish_followups", _unreachable
+    )
+    fake = _Fake(seed, verdict=_rejection(seed))
+    lost = _LostAcknowledgement(seed.job_id, "failed", ConnectionResetError("dropped"))
+    with lost.installed():
+        await _settle(fake)
+
+    assert lost.fired == 1
+    assert (await _state(seed))["job"] == "failed"
+    assert _events(notifications) == []
+    assert await _owes_followups(seed)
+
+    await run_owed_publish_followups()
+    assert _events(notifications) == ["ingest_failed"]
+    await run_owed_publish_followups()
+    assert _events(notifications) == ["ingest_failed"]
+
+
+async def test_a_rejection_whose_commit_never_lands_owes_no_notice(
+    seed, notifications
+) -> None:
+    """A failure commit still in progress that then rolls back leaves no record and mails nothing."""
+    fake = _Fake(seed, verdict=_rejection(seed))
+    commit = _FailingCommit(seed.job_id, aborted=False, ended="failed")
+    with commit.installed():
+        await asyncio.wait_for(_settle(fake), timeout=60)
+
+    assert commit.failed
+    assert (await _state(seed))["job"] == "running"
+    assert not await _owes_followups(seed)
+    await run_owed_publish_followups()
+    assert _events(notifications) == []
 
 
 async def test_a_publication_parked_on_the_dataset_row_bumps_past_the_edit(

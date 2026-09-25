@@ -50,6 +50,11 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
+from app.processing.ingest.publish_followups import (
+    note_publish_followups,
+    notify_ingest_failed,
+    run_publish_followups,
+)
 from app.processing.ingest.tasks_common import (
     _current_tenant_schema,
     cleanup_step,
@@ -486,7 +491,10 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                 reason=verdict.reason,
                 linked=verdict.settle,
             )
-            ended = await commit_publication(
+            owes_notice = landed and verdict.notify
+            if owes_notice:
+                await note_publish_followups(session, job_id, attempt_id, strategy.task)
+            await commit_publication(
                 session,
                 job_id=job_id,
                 attempt_id=attempt_id,
@@ -497,8 +505,11 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                 f"{strategy.task} catalog cache", job_id=str(job_id)
             ):
                 await invalidate_catalog_cache()
-            if landed and ended.confirmed and verdict.notify:
-                await _notify_failed(job_id, task=strategy.task, reason=verdict.reason)
+            if owes_notice:
+                async with cleanup_step(
+                    f"{strategy.task} failure notice", job_id=str(job_id)
+                ):
+                    await run_publish_followups(job_id)
             return True
 
         await strategy.install(session, dataset)
@@ -645,7 +656,7 @@ async def _record_failure(
         ):
             await invalidate_catalog_cache()
     if landed and failure.notify:
-        await _notify_failed(attempt.job_id, task=strategy.task, reason=reason)
+        await notify_ingest_failed(attempt.job_id, task=strategy.task, reason=reason)
 
 
 # How long a failure's origin verdict waits for a dataset row another
@@ -709,27 +720,6 @@ async def _stamp_contact(
             raise
         return False
     return bool(stamped.rowcount)
-
-
-async def _notify_failed(
-    job_id: uuid.UUID, *, task: str, reason: str | BaseException
-) -> None:
-    from app.platform.notifications.events import (
-        build_event_notification,
-        emit_event_safe,
-    )
-
-    message = redact_failure_reason(reason)
-    await emit_event_safe(
-        event_key="ingest_failed",
-        build=lambda: build_event_notification(
-            "ingest_failed",
-            subject=f"Ingest failed: {task}",
-            body=f"Ingest job (task={task}) failed.",
-            reason=message,
-            extra={"job_id": str(job_id), "task": task},
-        ),
-    )
 
 
 def _qualified(staging_table: str) -> str:
