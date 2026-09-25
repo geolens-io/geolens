@@ -541,10 +541,11 @@ async def test_a_stac_failure_lands_while_its_dataset_row_is_held(
     ]
 
 
-async def _discarded_behind(replacement, edit: str) -> BaseException:
-    """Run the refresh behind a held dataset row, commit ``edit`` there, and return what the refresh raised."""
+async def _discarded_behind(replacement, edit: str) -> tuple[BaseException, list]:
+    """Run the refresh behind a held dataset row, commit ``edit`` there, and return what the refresh raised and sent."""
     from tests.test_worker_swap_bump_after_lock_1911 import _overlap
 
+    sent = AsyncMock()
     async with (
         db_module.async_session() as holder,
         db_module.async_session() as probe,
@@ -556,15 +557,31 @@ async def _discarded_behind(replacement, edit: str) -> BaseException:
             await real_commit()
 
         holder.commit = _commit_with_edit
-        with _quiet_embedding(), pytest.raises(Exception) as raised:
+        with (
+            _quiet_embedding(),
+            patch("app.platform.notifications.events.emit_event_safe", new=sent),
+            pytest.raises(Exception) as raised,
+        ):
             await _overlap(holder, probe, replacement.dataset_id, replacement.run())
-    return raised.value
+    return raised.value, [call.kwargs["event_key"] for call in sent.await_args_list]
+
+
+async def _job_and_run(replacement) -> tuple:
+    job = await _fresh_scalar(
+        select(IngestJob.status).where(IngestJob.id == replacement.job_id)
+    )
+    run = await _fresh_scalar(
+        select(DatasetRefreshRun).where(
+            DatasetRefreshRun.ingest_job_id == replacement.job_id
+        )
+    )
+    return job, (run.status, run.error_code)
 
 
 async def test_a_measurement_older_than_an_edit_it_waited_behind_is_discarded(
     replace,
 ) -> None:
-    """A PostGIS refresh parked on the dataset row reads the edit's version under it and publishes nothing."""
+    """A PostGIS refresh parked on the dataset row reads the edit's version under it, publishes nothing and sends nothing."""
     from app.processing.ingest.tasks_postgis_refresh import PostgisRefreshError
 
     replacement = await replace("postgis")
@@ -572,15 +589,11 @@ async def test_a_measurement_older_than_an_edit_it_waited_behind_is_discarded(
         select(Dataset.feature_count).where(Dataset.id == replacement.dataset_id)
     )
 
-    raised = await _discarded_behind(replacement, "SELECT 1")
+    raised, sent = await _discarded_behind(replacement, "SELECT 1")
 
     assert isinstance(raised, PostgisRefreshError), raised
-    run = await _fresh_scalar(
-        select(DatasetRefreshRun).where(
-            DatasetRefreshRun.ingest_job_id == replacement.job_id
-        )
-    )
-    assert (run.status, run.error_code) == ("failed", "superseded")
+    assert await _job_and_run(replacement) == ("failed", ("failed", "superseded"))
+    assert sent == []
     assert (
         await _fresh_scalar(
             select(Dataset.feature_count).where(Dataset.id == replacement.dataset_id)
@@ -592,24 +605,20 @@ async def test_a_measurement_older_than_an_edit_it_waited_behind_is_discarded(
 async def test_a_stac_answer_older_than_a_rebind_it_waited_behind_is_discarded(
     replace,
 ) -> None:
-    """A STAC refresh parked on the dataset row reads the rebind under it and leaves the rebind standing."""
+    """A STAC refresh parked on the dataset row reads the rebind under it, leaves the rebind standing and sends nothing."""
     from app.processing.ingest.tasks_stac_refresh import StacRefreshError
 
     replacement = await replace("stac")
     rebound = "https://stac.example.com/rebound/scene.tif"
 
-    raised = await _discarded_behind(
+    raised, sent = await _discarded_behind(
         replacement,
         f"UPDATE catalog.datasets SET origin_uri = '{rebound}' WHERE id = :d",
     )
 
     assert isinstance(raised, StacRefreshError), raised
-    run = await _fresh_scalar(
-        select(DatasetRefreshRun).where(
-            DatasetRefreshRun.ingest_job_id == replacement.job_id
-        )
-    )
-    assert (run.status, run.error_code) == ("failed", "superseded")
+    assert await _job_and_run(replacement) == ("failed", ("failed", "superseded"))
+    assert sent == []
     assert (
         await _fresh_scalar(
             select(Dataset.origin_uri).where(Dataset.id == replacement.dataset_id)

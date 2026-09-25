@@ -610,12 +610,15 @@ class _PostgisRefresh:
 
     def classify(self, exc: BaseException) -> Failure:
         health = getattr(exc, "health", None)
+        code = getattr(exc, "error_code", _ERROR_CODE_GENERIC)
         return Failure(
-            getattr(exc, "error_code", _ERROR_CODE_GENERIC),
+            code,
             contacted=self.bound if health is not None else None,
             health=(health, getattr(exc, "detail", None))
             if health is not None
             else None,
+            # An edit overtook the measurement, and the message says to refresh again.
+            notify=code != _ERROR_CODE_SUPERSEDED,
         )
 
     async def release(

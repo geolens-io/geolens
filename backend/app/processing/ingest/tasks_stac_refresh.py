@@ -607,12 +607,15 @@ class _StacRefresh:
         # A verdict or a bare contact both date `last_checked_at`, under the
         # binding this attempt read; a failure before any request dates nothing.
         stamps = health is not None or getattr(exc, "contacted", False)
+        code = _refresh_error_code(exc)
         return Failure(
-            _refresh_error_code(exc),
+            code,
             contacted=self.bound if stamps else None,
             health=(health, getattr(exc, "detail", None))
             if health is not None
             else None,
+            # A rebind overtook the answer, and the message says to refresh again.
+            notify=code != _ERROR_CODE_SUPERSEDED,
         )
 
     async def release(

@@ -124,6 +124,8 @@ class Failure:
     health: tuple[str, str | None] | None = None
     # A refused input is recorded like any failure, but the task returns.
     refused: bool = False
+    # A landed failure sends ingest_failed; a benign race need not.
+    notify: bool = True
 
 
 class ReplacementStrategy(Protocol):
@@ -548,7 +550,7 @@ async def _record_failure(
     """End the attempt's job and run as failed in one bounded transaction.
 
     Never raises: the task's own failure is what the caller re-raises. Sends
-    ``ingest_failed`` when the job's end landed.
+    ``ingest_failed`` when the job's end landed and ``failure.notify`` is set.
     """
     from app.core.db import async_session
 
@@ -597,7 +599,7 @@ async def _record_failure(
             f"{strategy.task} catalog cache", job_id=str(attempt.job_id)
         ):
             await invalidate_catalog_cache()
-    if landed:
+    if landed and failure.notify:
         await _notify_failed(attempt.job_id, task=strategy.task, reason=exc)
 
 
