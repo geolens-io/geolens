@@ -543,7 +543,7 @@ async def _job_phase_session(
         if require_status is not None:
             from app.processing.ingest.tasks_raster_common import note_publishing_xid
 
-            # This phase's commit publishes; its id is read before the row lock.
+            # Read before the row lock; a phase whose commit publishes probes by it.
             await note_publishing_xid(session)
         filters = [IngestJob.id == job_uuid]
         if attempt_id is not None:

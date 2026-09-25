@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, patch
@@ -396,11 +397,20 @@ async def _cancel(seed: _Seed) -> None:
         await session.commit()
 
 
+@contextlib.contextmanager
+def _patched(*patches):
+    with contextlib.ExitStack() as stack:
+        for each in patches:
+            stack.enter_context(each)
+        yield
+
+
 class _FailingCommit:
     """Fail the publishing commit before it lands.
 
     ``aborted`` rolls the transaction back first, so the probe reads it aborted;
-    otherwise it stays open while the probe runs, so it reads in progress.
+    otherwise it stays open while the probe runs, which asks once and reads it
+    in progress.
     """
 
     def __init__(self, job_id: uuid.UUID, *, aborted: bool = True) -> None:
@@ -422,7 +432,10 @@ class _FailingCommit:
                     raise ConnectionResetError("the connection dropped before COMMIT")
             return await real_commit(session, *args, **kwargs)
 
-        return patch.object(AsyncSession, "commit", _commit)
+        return _patched(
+            patch.object(AsyncSession, "commit", _commit),
+            patch("app.processing.ingest.tasks_raster_common.PUBLISH_PROBE_RETRIES", 0),
+        )
 
 
 class _LostAcknowledgement:
@@ -542,9 +555,12 @@ async def _publish_losing(seed: _Seed, lose: str | None, failure: BaseException)
 )
 @pytest.mark.parametrize("failure", [ConnectionResetError, asyncio.CancelledError])
 async def test_a_lost_acknowledgement_is_settled_by_the_transaction_outcome(
-    seed, lose, expected, failure
+    seed, monkeypatch, lose, expected, failure
 ) -> None:
     """Committed is observed and in progress is indeterminate, whatever the job row shows yet."""
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_raster_common.PUBLISH_PROBE_RETRIES", 0
+    )
     assert await _publish_losing(seed, lose, failure("lost")) is expected
 
 

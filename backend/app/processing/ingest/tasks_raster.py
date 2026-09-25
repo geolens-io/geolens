@@ -685,6 +685,7 @@ async def ingest_raster(
                     job_uuid,
                     attempt_uuid,
                     xid=xid,
+                    error=exc,
                     job_id=job_id,
                     task="ingest_raster",
                 ):

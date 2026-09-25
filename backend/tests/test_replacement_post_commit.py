@@ -725,8 +725,8 @@ _FAILURES = {
 class _IndeterminatePublish:
     """Fail the publishing commit before it lands, leaving its transaction open.
 
-    The probe then reads the transaction in progress, or, with ``probe_fails``,
-    cannot read it at all.
+    The probe, asking once, then reads the transaction in progress, or, with
+    ``probe_fails``, cannot read it at all.
     """
 
     def __init__(self, job_id: uuid.UUID, *, probe_fails: bool = False) -> None:
@@ -761,7 +761,10 @@ class _IndeterminatePublish:
         AsyncSession.commit = _commit
         AsyncSession.scalar = _scalar
         try:
-            yield
+            with patch(
+                "app.processing.ingest.tasks_raster_common.PUBLISH_PROBE_RETRIES", 0
+            ):
+                yield
         finally:
             AsyncSession.commit = real_commit
             AsyncSession.scalar = real_scalar

@@ -5609,8 +5609,9 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
     """Raise from the commit after ``job_id``'s complete write without sending it.
 
     The transaction is still in progress while the probe runs, as one waiting
-    on a synchronous standby is, and rolls back when its session closes.
-    ``aborted`` rolls it back before raising instead.
+    on a synchronous standby is, and rolls back when its session closes. The
+    probe asks once, so it doesn't wait out the open transaction. ``aborted``
+    rolls it back before raising instead.
     """
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -5640,7 +5641,10 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
     heartbeat_module.update_ingest_job_for_attempt = _update
     AsyncSession.commit = _commit
     try:
-        yield fired
+        with patch(
+            "app.processing.ingest.tasks_raster_common.PUBLISH_PROBE_RETRIES", 0
+        ):
+            yield fired
     finally:
         AsyncSession.commit = real_commit
         heartbeat_module.update_ingest_job_for_attempt = real_update
@@ -5727,6 +5731,7 @@ class TestPublishCommitLandedProbe:
             job.id,
             attempt_id or job.attempt_id,
             xid=xid,
+            error=ConnectionResetError("lost"),
             job_id=str(job.id),
             task="t",
         )
@@ -5736,7 +5741,12 @@ class TestPublishCommitLandedProbe:
         from app.processing.ingest.tasks_raster_common import publish_commit_landed
 
         return await publish_commit_landed(
-            job.id, job.attempt_id, xid=xid, job_id=str(job.id), task="t"
+            job.id,
+            job.attempt_id,
+            xid=xid,
+            error=ConnectionResetError("lost"),
+            job_id=str(job.id),
+            task="t",
         )
 
     async def test_a_committed_publication_reads_as_landed(
@@ -5774,21 +5784,70 @@ class TestPublishCommitLandedProbe:
             await self._drop(test_db_session, job)
 
     async def test_a_publication_still_in_progress_reads_as_unknown(
-        self, test_db_session
+        self, test_db_session, monkeypatch
     ) -> None:
-        """A transaction still in progress is unknown, though a snapshot of its job reads running."""
+        """A transaction still in progress is unknown and logged with what the commit raised."""
+        import structlog
+
         import app.core.db as db_module
         from app.processing.ingest.tasks_raster_common import PublishObservation
 
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_raster_common.PUBLISH_PROBE_RETRIES", 0
+        )
         job = await self._job(test_db_session)
         try:
             async with db_module.async_session() as session:
                 xid = await self._end(session, job)
                 try:
-                    assert await self._observe(job, xid) is PublishObservation.UNKNOWN
+                    with structlog.testing.capture_logs() as logs:
+                        observed = await self._observe(job, xid)
+                    assert observed is PublishObservation.UNKNOWN
+                    assert [
+                        (e["event"], e["outcome"], e["error"])
+                        for e in logs
+                        if e["event"] == "publish_commit_outcome_unknown"
+                    ] == [
+                        (
+                            "publish_commit_outcome_unknown",
+                            "in progress",
+                            "ConnectionResetError",
+                        )
+                    ]
                     assert await self._landed(job, xid) is True
                 finally:
                     await session.rollback()
+        finally:
+            await self._drop(test_db_session, job)
+
+    @pytest.mark.parametrize(
+        ("commits", "expected"), [(True, "landed"), (False, "not_landed")]
+    )
+    async def test_a_publication_that_ends_while_the_probe_waits_is_read(
+        self, test_db_session, monkeypatch, commits, expected
+    ) -> None:
+        """The probe asks again while the transaction is in progress, so one that ends in time is read."""
+        import app.core.db as db_module
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_raster_common.PUBLISH_PROBE_RETRY_INTERVAL",
+            0.05,
+        )
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_raster_common.PUBLISH_PROBE_RETRIES", 40
+        )
+        job = await self._job(test_db_session)
+        try:
+            async with db_module.async_session() as session:
+                xid = await self._end(session, job)
+                probe = asyncio.create_task(self._observe(job, xid))
+                await asyncio.sleep(0.3)
+                assert not probe.done(), "the probe gave up while the commit was open"
+                if commits:
+                    await session.commit()
+                else:
+                    await session.rollback()
+                assert await asyncio.wait_for(probe, timeout=5) == expected
         finally:
             await self._drop(test_db_session, job)
 
@@ -5843,7 +5902,12 @@ class TestPublishCommitLandedProbe:
         monkeypatch.setattr("app.core.db.async_session", _no_session, raising=True)
         assert (
             await publish_commit_landed(
-                uuid.uuid4(), uuid.uuid4(), xid="1", job_id="j", task="t"
+                uuid.uuid4(),
+                uuid.uuid4(),
+                xid="1",
+                error=ConnectionResetError("lost"),
+                job_id="j",
+                task="t",
             )
             is True
         )

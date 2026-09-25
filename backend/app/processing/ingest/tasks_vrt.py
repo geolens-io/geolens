@@ -831,6 +831,7 @@ async def ingest_vrt(
                         job_uuid,
                         attempt_uuid,
                         xid=xid,
+                        error=exc,
                         job_id=job_id,
                         task="ingest_vrt",
                     ):
@@ -1537,6 +1538,7 @@ async def regenerate_vrt(
                         job_uuid,
                         attempt_uuid,
                         xid=xid,
+                        error=exc,
                         job_id=job_id,
                         task="regenerate_vrt",
                     )

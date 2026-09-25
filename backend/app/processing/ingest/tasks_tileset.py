@@ -355,7 +355,12 @@ async def ingest_tileset(
                 # A lost acknowledgement may still have committed, so only an
                 # aborted transaction lets the tileset be reaped.
                 if not await publish_commit_landed(
-                    job_uuid, attempt_uuid, xid=xid, job_id=job_id, task=_TASK
+                    job_uuid,
+                    attempt_uuid,
+                    xid=xid,
+                    error=exc,
+                    job_id=job_id,
+                    task=_TASK,
                 ):
                     raise
                 published = True

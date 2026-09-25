@@ -397,10 +397,11 @@ async def publish_commit_landed(
     attempt_uuid: uuid.UUID,
     *,
     xid: str | None,
+    error: BaseException,
     job_id: str,
     task: str,
 ) -> bool:
-    """Whether a publishing commit that raised may have landed.
+    """Whether a publishing commit that raised ``error`` may have landed.
 
     A commit whose acknowledgement is lost, to a dropped connection or a
     cancellation, may still have been applied, and reaping the objects it
@@ -416,7 +417,7 @@ async def publish_commit_landed(
     uploader's staged original.
     """
     observation = await observe_publish_commit(
-        job_uuid, attempt_uuid, xid=xid, job_id=job_id, task=task
+        job_uuid, attempt_uuid, xid=xid, error=error, job_id=job_id, task=task
     )
     return observation is not PublishObservation.NOT_LANDED
 
@@ -434,6 +435,11 @@ class PublishObservation(StrEnum):
 _PUBLISHING_XID = "publishing_xid"
 
 _XACT_STATUS = text("SELECT pg_xact_status(CAST(:xid AS text)::xid8)")
+
+# How long the probe waits out a transaction that reads in progress. A commit
+# still flushing its WAL or waiting on a standby usually settles well inside it.
+PUBLISH_PROBE_RETRIES = 20
+PUBLISH_PROBE_RETRY_INTERVAL = 0.05
 
 
 async def note_publishing_xid(session) -> None:
@@ -458,32 +464,42 @@ async def observe_publish_commit(
     attempt_uuid: uuid.UUID,
     *,
     xid: str | None,
+    error: BaseException,
     job_id: str,
     task: str,
     ended: str = "complete",
 ) -> PublishObservation:
     """Ask PostgreSQL, on a fresh session, whether transaction ``xid`` committed.
 
-    ``pg_xact_status`` reads a transaction that is still committing, such as
-    one waiting on a synchronous standby, as in progress, where a snapshot of
-    the job row would not show it yet. Aborted is ``NOT_LANDED``. Committed is
-    ``LANDED`` only while this attempt's job reads ``ended``: a failover can
-    lose a commit and reissue its id, so a committed id whose job disagrees is
-    not this commit's. Anything else, and a probe that fails, is ``UNKNOWN``.
+    ``pg_xact_status`` reads a transaction that is still committing, while its
+    WAL flushes or it waits on a synchronous standby, as in progress, where a
+    snapshot of the job row would read it as not landed. The probe asks again
+    while it reads in progress, up to ``PUBLISH_PROBE_RETRIES`` times. Aborted
+    is ``NOT_LANDED``. Committed is ``LANDED`` only while this attempt's job
+    reads ``ended``: a failover can lose a commit and reissue its id, so a
+    committed id whose job disagrees is not this commit's. Anything else, and a
+    probe that fails, is ``UNKNOWN``. ``error`` is what the commit raised.
     """
     # fix(#909)-style late bind so tests' engine patching is honored.
     import app.core.db as db_module
 
     from app.platform.jobs.models import IngestJob
 
-    log = structlog.get_logger()
+    log = structlog.get_logger().bind(
+        job_id=job_id, task=task, error=type(error).__name__
+    )
     if xid is None:
-        log.warning("publish_commit_probe_without_xid", job_id=job_id, task=task)
+        log.warning("publish_commit_probe_without_xid")
         return PublishObservation.UNKNOWN
     status = None
     try:
         async with db_module.async_session() as probe:
             outcome = await probe.scalar(_XACT_STATUS, {"xid": xid})
+            for _ in range(PUBLISH_PROBE_RETRIES):
+                if outcome != "in progress":
+                    break
+                await asyncio.sleep(PUBLISH_PROBE_RETRY_INTERVAL)
+                outcome = await probe.scalar(_XACT_STATUS, {"xid": xid})
             if outcome == "committed":
                 status = await probe.scalar(
                     select(IngestJob.status).where(
@@ -492,16 +508,14 @@ async def observe_publish_commit(
                     )
                 )
     except BaseException:
-        log.warning("publish_commit_probe_failed", job_id=job_id, task=task)
+        log.warning("publish_commit_probe_failed")
         return PublishObservation.UNKNOWN
     if outcome == "aborted":
         return PublishObservation.NOT_LANDED
     if outcome == "committed" and status == ended:
-        log.warning("publish_commit_ack_lost_but_landed", job_id=job_id, task=task)
+        log.warning("publish_commit_ack_lost_but_landed")
         return PublishObservation.LANDED
-    log.warning(
-        "publish_commit_outcome_unknown", job_id=job_id, task=task, outcome=outcome
-    )
+    log.warning("publish_commit_outcome_unknown", outcome=outcome)
     return PublishObservation.UNKNOWN
 
 

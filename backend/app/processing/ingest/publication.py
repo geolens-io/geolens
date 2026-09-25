@@ -224,7 +224,13 @@ async def commit_publication(
         asyncio.CancelledError,
     ) as exc:  # broad: a lost acknowledgement can surface as any error
         observation = await observe_publish_commit(
-            job_id, attempt_id, xid=xid, job_id=str(job_id), task=task, ended=ended
+            job_id,
+            attempt_id,
+            xid=xid,
+            error=exc,
+            job_id=str(job_id),
+            task=task,
+            ended=ended,
         )
         if observation is PublishObservation.NOT_LANDED:
             raise
