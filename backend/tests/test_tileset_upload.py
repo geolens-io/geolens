@@ -50,7 +50,8 @@ from app.processing.ingest.tasks_tileset import unpack_tileset
 from app.processing.ingest.tileset import Tileset, TilesetLayout, inspect_tileset
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_user
-from tests.test_raster_replace_1221 import _publish_commit_lost
+from tests.test_publish_followups import followups as followups
+from tests.test_raster_replace_1221 import _ack_lost_on_publish, _publish_commit_lost
 from tests.tiles3d_archives import (
     REGION,
     b3dm,
@@ -810,6 +811,30 @@ async def test_a_lost_publish_commit_that_aborted_reaps_the_unpacked_tileset(
     assert await tileset_objects() == []
     job = await load_job(test_db_session, job_id)
     assert (job.status, job.dataset_id) == ("failed", None)
+
+
+async def test_a_lost_acknowledgement_that_landed_still_runs_the_followups(
+    client: AsyncClient, test_db_session, uploader, queued, followups
+) -> None:
+    """A tileset publish observed after its acknowledgement was lost runs its follow-ups once."""
+    headers, _ = uploader
+    job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
+    assert (await commit(client, headers, job_id)).status_code == 202
+
+    with _ack_lost_on_publish(
+        uuid.UUID(job_id), failure=ConnectionResetError("dropped")
+    ) as fired:
+        await run_queued(queued)
+
+    assert fired["count"] == 1, "the publishing commit never fired"
+    assert followups == [
+        ("notice", "ingest_complete"),
+        ("cache",),
+        ("embed",),
+        ("bill", "ingest_jobs"),
+    ]
+    assert followups.billing == [job_id]
+    assert (await load_job(test_db_session, job_id)).status == "complete"
 
 
 # --- Tenancy -------------------------------------------------------------

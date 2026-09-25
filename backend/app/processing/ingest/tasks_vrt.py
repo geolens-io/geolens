@@ -46,6 +46,10 @@ from app.processing.raster.vrt import (
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
 
+from app.processing.ingest.publish_followups import (
+    note_publish_followups,
+    run_publish_followups,
+)
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
@@ -813,6 +817,9 @@ async def ingest_vrt(
                 session.add(distribution)
 
                 # 12. Finalize job
+                await note_publish_followups(
+                    session, job_uuid, attempt_uuid, "ingest_vrt"
+                )
                 await require_ingest_job_update(
                     session,
                     job_uuid,
@@ -836,25 +843,18 @@ async def ingest_vrt(
                         task="ingest_vrt",
                     ):
                         raise
-                    # fix(#1778): stand down rather than re-raise
-                    # (same decision `regenerate_vrt` makes below) — the
-                    # dataset and its VRT object are durable, so the failure
-                    # handler would be writing about a job that succeeded.
-                    # fix(#1778): unlike `regenerate_vrt` there's
-                    # nothing to reap here; the skipped followups (cache
-                    # purge, embedding defer) are both recoverable.
+                    # Stand down, as `regenerate_vrt` does: the dataset may be
+                    # live, so the failure handler would report a job that
+                    # succeeded. Nothing here supersedes an object. The
+                    # follow-ups run once the publish is visible, or the sweep
+                    # runs them.
                     publish_committed = True
                     absorb_cancellation(exc)
+                    await run_publish_followups(job_uuid)
                     return
                 publish_committed = True
 
-                # Invalidate cache
-                await invalidate_catalog_cache()
-
-                # 13. Generate embedding (non-fatal)
-                from app.processing.embeddings.helpers import defer_embedding
-
-                await defer_embedding(dataset)
+                await run_publish_followups(job_uuid)
 
             except Exception:  # broad: re-raised below; rollback first so the
                 # outer handler can write a clean failure record via a fresh session.
@@ -863,12 +863,8 @@ async def ingest_vrt(
 
     except Exception as exc:  # broad: VRT pipeline includes GDAL subprocesses and rasterio — any step can fail
         if publish_committed:
-            # fix(#1778): the second way this handler is reached with
-            # a durable publish behind it, and the one the stand-down above
-            # cannot cover: `invalidate_catalog_cache` and `defer_embedding`
-            # run inside the same try, so a Valkey outage or a busy queue lands
-            # here after the dataset is live and the writes below would report
-            # a build that succeeded as failed.
+            # A follow-up failed after the publish; the writes below would
+            # report a build that succeeded as failed.
             structlog.get_logger().warning(
                 "vrt_post_publish_followup_failed",
                 job_id=job_id,

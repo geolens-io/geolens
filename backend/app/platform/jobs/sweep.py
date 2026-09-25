@@ -1486,6 +1486,8 @@ async def fail_stale_jobs(
     ``detailed=True`` returns the complete operational outcome for the admin
     endpoint and its audit event. ``settle_stale_jobs`` holds the stale rules.
     """
+    from app.processing.ingest.publish_followups import run_owed_publish_followups
+
     now = datetime.now(timezone.utc)
     settled = await settle_stale_jobs(db, now)
 
@@ -1609,18 +1611,20 @@ async def fail_stale_jobs(
         # fix(#1249): starts from the OBJECTS and asks whether any row owns
         # them — the only direction that finds one nothing references.
         await reconcile_orphaned_staging_objects(db, now=now)
+        await run_owed_publish_followups()
     if detailed:
         return outcome
     return outcome.pending_failed, outcome.running_failed
 
 
 def _carries_unreaped_artifacts():
-    """Predicate: the row still names an artifact nothing has reaped.
+    """Predicate: the row still names an artifact or follow-ups nothing has settled.
 
-    Such a row is the pending-reap record, so the retention purge keeps it. A
+    Such a row is the pending record, so the retention purge keeps it. A
     string test on the JSONB blob, never a throwing cast.
     """
     from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
+    from app.processing.ingest.publish_followups import PUBLISH_FOLLOWUPS_FIELD
     from app.processing.ingest.tasks_raster_common import (
         UNPUBLISHED_STORAGE_KEYS_FIELD,
     )
@@ -1629,6 +1633,7 @@ def _carries_unreaped_artifacts():
         IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(None),
         IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].is_not(None),
         IngestJob.user_metadata[UNPUBLISHED_TILESET_ATTEMPTS_FIELD].is_not(None),
+        IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD].is_not(None),
     )
 
 

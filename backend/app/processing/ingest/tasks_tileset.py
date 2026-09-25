@@ -22,7 +22,6 @@ from app.core.tiles3d import (
     UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
     tileset_attempt_prefix,
 )
-from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import set_dataset_origin
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
@@ -36,9 +35,12 @@ from app.platform.jobs.models import owned_presigned_staging_key
 from app.platform.storage.reap import delete_prefix
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.ingest.metadata_quality import compute_quality_score
+from app.processing.ingest.publish_followups import (
+    note_publish_followups,
+    run_publish_followups,
+)
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
-    _emit_billing_event,
     _job_phase_session,
     _parse_temporal_fields,
     cleanup_step,
@@ -344,6 +346,7 @@ async def ingest_tileset(
             dataset.quality_detail = await compute_quality_score(
                 session, dataset.table_name, [], dataset
             )
+            await note_publish_followups(session, job_uuid, attempt_uuid, _TASK)
             await require_ingest_job_update(
                 session,
                 job_uuid,
@@ -373,25 +376,12 @@ async def ingest_tileset(
                     raise
                 published = True
                 absorb_cancellation(exc)
+                await run_publish_followups(job_uuid)
                 return
             published = True
             final_status = "complete"
-            title = record.title
 
-        await _notify(
-            "ingest_complete",
-            subject=f"3D Tiles ingest complete: {title}",
-            body=f"3D Tiles dataset '{title}' has been successfully ingested.",
-            extra={"job_id": job_id, "dataset": title},
-        )
-        await invalidate_catalog_cache()
-        from app.processing.embeddings.helpers import defer_embedding
-
-        await defer_embedding(dataset)
-        tenant_id = current_tenant_var.get() if is_multi_tenant() else None
-        await _emit_billing_event(
-            str(tenant_id) if tenant_id else None, "ingest_jobs", event_id=job_id
-        )
+        await run_publish_followups(job_uuid)
     except Exception as exc:  # broad: any step may fail; the job row records it
         if published:
             # Only the best-effort follow-ups after the commit can land here.
