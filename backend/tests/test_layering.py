@@ -1184,7 +1184,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 281,
         # Shared-map audience decisions stay behind the permission extension seam.
         "backend/app/modules/catalog/maps/service_public.py": 987,
-        "backend/app/modules/catalog/search/service_records.py": 576,
+        "backend/app/modules/catalog/search/service_records.py": 603,
         "backend/app/modules/catalog/search/service_semantic.py": 481,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
@@ -1360,7 +1360,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1443,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1828,
+    "backend/app/standards/stac/router.py": 1830,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2505,

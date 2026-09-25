@@ -125,7 +125,7 @@ def _cog_download_distribution(
     A feed has one URL per distribution and no per-caller variant, so the
     link is published for public, published rasters only: the route serves
     those without credentials and 404s or 403s the rest. VRTs have no single
-    COG to download.
+    COG to download, and a STAC import's COG is not served by GeoLens.
     """
     return PublishedDistribution(
         distribution_type="download",
@@ -143,6 +143,9 @@ def _anonymous_cog_download(dataset: Dataset) -> bool:
         record.record_type == "raster_dataset"
         and record.visibility == "public"
         and record.record_status == "published"
+        # A STAC import's COG stays at its origin, which the route redirects
+        # to and which may require credentials.
+        and dataset.source_format != "stac"
     )
 
 

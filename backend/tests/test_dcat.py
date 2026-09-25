@@ -1082,11 +1082,12 @@ async def test_dcat_public_raster_advertises_the_cog_download(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("record_type", "visibility", "record_status"),
+    ("record_type", "visibility", "record_status", "source_format"),
     [
-        ("vrt_dataset", "public", "published"),
-        ("raster_dataset", "internal", "published"),
-        ("raster_dataset", "public", "draft"),
+        ("vrt_dataset", "public", "published", "geotiff"),
+        ("raster_dataset", "internal", "published", "geotiff"),
+        ("raster_dataset", "public", "draft", "geotiff"),
+        ("raster_dataset", "public", "published", "stac"),
     ],
 )
 async def test_dcat_raster_without_anonymous_download_omits_the_cog_url(
@@ -1096,18 +1097,21 @@ async def test_dcat_raster_without_anonymous_download_omits_the_cog_url(
     record_type: str,
     visibility: str,
     record_status: str,
+    source_format: str,
 ):
     """A feed URL has no per-caller variant, so a raster the route refuses
-    anonymously (non-public, unpublished) or a VRT (no single COG) keeps only
+    anonymously (non-public, unpublished), a VRT (no single COG) or a STAC
+    import (its COG stays at an origin that may need credentials) keeps only
     the tile template."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_raster_dataset(
         session,
         created_by=admin_id,
-        name=f"Raster {record_type} {visibility} {record_status}",
+        name=f"Raster {record_type} {visibility} {record_status} {source_format}",
         record_type=record_type,
-        storage_key=_STORAGE_KEY,
+        source_format=source_format,
+        storage_key=_STORAGE_KEY if source_format != "stac" else None,
         visibility=visibility,
         record_status=record_status,
     )

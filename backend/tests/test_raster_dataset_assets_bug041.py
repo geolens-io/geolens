@@ -122,7 +122,9 @@ class TestReadPathNowLive:
         assert assets["data"]["href"].startswith("https://s3.example.com/")
         assert "source.cog.tif" in assets["data"]["href"]
 
-    def _local_assets(self, *, record_type="raster_dataset", status="published"):
+    def _local_assets(
+        self, *, record_type="raster_dataset", status="published", cog_download=True
+    ):
         ds_id = "00000000-0000-0000-0000-0000000000bb"
         ds = _make_raster_dataset(ds_id)
         ds.record.record_type = record_type
@@ -140,6 +142,7 @@ class TestReadPathNowLive:
             stac_asset_rows=rows,
             record_status=status,
             storage_backend="local",
+            cog_download=cog_download,
         )
 
     def test_local_storage_published_raster_points_at_the_serving_routes(self):
@@ -150,9 +153,38 @@ class TestReadPathNowLive:
         assert assets["data"]["href"] == f"{api}/download/cog"
         assert assets["data"]["type"].endswith("profile=cloud-optimized")
         assert assets["data"]["roles"] == ["data"]
-        assert assets["thumbnail"]["href"] == f"{api}/quicklook?size=256"
-        assert assets["overview"]["href"] == f"{api}/quicklook?size=512"
+        assert assets["thumbnail"]["href"] == f"{api}/quicklook?size=256&pv=0"
+        assert assets["overview"]["href"] == f"{api}/quicklook?size=512&pv=0"
         assert not [a for a in assets.values() if "/assets/" in a["href"]]
+
+    def test_quicklooks_carry_the_tile_cache_versions(self):
+        """The quicklook route is cached publicly; a replacement rolls its URL."""
+        ds_id = "00000000-0000-0000-0000-0000000000cc"
+        ds = _make_raster_dataset(ds_id)
+        ds.tile_cache_version = 3
+        ds.publication_version = 2
+        rows = _build_dataset_asset_rows(
+            dataset_id=uuid.UUID(ds_id),
+            cog_key="rasters/x/abc/source.cog.tif",
+            ql256_key="rasters/x/abc/quicklook_256.png",
+            ql512_key="rasters/x/abc/quicklook_512.png",
+            cog_size=4096,
+            is_manifest_vrt=False,
+        )
+        assets = build_assets(
+            ds,
+            "http://localhost:8080/api",
+            stac_asset_rows=rows,
+            record_status="published",
+            storage_backend="local",
+        )
+        assert assets["thumbnail"]["href"].endswith("quicklook?size=256&v=3&pv=2")
+
+    def test_local_storage_without_cog_download_omits_only_data(self):
+        """A caller the download route would refuse gets the quicklooks only."""
+        _, assets = self._local_assets(cog_download=False)
+        assert "data" not in assets
+        assert {"raster_tiles", "thumbnail", "overview"} <= set(assets)
 
     @pytest.mark.parametrize(
         ("record_type", "status"),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -15,7 +16,11 @@ import structlog
 from app.core.config import settings
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
-from app.core.tile_scope import republished_tile_url, tile_template_query
+from app.core.tile_scope import (
+    republished_tile_url,
+    tile_template_params,
+    tile_template_query,
+)
 from app.core.tiles3d import TILESET_MEDIA_TYPE, tileset_path
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.source_freshness import (
@@ -82,8 +87,12 @@ def build_assets(
     storage_backend: str = "local",
     storage_provider: "StorageProvider | None" = None,
     public_app_url: str | None = None,
+    cog_download: bool = False,
 ) -> dict:
     """Build a modality-aware unified assets dict for a dataset.
+
+    ``cog_download``: the caller may use the COG download route, so a local
+    raster's ``data`` asset can point at it.
 
     fix(#315): the raster/VRT ``raster_tiles`` asset uses ``public_app_url``
     (nginx-rewritten to the tile proxy), not ``/api``; every other
@@ -172,7 +181,11 @@ def build_assets(
         public_api_url=public_api_url,
         storage_provider=storage_provider,
         local_routes=_local_raster_asset_routes(
-            dataset, record_type, record_status, storage_backend
+            dataset,
+            record_type,
+            record_status,
+            storage_backend,
+            cog_download=cog_download,
         ),
     )
     assets.update(stac_built)
@@ -181,12 +194,19 @@ def build_assets(
 
 
 def _local_raster_asset_routes(
-    dataset: Dataset, record_type: str, record_status: str, storage_backend: str
+    dataset: Dataset,
+    record_type: str,
+    record_status: str,
+    storage_backend: str,
+    *,
+    cog_download: bool,
 ) -> dict[str, str] | None:
     """API routes serving a published raster's stored files on local storage.
 
     A local storage key has no URL of its own, but these routes serve the
     same files behind the dataset's access checks. VRTs have no single COG.
+    The quicklook URLs carry the tile cache-key params: that route is cached
+    publicly, and a replaced raster must not show the old images.
     """
     if not (
         storage_backend == "local"
@@ -194,11 +214,18 @@ def _local_raster_asset_routes(
         and record_type == "raster_dataset"
     ):
         return None
-    return {
-        "data": cog_download_path(dataset.id),
-        "thumbnail": f"/datasets/{dataset.id}/quicklook?size=256",
-        "overview": f"/datasets/{dataset.id}/quicklook?size=512",
+    version = tile_template_params(
+        getattr(dataset, "tile_cache_version", None),
+        getattr(dataset, "publication_version", None),
+    )
+    quicklook = f"/datasets/{dataset.id}/quicklook?"
+    routes = {
+        "thumbnail": quicklook + urlencode({"size": 256, **version}),
+        "overview": quicklook + urlencode({"size": 512, **version}),
     }
+    if cog_download:
+        routes["data"] = cog_download_path(dataset.id)
+    return routes
 
 
 def _build_stac_assets(

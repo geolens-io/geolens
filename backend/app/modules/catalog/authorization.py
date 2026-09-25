@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
+from app.core.permissions import EXPORT
+from app.modules.auth.permissions import get_effective_permissions
 from app.modules.auth.permissions import get_user_roles as _get_user_roles
 from app.platform.extensions import get_permission_extension
 
@@ -470,4 +472,31 @@ async def check_public_visibility_allowed(
             "instance. Choose a narrower visibility or ask an admin to "
             "make this content public."
         ),
+    )
+
+
+async def can_download_raster_cog(
+    db: AsyncSession,
+    dataset: Any,
+    user: Identity | None,
+    user_roles: set[str] | None = None,
+) -> bool:
+    """Whether the COG download route would serve *dataset* to a caller who
+    can already see it.
+
+    The route's own gate, without raising: an anonymous caller only gets a
+    public dataset, an authenticated one also needs the export capability.
+    """
+    if dataset.record.record_type != "raster_dataset":
+        return False
+    if user is None:
+        return dataset.record.visibility == DatasetVisibility.PUBLIC.value
+    if user_roles is None:
+        user_roles = await get_user_roles(db, user)
+    return await get_permission_extension().check_permission(
+        db,
+        user,
+        EXPORT,
+        user_roles=user_roles,
+        permission_matrix=await get_effective_permissions(db),
     )
