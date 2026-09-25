@@ -92,8 +92,43 @@ def _makes_a_job(value: ast.expr, returns_a_job: frozenset[str]) -> bool:
     )
 
 
+# Calls that read rows out of a statement or result they are handed.
+_READS = frozenset(
+    {
+        "all",
+        "execute",
+        "first",
+        "get",
+        "one",
+        "one_or_none",
+        "scalar",
+        "scalar_one",
+        "scalar_one_or_none",
+        "scalars",
+        "unique",
+    }
+)
+
+
+def _reads_a_job(
+    value: ast.expr, jobs: set[str], returns_a_job: frozenset[str]
+) -> bool:
+    """Whether ``value`` is a job, or is read out of a name that holds jobs."""
+    value = _unwrap(value)
+    if _makes_a_job(value, returns_a_job):
+        return True
+    while isinstance(value, ast.Call) and _callee(value) in _READS:
+        first = value.args[0] if value.args else None
+        if isinstance(first, ast.Name) and first.id in jobs:
+            return True
+        if not isinstance(value.func, ast.Attribute):
+            return False
+        value = _unwrap(value.func.value)
+    return isinstance(value, ast.Name) and value.id in jobs
+
+
 def _job_names(scope: ast.AST, returns_a_job: frozenset[str]) -> set[str]:
-    """Names bound to an IngestJob in ``scope``."""
+    """Names bound in ``scope`` to an IngestJob, or to a query or result of them."""
     names: set[str] = set()
     if isinstance(scope, _Function):
         args = scope.args
@@ -103,13 +138,22 @@ def _job_names(scope: ast.AST, returns_a_job: frozenset[str]) -> set[str]:
                 names.add(arg.arg)
             elif annotation is not None and "IngestJob" in annotation:
                 names.add(arg.arg)
+    bindings: list[tuple[list[ast.expr], ast.expr]] = []
     for node in _own_nodes(scope):
-        if isinstance(node, ast.Assign | ast.AnnAssign) and node.value is not None:
-            if _makes_a_job(node.value, returns_a_job):
-                targets = (
-                    node.targets if isinstance(node, ast.Assign) else [node.target]
-                )
-                names.update(t.id for t in targets if isinstance(t, ast.Name))
+        if isinstance(node, ast.Assign):
+            bindings.append((node.targets, node.value))
+        elif isinstance(node, ast.AnnAssign | ast.NamedExpr) and node.value:
+            bindings.append(([node.target], node.value))
+        elif isinstance(node, ast.For | ast.AsyncFor):
+            bindings.append(([node.target], node.iter))
+    grew = True
+    while grew:
+        grew = False
+        for targets, value in bindings:
+            new = {t.id for t in targets if isinstance(t, ast.Name)} - names
+            if new and _reads_a_job(value, names, returns_a_job):
+                names |= new
+                grew = True
     return names
 
 
@@ -149,9 +193,13 @@ def _names_status(
     values = _unwrap(values)
     if isinstance(values, ast.Dict):
         return any(
-            key is None or (isinstance(key, ast.Constant) and key.value == "status")
+            key is None
+            or (isinstance(key, ast.Constant) and key.value == "status")
+            or (isinstance(key, ast.Attribute) and key.attr == "status")
             for key in values.keys
         )
+    if isinstance(values, ast.Call) and _callee(values) == "dict":
+        return any(k.arg in ("status", None) for k in values.keywords)
     if isinstance(values, ast.Name) and values.id in bindings:
         return _names_status(bindings[values.id], {}, returns)
     if isinstance(values, ast.Call) and _callee(values) in returns:
@@ -170,11 +218,18 @@ def _status_writes(
     name bound to an IngestJob; a ``values`` dict with a ``status`` key passed
     to one of ``_VALUES_HELPERS``; or raw SQL that sets the status.
 
+    A name holds a job when it is bound to ``IngestJob(...)``, a ``select(IngestJob)``,
+    ``session.get(IngestJob, ...)`` or a call annotated to return one, or is read out
+    of such a name by assignment, ``for`` or ``:=`` (``result.scalar_one_or_none()``,
+    ``session.scalar(stmt)``, ``result.scalars()``).
+
     Known limits: bindings are read within one function, and a helper's
     ``values`` also from a function of the same module that returns it. A
     statement whose target cannot be resolved counts as a job write. An
-    unannotated parameter counts as a job only when it is named ``job``.
-    Dynamic dispatch, and dicts built in another module, are not followed.
+    unannotated parameter counts as a job only when it is named ``job``. Not
+    followed: dynamic dispatch, dicts built in another module, a ``status`` key
+    assigned into a bound dict (``values["status"] = ...``), a list of dicts
+    passed for an executemany, and tuple targets.
     """
     returns = {
         node.name: [
@@ -322,6 +377,32 @@ _SHAPES = {
         "async def f(s, i):\n    job = await s.get(IngestJob, i)\n    job.status = 'failed'\n"
     ),
     "attribute on a job parameter": "def f(job):\n    job.status = 'failed'\n",
+    "attribute on a job read from a result": (
+        "async def f(db, i):\n"
+        "    result = await db.execute(select(IngestJob).where(IngestJob.id == i))\n"
+        "    job = result.scalar_one_or_none()\n"
+        "    job.status = 'pending'\n"
+    ),
+    "attribute on a job from a session scalar": (
+        "async def f(s, i):\n    stmt = select(IngestJob).where(IngestJob.id == i)\n"
+        "    row = await s.scalar(stmt)\n    row.status = 'failed'\n"
+    ),
+    "attribute on a job in a loop": (
+        "async def f(s):\n    result = await s.execute(select(IngestJob))\n"
+        "    for row in result.scalars():\n        row.status = 'failed'\n"
+    ),
+    "attribute on a job bound by a walrus": (
+        "async def f(s, stmt):\n    rows = await s.execute(select(IngestJob))\n"
+        "    if (row := rows.scalars().first()) is not None:\n"
+        "        row.status = 'failed'\n"
+    ),
+    "update with a column key": (
+        "def f(s):\n    s.execute(update(IngestJob).values({IngestJob.status: 'failed'}))\n"
+    ),
+    "helper values from dict()": (
+        "async def f(s, i, a):\n"
+        "    await require_ingest_job_update(s, i, a, values=dict(status='failed'))\n"
+    ),
     "setattr on an annotated job": (
         "def f(row: IngestJob):\n    setattr(row, 'status', 'failed')\n"
     ),
@@ -362,6 +443,15 @@ _NOT_A_JOB_STATUS = {
     ),
     "another row's attribute": (
         "async def f(s, i):\n    run = await s.get(DatasetRefreshRun, i)\n    run.status = 'x'\n"
+    ),
+    "another row read beside a job": (
+        "async def f(s, job):\n    asset = await lock_asset(s, job.dataset_id)\n"
+        "    gen = await s.get(VrtGeneration, job.id)\n"
+        "    asset.status = 'ready'\n    gen.status = 'failed'\n"
+    ),
+    "another table's update with a column key": (
+        "def f(s):\n"
+        "    s.execute(update(DatasetRefreshRun).values({DatasetRefreshRun.status: 'x'}))\n"
     ),
     "a job column other than status": (
         "def f(s, now):\n    s.execute(update(IngestJob).values(heartbeat_at=now))\n"
