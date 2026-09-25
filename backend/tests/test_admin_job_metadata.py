@@ -56,6 +56,7 @@ BOOKKEEPING = {
     "service_auth_required": True,
     "accepted_refresh_run_id": str(uuid.uuid4()),
     "accepted_refresh_fingerprint": "sha256:4567",
+    "archive_error": "Could not archive staging/job/original.tif",
 }
 USER_METADATA = {
     "title": "Campus",
@@ -70,6 +71,7 @@ USER_METADATA = {
     EMBEDDING_BACKFILL_METADATA_KEY: {"force": False, "records_total": 3},
     "all_layers": [{"name": "roads", "feature_count": 1, "field_count": 2}],
     "fan_out_parent_id": str(uuid.uuid4()),
+    "archive_failed": True,
 }
 UNKNOWN = {"some_new_worker_state": {"attempt": 3}}
 BACKEND_APP = Path(__file__).resolve().parents[1] / "app"

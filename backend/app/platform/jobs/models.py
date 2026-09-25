@@ -154,7 +154,6 @@ PUBLIC_METADATA_KEYS = frozenset(
         "temporal_parse_errors",
         "collision_warning",
         "archive_failed",
-        "archive_error",
     }
 )
 
