@@ -294,10 +294,8 @@ async def _fail(
     """Move this attempt's job from pending or running to failed, then settle ``linked``.
 
     ``reason`` is stored redacted. ``owes`` names a task whose follow-ups the
-    end owes, recorded in this same write: a second update of the row would
-    recheck its dataset key and wait on a dataset row another transaction
-    holds. Returns whether the write landed; a miss writes nothing. Does not
-    commit.
+    end owes, recorded in this same write. Returns whether the write landed; a
+    miss writes nothing. Does not commit.
     """
     written: dict[str, Any] = {
         "status": "failed",
