@@ -1300,7 +1300,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/metadata.py": 161,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once for a 3D Tiles tileset.
-    "backend/app/processing/ingest/router.py": 1860,
+    "backend/app/processing/ingest/router.py": 1645,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1713,
     # The file and service strategies: retrieval, staging, verification and cleanup.
@@ -1838,6 +1838,11 @@ _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN: dict[str, set[str]] = {
         "app.modules.quota.service",
     },
     "ingest/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.quota.service",
+    },
+    # The URL import door, split out of ingest/router.py with the same two edges.
+    "ingest/router_url_import.py": {
         "app.modules.auth.dependencies",
         "app.modules.quota.service",
     },

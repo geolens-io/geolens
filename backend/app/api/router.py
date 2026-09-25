@@ -42,6 +42,7 @@ from app.processing.export.router import router as export_router
 from app.modules.catalog.features.router import features_router
 from app.processing.ingest.manifest_router import manifest_router
 from app.processing.ingest.router import router as ingest_router
+from app.processing.ingest.router_url_import import router as url_import_router
 from app.platform.jobs.router import router as jobs_router
 from app.modules.catalog.layers.router import layers_router
 from app.modules.catalog.maps.router import router as maps_router
@@ -68,6 +69,7 @@ api_router.include_router(admin_router)
 api_router.include_router(audit_router)
 api_router.include_router(audit_datasets_router)
 api_router.include_router(ingest_router)
+api_router.include_router(url_import_router)
 api_router.include_router(manifest_router)
 
 # Export must stay before dataset CRUD because /dcat conflicts with /{dataset_id}.

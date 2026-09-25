@@ -346,7 +346,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "processing/ingest/metadata_projection.py": 1,
     "processing/ingest/ogr.py": 13,
     "processing/ingest/presigned.py": 1,
-    "processing/ingest/router.py": 11,
+    "processing/ingest/router.py": 9,
     "processing/ingest/schemas.py": 1,
     "processing/ingest/tasks_common.py": 35,
     "processing/ingest/tasks_postgis_refresh.py": 2,
