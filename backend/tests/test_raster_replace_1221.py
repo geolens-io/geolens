@@ -5612,23 +5612,11 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
     """
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.platform.jobs import heartbeat as heartbeat_module
     from app.platform.jobs import ledger as ledger_module
 
     real_commit = AsyncSession.commit
-    real_update = heartbeat_module.update_ingest_job_for_attempt
     real_complete = ledger_module.complete
     fired = {"count": 0, "pending": False}
-
-    # The settlement seam still completes through heartbeat's update; the
-    # other publish tails complete through the ledger.
-    async def _update(session, jid, attempt_id, *, values, expected_status="running"):
-        result = await real_update(
-            session, jid, attempt_id, values=values, expected_status=expected_status
-        )
-        if str(jid) == str(job_id) and values.get("status") == "complete":
-            fired["pending"] = True
-        return result
 
     async def _complete(session, jid, attempt_id, **kwargs):
         await real_complete(session, jid, attempt_id, **kwargs)
@@ -5644,7 +5632,6 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
             raise ConnectionResetError("dropped while COMMIT waited on the standby")
         return await real_commit(self, *args, **kwargs)
 
-    heartbeat_module.update_ingest_job_for_attempt = _update
     ledger_module.complete = _complete
     AsyncSession.commit = _commit
     try:
@@ -5654,7 +5641,6 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
             yield fired
     finally:
         AsyncSession.commit = real_commit
-        heartbeat_module.update_ingest_job_for_attempt = real_update
         ledger_module.complete = real_complete
 
 
