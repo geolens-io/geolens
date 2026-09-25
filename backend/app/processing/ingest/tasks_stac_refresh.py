@@ -64,9 +64,13 @@ _MISSING = "missing"
 # reason: they select which diagnosis the run reports.
 _ITEM_WITHDRAWN = "item_withdrawn"
 _NOT_FOUND = "not_found"
+# An `inaccessible` detail, mirrored for the same reason as the two above: it
+# selects the refusal diagnosis instead of the generic unreachable one.
+_BLOCKED_BY_POLICY = "blocked_by_policy"
 
 _ERROR_CODE_MISSING = "source_missing"
 _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
+_ERROR_CODE_BLOCKED_BY_POLICY = "source_blocked_by_policy"
 _ERROR_CODE_GENERIC = "stac_refresh_failed"
 _ERROR_CODE_SUPERSEDED = "superseded"
 
@@ -171,6 +175,11 @@ _UNREACHABLE_MESSAGE = (
     "and the catalog's answer did not establish whether the item is still "
     "published. Nothing was changed. Try again."
 )
+_BLOCKED_BY_POLICY_MESSAGE = (
+    "GeoLens will not fetch the address this dataset's catalog gave for its "
+    "STAC item or its asset, because this instance's outbound-address "
+    "policy refuses it. Nothing was changed."
+)
 
 
 def _binding(dataset: Any) -> tuple:
@@ -235,6 +244,15 @@ def _failure_for(resolution: Any) -> StacRefreshError:
             else _WITHDRAWN_MESSAGE,
             error_code=_ERROR_CODE_MISSING,
             health=resolution.health,
+            detail=resolution.detail,
+            contacted=resolution.contacted,
+        )
+    if resolution.detail == _BLOCKED_BY_POLICY:
+        # The policy refuses the same address every time, so retrying can't help.
+        return StacRefreshError(
+            _BLOCKED_BY_POLICY_MESSAGE,
+            error_code=_ERROR_CODE_BLOCKED_BY_POLICY,
+            health=None,
             detail=resolution.detail,
             contacted=resolution.contacted,
         )
