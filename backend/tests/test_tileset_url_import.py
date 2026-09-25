@@ -440,17 +440,26 @@ async def test_a_refused_archive_is_never_copied_to_object_storage(
 
 
 @pytest.mark.parametrize(
-    ("url", "filename"),
+    ("url", "filename", "upload_status"),
     [
-        (f"https://{ORIGIN}/tiles/tileset.json", None),
-        (f"https://{ORIGIN}/tiles/campus.gpkg", None),
-        (f"https://{ORIGIN}/download?id=7", "tileset.json"),
+        (f"https://{ORIGIN}/tiles/tileset.json", None, 422),
+        (f"https://{ORIGIN}/tiles/campus.gpkg", None, 422),
+        # The upload door reads its allowlist first; the URL door's sits behind the gate.
+        (f"https://{ORIGIN}/tiles/0/0.glb", None, 400),
+        (f"https://{ORIGIN}/download?id=7", "tileset.json", 422),
     ],
 )
 async def test_a_tileset_url_must_name_an_archive(
-    client: AsyncClient, test_db_session, uploader, deferred, monkeypatch, url, filename
+    client: AsyncClient,
+    test_db_session,
+    uploader,
+    deferred,
+    monkeypatch,
+    url,
+    filename,
+    upload_status,
 ) -> None:
-    """A name that is not an archive gets the upload door's 422, before DNS or a job."""
+    """A name that is not an archive gets the archive rule's 422, before DNS or a job."""
     headers, user_id = uploader
     origin = Origin(monkeypatch, serve(b""))
     fields = {"filename": filename} if filename else {}
@@ -458,9 +467,11 @@ async def test_a_tileset_url_must_name_an_archive(
     refused = await submit(client, headers, url, **fields)
     name = filename or url.rsplit("/", 1)[1]
     uploaded = await upload(client, headers, b"{}", filename=name)
+    archive_rule = await upload(client, headers, b"{}", filename="tileset.json")
 
     assert refused.status_code == 422, refused.text
-    assert refused.json() == uploaded.json()
+    assert refused.json() == archive_rule.json()
+    assert uploaded.status_code == upload_status, uploaded.text
     assert origin.resolved == []
     assert await job_ids_of(test_db_session, user_id) == []
     assert deferred == []
