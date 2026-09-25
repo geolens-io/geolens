@@ -369,6 +369,12 @@ export type AdminJobResponse = {
      */
     error_message: string | null;
     /**
+     * Error Code
+     *
+     * Stable code for a fixed failure reason, so a client can show it in the reader's language; `error_message` keeps its English text. Null when the reason is free text.
+     */
+    error_code?: string | null;
+    /**
      * Can Retry
      *
      * Whether the failed job can be retried with its retained source.
@@ -5086,6 +5092,12 @@ export type JobStatusResponse = {
      * Error Message
      */
     error_message: string | null;
+    /**
+     * Error Code
+     *
+     * Stable code for a fixed failure reason, so a client can show it in the reader's language; `error_message` keeps its English text. Null when the reason is free text.
+     */
+    error_code?: string | null;
     /**
      * Can Retry
      */
