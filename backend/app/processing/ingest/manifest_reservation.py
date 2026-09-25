@@ -15,7 +15,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.jobs import ledger
-from app.platform.jobs.models import MANIFEST_STAGE_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    ACTIVE_STATUSES,
+    MANIFEST_STAGE_METADATA_KEY,
+    IngestJob,
+)
 from app.platform.jobs.sweep import settle_stale_jobs
 
 log = structlog.get_logger()
@@ -52,7 +56,7 @@ async def latest_in_flight_manifest_job(db: AsyncSession, key: str) -> IngestJob
     result = await db.execute(
         select(IngestJob)
         .where(
-            IngestJob.status.in_(["pending", "running"]),
+            IngestJob.status.in_(ACTIVE_STATUSES),
             IngestJob.user_metadata["manifest_key"].astext == key,
         )
         .order_by(desc(IngestJob.created_at))

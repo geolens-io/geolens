@@ -36,7 +36,12 @@ from app.modules.admin.schemas import (
 )
 from app.platform.jobs import ledger
 from app.platform.jobs.ledger import Outcome, StaleIngestAttempt, hold
-from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    ACTIVE_STATUSES,
+    EMBEDDING_BACKFILL_METADATA_KEY,
+    TERMINAL_STATUSES,
+    IngestJob,
+)
 from app.processing.ingest.tasks import task_app
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -72,7 +77,7 @@ UNRESOLVED_OUTCOME = "unresolved"
 # Must stay byte-identical to the predicate of
 # `uq_ingest_jobs_active_embedding_backfill` (migration 0050) — the index is
 # the guard, this query is only the friendly half producing a readable 409.
-SLOT_HOLDING_STATUSES = ("pending", "running")
+SLOT_HOLDING_STATUSES = ACTIVE_STATUSES
 
 # Key under the run's ``embedding_backfill`` metadata holding how many records
 # the run set out to embed. Written by the per-batch counter, read by the
@@ -384,12 +389,6 @@ async def _settle(
         state.audited = True
 
 
-# Statuses that mean the question is settled: the row will not change again on
-# its own. Matches the CHECK constraint on ingest_jobs.status minus the two the
-# backfill can occupy while live.
-_TERMINAL_STATUSES = frozenset({"complete", "failed", "cancelled", "fanned_out"})
-
-
 async def _release_caller_transaction(session: AsyncSession, job_id: str) -> None:
     """Let go of the transaction we are recovering FROM, before taking its locks.
 
@@ -454,7 +453,7 @@ async def _recover_unsettled(
 
     async with async_session() as fresh:
         observed = await fresh.get(IngestJob, job_uuid)
-        if observed is not None and observed.status in _TERMINAL_STATUSES:
+        if observed is not None and observed.status in TERMINAL_STATUSES:
             # Settled already — trail must describe what the row says, whoever
             # wrote it.
             #
@@ -840,7 +839,7 @@ async def find_recent_embedding_backfills(
     """Return this tenant's finished backfill runs, newest first."""
     stmt = (
         _tenant_backfill_select()
-        .where(IngestJob.status.in_(sorted(_TERMINAL_STATUSES)))
+        .where(IngestJob.status.in_(sorted(TERMINAL_STATUSES)))
         .order_by(IngestJob.created_at.desc())
         .limit(limit)
     )

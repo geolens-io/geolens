@@ -366,6 +366,7 @@ async def _cleanup_staging_on_failure(
     from sqlalchemy.exc import DBAPIError
 
     from app.platform.jobs import ledger
+    from app.platform.jobs.models import ACTIVE_STATUSES
     from app.platform.jobs.heartbeat import (
         arm_job_error_write_budget,
         log_job_error_write_failure,
@@ -398,7 +399,7 @@ async def _cleanup_staging_on_failure(
             job_id,
             attempt_id,
             reason=error_message,
-            expect=("pending", "running"),
+            expect=ACTIVE_STATUSES,
             mirror=job,
         )
         await session.commit()

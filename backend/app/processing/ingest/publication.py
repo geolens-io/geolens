@@ -43,7 +43,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
 )
 from app.platform.jobs.ledger import hold
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ACTIVE_STATUSES, IngestJob
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
@@ -302,7 +302,7 @@ async def _fail(
         job_id,
         attempt_id,
         reason=reason,
-        expect=("pending", "running"),
+        expect=ACTIVE_STATUSES,
         values=None
         if owes is None
         else {"user_metadata": owed_followups(attempt_id, owes)},

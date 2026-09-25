@@ -38,6 +38,7 @@ from app.core.tiles3d import (
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
+    ACTIVE_STATUSES,
     ANALYSIS_OUTPUT_TABLE_FIELD,
     COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
@@ -348,7 +349,7 @@ async def _sweep_expired_presigned_staging(
                 IngestJob.user_metadata,
                 IngestJob.created_at,
             ).where(
-                IngestJob.status.not_in(("pending", "running")),
+                IngestJob.status.not_in(ACTIVE_STATUSES),
                 IngestJob.user_metadata["s3_key"].astext.is_not(None),
                 IngestJob.user_metadata[_STAGING_REAPED_FINAL_MARKER].astext.is_(None),
                 or_(
@@ -1541,7 +1542,7 @@ async def fail_stale_jobs(
             ),
         )
         purge_clauses = [
-            IngestJob.status.not_in(("pending", "running")),
+            IngestJob.status.not_in(ACTIVE_STATUSES),
             func.coalesce(IngestJob.completed_at, IngestJob.created_at)
             < retention_cutoff,
             IngestJob.id.not_in(latest_complete_ids),
@@ -1638,7 +1639,7 @@ async def collect_unreaped_artifacts(
     artifact_rows = await db.execute(
         select(IngestJob.id, IngestJob.user_metadata)
         .where(
-            IngestJob.status.not_in(("pending", "running")),
+            IngestJob.status.not_in(ACTIVE_STATUSES),
             _carries_unreaped_artifacts(),
         )
         .limit(_ARTIFACT_REAP_BATCH)
