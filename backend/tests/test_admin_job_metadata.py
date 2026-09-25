@@ -203,7 +203,8 @@ def _written_metadata_keys() -> dict[str, str]:
     """Each key the code writes into a job's user_metadata, with one place it does.
 
     Reads key-name constants in platform/jobs, the first argument of each
-    ``jsonb_build_object`` call, the keys of dict literals that are assigned
+    ``jsonb_build_object`` call not nested in another (a nested one builds a
+    value, not a top-level key), the keys of dict literals that are assigned
     to ``user_metadata``, passed as ``user_metadata=``, nested under a
     ``"user_metadata"`` key, or that spread an existing ``user_metadata``, and
     every key a ``*_job_metadata`` helper builds when a dict spreads its result.
@@ -246,10 +247,8 @@ def _written_metadata_keys() -> dict[str, str]:
             keys: list[ast.expr | None] = []
             if isinstance(node, ast.Dict) and _is_job_metadata(node, parents.get(node)):
                 keys = node.keys
-            elif (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "jsonb_build_object"
+            elif _called_name(node) == "jsonb_build_object" and not (
+                _called_name(parents.get(node)) == "jsonb_build_object"
             ):
                 keys = node.args[:1]
             elif isinstance(node, ast.FunctionDef) and node.name in producers:
