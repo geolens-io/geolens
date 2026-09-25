@@ -31,12 +31,7 @@ import type {
 /** Byte-transfer progress callback (0–1). */
 export type UploadProgress = (fraction: number) => void;
 
-/**
- * Rebuilds an upload/reupload door's ApiError from its raw body through
- * describeUploadRefusal, so an unmapped 422 string reaches the form as the
- * server composed it. Every apiFetch-based door in this file and in
- * api/datasets.ts calls this from its catch block; always throws.
- */
+/** Rethrows err, with an ApiError's message rebuilt through describeUploadRefusal. */
 export function rethrowAsUploadRefusal(err: unknown): never {
   if (err instanceof ApiError) {
     const message = describeUploadRefusal(err.body, err.status);

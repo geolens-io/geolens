@@ -562,15 +562,9 @@ export function translateApiErrorDetail(detail: unknown, status = 0): string {
 }
 
 /**
- * Like translateApiErrorDetail, but an unmapped string 422 detail shows as
- * the server composed it, the way a stored job failure reason already does
- * (describeFailureReason in lib/failure-reason.ts). The upload and reupload
- * doors write this prose for the person who submitted the file (an unsafe
- * archive, a missing tileset.json, a disallowed extension); collapsing it to
- * the generic validationFailed fallback drops the one thing that tells them
- * what to fix. A detail this table already recognizes, or one that isn't a
- * plain string (a Pydantic array, a structured {code, message} refusal),
- * still translates as usual.
+ * Like translateApiErrorDetail, except that a 422 whose string detail the
+ * table doesn't recognize is returned as the server wrote it. Arrays,
+ * objects and recognized strings translate as usual.
  */
 export function describeUploadRefusal(detail: unknown, status: number): string {
   const descriptor = classifyApiError(detail, status);
