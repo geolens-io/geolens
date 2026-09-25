@@ -86,6 +86,9 @@ async def _recover_stale_jobs_for_current_scope() -> None:
     # Only after the commit: a reap before it could delete an artifact that a
     # rolled-back settlement still owns.
     outcome = await _reap_committed_staged_paths(outcome)
+    from app.processing.ingest.publish_followups import run_owed_publish_followups
+
+    await run_owed_publish_followups()
     for job_id in outcome._settled_running_ids:
         log.warning("Recovered stale running job", job_id=str(job_id))
     for job_id, status in outcome._settled_pending:

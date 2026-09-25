@@ -1312,7 +1312,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/config_ops/service.py": 1175,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1746,
+    "backend/app/platform/jobs/sweep.py": 1751,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1155,
@@ -1328,7 +1328,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1488,
     # VRT creation and regeneration share publication and superseded-object cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1712,
+    "backend/app/processing/ingest/tasks_vrt.py": 1708,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 616,
     # File/service tasks share publication fencing, heartbeat phases and failure

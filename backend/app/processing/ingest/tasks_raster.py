@@ -7,9 +7,7 @@ import structlog
 from sqlalchemy.exc import DBAPIError
 
 from app.core.failure_reason import redact_failure_reason
-from app.core.db.tenant_session import current_tenant_var, tenant_task
-from app.core.tenancy import is_multi_tenant
-from app.platform.cache.tiles import invalidate_catalog_cache
+from app.core.db.tenant_session import tenant_task
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     claim_job_attempt_and_start_heartbeat,
@@ -50,10 +48,13 @@ from app.processing.ingest.tasks_raster_common import (
     publishing_xid,
     record_unpublished_storage_keys,
 )
+from app.processing.ingest.publish_followups import (
+    note_publish_followups,
+    run_publish_followups,
+)
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
-    _emit_billing_event,
     _job_phase_session,
     _parse_temporal_fields,
     apply_manifest_record_metadata,
@@ -661,6 +662,9 @@ async def ingest_raster(
             # ingests have no rows (the COG and quicklooks ARE the
             # asset). Vector ingests set rows_processed in
             # tasks_common._finalize_ingest from metadata["feature_count"].
+            await note_publish_followups(
+                session, job_uuid, attempt_uuid, "ingest_raster"
+            )
             await require_ingest_job_update(
                 session,
                 job_uuid,
@@ -690,59 +694,19 @@ async def ingest_raster(
                     task="ingest_raster",
                 ):
                     raise
-                # fix(#1778): stand down rather than re-raise —
-                # the dataset is durable, so the handler below would send
-                # an `ingest_failed` notification for a succeeded ingest.
-                # `final_status` stays non-complete since it also licenses
-                # deleting the uploader's staged original.
-                # fix(#1778): nothing to reap here — a first
-                # ingest supersedes no asset, and the skipped followups
-                # (notification, cache purge, embedding defer, metering)
-                # are all recoverable.
+                # Stand down: the dataset may be live, and the handler below
+                # would mail `ingest_failed` for it. `final_status` stays
+                # non-complete since it also licenses deleting the staged
+                # original. The follow-ups run once the publish is visible, or
+                # the sweep runs them.
                 publish_committed = True
                 absorb_cancellation(exc)
+                await run_publish_followups(job_uuid)
                 return
             publish_committed = True
             final_status = "complete"
 
-            # EVENT-02: notify on ingest complete (non-fatal, after commit — deferred import).
-            # status="complete" is already committed above so a notification error cannot
-            # roll back or alter the terminal job write (T-1230-09 fail-safe).
-            _complete_title = title  # resolved at line ~486 in this session block
-            _complete_job_id = str(job_uuid)
-            from app.platform.notifications.events import (
-                build_event_notification,
-                emit_event_safe,
-            )
-
-            await emit_event_safe(
-                event_key="ingest_complete",
-                build=lambda: build_event_notification(
-                    "ingest_complete",
-                    subject=f"Raster ingest complete: {_complete_title}",
-                    body=f"Raster dataset '{_complete_title}' has been successfully ingested.",
-                    extra={"job_id": _complete_job_id, "dataset": _complete_title},
-                ),
-            )
-
-            # Invalidate cache
-            await invalidate_catalog_cache()
-
-            # 13. Generate embedding (non-fatal)
-            from app.processing.embeddings.helpers import defer_embedding
-
-            await defer_embedding(dataset)
-
-            # METER-01 (Phase 1213-02): emit raster ingest billable event through
-            # the billing-import-free seam. Resolve the optional billing
-            # dimension separately from provider keys; event_id = job_id keeps
-            # task retries idempotent at the DB layer.
-            billing_tenant_id = current_tenant_var.get() if is_multi_tenant() else None
-            await _emit_billing_event(
-                str(billing_tenant_id) if billing_tenant_id else None,
-                "ingest_jobs",
-                event_id=job_id,
-            )
+            await run_publish_followups(job_uuid)
 
     except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
         if publish_committed:
