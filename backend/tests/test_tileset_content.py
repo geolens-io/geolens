@@ -360,6 +360,40 @@ def test_a_composite_walking_back_over_its_parent_is_refused(tmp_path: Path) -> 
     assert "The tile headers in 0/0.cmpt overlap" in message
 
 
+def test_a_composite_with_a_gltf_tile_is_refused(tmp_path: Path) -> None:
+    """A client reads past a gltf-typed inner tile, so the tiles after it count."""
+    gltf_tile = b"gltf" + struct.pack("<2I", 1, 16) + bytes(4)
+    tile = cmpt(gltf_tile, b3dm(glb(_images("https://example.com/0.png"))))
+
+    message = refused(archive(tmp_path, ("0/0.cmpt", tile)))
+
+    assert "0/0.cmpt holds a composite tile typed gltf" in message
+
+
+# The inner tile types Cesium3DTileContentFactory has a factory for in CesiumJS 1.145.
+_COMPOSITE_FACTORIES = {
+    b"b3dm",
+    b"pnts",
+    b"i3dm",
+    b"cmpt",
+    b"geom",
+    b"vctr",
+    b"subt",
+    b"gltf",
+}
+
+
+def test_the_composite_walk_knows_the_client_factories() -> None:
+    """The walker knows every factory key, plus voxl, which it walks past to over-check."""
+    known = (
+        tileset_content._TILES
+        | tileset_content._TILES_WITHOUT_URIS
+        | {tileset_content._GLTF_TILE}
+    )
+
+    assert known == _COMPOSITE_FACTORIES | {b"voxl"}
+
+
 def test_composites_nested_past_the_depth_bound_are_refused(tmp_path: Path) -> None:
     """Composite tiles nest at most MAX_COMPOSITE_DEPTH levels."""
     tile = b3dm(glb(gltf_json()))

@@ -31,6 +31,9 @@ _B3DM_LEGACY_LENGTH = 0x22000000
 _GLB_JSON_CHUNK = 0x4E4F534A
 _TILES = frozenset({b"b3dm", b"i3dm", b"cmpt", b"subt"})
 _TILES_WITHOUT_URIS = frozenset({b"pnts", b"vctr", b"geom", b"voxl"})
+# CesiumJS hands a composite's gltf-typed tile the whole composite, which its
+# glTF loader can't read, and then goes on to the tiles after it.
+_GLTF_TILE = b"gltf"
 
 _UTF8_BOM = b"\xef\xbb\xbf"
 _JSON_BLANKS = b" \t\n\r"
@@ -255,8 +258,14 @@ def _check_composite(member: _Member, start: int, depth: int) -> None:
             _refuse_overlap(member.key)
         if magic in _TILES:
             _check_tile(member, inner, magic, depth + 1)
+        elif magic == _GLTF_TILE:
+            _refuse(
+                f"{member.key} holds a composite tile typed gltf, which no "
+                "writer produces and a client reads past without loading.",
+                reason="tileset_composite_gltf",
+            )
         elif magic not in _TILES_WITHOUT_URIS:
-            # CesiumJS stops at a tile type it does not know.
+            # CesiumJS throws at a tile type it has no factory for.
             return
         inner += length
 
