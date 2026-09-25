@@ -62,6 +62,7 @@ from app.modules.catalog.datasets.domain.schemas import (
 from app.platform.refresh.service import list_runs_for_dataset
 from app.platform.cache import get_cache, tenant_cache_key
 from app.platform.cache.provider import get_tile_cache, notify_table_invalidated
+from app.platform.cache.scope import is_publicly_cacheable
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
 from app.modules.catalog.datasets.domain.service import (
@@ -310,10 +311,17 @@ async def get_quicklook(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Quicklook temporarily unavailable",
         )
+    # A shared cache keys on the URL alone, so only an image anyone may fetch is public.
+    record = dataset.record
+    cache_control = (
+        "public, max-age=3600"
+        if is_publicly_cacheable(record.visibility, record.record_status)
+        else "private, no-store"
+    )
     return Response(
         content=data,
         media_type="image/png",
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={"Cache-Control": cache_control},
     )
 
 

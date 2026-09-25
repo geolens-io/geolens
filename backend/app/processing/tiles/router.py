@@ -52,6 +52,7 @@ from app.platform.cache.provider import (
     get_tile_cache,
     register_table_invalidation_listener,
 )
+from app.platform.cache.scope import is_publicly_cacheable
 from app.platform.extensions import (
     get_billing_extensions,
     get_data_serving_extension,
@@ -590,17 +591,6 @@ def _apply_stretch_rescale(render_params: str, rescale_parts: list[str]) -> str:
     return "&".join(kept + rescale_parts)
 
 
-def _is_publicly_cacheable(visibility: str | None, record_status: str | None) -> bool:
-    """Whether a tile may be stored in the shared (auth-less) cache.
-
-    Only a dataset that is BOTH public AND published is safe to cache publicly.
-    A public-but-unpublished dataset is an owner/admin-only preview: marking its
-    tiles `public` would populate the auth-less nginx cache key and replay them
-    to later anonymous requests.
-    """
-    return visibility == "public" and record_status == "published"
-
-
 def _require_tile_tenant_context() -> str | None:
     """Return the resolved tenant id or fail before any multi-tenant tile read.
 
@@ -939,7 +929,7 @@ async def raster_auth_check(
 
     cache_status = (
         "public"
-        if _is_publicly_cacheable(meta.visibility, meta.record_status)
+        if is_publicly_cacheable(meta.visibility, meta.record_status)
         else "private"
     )
     # fix(#1372): a shared-cache entry may only be written under the
@@ -1860,7 +1850,7 @@ async def _authorize_vector_tile_request(
         # for one delegates access its holder already had.
         return (
             "public"
-            if _is_publicly_cacheable(meta.visibility, meta.record_status)
+            if is_publicly_cacheable(meta.visibility, meta.record_status)
             else "private"
         )
 
