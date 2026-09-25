@@ -16,6 +16,27 @@ from app.processing.raster.vrt import gdal_safe_env, run_gdal
 
 _FLOAT_DTYPES = {"float32", "float64", "float16", "float", "complex"}
 
+# A driver reports its compression as free text, so a refusal names only these.
+_COMPRESSION_NAMES = frozenset(
+    {
+        "none",
+        "deflate",
+        "lzw",
+        "zstd",
+        "packbits",
+        "lzma",
+        "lerc",
+        "lerc_deflate",
+        "lerc_zstd",
+        "jpeg",
+        "webp",
+        "jxl",
+        "ccittrle",
+        "ccittfax3",
+        "ccittfax4",
+    }
+)
+
 # fix(#887): a footprint that wraps the whole world puts its left and right
 # edges on the SAME meridian, so transform_bounds can only report a zero-width
 # longitude range for it. Recognizing that needs an equality test, and the
@@ -143,18 +164,6 @@ def _scratch_dir() -> str | None:
     return staging if _Path(staging).is_dir() else None
 
 
-def validate_raster_crs(file_path: str) -> None:
-    """Raise ValueError if the raster file has no valid CRS."""
-    import rasterio
-
-    with rasterio.open(file_path) as src:
-        if src.crs is None:
-            raise ValueError(
-                "Missing CRS: raster has no coordinate reference system. "
-                "Ensure the GeoTIFF includes an embedded CRS."
-            )
-
-
 def _fold_geographic_bbox(
     west: float, south: float, east: float, north: float
 ) -> tuple[float, float, float, float]:
@@ -202,8 +211,8 @@ def _wgs84_bbox(src) -> tuple[float, float, float, float]:
         src.bounds.top,
     )
     if crs is None:
-        # Without a CRS these are not longitudes at all (validate_raster_crs
-        # rejects such rasters at ingest), so there is nothing to normalize.
+        # Without a CRS these are not longitudes at all (ingest refuses such
+        # rasters unless given an override), so there is nothing to normalize.
         return bounds
 
     if crs.to_epsg() == 4326:
@@ -360,7 +369,8 @@ def check_cog_compliance(
         compression = (profile.get("compress") or "").lower()
         target = (expected_compression or "deflate").lower()
         if compression != target:
-            return False, f"Compression is '{compression}', expected '{target}'"
+            named = compression if compression in _COMPRESSION_NAMES else "other"
+            return False, f"Compression is '{named}', expected '{target}'"
 
         overviews = src.overviews(1) if src.count >= 1 else []
         if not overviews:
@@ -373,6 +383,7 @@ def prepare_with_overviews(
     input_path: str,
     dtype: str,
     *,
+    has_internal_overviews: bool,
     resampling: str | None = None,
     compression: str = "DEFLATE",
 ) -> str:
@@ -382,7 +393,6 @@ def prepare_with_overviews(
     GDAL refuses to add external ones when internal are present.
     `gdal_translate COPY_SRC_OVERVIEWS=YES` picks up existing overviews.
     """
-    import rasterio
     import shutil
 
     suffix = Path(input_path).suffix
@@ -393,12 +403,9 @@ def prepare_with_overviews(
     shutil.copy2(input_path, tmp_path)
 
     # fix(#430): run_gdal raises on timeout (BA-29), which bypassed
-    # the old returncode-only unlink and leaked the staged temp copy; a
-    # corrupt source raising inside rasterio.open leaked it the same way.
+    # the old returncode-only unlink and leaked the staged temp copy.
     # Any exception past this point must remove tmp_path.
     try:
-        with rasterio.open(input_path) as src:
-            has_internal_overviews = bool(src.overviews(1)) if src.count >= 1 else False
         if has_internal_overviews:
             return tmp_path
 
@@ -490,6 +497,8 @@ def convert_to_cog(
     resampling: str | None = None,
     nodata: float | str | None = None,
     assign_crs: int | None = None,
+    has_internal_overviews: bool,
+    predictor_supported: bool,
 ) -> None:
     """Convert input file to GeoLens COG profile using gdal_translate.
 
@@ -509,11 +518,15 @@ def convert_to_cog(
     # below carries them across intact. When a gdalwarp step ran first, this
     # had to consume the warped intermediate instead.
     tmp_path = prepare_with_overviews(
-        input_path, dtype, resampling=resampling, compression=compression
+        input_path,
+        dtype,
+        has_internal_overviews=has_internal_overviews,
+        resampling=resampling,
+        compression=compression,
     )
     try:
         predictor = _predictor_for_dtype(dtype, compression)
-        if predictor is not None and not _predictor_supported(tmp_path):
+        if predictor is not None and not predictor_supported:
             predictor = None
         # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
         # on top of GDAL_CACHEMAX=200.
@@ -562,12 +575,16 @@ def check_and_prepare_cog(
     file_path: str,
     output_dir: str,
     *,
+    inspection: dict,
     compression: str = "DEFLATE",
     resampling: str | None = None,
     nodata: float | str | None = None,
     assign_crs: int | None = None,
 ) -> tuple[str, str]:
     """Check compliance; convert if needed.
+
+    ``inspection`` is ``probe.inspect_raster``'s answer for ``file_path``,
+    checked against ``compression``.
 
     Returns (path_to_use, cog_status) where cog_status is 'verified' or 'converted'.
     """
@@ -584,14 +601,10 @@ def check_and_prepare_cog(
         or nodata is not None
         or assign_crs is not None
     )
-    if not has_custom_opts:
-        compliant, reason = check_cog_compliance(
-            file_path, expected_compression=compression
-        )
-        if compliant:
-            return file_path, "verified"
+    if not has_custom_opts and inspection["compliant"]:
+        return file_path, "verified"
 
-    meta = extract_raster_metadata(file_path)
+    meta = inspection["metadata"]
     dtype = meta.get("dtype", "uint8")
     output_path = str(Path(output_dir) / "source.cog.tif")
     convert_to_cog(
@@ -602,6 +615,8 @@ def check_and_prepare_cog(
         resampling=resampling,
         nodata=nodata,
         assign_crs=assign_crs,
+        has_internal_overviews=bool(meta.get("overview_levels")),
+        predictor_supported=inspection["predictor_supported"],
     )
     return output_path, "converted"
 

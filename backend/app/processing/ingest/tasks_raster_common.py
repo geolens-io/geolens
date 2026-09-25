@@ -20,7 +20,7 @@ from sqlalchemy import select, text
 
 from app.platform.dataset_origin import set_dataset_origin
 from app.platform.jobs.models import UNPUBLISHED_STORAGE_KEYS_FIELD
-from app.processing.raster.cog import check_cog_compliance, extract_raster_metadata
+from app.processing.raster.probe import RasterProbeError, inspect_raster
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
 
@@ -56,44 +56,31 @@ def _friendly_raster_open_failure_message(original_filename: "str | None") -> st
     )
 
 
-def extract_source_raster_metadata(
-    file_path: str, *, original_filename: "str | None" = None
+def inspect_source_raster(
+    file_path: str,
+    *,
+    original_filename: "str | None" = None,
+    expected_compression: str | None = None,
 ) -> dict:
-    """``extract_raster_metadata``, translating an open-time rasterio failure.
+    """``inspect_raster`` on a staged upload, refusing with a message of ours.
 
-    fix(#1661): both raster ingest tails call this on the freshly-staged
-    SOURCE upload. ``extract_raster_metadata`` opens the file with a single
-    ``rasterio.open`` call and reads everything else off the resulting
-    dataset, so ANY ``RasterioIOError`` it raises means "rasterio could not
-    open this file" — unrecognized format, corrupt/truncated IFD, missing
-    file, or permission error alike. (A narrower pattern match on just the
-    "not recognized" text missed the corrupt-IFD shape, which also quotes
-    the staging path and is equally reachable: a .tif with a valid magic
-    header but a corrupt IFD passes upload-time content-sniffing same as
-    any other .tif.)
-
-    This used to land the raw rasterio message, staging path included, in
-    ``IngestJob.error_message`` verbatim. The full message still reaches
-    structured logs here, the one place that sees it; a failure from
-    anything OTHER than the open call itself (e.g. EXIF/tag parsing further
-    into ``extract_raster_metadata``) is not a ``RasterioIOError`` and keeps
-    its real message. Callers reading their own just-produced COG (no
-    upload filename to leak) don't need this wrapper.
+    The refusal lands in ``IngestJob.error_message``, so it names the upload
+    by ``original_filename`` alone: never the staging path, and nothing the
+    probe read.
     """
-    import rasterio
-
     try:
-        return extract_raster_metadata(file_path)
-    except rasterio.errors.RasterioIOError as exc:
-        message = str(exc)
-        structlog.get_logger().error(
-            "rasterio could not open raster source",
-            error=message,
+        return inspect_raster(file_path, expected_compression=expected_compression)
+    except RasterProbeError as exc:
+        structlog.get_logger().warning(
+            "raster source probe failed",
+            kind=exc.kind,
             original_filename=original_filename,
         )
-        raise ValueError(
-            _friendly_raster_open_failure_message(original_filename)
-        ) from exc
+        if exc.kind == "open":
+            raise ValueError(
+                _friendly_raster_open_failure_message(original_filename)
+            ) from None
+        raise ValueError(str(exc)) from None
 
 
 def _is_manifest_vrt_job(job: Any) -> bool:
@@ -114,34 +101,29 @@ def _reject_raw_vrt_job(source_filename: str | None) -> None:
         )
 
 
-async def _enforce_strict_cog(
-    file_path: str,
+def _enforce_strict_cog(
+    inspection: dict,
     *,
-    expected_compression: str | None,
     is_manifest_vrt: bool,
     strict_cog: bool,
 ) -> None:
-    """Strict-mode COG gate for ING-07 / P2-09.
+    """Strict-mode COG gate.
 
     When the user opted in via ``RasterCommitRequest.strict_cog=True``,
     rejects non-COG TIFFs here instead of silently converting via
     ``check_and_prepare_cog``. Manifest-VRT jobs are excluded (VRTs are
     XML, not TIFFs — the compliance check would fail for unrelated
-    reasons). Raises ``ValueError`` with the compliance reason;
+    reasons). ``inspection`` was checked against the requested compression.
+    Raises ``ValueError`` with the compliance reason;
     ``ingest_raster``'s outer ``except Exception`` handler writes it to the
     job via ``_job_phase_session("error_write")``.
     """
-    import asyncio
-
     if not strict_cog or is_manifest_vrt:
         return
 
-    compliant, reason = await asyncio.to_thread(
-        check_cog_compliance, file_path, expected_compression=expected_compression
-    )
-    if not compliant:
+    if not inspection["compliant"]:
         raise ValueError(
-            f"Strict-COG mode rejected upload: {reason}. "
+            f"Strict-COG mode rejected upload: {inspection['compliance_reason']}. "
             "Disable strict_cog or upload a COG-compliant TIFF."
         )
 

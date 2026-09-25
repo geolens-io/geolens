@@ -720,16 +720,12 @@ async def _preview_raster(
     job: "IngestJob", file_path: str, downloaded_preview_path: Path | None
 ) -> RasterPreviewResponse:
     """Read a staged raster's metadata and COG compliance for the preview."""
-    from app.processing.raster.cog import (
-        check_cog_compliance,
-        extract_raster_metadata,
-    )
+    from app.processing.raster import probe
 
     file_size: int | None = None
     try:
-        meta, (compliant, reason) = await asyncio.gather(
-            asyncio.to_thread(extract_raster_metadata, file_path),
-            asyncio.to_thread(check_cog_compliance, file_path),
+        inspection = await asyncio.to_thread(
+            probe.inspect_raster, file_path, timeout=probe.PREVIEW_TIMEOUT_SECONDS
         )
         try:
             import os
@@ -737,21 +733,24 @@ async def _preview_raster(
             file_size = os.path.getsize(file_path)
         except OSError:
             pass
-    except (
-        Exception
-    ) as exc:  # broad: rasterio/GDAL can raise various errors on malformed files
-        logger.exception("raster_preview failed", job_id=str(job.id), error=str(exc))
+    except Exception as exc:  # broad: any failed probe is a failed preview
+        timed_out = isinstance(exc, probe.RasterProbeError) and exc.kind == "timeout"
+        logger.warning("raster_preview failed", job_id=str(job.id), timed_out=timed_out)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "raster_preview_failed",
-                "message": "Unable to preview raster file. The file may be malformed or unsupported.",
+                "message": str(exc)
+                if timed_out
+                else "Unable to preview raster file. The file may be malformed or unsupported.",
             },
         )
     finally:
         if downloaded_preview_path is not None:
             downloaded_preview_path.unlink(missing_ok=True)
 
+    meta = inspection["metadata"]
+    compliant, reason = inspection["compliant"], inspection["compliance_reason"]
     nodata = meta.get("nodata")
     return RasterPreviewResponse(
         job_id=job.id,

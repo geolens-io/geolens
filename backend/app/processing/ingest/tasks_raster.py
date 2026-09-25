@@ -19,11 +19,10 @@ from app.processing.raster.cog import (
     _scratch_dir,
     check_and_prepare_cog,
     cog_preserves_source,
-    extract_raster_metadata,
     resolve_crs_assignment,
     sha256_file,
 )
-from app.processing.raster.quicklook import generate_quicklook
+from app.processing.raster.probe import read_raster_metadata, render_quicklooks
 
 from app.platform.jobs.models import owned_presigned_staging_key
 from app.processing.ingest.tasks_raster_swap import (
@@ -41,7 +40,7 @@ from app.processing.ingest.tasks_raster_common import (
     _resolve_managed_raster_storage_keys,
     absorb_cancellation,
     create_raster_dataset,
-    extract_source_raster_metadata,
+    inspect_source_raster,
     publish_commit_landed,
     publishing_xid,
     record_unpublished_storage_keys,
@@ -234,21 +233,22 @@ async def ingest_raster(
         # 4. Hash source file
         source_sha256 = await asyncio.to_thread(sha256_file, file_path)
 
-        # 5. Extract metadata from the SOURCE. Only two things come from this
-        # read now (fix(#1290)): whether a CRS assignment is needed, and
-        # `original_srid`. Everything the catalog stores describes the COG.
-        # fix(#1661): extract_source_raster_metadata (not extract_raster_metadata
-        # directly) so an unopenable upload raises a friendly message built from
-        # `source_filename` instead of leaking the staging path in `file_path`.
-        source_meta = await asyncio.to_thread(
-            extract_source_raster_metadata,
-            file_path,
-            original_filename=source_filename,
-        )
-
         # Read GDAL options from user_metadata (set at commit time)
         assign_crs = um.get("srid_override")
         user_compression = um.get("compression") or "DEFLATE"
+
+        # 5. Inspect the SOURCE in the probe child. From its metadata come
+        # only whether a CRS assignment is needed and `original_srid`;
+        # everything the catalog stores describes the COG. Its compliance
+        # verdict, against the requested compression, feeds the strict gate
+        # and the conversion below.
+        source_inspection = await asyncio.to_thread(
+            inspect_source_raster,
+            file_path,
+            original_filename=source_filename,
+            expected_compression=user_compression,
+        )
+        source_meta = source_inspection["metadata"]
         user_resampling = um.get("resampling") or None
         user_nodata = um.get("nodata_override")
         # fix(#1186): derive this from the raster, not an upload-time
@@ -268,9 +268,8 @@ async def ingest_raster(
         # instead of silently routing through check_and_prepare_cog
         # conversion. Manifest-VRT jobs are excluded (VRTs are XML, not
         # TIFFs — the COG compliance check would fail for unrelated reasons).
-        await _enforce_strict_cog(
-            file_path,
-            expected_compression=user_compression,
+        _enforce_strict_cog(
+            source_inspection,
             is_manifest_vrt=is_manifest_vrt,
             strict_cog=bool(um.get("strict_cog")),
         )
@@ -318,6 +317,7 @@ async def ingest_raster(
                 check_and_prepare_cog,
                 file_path,
                 tmp_dir,
+                inspection=source_inspection,
                 compression=user_compression,
                 resampling=user_resampling,
                 nodata=user_nodata,
@@ -341,7 +341,11 @@ async def ingest_raster(
         # assignment unchanged (only the label changes), so reading the
         # COG interprets them in the assigned CRS — the reading the
         # caller asked for. Reading the source would use the wrong CRS.
-        cog_meta = await asyncio.to_thread(extract_raster_metadata, local_cog_path)
+        cog_meta = (
+            source_meta
+            if local_cog_path == file_path
+            else await asyncio.to_thread(read_raster_metadata, local_cog_path)
+        )
 
         # 7. Hash COG
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
@@ -410,8 +414,8 @@ async def ingest_raster(
                 await _progress_session.commit()
 
         # 8. Generate quicklooks
-        ql256 = await asyncio.to_thread(generate_quicklook, local_cog_path, 256)
-        ql512 = await asyncio.to_thread(generate_quicklook, local_cog_path, 512)
+        quicklooks = await asyncio.to_thread(render_quicklooks, local_cog_path)
+        ql256, ql512 = quicklooks[256], quicklooks[512]
 
         # Phase 2 (short-lived session via _job_phase_session — REMED-03/
         # P2-05): create DB records, store assets, commit job. Re-loads

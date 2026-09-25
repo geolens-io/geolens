@@ -99,32 +99,6 @@ def _write_tmp_tif(
 
 
 # ---------------------------------------------------------------------------
-# validate_raster_crs
-# ---------------------------------------------------------------------------
-
-
-class TestValidateRasterCrs:
-    def test_valid_crs_passes(self, tmp_path):
-        tif = _write_tmp_tif(crs=CRS.from_epsg(4326))
-        try:
-            from app.processing.raster.cog import validate_raster_crs
-
-            validate_raster_crs(str(tif))  # should not raise
-        finally:
-            tif.unlink(missing_ok=True)
-
-    def test_missing_crs_raises(self, tmp_path):
-        tif = _write_tmp_tif(crs=None)
-        try:
-            from app.processing.raster.cog import validate_raster_crs
-
-            with pytest.raises(ValueError, match="Missing CRS"):
-                validate_raster_crs(str(tif))
-        finally:
-            tif.unlink(missing_ok=True)
-
-
-# ---------------------------------------------------------------------------
 # extract_raster_metadata
 # ---------------------------------------------------------------------------
 

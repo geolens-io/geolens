@@ -63,7 +63,6 @@ from app.processing.raster.models import RasterAsset
 from app.processing.raster import vrt as vrt_module
 from app.processing.raster.vrt import (
     _seam_frame_origin,
-    _write_python_vrt,
     build_vrt,
     normalize_lon_span,
     shift_vrt_longitude_frame,
@@ -404,7 +403,7 @@ class TestCogExtentFold:
 
 
 # ---------------------------------------------------------------------------
-# Site 2: _write_python_vrt mosaic geometry
+# Site 2: the seam frame origin
 # ---------------------------------------------------------------------------
 
 
@@ -535,160 +534,6 @@ class TestSeamFrameOrigin:
         origin = _seam_frame_origin(spans)
         hull = max(r + 360.0 if left < origin else r for left, r in spans) - origin
         assert hull == pytest.approx(220.0)
-
-
-class TestSeamStraddlingVrt:
-    def _tiles(self, tmp_path, lon_pairs, *, epsg=4326, lat=(0.0, 5.0)):
-        return [
-            _write_tif(
-                tmp_path / f"tile{i}.tif",
-                epsg=epsg,
-                bounds=(west, lat[0], east, lat[1]),
-                width=50,
-                height=50,
-            )
-            for i, (west, east) in enumerate(lon_pairs)
-        ]
-
-    def test_mosaic_is_sized_to_the_real_footprint(self, tmp_path):
-        """Two 5° tiles either side of ±180 allocate 100 px, not 3600.
-
-        Pre-fix: rasterXSize 3600 (a full 360° at 0.1°/px) with the eastern
-        source parked at ``dst_x_off`` 3550 — an enormous, misregistered mosaic
-        with a 350° hole in the middle.
-        """
-        sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
-        out = _write_python_vrt(sources, str(tmp_path / "seam.vrt"), "finest")
-
-        assert _vrt_size(out) == (100, 50)
-        gt = _vrt_geotransform(out)
-        assert gt[0] == pytest.approx(175.0), "frame origin must be the western tile"
-        assert gt[1] == pytest.approx(0.1)
-        assert _dst_x_offs(out) == [0, 50]
-
-        with rasterio.open(out) as ds:
-            assert ds.bounds.left == pytest.approx(175.0)
-            assert ds.bounds.right == pytest.approx(185.0)
-
-    def test_seam_mosaic_extent_is_two_rings_end_to_end(self, tmp_path):
-        """The VRT the builder writes reads back as a two-ring 10° extent."""
-        sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
-        out = _write_python_vrt(sources, str(tmp_path / "seam.vrt"), "finest")
-
-        meta = extract_raster_metadata(out)
-        assert meta["bounds_wgs84"][0] == pytest.approx(175.0)
-        assert meta["bounds_wgs84"][2] == pytest.approx(-175.0)
-
-        geom = shapely_wkt.loads(meta["bbox_wkt"])
-        assert geom.geom_type == "MultiPolygon"
-        assert geom.area == pytest.approx(50.0, rel=1e-6)  # 10 deg x 5 deg
-
-    def test_non_crossing_mosaic_geometry_is_unchanged(self, tmp_path):
-        """Control: the same two 5° tiles, same latitude band, moved off the seam."""
-        sources = self._tiles(tmp_path, [(10.0, 15.0), (15.0, 20.0)])
-        out = _write_python_vrt(sources, str(tmp_path / "plain.vrt"), "finest")
-
-        assert _vrt_size(out) == (100, 50)
-        assert _vrt_geotransform(out)[0] == pytest.approx(10.0)
-        assert _dst_x_offs(out) == [0, 50]
-
-    def test_global_mosaic_is_not_reframed(self, tmp_path):
-        """A mosaic that really is -180..180 keeps its origin and its width."""
-        lon_pairs = [(-180.0 + 10 * i, -170.0 + 10 * i) for i in range(36)]
-        sources = self._tiles(tmp_path, lon_pairs)
-        out = _write_python_vrt(sources, str(tmp_path / "global.vrt"), "finest")
-
-        assert _vrt_geotransform(out)[0] == pytest.approx(-180.0)
-        assert _vrt_size(out)[0] == 36 * 50
-        assert _dst_x_offs(out) == [50 * i for i in range(36)]
-
-    def test_projected_sources_are_never_reframed(self, tmp_path):
-        """Metres are not degrees.
-
-        Two EPSG:3857 tiles at opposite ends of the world span 4e7 *metres*,
-        which clears a bare ">180" guard trivially; a +360 shift would move a
-        source by 360 m. The CRS gate is what stops it.
-        """
-        half = WEB_MERCATOR_HALF_WORLD_M
-        sources = [
-            _write_tif(
-                tmp_path / "west3857.tif",
-                epsg=3857,
-                bounds=(-half, 0.0, -half + 1_000_000.0, 1_000_000.0),
-                width=50,
-                height=50,
-            ),
-            _write_tif(
-                tmp_path / "east3857.tif",
-                epsg=3857,
-                bounds=(half - 1_000_000.0, 0.0, half, 1_000_000.0),
-                width=50,
-                height=50,
-            ),
-        ]
-        out = _write_python_vrt(sources, str(tmp_path / "proj.vrt"), "finest")
-
-        assert _vrt_geotransform(out)[0] == pytest.approx(-half)
-        # 4.0075e7 m of easting at 2e4 m/px. The eastern tile starts 1953.75 px
-        # in and keeps that fraction — these sources are off the output grid, and
-        # rounding to 1954 would slide them a quarter pixel (fix(#887)).
-        assert _vrt_size(out) == (2004, 50)
-        offsets = _dst_x_offs(out)
-        assert offsets[0] == 0
-        assert offsets[1] == pytest.approx(1953.7508342789, abs=1e-6)
-
-    def test_fallback_keeps_fractional_geometry_like_the_rewrite(self, tmp_path):
-        """The fallback writer obeys the same geometry rule as the rewrite.
-
-        Both writers now go through ``_offset_text`` and ``_containing_pixels``.
-        Before that, this fallback rounded a source needing ``xOff`` 248.5 down
-        to 248 and sized the 298.5-pixel hull at 298 — sliding the eastern tile
-        half a pixel and clipping the edge. It is unreachable in the shipped
-        worker (the image installs ``gdal-bin``), but two writers disagreeing
-        about one rule is what produced the first regression in this PR.
-        """
-        sources = [
-            _write_tif(
-                tmp_path / "w.tif",
-                epsg=4326,
-                bounds=(175.03, 0.0, 180.0, 2.0),
-                width=50,
-                height=20,
-            ),
-            _write_tif(
-                tmp_path / "e.tif",
-                epsg=4326,
-                bounds=(-180.0, 0.0, -179.0, 2.0),
-                width=50,
-                height=20,
-            ),
-        ]
-
-        out = _write_python_vrt(sources, str(tmp_path / "frac.vrt"), "finest")
-
-        root = parse_vrt(out).getroot()
-        rects = [
-            (float(d.get("xOff")), float(d.get("xSize"))) for d in root.iter("DstRect")
-        ]
-        width = int(root.get("rasterXSize"))
-
-        assert rects[1][0] == pytest.approx(248.5), (
-            "the eastern tile must keep its half-pixel offset"
-        )
-        far_edge = max(off + size for off, size in rects)
-        assert far_edge == pytest.approx(298.5)
-        assert width == 299, "the hull must be rounded UP to contain 298.5 px"
-
-    def test_band_stack_seam_sources_share_the_shifted_frame(self, tmp_path):
-        """``-separate`` band stacks re-frame identically to a mosaic."""
-        sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
-        out = _write_python_vrt(
-            sources, str(tmp_path / "stack.vrt"), "finest", separate=True
-        )
-
-        assert _vrt_size(out) == (100, 50)
-        assert _vrt_geotransform(out)[0] == pytest.approx(175.0)
-        assert _dst_x_offs(out) == [0, 50]
 
 
 # ---------------------------------------------------------------------------
@@ -879,18 +724,10 @@ _GDALBUILDVRT_GLOBAL_XML = _plain_vrt_xml(
 
 
 class TestSeamFrameRewrite:
-    """``_write_python_vrt`` is the fallback; ``gdalbuildvrt`` is what ships.
+    """``gdalbuildvrt`` builds the VRT; only the framing is rewritten afterwards.
 
-    The worker image installs ``gdal-bin``, so ``_build_vrt`` gets a working
-    subprocess and the ``FileNotFoundError`` fallback never fires in a deployed
-    worker. A test that calls ``_write_python_vrt`` directly therefore proves
-    nothing about production, which is exactly how the first cut of this fix
-    landed as dead code (codex P1 on #924).
-
-    Rebuilding the seam case with the Python writer instead was the second wrong
-    answer (codex P1 round 2): that writer emits bare ``SimpleSource`` elements,
-    so nodata, colour interpretation and masks all vanish. GDAL keeps building
-    the VRT; only the framing is rewritten afterwards.
+    Rebuilding the seam case by hand instead would lose what GDAL writes into
+    each source: nodata, colour interpretation and masks.
     """
 
     def _tiles(self, tmp_path, lon_pairs, *, epsg=4326):

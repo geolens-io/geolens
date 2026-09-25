@@ -413,33 +413,24 @@ CANONICAL_HELPER_MODULE_RELS: dict[str, frozenset[str]] = {
 # asserted EXACTLY (codex P2 on #974): a second unwrapped open slipped into
 # an already-justified function must fail, not ride the existing entry.
 RASTERIO_OPEN_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
-    ("processing/raster/cog.py", "validate_raster_crs"): (
-        1,
-        "local staged upload path only; no caller-controlled URL reaches it "
-        "(callers: ingest/router.py, tasks_raster.py — counted on #936)",
-    ),
     ("processing/raster/cog.py", "extract_raster_metadata"): (
         1,
-        "local staged/temp path only; no caller-controlled URL reaches it",
+        "called only from the probe child (processing/raster/probe.py), which "
+        "enters gdal_safe_open_env around it and is killed at its timeout",
     ),
     ("processing/raster/cog.py", "check_cog_compliance"): (
         1,
-        "local staged/temp path only; no caller-controlled URL reaches it",
-    ),
-    ("processing/raster/cog.py", "prepare_with_overviews"): (
-        1,
-        "local staged/temp path only; probes for internal overviews before "
-        "spawning the (safe-env) gdaladdo subprocess",
+        "called only from the probe child, under gdal_safe_open_env",
     ),
     ("processing/raster/cog.py", "_predictor_supported"): (
         1,
-        "local staged/temp path only; probes per-band IMAGE_STRUCTURE NBITS "
-        "before letting convert_to_cog put PREDICTOR=<n> on the gdal_translate "
-        "argv",
+        "called only from the probe child, under gdal_safe_open_env; probes "
+        "per-band IMAGE_STRUCTURE NBITS before convert_to_cog puts "
+        "PREDICTOR=<n> on the gdal_translate argv",
     ),
     ("processing/raster/quicklook.py", "generate_quicklook"): (
         1,
-        "opens the locally produced COG output, never a source URL",
+        "called only from the probe child, under gdal_safe_open_env",
     ),
 }
 
@@ -483,7 +474,7 @@ GDAL_CLI_CALL_ALLOWLIST: dict[tuple[str, str, str], tuple[int, str]] = {}
 
 # Floors so a refactor that blinds the detector fails loudly instead of
 # passing on an empty scan (same trick as the Rule-1 route-count floor).
-MIN_RASTERIO_OPEN_SITES = 5
+MIN_RASTERIO_OPEN_SITES = 4
 MIN_GDAL_CLI_ARGV_SITES = 6
 
 # Every ogrinfo/ogr2ogr argv in `app/`, and what its input is. Asserted EXACT
