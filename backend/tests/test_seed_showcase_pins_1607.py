@@ -949,3 +949,90 @@ def test_sentinel2_raises_when_a_title_match_answers_for_another_scene(monkeypat
 
     with pytest.raises(RuntimeError, match=seeder.PINNED_HARBOR_SCENE_ID):
         seeder.build_sentinel2(_SentinelTitleMismatchApi())
+
+
+class _SentinelResolvedImportApi:
+    """A fresh build where the pinned scene resolves via a matching title
+    fallback: enough of the surface to run build_sentinel2 to completion."""
+
+    def __init__(self, origin_ref: dict):
+        self._origin_ref = origin_ref
+        self.added_layers: list[dict] = []
+
+    def list_maps(self) -> dict[str, str]:
+        return {}
+
+    def stac_import(self, url, items, visibility="public"):
+        return [
+            {
+                "item_id": "S2A_T19TCH_20260829T155705_L2A",
+                "dataset_id": "other-ds-id",
+                "status": "created",
+            },
+            {"item_id": seeder.PINNED_HARBOR_SCENE_ID, "status": "skipped"},
+        ]
+
+    def datasets_by_title(self) -> dict[str, str]:
+        return {f"Sentinel-2 TCI {seeder.PINNED_HARBOR_SCENE_ID}": "pinned-ds-id"}
+
+    def get_dataset(self, dataset_id: str) -> dict:
+        return {"origin_ref": self._origin_ref}
+
+    def create_map(self, name: str, description: str) -> str:
+        return "new-map-id"
+
+    def get_map(self, map_id: str) -> dict:
+        return {"layers": []}
+
+    def delete_layer(self, map_id: str, layer_id: str) -> None:
+        pass
+
+    def add_layer(self, map_id: str, body: dict) -> dict:
+        self.added_layers.append(body)
+        return body
+
+    def set_view(self, map_id: str, **fields) -> None:
+        pass
+
+    def visibility_check(self, map_id: str) -> dict:
+        return {}
+
+
+@pytest.mark.parametrize(
+    "origin_ref",
+    [
+        {"item_id": seeder.PINNED_HARBOR_SCENE_ID},
+        {"asset_href": f"https://example.test/{seeder.PINNED_HARBOR_SCENE_ID}.tif"},
+    ],
+    ids=["item_id", "asset_href"],
+)
+def test_sentinel2_accepts_a_title_match_whose_origin_names_the_pinned_scene(
+    monkeypatch, origin_ref
+):
+    """A same-titled row is accepted once its origin actually names the pin.
+
+    Matching on either origin_ref.item_id or the asset href is enough; the
+    build then carries on to create the map with both scenes layered.
+    """
+    other = _fake_sentinel_feature(
+        "S2A_T19TCH_20260829T155705_L2A", datetime="2026-08-29T15:57:05Z"
+    )
+    pinned = _fake_sentinel_feature(
+        seeder.PINNED_HARBOR_SCENE_ID, datetime="2026-08-29T15:57:05Z"
+    )
+
+    def fake_post(url, *, json, timeout):
+        if "ids" in json:
+            return _FakeStacResponse([pinned])
+        return _FakeStacResponse([other])
+
+    monkeypatch.setattr(seeder.httpx, "post", fake_post)
+    api = _SentinelResolvedImportApi(origin_ref)
+
+    map_id = seeder.build_sentinel2(api)
+
+    assert map_id == "new-map-id"
+    assert {layer["dataset_id"] for layer in api.added_layers} == {
+        "other-ds-id",
+        "pinned-ds-id",
+    }
