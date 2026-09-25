@@ -15,15 +15,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.jobs import ledger
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import MANIFEST_STAGE_METADATA_KEY, IngestJob
 from app.platform.jobs.sweep import settle_stale_jobs
 
 log = structlog.get_logger()
 
-# fix(#1814): the pre-queue stage a manifest job is in. This module's exits
-# clear it; a row the stale-job pass settles, including through the expiry
-# below, keeps it, which is inert because the in-flight read filters on status.
-MANIFEST_STAGE_METADATA_KEY = "manifest_stage"
 MANIFEST_STAGE_DOWNLOADING = "downloading"
 
 # fix(#1814): names no id. The row this attempt owned is terminal, and the row

@@ -62,6 +62,7 @@ from app.platform.jobs.defer_guard import (
 from app.platform.jobs.models import (
     ACTIVE_BACKFILL_INDEX_NAME,
     EMBEDDING_BACKFILL_METADATA_KEY,
+    public_job_metadata,
 )
 from app.platform.jobs.router import get_retry_capability
 from app.standards.ogc.errors import (
@@ -849,7 +850,7 @@ async def list_admin_jobs(
             error_message=job.error_message,
             can_retry=can_retry,
             retry_reason=retry_reason,
-            user_metadata=job.user_metadata,
+            user_metadata=public_job_metadata(job.user_metadata),
             created_by=job.created_by,
             username=username,
             started_at=job.started_at,

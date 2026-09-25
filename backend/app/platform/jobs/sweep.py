@@ -38,11 +38,15 @@ from app.core.tiles3d import (
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
+    ANALYSIS_OUTPUT_TABLE_FIELD,
     COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     STAGING_REAPED_FINAL_MARKER,
+    STAGING_REAPED_MARKER,
     STATUSES_NEEDING_STAGED_INPUT,
+    UNPUBLISHED_STORAGE_KEYS_FIELD,
+    UNREAPED_ARTIFACT_FIELDS,
     IngestJob,
     owned_presigned_staging_key,
 )
@@ -297,7 +301,7 @@ def post_expiry_sweep_after_seconds() -> int:
 
 
 # Set on the post-expiry sweep's first pass; not permanent on its own (#1236).
-_STAGING_REAPED_MARKER = "s3_key_reaped"
+_STAGING_REAPED_MARKER = STAGING_REAPED_MARKER
 
 # fix(#1236): set once the RE-CHECK pass has run past
 # MAX_PRESIGNED_URL_LIFETIME_SECONDS + the transfer margin; only rows
@@ -521,10 +525,6 @@ def unpublished_storage_keys_from_metadata(
     an owner. The prefix check is the only guard against a hand-edited row
     licensing an arbitrary delete.
     """
-    from app.processing.ingest.tasks_raster_common import (
-        UNPUBLISHED_STORAGE_KEYS_FIELD,
-    )
-
     if not isinstance(user_metadata, dict):
         return ()
     raw = user_metadata.get(UNPUBLISHED_STORAGE_KEYS_FIELD)
@@ -666,10 +666,6 @@ async def _clear_settled_artifact_records(
     from sqlalchemy.dialects.postgresql import ARRAY
 
     from app.core.db import async_session
-    from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
-    from app.processing.ingest.tasks_raster_common import (
-        UNPUBLISHED_STORAGE_KEYS_FIELD,
-    )
 
     if not storage_keys and not analysis_tables and not tileset_attempts:
         return
@@ -1623,17 +1619,11 @@ def _carries_unreaped_artifacts():
     Such a row is the pending record, so the retention purge keeps it. A
     string test on the JSONB blob, never a throwing cast.
     """
-    from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
-    from app.processing.ingest.publish_followups import PUBLISH_FOLLOWUPS_FIELD
-    from app.processing.ingest.tasks_raster_common import (
-        UNPUBLISHED_STORAGE_KEYS_FIELD,
-    )
-
     return or_(
-        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(None),
-        IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].is_not(None),
-        IngestJob.user_metadata[UNPUBLISHED_TILESET_ATTEMPTS_FIELD].is_not(None),
-        IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD].is_not(None),
+        *(
+            IngestJob.user_metadata[field].is_not(None)
+            for field in UNREAPED_ARTIFACT_FIELDS
+        )
     )
 
 

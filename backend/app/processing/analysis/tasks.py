@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
+from app.platform.jobs.models import ANALYSIS_OUTPUT_TABLE_FIELD
 from app.platform.analysis_sql import (
     INTERNAL_ALIAS_PREFIX,
     INTERSECT_OUTPUT_COLUMNS,
@@ -639,12 +640,6 @@ async def _output_table_adopted(session: AsyncSession, out_table: str) -> bool:
             "SELECT 1 FROM catalog.datasets WHERE table_name = :out"
         ).bindparams(out=out_table)
     return (await session.execute(stmt)).first() is not None
-
-
-# fix(#1778): the `user_metadata` field an analysis job names its output table
-# under, written in the SAME transaction that creates the table, so a row that
-# has one has the other and no orphan is left with nothing able to name it.
-ANALYSIS_OUTPUT_TABLE_FIELD = "analysis_out_table"
 
 
 def recorded_analysis_output_tables(user_metadata: object) -> tuple[str, ...]:

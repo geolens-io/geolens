@@ -10,6 +10,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from app.core.config import settings
+from app.platform.jobs.models import MANIFEST_FINGERPRINT_METADATA_KEY
 from app.processing.ingest.manifest_schemas import (
     MANIFEST_SOURCE_EXTENSIONS,
     ManifestDataset,
@@ -260,7 +261,7 @@ def manifest_job_metadata(
         "visibility": visibility,
         "record_status": record_status,
         "manifest_key": dataset.key,
-        "manifest_fingerprint": fingerprint,
+        MANIFEST_FINGERPRINT_METADATA_KEY: fingerprint,
         "manifest_source_type": prepared.source.type,
         "manifest_source_uri": redact_url_credentials(prepared.source_uri),
         "manifest_publication_intent": dataset.publication.intent,

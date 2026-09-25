@@ -19,6 +19,7 @@ import structlog
 from sqlalchemy import select, text
 
 from app.platform.dataset_origin import set_dataset_origin
+from app.platform.jobs.models import UNPUBLISHED_STORAGE_KEYS_FIELD
 from app.processing.raster.cog import check_cog_compliance, extract_raster_metadata
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -578,9 +579,6 @@ def attempt_scoped_raster_base_key(
     id generated inside the task, so a retry produces a different one.
     """
     return f"rasters/{dataset_id}/attempts/{attempt_id}/{asset_sha256}"
-
-
-UNPUBLISHED_STORAGE_KEYS_FIELD = "unpublished_storage_keys"
 
 
 async def record_unpublished_storage_keys(

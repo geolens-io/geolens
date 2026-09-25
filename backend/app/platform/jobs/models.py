@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.core.tiles3d import UNPUBLISHED_TILESET_ATTEMPTS_FIELD
 
 
 # Statuses whose row still needs the staged `file_path`: pending/running read
@@ -65,6 +66,106 @@ ACTIVE_BACKFILL_INDEX_NAME = "uq_ingest_jobs_active_embedding_backfill"
 # in sweep.py) once done with a row's `s3_key`. fix(#1249): presence signals
 # staging-orphan reconciliation may take the key over; one string, two readers.
 STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
+
+# Set by that sweep's first pass; the re-check pass adds the final marker.
+STAGING_REAPED_MARKER = "s3_key_reaped"
+
+# The pre-queue stage a manifest job is in. The manifest reservation's exits
+# clear it; a settled row that keeps it is inert, since the in-flight read
+# filters on status.
+MANIFEST_STAGE_METADATA_KEY = "manifest_stage"
+
+# The manifest entry's content fingerprint, which the apply compares to skip an
+# entry it has already imported or is importing.
+MANIFEST_FINGERPRINT_METADATA_KEY = "manifest_fingerprint"
+
+# The unpacked total the tileset upload door measured, which the commit door
+# checks against the quota again.
+TILESET_UNPACKED_BYTES_FIELD = "tileset_unpacked_bytes"
+
+# Artifact records. A worker names each object, table or owed follow-up here no
+# later than it creates it, so a killed attempt still leaves an owner, and the
+# retention purge keeps a row while any of them is set.
+UNPUBLISHED_STORAGE_KEYS_FIELD = "unpublished_storage_keys"
+ANALYSIS_OUTPUT_TABLE_FIELD = "analysis_out_table"
+# The follow-ups a landed terminal commit still owes: the task (a complete job's
+# first ingest, or a failed job's replacement) and the attempt that wrote it,
+# since a retry keeps the row and its metadata.
+PUBLISH_FOLLOWUPS_FIELD = "publish_followups"
+UNREAPED_ARTIFACT_FIELDS = (
+    UNPUBLISHED_STORAGE_KEYS_FIELD,
+    ANALYSIS_OUTPUT_TABLE_FIELD,
+    UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
+    PUBLISH_FOLLOWUPS_FIELD,
+)
+
+# The user_metadata keys the admin job list shows: what the user supplied at
+# upload, commit or in a manifest, the job's request and its outcome. Any other
+# key, including one added later, is door or worker state and is left out.
+PUBLIC_METADATA_KEYS = frozenset(
+    {
+        # Commit and upload fields.
+        "title",
+        "summary",
+        "tags",
+        "visibility",
+        "temporal_start",
+        "temporal_end",
+        "file_type",
+        "vrt_type",
+        "layer_name",
+        "srid_override",
+        "geom_column",
+        "x_column",
+        "y_column",
+        "compression",
+        "nodata_override",
+        "resampling",
+        "strict_cog",
+        # The request that created the job.
+        "analysis",
+        "dataset_id",
+        "reupload",
+        "refresh",
+        "origin_kind",
+        "verification_policy",
+        "service_type",
+        "layer_id",
+        "object_id_field",
+        "geometry_type",
+        "source_type",
+        "fan_out_parent_id",
+        "all_layers",
+        EMBEDDING_BACKFILL_METADATA_KEY,
+        # What a manifest's author wrote.
+        "record_status",
+        "manifest_key",
+        "manifest_source_type",
+        "manifest_source_uri",
+        "manifest_publication_intent",
+        "manifest_tags",
+        "manifest_organization",
+        "manifest_license",
+        "manifest_attribution",
+        "manifest_bbox",
+        # The outcome.
+        "warnings",
+        "rows_failed",
+        "temporal_parse_errors",
+        "collision_warning",
+        "archive_failed",
+    }
+)
+
+
+def public_job_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The job's public metadata keys, or None when it has none."""
+    kept = {
+        key: value
+        for key, value in (metadata or {}).items()
+        if key in PUBLIC_METADATA_KEYS
+    }
+    return kept or None
 
 
 def owned_presigned_staging_key(

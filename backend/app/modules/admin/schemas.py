@@ -235,7 +235,7 @@ class AdminJobResponse(BaseModel):
         description="Why the job cannot be retried, when retry is unavailable."
     )
     user_metadata: dict[str, Any] | None = Field(
-        description="User-supplied metadata captured at upload time (title, summary, tags, vrt_type, file_type, warnings, etc.). Heterogeneous shape across ingest paths -- canonical keys: title, summary, visibility, file_type, vrt_type, warnings.",
+        description="Metadata captured with the job: the fields supplied at upload and commit (title, summary, tags, visibility, file_type, vrt_type, etc.) and outcomes such as warnings. Heterogeneous shape across ingest paths. Worker bookkeeping, such as staging keys and unpublished artifacts, is left out; null when nothing else is recorded.",
     )
     created_by: uuid.UUID | None = Field(
         description="ID of the user who initiated the job."
