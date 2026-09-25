@@ -32,14 +32,6 @@ Domain documentation uses the single-context layout. See `docs/agents/domain.md`
 - Prefer project helpers, standard library/native platform features, then installed dependencies. Add a dependency only when these cannot reasonably meet the need; explain why and update its manifest and lockfile together.
 - Avoid abstractions, factories and configuration without a current need. Keep one definition per domain fact; a small copy beats violating a layer boundary.
 - Preserve validation, authorization, SSRF defenses, accessibility and error handling that prevents data loss. Test non-trivial behavior, not implementation trivia.
-- Use `rg`/`rg --files` and bounded reads. Load detailed docs/skills when relevant; avoid dumping generated files or entire trees into context.
-
-### Subagents
-
-- Keep small or tightly coupled tasks local. Delegate bounded independent work; avoid duplicate exploration and unnecessary nested delegation.
-- Pass the objective, owned files, constraints, relevant paths and expected verification. Prefer a concise brief over full conversation history when supported; ensure applicable `AGENTS.md` instructions are available without copying them twice.
-- Tell workers they share the workspace: preserve others' edits and avoid overlapping ownership. Coordinate shared files and generated artifacts through the parent.
-- Request concise findings/changes, file references, checks/results and blockers. Reuse agents for follow-ups; the parent runs shared gates after integration, repeating only when changes or failures warrant it.
 
 ## Commands and Verification
 
