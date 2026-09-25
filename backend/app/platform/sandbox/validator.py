@@ -1642,11 +1642,19 @@ def _max_table_fanout(stmt: exp.Expression) -> int:
     return largest
 
 
-async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[str]:
+async def build_table_allowlist(
+    db: AsyncSession, user: Identity | None, *, queryable_only: bool = False
+) -> set[str]:
     """Return set of data.* table names visible to the user via RBAC.
 
     Queries visible datasets using apply_visibility_filter() and returns
-    their table_name values (slug names like 'us_state_capitals').
+    their table_name values (slug names like 'us_state_capitals'). Callers
+    outside the SQL sandbox reuse this as a dataset-visibility check (map
+    chat's layer metadata and add_layer RBAC), where a raster or 3D Tiles
+    dataset is a legitimate answer even though it has no data.<table>.
+    ``queryable_only`` restricts to record types with a table to query;
+    set it only where the result gates SQL actually executed against
+    data.<table>.
     """
     if user:
         user_roles = await get_user_roles(db, user)
@@ -1654,12 +1662,12 @@ async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[
         user_roles = set()
 
     stmt = select(Dataset.table_name).join(Record, Dataset.record_id == Record.id)
-    # Only record types backed by a data table can be queried.
-    stmt = stmt.where(
-        Record.record_type.in_(
-            [t for t in RECORD_TYPES if capabilities(t).feature_table]
+    if queryable_only:
+        stmt = stmt.where(
+            Record.record_type.in_(
+                [t for t in RECORD_TYPES if capabilities(t).feature_table]
+            )
         )
-    )
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
     result = await db.execute(stmt)
     return {row[0] for row in result.all()}

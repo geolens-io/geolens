@@ -1365,7 +1365,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2505,
     # SQL allowlisting and cost validation must share canonical AST resolution.
-    "backend/app/platform/sandbox/validator.py": 1698,
+    "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting and SSE failures.
     "backend/app/processing/ai/service.py": 994,
     # Record children share ownership, ordering and publication-version invariants.

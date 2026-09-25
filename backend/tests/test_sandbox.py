@@ -406,7 +406,7 @@ class TestBuildTableAllowlist:
         assert tbl in allowlist
 
     async def test_tiles3d_dataset_excluded(self, client, test_db_session):
-        """A tileset's table_name names no data.<table>, so it's kept out (#878)."""
+        """A tileset's table_name names no data.<table>, so it's kept out."""
         session = test_db_session
         admin = await _get_user(session, "admin")
         tbl = f"tiles3d_{uuid.uuid4().hex[:8]}"
@@ -420,18 +420,41 @@ class TestBuildTableAllowlist:
             feature_count=None,
         )
 
-        allowlist = await build_table_allowlist(session, admin)
+        allowlist = await build_table_allowlist(session, admin, queryable_only=True)
         assert tbl not in allowlist
 
     async def test_raster_dataset_excluded(self, client, test_db_session):
-        """A raster's table_name also names no data.<table> (#878)."""
+        """A raster's table_name also names no data.<table>."""
         session = test_db_session
         admin = await _get_user(session, "admin")
         tbl = f"sandbox_raster_{uuid.uuid4().hex[:8]}"
         await create_raster_dataset(session, created_by=admin.id, table_name=tbl)
 
-        allowlist = await build_table_allowlist(session, admin)
+        allowlist = await build_table_allowlist(session, admin, queryable_only=True)
         assert tbl not in allowlist
+
+    async def test_tiles3d_and_raster_visible_when_not_restricted_to_queryable(
+        self, client, test_db_session
+    ):
+        """Without queryable_only, the visibility list still includes them (map chat)."""
+        session = test_db_session
+        admin = await _get_user(session, "admin")
+        tiles3d_tbl = f"tiles3d_{uuid.uuid4().hex[:8]}"
+        raster_tbl = f"sandbox_raster_{uuid.uuid4().hex[:8]}"
+        await create_dataset(
+            session,
+            created_by=admin.id,
+            table_name=tiles3d_tbl,
+            record_type="tiles3d_dataset",
+            source_format="3dtiles",
+            geometry_type=None,
+            feature_count=None,
+        )
+        await create_raster_dataset(session, created_by=admin.id, table_name=raster_tbl)
+
+        allowlist = await build_table_allowlist(session, admin)
+        assert tiles3d_tbl in allowlist
+        assert raster_tbl in allowlist
 
 
 # ---------------------------------------------------------------------------
@@ -647,7 +670,7 @@ def _stub_execute_safe(captured: dict[str, object]):
     return _fake
 
 
-async def _stub_allowlist(db, user):
+async def _stub_allowlist(db, user, **kwargs):
     return {"cities"}
 
 

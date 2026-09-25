@@ -152,7 +152,7 @@ async def validate_and_execute(
         concurrency_key = str(user.id) if user is not None else "anonymous"
         async with capacity_semaphore or contextlib.nullcontext():
             # Phase 2: Build RBAC allowlist
-            allowed_tables = await build_table_allowlist(db, user)
+            allowed_tables = await build_table_allowlist(db, user, queryable_only=True)
             if restrict_tables is not None:
                 allowed_tables = allowed_tables & restrict_tables
 
