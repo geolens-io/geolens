@@ -27,7 +27,7 @@ from app.platform.sandbox.validator import (
     validate_sql,
 )
 
-from tests.factories import create_dataset
+from tests.factories import create_dataset, create_raster_dataset
 
 
 # ---------------------------------------------------------------------------
@@ -419,6 +419,16 @@ class TestBuildTableAllowlist:
             geometry_type=None,
             feature_count=None,
         )
+
+        allowlist = await build_table_allowlist(session, admin)
+        assert tbl not in allowlist
+
+    async def test_raster_dataset_excluded(self, client, test_db_session):
+        """A raster's table_name also names no data.<table> (#878)."""
+        session = test_db_session
+        admin = await _get_user(session, "admin")
+        tbl = f"sandbox_raster_{uuid.uuid4().hex[:8]}"
+        await create_raster_dataset(session, created_by=admin.id, table_name=tbl)
 
         allowlist = await build_table_allowlist(session, admin)
         assert tbl not in allowlist

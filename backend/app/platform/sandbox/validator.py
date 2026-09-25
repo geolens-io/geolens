@@ -33,6 +33,7 @@ from sqlglot import exp
 from sqlglot.tokens import TokenType
 
 from app.core.identity import Identity
+from app.core.record_types import RECORD_TYPES, capabilities
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.platform.sandbox.schemas import SandboxError, ValidatedQuery
@@ -1653,10 +1654,12 @@ async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[
         user_roles = set()
 
     stmt = select(Dataset.table_name).join(Record, Dataset.record_id == Record.id)
-    # fix(#1778): a tiles3d dataset's table_name names no data.<table>; keep
-    # it out of the SQL sandbox allowlist rather than letting a query reach
-    # an UndefinedTableError.
-    stmt = stmt.where(Record.record_type != "tiles3d_dataset")
+    # Only record types backed by a data table can be queried.
+    stmt = stmt.where(
+        Record.record_type.in_(
+            [t for t in RECORD_TYPES if capabilities(t).feature_table]
+        )
+    )
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
     result = await db.execute(stmt)
     return {row[0] for row in result.all()}
