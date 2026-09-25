@@ -890,6 +890,11 @@ class Api:
         r.raise_for_status()
         return r.json()
 
+    def get_dataset(self, dataset_id: str) -> dict:
+        r = self.client.get(f"{self.base}/api/datasets/{dataset_id}", headers=self.h)
+        r.raise_for_status()
+        return r.json()
+
     def set_view(self, map_id: str, **fields) -> None:
         # PUT (not PATCH); bearing must be within [-180, 180]. Omitted scalars
         # are left alone, but a basemap_config that IS sent is replaced whole -
@@ -5040,10 +5045,19 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
             if by_title is None:
                 by_title = api.datasets_by_title()
             existing = by_title.get(id_to_title.get(item_id, ""))
+            if existing and item_id == PINNED_HARBOR_SCENE_ID:
+                # A title match alone is not proof of origin: an unrelated or
+                # repointed row of this account's could carry the same
+                # generated title. Confirm it before trusting it with the
+                # pinned imagery.
+                origin = api.get_dataset(existing).get("origin_ref") or {}
+                if origin.get("item_id") != PINNED_HARBOR_SCENE_ID and origin.get(
+                    "asset_href"
+                ) != id_to_href.get(item_id):
+                    continue  # leave pinned_dataset_id unset; the check below raises
+                pinned_dataset_id = existing
             if existing:
                 scenes.append((existing, id_to_date.get(item_id, "?")))
-                if item_id == PINNED_HARBOR_SCENE_ID:
-                    pinned_dataset_id = existing
     if not scenes:
         raise RuntimeError(
             "STAC import resolved no dataset_ids (skipped items not found by "

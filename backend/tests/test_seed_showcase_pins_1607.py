@@ -910,3 +910,42 @@ def test_sentinel2_raises_when_the_pinned_scene_does_not_resolve(monkeypatch):
 
     with pytest.raises(RuntimeError, match=seeder.PINNED_HARBOR_SCENE_ID):
         seeder.build_sentinel2(_SentinelImportApi())
+
+
+class _SentinelTitleMismatchApi(_SentinelImportApi):
+    """A same-titled dataset resolves, but its origin names another scene."""
+
+    def datasets_by_title(self) -> dict[str, str]:
+        return {f"Sentinel-2 TCI {seeder.PINNED_HARBOR_SCENE_ID}": "wrong-ds-id"}
+
+    def get_dataset(self, dataset_id: str) -> dict:
+        return {
+            "origin_ref": {
+                "item_id": "S2A_T99XYZ_20260101T000000_L2A",
+                "asset_href": "https://example.test/unrelated.tif",
+            }
+        }
+
+
+def test_sentinel2_raises_when_a_title_match_answers_for_another_scene(monkeypatch):
+    """A same-titled row whose origin names a different scene is rejected.
+
+    A title alone is not proof of origin; accepting it would layer the
+    wrong imagery onto the pinned tile.
+    """
+    other = _fake_sentinel_feature(
+        "S2A_T19TCH_20260829T155705_L2A", datetime="2026-08-29T15:57:05Z"
+    )
+    pinned = _fake_sentinel_feature(
+        seeder.PINNED_HARBOR_SCENE_ID, datetime="2026-08-29T15:57:05Z"
+    )
+
+    def fake_post(url, *, json, timeout):
+        if "ids" in json:
+            return _FakeStacResponse([pinned])
+        return _FakeStacResponse([other])
+
+    monkeypatch.setattr(seeder.httpx, "post", fake_post)
+
+    with pytest.raises(RuntimeError, match=seeder.PINNED_HARBOR_SCENE_ID):
+        seeder.build_sentinel2(_SentinelTitleMismatchApi())
