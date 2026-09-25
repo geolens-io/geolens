@@ -216,8 +216,9 @@ def _status_writes(
     ``status`` (keyword, dict key or ``**``) on an update or insert that may
     target ``ingest_jobs``; ``.status =`` or ``setattr(..., "status", ...)`` on a
     name bound to an IngestJob; a ``values`` dict with a ``status`` key passed
-    to one of ``_VALUES_HELPERS``, or a parameter handed on to one as its
-    ``values``; or raw SQL that sets the status.
+    to one of ``_VALUES_HELPERS``, or handed on to one from a parameter (as
+    itself, ``dict(values)``, ``values.copy()`` or any other expression that
+    is not a display) or by a ``**`` expansion; or raw SQL that sets the status.
 
     A name holds a job when it is bound to ``IngestJob(...)``, a ``select(IngestJob)``,
     ``session.get(IngestJob, ...)`` or a call annotated to return one, or is read out
@@ -293,10 +294,17 @@ def _writes_status(
                 _statement_root(node.func.value, bindings)
             )
         if callee in _VALUES_HELPERS:
-            values = next((k.value for k in node.keywords if k.arg == "values"), None)
-            if isinstance(values, ast.Name) and values.id in params:
+            if any(k.arg is None for k in node.keywords):
                 return True
-            return values is not None and _names_status(values, bindings, returns)
+            values = next((k.value for k in node.keywords if k.arg == "values"), None)
+            if values is None:
+                return False
+            if not isinstance(_unwrap(values), ast.Dict) and any(
+                isinstance(name, ast.Name) and name.id in params
+                for name in ast.walk(values)
+            ):
+                return True
+            return _names_status(values, bindings, returns)
         return (
             callee == "setattr"
             and len(node.args) >= 2
@@ -512,6 +520,18 @@ _SHAPES = {
         "async def f(s, i, a, values):\n"
         "    await update_ingest_job_for_attempt(s, i, a, values=values)\n"
     ),
+    "helper values copied from a parameter by dict()": (
+        "async def f(s, i, a, values):\n"
+        "    await update_ingest_job_for_attempt(s, i, a, values=dict(values))\n"
+    ),
+    "helper values copied from a parameter by .copy()": (
+        "async def f(s, i, a, values):\n"
+        "    await require_ingest_job_update(s, i, a, values=values.copy())\n"
+    ),
+    "helper keywords handed on by **": (
+        "async def f(s, i, a, **kw):\n"
+        "    await update_ingest_job_for_attempt(s, i, a, **kw)\n"
+    ),
     "helper values from a function": (
         "def staged():\n    return {'status': 'pending'}\n"
         "async def f(s, i, a):\n"
@@ -547,6 +567,10 @@ _NOT_A_JOB_STATUS = {
         "def f(s, now):\n    s.execute(update(IngestJob).values(heartbeat_at=now))\n"
     ),
     "a status dict no helper writes": "def f():\n    return {'status': 'ok'}\n",
+    "helper values displayed from a parameter's value": (
+        "async def f(s, i, a, p):\n"
+        "    await update_ingest_job_for_attempt(s, i, a, values={'progress': p})\n"
+    ),
     "raw SQL reading the status": (
         'def f(s):\n    s.execute(text("UPDATE catalog.ingest_jobs SET user_metadata = :m '
         "WHERE status = 'running'\"))\n"
