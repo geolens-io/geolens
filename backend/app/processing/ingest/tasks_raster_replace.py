@@ -485,14 +485,13 @@ class _RasterReplace:
                 },
             ),
         )
-        self.job.current_step = "complete"
-        self.job.progress = 1.0
         # The bytes came from the browser, so no origin was contacted.
         return Published(
             dataset_version_id=version.id,
             feature_count=None,
             schema_diff=None,
             contacted_origin=False,
+            job_values={"current_step": "complete", "progress": 1.0},
         )
 
     def classify(self, exc: BaseException) -> Failure:

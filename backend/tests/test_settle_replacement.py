@@ -560,6 +560,25 @@ async def test_a_failure_write_that_never_lands_mails_nothing(
     assert _events(notifications) == []
 
 
+async def test_a_failure_before_the_claim_ends_the_pending_job(
+    seed, notifications
+) -> None:
+    """A failure before the attempt claims its job ends the job, still pending, failed."""
+    fake = _Fake(seed)
+
+    def _refuse(job, dataset, staging_table: str) -> None:
+        raise RuntimeError("prepare failed")
+
+    fake.prepare = _refuse
+    with pytest.raises(RuntimeError):
+        await _settle(fake)
+
+    state = await _state(seed)
+    assert state["job"] == "failed"
+    assert state["live"] == "before"
+    assert _events(notifications) == ["ingest_failed"]
+
+
 async def test_a_commit_still_in_progress_keeps_the_publication_and_records_no_failure(
     seed, notifications
 ) -> None:

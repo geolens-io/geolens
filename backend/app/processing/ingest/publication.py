@@ -23,7 +23,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import is_lock_conflict
-from app.core.failure_reason import FixedReason, redact_failure_reason
+from app.core.failure_reason import FixedReason
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
     CatalogLockConflict,
@@ -32,14 +32,13 @@ from app.platform.catalog_locks import (
     lock_conflict_report,
     worker_lock_budget,
 )
-from app.platform.jobs import heartbeat
+from app.platform.jobs import heartbeat, ledger
 from app.platform.jobs.heartbeat import (
     StaleIngestAttempt,
     arm_job_error_write_budget,
     attempt_scoped_staging_table,
     claim_job_attempt_and_start_heartbeat,
     log_job_error_write_failure,
-    require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
 )
@@ -114,6 +113,8 @@ class Published:
     tiles_changed: bool = True
     # Whether it changed what the dataset's search embedding is built from.
     reembed: bool = True
+    # Further job columns the complete writes, in its one UPDATE of the job row.
+    job_values: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,19 +268,18 @@ async def hold_publishing_job(
 
 
 async def _complete(
-    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID, *, linked: Linked
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    *,
+    linked: Linked,
+    values: dict[str, Any] | None = None,
 ) -> None:
-    """Move this attempt's job from running to complete, then settle ``linked``.
+    """Move this attempt's job from running to complete, settling ``linked`` in the same SAVEPOINT.
 
     A miss raises ``StaleIngestAttempt`` and writes nothing. Does not commit.
     """
-    await require_ingest_job_update(
-        session,
-        job_id,
-        attempt_id,
-        values={"status": "complete", "completed_at": datetime.now(timezone.utc)},
-    )
-    await linked(session)
+    await ledger.complete(session, job_id, attempt_id, values=values, linked=linked)
 
 
 async def _fail(
@@ -291,33 +291,23 @@ async def _fail(
     linked: Linked,
     owes: str | None = None,
 ) -> bool:
-    """Move this attempt's job from pending or running to failed, then settle ``linked``.
+    """Move this attempt's job from pending or running to failed, settling ``linked`` in the same SAVEPOINT.
 
     ``reason`` is stored redacted. ``owes`` names a task whose follow-ups the
     end owes, recorded in this same write. Returns whether the write landed; a
     miss writes nothing. Does not commit.
     """
-    written: dict[str, Any] = {
-        "status": "failed",
-        "error_message": redact_failure_reason(reason),
-        "completed_at": datetime.now(timezone.utc),
-    }
-    if owes is not None:
-        written["user_metadata"] = owed_followups(attempt_id, owes)
-    ended = await session.execute(
-        update(IngestJob)
-        .where(
-            IngestJob.id == job_id,
-            IngestJob.attempt_id == attempt_id,
-            IngestJob.status.in_(("pending", "running")),
-        )
-        .values(written)
-        .execution_options(synchronize_session=False)
+    return await ledger.fail(
+        session,
+        job_id,
+        attempt_id,
+        reason=reason,
+        expect=("pending", "running"),
+        values=None
+        if owes is None
+        else {"user_metadata": owed_followups(attempt_id, owes)},
+        linked=linked,
     )
-    if not ended.rowcount:
-        return False
-    await linked(session)
-    return True
 
 
 @dataclass
@@ -525,6 +515,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
             session,
             job_id,
             attempt_id,
+            values=published.job_values,
             linked=partial(
                 record_refresh_success,
                 ingest_job_id=job_id,

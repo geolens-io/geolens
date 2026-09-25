@@ -820,6 +820,64 @@ class TestSuccessfulReplace:
             await test_db_session.commit()
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
+    async def test_the_publish_writes_the_job_row_once(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The replacement's publish ends its job in one UPDATE, with its step and progress."""
+        import app.core.db as db_module
+        from sqlalchemy import event
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id, record_id = live.dataset.id, live.dataset.record_id
+        source = tmp_path / "replacement.tif"
+        source.write_bytes(_geotiff_bytes(seed=98))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job_id = job.id
+        ending: list[str] = []
+
+        def _record(conn, cursor, statement, parameters, context, executemany):
+            if statement.startswith("UPDATE catalog.ingest_jobs") and "complete" in str(
+                parameters
+            ):
+                ending.append(statement)
+
+        sync_engine = db_module.engine.sync_engine
+        event.listen(sync_engine, "before_cursor_execute", _record)
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+        finally:
+            event.remove(sync_engine, "before_cursor_execute", _record)
+
+        try:
+            assert len(ending) == 1, ending
+            test_db_session.expire_all()
+            ended = await test_db_session.get(IngestJob, job_id)
+            assert (ended.status, ended.current_step, ended.progress) == (
+                "complete",
+                "complete",
+                1.0,
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
 
 class TestFailedReplaceKeepsServing:
     async def test_failed_conversion_leaves_the_old_asset_serving(
@@ -5612,23 +5670,11 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
     """
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.platform.jobs import heartbeat as heartbeat_module
     from app.platform.jobs import ledger as ledger_module
 
     real_commit = AsyncSession.commit
-    real_update = heartbeat_module.update_ingest_job_for_attempt
     real_complete = ledger_module.complete
     fired = {"count": 0, "pending": False}
-
-    # The settlement seam still completes through heartbeat's update; the
-    # other publish tails complete through the ledger.
-    async def _update(session, jid, attempt_id, *, values, expected_status="running"):
-        result = await real_update(
-            session, jid, attempt_id, values=values, expected_status=expected_status
-        )
-        if str(jid) == str(job_id) and values.get("status") == "complete":
-            fired["pending"] = True
-        return result
 
     async def _complete(session, jid, attempt_id, **kwargs):
         await real_complete(session, jid, attempt_id, **kwargs)
@@ -5644,7 +5690,6 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
             raise ConnectionResetError("dropped while COMMIT waited on the standby")
         return await real_commit(self, *args, **kwargs)
 
-    heartbeat_module.update_ingest_job_for_attempt = _update
     ledger_module.complete = _complete
     AsyncSession.commit = _commit
     try:
@@ -5654,7 +5699,6 @@ def _publish_commit_lost(job_id, *, aborted: bool = False):
             yield fired
     finally:
         AsyncSession.commit = real_commit
-        heartbeat_module.update_ingest_job_for_attempt = real_update
         ledger_module.complete = real_complete
 
 
