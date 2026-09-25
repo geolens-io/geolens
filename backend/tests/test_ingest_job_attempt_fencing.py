@@ -14,6 +14,7 @@ from app.platform.jobs.heartbeat import (
     renew_ingest_job_heartbeat,
     resolve_ingest_job_attempt,
     update_ingest_job_for_attempt,
+    write_job_failure_for_attempt,
 )
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.router import fail_stale_jobs
@@ -224,6 +225,16 @@ async def test_attempt_owned_publish_rejects_stale_external_writer(test_db_sessi
     await _drop_attempt_staging_table(staging_a)
     await test_db_session.execute(text(f'DROP TABLE data."{live_table}"'))
     await test_db_session.commit()
+
+
+async def test_a_failure_write_with_no_reason_or_values_is_refused():
+    """A failure write given neither a reason nor values raises before it touches the session."""
+    untouched = object()
+
+    with pytest.raises(TypeError):
+        await write_job_failure_for_attempt(
+            untouched, uuid.uuid4(), uuid.uuid4(), task_name="ingest_file"
+        )
 
 
 def test_attempt_scoped_staging_tables_include_full_token():

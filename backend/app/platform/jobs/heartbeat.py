@@ -180,8 +180,10 @@ async def write_job_failure_for_attempt(
 
     Returns whether the fence matched, or ``None`` when the write did not
     happen at all and the transaction was ended: the budget expired or the
-    connection went. Never raises, because every caller reaches it from a
-    failure path where a raise would replace the cause with a lock timeout.
+    connection went. A write error never raises, because every caller reaches
+    it from a failure path where a raise would replace the cause with a lock
+    timeout. Given neither ``reason`` nor ``values``, it raises TypeError
+    before it touches the session.
 
     fix(#1957): ``None`` is not a fence miss. A caller that treats it as one
     drops cleanup that belongs to an attempt still owning the job row. On
@@ -195,6 +197,8 @@ async def write_job_failure_for_attempt(
     """
     from sqlalchemy.exc import SQLAlchemyError
 
+    if reason is None and values is None:
+        raise TypeError("a failure write needs a reason or values")
     budget_ms = JOB_ERROR_WRITE_TIMEOUT_MS if budget_ms is None else budget_ms
     try:
         # The connection first, on its own deadline: `SET LOCAL` cannot bound a
