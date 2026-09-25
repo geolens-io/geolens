@@ -249,7 +249,7 @@ describe('DatasetSearchPanel', () => {
     expect(within(row).queryByText('Vector')).not.toBeInTheDocument();
   });
 
-  it('offers no Add to map, drag or Vector label for a 3D Tiles dataset (#878)', async () => {
+  it('offers no Add to map, drag or Vector label for a 3D Tiles dataset', async () => {
     const tileset = makeRecord({ id: 'tileset', title: 'Tileset', recordType: 'tiles3d_dataset' as RecordType });
     tileset.properties.geometry_type = null;
     mockSearchDatasets.mockResolvedValue({

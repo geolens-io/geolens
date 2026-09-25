@@ -1,4 +1,4 @@
-"""The AI's search_datasets tool can surface a tiles3d dataset (#878 U6).
+"""The AI's search_datasets tool can surface a tiles3d dataset.
 
 `add_layer` already refuses the record type with a 400 (see
 `test_tiles3d_record_type_refusals.py`), so a search result the AI can't map

@@ -922,13 +922,13 @@ describe('DatasetMap record types', () => {
     expect(onMapReady).toHaveBeenCalled();
   });
 
-  it('adds no vector source for a 3D Tiles dataset when the tile config settles after load (#878)', () => {
+  it('adds no vector source for a 3D Tiles dataset when the tile config settles after load', () => {
     loadThenSettleTileConfig('tiles3d_dataset');
 
     expect(fakeMap.addSource).not.toHaveBeenCalledWith(previewSourceId('cloud'), expect.anything());
   });
 
-  it('adds no tile or overlay source for a 3D Tiles dataset and still reports ready (#878)', () => {
+  it('adds no tile or overlay source for a 3D Tiles dataset and still reports ready', () => {
     const onMapReady = vi.fn();
     render(
       <DatasetMap

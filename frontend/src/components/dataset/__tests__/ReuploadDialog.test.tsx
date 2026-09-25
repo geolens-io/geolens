@@ -323,7 +323,7 @@ describe('ReuploadDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('renders nothing for a 3D Tiles dataset (#878)', () => {
+  it('renders nothing for a 3D Tiles dataset', () => {
     render(
       <ReuploadDialog
         dataset={{ ...makeDataset(), record_type: 'tiles3d_dataset' }}

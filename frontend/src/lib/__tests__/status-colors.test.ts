@@ -113,7 +113,7 @@ describe('recordTypeColors', () => {
     expect(recordTypeColors.collection).toBe(semanticBadgeColors.warning);
   });
 
-  it('uses its own token for tiles3d, not the unknown fallback (#878)', () => {
+  it('uses its own token for tiles3d, not the unknown fallback', () => {
     expect(recordTypeColors.tiles3d_dataset).toContain('type-tiles3d');
     expect(recordTypeColors.tiles3d_dataset).not.toBe(recordTypeColors.unknown);
   });

@@ -1,9 +1,9 @@
-"""A real 3D Tiles dataset hits every record_type-checked route (#878 B8, B25-B31).
+"""A real 3D Tiles dataset hits every record_type-checked route.
 
 `test_record_type_refusals.py` pins the same routes against a monkeypatched
 unknown record type, proving the `capabilities()` mechanism. These tests use
 the literal `tiles3d_dataset` type on a dataset shaped like a published
-tileset, since that is the concrete case the audit asked for.
+tileset, the concrete case that mechanism has to cover.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ async def tiles3d_layer(test_db_session):
 async def test_tiles3d_column_values_are_404(
     client: AsyncClient, admin_auth_header: dict, tiles3d_layer
 ):
-    """A tileset has no tabular columns to fetch distinct values for (B8)."""
+    """A tileset has no tabular columns to fetch distinct values for."""
     resp = await client.get(
         f"/datasets/{tiles3d_layer.id}/columns/name/values/",
         headers=admin_auth_header,
@@ -93,7 +93,7 @@ async def test_tiles3d_feature_routes_are_404(
     body: dict | None,
     detail: str,
 ):
-    """Every feature route, read and write, 404s on a tileset (B25-B28)."""
+    """Every feature route, read and write, 404s on a tileset."""
     resp = await client.request(
         method,
         path.format(id=tiles3d_layer.id),
@@ -108,7 +108,7 @@ async def test_tiles3d_feature_routes_are_404(
 async def test_tiles3d_cannot_be_added_to_a_map(
     client: AsyncClient, admin_auth_header: dict, tiles3d_layer
 ):
-    """Both layer write paths refuse a tileset (B29-B31: shared `_infer_layer_type`)."""
+    """Both layer write paths refuse a tileset, through the shared `_infer_layer_type`."""
     map_id = (await create_map_via_api(client, admin_auth_header))["id"]
     layer = {"dataset_id": str(tiles3d_layer.id)}
 
