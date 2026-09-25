@@ -561,14 +561,19 @@ export function translateApiErrorDetail(detail: unknown, status = 0): string {
   }) as string;
 }
 
+const UPLOAD_REFUSAL_FALLBACK_KEYS: Record<number, ApiErrorDescriptor['key']> = {
+  400: 'errors.badRequest',
+  422: 'errors.validationFailed',
+};
+
 /**
- * Like translateApiErrorDetail, except that a 422 whose string detail the
- * table doesn't recognize is returned as the server wrote it. Arrays,
+ * Like translateApiErrorDetail, except that a 400 or 422 whose string detail
+ * the table doesn't recognize is returned as the server wrote it. Arrays,
  * objects and recognized strings translate as usual.
  */
 export function describeUploadRefusal(detail: unknown, status: number): string {
   const descriptor = classifyApiError(detail, status);
-  if (status === 422 && typeof detail === 'string' && descriptor.key === 'errors.validationFailed') {
+  if (typeof detail === 'string' && descriptor.key === UPLOAD_REFUSAL_FALLBACK_KEYS[status]) {
     return detail;
   }
   return i18n.t(descriptor.key, {

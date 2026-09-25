@@ -4,7 +4,7 @@
  * shows it verbatim when this table doesn't otherwise recognize it, instead
  * of collapsing to the generic "submitted values are invalid" fallback.
  */
-import { requestPresignedUpload, uploadFile } from '@/api/ingest';
+import { requestPresignedUpload, uploadFile, uploadFromUrl } from '@/api/ingest';
 import { requestPresignedReupload } from '@/api/datasets';
 import { ApiError } from '@/api/client';
 
@@ -80,5 +80,35 @@ describe('upload and reupload doors show an unmapped 422 detail verbatim', () =>
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).message).not.toContain('missing');
     expect((err as ApiError).message).toContain('filename');
+  });
+});
+
+describe('the doors show a 400 extension refusal verbatim', () => {
+  const detail = "File extension '.exe' not allowed. Allowed: ['.zip', '.geojson']";
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('the multipart upload door (xhrUpload) shows the extension refusal verbatim', async () => {
+    class ExtensionRefusalXHR extends CapturingXHR {
+      status = 400;
+      responseText = JSON.stringify({ detail });
+    }
+    vi.stubGlobal('XMLHttpRequest', ExtensionRefusalXHR);
+
+    await expect(uploadFile(new File(['MZ'], 'malware.exe'))).rejects.toThrow(detail);
+  });
+
+  it('the presigned upload door shows the extension refusal verbatim', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => errorResponse(400, detail)));
+
+    await expect(requestPresignedUpload('malware.exe', 10)).rejects.toThrow(detail);
+  });
+
+  it('the URL import door shows the extension refusal verbatim', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => errorResponse(400, detail)));
+
+    await expect(uploadFromUrl('https://example.test/malware.exe')).rejects.toThrow(detail);
   });
 });

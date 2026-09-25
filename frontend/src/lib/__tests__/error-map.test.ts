@@ -658,6 +658,12 @@ describe('describeUploadRefusal', () => {
     expect(describeUploadRefusal(detail, 422)).toBe(detail);
   });
 
+  it('shows an unmapped 400 string detail verbatim, such as the extension refusal', () => {
+    const detail = "File extension '.exe' not allowed. Allowed: ['.zip', '.geojson']";
+
+    expect(describeUploadRefusal(detail, 400)).toBe(detail);
+  });
+
   it('still translates a 422 string this table already recognizes', () => {
     expect(
       describeUploadRefusal('Dataset quota exceeded: 5 of 5 datasets used', 422),
@@ -680,9 +686,9 @@ describe('describeUploadRefusal', () => {
     expect(describeUploadRefusal(detail, 422)).not.toBe(detail.message);
   });
 
-  it('does not render an unmapped string outside 422', () => {
-    expect(describeUploadRefusal('Some unmapped 400 detail', 400)).toBe(
-      'The request could not be completed. Check your input.',
+  it('does not render an unmapped string outside 400 and 422', () => {
+    expect(describeUploadRefusal('Some unmapped 409 detail', 409)).toBe(
+      "The request conflicts with the resource's current state.",
     );
   });
 });
