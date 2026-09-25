@@ -3,6 +3,7 @@ import { translateApiErrorDetail } from '@/lib/error-map';
 import i18n from '@/i18n/i18n';
 import { apiFetch, authenticatedRawFetch, ApiError } from './client';
 import { uploadChunks } from './_presignedUpload';
+import { rethrowAsUploadRefusal } from './ingest';
 import { pushReportEntry, reportNetworkError } from '@/lib/report';
 import type {
   CreateDatasetRequest,
@@ -200,11 +201,15 @@ export async function reuploadDataset(
   const formData = new FormData();
   formData.append('file', file);
 
-  return apiFetch<ReuploadResponse>(`/datasets/${datasetId}/reupload`, {
-    method: 'POST',
-    body: formData,
-    timeoutMs: REUPLOAD_TIMEOUT_MS,
-  });
+  try {
+    return await apiFetch<ReuploadResponse>(`/datasets/${datasetId}/reupload`, {
+      method: 'POST',
+      body: formData,
+      timeoutMs: REUPLOAD_TIMEOUT_MS,
+    });
+  } catch (err) {
+    rethrowAsUploadRefusal(err);
+  }
 }
 
 export async function reuploadPreview(
@@ -214,20 +219,28 @@ export async function reuploadPreview(
   layerName?: string,
 ): Promise<ReuploadPreviewResponse> {
   const body = layerName !== undefined ? JSON.stringify({ layer_name: layerName }) : undefined;
-  return apiFetch<ReuploadPreviewResponse>(`/datasets/${datasetId}/reupload/${jobId}/preview`, {
-    method: 'POST',
-    ...(body ? { body } : {}),
-  });
+  try {
+    return await apiFetch<ReuploadPreviewResponse>(`/datasets/${datasetId}/reupload/${jobId}/preview`, {
+      method: 'POST',
+      ...(body ? { body } : {}),
+    });
+  } catch (err) {
+    rethrowAsUploadRefusal(err);
+  }
 }
 
 export async function reuploadServicePreview(
   datasetId: string,
   request: ReuploadServicePreviewRequest,
 ): Promise<ReuploadPreviewResponse> {
-  return apiFetch<ReuploadPreviewResponse>(`/datasets/${datasetId}/reupload/service/preview`, {
-    method: 'POST',
-    body: JSON.stringify(request),
-  });
+  try {
+    return await apiFetch<ReuploadPreviewResponse>(`/datasets/${datasetId}/reupload/service/preview`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  } catch (err) {
+    rethrowAsUploadRefusal(err);
+  }
 }
 
 export async function reuploadCommit(
@@ -251,10 +264,14 @@ export async function reuploadCommit(
     ...(expectedOriginKind ? { expected_origin_kind: expectedOriginKind } : {}),
   };
 
-  return apiFetch<ReuploadCommitResponse>(`/datasets/${datasetId}/reupload/${jobId}/commit`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  try {
+    return await apiFetch<ReuploadCommitResponse>(`/datasets/${datasetId}/reupload/${jobId}/commit`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    rethrowAsUploadRefusal(err);
+  }
 }
 
 export async function addColumn(
@@ -361,14 +378,18 @@ export async function requestPresignedReupload(
   fileSize: number,
   contentType?: string,
 ): Promise<PresignedUploadResponse> {
-  return apiFetch<PresignedUploadResponse>(`/datasets/${datasetId}/reupload/presigned`, {
-    method: 'POST',
-    body: JSON.stringify({
-      filename,
-      file_size: fileSize,
-      ...(contentType && { content_type: contentType }),
-    }),
-  });
+  try {
+    return await apiFetch<PresignedUploadResponse>(`/datasets/${datasetId}/reupload/presigned`, {
+      method: 'POST',
+      body: JSON.stringify({
+        filename,
+        file_size: fileSize,
+        ...(contentType && { content_type: contentType }),
+      }),
+    });
+  } catch (err) {
+    rethrowAsUploadRefusal(err);
+  }
 }
 
 export async function completePresignedReupload(
@@ -376,10 +397,14 @@ export async function completePresignedReupload(
   jobId: string,
   parts?: { etag: string; part_number: number }[],
 ): Promise<UploadResponse> {
-  return apiFetch<UploadResponse>(`/datasets/${datasetId}/reupload/presigned/${jobId}/complete`, {
-    method: 'POST',
-    body: JSON.stringify({ parts: parts ?? [] }),
-  });
+  try {
+    return await apiFetch<UploadResponse>(`/datasets/${datasetId}/reupload/presigned/${jobId}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ parts: parts ?? [] }),
+    });
+  } catch (err) {
+    rethrowAsUploadRefusal(err);
+  }
 }
 
 /**

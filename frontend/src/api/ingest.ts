@@ -1,7 +1,7 @@
 import { apiFetch, ApiError, attemptRefresh, notifySessionExpired, tryRefresh, type RefreshOutcome } from './client';
 import { uploadChunks } from './_presignedUpload';
 import { API_BASE } from '@/lib/constants';
-import { translateApiErrorDetail } from '@/lib/error-map';
+import { describeUploadRefusal } from '@/lib/error-map';
 import i18n from '@/i18n/i18n';
 import { useAuthStore } from '@/stores/auth-store';
 import { reportNetworkError } from '@/lib/report';
@@ -30,6 +30,24 @@ import type {
 
 /** Byte-transfer progress callback (0–1). */
 export type UploadProgress = (fraction: number) => void;
+
+/**
+ * Rebuilds an upload/reupload door's ApiError from its raw body through
+ * describeUploadRefusal, so an unmapped 422 string reaches the form as the
+ * server composed it. Every apiFetch-based door in this file and in
+ * api/datasets.ts calls this from its catch block; always throws.
+ */
+export function rethrowAsUploadRefusal(err: unknown): never {
+  if (err instanceof ApiError) {
+    const message = describeUploadRefusal(err.body, err.status);
+    if (message !== err.message) {
+      const rebuilt = new ApiError(message, err.status, err.body);
+      rebuilt.unconfirmed = err.unconfirmed;
+      throw rebuilt;
+    }
+  }
+  throw err;
+}
 
 /**
  * XHR-based POST so we can report upload-byte progress — `fetch()` cannot.
@@ -118,7 +136,7 @@ async function xhrUpload<T>(
         useAuthStore.getState().logout();
       }
     }
-    const failure = new ApiError(translateApiErrorDetail(detail, res.status), res.status, detail);
+    const failure = new ApiError(describeUploadRefusal(detail, res.status), res.status, detail);
     // fix(#2038): same flag as authenticatedRawFetch — a 401 whose refresh only
     // failed transiently is no evidence the credential was rejected.
     if (res.status === 401 && refreshOutcome === 'transient') failure.unconfirmed = true;
@@ -187,7 +205,7 @@ export async function uploadFromUrl(
     // Direct call from UrlImportForm's try/catch (not a TanStack mutation),
     // so report here — metadata only, same reasoning as uploadFile above.
     reportApiCallFailure('/ingest/upload/url', err);
-    throw err;
+    rethrowAsUploadRefusal(err);
   }
 }
 
@@ -241,7 +259,7 @@ export async function previewFile(jobId: string, layerName?: string): Promise<Fi
     // silently fell through this guard uncaptured. reportApiCallFailure
     // handles every error shape uniformly.
     reportApiCallFailure('/ingest/preview', err);
-    throw err;
+    rethrowAsUploadRefusal(err);
   }
 }
 
@@ -261,7 +279,7 @@ export async function commitImport(
     });
   } catch (err) {
     reportApiCallFailure('/ingest/commit', err);
-    throw err;
+    rethrowAsUploadRefusal(err);
   }
 }
 
@@ -366,25 +384,33 @@ export async function requestPresignedUpload(
   contentType?: string,
   kind?: UploadKind | null,
 ): Promise<PresignedUploadResponse> {
-  return apiFetch<PresignedUploadResponse>('/ingest/upload/presigned', {
-    method: 'POST',
-    body: JSON.stringify({
-      filename,
-      file_size: fileSize,
-      ...(contentType && { content_type: contentType }),
-      ...(kind && { kind }),
-    }),
-  });
+  try {
+    return await apiFetch<PresignedUploadResponse>('/ingest/upload/presigned', {
+      method: 'POST',
+      body: JSON.stringify({
+        filename,
+        file_size: fileSize,
+        ...(contentType && { content_type: contentType }),
+        ...(kind && { kind }),
+      }),
+    });
+  } catch (err) {
+    rethrowAsUploadRefusal(err);
+  }
 }
 
 export async function completePresignedUpload(
   jobId: string,
   parts?: { etag: string; part_number: number }[],
 ): Promise<UploadResponse> {
-  return apiFetch<UploadResponse>(`/ingest/upload/presigned/${jobId}/complete`, {
-    method: 'POST',
-    body: JSON.stringify({ parts: parts ?? [] }),
-  });
+  try {
+    return await apiFetch<UploadResponse>(`/ingest/upload/presigned/${jobId}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ parts: parts ?? [] }),
+    });
+  } catch (err) {
+    rethrowAsUploadRefusal(err);
+  }
 }
 
 /**
