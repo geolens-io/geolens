@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+import rasterio.crs
 
 from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 
@@ -179,6 +180,78 @@ class TestGeoreferencing:
         result = await fetch_cog_info("https://origin.test/scene.tif")
         assert result is not None
         assert result["crs_wkt"] is None
+
+
+# Valid WKT, as Titiler reports a CRS PROJ cannot match to an authority code.
+_UTM_21N_WKT = rasterio.crs.CRS.from_epsg(32621).to_wkt()
+
+
+@pytest.fixture
+def crs_text_parses(monkeypatch) -> list[str]:
+    """Swap rasterio's CRS for one that refuses CRS text, recording each attempt."""
+    real = rasterio.crs.CRS
+    attempts: list[str] = []
+
+    def _refuse(name: str):
+        def _parse(*args, **kwargs):
+            attempts.append(name)
+            raise AssertionError(f"CRS text parsed through {name}")
+
+        return staticmethod(_parse)
+
+    class _EpsgOnlyCRS:
+        from_epsg = staticmethod(real.from_epsg)
+        from_user_input = _refuse("from_user_input")
+        from_wkt = _refuse("from_wkt")
+        from_string = _refuse("from_string")
+
+    monkeypatch.setattr(rasterio.crs, "CRS", _EpsgOnlyCRS)
+    return attempts
+
+
+class TestAuthorityCrsOnly:
+    @pytest.mark.parametrize(
+        ("crs", "epsg"),
+        [
+            ("EPSG:32621", 32621),
+            ("http://www.opengis.net/def/crs/EPSG/0/32621", 32621),
+            ("urn:ogc:def:crs:EPSG::32621", 32621),
+            ("http://www.opengis.net/def/crs/OGC/1.3/CRS84", 4326),
+        ],
+    )
+    async def test_an_epsg_reference_builds_the_wkt_from_the_registry(
+        self, monkeypatch, crs_text_parses, crs, epsg
+    ) -> None:
+        """An EPSG or OGC reference yields its code and the registry's WKT2."""
+        _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+
+        assert result is not None
+        assert result["epsg"] == epsg
+        assert result["crs_wkt"] == rasterio.crs.CRS.from_epsg(epsg).to_wkt(
+            version="WKT2_2019"
+        )
+        assert crs_text_parses == []
+
+    @pytest.mark.parametrize(
+        "crs",
+        [
+            _UTM_21N_WKT,
+            "http://www.opengis.net/def/crs/ESRI/0/102100",
+            "EPSG:999999999",
+        ],
+        ids=["wkt", "esri-uri", "unknown-code"],
+    )
+    async def test_any_other_crs_stores_none_without_parsing_it(
+        self, monkeypatch, crs_text_parses, crs
+    ) -> None:
+        """WKT, another authority or a code PROJ lacks stores no CRS and parses no text."""
+        _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+
+        assert result is not None
+        assert (result["crs_wkt"], result["epsg"]) == (None, None)
+        assert crs_text_parses == []
 
 
 class TestGeotransform:
