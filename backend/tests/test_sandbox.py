@@ -405,6 +405,24 @@ class TestBuildTableAllowlist:
         allowlist = await build_table_allowlist(session, None)
         assert tbl in allowlist
 
+    async def test_tiles3d_dataset_excluded(self, client, test_db_session):
+        """A tileset's table_name names no data.<table>, so it's kept out (#878)."""
+        session = test_db_session
+        admin = await _get_user(session, "admin")
+        tbl = f"tiles3d_{uuid.uuid4().hex[:8]}"
+        await create_dataset(
+            session,
+            created_by=admin.id,
+            table_name=tbl,
+            record_type="tiles3d_dataset",
+            source_format="3dtiles",
+            geometry_type=None,
+            feature_count=None,
+        )
+
+        allowlist = await build_table_allowlist(session, admin)
+        assert tbl not in allowlist
+
 
 # ---------------------------------------------------------------------------
 # SAND-02: READ ONLY transaction enforcement (integration, needs DB)
