@@ -244,6 +244,22 @@ describe('UploadForm upload kind', () => {
     expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-allowed-extensions', '.3tz');
   });
 
+  it('rejects every file in files mode when the deployment allows only .3tz', async () => {
+    mockConfig = { data: null, isFetching: true };
+    const user = userEvent.setup();
+    const view = render(<UploadForm />);
+    await user.click(screen.getByTestId('drop-zip'));
+
+    mockConfig = { data: { ...CONFIG, allowed_extensions: '.3tz' }, isFetching: false };
+    await act(async () => {
+      view.rerender(<UploadForm />);
+    });
+
+    expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-allowed-extensions', '');
+    expect(toast.error).toHaveBeenCalledWith('dropzone.fileRejected');
+    expect(uploadFile).not.toHaveBeenCalled();
+  });
+
   it('says why the kind is locked while a drop waits for the config', async () => {
     mockConfig = { data: null, isFetching: true };
     const user = userEvent.setup();

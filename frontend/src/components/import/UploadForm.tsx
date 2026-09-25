@@ -480,7 +480,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     clearPendingUploadFiles();
     const files = pendingFiles.filter((f) => {
       if (
-        allowedExtensions?.length &&
+        allowedExtensions &&
         !allowedExtensions.some((ext) => f.name.toLowerCase().endsWith(ext.toLowerCase()))
       ) {
         toast.error(t('dropzone.fileRejected', { filename: f.name, reason: t('dropzone.unsupportedType') }));

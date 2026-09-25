@@ -67,6 +67,8 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
     if (!allowedExtensions || allowedExtensions.length === 0) return undefined;
     return buildAcceptMap(allowedExtensions);
   }, [allowedExtensions]);
+  // An empty list allows nothing; only a list not yet known accepts every file.
+  const rejectAll = allowedExtensions?.length === 0;
 
   const formatPills = useMemo(() => {
     if (!allowedExtensions || allowedExtensions.length === 0) return [];
@@ -83,6 +85,9 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
       accept,
+      validator: rejectAll
+        ? () => ({ code: 'file-invalid-type', message: t('dropzone.unsupportedType') })
+        : undefined,
       maxFiles: effectiveMaxFiles,
       maxSize: maxSizeMb ? maxSizeMb * 1024 * 1024 : undefined,
       multiple: true,
