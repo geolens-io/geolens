@@ -53,7 +53,8 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
-from app.platform.jobs.ledger import abort, hold
+from app.platform.jobs import ledger
+from app.platform.jobs.ledger import hold
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.credentials import (
     CredentialStoreUnavailable,
@@ -396,7 +397,7 @@ async def reupload_dataset(
             # row is still pending and bound here, as the bind below is.
             held = await hold(db, job.id, expect="pending")
             if held is not None and held.dataset_id == dataset_id:
-                await abort(db, held, code="content_rejected", reason=exc)
+                await ledger.abort(db, held, code="content_rejected", reason=exc)
             await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -520,13 +521,13 @@ async def reupload_service_preview(
     )
     schema_diff = SchemaDiff(**diff)
 
-    job = IngestJob(
+    job = ledger.create(
+        db,
+        created_by=user_id,
         dataset_id=dataset_id,
         source_filename=request.layer_title or request.layer_name,
         source_url=request.url,
         source_layer=request.layer_name,
-        created_by=user_id,
-        status="pending",
         user_metadata={
             "reupload": True,
             "dataset_id": str(dataset_id),
@@ -536,7 +537,6 @@ async def reupload_service_preview(
             "object_id_field": request.object_id_field,
         },
     )
-    db.add(job)
     await db.flush()
     await db.commit()
 
@@ -1066,26 +1066,14 @@ async def reupload_commit(
     # now-cancelled job that holds `uq_refresh_runs_one_active` for up to
     # an hour of false "busy" after a successful cancel.
     #
-    # The same-value CAS below re-evaluates pending+attempt under the row
-    # lock, atomically with the run flush: a committed cancel matches zero
-    # rows and rolls the whole request back into a clean 409; if this side
-    # wins the lock first, the cancel's own CAS then cancels job AND run
-    # together. No deadlock: this transaction's run row is invisible to
-    # the cancel's CAS until commit.
-    commit_fence = await db.execute(
-        update(IngestJob)
-        .where(
-            IngestJob.id == job.id,
-            IngestJob.status == "pending",
-            (
-                IngestJob.attempt_id == job.attempt_id
-                if job.attempt_id is not None
-                else IngestJob.attempt_id.is_(None)
-            ),
-        )
-        .values(status="pending")
-    )
-    if not commit_fence.rowcount:
+    # The hold below re-reads pending+attempt under the row lock, atomically
+    # with the run flush: a committed cancel fails it and rolls the whole
+    # request back into a clean 409; if this side takes the lock first, the
+    # cancel's own CAS then cancels job AND run together. No deadlock: this
+    # transaction's run row is invisible to the cancel's CAS until commit.
+    committing_attempt = job.attempt_id
+    held = await ledger.hold(db, job.id, expect="pending")
+    if held is None or held.attempt_id != committing_attempt:
         await db.rollback()
         await db.refresh(job)
         raise HTTPException(
@@ -1468,7 +1456,7 @@ async def complete_presigned_reupload(
         if exc.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT:
             # The error a refusal wraps decides what is stored, as on the direct doors.
             reason = redact_failure_reason(exc.__cause__ or str(exc.detail))
-            await abort(db, job, code="content_rejected", reason=reason)
+            await ledger.abort(db, job, code="content_rejected", reason=reason)
             await db.commit()
         raise
 

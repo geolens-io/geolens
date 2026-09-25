@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import coded_failure_reason
+from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
@@ -138,10 +139,10 @@ async def prepare_admitted_refresh(
         )
 
     execution_key = uuid.uuid4()
-    job = IngestJob(
-        dataset_id=dataset_id,
+    job = ledger.create(
+        session,
         created_by=actor_id,
-        status="pending",
+        dataset_id=dataset_id,
         source_filename=request.source_filename,
         source_url=request.source_url,
         source_layer=request.source_layer,
@@ -153,7 +154,6 @@ async def prepare_admitted_refresh(
             "verification_policy": request.verification_policy,
         },
     )
-    session.add(job)
     await session.flush()
     run = await create_pending_run(
         session,

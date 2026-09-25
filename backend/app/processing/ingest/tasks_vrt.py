@@ -22,16 +22,15 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     arm_job_error_write_budget,
     claim_job_attempt_and_start_heartbeat,
     log_job_error_write_failure,
     maintain_vrt_generation_heartbeat,
-    require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
-    update_ingest_job_for_attempt,
 )
 from app.core.failure_reason import redact_failure_reason
 from app.core.db import tenant_task
@@ -820,15 +819,8 @@ async def ingest_vrt(
                 await note_publish_followups(
                     session, job_uuid, attempt_uuid, "ingest_vrt"
                 )
-                await require_ingest_job_update(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "complete",
-                        "dataset_id": dataset.id,
-                        "completed_at": datetime.now(timezone.utc),
-                    },
+                await ledger.complete(
+                    session, job_uuid, attempt_uuid, values={"dataset_id": dataset.id}
                 )
                 xid = publishing_xid(session)
                 try:
@@ -1516,15 +1508,8 @@ async def regenerate_vrt(
                 )
 
                 # 14. Finalize job
-                await require_ingest_job_update(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "complete",
-                        "dataset_id": vrt_id,
-                        "completed_at": datetime.now(timezone.utc),
-                    },
+                await ledger.complete(
+                    session, job_uuid, attempt_uuid, values={"dataset_id": vrt_id}
                 )
                 xid = publishing_xid(session)
                 try:
@@ -1620,16 +1605,7 @@ async def regenerate_vrt(
                 # catalog row, so this handler runs while the job row may be
                 # contended too. Both writes below share the budget.
                 await arm_job_error_write_budget(err_session)
-                await update_ingest_job_for_attempt(
-                    err_session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "failed",
-                        "error_message": redact_failure_reason(exc),
-                        "completed_at": datetime.now(timezone.utc),
-                    },
-                )
+                await ledger.fail(err_session, job_uuid, attempt_uuid, reason=exc)
                 # fix(#1962): only once the asset is off this generation. A
                 # terminal generation under an asset still pointing at it is
                 # the state `sweep_stale_vrt_assets` fences itself out of.

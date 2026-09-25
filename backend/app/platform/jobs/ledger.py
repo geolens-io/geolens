@@ -1,16 +1,19 @@
-"""The job ledger: the ``ingest_jobs`` transitions no worker makes.
+"""The job ledger: every write of ``ingest_jobs.status``.
 
-``hold`` locks a job in the state its caller expects. ``abort`` fails a job no
-worker holds, ``cancel`` ends a pending or running job at a user's request,
-``end_stale`` ends a job the stale pass found, and ``retry`` returns a failed
-job to pending under a new attempt. Each fences on the attempt its caller read
-and writes nothing on a miss.
+``create`` adds a job. The job's owner moves it with ``claim``, ``stage``,
+``fan_out``, ``restore``, ``complete`` and ``fail``. ``hold`` locks a job in
+the state its caller expects. ``abort`` fails a job no worker holds, ``cancel``
+ends a pending or running job at a user's request, ``end_stale`` ends a job the
+stale pass found, and ``retry`` returns a failed job to pending under a new
+attempt. Each fences on the attempt its caller read and writes nothing on a
+miss.
 
-Rows linked to a job stay with their owners. When an end lands, each owner's
-``job_ended`` hook settles its rows in the same transaction, after the job row
-is locked, and a hook that raises takes the job write back with it. Once per
-stale pass, each owner's ``stale_pass`` settles the rows it proves stale
-itself.
+Rows linked to a job stay with their owners. When an abort, cancel or stale
+end lands, each owner's ``job_ended`` hook settles its rows in the same
+transaction, after the job row is locked, and a hook that raises takes the job
+write back with it. Once per stale pass, each owner's ``stale_pass`` settles
+the rows it proves stale itself. A job's owner ending its own job passes its
+linked write as ``linked`` instead.
 """
 
 from __future__ import annotations
@@ -22,13 +25,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, inspect as sa_inspect, select, text, update
+from sqlalchemy import String, func, inspect as sa_inspect, literal, or_, select, text
+from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.failure_reason import FixedReason, redact_failure_reason
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import FAN_OUT_INTERRUPTED_METADATA_KEY, IngestJob
 
 # The three VRT regeneration doors create their job under this filename, and
 # nothing else does.
@@ -43,6 +47,12 @@ _CANCEL_REASON = FixedReason("Cancelled by user")
 # The job's columns an owner's hook reads when an end lands.
 _END_COLUMNS = ("dataset_id", "source_filename", "user_metadata", "created_by")
 
+# The columns a transition writes itself or fences on, which its caller's
+# ``values`` may not.
+_WRITTEN_BY_THE_LEDGER = frozenset(
+    {"status", "error_message", "completed_at", "attempt_id", "id"}
+)
+
 
 class Outcome(enum.Enum):
     """What a ledger write did. Every value except ``LANDED`` wrote nothing."""
@@ -51,6 +61,14 @@ class Outcome(enum.Enum):
     MISSING = "missing"
     MOVED = "moved"
     SUPERSEDED = "superseded"
+
+
+class StaleIngestAttempt(RuntimeError):
+    """Raised when a worker no longer owns the job attempt it received."""
+
+
+Linked = Callable[[AsyncSession], Awaitable[None]]
+"""An owner's write to its job's linked rows, run when the owner's end lands."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +155,257 @@ def _mirror(job: IngestJob, values: Mapping[str, Any]) -> None:
     if sa_inspect(job, raiseerr=False) is not None:
         for key, value in values.items():
             set_committed_value(job, key, value)
+
+
+def _extra(values: Mapping[str, Any] | None) -> dict[str, Any]:
+    """A transition's further columns, refused if they name one it writes itself."""
+    extra = dict(values or {})
+    if owned := _WRITTEN_BY_THE_LEDGER & extra.keys():
+        raise ValueError(f"the ledger writes {sorted(owned)} itself")
+    return extra
+
+
+async def _move(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    *,
+    expect: tuple[str, ...],
+    written: Mapping[str, Any],
+    require: Sequence[Any] = (),
+    linked: Linked | None = None,
+    mirror: IngestJob | None = None,
+) -> bool:
+    """Write one fenced transition, run ``linked`` when it lands, and mirror it.
+
+    ``linked`` shares a SAVEPOINT with the write, so when it raises, the write
+    rolls back with it. What landed is mirrored onto ``mirror``, or else onto
+    the session's own instance of the row. Does not commit.
+    """
+    statement = (
+        update(IngestJob)
+        .where(
+            IngestJob.id == job_id,
+            IngestJob.status.in_(expect),
+            _attempt_is(attempt_id),
+            *require,
+        )
+        .values(**written)
+        .returning(*(getattr(IngestJob, column) for column in written))
+        .execution_options(synchronize_session=False)
+    )
+    if linked is None:
+        landed = (await session.execute(statement)).one_or_none()
+    else:
+        async with session.begin_nested():
+            landed = (await session.execute(statement)).one_or_none()
+            if landed is not None:
+                await linked(session)
+    if landed is None:
+        return False
+    if mirror is None:
+        mirror = session.identity_map.get(session.identity_key(IngestJob, job_id))
+    if mirror is not None:
+        _mirror(mirror, landed._mapping)
+    return True
+
+
+def create(
+    session: AsyncSession,
+    *,
+    created_by: uuid.UUID | None,
+    status: str = "pending",
+    dataset_id: uuid.UUID | None = None,
+    source_filename: str | None = None,
+    file_path: str | None = None,
+    source_url: str | None = None,
+    source_layer: str | None = None,
+    user_metadata: dict[str, Any] | None = None,
+    current_step: str | None = None,
+    progress: float | None = None,
+) -> IngestJob:
+    """Add a job, pending or running, to the session. Does not flush or commit.
+
+    A job created ``running`` starts now: the URL import and the manifest
+    reservation begin their work in the request that creates them.
+    """
+    if status not in ("pending", "running"):
+        raise ValueError(f"a job cannot be created {status!r}")
+    job = IngestJob(
+        status=status,
+        created_by=created_by,
+        dataset_id=dataset_id,
+        source_filename=source_filename,
+        file_path=file_path,
+        source_url=source_url,
+        source_layer=source_layer,
+        user_metadata=user_metadata,
+        current_step=current_step,
+        progress=progress,
+        started_at=datetime.now(timezone.utc) if status == "running" else None,
+    )
+    session.add(job)
+    return job
+
+
+async def claim(
+    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID
+) -> bool:
+    """Move this attempt's pending job to running and start its lease.
+
+    Returns whether it landed. Does not commit.
+    """
+    now = datetime.now(timezone.utc)
+    return await _move(
+        session,
+        job_id,
+        attempt_id,
+        expect=("pending",),
+        written={"status": "running", "started_at": now, "heartbeat_at": now},
+    )
+
+
+async def stage(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    *,
+    values: Mapping[str, Any],
+    require: Sequence[Any] = (),
+    mirror: IngestJob | None = None,
+) -> bool:
+    """Return this attempt's running job to pending, writing ``values`` with it.
+
+    ``require`` adds predicates the row must still meet. Returns whether it
+    landed. Does not commit.
+    """
+    return await _move(
+        session,
+        job_id,
+        attempt_id,
+        expect=("running",),
+        written={"status": "pending", **_extra(values)},
+        require=require,
+        mirror=mirror,
+    )
+
+
+async def fan_out(
+    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID | None
+) -> bool:
+    """Move this attempt's pending parent to ``fanned_out``, before any child exists.
+
+    Returns whether it landed. Does not commit.
+    """
+    return await _move(
+        session,
+        job_id,
+        attempt_id,
+        expect=("pending",),
+        written={"status": "fanned_out", "completed_at": datetime.now(timezone.utc)},
+    )
+
+
+async def restore(
+    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID | None
+) -> bool:
+    """Return this attempt's parent to pending when none of its children queued.
+
+    Takes the parent from ``fanned_out``, or from ``failed`` with the
+    interrupted marker the childless fan-out sweep stamps, and drops that
+    marker. Returns whether it landed. Does not commit.
+    """
+    return await _move(
+        session,
+        job_id,
+        attempt_id,
+        expect=("fanned_out", "failed"),
+        require=(
+            or_(
+                IngestJob.status == "fanned_out",
+                IngestJob.user_metadata[FAN_OUT_INTERRUPTED_METADATA_KEY].astext
+                == "true",
+            ),
+        ),
+        written={
+            "status": "pending",
+            "completed_at": None,
+            "error_message": None,
+            "user_metadata": IngestJob.user_metadata.op("-")(
+                literal(FAN_OUT_INTERRUPTED_METADATA_KEY, String)
+            ),
+        },
+    )
+
+
+async def complete(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    *,
+    values: Mapping[str, Any] | None = None,
+    linked: Linked | None = None,
+    expect: str = "running",
+    mirror: IngestJob | None = None,
+) -> None:
+    """Move this attempt's job to ``complete``, then run ``linked``.
+
+    ``values`` are further columns the end writes. A miss raises
+    ``StaleIngestAttempt`` and writes nothing. Does not commit.
+    """
+    written = {
+        "status": "complete",
+        "completed_at": datetime.now(timezone.utc),
+        **_extra(values),
+    }
+    if not await _move(
+        session,
+        job_id,
+        attempt_id,
+        expect=(expect,),
+        written=written,
+        linked=linked,
+        mirror=mirror,
+    ):
+        raise StaleIngestAttempt(
+            f"Ingest attempt {attempt_id} no longer owns job {job_id}"
+        )
+
+
+async def fail(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    *,
+    reason: str | BaseException | None,
+    values: Mapping[str, Any] | None = None,
+    linked: Linked | None = None,
+    expect: str | tuple[str, ...] = "running",
+    require: Sequence[Any] = (),
+    mirror: IngestJob | None = None,
+) -> bool:
+    """Move this attempt's job to ``failed``, then run ``linked``.
+
+    ``reason`` is stored redacted, and None stores none. ``values`` are further
+    columns the end writes, and ``require`` further predicates the row must
+    still meet. A miss returns False and writes nothing. Does not commit.
+    """
+    written = {
+        "status": "failed",
+        "error_message": None if reason is None else redact_failure_reason(reason),
+        "completed_at": datetime.now(timezone.utc),
+        **_extra(values),
+    }
+    return await _move(
+        session,
+        job_id,
+        attempt_id,
+        expect=(expect,) if isinstance(expect, str) else expect,
+        written=written,
+        require=require,
+        linked=linked,
+        mirror=mirror,
+    )
 
 
 async def hold(

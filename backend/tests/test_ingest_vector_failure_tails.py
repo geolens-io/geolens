@@ -336,10 +336,10 @@ class TestACleanupFailureCannotSwallowTheFailureWrite:
         status_lines = [
             node.lineno
             for node in ast.walk(tree)
-            if isinstance(node, ast.keyword)
-            and node.arg == "status"
-            and isinstance(node.value, ast.Constant)
-            and node.value.value == "failed"
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "fail"
+            and getattr(node.func.value, "id", None) == "ledger"
         ]
         assert drop_lines and status_lines, "the helper's shape changed"
         assert min(drop_lines) > min(status_lines), (

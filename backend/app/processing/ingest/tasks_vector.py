@@ -11,9 +11,10 @@ from sqlalchemy import or_, text, update
 from sqlalchemy.exc import DBAPIError
 
 from app.core.db.tenant_session import tenant_task
-from app.core.failure_reason import redact_failure_reason
+from app.core.failure_reason import FixedReason
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.dataset_origin import service_layer_identity
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     attempt_scoped_staging_table,
@@ -21,7 +22,6 @@ from app.platform.jobs.heartbeat import (
     log_job_error_write_failure,
     require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
-    update_ingest_job_for_attempt,
     stop_ingest_job_heartbeat,
 )
 from app.processing.ingest.metadata import _qtable
@@ -442,16 +442,7 @@ async def ingest_file(
                     source_filename=job.source_filename,
                 )
             except ValueError as exc:
-                await update_ingest_job_for_attempt(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "failed",
-                        "error_message": redact_failure_reason(exc),
-                        "completed_at": datetime.now(timezone.utc),
-                    },
-                )
+                await ledger.fail(session, job_uuid, attempt_uuid, reason=exc)
                 await session.commit()
                 # Let final cleanup distinguish staging from the only managed
                 # copy, which must survive validation failure for a retry.
@@ -483,19 +474,15 @@ async def ingest_file(
                 and not assumes_4326
                 and srid_override is None
             ):
-                await update_ingest_job_for_attempt(
+                await ledger.fail(
                     session,
                     job_uuid,
                     attempt_uuid,
-                    values={
-                        "status": "failed",
-                        "error_message": (
-                            "Missing CRS: no coordinate system detected. "
-                            "Ensure the file includes CRS information "
-                            "(e.g., .prj file for Shapefiles)."
-                        ),
-                        "completed_at": datetime.now(timezone.utc),
-                    },
+                    reason=FixedReason(
+                        "Missing CRS: no coordinate system detected. "
+                        "Ensure the file includes CRS information "
+                        "(e.g., .prj file for Shapefiles)."
+                    ),
                 )
                 await session.commit()
                 final_status = "failed"

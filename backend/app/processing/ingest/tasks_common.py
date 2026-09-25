@@ -1270,16 +1270,14 @@ async def _finalize_ingest(ctx: IngestContext):
     # success. ``rows_processed`` is the feature_count derived by
     # ``extract_metadata`` above; raster ingests (which do not call this
     # helper) leave the column NULL — see tasks_raster.ingest_raster.
-    from app.platform.jobs.heartbeat import require_ingest_job_update
+    from app.platform.jobs import ledger
 
-    await require_ingest_job_update(
+    await ledger.complete(
         session,
         job.id,
         ctx.attempt_id or job.attempt_id,
         values={
-            "status": "complete",
             "dataset_id": dataset.id,
-            "completed_at": datetime.now(timezone.utc),
             "current_step": "complete",
             "progress": 1.0,
             "rows_processed": metadata.get("feature_count"),

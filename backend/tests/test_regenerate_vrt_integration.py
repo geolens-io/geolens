@@ -908,9 +908,7 @@ async def test_a_bounded_abort_on_the_job_row_still_settles_the_vrt_asset(
     async def _expired_on_the_job_row(*args, **kwargs):
         raise DBAPIError("UPDATE", {}, QueryCanceledError("canceling statement"))
 
-    monkeypatch.setattr(
-        tasks_vrt, "update_ingest_job_for_attempt", _expired_on_the_job_row
-    )
+    monkeypatch.setattr(tasks_vrt.ledger, "fail", _expired_on_the_job_row)
 
     with pytest.raises(RuntimeError, match="gdalbuildvrt"):
         await regenerate_vrt.func(

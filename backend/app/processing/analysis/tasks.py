@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Literal
 
@@ -47,12 +46,13 @@ from app.platform.analysis_sql import (
     spatial_join_output_columns,
 )
 from app.processing.analysis.provenance import apply_analysis_provenance
+from app.core.failure_reason import FixedReason
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
-    claim_ingest_job_attempt,
+    StaleIngestAttempt,
     maintain_ingest_job_heartbeat,
     resolve_ingest_job_attempt,
     stop_ingest_job_heartbeat,
-    update_ingest_job_for_attempt,
     write_job_failure_for_attempt,
 )
 from app.processing.ingest.metadata import _sql_quote_ident
@@ -159,13 +159,15 @@ CANCEL_WRITE_BUDGET_MS = int(
 )
 
 
-def _user_error_message(exc: Exception, *, registered: bool = False) -> str:
-    """Map a failure onto text safe to return from ``GET /jobs/{job_id}``.
+def _user_error_message(exc: Exception, *, registered: bool = False) -> str | Exception:
+    """The reason to store for a failure: a sentence for a database error, else the error.
 
     SQLAlchemy stringifies DB errors with the full statement appended
     (``[SQL: CREATE TABLE "data"."…" AS …]``), which would hand internal schema
     and table names to the client. Mirrors the sandbox's
-    ``_handle_execution_error`` categories; raw text stays in server logs.
+    ``_handle_execution_error`` categories; raw text stays in server logs. Any
+    other failure is returned as it is, for the ledger's redaction to judge by
+    where it came from.
     """
     if isinstance(exc, SQLAlchemyError):
         exc_text = str(exc).lower()
@@ -191,7 +193,7 @@ def _user_error_message(exc: Exception, *, registered: bool = False) -> str:
                 "operation. Try a different column."
             )
         return "The analysis failed due to a database error"
-    return str(exc)[:2000]
+    return exc
 
 
 async def _fail_cancelled_job(
@@ -231,15 +233,9 @@ async def _fail_cancelled_job(
             session,
             uuid.UUID(job_id),
             attempt_id,
-            values={
-                "status": "failed",
-                "error_message": (
-                    "The worker shut down before this analysis finished. Run it again."
-                ),
-                # fix(#813): terminal writes stamp completed_at — without it
-                # the jobs UI renders '-' and retention ages on queue time.
-                "completed_at": datetime.now(timezone.utc),
-            },
+            reason=FixedReason(
+                "The worker shut down before this analysis finished. Run it again."
+            ),
             task_name="analysis_cancelled",
             budget_ms=CANCEL_WRITE_BUDGET_MS,
         )
@@ -590,21 +586,16 @@ async def _complete_job_for_attempt(
     job they were told failed. The fence shares the registration transaction,
     so a miss rolls the Dataset row back with it.
     """
-    if await update_ingest_job_for_attempt(
-        session,
-        uuid.UUID(job_id),
-        attempt_id,
-        values={
-            "status": "complete",
-            "dataset_id": dataset_id,
-            # fix(#813): stamp completion time like ingest does.
-            "completed_at": datetime.now(timezone.utc),
-        },
-    ):
+    try:
+        await ledger.complete(
+            session, uuid.UUID(job_id), attempt_id, values={"dataset_id": dataset_id}
+        )
+    except StaleIngestAttempt:
+        await session.rollback()
+    else:
         await session.commit()
         ANALYSIS_JOBS.labels(operation=operation, status="complete").inc()
         return
-    await session.rollback()
     logger.warning("analysis.complete_write_superseded", job_id=job_id)
     # fix(#814): the output table is durable from the build commit and this
     # attempt's registration is rolled back, so gate the drop on the adoption
@@ -899,13 +890,8 @@ async def _mark_job_failed(
         session,
         uuid.UUID(job_id),
         attempt_id,
-        values={
-            "status": "failed",
-            # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
-            "error_message": _user_error_message(exc, registered=registered),
-            # fix(#813): stamp completion time like ingest does.
-            "completed_at": datetime.now(timezone.utc),
-        },
+        # Raw DB errors embed the generated SQL.
+        reason=_user_error_message(exc, registered=registered),
         task_name="analysis_materialize",
     )
     # fix(#1957): an expiry proves nothing about who owns the row, so the
@@ -1104,9 +1090,7 @@ async def _materialize(
         # token, stamping the liveness signals the sweep and the lease need.
         # Without it a row another actor already made terminal is resurrected.
         attempt_id = job.attempt_id or await resolve_ingest_job_attempt(job.id, None)
-        if attempt_id is None or not await claim_ingest_job_attempt(
-            session, job.id, attempt_id
-        ):
+        if attempt_id is None or not await ledger.claim(session, job.id, attempt_id):
             await session.rollback()
             logger.warning("analysis.attempt_not_claimed", job_id=job_id)
             return

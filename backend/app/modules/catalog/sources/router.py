@@ -28,6 +28,7 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
+from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
 from app.platform.extensions import get_catalog_port, get_connector_extension
 from app.core.service_tokens import (
@@ -796,12 +797,12 @@ async def _create_preview_job(
     effective_url = source_url if source_url is not None else request.url
     effective_layer_id = layer_id if layer_id is not None else request.layer_id
     safe_request_url = redact_url_credentials(request.url)
-    job = IngestJob(
+    job = ledger.create(
+        db,
+        created_by=user_id,
         source_filename=request.layer_title or request.layer_name,
         source_url=effective_url,
         source_layer=request.layer_name,
-        created_by=user_id,
-        status="pending",
         user_metadata={
             "service_type": request.service_type,
             "layer_id": effective_layer_id,
@@ -809,7 +810,6 @@ async def _create_preview_job(
             "geometry_type": preview_data.get("geometry_type"),
         },
     )
-    db.add(job)
     await db.flush()
 
     logger.info(

@@ -1,21 +1,19 @@
 """Procrastinate task definitions for raster/COG file ingestion."""
 
 import uuid
-from datetime import datetime, timezone
 
 import structlog
 from sqlalchemy.exc import DBAPIError
 
 from app.core.failure_reason import redact_failure_reason
 from app.core.db.tenant_session import tenant_task
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     claim_job_attempt_and_start_heartbeat,
     log_job_error_write_failure,
-    require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
-    update_ingest_job_for_attempt,
 )
 from app.processing.raster.cog import (
     _scratch_dir,
@@ -107,8 +105,6 @@ async def ingest_raster(
     import tempfile
     from pathlib import Path as _Path
 
-    from app.platform.jobs.models import IngestJob
-
     resolved = await resolve_ingest_attempt_or_skip(
         job_id, attempt_id, task_label="raster"
     )
@@ -192,16 +188,7 @@ async def ingest_raster(
                     source_filename=job.source_filename,
                 )
             except ValueError as exc:
-                await update_ingest_job_for_attempt(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    values={
-                        "status": "failed",
-                        "error_message": redact_failure_reason(exc),
-                        "completed_at": datetime.now(timezone.utc),
-                    },
-                )
+                await ledger.fail(session, job_uuid, attempt_uuid, reason=exc)
                 await session.commit()
                 # fix(#1290): NO unlink here — unconditional delete
                 # destroyed a local-storage install's only copy of a file
@@ -665,14 +652,12 @@ async def ingest_raster(
             await note_publish_followups(
                 session, job_uuid, attempt_uuid, "ingest_raster"
             )
-            await require_ingest_job_update(
+            await ledger.complete(
                 session,
                 job_uuid,
                 attempt_uuid,
                 values={
-                    "status": "complete",
                     "dataset_id": dataset.id,
-                    "completed_at": datetime.now(timezone.utc),
                     "current_step": "complete",
                     "progress": 1.0,
                 },
@@ -746,21 +731,7 @@ async def ingest_raster(
                 err_session,
                 _err_job,
             ):
-                from sqlalchemy import update as sa_update
-
-                await err_session.execute(
-                    sa_update(IngestJob)
-                    .where(
-                        IngestJob.id == job_uuid,
-                        IngestJob.attempt_id == attempt_uuid,
-                        IngestJob.status == "running",
-                    )
-                    .values(
-                        status="failed",
-                        error_message=redact_failure_reason(exc),
-                        completed_at=datetime.now(timezone.utc),
-                    )
-                )
+                await ledger.fail(err_session, job_uuid, attempt_uuid, reason=exc)
                 await err_session.commit()
         except DBAPIError as write_failure:
             # fix(#1950): swallowed so the `raise` below re-raises the ingest

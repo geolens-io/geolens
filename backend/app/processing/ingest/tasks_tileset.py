@@ -23,11 +23,11 @@ from app.core.tiles3d import (
     tileset_attempt_prefix,
 )
 from app.platform.dataset_origin import set_dataset_origin
+from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     claim_job_attempt_and_start_heartbeat,
     log_job_error_write_failure,
-    require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
 )
@@ -201,10 +201,6 @@ async def _notify(
 async def _record_failure(
     job_uuid: uuid.UUID, attempt_uuid: uuid.UUID, exc: Exception, *, job_id: str
 ) -> None:
-    from sqlalchemy import update as sa_update
-
-    from app.platform.jobs.models import IngestJob
-
     try:
         async with _job_phase_session(
             job_uuid,
@@ -212,19 +208,7 @@ async def _record_failure(
             attempt_id=attempt_uuid,
             lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
         ) as (session, _job):
-            await session.execute(
-                sa_update(IngestJob)
-                .where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                    IngestJob.status == "running",
-                )
-                .values(
-                    status="failed",
-                    error_message=redact_failure_reason(exc),
-                    completed_at=datetime.now(timezone.utc),
-                )
-            )
+            await ledger.fail(session, job_uuid, attempt_uuid, reason=exc)
             await session.commit()
     except DBAPIError as write_failure:
         # Swallowed so the caller re-raises the ingest failure, not a timeout.
@@ -347,14 +331,12 @@ async def ingest_tileset(
                 session, dataset.table_name, [], dataset
             )
             await note_publish_followups(session, job_uuid, attempt_uuid, _TASK)
-            await require_ingest_job_update(
+            await ledger.complete(
                 session,
                 job_uuid,
                 attempt_uuid,
                 values={
-                    "status": "complete",
                     "dataset_id": dataset.id,
-                    "completed_at": datetime.now(timezone.utc),
                     "current_step": "complete",
                     "progress": 1.0,
                 },

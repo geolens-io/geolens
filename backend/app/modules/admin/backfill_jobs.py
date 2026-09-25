@@ -15,7 +15,6 @@ import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -35,7 +34,8 @@ from app.modules.admin.schemas import (
     BackfillRunProgress,
     BackfillRunSummary,
 )
-from app.platform.jobs.ledger import Outcome, abort, hold
+from app.platform.jobs import ledger
+from app.platform.jobs.ledger import Outcome, StaleIngestAttempt, hold
 from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 from app.processing.ingest.tasks import task_app
 
@@ -122,6 +122,30 @@ async def find_active_embedding_backfill(session: AsyncSession) -> IngestJob | N
     return (await session.execute(stmt)).scalars().first()
 
 
+async def _end_the_run(
+    session: AsyncSession,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    status: str,
+    reason: str | None,
+    values: dict[str, object],
+    expect: str,
+) -> bool:
+    """End the backfill's job as ``status``, and say whether the write landed."""
+    if status != "complete":
+        return await ledger.fail(
+            session, job_uuid, attempt_uuid, reason=reason, values=values, expect=expect
+        )
+    try:
+        await ledger.complete(
+            session, job_uuid, attempt_uuid, values=values, expect=expect
+        )
+    except StaleIngestAttempt:
+        return False
+    return True
+
+
 async def _finalize(
     session: AsyncSession,
     job_uuid: uuid.UUID,
@@ -140,14 +164,7 @@ async def _finalize(
     not let the caller assume success and audit a "completed" run that never
     happened (see ``_emit_terminal_audit``).
     """
-    values: dict[str, object] = {
-        "status": status,
-        "completed_at": datetime.now(timezone.utc),
-        # fix(#1953): ADR-002 Decision 3 at the sink, not at each caller.
-        "error_message": redact_failure_reason(error_message)
-        if error_message
-        else None,
-    }
+    values: dict[str, object] = {}
     backfill_meta = dict((metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY) or {})
     # The audit trail carries this too, but the run history the admin page reads
     # is built from job rows, and "failed" alone cannot tell a cancelled worker
@@ -176,8 +193,14 @@ async def _finalize(
         **extra_metadata,
         EMBEDDING_BACKFILL_METADATA_KEY: backfill_meta,
     }
-    if not await update_ingest_job_for_attempt(
-        session, job_uuid, attempt_uuid, values=values, expected_status=expected_status
+    if not await _end_the_run(
+        session,
+        job_uuid,
+        attempt_uuid,
+        status=status,
+        reason=error_message or None,
+        values=values,
+        expect=expected_status,
     ):
         # Another actor moved the row (stale-job sweep, an operator). Say so
         # rather than resurrecting a status somebody else settled.
@@ -494,7 +517,7 @@ async def _fail_undispatched_pending_row(
         job = await hold(session, job_uuid, expect="pending")
         if job is None:
             return False
-        outcome = await abort(
+        outcome = await ledger.abort(
             session,
             job,
             code="dispatch_cancelled",

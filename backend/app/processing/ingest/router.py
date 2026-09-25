@@ -128,7 +128,7 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
-from app.platform.jobs.ledger import abort
+from app.platform.jobs import ledger
 from app.core.persistent_config import (
     UPLOAD_ALLOWED_EXTENSIONS,
     UPLOAD_MAX_SIZE_MB,
@@ -624,7 +624,7 @@ async def upload_file(
             except ValueError as exc:
                 # Fenced like the bind below, so a row the sweep already
                 # reclaimed keeps its terminal status and message.
-                await abort(db, job, code="content_rejected", reason=exc)
+                await ledger.abort(db, job, code="content_rejected", reason=exc)
                 await db.commit()
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

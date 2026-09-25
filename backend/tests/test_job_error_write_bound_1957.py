@@ -78,8 +78,15 @@ def _call_names(node: ast.AST) -> set[str]:
 
 
 def _writes_failed_status(node: ast.AST) -> bool:
-    """Whether *node* writes ``status="failed"``, mapped or as a keyword."""
+    """Whether *node* fails a job: ``ledger.fail``, or ``status="failed"`` written out."""
     for sub in ast.walk(node):
+        if (
+            isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Attribute)
+            and sub.func.attr == "fail"
+            and getattr(sub.func.value, "id", None) == "ledger"
+        ):
+            return True
         if isinstance(sub, ast.Dict):
             pairs = list(zip(sub.keys, sub.values))
         elif isinstance(sub, ast.Call):
@@ -166,6 +173,19 @@ class TestEveryRemainingSiteIsArmed:
         assert not [line for line in _call_lines(tree, "commit") if line < writes[0]], (
             "a commit runs between the rollback and the budgeted write, which "
             "leaves the UPDATE in a transaction carrying no SET LOCAL"
+        )
+
+    def test_the_shared_helper_arms_before_its_write(self) -> None:
+        """The budget is armed before the helper's failure write."""
+        tree = ast.parse(inspect.getsource(write_job_failure_for_attempt))
+        arms = _call_lines(tree, "arm_job_error_write_budget")
+        writes = _call_lines(tree, "fail") + _call_lines(
+            tree, "update_ingest_job_for_attempt"
+        )
+        assert len(arms) == 1 and len(writes) == 1, (arms, writes)
+        assert arms[0] < min(writes), (
+            "the helper writes the failure before arming the budget, so a held "
+            "row parks the worker on that write"
         )
 
     def test_the_shared_helper_swallows_its_own_failure(self) -> None:
@@ -300,7 +320,7 @@ class TestAHeldJobRowEndsTheRemainingWrites:
                             err_session,
                             job_id,
                             attempt_id,
-                            values={"status": "failed", "error_message": "boom"},
+                            reason="boom",
                             task_name="refresh_postgis",
                         ),
                         timeout=30,

@@ -14,7 +14,7 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
-from app.platform.jobs.heartbeat import claim_ingest_job_attempt
+from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh import credentials as creds
 from app.platform.refresh.models import DatasetRefreshRun
@@ -55,7 +55,7 @@ def _failing_defer(*, claimed: bool, claims_run: bool = True):
         if claimed:
             job_id = uuid.UUID(kwargs["job_id"])
             async with db_module.async_session() as worker:
-                assert await claim_ingest_job_attempt(
+                assert await ledger.claim(
                     worker, job_id, uuid.UUID(kwargs["attempt_id"])
                 )
                 if claims_run:

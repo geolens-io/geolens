@@ -1578,6 +1578,10 @@ class TestEveryJobWriterLeadsWithTheJobRow:
         "update_ingest_job_for_attempt(",
         "_complete(",
         "_fail(",
+        "ledger.claim(",
+        "ledger.stage(",
+        "ledger.complete(",
+        "ledger.fail(",
     )
     _JOB_LOCKS = ("hold_publishing_job",)
     _ROW_LOCKS = (
