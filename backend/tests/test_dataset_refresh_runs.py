@@ -566,6 +566,66 @@ class TestRunLifecycle:
         assert dataset.last_refreshed_at == datetime(2026, 1, 1, tzinfo=timezone.utc)
         assert dataset.last_checked_at is not None
 
+    async def test_a_contact_stamp_skips_a_dataset_row_another_transaction_holds(
+        self, test_db_session
+    ) -> None:
+        """The failure's contact stamp passes over a held dataset row instead of waiting on it."""
+        import app.core.db as db_module
+
+        dataset, job = await _seed(test_db_session)
+        await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="service",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=job.id,
+            feature_count_before=42,
+        )
+        await test_db_session.commit()
+        binding = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+        held = sa.text("SELECT id FROM catalog.datasets WHERE id = :id FOR UPDATE")
+        try:
+            async with (
+                db_module.async_session() as holder,
+                db_module.async_session() as writer,
+            ):
+                await holder.execute(held, {"id": dataset.id})
+                # A wait ends in 55P03 here instead of hanging the test.
+                await writer.execute(sa.text("SET LOCAL lock_timeout = '1s'"))
+                run_id = await record_refresh_failure(
+                    writer,
+                    ingest_job_id=job.id,
+                    error_code="service_refresh_failed",
+                    error_message="the service answered 500",
+                    contacted_origin=True,
+                    origin_binding=binding,
+                )
+                await writer.commit()
+                await holder.rollback()
+
+            async with db_module.async_session() as reader:
+                run = await reader.get(DatasetRefreshRun, run_id)
+                checked = await reader.scalar(
+                    sa.text(
+                        "SELECT last_checked_at FROM catalog.datasets WHERE id = :id"
+                    ),
+                    {"id": dataset.id},
+                )
+            assert run.status == "failed"
+            assert checked is None
+        finally:
+            async with db_module.async_session() as cleanup:
+                await cleanup.execute(
+                    sa.text("DELETE FROM catalog.ingest_jobs WHERE id = :id"),
+                    {"id": job.id},
+                )
+                await cleanup.execute(
+                    sa.text("DELETE FROM catalog.records WHERE id = :id"),
+                    {"id": dataset.record_id},
+                )
+                await cleanup.commit()
+
     async def test_local_failure_does_not_stamp_last_checked_at(
         self, test_db_session
     ) -> None:

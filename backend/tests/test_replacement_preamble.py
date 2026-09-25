@@ -492,6 +492,132 @@ async def test_a_raster_progress_stamp_leaves_a_job_that_left_running(
     assert (job.status, job.current_step) == ("cancelled", "queued")
 
 
+async def test_a_stac_failure_lands_while_its_dataset_row_is_held(
+    replace, monkeypatch
+) -> None:
+    """A STAC refresh that reached its catalog fails without waiting on a held dataset row."""
+    from types import SimpleNamespace
+
+    from app.platform.extensions import get_processing_port
+    from app.processing.ingest.tasks_stac_refresh import StacRefreshError
+
+    monkeypatch.setattr("app.platform.jobs.heartbeat.JOB_ERROR_WRITE_TIMEOUT_MS", 1500)
+    replacement = await replace("stac")
+    unresolved = SimpleNamespace(
+        resolved=False, health=None, detail=None, contacted=True
+    )
+    monkeypatch.setattr(
+        type(get_processing_port()),
+        "resolve_stac_binding",
+        AsyncMock(return_value=unresolved),
+    )
+    sent = AsyncMock()
+    async with db_module.async_session() as holder:
+        await holder.execute(
+            select(Dataset.id)
+            .where(Dataset.id == replacement.dataset_id)
+            .with_for_update()
+        )
+        try:
+            with patch("app.platform.notifications.events.emit_event_safe", new=sent):
+                with pytest.raises(StacRefreshError):
+                    await asyncio.wait_for(replacement.run(), timeout=_TIMEOUT)
+        finally:
+            await holder.rollback()
+
+    job = await _fresh_scalar(
+        select(IngestJob).where(IngestJob.id == replacement.job_id)
+    )
+    run = await _fresh_scalar(
+        select(DatasetRefreshRun).where(
+            DatasetRefreshRun.ingest_job_id == replacement.job_id
+        )
+    )
+    assert job.status == "failed"
+    assert job.error_message.startswith("GeoLens could not read the STAC item")
+    assert (run.status, run.error_code) == ("failed", "source_inaccessible")
+    assert [call.kwargs["event_key"] for call in sent.await_args_list] == [
+        "ingest_failed"
+    ]
+
+
+async def _discarded_behind(replacement, edit: str) -> BaseException:
+    """Run the refresh behind a held dataset row, commit ``edit`` there, and return what the refresh raised."""
+    from tests.test_worker_swap_bump_after_lock_1911 import _overlap
+
+    async with (
+        db_module.async_session() as holder,
+        db_module.async_session() as probe,
+    ):
+        real_commit = holder.commit
+
+        async def _commit_with_edit():
+            await holder.execute(text(edit), {"d": replacement.dataset_id})
+            await real_commit()
+
+        holder.commit = _commit_with_edit
+        with _quiet_embedding(), pytest.raises(Exception) as raised:
+            await _overlap(holder, probe, replacement.dataset_id, replacement.run())
+    return raised.value
+
+
+async def test_a_measurement_older_than_an_edit_it_waited_behind_is_discarded(
+    replace,
+) -> None:
+    """A PostGIS refresh parked on the dataset row reads the edit's version under it and publishes nothing."""
+    from app.processing.ingest.tasks_postgis_refresh import PostgisRefreshError
+
+    replacement = await replace("postgis")
+    before = await _fresh_scalar(
+        select(Dataset.feature_count).where(Dataset.id == replacement.dataset_id)
+    )
+
+    raised = await _discarded_behind(replacement, "SELECT 1")
+
+    assert isinstance(raised, PostgisRefreshError), raised
+    run = await _fresh_scalar(
+        select(DatasetRefreshRun).where(
+            DatasetRefreshRun.ingest_job_id == replacement.job_id
+        )
+    )
+    assert (run.status, run.error_code) == ("failed", "superseded")
+    assert (
+        await _fresh_scalar(
+            select(Dataset.feature_count).where(Dataset.id == replacement.dataset_id)
+        )
+        == before
+    )
+
+
+async def test_a_stac_answer_older_than_a_rebind_it_waited_behind_is_discarded(
+    replace,
+) -> None:
+    """A STAC refresh parked on the dataset row reads the rebind under it and leaves the rebind standing."""
+    from app.processing.ingest.tasks_stac_refresh import StacRefreshError
+
+    replacement = await replace("stac")
+    rebound = "https://stac.example.com/rebound/scene.tif"
+
+    raised = await _discarded_behind(
+        replacement,
+        f"UPDATE catalog.datasets SET origin_uri = '{rebound}' WHERE id = :d",
+    )
+
+    assert isinstance(raised, StacRefreshError), raised
+    run = await _fresh_scalar(
+        select(DatasetRefreshRun).where(
+            DatasetRefreshRun.ingest_job_id == replacement.job_id
+        )
+    )
+    assert (run.status, run.error_code) == ("failed", "superseded")
+    assert (
+        await _fresh_scalar(
+            select(Dataset.origin_uri).where(Dataset.id == replacement.dataset_id)
+        )
+        == rebound
+    )
+
+
 @pytest.mark.parametrize("kind", ["file", "service"])
 async def test_a_job_warning_recorded_before_the_hold_survives_it(
     replace, monkeypatch, kind: str

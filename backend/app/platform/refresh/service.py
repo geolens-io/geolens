@@ -989,6 +989,7 @@ _GUARDED_CONTACT_SQL = text(
     UPDATE catalog.datasets
     SET last_checked_at = :now
     WHERE id = :dataset_id
+      AND id IN (SELECT id FROM catalog.datasets WHERE id = :dataset_id FOR NO KEY UPDATE SKIP LOCKED)
       AND origin_uri IS NOT DISTINCT FROM :origin_uri
       AND origin_ref IS NOT DISTINCT FROM CAST(:origin_ref AS jsonb)
       AND source_format IS NOT DISTINCT FROM :source_format
@@ -1008,7 +1009,8 @@ async def _stamp_guarded_contact(
 
     Returns whether the write landed. Losing the race is a silent skip: the
     caller is a failed background attempt, there is nobody to tell, and the
-    rebind's own commit stamped whatever is true now.
+    rebind's own commit stamped whatever is true now. A held row is skipped
+    too, so a failure that lost a wait on it does not wait on it again.
 
     ``GET /datasets/`` serves ``last_checked_at`` from a 60-second cache, so
     a landed write invalidates it, like every other writer of the field.

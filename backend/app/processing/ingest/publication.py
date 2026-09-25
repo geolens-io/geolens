@@ -102,6 +102,10 @@ class Published:
     verification: dict[str, Any] | None = None
     # Its cached tiles are purged after the commit.
     live_table: str | None = None
+    # Whether the write changed tile content, which bumps the tile version.
+    tiles_changed: bool = True
+    # Whether it changed what the dataset's search embedding is built from.
+    reembed: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +118,8 @@ class Failure:
     verification: dict[str, Any] | None = None
     # The origin binding the attempt contacted, when it reached the origin.
     contacted: tuple[str | None, dict[str, Any] | None, str | None] | None = None
+    # What the contact established about the origin: (health, detail).
+    health: tuple[str, str | None] | None = None
     # A refused input is recorded like any failure, but the task returns.
     refused: bool = False
 
@@ -286,6 +292,7 @@ class _Attempt:
     # Set as the publishing commit returns, before anything else can raise or
     # be cancelled, so cleanup never reaps what the commit published.
     publication: PublicationCommit | None = None
+    reembed: bool = True
 
 
 async def settle_replacement(
@@ -331,7 +338,7 @@ async def settle_replacement(
             await _drop_staging_table(attempt.staging_table)
         await strategy.release(publication=attempt.publication, failed=failed)
 
-    if attempt.publication is not None:
+    if attempt.publication is not None and attempt.reembed:
         async with cleanup_step(f"{strategy.task} embedding", job_id=job_id):
             await _defer_embedding(attempt.dataset_id)
 
@@ -449,7 +456,9 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
         published = await strategy.write(session, dataset)
-        await bump_tile_cache_version_on(session, dataset)
+        attempt.reembed = published.reembed
+        if published.tiles_changed:
+            await bump_tile_cache_version_on(session, dataset)
         await _complete(
             session,
             job_id,
@@ -557,7 +566,7 @@ async def _record_failure(
         )
         if failure.contacted is not None:
             stamped = await _stamp_contact(
-                session, attempt.dataset_id, failure.contacted
+                session, attempt.dataset_id, failure.contacted, failure.health
             )
 
     try:
@@ -595,13 +604,14 @@ async def _stamp_contact(
     session: AsyncSession,
     dataset_id: uuid.UUID,
     binding: tuple[str | None, dict[str, Any] | None, str | None],
+    health: tuple[str, str | None] | None = None,
 ) -> bool:
     """Date a failed attempt's origin contact, only while the dataset is still bound as it read.
 
-    A rebind that finished first stamped what is true now, so losing the race
-    writes nothing. A row another transaction holds is skipped the same way:
-    the failure is often the wait on that row, and its write must not wait
-    again.
+    ``health`` is written with it when the contact established one. A rebind
+    that finished first stamped what is true now, so losing the race writes
+    nothing. A row another transaction holds is skipped the same way: the
+    failure is often the wait on that row, and its write must not wait again.
     """
     from app.platform.extensions import get_processing_port
 
@@ -621,7 +631,14 @@ async def _stamp_contact(
             Dataset.origin_ref.is_not_distinct_from(origin_ref),
             Dataset.source_format.is_not_distinct_from(source_format),
         )
-        .values(last_checked_at=datetime.now(timezone.utc))
+        .values(
+            last_checked_at=datetime.now(timezone.utc),
+            **(
+                {"source_health": health[0], "source_health_detail": health[1]}
+                if health is not None
+                else {}
+            ),
+        )
         .execution_options(synchronize_session=False)
     )
     return bool(stamped.rowcount)

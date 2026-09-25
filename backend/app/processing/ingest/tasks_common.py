@@ -982,65 +982,6 @@ async def verify_arcgis_staged_oid_coverage(
     }
 
 
-async def stamp_failed_origin_health(
-    session,
-    dataset_cls: Any,
-    dataset_uuid: uuid.UUID,
-    *,
-    health: str | None,
-    detail: str | None,
-    bound: tuple | None,
-) -> None:
-    """Persist what a failed refresh learned about its origin, if anything.
-
-    This owns the dataset-side verdict; ``record_refresh_failure`` owns the
-    run row (caller passes ``contacted_origin=False`` there so the run
-    finalizer doesn't also write the dataset).
-
-    Guarded on the ``(origin_uri, origin_ref, source_format)`` triple the
-    failing attempt read, so a refresh against an origin the dataset has
-    since been rebound to (e.g. to an upload, which has no probe/refresh of
-    its own) cannot overwrite the rebind's own, now-current verdict —
-    losing that race is a silent skip.
-
-    ``health=None`` writes nothing: a failure that established nothing about
-    the origin (statement timeout, a search that couldn't run) must leave
-    the last conclusive verdict standing rather than replace it with a guess.
-
-    feat(#1266): shared rather than duplicated per strategy so the guard
-    doesn't end up with a second, drifting spelling in the STAC strategy
-    beside the settlement seam's ``_stamp_contact``.
-    """
-    if health is None or bound is None:
-        return
-    from sqlalchemy import update as sa_update
-
-    bound_uri, bound_ref, bound_format = bound
-    outcome = await session.execute(
-        sa_update(dataset_cls)
-        .where(
-            dataset_cls.id == dataset_uuid,
-            dataset_cls.origin_uri.is_not_distinct_from(bound_uri),
-            dataset_cls.origin_ref.is_not_distinct_from(bound_ref),
-            dataset_cls.source_format.is_not_distinct_from(bound_format),
-        )
-        .values(
-            source_health=health,
-            source_health_detail=detail,
-            # The attempt reached the origin and got an answer — a dropped
-            # relation and a withdrawn item both ARE answers, the same way
-            # the probe dates a 404. That is the whole meaning of the column.
-            last_checked_at=datetime.now(timezone.utc),
-        )
-    )
-    await session.commit()
-    if outcome.rowcount:
-        # GET /datasets/ serves these fields from a 60s cache; every other
-        # writer invalidates it, and a lost guard race changed nothing worth
-        # invalidating for.
-        await invalidate_catalog_cache()
-
-
 async def load_job_for_error_write(
     session,
     job_uuid: uuid.UUID,

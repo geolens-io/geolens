@@ -1302,7 +1302,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # raising further. Each upload door branches once for a 3D Tiles tileset.
     "backend/app/processing/ingest/router.py": 1860,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1772,
+    "backend/app/processing/ingest/tasks_common.py": 1713,
     # The file and service strategies: retrieval, staging, verification and cleanup.
     "backend/app/processing/ingest/tasks_reupload.py": 1265,
     # Refresh strategies share access, admission and dispatch rules at this API
@@ -1315,7 +1315,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/jobs/sweep.py": 1746,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
-    "backend/app/platform/refresh/service.py": 1237,
+    "backend/app/platform/refresh/service.py": 1239,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1500,
@@ -1347,9 +1347,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging and job settlement share one orchestration boundary.
     "backend/app/processing/ingest/service.py": 1491,
-    # PostGIS refresh coordinates geometry repair, measurement, fenced catalog
-    # updates and fenced post-commit steps.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 851,
+    # The PostGIS strategy: geometry repair, the snapshot measurement and its
+    # catalog writes.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 654,
     # Dataset request and verification response families share this public contract.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1590,
     # Analysis validation, bounded execution and fenced registration share one task

@@ -22,7 +22,6 @@ can't resolve leaves the dataset pointing exactly where it pointed before.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -30,7 +29,6 @@ from typing import Any
 import structlog
 from sqlalchemy import func, select, update
 
-from app.core.failure_reason import redact_failure_reason
 from app.core.geo import bbox_to_extent_wkt
 from app.core.service_tokens import (
     STAC_SERVICE_FORMAT,
@@ -39,40 +37,21 @@ from app.core.service_tokens import (
 )
 
 from app.core.db.tenant_session import tenant_task
-from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.catalog_locks import (
-    bump_tile_cache_version_on,
-    lock_catalog_rows,
-    worker_lock_budget,
-)
 from app.platform.dataset_origin import set_dataset_origin
-from app.platform.jobs.heartbeat import (
-    claim_job_attempt_and_start_heartbeat,
-    require_ingest_job_update,
-    resolve_ingest_attempt_or_skip,
-    stop_ingest_job_heartbeat,
-    write_job_failure_for_attempt,
-)
 from app.platform.refresh.credentials import (
     CredentialExpiredError,
     CredentialStoreUnavailable,
     resolve_worker_credential,
 )
-from app.platform.refresh.service import (
-    claim_run_for_job,
-    record_refresh_failure,
-    record_refresh_success,
-)
 from app.processing.ingest.publication import (
-    commit_publication,
-    hold_publishing_job,
+    PUBLISH,
+    Failure,
+    PublicationCommit,
+    Published,
+    Verdict,
+    settle_replacement,
 )
-from app.processing.ingest.tasks_common import (
-    _bind_task_log_context,
-    cleanup_step,
-    stamp_failed_origin_health,
-    task_app,
-)
+from app.processing.ingest.tasks_common import _bind_task_log_context, task_app
 
 logger = structlog.get_logger(__name__)
 
@@ -430,21 +409,19 @@ async def _upsert_origin_data_asset(
 ) -> None:
     """Make the served ``dataset_assets`` row describe the resolved asset.
 
-    feat(#1692): the STAC import persists the origin item's primary data
-    asset as a ``dataset_assets`` row keyed ``data``, the readable COG href
-    on STAC items GeoLens serves. This is the refresh's half of that
-    contract, run on EVERY successful resolution, moved or not — a no-op
-    against an unchanged answer, and the backfill for a dataset imported
-    before the row existed.
+    The STAC import persists the item's primary data asset as a
+    ``dataset_assets`` row keyed ``data``. This is the refresh's half of that
+    contract, run on every successful resolution, moved or not: a no-op for
+    an unchanged answer, and the backfill for a dataset imported before the
+    row existed.
 
-    ON CONFLICT against ``uq_dataset_assets_key``, same shape as the
-    raster-replace tail's ``_upsert_stac_and_distribution_rows`` — which is
-    also why this is safe against a replaced dataset: a #1290 replace flips
-    ``source_format`` off ``stac``, so the phase-3 binding guard discards
-    this task's answer before it could overwrite the replacement's row.
+    ON CONFLICT against ``uq_dataset_assets_key``, the shape the raster
+    replace uses. That is also why it is safe against a replaced dataset: a
+    replace flips ``source_format`` off ``stac``, so the write step's binding
+    fence discards this answer before it could overwrite the replacement's row.
 
-    Lives inside the success block on purpose (invariant 10): a refresh that
-    resolved nothing repairs nothing.
+    Runs only in the write step (invariant 10): a refresh that resolved
+    nothing repairs nothing.
     """
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -473,6 +450,177 @@ async def _upsert_origin_data_asset(
     )
 
 
+class _StacRefresh:
+    """A STAC dataset's item re-read from its catalog, and its pointer moved with the asset."""
+
+    task = "refresh_stac"
+    staging = False
+    raster_row = True
+    catalog_event = "stac_refresh_catalog"
+
+    def __init__(self, *, credential_ref: str | None):
+        self.credential_ref = credential_ref
+        self.credential: ServiceCredential | None = None
+        # The binding this attempt resolves against, for the write's fence and
+        # the failure's stamp. None until the claim reads it.
+        self.bound: tuple | None = None
+
+    def prepare(self, job, dataset, staging_table: str) -> None:
+        self.bound = _binding(dataset)
+        self.origin_ref = dataset.origin_ref
+
+    async def fetch(self) -> None:
+        from app.platform.extensions import get_processing_port
+
+        (
+            self.item_href,
+            self.item_id,
+            self.collection_id,
+            self.asset_href,
+            self.asset_key,
+            self.catalog_url,
+        ) = _stac_pointers(self.origin_ref)
+        # Redeemed after the claim, so a delivery that loses it spends nothing.
+        self.credential = _claimed_credential(
+            await resolve_worker_credential(None, self.credential_ref)
+        )
+        self.resolution = await get_processing_port().resolve_stac_binding(
+            item_href=self.item_href,
+            item_id=self.item_id,
+            collection_id=self.collection_id,
+            asset_href=self.asset_href,
+            asset_key=self.asset_key,
+            credential=self.credential,
+            # The address the caller submitted at import, the one value the
+            # catalog never chose: the credential is only sent under it.
+            catalog_origin=self.catalog_url,
+        )
+        if not self.resolution.resolved:
+            raise _failure_for(self.resolution)
+
+    async def stage(self, session, job, dataset) -> Verdict:
+        return PUBLISH
+
+    async def install(self, session, dataset) -> None:
+        return None
+
+    async def write(self, session, dataset) -> Published:
+        from sqlalchemy.orm import joinedload
+
+        from app.platform.extensions import get_processing_port
+
+        Dataset = get_processing_port().get_dataset_orm_class()
+        # The binding is this task's subject, so a re-upload or replace that
+        # committed while the catalog was asked has already moved it, and an
+        # answer about the old origin must not undo that.
+        dataset = (
+            await session.execute(
+                select(Dataset)
+                .options(joinedload(Dataset.record))
+                .where(Dataset.id == dataset.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        if _binding(dataset) != self.bound:
+            raise StacRefreshError(
+                "This dataset's source changed while its STAC item was "
+                "being re-resolved, so the older answer was discarded "
+                "rather than written over the newer binding. Refresh "
+                "again.",
+                error_code=_ERROR_CODE_SUPERSEDED,
+                # The publisher was reached, against a binding the dataset no
+                # longer has; the failure's stamp is guarded on it and declines.
+                contacted=True,
+            )
+
+        resolution = self.resolution
+        moved = resolution.asset_href != self.asset_href
+        # A binding with no collection learns the one the resolution checked
+        # it against; one with a collection keeps it.
+        learned_collection = self.collection_id or resolution.collection_id
+        # True or None, never False: the origin_ref allowlist drops a None
+        # key, which is how "no credential was used" is spelled.
+        auth_required = True if self.credential is not None else None
+        marked_before = (dataset.origin_ref or {}).get("auth_required") is True
+        if (
+            moved
+            or resolution.item_href != self.item_href
+            or resolution.item_id != self.item_id
+            or resolution.asset_key != self.asset_key
+            or learned_collection != self.collection_id
+            or marked_before != (auth_required is True)
+        ):
+            _rebind(
+                dataset,
+                resolution,
+                collection_id=learned_collection,
+                auth_required=auth_required,
+                catalog_url=self.catalog_url,
+            )
+        if moved:
+            await _repoint_remote_asset(
+                session,
+                dataset.id,
+                resolution.asset_href,
+                resolution.asset_metadata,
+                resolution.epsg,
+            )
+            # Reconciled with the probe's CRS already, so it agrees with the
+            # raster row just written.
+            dataset.srid = resolution.epsg
+            # Written only when the item states a bbox; a silent item has not
+            # said the footprint changed.
+            if resolution.bbox is not None:
+                west, south, east, north = resolution.bbox
+                dataset.record.spatial_extent = func.ST_GeomFromText(
+                    bbox_to_extent_wkt(west, south, east, north), 4326
+                )
+        # Unconditional: an unchanged answer rewrites the same values, and a
+        # dataset imported before the row existed gets it.
+        await _upsert_origin_data_asset(
+            session,
+            dataset.id,
+            href=resolution.asset_href,
+            media_type=resolution.asset_media_type,
+        )
+        # After the rebind, which clears the probe state: this is the probe's
+        # own verdict on the href just resolved. The run may succeed while
+        # the dataset reports `missing`; the two answer different questions.
+        dataset.source_health = resolution.health
+        dataset.source_health_detail = resolution.detail
+        # The only refresh for a STAC origin, so it dates the column whether
+        # or not anything moved.
+        dataset.last_refreshed_at = datetime.now(timezone.utc)
+        # No data moved and a raster has no rows or schema. Only a moved
+        # asset changes the tiles and the raster facts the embedding reads.
+        return Published(
+            dataset_version_id=None,
+            feature_count=None,
+            schema_diff=None,
+            contacted_origin=True,
+            tiles_changed=moved,
+            reembed=moved,
+        )
+
+    def classify(self, exc: BaseException) -> Failure:
+        health = getattr(exc, "health", None)
+        # A verdict or a bare contact both date `last_checked_at`, under the
+        # binding this attempt read; a failure before any request dates nothing.
+        stamps = health is not None or getattr(exc, "contacted", False)
+        return Failure(
+            _refresh_error_code(exc),
+            contacted=self.bound if stamps else None,
+            health=(health, getattr(exc, "detail", None))
+            if health is not None
+            else None,
+        )
+
+    async def release(
+        self, *, publication: PublicationCommit | None, failed: bool
+    ) -> None:
+        return None
+
+
 @task_app.task(queue="ingest", retry=0)
 @tenant_task
 async def refresh_stac(
@@ -489,342 +637,15 @@ async def refresh_stac(
     because no data moved. The actor is already on the run row as
     ``triggered_by``, which is where this operation's audit trail lives.
 
-    feat(#1764): ``credential_ref`` names a single-use credential the door
-    staged; the secret itself never becomes a task argument. Claimed once,
-    after the attempt check, so a dispatch that never runs spends nothing.
+    ``credential_ref`` names a single-use credential the door staged; the
+    secret itself never becomes a task argument.
     """
     _bind_task_log_context(
         task_name="refresh_stac", job_id=job_id, dataset_id=dataset_id
     )
-    from app.core.db import async_session
-    from app.platform.extensions import get_processing_port
-    from app.platform.jobs.models import IngestJob
-    from sqlalchemy.orm import joinedload
-
-    port = get_processing_port()
-    Dataset = port.get_dataset_orm_class()
-
-    resolved_attempt = await resolve_ingest_attempt_or_skip(
-        job_id, attempt_id, task_label="refresh"
+    await settle_replacement(
+        _StacRefresh(credential_ref=credential_ref),
+        job_id=job_id,
+        dataset_id=dataset_id,
+        attempt_id=attempt_id,
     )
-    if resolved_attempt is None:
-        return
-    job_uuid, attempt_uuid = resolved_attempt
-    dataset_uuid = uuid.UUID(dataset_id)
-    credential: ServiceCredential | None = None
-    heartbeat_task: asyncio.Task[None] | None = None
-    # The binding this attempt resolved against, for the failure handler's
-    # guarded write and the write transaction's own guard. Left None until
-    # phase 1 has read it — a failure before that established nothing about
-    # any origin and must not write a verdict.
-    bound: tuple | None = None
-
-    try:
-        # Phase 1: claim the attempt and the run, and read the binding.
-        async with async_session() as session:
-            job = (
-                await session.execute(
-                    select(IngestJob).where(
-                        IngestJob.id == job_uuid,
-                        IngestJob.attempt_id == attempt_uuid,
-                    )
-                )
-            ).scalar_one_or_none()
-            if job is None:
-                logger.warning("Ingest job not found, skipping", job_id=job_id)
-                return
-
-            dataset = (
-                await session.execute(select(Dataset).where(Dataset.id == dataset_uuid))
-            ).scalar_one_or_none()
-            if dataset is None:
-                logger.warning("Dataset not found, skipping", dataset_id=dataset_id)
-                return
-
-            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
-                session, job_uuid, attempt_uuid
-            )
-            if heartbeat_task is None:
-                return
-
-            bound = _binding(dataset)
-            (
-                item_href,
-                item_id,
-                collection_id,
-                asset_href,
-                asset_key,
-                catalog_url,
-            ) = _stac_pointers(dataset.origin_ref)
-            await claim_run_for_job(session, job_uuid)
-            await session.commit()
-
-        # fix(#1764): redeemed AFTER phase 1 and inside the handled region,
-        # the placement `tasks_reupload` records — phase 1 detects a
-        # superseded attempt, and a claim above it spends the secret anyway.
-        credential = _claimed_credential(
-            await resolve_worker_credential(None, credential_ref)
-        )
-
-        # Phase 2: ASK THE PUBLISHER, holding no database session. Three
-        # requests at worst (item, a re-search on 404, a probe of the asset
-        # href) against a host that owes GeoLens no latency guarantee — a
-        # pooled connection held across that would pin a slot, same reason
-        # the #1222 endpoint releases its session before probing.
-        resolution = await port.resolve_stac_binding(
-            item_href=item_href,
-            item_id=item_id,
-            collection_id=collection_id,
-            asset_href=asset_href,
-            asset_key=asset_key,
-            credential=credential,
-            # fix(#1764): the catalog address the CALLER submitted at import,
-            # the one value on the binding the catalog never chose. Anchoring
-            # on the item pointer instead would let a document name the host
-            # its own credential is sent to.
-            catalog_origin=catalog_url,
-        )
-        if not resolution.resolved:
-            raise _failure_for(resolution)
-
-        # Phase 3: WRITE what phase 2 resolved.
-        async with async_session() as session:
-            # Lock the rows, THEN compare the binding — same order as the
-            # registered-table strategy's content token. The binding is
-            # this task's subject, so the guard is an equality check on it,
-            # not a version counter: a re-upload or raster replace that
-            # committed while the publisher was being asked has already
-            # written where this dataset points, and applying an answer
-            # about the OLD origin would undo that. The lock makes
-            # compare-and-write one indivisible step. The job row comes
-            # first, then the raster child, then the pair: the order the
-            # replace worker and dataset delete hold.
-            from app.processing.raster.models import RasterAsset
-
-            await hold_publishing_job(session, job_uuid, attempt_uuid)
-            record_id = await session.scalar(
-                select(Dataset.record_id).where(Dataset.id == dataset_uuid)
-            )
-            async with worker_lock_budget(session):
-                await lock_catalog_rows(
-                    session,
-                    dataset_cls=Dataset,
-                    record_cls=port.get_record_orm_class(),
-                    dataset_id=dataset_uuid,
-                    record_id=record_id,
-                    lock_timeout=None,
-                    raster_asset_cls=RasterAsset,
-                )
-            locked = (
-                await session.execute(
-                    select(
-                        Dataset.origin_uri,
-                        Dataset.origin_ref,
-                        Dataset.source_format,
-                    ).where(Dataset.id == dataset_uuid)
-                )
-            ).one_or_none()
-            if locked is None:
-                logger.warning("Dataset not found, skipping", dataset_id=dataset_id)
-                return
-            if tuple(locked) != bound:
-                raise StacRefreshError(
-                    "This dataset's source changed while its STAC item was "
-                    "being re-resolved, so the older answer was discarded "
-                    "rather than written over the newer binding. Refresh "
-                    "again.",
-                    error_code=_ERROR_CODE_SUPERSEDED,
-                    # The publisher WAS reached, against a binding the
-                    # dataset no longer has — both stamps below are guarded
-                    # on the binding this attempt read, and that guard is
-                    # what declines the write.
-                    contacted=True,
-                )
-
-            dataset = (
-                await session.execute(
-                    select(Dataset)
-                    .options(joinedload(Dataset.record))
-                    .where(Dataset.id == dataset_uuid)
-                )
-            ).scalar_one_or_none()
-            if dataset is None:
-                logger.warning("Dataset not found, skipping", dataset_id=dataset_id)
-                return
-
-            moved = resolution.asset_href != asset_href
-            # A binding with no collection of its own learns the one the
-            # resolution checked it against; one that has a collection keeps
-            # it, because only the stored value may name what this dataset is.
-            learned_collection = collection_id or resolution.collection_id
-            # feat(#1764): True or None, never False — the origin_ref
-            # allowlist drops a None-valued key, which is how "no credential
-            # was used" is spelled on both origin kinds.
-            auth_required = True if credential is not None else None
-            marked_before = (dataset.origin_ref or {}).get("auth_required") is True
-            rebound = (
-                moved
-                or resolution.item_href != item_href
-                or resolution.item_id != item_id
-                or resolution.asset_key != asset_key
-                or learned_collection != collection_id
-                or marked_before != (auth_required is True)
-            )
-            if rebound:
-                _rebind(
-                    dataset,
-                    resolution,
-                    collection_id=learned_collection,
-                    auth_required=auth_required,
-                    catalog_url=catalog_url,
-                )
-            if moved:
-                await _repoint_remote_asset(
-                    session,
-                    dataset_uuid,
-                    resolution.asset_href,
-                    resolution.asset_metadata,
-                    resolution.epsg,
-                )
-                # Dataset-level mirror of the same fact. `resolution.epsg` is
-                # already reconciled with the probe's own CRS (fix(#1334)), so
-                # this and the raster row `_repoint_remote_asset` just wrote
-                # agree by construction.
-                dataset.srid = resolution.epsg
-                # fix(#1266): and the footprint, from the same document — a
-                # re-tiled or cropped scene has a new bbox, and a stale one
-                # lies to spatial search and map-bounds reads. Written only
-                # when the item states a bbox; a silent item hasn't said the
-                # footprint changed.
-                if resolution.bbox is not None:
-                    west, south, east, north = resolution.bbox
-                    dataset.record.spatial_extent = func.ST_GeomFromText(
-                        bbox_to_extent_wkt(west, south, east, north), 4326
-                    )
-                # The `_v=` tile-URL parameter busts browser/CDN caches, and
-                # also reaches `tiles.router._raster_meta_cache` — fix(#1329)
-                # keyed that per-process LRU on the request's `v`, so this
-                # bump is itself the invalidation. `reupload_raster` and
-                # `regenerate_vrt` bump the same counter for the same effect.
-                # A request still on the OLD version keeps the pre-refresh
-                # href until that cache entry expires (60s).
-                await bump_tile_cache_version_on(session, dataset)
-
-            # feat(#1692): unconditional on purpose — not gated on `moved` or
-            # `rebound`. For an unchanged answer it rewrites the row with the
-            # values it already has; for a dataset imported before the row
-            # existed it is the backfill. See _upsert_origin_data_asset.
-            await _upsert_origin_data_asset(
-                session,
-                dataset_uuid,
-                href=resolution.asset_href,
-                media_type=resolution.asset_media_type,
-            )
-
-            # AFTER the rebind, never before: `set_dataset_origin` clears the
-            # probe state on every write, since a binding write is the
-            # moment a stored verdict stops describing anything real. What
-            # goes back is the #1222 probe's own verdict on the asset href
-            # this run just resolved, not a second opinion. `last_checked_at`
-            # is stamped by the run finalizer below, from contacted_origin.
-            #
-            # So a run can succeed while the dataset reports `missing` —
-            # coherent, not contradictory: the run answers "did the refresh
-            # re-resolve the binding", the column answers "is the origin
-            # serving what the binding names".
-            dataset.source_health = resolution.health
-            dataset.source_health_detail = resolution.detail
-            # Decision 5a: this is the only refresh operation for a STAC
-            # origin, so it dates the column regardless of whether the
-            # answer moved anything.
-            now = datetime.now(timezone.utc)
-            dataset.last_refreshed_at = now
-
-            await require_ingest_job_update(
-                session,
-                job_uuid,
-                attempt_uuid,
-                values={"status": "complete", "completed_at": now},
-            )
-            # Run's terminal status commits with the job's and the rebind,
-            # making "job complete, run still running" unreachable for the
-            # stale-run sweep. dataset_version_id/feature_count_after are
-            # None: no data moved, a raster has no rows to count. schema_diff
-            # is None: no attribute schema to drift. contacted_origin=True:
-            # this run reached the publisher and got an answer.
-            await record_refresh_success(
-                session,
-                ingest_job_id=job_uuid,
-                dataset=dataset,
-                dataset_version_id=None,
-                feature_count_after=None,
-                schema_diff=None,
-                contacted_origin=True,
-            )
-            await commit_publication(
-                session,
-                job_id=job_uuid,
-                attempt_id=attempt_uuid,
-                task="refresh_stac",
-            )
-
-        # GET /datasets/ serves the origin pointer and the health columns from
-        # a 60-second cache, so without this the list keeps describing the old
-        # href after the refresh reported the new one. The rebind is already
-        # published, so a failure here is only logged.
-        async with cleanup_step("refresh_stac catalog cache", job_id=job_id):
-            await invalidate_catalog_cache()
-
-    except Exception as exc:  # broad: any step here is a network or database read
-        logger.exception("STAC refresh failed", job_id=job_id, task="refresh_stac")
-        error_code = _refresh_error_code(exc)
-        async with async_session() as err_session:
-            # fix(#1957): the job row is the one a retry of this refresh
-            # contends for. An expiry leaves it `running` for the stale sweep
-            # and does not stop the refresh-run row below from recording why.
-            await write_job_failure_for_attempt(
-                err_session,
-                job_uuid,
-                attempt_uuid,
-                values={
-                    "status": "failed",
-                    "error_message": redact_failure_reason(exc),
-                    "completed_at": datetime.now(timezone.utc),
-                },
-                task_name="refresh_stac",
-            )
-            health = getattr(exc, "health", None)
-            await stamp_failed_origin_health(
-                err_session,
-                Dataset,
-                dataset_uuid,
-                health=health,
-                detail=getattr(exc, "detail", None),
-                bound=bound,
-            )
-            # fix(#1266): exactly one writer dates the contact. The stamp
-            # above dates it whenever it writes a verdict; when the attempt
-            # reached the origin but established nothing (5xx, 401/403, a
-            # non-STAC body), the stamp declines to write at all, and the
-            # finalizer below dates it instead, under the identical binding
-            # guard — otherwise the contact goes unrecorded even though
-            # `last_checked_at` is defined as the last time GeoLens
-            # contacted the origin at all.
-            dates_contact = (
-                getattr(exc, "contacted", False)
-                and health is None
-                and bound is not None
-            )
-            await record_refresh_failure(
-                err_session,
-                ingest_job_id=job_uuid,
-                error_code=error_code,
-                error_message=exc,
-                contacted_origin=dates_contact,
-                origin_binding=bound if dates_contact else None,
-            )
-            await err_session.commit()
-        raise
-    finally:
-        async with cleanup_step("refresh_stac heartbeat", job_id=job_id):
-            await stop_ingest_job_heartbeat(heartbeat_task)
