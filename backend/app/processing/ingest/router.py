@@ -288,9 +288,18 @@ async def request_presigned_upload(
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
     max_size_bytes = max_size_mb * 1024 * 1024
     if request.file_size > max_size_bytes:
+        size_mb = round(request.file_size / (1024 * 1024), 1)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"File size ({request.file_size / (1024 * 1024):.1f} MB) exceeds the maximum allowed ({max_size_mb} MB).",
+            detail={
+                "code": "file_size_exceeded",
+                "message": (
+                    f"File size ({size_mb} MB) exceeds the maximum allowed "
+                    f"({max_size_mb} MB)."
+                ),
+                "size_mb": size_mb,
+                "limit_mb": max_size_mb,
+            },
         )
 
     await check_upload_quota(db, user.id, request.file_size, http_request)
@@ -734,7 +743,10 @@ async def _preview_raster(
         logger.exception("raster_preview failed", job_id=str(job.id), error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Unable to preview raster file. The file may be malformed or unsupported.",
+            detail={
+                "code": "raster_preview_failed",
+                "message": "Unable to preview raster file. The file may be malformed or unsupported.",
+            },
         )
     finally:
         if downloaded_preview_path is not None:
@@ -843,7 +855,10 @@ async def preview_file(
         logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Unable to preview file. The file may be malformed or unsupported.",
+            detail={
+                "code": "preview_failed",
+                "message": "Unable to preview file. The file may be malformed or unsupported.",
+            },
         )
     finally:
         if downloaded_preview_path is not None:

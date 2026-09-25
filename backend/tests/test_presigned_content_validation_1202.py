@@ -632,6 +632,32 @@ async def test_an_oversize_object_is_refused_without_being_copied(
     assert both_doors.objects == {}, both_doors.objects
 
 
+async def test_a_declared_oversize_request_is_refused_with_a_coded_detail(
+    client, admin_auth_header, both_doors
+) -> None:
+    """The request-time check: a declared file_size over the cap is a coded 422
+    before any URL is signed, matching the completion-time check's shape."""
+    from app.processing.ingest import router
+
+    with patch.object(router.UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=0)):
+        resp = await client.post(
+            "/ingest/upload/presigned",
+            json={
+                "filename": "roads.geojson",
+                "file_size": 1024 * 1024,
+                "content_type": "application/octet-stream",
+            },
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "file_size_exceeded"
+    assert "exceeds the maximum allowed" in detail["message"]
+    assert detail["size_mb"] == 1.0
+    assert detail["limit_mb"] == 0
+
+
 # Big enough to cross the multipart threshold the fixture lowers to 1 MB, and
 # still plain text so content validation passes on its first 8192 bytes.
 _LARGE_GEOJSON = _VALID_GEOJSON + b" " * (2 * 1024 * 1024)

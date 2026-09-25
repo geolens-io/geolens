@@ -838,7 +838,9 @@ class TestReuploadPreview:
             )
 
         assert resp.status_code == 422, resp.text
-        assert resp.json()["detail"] == (
+        detail = resp.json()["detail"]
+        assert detail["code"] == "preview_failed"
+        assert detail["message"] == (
             "Unable to preview file. The file may be malformed or unsupported."
         )
         assert not downloaded.exists()
@@ -1061,6 +1063,51 @@ class TestServiceReuploadPreview:
         assert job.user_metadata["source_type"] == "service_url"
         assert "token" not in job.user_metadata
         assert "secret-token" not in str(job.user_metadata)
+
+    async def test_service_reupload_preview_failure_returns_a_coded_502(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """A remote service preview failure carries a stable code, not raw prose."""
+        from app.processing.ingest.ogr import IngestionError
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+        with (
+            patch(
+                "app.modules.catalog.datasets.api.router_reupload.build_gdal_source"
+            ) as mock_build_source,
+            patch(
+                "app.modules.catalog.datasets.api.router_reupload.run_service_preview",
+                new_callable=AsyncMock,
+            ) as mock_run_preview,
+        ):
+            mock_build_source.return_value = ("WFS:https://example.com/wfs", "roads")
+            mock_run_preview.side_effect = IngestionError("service unreachable")
+
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/service/preview",
+                json={
+                    "url": "https://example.com/wfs",
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "roads",
+                    "layer_title": "Roads Layer",
+                    "layer_id": None,
+                    "token": "secret-token",
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 502, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "service_preview_failed"
+        assert detail["message"] == (
+            "Failed to preview remote layer. The service may be unavailable "
+            "or the layer format is unsupported."
+        )
 
     async def test_service_reupload_preview_ssrf_blocked_returns_400_without_remote_calls(
         self,

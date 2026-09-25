@@ -511,7 +511,10 @@ async def reupload_service_preview(
     except IngestionError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
+            detail={
+                "code": "service_preview_failed",
+                "message": "Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
+            },
         )
 
     diff = compute_schema_diff(
@@ -666,7 +669,10 @@ async def reupload_preview(
         logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Unable to preview file. The file may be malformed or unsupported.",
+            detail={
+                "code": "preview_failed",
+                "message": "Unable to preview file. The file may be malformed or unsupported.",
+            },
         ) from exc
     finally:
         if downloaded_preview_path is not None:
