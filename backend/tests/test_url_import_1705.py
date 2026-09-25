@@ -298,7 +298,8 @@ class TestUrlImportFilename:
         monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", gate)
         spy = AsyncMock(return_value=[".geojson"])
         monkeypatch.setattr(
-            "app.processing.ingest.router._get_allowed_extensions_safely", spy
+            "app.processing.ingest.router_url_import._get_allowed_extensions_safely",
+            spy,
         )
         resp = await client.post(
             "/ingest/upload/url",
@@ -1208,7 +1209,9 @@ class TestUrlImportPreflightDnsBound:
         its own. A validator that never returns must fail cleanly at the
         (patched) preflight bound, name DNS as the cause, and leave no job
         row — the gate runs before any job exists."""
-        monkeypatch.setattr("app.processing.ingest.router.PREFLIGHT_DNS_MAX_SECONDS", 1)
+        monkeypatch.setattr(
+            "app.processing.ingest.router_url_import.PREFLIGHT_DNS_MAX_SECONDS", 1
+        )
 
         async def stalled_resolve(url: str) -> None:
             await asyncio.sleep(30)  # cancelled by wait_for at the bound

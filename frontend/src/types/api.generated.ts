@@ -3165,7 +3165,9 @@ export interface paths {
          * @description Start importing a geospatial file from an HTTP(S) URL.
          *
          *     The server fetches the file and sends the staged bytes through the same
-         *     preview and commit pipeline as a direct upload.
+         *     preview and commit pipeline as a direct upload. With ``kind`` set to
+         *     ``tiles3d`` the URL names a 3D Tiles tileset archive, which the worker
+         *     checks as the upload door does before the job becomes previewable.
          *
          *     The download runs as a background job. This call validates the URL and
          *     returns a job id immediately; poll ``GET /jobs/{job_id}`` and
@@ -13733,6 +13735,11 @@ export interface components {
              * @description Filename override for URLs whose path does not end in the actual file name (e.g. download links keyed by query id). Must carry an allowed extension. Defaults to the URL path's basename.
              */
             filename?: string | null;
+            /**
+             * Kind
+             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.
+             */
+            kind?: "tiles3d" | null;
         };
         /** UserCreate */
         UserCreate: {

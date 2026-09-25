@@ -50,6 +50,9 @@ class UrlUploadRequest(BaseModel):
             "basename."
         ),
     )
+    kind: Literal["tiles3d"] | None = Field(
+        default=None, description=TILESET_KIND_DESCRIPTION
+    )
 
 
 class UploadResponse(BaseModel):

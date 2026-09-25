@@ -18871,6 +18871,19 @@
             ],
             "description": "Filename override for URLs whose path does not end in the actual file name (e.g. download links keyed by query id). Must carry an allowed extension. Defaults to the URL path's basename.",
             "title": "Filename"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "const": "tiles3d",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.",
+            "title": "Kind"
           }
         },
         "required": [
@@ -43779,7 +43792,7 @@
     },
     "/ingest/upload/url": {
       "post": {
-        "description": "Start importing a geospatial file from an HTTP(S) URL.\n\nThe server fetches the file and sends the staged bytes through the same\npreview and commit pipeline as a direct upload.\n\nThe download runs as a background job. This call validates the URL and\nreturns a job id immediately; poll ``GET /jobs/{job_id}`` and\npreview once the job reaches ``pending``. While the file is downloading\nthe job reports status ``running`` with step ``downloading``.\n\nURL validation, connection-time IP pinning, and per-hop redirect checks\nprotect the download from SSRF. The worker enforces the size cap while\nstreaming, validates the staged file like a direct upload, and gives GDAL\nonly the local staged file.",
+        "description": "Start importing a geospatial file from an HTTP(S) URL.\n\nThe server fetches the file and sends the staged bytes through the same\npreview and commit pipeline as a direct upload. With ``kind`` set to\n``tiles3d`` the URL names a 3D Tiles tileset archive, which the worker\nchecks as the upload door does before the job becomes previewable.\n\nThe download runs as a background job. This call validates the URL and\nreturns a job id immediately; poll ``GET /jobs/{job_id}`` and\npreview once the job reaches ``pending``. While the file is downloading\nthe job reports status ``running`` with step ``downloading``.\n\nURL validation, connection-time IP pinning, and per-hop redirect checks\nprotect the download from SSRF. The worker enforces the size cap while\nstreaming, validates the staged file like a direct upload, and gives GDAL\nonly the local staged file.",
         "operationId": "upload_from_url_ingest_upload_url_post",
         "requestBody": {
           "content": {
