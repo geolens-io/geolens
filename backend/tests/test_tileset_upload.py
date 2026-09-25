@@ -44,6 +44,7 @@ from app.platform.storage.local import LocalStorageProvider
 from app.platform.storage.reap import PrefixDeleteError
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.embeddings.tasks import embed_record
+from app.processing.ingest import router as ingest_router
 from app.processing.ingest.tasks import ingest_file, ingest_tileset, task_app
 from app.processing.ingest.tasks_tileset import unpack_tileset
 from app.processing.ingest.tileset import Tileset, TilesetLayout, inspect_tileset
@@ -53,8 +54,12 @@ from tests.tiles3d_archives import (
     REGION,
     b3dm,
     build_zip,
+    cmpt,
     glb,
     gltf_json,
+    i3dm,
+    pnts,
+    three_tz,
     tileset_json,
     zip_bytes,
 )
@@ -152,9 +157,11 @@ async def run_queued(queued: list) -> None:
     await task.func(**kwargs)
 
 
-async def publish(client, headers, queued, data: bytes) -> str:
+async def publish(
+    client, headers, queued, data: bytes, *, filename: str = "campus.zip"
+) -> str:
     """Upload, preview, commit and run the worker; returns the job id."""
-    uploaded = await upload(client, headers, data)
+    uploaded = await upload(client, headers, data, filename=filename)
     assert uploaded.status_code == 201, uploaded.text
     job_id = uploaded.json()["job_id"]
     previewed = await client.post(f"/ingest/preview/{job_id}", headers=headers)
@@ -331,6 +338,92 @@ async def test_a_finder_zip_publishes_without_its_metadata(
     ]
 
 
+async def test_a_3tz_tileset_publishes_without_its_index(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """A .3tz publishes its tileset; its index is neither stored nor served."""
+    headers, _ = uploader
+    data = three_tz([("tileset.json", tileset_json()), ("0/0.glb", _GLB)])
+
+    job_id = await publish(client, headers, queued, data, filename="campus.3tz")
+    job = await load_job(test_db_session, job_id)
+
+    assert job.status == "complete", job.error_message
+    attempt = tileset_attempt_prefix(job.dataset_id, job.attempt_id)
+    assert await tileset_objects(job.dataset_id) == [
+        f"{attempt}0/0.glb",
+        f"{attempt}tileset.json",
+    ]
+    route = f"/datasets/{job.dataset_id}/tiles3d"
+    served = await client.get(f"{route}/tileset.json", headers=headers)
+    assert served.status_code == 200, served.text
+    index = await client.get(f"{route}/@3dtilesIndex1@", headers=headers)
+    assert index.status_code == 404, index.text
+
+
+def _dji_style_tileset() -> list[tuple[str, bytes]]:
+    """3D Tiles 1.0 as DJI Terra writes it, with REPLACE LODs and every tile format."""
+
+    def tile(uri: str, **more) -> dict:
+        volume = {"sphere": [0, 0, 0, 10]}
+        return {
+            "boundingVolume": volume,
+            "geometricError": 0,
+            "content": {"uri": uri},
+            **more,
+        }
+
+    model = b3dm(glb(gltf_json()))
+    root = json.loads(tileset_json(version="1.0"))
+    root["root"]["children"] = [
+        tile(
+            "lod/low.b3dm",
+            geometricError=10,
+            refine="REPLACE",
+            children=[tile("lod/high.b3dm")],
+        ),
+        tile("city/tileset.json"),
+        tile("points/points.pnts"),
+        tile("trees/tree.i3dm"),
+        tile("composite/tile.cmpt"),
+    ]
+    city = json.loads(tileset_json(version="1.0"))
+    city["root"]["content"] = {"uri": "0.b3dm"}
+    return [
+        ("tileset.json", json.dumps(root).encode()),
+        ("lod/low.b3dm", model),
+        ("lod/high.b3dm", model),
+        ("city/tileset.json", json.dumps(city).encode()),
+        ("city/0.b3dm", model),
+        ("points/points.pnts", pnts()),
+        ("trees/tree.i3dm", i3dm(glb(gltf_json()))),
+        ("composite/tile.cmpt", cmpt(model, i3dm(glb(gltf_json())))),
+    ]
+
+
+async def test_a_3d_tiles_1_0_tileset_publishes_and_serves_every_file(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """1.0 content publishes and serves as is: JSON as JSON, tiles as octet-stream."""
+    headers, _ = uploader
+    entries = _dji_style_tileset()
+
+    job_id = await publish(client, headers, queued, zip_bytes(entries))
+    job = await load_job(test_db_session, job_id)
+
+    assert job.status == "complete", job.error_message
+    for name, data in entries:
+        served = await client.get(
+            f"/datasets/{job.dataset_id}/tiles3d/{name}", headers=headers
+        )
+        assert served.status_code == 200, name
+        expected = (
+            "application/json" if name.endswith(".json") else "application/octet-stream"
+        )
+        assert served.headers["content-type"] == expected, name
+        assert served.content == data, name
+
+
 # --- Refusals ------------------------------------------------------------
 
 
@@ -414,7 +507,7 @@ async def test_a_file_naming_outside_content_is_refused_before_the_first_put(
 async def test_kind_on_a_file_that_is_not_a_zip_is_refused(
     client: AsyncClient, test_db_session, uploader, monkeypatch, door
 ) -> None:
-    """A tileset is a .zip; the kind cannot route any other file past a check."""
+    """A tileset is a .zip or .3tz; the kind routes no other file past a check."""
     headers, user_id = uploader
     monkeypatch.setattr(
         settings, "storage_provider", "s3" if door == "presigned" else "local"
@@ -429,11 +522,66 @@ async def test_kind_on_a_file_that_is_not_a_zip_is_refused(
         )
 
     assert resp.status_code == 422, resp.text
-    assert "uploaded as a .zip archive" in resp.json()["detail"]
+    assert "uploaded as a .zip or .3tz archive" in resp.json()["detail"]
     jobs = await test_db_session.execute(
         select(IngestJob.id).where(IngestJob.created_by == user_id)
     )
     assert jobs.all() == []
+
+
+@pytest.mark.parametrize("door", ["multipart", "presigned"])
+async def test_a_3tz_without_the_tileset_kind_is_refused(
+    client: AsyncClient, test_db_session, uploader, monkeypatch, door
+) -> None:
+    """A .3tz holds only a tileset, so no upload door takes one without the kind."""
+    headers, user_id = uploader
+    monkeypatch.setattr(
+        settings, "storage_provider", "s3" if door == "presigned" else "local"
+    )
+    if door == "multipart":
+        data = three_tz([("tileset.json", tileset_json())])
+        resp = await upload(client, headers, data, kind=None, filename="campus.3tz")
+    else:
+        resp = await client.post(
+            "/ingest/upload/presigned",
+            json={"filename": "campus.3tz", "file_size": 64},
+            headers=headers,
+        )
+
+    assert resp.status_code == 422, resp.text
+    assert "Upload it with kind=tiles3d" in resp.json()["detail"]
+    jobs = await test_db_session.execute(
+        select(IngestJob.id).where(IngestJob.created_by == user_id)
+    )
+    assert jobs.all() == []
+
+
+@pytest.mark.parametrize("door", ["multipart", "presigned"])
+async def test_a_stored_extension_list_without_3tz_refuses_it(
+    client: AsyncClient, uploader, monkeypatch, door
+) -> None:
+    """An allowed list stored without .3tz refuses a .3tz tileset with the usual 400."""
+    headers, _ = uploader
+    monkeypatch.setattr(
+        settings, "storage_provider", "s3" if door == "presigned" else "local"
+    )
+
+    async def _stored(_db):
+        return [".zip", ".geojson"]
+
+    monkeypatch.setattr(ingest_router, "get_allowed_extensions_list", _stored)
+    if door == "multipart":
+        data = three_tz([("tileset.json", tileset_json())])
+        resp = await upload(client, headers, data, filename="campus.3tz")
+    else:
+        resp = await client.post(
+            "/ingest/upload/presigned",
+            json={"filename": "campus.3tz", "file_size": 64, "kind": "tiles3d"},
+            headers=headers,
+        )
+
+    assert resp.status_code == 400, resp.text
+    assert "'.3tz' not allowed" in resp.json()["detail"]
 
 
 async def test_an_unknown_kind_is_refused(client: AsyncClient, uploader) -> None:
@@ -756,10 +904,12 @@ def s3_storage(client, monkeypatch):
         yield storage
 
 
-async def presigned_upload(client, headers, storage, data: bytes):
+async def presigned_upload(
+    client, headers, storage, data: bytes, *, filename: str = "campus.zip"
+):
     presigned = await client.post(
         "/ingest/upload/presigned",
-        json={"filename": "campus.zip", "file_size": len(data), "kind": "tiles3d"},
+        json={"filename": filename, "file_size": len(data), "kind": "tiles3d"},
         headers=headers,
     )
     assert presigned.status_code == 201, presigned.text
@@ -796,6 +946,23 @@ async def test_a_presigned_tileset_publishes_from_s3(
         f"{attempt}tileset.json",
     ]
     assert await s3_storage.list(f"staging/{job_id}/") == []
+
+
+async def test_a_3tz_tileset_is_accepted_at_the_presigned_doors(
+    client: AsyncClient, uploader, s3_storage
+) -> None:
+    """The presigned doors take a .3tz tileset and read it in place."""
+    headers, _ = uploader
+    data = three_tz([("tileset.json", tileset_json()), ("0/0.glb", _GLB)])
+
+    body, completed = await presigned_upload(
+        client, headers, s3_storage, data, filename="campus.3tz"
+    )
+
+    assert completed.status_code == 200, completed.text
+    previewed = await client.post(f"/ingest/preview/{body['job_id']}", headers=headers)
+    assert previewed.status_code == 200, previewed.text
+    assert previewed.json()["unpacked_bytes"] == len(tileset_json()) + len(_GLB)
 
 
 async def test_the_unpacked_total_is_checked_at_presigned_complete(

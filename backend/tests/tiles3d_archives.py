@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import struct
@@ -123,3 +124,38 @@ def subtree(document: bytes) -> bytes:
     """A binary implicit-tiling subtree with ``document`` as its JSON chunk."""
     data = _padded(document)
     return struct.pack("<4sIQQ", b"subt", 1, len(data), 0) + data
+
+
+def pnts() -> bytes:
+    """A Point Cloud tile of one point at the origin."""
+    table = _padded(b'{"POINTS_LENGTH":1,"POSITION":{"byteOffset":0}}')
+    positions = bytes(12)
+    length = 28 + len(table) + len(positions)
+    header = struct.pack("<4s6I", b"pnts", 1, length, len(table), len(positions), 0, 0)
+    return header + table + positions
+
+
+def three_tz(entries: list[tuple[str, bytes]]) -> bytes:
+    """A .3tz archive: ``entries``, then the stored ``@3dtilesIndex1@`` index of them.
+
+    Each index record is an entry name's MD5 and its local header offset, sorted
+    by the MD5 read as two little-endian 64-bit integers.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, data in entries:
+            archive.writestr(name, data)
+        records = sorted(
+            (
+                (hashlib.md5(info.filename.encode()).digest(), info.header_offset)
+                for info in archive.infolist()
+            ),
+            key=lambda record: struct.unpack("<2Q", record[0]),
+        )
+        index = b"".join(
+            digest + struct.pack("<Q", offset) for digest, offset in records
+        )
+        archive.writestr(
+            zipfile.ZipInfo("@3dtilesIndex1@"), index, compress_type=zipfile.ZIP_STORED
+        )
+    return buffer.getvalue()

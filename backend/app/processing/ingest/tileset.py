@@ -28,7 +28,12 @@ import structlog
 from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.core.tiles3d import TILESET_ENTRY_POINT, TILESET_FILE_TYPE
+from app.core.tiles3d import (
+    TILESET_ARCHIVE_SUFFIX,
+    TILESET_ENTRY_POINT,
+    TILESET_FILE_TYPE,
+    TILESET_UPLOAD_SUFFIXES,
+)
 from app.core.upload_errors import UnsafeUploadError
 from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -104,6 +109,9 @@ _SCHEMA_EXTENSIONS = (
     "EXT_structural_metadata",
     "EXT_feature_metadata",
 )
+
+# A .3tz archive's last entry, an index of its other entries by name hash.
+_ARCHIVE_INDEX = "@3dtilesIndex1@"
 
 # The end-of-central-directory record, its longest comment, and the ZIP64
 # locator right before it.
@@ -258,11 +266,12 @@ def _tileset_root(paths: list[tuple[str, bool]]) -> str:
     )
 
 
-def _is_macos_metadata(path: str) -> bool:
-    """Whether an entry is what Finder's Compress adds: never part of a tileset."""
+def _is_packaging(path: str) -> bool:
+    """Whether Finder or a .3tz writer added the entry: never tileset content."""
     name = path.rpartition("/")[2]
     return (
-        path.partition("/")[0] == "__MACOSX"
+        path == _ARCHIVE_INDEX
+        or path.partition("/")[0] == "__MACOSX"
         or name.startswith("._")
         or name == ".DS_Store"
     )
@@ -275,7 +284,7 @@ def read_layout(archive: zipfile.ZipFile) -> TilesetLayout:
     for info in entries:
         path = _entry_path(info)
         _check_entry_contents(info)
-        if not _is_macos_metadata(path):
+        if not _is_packaging(path):
             kept.append((info, path))
     paths = [(path, info.is_dir()) for info, path in kept]
     _refuse_collisions(paths)
@@ -682,11 +691,23 @@ async def inspect_staged_tileset(file_path: str) -> Tileset:
 
 
 def require_tileset_archive(kind: str | None, filename: str | None) -> None:
-    """Refuse a tileset upload whose file is not a .zip, before any job exists."""
-    if kind == TILESET_FILE_TYPE and Path(filename or "").suffix.lower() != ".zip":
+    """Refuse a tileset upload that is not a .zip or .3tz, before any job exists.
+
+    A .3tz holds only a tileset, so one sent without the tileset kind is refused.
+    """
+    suffix = Path(filename or "").suffix.lower()
+    if kind == TILESET_FILE_TYPE and suffix not in TILESET_UPLOAD_SUFFIXES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="A 3D Tiles tileset is uploaded as a .zip archive.",
+            detail="A 3D Tiles tileset is uploaded as a .zip or .3tz archive.",
+        )
+    if kind != TILESET_FILE_TYPE and suffix == TILESET_ARCHIVE_SUFFIX:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "A .3tz archive holds a 3D Tiles tileset. Upload it with "
+                f"kind={TILESET_FILE_TYPE}."
+            ),
         )
 
 

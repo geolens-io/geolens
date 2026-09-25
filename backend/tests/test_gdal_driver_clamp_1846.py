@@ -696,8 +696,9 @@ def test_a_database_inside_an_archive_is_refused_under_any_name(
         validate_content_directives(str(archive), "upload.zip")
 
 
+@pytest.mark.parametrize("suffix", [".zip", ".3tz"])
 @pytest.mark.parametrize("member", ["notes.txt", "readme", "deep/dir/x.dat"])
-def test_a_vrt_inside_an_archive_is_refused_under_any_name(tmp_path, member):
+def test_a_vrt_inside_an_archive_is_refused_under_any_name(tmp_path, member, suffix):
     """Same rule for the other content-identified driver.
 
     The OGR VRT driver searches the leading bytes for its root element, so a
@@ -708,11 +709,11 @@ def test_a_vrt_inside_an_archive_is_refused_under_any_name(tmp_path, member):
         "\ufeff<?xml version='1.0'?>\n<!-- notes -->\nleading junk\n"
         + OGR_VRT_MEMBER.format(target="/x", stem="x")
     )
-    archive = tmp_path / "upload.zip"
+    archive = tmp_path / f"upload{suffix}"
     with zipfile.ZipFile(archive, "w") as z:
         z.writestr(member, body)
 
-    if shutil.which("ogrinfo") is not None:
+    if suffix == ".zip" and shutil.which("ogrinfo") is not None:
         code, driver, listing = _ogrinfo(f"/vsizip/{archive}")
         assert (code, driver) == (0, "OGR_VRT"), (
             f"GDAL did not identify member {member!r} as a VRT, so this case "
@@ -720,7 +721,7 @@ def test_a_vrt_inside_an_archive_is_refused_under_any_name(tmp_path, member):
         )
 
     with pytest.raises(UnsafeUploadError, match="VRT"):
-        validate_content_directives(str(archive), "upload.zip")
+        validate_content_directives(str(archive), f"upload{suffix}")
 
 
 def test_the_archive_scan_bounds_its_total_decompression(tmp_path, monkeypatch):

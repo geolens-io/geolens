@@ -26,6 +26,11 @@ TILESET_ENTRY_POINT = "tileset.json"
 # from outside, so the request naming it is the only discriminator.
 TILESET_FILE_TYPE = "tiles3d"
 
+# The archives a tileset upload takes. A .3tz holds nothing but a tileset, so
+# no door takes one without the tileset kind; a .zip without it is other data.
+TILESET_ARCHIVE_SUFFIX = ".3tz"
+TILESET_UPLOAD_SUFFIXES = frozenset({".zip", TILESET_ARCHIVE_SUFFIX})
+
 # The job-row field an ingest attempt names its unpack prefix under before its
 # first put, so the job sweep can reap what a killed attempt wrote.
 UNPUBLISHED_TILESET_ATTEMPTS_FIELD = "unpublished_tileset_attempts"

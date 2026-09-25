@@ -81,8 +81,8 @@
     "kindFiles": "地理空间文件",
     "kindFilesHint": "矢量、栅格或表格数据",
     "kindTileset": "3D Tiles 瓦片集",
-    "kindTilesetHint": "根目录或单个文件夹中包含 tileset.json 的 .zip 压缩包",
-    "kindTilesetUnavailable": "需管理员允许上传 .zip 文件后才能使用",
+    "kindTilesetHint": "根目录或单个文件夹中包含 tileset.json 的 .zip 或 .3tz 压缩包",
+    "kindTilesetUnavailable": "需管理员允许上传 .zip 或 .3tz 文件后才能使用",
     "kindLocked": "已锁定：拖入的文件正在等待上传设置加载"
   },
   "warnings": {

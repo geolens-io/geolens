@@ -351,6 +351,24 @@ describe('ReuploadDialog', () => {
     expect(screen.queryByText('.vrt')).not.toBeInTheDocument();
   });
 
+  it('does not offer a .3tz tileset archive', async () => {
+    mockUseUploadConfig.mockReturnValue({
+      data: {
+        presigned_uploads: false,
+        presigned_threshold_bytes: 10485760,
+        max_file_size_bytes: 524288000,
+        allowed_extensions: '.zip,.geojson,.3tz',
+      },
+    } as unknown as ReturnType<typeof useUploadConfig>);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await openFileSource(user);
+
+    expect(screen.getByText('.geojson')).toBeInTheDocument();
+    expect(screen.queryByText('.3tz')).not.toBeInTheDocument();
+  });
+
   it('moves through service probe and layer selection into schema diff preview', async () => {
     const user = userEvent.setup();
     renderDialog();

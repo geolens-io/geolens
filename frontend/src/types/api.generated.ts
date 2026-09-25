@@ -6521,7 +6521,7 @@ export interface components {
             file: string;
             /**
              * Kind
-             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
+             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.
              */
             kind?: string | null;
         };
@@ -11168,7 +11168,7 @@ export interface components {
             content_type: string;
             /**
              * Kind
-             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
+             * @description 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.
              */
             kind?: "tiles3d" | null;
         };

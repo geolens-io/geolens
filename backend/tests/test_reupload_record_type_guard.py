@@ -114,6 +114,16 @@ class TestFilePathStillWorks:
             _assert_compatible_record_type(_ds("vrt_dataset"), "anything.tif")
         assert exc.value.status_code == 400
 
+    @pytest.mark.parametrize(
+        "record_type", ["vector_dataset", "table", "raster_dataset"]
+    )
+    def test_a_3tz_replaces_no_dataset(self, record_type):
+        """A .3tz holds only a 3D Tiles tileset, so no reupload takes one."""
+        with pytest.raises(HTTPException) as exc:
+            _assert_compatible_record_type(_ds(record_type), "campus.3TZ")
+        assert exc.value.status_code == 400
+        assert ".3tz archive holds a 3D Tiles tileset" in exc.value.detail
+
 
 def test_raster_worker_rejects_standalone_vrt_jobs():
     from app.processing.ingest.tasks_raster_common import _reject_raw_vrt_job

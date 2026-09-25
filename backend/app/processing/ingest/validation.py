@@ -94,7 +94,7 @@ MAX_COMPRESSION_RATIO = 500
 MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 MAX_ARCHIVE_ENTRIES = 10_000
 MAX_CENTRAL_DIRECTORY_BYTES = 32 * 1024 * 1024
-ZIP_CONTAINER_EXTENSIONS = frozenset({".zip", ".xlsx", ".kmz"})
+ZIP_CONTAINER_EXTENSIONS = frozenset({".zip", ".xlsx", ".kmz", ".3tz"})
 
 # zipfile bounds a member read's output only for deflate. A bzip2, LZMA or
 # Zstandard read expands a whole compressed chunk before any budget sees it.

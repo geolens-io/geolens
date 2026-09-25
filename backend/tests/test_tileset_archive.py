@@ -33,6 +33,7 @@ from app.processing.ingest.validation import MAX_ARCHIVE_ENTRIES, validate_zip_s
 from tests.tiles3d_archives import (
     REGION,
     build_zip,
+    three_tz,
     tileset_json,
     tileset_zip,
     zip_bytes,
@@ -446,6 +447,43 @@ def test_a_finder_metadata_link_is_still_refused(tmp_path: Path) -> None:
     link = entry("__MACOSX/._0.glb", mode=stat.S_IFLNK | 0o777)
 
     assert "symbolic link" in refused(tileset_zip(tmp_path / "t.zip", (link, b"/etc")))
+
+
+def _three_tz_file(path: Path, *entries: tuple[str, bytes], **kw) -> str:
+    path.write_bytes(three_tz(list(entries), **kw))
+    return str(path)
+
+
+@pytest.mark.parametrize("folder", ["", "campus/"], ids=["root", "folder"])
+def test_a_3tz_index_is_not_part_of_the_tileset(tmp_path: Path, folder: str) -> None:
+    """The index a .3tz ends with is left out of the files and the unpacked total."""
+    path = _three_tz_file(
+        tmp_path / "t.3tz",
+        (f"{folder}tileset.json", tileset_json()),
+        (f"{folder}0/0.glb", b"glb"),
+    )
+
+    layout = inspect_tileset(path).layout
+
+    assert sorted(key for _, key in layout.files) == ["0/0.glb", "tileset.json"]
+    assert layout.unpacked_bytes == len(tileset_json()) + len(b"glb")
+    assert layout.entry_count == 3
+
+
+@pytest.mark.parametrize(
+    ("index", "message"),
+    [
+        (
+            (entry("@3dtilesIndex1@", mode=stat.S_IFLNK | 0o777), b"/etc"),
+            "symbolic link",
+        ),
+        (("@3dtilesIndex1@", bytes(600_000)), "times its compressed size"),
+    ],
+    ids=["link", "ratio"],
+)
+def test_a_3tz_index_is_still_checked(tmp_path: Path, index, message: str) -> None:
+    """The index is left out only after it passes every entry check."""
+    assert message in refused(tileset_zip(tmp_path / "t.zip", index))
 
 
 def test_a_file_that_is_not_a_zip_is_refused(tmp_path: Path) -> None:

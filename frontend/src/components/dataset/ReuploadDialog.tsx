@@ -81,6 +81,8 @@ const AUTH_ERROR_HINTS = [
 // regenerate flow) and no reupload source produces a .vrt, so it stays
 // excluded from every reupload context as a defensive floor.
 const VRT_EXTENSION = '.vrt';
+// A .3tz holds only a 3D Tiles tileset, which no reupload can replace.
+const TILESET_ARCHIVE_EXTENSION = '.3tz';
 // #1289: raster reupload accepts only raster source formats; vector/table
 // reupload accepts everything the backend allows except raster/VRT formats
 // (rasters go through the branch below, VRTs through the regenerate flow).
@@ -581,7 +583,7 @@ export function ReuploadDialog({
       .filter((extension) => {
         if (!extension) return false;
         const normalized = extension.toLowerCase();
-        if (normalized === VRT_EXTENSION) return false;
+        if (normalized === VRT_EXTENSION || normalized === TILESET_ARCHIVE_EXTENSION) return false;
         // #1289: raster reupload offers only raster formats; every other
         // reupload (vector/table) offers everything except raster/VRT.
         const isRasterExtension = RASTER_REUPLOAD_EXTENSIONS.has(normalized);

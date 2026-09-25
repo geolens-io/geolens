@@ -40,8 +40,10 @@ import { ApiError } from '@/api/client';
 import { randomId } from '@/lib/random-id';
 import { cn } from '@/lib/utils';
 
-// Both doors check the deployment's extension list before they require a tileset's .zip.
-const TILESET_EXTENSIONS = ['.zip'];
+// Both doors check the deployment's extension list before they require a tileset archive.
+const TILESET_EXTENSIONS = ['.zip', '.3tz'];
+// A .3tz holds only a tileset, so the files choice never takes one.
+const TILESET_ONLY_EXTENSION = '.3tz';
 
 /** Chooses, before the drop, whether the files are geospatial data or 3D Tiles tilesets. */
 function UploadKindChoice({
@@ -219,10 +221,20 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     () => uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean),
     [uploadConfig?.allowed_extensions],
   );
-  const tilesetAvailable = configExtensions?.includes('.zip') ?? true;
+  const tilesetExtensions = useMemo(
+    () => TILESET_EXTENSIONS.filter((ext) => configExtensions?.includes(ext) ?? true),
+    [configExtensions],
+  );
+  const tilesetAvailable = tilesetExtensions.length > 0;
   // A tileset choice the config rules out falls back to files, queued drops included.
   const uploadKind = tilesetAvailable ? chosenKind : null;
-  const allowedExtensions = uploadKind === 'tiles3d' ? TILESET_EXTENSIONS : configExtensions;
+  const allowedExtensions = useMemo(
+    () =>
+      uploadKind === 'tiles3d'
+        ? tilesetExtensions
+        : configExtensions?.filter((ext) => ext.toLowerCase() !== TILESET_ONLY_EXTENSION),
+    [uploadKind, tilesetExtensions, configExtensions],
+  );
   const maxSizeMb = uploadConfig ? Math.round(uploadConfig.max_file_size_bytes / (1024 * 1024)) : undefined;
 
   const updateEntry = useCallback((id: string, patch: Partial<FileEntry>) => {
@@ -468,7 +480,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     clearPendingUploadFiles();
     const files = pendingFiles.filter((f) => {
       if (
-        allowedExtensions?.length &&
+        allowedExtensions &&
         !allowedExtensions.some((ext) => f.name.toLowerCase().endsWith(ext.toLowerCase()))
       ) {
         toast.error(t('dropzone.fileRejected', { filename: f.name, reason: t('dropzone.unsupportedType') }));
