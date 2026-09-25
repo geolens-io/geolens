@@ -1,5 +1,6 @@
 import {
   classifyApiError,
+  describeUploadRefusal,
   translateApiErrorDetail,
   translateError,
 } from '@/lib/error-map';
@@ -647,5 +648,47 @@ describe('API error localization boundary', () => {
     expect(rendered).toContain('https://maps.example.com');
     // The guard the mapping exists for.
     expect(rendered).not.toBe('The submitted values are invalid.');
+  });
+});
+
+describe('describeUploadRefusal', () => {
+  it('shows an unmapped 422 string detail verbatim, the way a stored job failure reason already does', () => {
+    const detail = 'Archive contains a path outside the tileset root: ../secrets.txt';
+
+    expect(describeUploadRefusal(detail, 422)).toBe(detail);
+  });
+
+  it('shows an unmapped 400 string detail verbatim, such as the extension refusal', () => {
+    const detail = "File extension '.exe' not allowed. Allowed: ['.zip', '.geojson']";
+
+    expect(describeUploadRefusal(detail, 400)).toBe(detail);
+  });
+
+  it('still translates a 422 string this table already recognizes', () => {
+    expect(
+      describeUploadRefusal('Dataset quota exceeded: 5 of 5 datasets used', 422),
+    ).toBe('Dataset quota exceeded: 5 of 5 datasets used.');
+  });
+
+  it('translates a Pydantic validation array rather than rendering it', () => {
+    const detail = [{ loc: ['body', 'name'], type: 'missing' }];
+
+    const rendered = describeUploadRefusal(detail, 422);
+
+    expect(rendered).not.toBe(detail);
+    expect(typeof rendered).toBe('string');
+    expect(rendered).toContain('name');
+  });
+
+  it('translates a structured {code, message} refusal rather than rendering the message', () => {
+    const detail = { code: 'geometry_loss', message: 'Replacing this file would drop its geometry column.' };
+
+    expect(describeUploadRefusal(detail, 422)).not.toBe(detail.message);
+  });
+
+  it('does not render an unmapped string outside 400 and 422', () => {
+    expect(describeUploadRefusal('Some unmapped 409 detail', 409)).toBe(
+      "The request conflicts with the resource's current state.",
+    );
   });
 });

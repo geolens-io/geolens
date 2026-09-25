@@ -561,6 +561,28 @@ export function translateApiErrorDetail(detail: unknown, status = 0): string {
   }) as string;
 }
 
+/** The statuses describeUploadRefusal treats as a real refusal, each mapped to its generic fallback key. */
+export const UPLOAD_REFUSAL_FALLBACK_KEYS: Record<number, ApiErrorDescriptor['key']> = {
+  400: 'errors.badRequest',
+  422: 'errors.validationFailed',
+};
+
+/**
+ * Like translateApiErrorDetail, except that a 400 or 422 whose string detail
+ * the table doesn't recognize is returned as the server wrote it. Arrays,
+ * objects and recognized strings translate as usual.
+ */
+export function describeUploadRefusal(detail: unknown, status: number): string {
+  const descriptor = classifyApiError(detail, status);
+  if (typeof detail === 'string' && descriptor.key === UPLOAD_REFUSAL_FALLBACK_KEYS[status]) {
+    return detail;
+  }
+  return i18n.t(descriptor.key, {
+    ns: 'common',
+    ...(descriptor.values ?? {}),
+  }) as string;
+}
+
 /** Compatibility helper for call sites that already reduced detail to text. */
 export function translateError(backendMessage: string, status = 0): string {
   return translateApiErrorDetail(backendMessage, status);
