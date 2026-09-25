@@ -41,6 +41,7 @@ from app.platform.jobs.sweep import (
 from app.platform.storage.s3 import S3StorageProvider
 from app.processing.embeddings.tasks import embed_record
 from app.processing.ingest import manifest_service
+from app.processing.ingest import router as ingest_router
 from app.processing.ingest.tasks import ingest_pointcloud, task_app
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_user
@@ -50,8 +51,20 @@ _CLOUD = copc()
 
 
 @pytest.fixture
-async def uploader(client: AsyncClient, admin_auth_header: dict, test_db_session):
-    """An editor whose datasets and jobs are removed afterwards."""
+def laz_allowed(monkeypatch) -> None:
+    """The doors' allowed list with .laz added, as an operator adds it."""
+
+    async def _allowed(_db):
+        return [*settings.allowed_extensions_list, ".laz"]
+
+    monkeypatch.setattr(ingest_router, "get_allowed_extensions_list", _allowed)
+
+
+@pytest.fixture
+async def uploader(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, laz_allowed
+):
+    """An editor on an install that allows .laz, whose datasets and jobs are removed afterwards."""
     headers, user_id = await create_user(client, admin_auth_header, "editor")
     yield headers, uuid.UUID(user_id)
     # A committed pointcloud row blocks the migration tests' downgrades past 0070.
@@ -230,6 +243,33 @@ async def test_a_point_cloud_publishes_its_dataset_pointer_and_object(
 
 
 # --- The doors -----------------------------------------------------------
+
+
+@pytest.mark.parametrize("door", ["multipart", "presigned"])
+async def test_a_default_install_refuses_a_point_cloud(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch, door
+) -> None:
+    """The default allowed list leaves .laz out, so a point cloud gets the usual 400."""
+    headers, user_id = await create_user(client, admin_auth_header, "editor")
+    monkeypatch.setattr(
+        settings, "storage_provider", "s3" if door == "presigned" else "local"
+    )
+    if door == "multipart":
+        resp = await upload(client, headers)
+    else:
+        resp = await client.post(
+            "/ingest/upload/presigned",
+            json={
+                "filename": "site.copc.laz",
+                "file_size": len(_CLOUD),
+                "kind": "pointcloud",
+            },
+            headers=headers,
+        )
+
+    assert resp.status_code == 400, resp.text
+    assert "'.laz' not allowed" in resp.json()["detail"]
+    assert await jobs_of(test_db_session, uuid.UUID(user_id)) == []
 
 
 @pytest.mark.parametrize("door", ["multipart", "presigned"])
