@@ -828,6 +828,53 @@ async def _origin(seed: _Seed) -> tuple:
         )
 
 
+def _in_order(steps: list[str], *, claim=None):
+    """Patch the catalog purge and the notice to record their order."""
+
+    async def _purge():
+        steps.append("purge")
+
+    async def _notice(*, event_key, build):
+        steps.append(event_key)
+
+    patches = [
+        patch("app.processing.ingest.publication.invalidate_catalog_cache", _purge),
+        patch("app.platform.notifications.events.emit_event_safe", _notice),
+    ]
+    if claim is not None:
+        patches.append(
+            patch("app.processing.ingest.publication.run_publish_followups", claim)
+        )
+    return _patched(*patches)
+
+
+async def test_a_stamped_failure_purges_the_catalog_before_its_notice(seed) -> None:
+    """A failure that stamps the origin's health purges the catalog before ingest_failed goes out."""
+    steps: list[str] = []
+    with _in_order(steps), pytest.raises(RuntimeError, match="fetch failed"):
+        await _settle(_Fake(seed, fail_at="fetch", failure=await _missing(seed)))
+
+    assert steps == ["purge", "ingest_failed"]
+    assert (await _origin(seed))[0] == "missing"
+
+
+@pytest.mark.parametrize("claim_error", [ConnectionResetError, asyncio.CancelledError])
+async def test_a_notice_claim_that_breaks_leaves_the_purge_done(
+    seed, claim_error
+) -> None:
+    """The stamped purge has run by the time the notice claim raises or is cancelled."""
+    steps: list[str] = []
+    claim = AsyncMock(side_effect=claim_error("the claim broke"))
+    with (
+        _in_order(steps, claim=claim),
+        pytest.raises((RuntimeError, asyncio.CancelledError)),
+    ):
+        await _settle(_Fake(seed, fail_at="fetch", failure=await _missing(seed)))
+
+    assert steps == ["purge"]
+    claim.assert_awaited_once()
+
+
 async def test_a_failure_verdict_lands_once_a_brief_hold_on_the_dataset_row_ends(
     seed, notifications
 ) -> None:
