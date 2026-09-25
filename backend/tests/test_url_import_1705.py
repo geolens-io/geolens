@@ -298,7 +298,8 @@ class TestUrlImportFilename:
         monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", gate)
         spy = AsyncMock(return_value=[".geojson"])
         monkeypatch.setattr(
-            "app.processing.ingest.router._get_allowed_extensions_safely", spy
+            "app.processing.ingest.router_url_import._get_allowed_extensions_safely",
+            spy,
         )
         resp = await client.post(
             "/ingest/upload/url",

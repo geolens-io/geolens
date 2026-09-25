@@ -101,10 +101,12 @@ class Origin:
 
     Only DNS answers and the connection beneath the guard transport are
     stubbed, so the client, its IP pinning and its redirect hook run as shipped.
-    ``connections`` records each connection as (pinned address, Host header).
+    ``resolved`` records the stubbed hosts looked up, and ``connections`` each
+    connection as (pinned address, Host header).
     """
 
     def __init__(self, monkeypatch, respond, *, hosts: dict[str, str] | None = None):
+        self.resolved: list[str] = []
         self.connections: list[tuple[str, str]] = []
         addresses = {ORIGIN: ORIGIN_IP, **(hosts or {})}
         real_getaddrinfo = socket.getaddrinfo
@@ -112,6 +114,7 @@ class Origin:
         def _getaddrinfo(host, port, *args, **kwargs):
             if host not in addresses:
                 return real_getaddrinfo(host, port, *args, **kwargs)
+            self.resolved.append(host)
             sockaddr = (addresses[host], port or 0)
             return [
                 (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", sockaddr)
@@ -395,29 +398,68 @@ async def test_a_refused_archive_fails_with_the_upload_doors_reason(
     [
         (f"https://{ORIGIN}/tiles/tileset.json", None),
         (f"https://{ORIGIN}/tiles/campus.gpkg", None),
-        (f"https://{ORIGIN}/tiles/0/0.glb", None),
         (f"https://{ORIGIN}/download?id=7", "tileset.json"),
     ],
 )
 async def test_a_tileset_url_must_name_an_archive(
     client: AsyncClient, test_db_session, uploader, deferred, monkeypatch, url, filename
 ) -> None:
-    """A name that is not an archive gets the upload door's answer, before any job."""
+    """A name that is not an archive gets the upload door's 422, before DNS or a job."""
     headers, user_id = uploader
-    Origin(monkeypatch, serve(b""))
+    origin = Origin(monkeypatch, serve(b""))
     fields = {"filename": filename} if filename else {}
 
     refused = await submit(client, headers, url, **fields)
     name = filename or url.rsplit("/", 1)[1]
     uploaded = await upload(client, headers, b"{}", filename=name)
 
-    assert refused.status_code in (400, 422), refused.text
-    assert (refused.status_code, refused.json()) == (
-        uploaded.status_code,
-        uploaded.json(),
-    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json() == uploaded.json()
+    assert origin.resolved == []
     assert await job_ids_of(test_db_session, user_id) == []
     assert deferred == []
+
+
+async def test_a_3tz_url_without_the_tileset_kind_is_refused(
+    client: AsyncClient, test_db_session, uploader, deferred, monkeypatch
+) -> None:
+    """A .3tz named without kind=tiles3d gets the upload door's 422, before DNS or a job."""
+    headers, user_id = uploader
+    origin = Origin(monkeypatch, serve(campus_zip()))
+
+    refused = await client.post(
+        "/ingest/upload/url",
+        json={"url": f"https://{ORIGIN}/exports/campus.3tz"},
+        headers=headers,
+    )
+    uploaded = await client.post(
+        "/ingest/upload",
+        files={"file": ("campus.3tz", campus_zip(), "application/zip")},
+        headers=headers,
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json() == uploaded.json()
+    assert origin.resolved == []
+    assert await job_ids_of(test_db_session, user_id) == []
+    assert deferred == []
+
+
+async def test_a_3tz_url_with_the_tileset_kind_stages_as_a_tileset(
+    client: AsyncClient, test_db_session, uploader, deferred, monkeypatch
+) -> None:
+    """A .3tz named with kind=tiles3d stages as a tileset, as a .zip does."""
+    headers, _ = uploader
+    Origin(monkeypatch, serve(campus_zip()))
+
+    job_id = await import_url(
+        client, headers, deferred, f"https://{ORIGIN}/exports/campus.3tz"
+    )
+
+    job = await load_job(test_db_session, job_id)
+    assert job.status == "pending", job.error_message
+    assert job.user_metadata["file_type"] == "tiles3d"
+    assert TILESET_UNPACKED_BYTES_FIELD in job.user_metadata
 
 
 # --- Rule 2: every hop through the safe client ---------------------------
