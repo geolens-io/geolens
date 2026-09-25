@@ -25,7 +25,8 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.failure_reason import coded_failure_reason
 from app.core.logging_config import redact_nested
-from app.platform.jobs.ledger import Outcome, abort
+from app.platform.jobs import ledger
+from app.platform.jobs.ledger import Outcome
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     IngestJob,
@@ -297,7 +298,7 @@ async def settle_ingest_job_failed(
     session = async_object_session(job)
     if session is None:
         raise RuntimeError("the job to settle is not attached to a session")
-    outcome = await abort(
+    outcome = await ledger.abort(
         session,
         job,
         code="dispatch_failed",

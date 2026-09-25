@@ -359,6 +359,76 @@ def test_the_scan_reads_the_tree_and_finds_the_ledgers_writes() -> None:
     assert {"create", "_move", "_end", "retry"} <= ledger_functions
 
 
+# The ledger's transitions, which the structural gates find by their
+# ``ledger.<name>(`` spelling.
+_TRANSITIONS = frozenset(
+    {"create", "claim", "stage", "fan_out", "restore", "complete", "fail", "abort"}
+)
+_LEDGER_MODULE = "app.platform.jobs.ledger"
+
+
+def _ledger_spellings(module: str, tree: ast.AST) -> list[str]:
+    """Imports that name a transition or bind the ledger module other than as ``ledger``."""
+    package = ["app", *module.removesuffix(".py").split("/")[:-1]]
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            base = package[: len(package) - node.level + 1] if node.level else []
+            source = ".".join([*base, *filter(None, [node.module])])
+            for alias in node.names:
+                if source == _LEDGER_MODULE and alias.name in _TRANSITIONS:
+                    found.append(f"{module}:{node.lineno} imports {alias.name}")
+                elif f"{source}.{alias.name}" == _LEDGER_MODULE and (
+                    alias.asname not in (None, "ledger")
+                ):
+                    found.append(f"{module}:{node.lineno} binds it as {alias.asname}")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == _LEDGER_MODULE and alias.asname != "ledger":
+                    found.append(f"{module}:{node.lineno} imports {alias.name}")
+    return found
+
+
+def test_transitions_are_called_through_the_ledger_module() -> None:
+    """Outside the ledger, a transition is only ever spelled ``ledger.<name>``."""
+    offenders = [
+        spelling
+        for path in sorted(_APP.rglob("*.py"))
+        if (module := path.relative_to(_APP).as_posix()) != _LEDGER
+        for spelling in _ledger_spellings(module, ast.parse(path.read_text()))
+    ]
+    assert not offenders, offenders
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from app.platform.jobs.ledger import fail\n",
+        "from app.platform.jobs.ledger import Outcome, abort\n",
+        "from .ledger import complete\n",
+        "from app.platform.jobs import ledger as jobs_ledger\n",
+        "import app.platform.jobs.ledger\n",
+        "import app.platform.jobs.ledger as L\n",
+    ],
+)
+def test_each_other_spelling_is_seen(source: str) -> None:
+    """A transition imported by name, or the module bound under another name, is seen."""
+    assert _ledger_spellings("platform/jobs/heartbeat.py", ast.parse(source))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from app.platform.jobs import ledger\n",
+        "from app.platform.jobs.ledger import Outcome, StaleIngestAttempt, hold\n",
+        "from .ledger import hold\n",
+    ],
+)
+def test_the_module_import_and_other_names_are_allowed(source: str) -> None:
+    """Importing the module as ``ledger``, or a name that is no transition, is allowed."""
+    assert not _ledger_spellings("platform/jobs/heartbeat.py", ast.parse(source))
+
+
 def _scan(source: str) -> list[tuple[str, int]]:
     tree = ast.parse(source)
     return _status_writes(tree, _functions_returning_a_job([tree]))

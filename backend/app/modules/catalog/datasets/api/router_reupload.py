@@ -54,7 +54,7 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs import ledger
-from app.platform.jobs.ledger import abort, hold
+from app.platform.jobs.ledger import hold
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.credentials import (
     CredentialStoreUnavailable,
@@ -397,7 +397,7 @@ async def reupload_dataset(
             # row is still pending and bound here, as the bind below is.
             held = await hold(db, job.id, expect="pending")
             if held is not None and held.dataset_id == dataset_id:
-                await abort(db, held, code="content_rejected", reason=exc)
+                await ledger.abort(db, held, code="content_rejected", reason=exc)
             await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1456,7 +1456,7 @@ async def complete_presigned_reupload(
         if exc.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT:
             # The error a refusal wraps decides what is stored, as on the direct doors.
             reason = redact_failure_reason(exc.__cause__ or str(exc.detail))
-            await abort(db, job, code="content_rejected", reason=reason)
+            await ledger.abort(db, job, code="content_rejected", reason=reason)
             await db.commit()
         raise
 

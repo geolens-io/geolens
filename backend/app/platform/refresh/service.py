@@ -26,7 +26,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import FixedReason, redact_failure_reason
-from app.platform.jobs.ledger import Outcome, abort, hold
+from app.platform.jobs import ledger
+from app.platform.jobs.ledger import Outcome, hold
 from app.platform.refresh.models import DatasetRefreshRun
 
 logger = structlog.get_logger(__name__)
@@ -703,7 +704,7 @@ async def _abort_admitted_refresh(
     )
     if run_id is None:
         return None
-    ended = await abort(session, job, code=error_code, reason=reason)
+    ended = await ledger.abort(session, job, code=error_code, reason=reason)
     return run_id if ended is Outcome.LANDED else None
 
 

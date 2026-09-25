@@ -35,7 +35,7 @@ from app.modules.admin.schemas import (
     BackfillRunSummary,
 )
 from app.platform.jobs import ledger
-from app.platform.jobs.ledger import Outcome, StaleIngestAttempt, abort, hold
+from app.platform.jobs.ledger import Outcome, StaleIngestAttempt, hold
 from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 from app.processing.ingest.tasks import task_app
 
@@ -517,7 +517,7 @@ async def _fail_undispatched_pending_row(
         job = await hold(session, job_uuid, expect="pending")
         if job is None:
             return False
-        outcome = await abort(
+        outcome = await ledger.abort(
             session,
             job,
             code="dispatch_cancelled",

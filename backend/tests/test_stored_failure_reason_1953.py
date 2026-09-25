@@ -267,6 +267,7 @@ _REDACTING_SINKS: dict[str, str | int] = {
     "record_refresh_failure": "error_message",
     "release_manifest_reservation": 2,
     "abort": "reason",
+    "ledger.abort": "reason",
     "ledger.fail": "reason",
     "write_job_failure_for_attempt": "reason",
 }
@@ -491,7 +492,7 @@ class TestEverySinkGoesThroughTheOneDoor:
         reasons = [
             kw.value
             for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "abort"
+            if isinstance(node, ast.Call) and _callee(node.func) == "ledger.abort"
             for kw in node.keywords
             if kw.arg == "reason"
         ]
