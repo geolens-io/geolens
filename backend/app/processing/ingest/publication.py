@@ -51,8 +51,7 @@ from app.platform.refresh.service import (
     record_refresh_success,
 )
 from app.processing.ingest.publish_followups import (
-    note_publish_followups,
-    notify_ingest_failed,
+    owed_followups,
     run_publish_followups,
 )
 from app.processing.ingest.tasks_common import (
@@ -290,12 +289,21 @@ async def _fail(
     *,
     reason: str | BaseException,
     linked: Linked,
+    owes: str | None = None,
 ) -> bool:
     """Move this attempt's job from pending or running to failed, then settle ``linked``.
 
-    ``reason`` is stored redacted. Returns whether the write landed; a miss
-    writes nothing. Does not commit.
+    ``reason`` is stored redacted. ``owes`` names a task whose follow-ups the
+    end owes, recorded in this same write. Returns whether the write landed; a
+    miss writes nothing. Does not commit.
     """
+    written: dict[str, Any] = {
+        "status": "failed",
+        "error_message": redact_failure_reason(reason),
+        "completed_at": datetime.now(timezone.utc),
+    }
+    if owes is not None:
+        written["user_metadata"] = owed_followups(attempt_id, owes)
     ended = await session.execute(
         update(IngestJob)
         .where(
@@ -303,11 +311,7 @@ async def _fail(
             IngestJob.attempt_id == attempt_id,
             IngestJob.status.in_(("pending", "running")),
         )
-        .values(
-            status="failed",
-            error_message=redact_failure_reason(reason),
-            completed_at=datetime.now(timezone.utc),
-        )
+        .values(written)
         .execution_options(synchronize_session=False)
     )
     if not ended.rowcount:
@@ -490,10 +494,9 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                 attempt_id,
                 reason=verdict.reason,
                 linked=verdict.settle,
+                owes=strategy.task if verdict.notify else None,
             )
             owes_notice = landed and verdict.notify
-            if owes_notice:
-                await note_publish_followups(session, job_id, attempt_id, strategy.task)
             await commit_publication(
                 session,
                 job_id=job_id,
@@ -604,13 +607,15 @@ async def _record_failure(
 ) -> None:
     """End the attempt's job and run as failed in one bounded transaction.
 
-    Never raises: the task's own failure is what the caller re-raises. Sends
-    ``ingest_failed`` when the job's end landed and ``failure.notify`` is set.
+    Never raises: the task's own failure is what the caller re-raises. Owes
+    ``ingest_failed`` when the job's end lands and ``failure.notify`` is set,
+    sent through the job's follow-up record once the end is visible.
     """
     from app.core.db import async_session
 
     reason = failure.reason or exc
     stamped = False
+    owes_notice = False
 
     async def _settle(session: AsyncSession) -> None:
         nonlocal stamped
@@ -643,20 +648,29 @@ async def _record_failure(
                 attempt.attempt_id,
                 reason=reason,
                 linked=_settle,
+                owes=strategy.task if failure.notify else None,
             )
+            owes_notice = landed and failure.notify
             await session.commit()
     except Exception as write_failure:  # broad: must not replace the task's failure
         log_job_error_write_failure(
             write_failure, job_id=str(attempt.job_id), task=strategy.task
         )
         return
-    if stamped:
-        async with cleanup_step(
-            f"{strategy.task} catalog cache", job_id=str(attempt.job_id)
-        ):
-            await invalidate_catalog_cache()
-    if landed and failure.notify:
-        await notify_ingest_failed(attempt.job_id, task=strategy.task, reason=reason)
+    finally:
+        # The purge goes first, so the notice never reads a stale origin stamp.
+        # It runs even when the commit raised, since that commit may have landed.
+        if stamped:
+            async with cleanup_step(
+                f"{strategy.task} catalog cache", job_id=str(attempt.job_id)
+            ):
+                await invalidate_catalog_cache()
+        # Whatever the commit raised: the claim sends only an end that landed.
+        if owes_notice:
+            async with cleanup_step(
+                f"{strategy.task} failure notice", job_id=str(attempt.job_id)
+            ):
+                await run_publish_followups(attempt.job_id)
 
 
 # How long a failure's origin verdict waits for a dataset row another

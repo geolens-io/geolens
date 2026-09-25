@@ -39,22 +39,23 @@ _LABELS: dict[str, str | None] = {
 _SWEEP_BATCH = 50
 
 
-async def note_publish_followups(
-    session: AsyncSession, job_uuid: uuid.UUID, attempt_uuid: uuid.UUID, task: str
-) -> None:
-    """Record, in the terminal transaction, that this attempt's ``task`` follow-ups are owed."""
+def owed_followups(attempt_uuid: uuid.UUID, task: str):
+    """The job's ``user_metadata`` with this attempt's ``task`` follow-ups owed."""
     owed = func.jsonb_build_object(
         PUBLISH_FOLLOWUPS_FIELD,
         func.jsonb_build_object("task", task, "attempt_id", str(attempt_uuid)),
     )
+    return func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb")).op("||")(owed)
+
+
+async def note_publish_followups(
+    session: AsyncSession, job_uuid: uuid.UUID, attempt_uuid: uuid.UUID, task: str
+) -> None:
+    """Record, in the terminal transaction, that this attempt's ``task`` follow-ups are owed."""
     await session.execute(
         update(IngestJob)
         .where(IngestJob.id == job_uuid, IngestJob.attempt_id == attempt_uuid)
-        .values(
-            user_metadata=func.coalesce(
-                IngestJob.user_metadata, text("'{}'::jsonb")
-            ).op("||")(owed)
-        )
+        .values(user_metadata=owed_followups(attempt_uuid, task))
         .execution_options(synchronize_session=False)
     )
 
