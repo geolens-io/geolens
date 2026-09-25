@@ -513,7 +513,6 @@ def _rejection(seed: _Seed) -> Verdict:
             ingest_job_id=seed.job_id,
             error_code="refresh_rejected",
             error_message="rejected",
-            contacted_origin=False,
         )
 
     return Verdict(
@@ -686,3 +685,24 @@ async def test_a_lost_claim_drops_the_table_its_attempt_left_behind(seed) -> Non
     assert "fetch" not in fake.seen
     state = await _state(seed)
     assert (state["job"], state["staging_left"]) == ("running", 0)
+
+
+async def test_a_contact_stamp_matches_an_origin_ref_in_another_key_order(seed) -> None:
+    """The stamp's binding guard compares origin_ref as JSON, so key order is no rebind."""
+    from app.platform.dataset_origin import set_dataset_origin
+    from app.processing.ingest.publication import _stamp_contact
+
+    url = "https://services.example.test/wfs"
+    async with db_module.async_session() as session:
+        dataset = await session.get(Dataset, seed.dataset_id)
+        set_dataset_origin(
+            dataset, "service", uri=url, service_type="wfs", url=url, layer_id="roads"
+        )
+        reordered = dict(reversed(list(dataset.origin_ref.items())))
+        binding = (dataset.origin_uri, reordered, dataset.source_format)
+        await session.commit()
+
+        stamped = await _stamp_contact(session, seed.dataset_id, binding)
+        await session.commit()
+
+    assert stamped

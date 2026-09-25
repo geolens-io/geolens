@@ -527,7 +527,6 @@ class TestTheRunRowStoresTheCodeRatherThanTheStatement:
                 ingest_job_id=job.id,
                 error_code="postgis_refresh_failed",
                 error_message=_driver_error(),
-                contacted_origin=False,
             )
             == run.id
         )

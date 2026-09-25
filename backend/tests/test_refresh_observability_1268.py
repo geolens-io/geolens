@@ -156,7 +156,6 @@ class TestRefreshAuditTrail:
             ingest_job_id=job.id,
             error_code="credential_expired",
             error_message="GDAL: https://svc.example/wfs?token=hunter2 failed",
-            contacted_origin=False,
         )
         await test_db_session.commit()
 

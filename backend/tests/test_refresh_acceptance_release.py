@@ -75,7 +75,6 @@ async def _fail_through_the_worker_sink(session, client, headers, job_id, run_id
         ingest_job_id=job_id,
         error_code="service_refresh_failed",
         error_message="source unreachable",
-        contacted_origin=False,
     )
     await session.commit()
 

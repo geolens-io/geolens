@@ -559,7 +559,6 @@ async def _record_failure(
             ingest_job_id=attempt.job_id,
             error_code=failure.error_code,
             error_message=exc,
-            contacted_origin=False,
             feature_count_after=failure.feature_count_after,
             schema_diff=failure.schema_diff,
             verification=failure.verification,

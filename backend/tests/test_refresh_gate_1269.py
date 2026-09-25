@@ -1184,7 +1184,6 @@ class TestThirdPartyProjectionSweep:
             ingest_job_id=job.id,
             error_code="service_refresh_failed",
             error_message="the origin timed out",
-            contacted_origin=False,
         )
         await test_db_session.commit()
 

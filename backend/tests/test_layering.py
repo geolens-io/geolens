@@ -1304,7 +1304,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1713,
     # The file and service strategies: retrieval, staging, verification and cleanup.
-    "backend/app/processing/ingest/tasks_reupload.py": 1265,
+    "backend/app/processing/ingest/tasks_reupload.py": 1263,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1399,
@@ -1315,7 +1315,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/jobs/sweep.py": 1746,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
-    "backend/app/platform/refresh/service.py": 1239,
+    "backend/app/platform/refresh/service.py": 1155,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
     "backend/app/core/config.py": 1500,

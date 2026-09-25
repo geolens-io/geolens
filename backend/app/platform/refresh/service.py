@@ -15,7 +15,6 @@ argument to a deferred task breaks in-flight jobs on deploy.
 
 from __future__ import annotations
 
-import json
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
@@ -873,8 +872,6 @@ async def record_refresh_failure(
     ingest_job_id: uuid.UUID,
     error_code: str,
     error_message: str | BaseException,
-    contacted_origin: bool,
-    origin_binding: tuple[str | None, dict[str, Any] | None, str | None] | None = None,
     feature_count_after: int | None = None,
     schema_diff: dict[str, Any] | None = None,
     verification: dict[str, Any] | None = None,
@@ -882,36 +879,18 @@ async def record_refresh_failure(
     """Finalize this job's run as ``failed``.
 
     ``last_refreshed_at`` is untouched by construction: a failed refresh
-    leaves the live table and its freshness exactly as they were.
-
-    When the run did reach out to a remote origin, ``last_checked_at`` is
-    stamped on the dataset via parameterized SQL (the failure handler runs
-    in a fresh session with no dataset loaded, and ``platform/`` may not
-    import the catalog ORM at module scope).
-
-    fix(#1220): that stamp is a GUARDED write — ``origin_binding`` is the
-    ``(origin_uri, origin_ref, source_format)`` triple read when the attempt
-    started, and the UPDATE only lands while the row still carries it.
-    Without the guard, a failure from an attempt whose dataset was rebound
-    mid-flight (a concurrent re-upload finishing first) would date the NEW
-    binding's contact from the OLD binding's doomed fetch. Passing
-    ``contacted_origin=True`` without a binding raises, so the unguarded
-    write is unreachable.
+    leaves the live table and its freshness exactly as they were. Nor does
+    this date a contact: the settlement seam's guarded stamp is the one
+    writer of a failed attempt's ``last_checked_at``.
 
     Accepts both non-terminal states: a run can fail while still ``pending``
     (a task failing before its claim commits, or the defer-guard rollback),
     not just after being claimed. Terminal states are excluded either way.
     """
-    if contacted_origin and origin_binding is None:
-        raise ValueError(
-            "record_refresh_failure(contacted_origin=True) requires "
-            "origin_binding; an ID-only contact stamp can land on a dataset "
-            "that was rebound while the failing attempt was running."
-        )
     now = datetime.now(timezone.utc)
     row = (
         await session.execute(
-            select(DatasetRefreshRun.id, DatasetRefreshRun.dataset_id).where(
+            select(DatasetRefreshRun.id).where(
                 DatasetRefreshRun.ingest_job_id == ingest_job_id,
                 DatasetRefreshRun.status.in_(ACTIVE_RUN_STATUSES),
             )
@@ -937,13 +916,6 @@ async def record_refresh_failure(
         return None
     await _release_consumed_acceptances(session, [row.id])
     await _emit_refresh_failed(session, row.id)
-    if contacted_origin:
-        await _stamp_guarded_contact(
-            session,
-            dataset_id=row.dataset_id,
-            binding=origin_binding,  # non-None: checked at the top
-            now=now,
-        )
     return row.id
 
 
@@ -979,62 +951,6 @@ async def record_refresh_blocked(
         return None
     await _emit_refresh_blocked(session, run_id)
     return run_id
-
-
-# fix(#1220): jsonb, not text. `origin_ref` is compared semantically, so an
-# attempt that read `{"url": ..., "kind": ...}` still matches a row whose
-# stored key order differs — which a textual comparison would call a rebind.
-_GUARDED_CONTACT_SQL = text(
-    """
-    UPDATE catalog.datasets
-    SET last_checked_at = :now
-    WHERE id = :dataset_id
-      AND id IN (SELECT id FROM catalog.datasets WHERE id = :dataset_id FOR NO KEY UPDATE SKIP LOCKED)
-      AND origin_uri IS NOT DISTINCT FROM :origin_uri
-      AND origin_ref IS NOT DISTINCT FROM CAST(:origin_ref AS jsonb)
-      AND source_format IS NOT DISTINCT FROM :source_format
-    RETURNING id
-    """
-)
-
-
-async def _stamp_guarded_contact(
-    session: AsyncSession,
-    *,
-    dataset_id: uuid.UUID,
-    binding: tuple[str | None, dict[str, Any] | None, str | None] | None,
-    now: datetime,
-) -> bool:
-    """Date the origin contact, but only while the binding is still the one.
-
-    Returns whether the write landed. Losing the race is a silent skip: the
-    caller is a failed background attempt, there is nobody to tell, and the
-    rebind's own commit stamped whatever is true now. A held row is skipped
-    too, so a failure that lost a wait on it does not wait on it again.
-
-    ``GET /datasets/`` serves ``last_checked_at`` from a 60-second cache, so
-    a landed write invalidates it, like every other writer of the field.
-    """
-    if binding is None:
-        return False
-    origin_uri, origin_ref, source_format = binding
-    landed = await session.scalar(
-        _GUARDED_CONTACT_SQL,
-        {
-            "now": now,
-            "dataset_id": dataset_id,
-            "origin_uri": origin_uri,
-            "origin_ref": json.dumps(origin_ref) if origin_ref is not None else None,
-            "source_format": source_format,
-        },
-    )
-    if landed is None:
-        logger.info("refresh_contact_stamp_skipped", dataset_id=str(dataset_id))
-        return False
-    from app.platform.cache.tiles import invalidate_catalog_cache
-
-    await invalidate_catalog_cache()
-    return True
 
 
 # fix(#1274): guards the pathological legacy DOUBLE — the old system had no
