@@ -493,6 +493,7 @@ def test_the_health_words_are_the_ones_the_api_already_describes() -> None:
     assert tasks_stac_refresh._MISSING in SOURCE_HEALTH_VALUES
     assert tasks_stac_refresh._ITEM_WITHDRAWN in DETAIL_CODES
     assert tasks_stac_refresh._NOT_FOUND in DETAIL_CODES
+    assert tasks_stac_refresh._BLOCKED_BY_POLICY in DETAIL_CODES
     assert stac_resolve._WITHDRAWN.health in SOURCE_HEALTH_VALUES
     assert stac_resolve._WITHDRAWN.detail in DETAIL_CODES
     assert stac_resolve._ASSET_GONE.health in SOURCE_HEALTH_VALUES
@@ -3018,6 +3019,84 @@ class TestWorker:
         refreshed = await _reload(dataset.id)
         assert refreshed.last_checked_at is None
         assert refreshed.source_health is None
+
+    async def test_an_item_url_the_policy_refuses_stores_the_refusal_message(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """The item URL is refused by this instance's outbound policy.
+
+        Retrying reaches the same refusal, so the stored message must not be
+        the generic unreachable one, which tells the reader to try again.
+        """
+        install, _ = stac_transport
+        install(_raising(lambda _req: SSRFError("private address")))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(
+            test_db_session, created_by=admin_id, source_health="healthy"
+        )
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        with pytest.raises(Exception):
+            await _execute(test_db_session, payload)
+
+        refreshed = await _reload(dataset.id)
+        assert refreshed.source_health == "healthy"
+        assert refreshed.origin_uri == _ASSET
+        run = await _run_for(dataset.id)
+        assert run.status == "failed"
+        assert run.error_code == tasks_stac_refresh._ERROR_CODE_BLOCKED_BY_POLICY
+        assert run.error_message == tasks_stac_refresh._BLOCKED_BY_POLICY_MESSAGE
+
+    async def test_a_moved_asset_the_policy_refuses_stores_the_refusal_message(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """The item resolves fine; the asset it now names is refused instead."""
+        install, _ = stac_transport
+        blocked = "https://origin.test/internal/scene.tif"
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            if str(request.url) == blocked:
+                raise SSRFError("private address")
+            return httpx.Response(200, json=_item_doc(asset_href=blocked))
+
+        install(_handler)
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(
+            test_db_session, created_by=admin_id, source_health="healthy"
+        )
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        with pytest.raises(Exception):
+            await _execute(test_db_session, payload)
+
+        refreshed = await _reload(dataset.id)
+        assert refreshed.source_health == "healthy"
+        assert refreshed.origin_uri == _ASSET
+        run = await _run_for(dataset.id)
+        assert run.status == "failed"
+        assert run.error_code == tasks_stac_refresh._ERROR_CODE_BLOCKED_BY_POLICY
+        assert run.error_message == tasks_stac_refresh._BLOCKED_BY_POLICY_MESSAGE
+
+    async def test_a_timeout_still_stores_the_generic_unreachable_message(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """A 5xx is inconclusive, not a policy refusal, so the ordinary
+        unreachable code and message still apply."""
+        install, _ = stac_transport
+        install({_ITEM: (503, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(
+            test_db_session, created_by=admin_id, source_health="healthy"
+        )
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        with pytest.raises(Exception):
+            await _execute(test_db_session, payload)
+
+        run = await _run_for(dataset.id)
+        assert run.status == "failed"
+        assert run.error_code == tasks_stac_refresh._ERROR_CODE_INACCESSIBLE
+        assert run.error_message == tasks_stac_refresh._UNREACHABLE_MESSAGE
 
     async def test_a_rebind_during_the_fetch_discards_the_answer(
         self, client, admin_auth_header, test_db_session, stac_transport
