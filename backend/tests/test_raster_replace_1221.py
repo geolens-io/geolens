@@ -5912,7 +5912,9 @@ class TestPublishCommitLandedProbe:
             is True
         )
 
-    async def test_the_noted_id_is_read_back_only_in_its_own_transaction(self) -> None:
+    async def test_the_noted_id_is_read_back_only_in_its_own_transaction(
+        self, test_db_session
+    ) -> None:
         """The id noted in a transaction is its own, and a later transaction reads none."""
         import app.core.db as db_module
         from app.processing.ingest.tasks_raster_common import (
