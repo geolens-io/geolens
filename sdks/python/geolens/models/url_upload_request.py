@@ -27,8 +27,9 @@ class UrlUploadRequest:
                 configured size cap, and stages it like a direct upload.
             filename (None | str | Unset): Filename override for URLs whose path does not end in the actual file name (e.g.
                 download links keyed by query id). Must carry an allowed extension. Defaults to the URL path's basename.
-            kind (Literal['tiles3d'] | None | Unset): 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding
-                tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
+            kind (Literal['tiles3d'] | None | Unset): 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding
+                tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is
+                refused.
     """
 
     url: str
