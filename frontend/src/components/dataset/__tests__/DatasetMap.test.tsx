@@ -921,6 +921,29 @@ describe('DatasetMap record types', () => {
     expect(fakeMap.addSource).not.toHaveBeenCalled();
     expect(onMapReady).toHaveBeenCalled();
   });
+
+  it('adds no vector source for a 3D Tiles dataset when the tile config settles after load (#878)', () => {
+    loadThenSettleTileConfig('tiles3d_dataset');
+
+    expect(fakeMap.addSource).not.toHaveBeenCalledWith(previewSourceId('cloud'), expect.anything());
+  });
+
+  it('adds no tile or overlay source for a 3D Tiles dataset and still reports ready (#878)', () => {
+    const onMapReady = vi.fn();
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="cloud"
+        geometryType="Point"
+        datasetId="dataset-1"
+        recordType="tiles3d_dataset"
+        onMapReady={onMapReady}
+      />,
+    );
+
+    expect(fakeMap.addSource).not.toHaveBeenCalled();
+    expect(onMapReady).toHaveBeenCalled();
+  });
 });
 
 describe('DatasetMap basemap switch', () => {

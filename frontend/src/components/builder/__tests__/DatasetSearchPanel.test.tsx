@@ -249,6 +249,25 @@ describe('DatasetSearchPanel', () => {
     expect(within(row).queryByText('Vector')).not.toBeInTheDocument();
   });
 
+  it('offers no Add to map, drag or Vector label for a 3D Tiles dataset (#878)', async () => {
+    const tileset = makeRecord({ id: 'tileset', title: 'Tileset', recordType: 'tiles3d_dataset' as RecordType });
+    tileset.properties.geometry_type = null;
+    mockSearchDatasets.mockResolvedValue({
+      ...searchResponse,
+      numberMatched: 1,
+      numberReturned: 1,
+      features: [tileset],
+    });
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand Tileset' }));
+    const row = screen.getByText('Tileset description').closest('.group\\/row') as HTMLElement;
+
+    expect(screen.queryByRole('button', { name: /^Add to map/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drag into map' })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(row).queryByText('Vector')).not.toBeInTheDocument();
+  });
+
   // fix(#1778): featureMeta/DatasetMetadata read width/height/epsg off
   // OGCRecordProperties, none of which the API ever returned under those
   // flat names -- the raster size/CRS rows were always blank. Now sourced
