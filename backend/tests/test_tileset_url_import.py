@@ -7,6 +7,7 @@ import json
 import logging
 import socket
 import uuid
+import zipfile
 from collections.abc import Iterable
 from contextlib import contextmanager
 from pathlib import Path
@@ -33,7 +34,7 @@ from app.processing.ingest.tasks import ingest_tileset
 from app.processing.ingest.tileset import TILESET_UNPACKED_BYTES_FIELD
 from tests._logging_state import configured_logging
 from tests.factories import create_user
-from tests.tiles3d_archives import tileset_json, zip_bytes
+from tests.tiles3d_archives import three_tz, tileset_json, zip_bytes
 
 # Resolves public at submission and at connect. Nothing connects to it: the
 # connection beneath the guard transport is stubbed.
@@ -77,6 +78,11 @@ def refused_archive(case: str) -> bytes:
         return zip_bytes([("tileset.json", json.dumps(document).encode())])
     if case == "truncated":
         return campus_zip()[:-10]
+    if case in ("bzip2", "lzma"):
+        method = zipfile.ZIP_BZIP2 if case == "bzip2" else zipfile.ZIP_LZMA
+        return zip_bytes(
+            [("tileset.json", tileset_json()), ("0/0.glb", _GLB)], compression=method
+        )
     assert case == "over_unpacked_cap"
     return campus_zip()
 
@@ -360,17 +366,26 @@ async def test_a_tileset_archive_imports_by_url_and_publishes(
 
 
 @pytest.mark.parametrize(
-    "case",
+    ("case", "reads_a_member"),
     [
-        "zip_slip",
-        "no_tileset_json",
-        "content_outside",
-        "truncated",
-        "over_unpacked_cap",
+        ("zip_slip", False),
+        ("no_tileset_json", False),
+        ("content_outside", True),
+        ("truncated", False),
+        ("over_unpacked_cap", False),
+        ("bzip2", False),
+        ("lzma", False),
     ],
 )
 async def test_a_refused_archive_fails_with_the_upload_doors_reason(
-    client: AsyncClient, test_db_session, uploader, deferred, monkeypatch, case
+    client: AsyncClient,
+    test_db_session,
+    uploader,
+    deferred,
+    monkeypatch,
+    zip_member_reads,
+    case,
+    reads_a_member,
 ) -> None:
     """The job stores the multipart door's refusal and keeps no staged bytes."""
     if case == "over_unpacked_cap":
@@ -390,6 +405,7 @@ async def test_a_refused_archive_fails_with_the_upload_doors_reason(
     assert job.error_message == upload_reason
     assert job.error_message != INTERNAL_FAILURE_REASON
     assert TILESET_UNPACKED_BYTES_FIELD not in job.user_metadata
+    assert bool(zip_member_reads) is reads_a_member
     assert staged_files() == []
     assert await storage_provider.get_storage().list("tiles3d/") == []
 
@@ -505,9 +521,14 @@ async def test_a_3tz_url_without_the_tileset_kind_is_refused(
 async def test_a_3tz_url_with_the_tileset_kind_stages_as_a_tileset(
     client: AsyncClient, test_db_session, uploader, deferred, monkeypatch
 ) -> None:
-    """A .3tz named with kind=tiles3d stages as a tileset, as a .zip does."""
+    """A .3tz with kind=tiles3d stages as a tileset, its index entry left out of the total."""
     headers, _ = uploader
-    Origin(monkeypatch, serve(campus_zip()))
+    data = three_tz([("tileset.json", tileset_json()), ("0/0.glb", _GLB)])
+    uploaded = await upload(client, headers, data, filename="campus.3tz")
+    assert uploaded.status_code == 201, uploaded.text
+    upload_job = await load_job(test_db_session, uploaded.json()["job_id"])
+    upload_unpacked = upload_job.user_metadata[TILESET_UNPACKED_BYTES_FIELD]
+    Origin(monkeypatch, serve(data))
 
     job_id = await import_url(
         client, headers, deferred, f"https://{ORIGIN}/exports/campus.3tz"
@@ -516,7 +537,8 @@ async def test_a_3tz_url_with_the_tileset_kind_stages_as_a_tileset(
     job = await load_job(test_db_session, job_id)
     assert job.status == "pending", job.error_message
     assert job.user_metadata["file_type"] == "tiles3d"
-    assert TILESET_UNPACKED_BYTES_FIELD in job.user_metadata
+    assert job.user_metadata[TILESET_UNPACKED_BYTES_FIELD] == upload_unpacked
+    assert upload_unpacked == len(tileset_json()) + len(_GLB)
 
 
 # --- Rule 2: every hop through the safe client ---------------------------
