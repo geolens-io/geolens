@@ -605,11 +605,16 @@ async def test_a_measurement_older_than_an_edit_it_waited_behind_is_discarded(
 async def test_a_stac_answer_older_than_a_rebind_it_waited_behind_is_discarded(
     replace,
 ) -> None:
-    """A STAC refresh parked on the dataset row reads the rebind under it, leaves the rebind standing and sends nothing."""
+    """A STAC refresh parked on the dataset row reads the rebind under it, leaves the rebind standing and undated, and sends nothing."""
     from app.processing.ingest.tasks_stac_refresh import StacRefreshError
 
     replacement = await replace("stac")
     rebound = "https://stac.example.com/rebound/scene.tif"
+    origin = select(Dataset.origin_uri, Dataset.last_checked_at).where(
+        Dataset.id == replacement.dataset_id
+    )
+    async with db_module.async_session() as session:
+        checked = (await session.execute(origin)).one().last_checked_at
 
     raised, sent = await _discarded_behind(
         replacement,
@@ -619,12 +624,8 @@ async def test_a_stac_answer_older_than_a_rebind_it_waited_behind_is_discarded(
     assert isinstance(raised, StacRefreshError), raised
     assert await _job_and_run(replacement) == ("failed", ("failed", "superseded"))
     assert sent == []
-    assert (
-        await _fresh_scalar(
-            select(Dataset.origin_uri).where(Dataset.id == replacement.dataset_id)
-        )
-        == rebound
-    )
+    async with db_module.async_session() as session:
+        assert tuple((await session.execute(origin)).one()) == (rebound, checked)
 
 
 async def test_a_postgis_dataset_deleted_before_its_measurement_ends_the_job_quietly(

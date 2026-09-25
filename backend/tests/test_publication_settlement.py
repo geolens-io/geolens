@@ -534,3 +534,44 @@ async def test_a_failed_service_fetch_dates_the_contact_only_for_its_own_origin(
     async with db_module.async_session() as session:
         checked = (await session.get(Dataset, dataset.id)).last_checked_at
     assert (checked is not None) is stamped
+
+
+async def test_a_failure_after_a_rebind_leaves_the_new_binding_undated(
+    test_db_session,
+):
+    """An attempt whose dataset is rebound during its fetch does not date the new binding's contact."""
+    dataset, job, admin_id = await _candidate(
+        test_db_session, refresh=False, run=False, origin_url=_WFS
+    )
+
+    async def _rebind_to_an_upload() -> None:
+        async with db_module.async_session() as session:
+            await session.execute(
+                sa.text(
+                    "UPDATE catalog.datasets SET origin_uri = NULL, "
+                    "origin_ref = CAST(:ref AS jsonb), source_format = 'gpkg' "
+                    "WHERE id = :id"
+                ),
+                {"ref": '{"kind": "upload"}', "id": dataset.id},
+            )
+            await session.commit()
+
+    async def _fail_write(*args, **kwargs):
+        raise RuntimeError("swap failed")
+
+    with pytest.raises(RuntimeError, match="swap failed"):
+        await _reupload(
+            dataset,
+            job,
+            admin_id,
+            during=_rebind_to_an_upload,
+            patches=(
+                patch(
+                    "app.processing.ingest.tasks_reupload._write_reupload_catalog",
+                    new=_fail_write,
+                ),
+            ),
+        )
+
+    async with db_module.async_session() as session:
+        assert (await session.get(Dataset, dataset.id)).last_checked_at is None
