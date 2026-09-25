@@ -33,6 +33,7 @@ from app.platform.catalog_locks import bump_tile_cache_version_atomic
 from app.processing.ingest.catalog_projection import measure, project
 from app.processing.ingest.publication import (
     PUBLISH,
+    DatasetDeleted,
     Failure,
     PublicationCommit,
     Published,
@@ -530,7 +531,9 @@ class _PostgisRefresh:
                     .options(joinedload(Dataset.record))
                     .where(Dataset.id == self.dataset_uuid)
                 )
-            ).scalar_one()
+            ).scalar_one_or_none()
+            if dataset is None:
+                raise DatasetDeleted
             self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
             table_name = _resolve_bound_table(dataset, schema=schema)
             # The fence `write` checks: the tile version moves with every

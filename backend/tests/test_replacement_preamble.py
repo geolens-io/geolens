@@ -627,6 +627,44 @@ async def test_a_stac_answer_older_than_a_rebind_it_waited_behind_is_discarded(
     )
 
 
+async def test_a_postgis_dataset_deleted_before_its_measurement_ends_the_job_quietly(
+    replace, monkeypatch
+) -> None:
+    """A registered table's dataset deleted during the refresh fails the job with a fixed reason and sends nothing."""
+    from app.processing.ingest import tasks_postgis_refresh
+    from app.processing.ingest.publication import DatasetDeleted
+
+    replacement = await replace("postgis")
+    repair = tasks_postgis_refresh._repair_geom_4326
+
+    async def _delete_then_repair(*args, **kwargs):
+        async with db_module.async_session() as session:
+            await session.execute(
+                text(
+                    "DELETE FROM catalog.records WHERE id = "
+                    "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+                ),
+                {"id": replacement.dataset_id},
+            )
+            await session.commit()
+        return await repair(*args, **kwargs)
+
+    monkeypatch.setattr(tasks_postgis_refresh, "_repair_geom_4326", _delete_then_repair)
+    sent = AsyncMock()
+    with patch("app.platform.notifications.events.emit_event_safe", new=sent):
+        with pytest.raises(DatasetDeleted):
+            await replacement.run()
+
+    job = await _fresh_scalar(
+        select(IngestJob).where(IngestJob.id == replacement.job_id)
+    )
+    assert (job.status, job.error_message) == (
+        "failed",
+        "The dataset was deleted while this job was running.",
+    )
+    sent.assert_not_awaited()
+
+
 @pytest.mark.parametrize("kind", ["file", "service"])
 async def test_a_job_warning_recorded_before_the_hold_survives_it(
     replace, monkeypatch, kind: str

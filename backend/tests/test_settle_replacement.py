@@ -28,6 +28,7 @@ from app.platform.refresh.service import (
 )
 from app.processing.ingest.publication import (
     PUBLISH,
+    DatasetDeleted,
     Failure,
     PublicationCommit,
     Published,
@@ -719,6 +720,34 @@ async def test_an_attempt_rotated_during_the_fetch_is_stale_and_writes_nothing(
     assert state["live"] == "before"
     assert state["staging_left"] == 0
     assert "stage" not in fake.seen
+    assert _events(notifications) == []
+
+
+@pytest.mark.parametrize("step", ["fetch", "stage"])
+async def test_a_dataset_deleted_during_the_attempt_ends_its_job_quietly(
+    seed, notifications, step: str
+) -> None:
+    """A dataset deleted mid-attempt fails the job with a fixed reason and sends nothing."""
+
+    async def _delete() -> None:
+        async with db_module.async_session() as session:
+            # The record's delete cascades to the dataset, as a dataset delete does.
+            await session.execute(
+                text("DELETE FROM catalog.records WHERE id = :id"),
+                {"id": seed.record_id},
+            )
+            await session.commit()
+
+    fake = _Fake(seed, during={step: _delete})
+    with pytest.raises(DatasetDeleted):
+        await _settle(fake)
+
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, seed.job_id)
+    assert (job.status, job.error_message) == (
+        "failed",
+        "The dataset was deleted while this job was running.",
+    )
     assert _events(notifications) == []
 
 

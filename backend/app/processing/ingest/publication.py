@@ -23,7 +23,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import is_lock_conflict
-from app.core.failure_reason import redact_failure_reason
+from app.core.failure_reason import FixedReason, redact_failure_reason
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
     CatalogLockConflict,
@@ -126,6 +126,21 @@ class Failure:
     refused: bool = False
     # A landed failure sends ingest_failed; a benign race need not.
     notify: bool = True
+    # Stored in place of the exception's own text.
+    reason: str | None = None
+
+
+class DatasetDeleted(Exception):
+    """The attempt's dataset was deleted while the attempt ran."""
+
+
+# The owner ended the attempt, so the job says so and nothing is mailed. The
+# run was deleted with the dataset, so its code is never stored.
+_DATASET_DELETED = Failure(
+    "dataset_deleted",
+    notify=False,
+    reason=FixedReason("The dataset was deleted while this job was running."),
+)
 
 
 class ReplacementStrategy(Protocol):
@@ -329,7 +344,11 @@ async def settle_replacement(
         failed = await _publish(strategy, attempt)
     except Exception as exc:  # broad: every failure before the commit is recorded once
         failed = True
-        failure = strategy.classify(exc)
+        failure = (
+            _DATASET_DELETED
+            if isinstance(exc, DatasetDeleted)
+            else strategy.classify(exc)
+        )
         logger.exception("Ingest task failed", job_id=job_id, task=strategy.task)
         await _record_failure(strategy, attempt, exc, failure)
         if failure.refused:
@@ -433,9 +452,18 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                 .options(joinedload(Dataset.record))
                 .where(Dataset.id == attempt.dataset_id)
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if dataset is None:
+            raise DatasetDeleted
         verdict = await strategy.stage(session, job, dataset)
         await hold_publishing_job(session, job_id, attempt_id)
+        # A delete takes the job rows first: one that beat the hold has removed
+        # the dataset, and one that did not waits for this transaction.
+        present = await session.scalar(
+            select(Dataset.id).where(Dataset.id == dataset.id)
+        )
+        if present is None:
+            raise DatasetDeleted
 
         if not verdict.publish:
             await _take_catalog_rows(session, strategy, dataset)
@@ -558,6 +586,7 @@ async def _record_failure(
     """
     from app.core.db import async_session
 
+    reason = failure.reason or exc
     stamped = False
 
     async def _settle(session: AsyncSession) -> None:
@@ -566,7 +595,7 @@ async def _record_failure(
             session,
             ingest_job_id=attempt.job_id,
             error_code=failure.error_code,
-            error_message=exc,
+            error_message=reason,
             feature_count_after=failure.feature_count_after,
             schema_diff=failure.schema_diff,
             verification=failure.verification,
@@ -589,7 +618,7 @@ async def _record_failure(
                 session,
                 attempt.job_id,
                 attempt.attempt_id,
-                reason=exc,
+                reason=reason,
                 linked=_settle,
             )
             await session.commit()
@@ -604,7 +633,7 @@ async def _record_failure(
         ):
             await invalidate_catalog_cache()
     if landed and failure.notify:
-        await _notify_failed(attempt.job_id, task=strategy.task, reason=exc)
+        await _notify_failed(attempt.job_id, task=strategy.task, reason=reason)
 
 
 # How long a failure's origin verdict waits for a dataset row another
