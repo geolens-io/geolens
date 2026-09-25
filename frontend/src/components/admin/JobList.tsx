@@ -441,6 +441,7 @@ export function JobList() {
                                     {describeFailureReason(
                                       job.error_message,
                                       t('common:errors.internalFailureReason'),
+                                      job.error_code,
                                     )}
                                   </pre>
                                 </div>

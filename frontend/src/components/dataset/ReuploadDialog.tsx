@@ -268,7 +268,7 @@ export function ReuploadDialog({
     } else if (jobData.status === 'failed') {
       const reason = jobData.error_message;
       const message = reason
-        ? describeFailureReason(reason, t('reupload.jobFailed'))
+        ? describeFailureReason(reason, t('reupload.jobFailed'), jobData.error_code)
         : t('reupload.jobFailed');
       setError(
         sourceType === 'service_url'
