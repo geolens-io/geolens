@@ -206,15 +206,19 @@ def _check_glb(member: _Member, start: int, end: int) -> None:
             _check_gltf_json(member, start + 20, min(start + 20 + content_length, end))
     elif version == 2:
         # Every chunk is walked: CesiumJS keeps the last JSON chunk, and a
-        # chunk starting past the end holds nothing.
+        # chunk starting past the end holds nothing. Every JSON chunk's URIs
+        # are checked, but only the kept one says what the model requires.
         offset = start + 12
+        kept = None
         while offset < start + length and offset + 8 < end:
             member.count_header()
             chunk_length, chunk_type = struct.unpack("<2I", member.read(offset, 8))
             offset += 8
             if chunk_type == _GLB_JSON_CHUNK:
-                _check_gltf_json(member, offset, min(offset + chunk_length, end))
+                kept = _check_json(member, offset, min(offset + chunk_length, end))
             offset += chunk_length
+        if kept is not None:
+            member.scan.require(kept.get("extensionsRequired"))
 
 
 def _check_gltf(member: _Member, start: int, end: int) -> None:

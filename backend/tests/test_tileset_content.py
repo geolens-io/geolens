@@ -532,6 +532,31 @@ def test_required_extensions_are_merged_across_the_files(tmp_path: Path) -> None
     )
 
 
+@pytest.mark.parametrize(
+    ("first", "last", "required"),
+    [
+        (["KHR_draco_mesh_compression"], [], ()),
+        ([], ["KHR_draco_mesh_compression"], ("KHR_draco_mesh_compression",)),
+    ],
+    ids=["earlier-chunk", "kept-chunk"],
+)
+def test_only_the_kept_glb_json_chunk_requires_extensions(
+    tmp_path: Path, first: list[str], last: list[str], required: tuple[str, ...]
+) -> None:
+    """A client keeps a GLB's last JSON chunk, so only its extensionsRequired count."""
+
+    def chunk(names: list[str]) -> bytes:
+        document = gltf_json(extensionsRequired=names)
+        return document + b" " * (-len(document) % 4)
+
+    model = glb(
+        b"",
+        chunks=[(GLB_JSON, chunk(first)), (GLB_BIN, bytes(4)), (GLB_JSON, chunk(last))],
+    )
+
+    assert scan(archive(tmp_path, ("0/0.glb", model))).extensions_required == required
+
+
 def test_only_well_formed_extension_names_are_kept(tmp_path: Path) -> None:
     """A name that is not a string of letters, digits and underscores is no extension."""
     names = ["KHR_ok", 7, "bad name", "x" * 65, "", "KHR_\u0000"]
