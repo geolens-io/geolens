@@ -25,7 +25,8 @@ Object.defineProperty(window, 'location', {
 
 function createMockMap() {
   const sources = new Map<string, { type: string; tiles?: string[]; setTiles?: ReturnType<typeof vi.fn> }>();
-  const layerIds = new Set<string>();
+  // A layer keeps the type and source MapLibre reports for it.
+  const layers = new Map<string, { id: string; type?: string; source?: string }>();
   return {
     getSource: vi.fn((id: string) => sources.get(id) ?? null),
     addSource: vi.fn((id: string, spec: { type: string; tiles?: string[] }) => {
@@ -45,9 +46,11 @@ function createMockMap() {
       }
     }),
     removeSource: vi.fn((id: string) => { sources.delete(id); }),
-    addLayer: vi.fn((layer: { id: string }) => { layerIds.add(layer.id); }),
-    getLayer: vi.fn((id: string) => (layerIds.has(id) ? { id } : null)),
-    removeLayer: vi.fn((id: string) => { layerIds.delete(id); }),
+    addLayer: vi.fn((layer: { id: string; type?: string; source?: string }) => {
+      layers.set(layer.id, { id: layer.id, type: layer.type, source: layer.source });
+    }),
+    getLayer: vi.fn((id: string) => layers.get(id) ?? null),
+    removeLayer: vi.fn((id: string) => { layers.delete(id); }),
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
     getPaintProperty: vi.fn(),
@@ -56,7 +59,7 @@ function createMockMap() {
     getFilter: vi.fn().mockReturnValue(null),
     isStyleLoaded: vi.fn(() => true),
     refreshTiles: vi.fn(),
-    getStyle: vi.fn(() => ({ layers: Array.from(layerIds).map((id) => ({ id })) })),
+    getStyle: vi.fn(() => ({ layers: Array.from(layers.values()) })),
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
   } as unknown as import('maplibre-gl').Map;

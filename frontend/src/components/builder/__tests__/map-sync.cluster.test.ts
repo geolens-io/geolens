@@ -10,9 +10,12 @@ vi.mock('@/lib/tile-utils', () => ({
   buildClusterTileUrl: vi.fn(() => '/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'),
 }));
 
+/** A layer as the fake map holds it: its id, and the type and source MapLibre reports. */
+interface FakeLayer { id: string; type?: string; source?: string }
+
 function makeMockMap(initial?: {
   sources?: Record<string, { type: string }>;
-  layers?: string[];
+  layers?: FakeLayer[];
 }) {
   const sources = new Map<string, { type: string; setData?: ReturnType<typeof vi.fn> }>(
     Object.entries(initial?.sources ?? {}).map(([id, source]) => [
@@ -20,7 +23,7 @@ function makeMockMap(initial?: {
       { ...source, setData: vi.fn() },
     ]),
   );
-  const layerIds = new Set<string>(initial?.layers ?? []);
+  const layers = new Map<string, FakeLayer>((initial?.layers ?? []).map((layer) => [layer.id, layer]));
 
   return {
     getSource: vi.fn((id: string) => sources.get(id) ?? null),
@@ -30,12 +33,12 @@ function makeMockMap(initial?: {
     removeSource: vi.fn((id: string) => {
       sources.delete(id);
     }),
-    addLayer: vi.fn((layer: { id: string }) => {
-      layerIds.add(layer.id);
+    addLayer: vi.fn((layer: FakeLayer) => {
+      layers.set(layer.id, { id: layer.id, type: layer.type, source: layer.source });
     }),
-    getLayer: vi.fn((id: string) => layerIds.has(id) ? { id } : null),
+    getLayer: vi.fn((id: string) => layers.get(id) ?? null),
     removeLayer: vi.fn((id: string) => {
-      layerIds.delete(id);
+      layers.delete(id);
     }),
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
@@ -44,7 +47,7 @@ function makeMockMap(initial?: {
     setFilter: vi.fn(),
     setLayerZoomRange: vi.fn(),
     isStyleLoaded: vi.fn(() => true),
-    getStyle: vi.fn(() => ({ layers: Array.from(layerIds).map((id) => ({ id })) })),
+    getStyle: vi.fn(() => ({ layers: Array.from(layers.values()) })),
     moveLayer: vi.fn(),
   } as unknown as import('maplibre-gl').Map;
 }
@@ -211,7 +214,7 @@ describe('syncLayersToMap cluster rendering', () => {
   it('replaces an existing vector source when bounded cluster data arrives', () => {
     const map = makeMockMap({
       sources: { 'source-cluster-1': { type: 'vector' } },
-      layers: ['layer-cluster-1'],
+      layers: [{ id: 'layer-cluster-1', type: 'circle', source: 'source-cluster-1' }],
     });
     const layer = makeLayer();
     const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
@@ -303,7 +306,11 @@ describe('syncLayersToMap cluster rendering', () => {
   it('removes stale cluster companion layers before removing the source', () => {
     const map = makeMockMap({
       sources: { 'source-old': { type: 'geojson' } },
-      layers: ['layer-old', 'layer-old-cluster', 'layer-old-cluster-count'],
+      layers: [
+        { id: 'layer-old', type: 'circle', source: 'source-old' },
+        { id: 'layer-old-cluster', type: 'circle', source: 'source-old' },
+        { id: 'layer-old-cluster-count', type: 'symbol', source: 'source-old' },
+      ],
     });
 
     syncLayersToMap(map, [], new Map(), undefined, { current: new Set(['source-old']) }, { current: '' });

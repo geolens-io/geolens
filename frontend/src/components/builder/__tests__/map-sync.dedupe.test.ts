@@ -17,7 +17,7 @@ function createMockMap() {
   // map reports each layer's `source`, and the orphan prune reads it to tell a
   // managed data layer apart from a basemap layer that happens to be named
   // `layer-*`.
-  const layerSpecs = new Map<string, { id: string; source?: string }>();
+  const layerSpecs = new Map<string, { id: string; type?: string; source?: string }>();
   const layerIds = new Set<string>();
   return {
     getSource: vi.fn((id: string) => sources.get(id) ?? null),
@@ -27,11 +27,11 @@ function createMockMap() {
     removeSource: vi.fn((id: string) => {
       sources.delete(id);
     }),
-    addLayer: vi.fn((layer: { id: string; source?: string }) => {
+    addLayer: vi.fn((layer: { id: string; type?: string; source?: string }) => {
       layerIds.add(layer.id);
       layerSpecs.set(layer.id, layer);
     }),
-    getLayer: vi.fn((id: string) => (layerIds.has(id) ? { id } : null)),
+    getLayer: vi.fn((id: string) => (layerIds.has(id) ? layerSpecs.get(id) ?? { id } : null)),
     removeLayer: vi.fn((id: string) => {
       layerIds.delete(id);
       layerSpecs.delete(id);
