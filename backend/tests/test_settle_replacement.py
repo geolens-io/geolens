@@ -631,6 +631,70 @@ async def test_a_lost_catalog_wait_ends_the_job_without_waiting_on_the_held_row(
         assert (await reader.get(Dataset, seed.dataset_id)).last_checked_at == checked
 
 
+async def _missing(seed: _Seed) -> Failure:
+    """A failure that established the origin is missing, contacted as the seed is bound."""
+    async with db_module.async_session() as reader:
+        dataset = await reader.get(Dataset, seed.dataset_id)
+        bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+    return Failure("source_missing", contacted=bound, health=("missing", "not_found"))
+
+
+async def _origin(seed: _Seed) -> tuple:
+    async with db_module.async_session() as reader:
+        dataset = await reader.get(Dataset, seed.dataset_id)
+        return (
+            dataset.source_health,
+            dataset.source_health_detail,
+            dataset.last_checked_at,
+        )
+
+
+async def test_a_failure_verdict_lands_once_a_brief_hold_on_the_dataset_row_ends(
+    seed, notifications
+) -> None:
+    """A failure's origin verdict waits out an edit's short hold on the dataset row."""
+    fake = _Fake(seed, fail_at="fetch", failure=await _missing(seed))
+    async with db_module.async_session() as holder:
+        # The lock an edit's UPDATE of the row takes.
+        await holder.execute(seed.rows()["dataset"].with_for_update(key_share=True))
+        holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
+        task = asyncio.create_task(_settle(fake))
+        try:
+            waited = await _waits_on(holder_pid, task)
+        finally:
+            await holder.rollback()
+        with pytest.raises(RuntimeError, match="fetch failed"):
+            await asyncio.wait_for(task, timeout=20)
+
+    assert waited, "the verdict was stamped or skipped without waiting for the row"
+    state = await _state(seed)
+    assert (state["job"], state["run"]) == ("failed", ("failed", "source_missing"))
+    health, detail, checked = await _origin(seed)
+    assert (health, detail) == ("missing", "not_found")
+    assert checked is not None
+    assert _events(notifications) == ["ingest_failed"]
+
+
+async def test_a_failure_verdict_behind_a_long_hold_is_dropped_and_the_failure_lands(
+    seed, notifications
+) -> None:
+    """A verdict whose dataset row stays held past its short wait is dropped, and the job and run still fail."""
+    before = await _origin(seed)
+    fake = _Fake(seed, fail_at="fetch", failure=await _missing(seed))
+    async with db_module.async_session() as holder:
+        await holder.execute(seed.rows()["dataset"].with_for_update(key_share=True))
+        try:
+            with pytest.raises(RuntimeError, match="fetch failed"):
+                await asyncio.wait_for(_settle(fake), timeout=20)
+        finally:
+            await holder.rollback()
+
+    state = await _state(seed)
+    assert (state["job"], state["run"]) == ("failed", ("failed", "source_missing"))
+    assert await _origin(seed) == before
+    assert _events(notifications) == ["ingest_failed"]
+
+
 async def test_a_held_back_verdict_without_a_settle_step_is_refused() -> None:
     """A verdict that holds the candidate back must say how its run ends."""
     with pytest.raises(ValueError, match="settle step"):

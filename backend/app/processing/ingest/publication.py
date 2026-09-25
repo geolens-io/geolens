@@ -19,8 +19,10 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import structlog
 from sqlalchemy import select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import joinedload
 
+from app.core.db.sqlstate import is_lock_conflict
 from app.core.failure_reason import redact_failure_reason
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
@@ -599,6 +601,12 @@ async def _record_failure(
         await _notify_failed(attempt.job_id, task=strategy.task, reason=exc)
 
 
+# How long a failure's origin verdict waits for a dataset row another
+# transaction holds. An edit holds it for moments, and nothing else records
+# the verdict.
+_VERDICT_LOCK_TIMEOUT = "1s"
+
+
 async def _stamp_contact(
     session: AsyncSession,
     dataset_id: uuid.UUID,
@@ -609,37 +617,50 @@ async def _stamp_contact(
 
     ``health`` is written with it when the contact established one. A rebind
     that finished first stamped what is true now, so losing the race writes
-    nothing. A row another transaction holds is skipped the same way: the
-    failure is often the wait on that row, and its write must not wait again.
+    nothing. A bare contact skips a row another transaction holds, since the
+    failure is often the wait on that row. A verdict waits for the row up to
+    ``_VERDICT_LOCK_TIMEOUT`` and is skipped only when that wait runs out.
     """
     from app.platform.extensions import get_processing_port
 
     Dataset = get_processing_port().get_dataset_orm_class()
     origin_uri, origin_ref, source_format = binding
-    free = (
-        select(Dataset.id)
-        .where(Dataset.id == dataset_id)
-        .with_for_update(key_share=True, skip_locked=True)
-    )
-    stamped = await session.execute(
+    values: dict[str, Any] = {"last_checked_at": datetime.now(timezone.utc)}
+    if health is not None:
+        values.update(source_health=health[0], source_health_detail=health[1])
+    stamp = (
         update(Dataset)
         .where(
             Dataset.id == dataset_id,
-            Dataset.id.in_(free),
             Dataset.origin_uri.is_not_distinct_from(origin_uri),
             Dataset.origin_ref.is_not_distinct_from(origin_ref),
             Dataset.source_format.is_not_distinct_from(source_format),
         )
-        .values(
-            last_checked_at=datetime.now(timezone.utc),
-            **(
-                {"source_health": health[0], "source_health_detail": health[1]}
-                if health is not None
-                else {}
-            ),
-        )
+        .values(**values)
         .execution_options(synchronize_session=False)
     )
+    if health is None:
+        free = (
+            select(Dataset.id)
+            .where(Dataset.id == dataset_id)
+            .with_for_update(key_share=True, skip_locked=True)
+        )
+        stamped = await session.execute(stamp.where(Dataset.id.in_(free)))
+        return bool(stamped.rowcount)
+    set_lock_timeout = text("SELECT set_config('lock_timeout', :value, true)")
+    try:
+        # A savepoint, so a wait that runs out keeps the job's and run's failure.
+        async with session.begin_nested():
+            budget = await session.scalar(
+                text("SELECT current_setting('lock_timeout')")
+            )
+            await session.execute(set_lock_timeout, {"value": _VERDICT_LOCK_TIMEOUT})
+            stamped = await session.execute(stamp)
+            await session.execute(set_lock_timeout, {"value": budget})
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        return False
     return bool(stamped.rowcount)
 
 
