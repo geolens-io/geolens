@@ -7,11 +7,10 @@ which may not import ``app.processing.*`` (``tests/test_layering.py``). Lives
 in ``core/`` since an exception type is cross-cutting and carries no logic
 from either domain.
 
-fix(#2273): every refusal also carries a stable ``code`` a door can put on
-the wire, plus the ``values`` its message interpolated, so the frontend can
-translate it instead of showing English prose. ``code`` is required —
+Every refusal also carries a stable ``code`` and the ``values`` its message
+interpolated, so the frontend can translate it. ``code`` is required, since
 ``tests/test_upload_refusal_codes.py`` discovers refusals by walking these
-constructions, and one with no code cannot be found.
+constructions.
 """
 
 from collections.abc import Mapping
@@ -47,7 +46,20 @@ def geometry_loss_refusal(
     return _GEOMETRY_LOSS_MESSAGE
 
 
-class IngestCeilingError(Exception):
+class CodedRefusal(ValueError):
+    """A refusal carrying a stable ``code`` and the ``values`` its message
+    interpolated, for a door to put on the wire instead of raw English.
+    """
+
+    def __init__(
+        self, message: str, *, code: str, values: Mapping[str, str | int] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.values: dict[str, str | int] = dict(values) if values else {}
+
+
+class IngestCeilingError(CodedRefusal):
     """A refusal whose text names an ingest ceiling, the value, and the way out.
 
     fix(#2043): a marker base, mixed into ``processing.ingest.ogr.
@@ -56,46 +68,26 @@ class IngestCeilingError(Exception):
     ``app.processing.*``, can still catch it and pass its text through.
     """
 
-    def __init__(
-        self, message: str, *, code: str, values: Mapping[str, str | int] | None = None
-    ) -> None:
-        super().__init__(message)
-        self.code = code
-        self.values: dict[str, str | int] = dict(values) if values else {}
 
-
-class UnsafeUploadError(ValueError):
+class UnsafeUploadError(CodedRefusal):
     """An upload refused for what its content instructs, not for its shape.
 
-    A ``ValueError`` so existing doors keep mapping it to the same 4xx as
-    other validation failures; its own class so endpoints that swallow GDAL
-    errors behind a generic message can still let this server-authored text
-    through.
+    Its own class so endpoints that swallow GDAL errors behind a generic
+    message can still let this server-authored text through.
     """
-
-    def __init__(
-        self, message: str, *, code: str, values: Mapping[str, str | int] | None = None
-    ) -> None:
-        super().__init__(message)
-        self.code = code
-        self.values: dict[str, str | int] = dict(values) if values else {}
 
 
 #: The code a door falls back to for a content refusal it still catches
-#: broadly (``except ValueError``) but that never went through
-#: UnsafeUploadError -- some other library `validate_file_content` calls
-#: into (puremagic, defusedxml) raising its own ValueError subclass.
+#: broadly (``except ValueError``), for a library exception that never went
+#: through ``CodedRefusal``.
 _UNCODED_REFUSAL_FALLBACK_CODE = "unsafe_upload_content"
 
 
 def refusal_detail(exc: Exception) -> dict[str, str | int]:
-    """The HTTPException ``detail`` a door builds from a content refusal.
+    """The HTTPException ``detail`` built from a ``CodedRefusal``.
 
-    One conversion point so a door forwarding a processing-module refusal
-    never flattens its code and values back down to a bare string. Doors
-    that still catch ``ValueError`` broadly, for a library exception that
-    never went through ``UnsafeUploadError``, get the fallback code above
-    rather than a ``code``-less detail.
+    Falls back to the code above for a plain ``ValueError`` a door still
+    catches broadly but that never went through ``CodedRefusal``.
     """
     code = getattr(exc, "code", None) or _UNCODED_REFUSAL_FALLBACK_CODE
     values = getattr(exc, "values", None) or {}

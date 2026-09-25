@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
 from app.core.identity import Identity
-from app.core.upload_errors import UnsafeUploadError, refusal_detail
+from app.core.upload_errors import CodedRefusal, UnsafeUploadError, refusal_detail
 from app.modules.auth.dependencies import require_permission
 from app.modules.quota.service import check_upload_quota
 from app.platform.jobs import ledger
@@ -189,7 +189,7 @@ async def upload_from_url(
         allowed_list = await _get_allowed_extensions_safely(db)
         try:
             validate_file_extension(filename, allowed_list)
-        except UnsafeUploadError as exc:
+        except CodedRefusal as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=refusal_detail(exc),

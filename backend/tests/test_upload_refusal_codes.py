@@ -1,30 +1,10 @@
-"""#2273: every upload refusal carries a stable code with a frontend mapping.
+"""Every upload refusal carries a stable code with a frontend translation.
 
-The doors (upload, presigned, URL-import, re-upload) used to send a client
-whatever English sentence the processing layer wrote, so a translated UI
-could only show generic prose for a refusal. `UnsafeUploadError` and
-`IngestCeilingError` (`app/core/upload_errors.py`) now require a `code`
-keyword, and `tileset.py`'s `_refuse` defaults its `code` to its `reason`
-log tag. This gate discovers every such code from the actual mint sites via
-AST, rather than a fixed list, so a new door (COPC's `kind=pointcloud`
-refusals among them) is covered the moment it lands.
-
-Two directions:
-- Every mint site (`UnsafeUploadError(...)`, `IngestCeilingError(...)`,
-  `_refuse(...)`) must resolve to a code. A construction missing `code`
-  (and, for `_refuse`, missing `reason` too) fails `test_every_upload_
-  refusal_has_a_code`.
-- Every code discovered must have an entry in `error-map.ts`'s
-  `UPLOAD_REFUSAL_CODE_KEYS` table, and that entry's key must exist in the
-  `en` locale bundle. `test_every_upload_refusal_code_has_a_frontend_
-  mapping` fails otherwise.
-
-A handful of pre-existing door-native codes (`origin_changed`,
-`dataset_busy`, `credential_store_unavailable`, `job_conflict`) are
-job-state/lifecycle conflicts translated by exact message text
-(`EXACT_ERROR_KEYS`), not upload content refusals in this taxonomy's sense;
-they are excluded below rather than left to fail this gate for a gap #2273
-does not own.
+`CodedRefusal` and its subclasses (`app/core/upload_errors.py`) require a
+`code` keyword; `tileset.py`'s `_refuse` defaults its `code` to its `reason`
+tag. This gate discovers every code from the mint sites via AST, not a
+fixed list, and cross-checks each one against `error-map.ts`'s
+`UPLOAD_REFUSAL_CODE_KEYS` table and the `en` locale bundle.
 """
 
 from __future__ import annotations
@@ -51,25 +31,25 @@ def _discover_repo_roots() -> tuple[Path, Path]:
 REPO_ROOT, BACKEND_ROOT = _discover_repo_roots()
 FRONTEND_ROOT = REPO_ROOT / "frontend"
 
-# Constructors that mint a public refusal code. `IngestBudgetExceededError`
-# is `IngestCeilingError`'s only subclass (`processing/ingest/ogr.py`) and
-# shares its `__init__`.
+# Constructors that mint a public refusal code: CodedRefusal and its
+# subclasses, all sharing its `__init__`.
 _MINT_CONSTRUCTORS = frozenset(
-    {"UnsafeUploadError", "IngestCeilingError", "IngestBudgetExceededError"}
+    {
+        "CodedRefusal",
+        "UnsafeUploadError",
+        "IngestCeilingError",
+        "IngestBudgetExceededError",
+    }
 )
 
-# Door-native dict-literal codes that predate this registry and are matched
-# on their English message text, not their code -- job-state/lifecycle
-# conflicts, not upload content refusals. See the module docstring.
+# Job-state/lifecycle conflicts matched by exact message text
+# (EXACT_ERROR_KEYS), not by code -- a different taxonomy than a content
+# refusal, so they're excluded here rather than left to fail this gate.
 _NOT_UPLOAD_REFUSAL_CODES = frozenset(
     {"origin_changed", "dataset_busy", "credential_store_unavailable", "job_conflict"}
 )
 
-# tileset_content.py's `_refuse` calls run only on the worker (tasks_tileset.py),
-# past the door -- they become a stored IngestJob.error_message, never an
-# HTTPException a door builds. That stored-reason path is #2280's, not this
-# gate's; scanning it here would require frontend keys for codes no door
-# ever sends.
+# Worker-only refusals are stored on the job, not sent by a door.
 _STORED_REASON_ONLY_FILES = frozenset({"tileset_content.py"})
 
 
@@ -97,11 +77,9 @@ def _as_str(value: ast.expr | None) -> str | None:
 def _mint_sites(path: Path) -> tuple[set[str], list[str]]:
     """Codes minted in one file, and any mint site with no discoverable code.
 
-    A call needs the KEYWORD present to count as coded, not a literal value:
-    `_refuse`'s own ``raise UnsafeUploadError(message, code=code or reason,
-    ...)`` passes a computed expression, not a constant, and is not a
-    missing-code site -- its literal codes come from ITS call sites, walked
-    separately below.
+    Checks the keyword is present, not that its value is a literal: `_refuse`
+    passes a computed ``code=code or reason``, whose literal codes come from
+    its own call sites instead, walked separately below.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     codes: set[str] = set()

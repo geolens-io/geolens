@@ -119,7 +119,7 @@ from app.processing.ingest.tileset import (
     staged_unpacked_bytes,
     tileset_job_metadata,
 )
-from app.core.upload_errors import refusal_detail
+from app.core.upload_errors import CodedRefusal, refusal_detail
 from app.processing.ingest.validation import (
     UnsafeUploadError,
     validate_file_content,
@@ -216,7 +216,7 @@ async def _refuse_upload(db: AsyncSession, filename: str, kind: str | None) -> N
     allowed_list = await _get_allowed_extensions_safely(db)
     try:
         validate_file_extension(filename, allowed_list)
-    except UnsafeUploadError as exc:
+    except CodedRefusal as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=refusal_detail(exc)
         ) from exc

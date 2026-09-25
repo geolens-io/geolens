@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
-from app.core.upload_errors import UnsafeUploadError
+from app.core.upload_errors import CodedRefusal
 from app.core.failure_reason import is_composed_exception, redact_failure_reason
 from app.core.tiles3d import TILESET_FILE_TYPE
 from app.core.service_tokens import (
@@ -463,7 +463,7 @@ def validate_file_extension(
     )
     suffix = Path(filename).suffix.lower()
     if suffix not in exts:
-        raise UnsafeUploadError(
+        raise CodedRefusal(
             f"File extension {suffix!r} not allowed. Allowed: {exts}",
             code="disallowed_extension",
             values={"extension": suffix, "allowed": ", ".join(exts)},

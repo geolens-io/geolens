@@ -24,7 +24,10 @@ from defusedxml import ElementTree as ET
 import puremagic
 import structlog
 
-from app.core.upload_errors import UnsafeUploadError  # noqa: F401  (re-exported)
+from app.core.upload_errors import (  # noqa: F401  (re-exported)
+    CodedRefusal,
+    UnsafeUploadError,
+)
 from app.core.url_redaction import redact_url_credentials
 
 logger = structlog.get_logger()
@@ -1189,7 +1192,7 @@ def validate_file_size(file_path: str, max_size_bytes: int) -> None:
     if file_size > max_size_bytes:
         size_mb = file_size / (1024 * 1024)
         limit_mb = max_size_bytes / (1024 * 1024)
-        raise UnsafeUploadError(
+        raise CodedRefusal(
             f"File size ({size_mb:.1f} MB) exceeds the maximum allowed ({limit_mb:.0f} MB).",
             code="file_size_exceeded",
             values={"size_mb": round(size_mb, 1), "limit_mb": round(limit_mb)},

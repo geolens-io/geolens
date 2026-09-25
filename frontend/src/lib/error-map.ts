@@ -162,19 +162,11 @@ const SOURCE_VALIDATION_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
 };
 
 /**
- * fix(#2273): the upload, presigned, URL-import and re-upload doors' stable
- * refusal codes (`detail.code`), one user-facing key per code rather than
- * per call site, following the source-validation convention above. `geometry_loss`
- * keeps its own dedicated branch below (a static key, no interpolated
- * values) and is listed here only so the backend registry test
- * (`backend/tests/test_upload_refusal_codes.py`) finds it mapped. Every
- * other code's `values` come from the detail object's own extra keys — see
- * the lookup below.
- *
- * Checked against the backend's `UPLOAD_REFUSAL_CODES` (discovered by AST,
- * not a fixed list) by that same test, in both directions: a code minted
- * with no entry here fails it, and an entry whose key is missing from
- * `en/common.json` also fails it.
+ * The upload, presigned, URL-import and re-upload doors' stable refusal
+ * codes (`detail.code`), one key per code. `geometry_loss` keeps its own
+ * branch below; it is listed here too so the backend registry test finds it
+ * mapped. Checked against the backend's codes in both directions by
+ * `backend/tests/test_upload_refusal_codes.py`.
  */
 const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   content_type_mismatch: 'errors.uploadContentTypeMismatch',
@@ -231,9 +223,7 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
 };
 
 /**
- * A coded upload-refusal detail: `{code, message, ...values}`. `values`
- * carries whatever the payload interpolated (already-computed strings and
- * numbers), so it needs no per-code plumbing here — see
+ * A coded upload-refusal detail: `{code, message, ...values}`, matching
  * `refusal_detail()` in `backend/app/core/upload_errors.py`.
  */
 function uploadRefusalDescriptor(value: Record<string, unknown>): ApiErrorDescriptor | undefined {
@@ -626,9 +616,8 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
       return { key: 'errors.refreshServiceTokenRequired' };
     }
 
-    // fix(#2273): checked after the specific codes above (this table never
-    // shadows an already-tested one; `geometry_loss` is also listed in it
-    // for the registry test but its own branch above wins first).
+    // Checked after the specific codes above, so it never shadows one of
+    // them; `geometry_loss`'s own branch above still wins first.
     const uploadRefusal = uploadRefusalDescriptor(value);
     if (uploadRefusal) return uploadRefusal;
 

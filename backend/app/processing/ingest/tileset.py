@@ -165,11 +165,9 @@ def _refuse(
 ) -> NoReturn:
     # Never the entry name: the refusal may be about the characters in it.
     logger.warning("Tileset archive refused", event_type="security", reason=reason)
-    # fix(#2273): `reason` is the internal log tag and stays as it is; `code`
-    # is the PUBLIC one a door puts on the wire. They default to the same
-    # string, except where one `reason` covers messages with different
-    # values or wording (the zip-bomb checks below), which pass `code`
-    # explicitly to split into separate translatable codes.
+    # `reason` is the internal log tag; `code` is the public one on the
+    # wire, defaulting to it except where the zip-bomb checks below split
+    # one `reason` into several codes with different values.
     raise UnsafeUploadError(message, code=code or reason, values=values)
 
 
@@ -741,9 +739,8 @@ def require_tileset_archive(kind: str | None, filename: str | None) -> None:
 
     A .3tz holds only a tileset, so one sent without the tileset kind is refused.
 
-    fix(#2273): raises the module's own coded exception, like every other
-    check here, rather than HTTPException — this lives in a processing
-    module, and every caller is a door that already converts it.
+    Raises the module's own coded exception, like every other check here,
+    since every caller is a door that converts it.
     """
     suffix = Path(filename or "").suffix.lower()
     if kind == TILESET_FILE_TYPE and suffix not in TILESET_UPLOAD_SUFFIXES:
@@ -786,9 +783,8 @@ async def preview_staged_tileset(
 ) -> TilesetPreviewResponse:
     """The preview of a staged tileset; an archive that fails a check is a 422.
 
-    fix(#2273): lets ``UnsafeUploadError`` propagate rather than converting it
-    to ``HTTPException`` here — this lives in a processing module, and the
-    caller (``preview_file``) is the door that converts it.
+    Lets ``UnsafeUploadError`` propagate: the caller (``preview_file``) is
+    the door that converts it.
     """
     tileset = await inspect_staged_tileset(file_path)
     facts = tileset.facts
