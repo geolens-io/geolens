@@ -26,6 +26,7 @@ vi.mock('@/api/ingest', () => ({
   // calls these to decide whether the failed job is still retryable.
   getJobStatus: (...args: unknown[]) => mockGetJobStatus(...args),
   cancelJob: (...args: unknown[]) => mockCancelJob(...args),
+  getUploadConfig: () => new Promise(() => {}),
 }));
 
 vi.mock('react-i18next', () => ({

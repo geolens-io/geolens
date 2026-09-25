@@ -22,6 +22,7 @@ const mockPreviewFile = vi.fn();
 const mockCommitImport = vi.fn();
 const mockGetJobStatus = vi.fn();
 const mockCancelJob = vi.fn();
+const mockGetUploadConfig = vi.fn();
 
 vi.mock('@/api/ingest', () => ({
   uploadFromUrl: (...args: unknown[]) => mockUploadFromUrl(...args),
@@ -29,6 +30,7 @@ vi.mock('@/api/ingest', () => ({
   commitImport: (...args: unknown[]) => mockCommitImport(...args),
   getJobStatus: (...args: unknown[]) => mockGetJobStatus(...args),
   cancelJob: (...args: unknown[]) => mockCancelJob(...args),
+  getUploadConfig: (...args: unknown[]) => mockGetUploadConfig(...args),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -169,6 +171,7 @@ describe('UrlImportForm', () => {
     expect(mockUploadFromUrl).toHaveBeenCalledWith(
       'https://files.example.test/roads.geojson',
       undefined,
+      null,
     );
     expect(mockPreviewFile).toHaveBeenCalledWith('job-1');
 
@@ -203,6 +206,7 @@ describe('UrlImportForm', () => {
       expect(mockUploadFromUrl).toHaveBeenCalledWith(
         'https://files.example.test/download?id=7',
         'points.geojson',
+        null,
       ),
     );
   });
