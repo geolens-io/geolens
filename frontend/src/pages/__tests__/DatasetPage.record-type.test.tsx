@@ -278,7 +278,7 @@ describe('DatasetPage actions by record type', () => {
   });
 
   it('offers none of them for an unknown record type', async () => {
-    const map = await renderAs('point_cloud_dataset');
+    const map = await renderAs('hologram_dataset');
 
     expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add to map' })).not.toBeInTheDocument();
@@ -313,7 +313,7 @@ describe('DatasetPage actions by record type', () => {
   it('gives an unknown record type its own map after a vector dataset', async () => {
     vi.mocked(useDataset).mockImplementation(((id: string) => ({
       data: id === 'dataset-2'
-        ? { ...makeDataset('point_cloud_dataset'), id: 'dataset-2' }
+        ? { ...makeDataset('hologram_dataset'), id: 'dataset-2' }
         : makeDataset('vector_dataset'),
       isLoading: false,
       error: null,

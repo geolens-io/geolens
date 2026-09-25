@@ -190,7 +190,8 @@ export type RecordType =
   | 'service'
   | 'collection'
   | 'table'
-  | 'tiles3d_dataset';
+  | 'tiles3d_dataset'
+  | 'pointcloud_dataset';
 // Mirrors backend chk_records_visibility CHECK constraint
 // (catalog/datasets/domain/models.py:35). Keep in sync if values change.
 export type DatasetVisibility = 'public' | 'internal' | 'restricted' | 'private';

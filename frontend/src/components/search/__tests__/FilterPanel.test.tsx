@@ -67,6 +67,25 @@ describe('FilterPanel', () => {
     expect(screen.queryByRole('radio', { name: /3D Tiles/ })).not.toBeInTheDocument();
   });
 
+  it.each(['toolbar', 'rail'] as const)('offers a Point cloud toggle, counted in All, when the catalog holds point clouds (%s)', (desktopLayout) => {
+    const counts = mockFacets.record_type as Record<string, number>;
+    counts.pointcloud_dataset = 2;
+    try {
+      render(<FilterPanel totalResults={20} showMobile={false} desktopLayout={desktopLayout} />);
+
+      expect(screen.getByRole('radio', { name: /Point cloud/ })).toHaveTextContent('2');
+      expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('18');
+    } finally {
+      delete counts.pointcloud_dataset;
+    }
+  });
+
+  it.each(['toolbar', 'rail'] as const)('shows no Point cloud toggle when the catalog holds no point clouds (%s)', (desktopLayout) => {
+    render(<FilterPanel totalResults={18} showMobile={false} desktopLayout={desktopLayout} />);
+
+    expect(screen.queryByRole('radio', { name: /Point cloud/ })).not.toBeInTheDocument();
+  });
+
   it('does not show collection as a record type toggle', () => {
     render(<FilterPanel totalResults={15} />);
 

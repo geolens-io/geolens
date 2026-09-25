@@ -239,7 +239,7 @@ describe('ConnectDropdown', () => {
   it('offers no connection for an unknown record type', () => {
     render(
       <ConnectDropdown
-        dataset={makeDataset({ record_type: 'point_cloud_dataset' as RecordType })}
+        dataset={makeDataset({ record_type: 'hologram_dataset' as RecordType })}
         onShowInstructions={vi.fn()}
       />,
     );

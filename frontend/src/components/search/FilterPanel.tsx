@@ -148,7 +148,8 @@ export function FilterPanel({
     (counts.raster_dataset ?? 0) +
     (counts.vrt_dataset ?? 0) +
     (counts.table ?? 0) +
-    (counts.tiles3d_dataset ?? 0);
+    (counts.tiles3d_dataset ?? 0) +
+    (counts.pointcloud_dataset ?? 0);
 
   const { data: summaries } = useCatalogSummary();
 
@@ -172,6 +173,7 @@ export function FilterPanel({
   const activeGeomLabel = geometryType ? getGeometryTypeLabel(t, geometryType) : null;
   const showsTableToggle = counts.table !== undefined;
   const showsTiles3dToggle = counts.tiles3d_dataset !== undefined;
+  const showsPointcloudToggle = counts.pointcloud_dataset !== undefined;
   const showSridFilter = srids.length > 0 && recordType !== 'table';
   const showSecondaryFilterRow = Boolean(recordType) && (
     recordType === 'vector_dataset' || organizations.length > 0 || showSridFilter
@@ -188,6 +190,8 @@ export function FilterPanel({
         return t('card.table', { defaultValue: 'Table' });
       case 'tiles3d_dataset':
         return t('card.tiles3d', { defaultValue: '3D Tiles' });
+      case 'pointcloud_dataset':
+        return t('card.pointcloud', { defaultValue: 'Point cloud' });
       default:
         return value;
     }
@@ -734,6 +738,12 @@ export function FilterPanel({
               <span className="readout text-muted-foreground">{counts.tiles3d_dataset}</span>
             </ToggleGroupItem>
           )}
+          {showsPointcloudToggle && (
+            <ToggleGroupItem value="pointcloud_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.pointcloud_dataset === 0}>
+              {t('card.pointcloud', { defaultValue: 'Point cloud' })}
+              <span className="readout text-muted-foreground">{counts.pointcloud_dataset}</span>
+            </ToggleGroupItem>
+          )}
         </ToggleGroup>
       </div>
 
@@ -893,6 +903,12 @@ export function FilterPanel({
                   <ToggleGroupItem value="tiles3d_dataset" className="text-xs px-2.5 h-7" disabled={counts.tiles3d_dataset === 0}>
                     {t('card.tiles3d', { defaultValue: '3D Tiles' })}
                     {` (${counts.tiles3d_dataset})`}
+                  </ToggleGroupItem>
+                )}
+                {showsPointcloudToggle && (
+                  <ToggleGroupItem value="pointcloud_dataset" className="text-xs px-2.5 h-7" disabled={counts.pointcloud_dataset === 0}>
+                    {t('card.pointcloud', { defaultValue: 'Point cloud' })}
+                    {` (${counts.pointcloud_dataset})`}
                   </ToggleGroupItem>
                 )}
               </ToggleGroup>

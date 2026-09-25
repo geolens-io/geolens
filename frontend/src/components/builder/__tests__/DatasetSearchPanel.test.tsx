@@ -236,7 +236,7 @@ describe('DatasetSearchPanel', () => {
   });
 
   it('offers no Add to map, drag or Vector label for an unknown record type', async () => {
-    const cloud = makeRecord({ id: 'cloud', title: 'Cloud', recordType: 'point_cloud_dataset' as RecordType });
+    const cloud = makeRecord({ id: 'cloud', title: 'Cloud', recordType: 'hologram_dataset' as RecordType });
     cloud.properties.geometry_type = null;
     mockSearchDatasets.mockResolvedValue({ ...searchResponse, numberMatched: 1, numberReturned: 1, features: [cloud] });
     render(<DatasetSearchPanel {...defaultProps()} />);
@@ -249,19 +249,22 @@ describe('DatasetSearchPanel', () => {
     expect(within(row).queryByText('Vector')).not.toBeInTheDocument();
   });
 
-  it('offers no Add to map, drag or Vector label for a 3D Tiles dataset', async () => {
-    const tileset = makeRecord({ id: 'tileset', title: 'Tileset', recordType: 'tiles3d_dataset' as RecordType });
-    tileset.properties.geometry_type = null;
+  it.each([
+    ['tiles3d_dataset', 'Tileset'],
+    ['pointcloud_dataset', 'Survey'],
+  ] as const)('offers no Add to map, drag or Vector label for a %s', async (recordType, title) => {
+    const record = makeRecord({ id: recordType, title, recordType });
+    record.properties.geometry_type = null;
     mockSearchDatasets.mockResolvedValue({
       ...searchResponse,
       numberMatched: 1,
       numberReturned: 1,
-      features: [tileset],
+      features: [record],
     });
     render(<DatasetSearchPanel {...defaultProps()} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Expand Tileset' }));
-    const row = screen.getByText('Tileset description').closest('.group\\/row') as HTMLElement;
+    fireEvent.click(await screen.findByRole('button', { name: `Expand ${title}` }));
+    const row = screen.getByText(`${title} description`).closest('.group\\/row') as HTMLElement;
 
     expect(screen.queryByRole('button', { name: /^Add to map/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Drag into map' })).toHaveAttribute('aria-disabled', 'true');

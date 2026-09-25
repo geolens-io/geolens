@@ -475,7 +475,8 @@
       "arcgisFeatureServer": "ArcGIS FeatureServer",
       "ogcapiFeatures": "OGC API Features",
       "created": "In GeoLens erstellt",
-      "tiles3d": "3D Tiles"
+      "tiles3d": "3D Tiles",
+      "copc": "COPC"
     },
     "boundingVolume": {
       "region": "Region",

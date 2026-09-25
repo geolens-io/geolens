@@ -113,6 +113,7 @@
     "collection": "Sammlung",
     "table": "Tabelle",
     "tiles3d": "3D Tiles",
+    "pointcloud": "Punktwolke",
     "sourceCount_one": "{{count}} Quelle",
     "sourceCount_other": "{{count}} Quellen",
     "autoDesc": {

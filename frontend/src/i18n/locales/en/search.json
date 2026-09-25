@@ -129,6 +129,7 @@
     "collection": "Collection",
     "table": "Table",
     "tiles3d": "3D Tiles",
+    "pointcloud": "Point cloud",
     "tableAriaLabel": "Table with {{rows}} rows and {{cols}} columns",
     "tableAriaLabelNoCols": "Table with {{rows}} rows",
     "tableRows_one": "{{count}} row",

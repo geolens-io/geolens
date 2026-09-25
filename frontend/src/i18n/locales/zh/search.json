@@ -129,6 +129,7 @@
     "collection": "集合",
     "table": "表格",
     "tiles3d": "3D Tiles",
+    "pointcloud": "点云",
     "tableAriaLabel": "包含 {{rows}} 行和 {{cols}} 列的表格",
     "tableAriaLabelNoCols": "包含 {{rows}} 行的表格",
     "tableRows_one": "{{count}} 行",

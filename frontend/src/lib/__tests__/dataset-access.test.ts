@@ -66,7 +66,7 @@ describe('isSameOriginAbsoluteUrl (#1877)', () => {
 describe('getDatasetAccessEndpoints', () => {
   it('derives no OGC, CSV or vector tile URL for an unknown record type', async () => {
     const { getDatasetAccessEndpoints } = await import('@/lib/dataset-access');
-    const dataset = { id: 'ds-1', record_type: 'point_cloud_dataset' as RecordType, table_name: 'cloud' };
+    const dataset = { id: 'ds-1', record_type: 'hologram_dataset' as RecordType, table_name: 'cloud' };
 
     expect(getDatasetAccessEndpoints(dataset, null)).toEqual({
       csvExportUrl: null,

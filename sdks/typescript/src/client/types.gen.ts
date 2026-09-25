@@ -3755,7 +3755,7 @@ export type DatasetResponse = {
     /**
      * Record Type
      *
-     * Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG), 'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote service), 'collection' (flat dataset group), 'tiles3d_dataset' (3D Tiles tileset).
+     * Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG), 'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote service), 'collection' (flat dataset group), 'tiles3d_dataset' (3D Tiles tileset), 'pointcloud_dataset' (COPC point cloud).
      */
     record_type?: string;
     /**

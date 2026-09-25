@@ -310,9 +310,9 @@ class TestSourceFormatConstraint:
             Path(__file__).parents[1]
             / "alembic"
             / "versions"
-            / "0065_tiles3d_record_type.py"
+            / "0070_pointcloud_record_type.py"
         )
-        spec = importlib.util.spec_from_file_location("migration_0065", path)
+        spec = importlib.util.spec_from_file_location("migration_0070", path)
         migration = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(migration)
         constraint = next(
