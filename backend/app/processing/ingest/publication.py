@@ -615,7 +615,6 @@ async def _record_failure(
 
     reason = failure.reason or exc
     stamped = False
-    committed = False
     owes_notice = False
 
     async def _settle(session: AsyncSession) -> None:
@@ -653,7 +652,6 @@ async def _record_failure(
             )
             owes_notice = landed and failure.notify
             await session.commit()
-            committed = True
     except Exception as write_failure:  # broad: must not replace the task's failure
         log_job_error_write_failure(
             write_failure, job_id=str(attempt.job_id), task=strategy.task
@@ -661,7 +659,8 @@ async def _record_failure(
         return
     finally:
         # The purge goes first, so the notice never reads a stale origin stamp.
-        if committed and stamped:
+        # It runs even when the commit raised, since that commit may have landed.
+        if stamped:
             async with cleanup_step(
                 f"{strategy.task} catalog cache", job_id=str(attempt.job_id)
             ):

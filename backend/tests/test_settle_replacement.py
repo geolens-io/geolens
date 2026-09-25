@@ -858,6 +858,24 @@ async def test_a_stamped_failure_purges_the_catalog_before_its_notice(seed) -> N
     assert (await _origin(seed))[0] == "missing"
 
 
+@pytest.mark.parametrize("failure", [ConnectionResetError, asyncio.CancelledError])
+async def test_a_stamped_failure_whose_acknowledgement_is_lost_still_purges_first(
+    seed, failure
+) -> None:
+    """A stamped failure whose commit lands but raises purges the catalog before ingest_failed."""
+    steps: list[str] = []
+    lost = _LostAcknowledgement(seed.job_id, "failed", failure("dropped"))
+    with (
+        _in_order(steps),
+        lost.installed(),
+        pytest.raises((RuntimeError, asyncio.CancelledError)),
+    ):
+        await _settle(_Fake(seed, fail_at="fetch", failure=await _missing(seed)))
+
+    assert lost.fired == 1
+    assert steps == ["purge", "ingest_failed"]
+
+
 @pytest.mark.parametrize("claim_error", [ConnectionResetError, asyncio.CancelledError])
 async def test_a_notice_claim_that_breaks_leaves_the_purge_done(
     seed, claim_error
