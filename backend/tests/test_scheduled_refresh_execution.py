@@ -244,6 +244,44 @@ async def test_keyed_timeout_does_not_settle_a_reclaimed_job_attempt(
     assert _events(notifications) == []
 
 
+async def test_a_timeout_before_the_claim_ends_the_pending_job_and_its_run(
+    test_db_session, monkeypatch, notifications
+) -> None:
+    """A timeout that fires before the attempt claims its job ends the pending job and its run failed."""
+    run, job = await _scheduled_run(test_db_session)
+    assert run.execution_key is not None
+    assert await claim_admitted_run_for_job(
+        test_db_session, job.id, execution_key=run.execution_key
+    )
+    await test_db_session.commit()
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_reupload._KEYED_REFRESH_EXECUTION_TIMEOUT_SECONDS",
+        0.01,
+    )
+
+    @require_scheduled_execution_claim
+    async def execute(**_kwargs) -> None:
+        await anyio.sleep(1)
+
+    with pytest.raises(TimeoutError):
+        await execute(
+            job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
+            scheduled_execution_key=str(run.execution_key),
+        )
+
+    run_id, job_id = run.id, job.id
+    test_db_session.expire_all()
+    persisted_run = await test_db_session.get(DatasetRefreshRun, run_id)
+    persisted_job = await test_db_session.get(IngestJob, job_id)
+    assert (persisted_run.status, persisted_run.error_code) == (
+        "failed",
+        "scheduled_execution_timeout",
+    )
+    assert persisted_job.status == "failed"
+    assert _events(notifications) == ["ingest_failed"]
+
+
 async def test_a_timeout_whose_failure_write_loses_its_acknowledgement_mails_once(
     test_db_session, monkeypatch, notifications
 ) -> None:
