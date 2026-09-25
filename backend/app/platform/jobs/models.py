@@ -20,6 +20,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 from app.core.tiles3d import UNPUBLISHED_TILESET_ATTEMPTS_FIELD
 
+# Every value chk_ingest_jobs_status allows, in its order, and the two a live job
+# holds. Tuples, so an IN list built from them renders the same every time.
+ALL_STATUSES = ("pending", "running", "complete", "failed", "cancelled", "fanned_out")
+ACTIVE_STATUSES = ("pending", "running")
+TERMINAL_STATUSES = tuple(s for s in ALL_STATUSES if s not in ACTIVE_STATUSES)
 
 # Statuses whose row still needs the staged `file_path`: pending/running read
 # it now, failed keeps it for /jobs/{id}/retry. fix(#1249): lives here, not
@@ -193,7 +198,7 @@ class IngestJob(Base):
     __tablename__ = "ingest_jobs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'running', 'complete', 'failed', 'cancelled', 'fanned_out')",
+            "status IN ({})".format(", ".join(f"'{s}'" for s in ALL_STATUSES)),
             name="chk_ingest_jobs_status",
         ),
         # DBM-03: partial index for stale-job recovery scans.

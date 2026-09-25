@@ -31,6 +31,7 @@ from app.platform.jobs.ledger import Outcome, cancel, retry
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
+    TERMINAL_STATUSES,
     URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
     IngestJob,
 )
@@ -796,10 +797,6 @@ async def retry_job(
     )
 
 
-# Statuses the cancel endpoint reports as "too late" (409). `cancelled` is
-# handled separately as the idempotent repeat, and everything else is active.
-_CANCEL_TERMINAL_STATUSES = ("complete", "failed", "fanned_out")
-
 # SQL to find the live Procrastinate row(s) for one ingest job — same
 # args->>'job_id' correlation the sweeps use. At most one row is live in
 # practice; a retried job's old row is terminal and excluded here.
@@ -917,7 +914,9 @@ async def cancel_job(
         return JobCancelResponse(
             id=job.id, status="cancelled", run_id=None, already=True
         )
-    if job.status in _CANCEL_TERMINAL_STATUSES:
+    # `cancelled` is answered above as the idempotent repeat, so a terminal
+    # status here is "too late".
+    if job.status in TERMINAL_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "job_already_finished", "status": job.status},
@@ -940,7 +939,7 @@ async def cancel_job(
                 )
             code = (
                 "job_already_finished"
-                if job.status in _CANCEL_TERMINAL_STATUSES
+                if job.status in TERMINAL_STATUSES
                 # Still active under a different attempt id: retried
                 # concurrently — a cancel on the old attempt must not kill
                 # the new one.

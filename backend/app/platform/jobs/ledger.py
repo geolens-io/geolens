@@ -32,14 +32,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.failure_reason import FixedReason, redact_failure_reason
-from app.platform.jobs.models import FAN_OUT_INTERRUPTED_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    ACTIVE_STATUSES,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
+    IngestJob,
+)
 
 # The three VRT regeneration doors create their job under this filename, and
 # nothing else does.
 VRT_REGENERATE_JOB_FILENAME = "vrt_regenerate"
-
-# The URL import commits its row ``running`` before it dispatches.
-_ABORTABLE_STATUSES = ("pending", "running")
 
 # What a user's cancel stores on the job, and on a VRT generation it releases.
 _CANCEL_REASON = FixedReason("Cancelled by user")
@@ -229,7 +230,7 @@ def create(
     A job created ``running`` starts now: the URL import and the manifest
     reservation begin their work in the request that creates them.
     """
-    if status not in ("pending", "running"):
+    if status not in ACTIVE_STATUSES:
         raise ValueError(f"a job cannot be created {status!r}")
     job = IngestJob(
         status=status,
@@ -456,7 +457,8 @@ async def abort(
     hooks share a SAVEPOINT, so a hook that raises rolls back the job row and
     every earlier hook's rows before the error propagates. Does not commit.
     """
-    if expect not in _ABORTABLE_STATUSES:
+    # A URL import commits its row running before it dispatches.
+    if expect not in ACTIVE_STATUSES:
         raise ValueError(f"abort cannot end a job from {expect!r}")
     ended = await _end(
         session,
@@ -493,7 +495,7 @@ async def cancel(session: AsyncSession, job: IngestJob, *, actor: uuid.UUID) -> 
         session,
         job.id,
         job.attempt_id,
-        expect=("pending", "running"),
+        expect=ACTIVE_STATUSES,
         transition="cancel",
         status="cancelled",
         code=USER_CANCELLED_ERROR_CODE,
