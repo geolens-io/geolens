@@ -90,4 +90,39 @@ test.describe('Search Flow', () => {
 
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
   });
+
+  test('the mobile filter sheet fits every record type toggle', async ({ page }) => {
+    // Every type the catalog can report, so every toggle renders whatever the stack holds.
+    await page.route('**/api/search/facets/**', async (route) => {
+      const response = await route.fetch();
+      const json = await response.json();
+      json.record_type = {
+        vector_dataset: 12,
+        raster_dataset: 3,
+        vrt_dataset: 1,
+        table: 2,
+        tiles3d_dataset: 1,
+        pointcloud_dataset: 1,
+      };
+      await route.fulfill({ response, json });
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await page.getByRole('button', { name: /Filters/i }).first().click();
+    const sheet = page.getByRole('dialog');
+    await sheet.getByRole('radio', { name: /Point cloud/ }).click();
+
+    const overflowing = await sheet.evaluate((dialog) =>
+      [dialog, ...dialog.querySelectorAll('*')]
+        .filter((element) => {
+          const overflowX = getComputedStyle(element).overflowX;
+          return overflowX === 'auto' || overflowX === 'scroll';
+        })
+        .filter((element) => element.scrollWidth > element.clientWidth + 1)
+        .map((element) => element.className),
+    );
+
+    expect(overflowing).toEqual([]);
+  });
 });

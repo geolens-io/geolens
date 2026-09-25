@@ -359,7 +359,7 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
               onValueChange={(val) =>
                 useSearchStore.getState().setFilter('record_type', val === 'all' ? '' : val)
               }
-              className="w-full"
+              className="w-full flex-wrap"
             >
               <ToggleGroupItem value="all" className="flex-1 text-xs">
                 {t('filters.allTypes', { defaultValue: 'All' })}
