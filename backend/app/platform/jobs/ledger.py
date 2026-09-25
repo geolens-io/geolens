@@ -47,8 +47,11 @@ _CANCEL_REASON = FixedReason("Cancelled by user")
 # The job's columns an owner's hook reads when an end lands.
 _END_COLUMNS = ("dataset_id", "source_filename", "user_metadata", "created_by")
 
-# The columns a transition writes itself, which its caller's ``values`` may not.
-_WRITTEN_BY_THE_LEDGER = frozenset({"status", "error_message", "completed_at"})
+# The columns a transition writes itself or fences on, which its caller's
+# ``values`` may not.
+_WRITTEN_BY_THE_LEDGER = frozenset(
+    {"status", "error_message", "completed_at", "attempt_id", "id"}
+)
 
 
 class Outcome(enum.Enum):

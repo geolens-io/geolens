@@ -760,12 +760,14 @@ class TestOwnerTransitions:
             ("stage", {"status": "complete"}),
             ("complete", {"completed_at": None}),
             ("fail", {"error_message": "raw"}),
+            ("stage", {"attempt_id": uuid.uuid4()}),
+            ("complete", {"id": uuid.uuid4()}),
         ],
     )
     async def test_refuses_values_naming_a_column_it_writes(
         self, test_db_session, move, values
     ):
-        """stage, complete and fail write the status, reason and completion time themselves."""
+        """A transition's values may not name the columns it writes or fences on."""
         job = await _job(test_db_session, status="running")
         job_id, attempt_id = job.id, job.attempt_id
         calls = {
