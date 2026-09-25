@@ -3046,6 +3046,7 @@ def test_every_default_upload_extension_is_clamped_or_scanned():
     container or a content-checked database instead.
     """
     from app.core.config import Settings
+    from app.core.pointcloud import is_laz
     from app.processing.ingest.gdal_drivers import (
         ARCHIVE_MEMBER_DRIVERS,
         _DRIVERS_BY_EXTENSION,
@@ -3062,8 +3063,9 @@ def test_every_default_upload_extension_is_clamped_or_scanned():
     for extension in (part.strip().lower() for part in default.split(",")):
         name = f"upload{extension}"
         # Rasters take the raster pipeline and GeoParquet is read in-process,
-        # so neither reaches a vector GDAL subprocess.
-        if raster_stamped_metadata(None, name) or _is_parquet(name):
+        # so neither reaches a vector GDAL subprocess. A .laz takes the point
+        # cloud path, and no door takes one without the point cloud kind.
+        if raster_stamped_metadata(None, name) or _is_parquet(name) or is_laz(name):
             continue
         clamped = _DRIVERS_BY_EXTENSION.get(extension, ARCHIVE_MEMBER_DRIVERS)
         if (

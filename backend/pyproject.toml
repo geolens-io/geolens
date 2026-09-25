@@ -64,6 +64,9 @@ dependencies = [
     # GeoParquet export writer (processing/export/parquet.py). The Debian GDAL
     # build has no Arrow/Parquet driver, so exports are written via pyarrow.
     "pyarrow>=25.0.1",
+    # Decodes a COPC upload's root node (processing/ingest/pointcloud.py); the
+    # header, VLRs and hierarchy are parsed without it.
+    "lazrs>=0.8.2",
 ]
 
 [project.urls]

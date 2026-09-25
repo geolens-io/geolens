@@ -79,7 +79,7 @@ const CONFIG = {
 };
 
 const NO_ZIP_CONFIG = { ...CONFIG, allowed_extensions: '.geojson,.gpkg' };
-const WITH_3TZ_CONFIG = { ...CONFIG, allowed_extensions: '.geojson,.gpkg,.zip,.3tz' };
+const WITH_3TZ_CONFIG = { ...CONFIG, allowed_extensions: '.geojson,.gpkg,.zip,.3tz,.laz' };
 
 function tilesetRadio() {
   return within(screen.getByRole('group', { name: 'upload.kindLegend' })).getByRole('radio', {
@@ -226,7 +226,7 @@ describe('UploadForm upload kind', () => {
     expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-allowed-extensions', '.zip,.3tz');
   });
 
-  it('leaves .3tz out of the geospatial files choice', () => {
+  it('leaves .3tz and .laz out of the geospatial files choice', () => {
     mockConfig = { data: WITH_3TZ_CONFIG, isFetching: false };
     render(<UploadForm />);
 

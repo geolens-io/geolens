@@ -50,6 +50,7 @@ from app.processing.ingest.validation import (
     SQLITE_FAMILY_EXTENSIONS,
     UnsafeUploadError,
     validate_content_directives,
+    validate_file_content,
 )
 from app.processing.raster.vrt import gdal_service_safe_env, gdal_vector_safe_env
 
@@ -694,6 +695,31 @@ def test_a_database_inside_an_archive_is_refused_under_any_name(
 
     with pytest.raises(UnsafeUploadError):
         validate_content_directives(str(archive), "upload.zip")
+
+
+def test_a_database_named_as_a_point_cloud_is_refused_by_its_content(
+    tmp_path, outside_file
+):
+    """A .laz has no driver of its own, so its bytes must start as a LAS file.
+
+    First proves GDAL WOULD open the database under the union a .laz falls
+    back to, so the refusal below is of a real threat.
+    """
+    path = _database_with_external_source(tmp_path, outside_file, name="upload.laz")
+
+    if shutil.which("ogrinfo") is not None:
+        _require_if_flag()
+        code, driver, listing = _ogrinfo(
+            str(path),
+            env_extra={"GDAL_SKIP": gdal_vector_safe_env()["GDAL_SKIP"]},
+            args=local_input_driver_args("upload.laz"),
+        )
+        assert (code, driver) == (0, "SQLite"), (
+            "GDAL did not open the .laz as SQLite, so this case proves nothing"
+        )
+
+    with pytest.raises(ValueError, match="not a LAS or LAZ point cloud"):
+        validate_file_content(str(path), "upload.laz")
 
 
 @pytest.mark.parametrize("suffix", [".zip", ".3tz"])

@@ -2312,14 +2312,14 @@
           "kind": {
             "anyOf": [
               {
-                "pattern": "^tiles3d$",
+                "pattern": "^(tiles3d|pointcloud)$",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.",
+            "description": "'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused. 'pointcloud' uploads a COPC point cloud as a .laz file; a .laz without it is refused.",
             "title": "Kind"
           }
         },
@@ -13323,6 +13323,105 @@
         "title": "PointCloudMetadata",
         "type": "object"
       },
+      "PointCloudPreviewResponse": {
+        "description": "What a staged COPC point cloud holds, read from its header and hierarchy.",
+        "properties": {
+          "job_id": {
+            "description": "Identifier of the point cloud ingestion job being previewed.",
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Original filename of the uploaded point cloud.",
+            "title": "Source Filename"
+          },
+          "point_count": {
+            "description": "Number of points in the file.",
+            "title": "Point Count",
+            "type": "integer"
+          },
+          "point_format": {
+            "description": "The file's LAS point data record format.",
+            "enum": [
+              6,
+              7,
+              8
+            ],
+            "title": "Point Format",
+            "type": "integer"
+          },
+          "srid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EPSG code of the horizontal coordinate reference system, or null when it has none.",
+            "title": "Srid"
+          },
+          "vertical_crs": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of the vertical coordinate reference system, if any.",
+            "title": "Vertical Crs"
+          },
+          "extent_bbox": {
+            "description": "The extent as [west, south, east, north] in degrees; west > east when it crosses the antimeridian.",
+            "items": {
+              "type": "number"
+            },
+            "title": "Extent Bbox",
+            "type": "array"
+          },
+          "z_min": {
+            "description": "Lowest elevation, in the file's units.",
+            "title": "Z Min",
+            "type": "number"
+          },
+          "z_max": {
+            "description": "Highest elevation, in the file's units.",
+            "title": "Z Max",
+            "type": "number"
+          },
+          "size_bytes": {
+            "description": "Size of the file in bytes.",
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "source_filename",
+          "point_count",
+          "point_format",
+          "srid",
+          "vertical_crs",
+          "extent_bbox",
+          "z_min",
+          "z_max",
+          "size_bytes"
+        ],
+        "title": "PointCloudPreviewResponse",
+        "type": "object"
+      },
       "PopupConfig": {
         "additionalProperties": false,
         "description": "Per-layer popup configuration: enable/disable + custom title template\n+ ordered visible-fields allowlist. Persisted as JSONB on map_layers.",
@@ -13429,14 +13528,17 @@
           "kind": {
             "anyOf": [
               {
-                "const": "tiles3d",
+                "enum": [
+                  "tiles3d",
+                  "pointcloud"
+                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused.",
+            "description": "'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is refused. 'pointcloud' uploads a COPC point cloud as a .laz file; a .laz without it is refused.",
             "title": "Kind"
           }
         },
@@ -42872,7 +42974,7 @@
     },
     "/ingest/preview/{job_id}": {
       "post": {
-        "description": "Run preview on a staged file and return preview data.\n\nFor vector files: returns columns, CRS, geometry type, feature count, sample rows.\nFor raster files: returns band count, CRS, resolution, compliance status.\nFor a 3D Tiles tileset: returns its version, root geometric error, bounding\nvolume kind, extent and unpacked size, read from the archive's directory\nand tileset.json without unpacking it.\nOnly callable on jobs with status 'pending'.",
+        "description": "Run preview on a staged file and return preview data.\n\nFor vector files: returns columns, CRS, geometry type, feature count, sample rows.\nFor raster files: returns band count, CRS, resolution, compliance status.\nFor a 3D Tiles tileset: returns its version, root geometric error, bounding\nvolume kind, extent and unpacked size, read from the archive's directory\nand tileset.json without unpacking it.\nFor a COPC point cloud: returns its point count and format, CRS, extent,\nelevation range and size, read from its header and hierarchy.\nOnly callable on jobs with status 'pending'.",
         "operationId": "preview_file_ingest_preview__job_id__post",
         "parameters": [
           {
@@ -42918,6 +43020,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/TilesetPreviewResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PointCloudPreviewResponse"
                     }
                   ],
                   "title": "Response Preview File Ingest Preview  Job Id  Post"

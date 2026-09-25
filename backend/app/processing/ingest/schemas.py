@@ -21,6 +21,10 @@ TILESET_KIND_DESCRIPTION = (
     "tileset.json. Omit it for any other file; a .zip without it is read as "
     "geospatial data, and a .3tz without it is refused."
 )
+UPLOAD_KIND_DESCRIPTION = (
+    f"{TILESET_KIND_DESCRIPTION} 'pointcloud' uploads a COPC point cloud as a "
+    ".laz file; a .laz without it is refused."
+)
 
 
 class UrlUploadRequest(BaseModel):
@@ -188,12 +192,54 @@ class TilesetPreviewResponse(BaseModel):
     )
 
 
+class PointCloudPreviewResponse(BaseModel):
+    """What a staged COPC point cloud holds, read from its header and hierarchy."""
+
+    job_id: uuid.UUID = Field(
+        description="Identifier of the point cloud ingestion job being previewed."
+    )
+    source_filename: str | None = Field(
+        description="Original filename of the uploaded point cloud."
+    )
+    point_count: int = Field(description="Number of points in the file.")
+    point_format: Literal[6, 7, 8] = Field(
+        description="The file's LAS point data record format."
+    )
+    srid: int | None = Field(
+        description=(
+            "EPSG code of the horizontal coordinate reference system, or null "
+            "when it has none."
+        )
+    )
+    vertical_crs: str | None = Field(
+        description="Name of the vertical coordinate reference system, if any."
+    )
+    extent_bbox: list[float] = Field(
+        description=(
+            "The extent as [west, south, east, north] in degrees; west > east "
+            "when it crosses the antimeridian."
+        )
+    )
+    z_min: float = Field(description="Lowest elevation, in the file's units.")
+    z_max: float = Field(description="Highest elevation, in the file's units.")
+    size_bytes: int = Field(description="Size of the file in bytes.")
+
+
+StagedPreviewResponse = (
+    PreviewResponse
+    | RasterPreviewResponse
+    | TilesetPreviewResponse
+    | PointCloudPreviewResponse
+)
+
+
 class BaseCommitRequest(BaseModel):
     """Fields common to every commit request type.
 
     Not meant to be instantiated directly — the router always selects
-    one of VectorCommitRequest, RasterCommitRequest, ServiceCommitRequest or
-    TilesetCommitRequest based on server-side job state.
+    one of VectorCommitRequest, RasterCommitRequest, ServiceCommitRequest,
+    TilesetCommitRequest or PointCloudCommitRequest based on server-side job
+    state.
     """
 
     title: str = Field(
@@ -339,6 +385,10 @@ class ServiceCommitRequest(BaseCommitRequest):
 
 class TilesetCommitRequest(BaseCommitRequest):
     """Commit request for a 3D Tiles tileset archive: the common fields only."""
+
+
+class PointCloudCommitRequest(BaseCommitRequest):
+    """Commit request for a COPC point cloud: the common fields only."""
 
 
 class CommitRequest(BaseModel):
@@ -567,8 +617,8 @@ class PresignedUploadRequest(BaseModel):
         max_length=255,  # RFC 6838 practical upper bound
         description="MIME type to associate with the uploaded object.",
     )
-    kind: Literal["tiles3d"] | None = Field(
-        default=None, description=TILESET_KIND_DESCRIPTION
+    kind: Literal["tiles3d", "pointcloud"] | None = Field(
+        default=None, description=UPLOAD_KIND_DESCRIPTION
     )
 
 

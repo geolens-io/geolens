@@ -607,8 +607,8 @@ async def test_a_stored_extension_list_without_3tz_refuses_it(
 
 
 async def test_an_unknown_kind_is_refused(client: AsyncClient, uploader) -> None:
-    """kind accepts 'tiles3d' and nothing else."""
-    resp = await upload(client, uploader[0], campus_zip(), kind="pointcloud")
+    """kind accepts 'tiles3d' and 'pointcloud' and nothing else."""
+    resp = await upload(client, uploader[0], campus_zip(), kind="hologram")
 
     assert resp.status_code == 422, resp.text
 

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.core.failure_reason import FixedReason
+from app.core.pointcloud import is_pointcloud_attempt_key
 from app.core.tiles3d import (
     UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
     is_tileset_attempt_prefix,
@@ -527,12 +528,12 @@ async def _reap_committed_staged_paths(
 def unpublished_storage_keys_from_metadata(
     user_metadata: object,
 ) -> tuple[str, ...]:
-    """Read the object keys a killed raster tail named on its own job row.
+    """Read the object keys a killed raster or point cloud tail named on its job row.
 
-    fix(#1778): tails write their keys to ``user_metadata`` before the puts,
-    so a SIGKILL between the puts and the terminal ``finally`` still leaves
-    an owner. The prefix check is the only guard against a hand-edited row
-    licensing an arbitrary delete.
+    Tails write their keys to ``user_metadata`` before the puts, so a SIGKILL
+    between the puts and the terminal ``finally`` still leaves an owner. The
+    key shape check is the only guard against a hand-edited row licensing an
+    arbitrary delete.
     """
     if not isinstance(user_metadata, dict):
         return ()
@@ -543,8 +544,10 @@ def unpublished_storage_keys_from_metadata(
         key
         for key in raw
         if isinstance(key, str)
-        and key.startswith(("rasters/", "originals/"))
-        and ".." not in key
+        and (
+            (key.startswith(("rasters/", "originals/")) and ".." not in key)
+            or is_pointcloud_attempt_key(key)
+        )
     )
 
 

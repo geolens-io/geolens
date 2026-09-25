@@ -334,7 +334,7 @@ class Settings(BaseSettings):
     # NOTE: this is a PersistentConfig default — deployments where an admin
     # has stored an override keep their stored list and must add new
     # extensions (e.g. .parquet) themselves in Admin → Storage.
-    upload_allowed_extensions: str = ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet,.fgb,.kml,.kmz,.3tz"
+    upload_allowed_extensions: str = ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet,.fgb,.kml,.kmz,.3tz,.laz"
     # fix(#1236): capped at S3's single-PUT hard limit (5GiB). The invariant
     # that actually matters is enforced in code, not config -- see the clamp
     # in `recheck_transfer_margin_seconds()` (platform/jobs/router.py).

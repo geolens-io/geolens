@@ -38,6 +38,7 @@ from app.modules.auth.dependencies import get_current_active_user, require_permi
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
+from app.core.pointcloud import POINTCLOUD_FILE_TYPE
 from app.core.tiles3d import TILESET_FILE_TYPE
 from app.processing.ingest.layer_guard import (
     known_layer_names as known_layer_names_for,
@@ -61,6 +62,7 @@ from app.processing.ingest.schemas import (
     DiscoverResponse,
     FanOutCommitRequest,
     FanOutCommitResponse,
+    PointCloudCommitRequest,
     PreviewResponse,
     PresignedCompleteRequest,
     PresignedUploadRequest,
@@ -69,10 +71,10 @@ from app.processing.ingest.schemas import (
     RasterPreviewResponse,
     RegisterRequest,
     ServiceCommitRequest,
+    StagedPreviewResponse,
     TableRegisterResponse,
-    TILESET_KIND_DESCRIPTION,
     TilesetCommitRequest,
-    TilesetPreviewResponse,
+    UPLOAD_KIND_DESCRIPTION,
     UploadConfigResponse,
     UploadResponse,
     VectorCommitRequest,
@@ -102,6 +104,7 @@ from app.processing.ingest.service import (
 )
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
+    admit_presigned_pointcloud,
     admit_presigned_tileset,
     finalize_presigned_object,
     lock_presigned_job,
@@ -110,6 +113,11 @@ from app.processing.ingest.presigned import (
     should_assemble_multipart,
     sign_url_with_deadline,
 )
+from app.processing.ingest.pointcloud import (
+    preview_staged_pointcloud,
+    require_pointcloud_file,
+    staged_pointcloud_metadata,
+)
 from app.processing.ingest.tasks import regenerate_vrt_staged
 from app.processing.ingest.tileset import (
     TILESET_UNPACKED_BYTES_FIELD,
@@ -117,7 +125,6 @@ from app.processing.ingest.tileset import (
     require_tileset_archive,
     staged_tileset_metadata,
     staged_unpacked_bytes,
-    tileset_job_metadata,
 )
 from app.core.upload_errors import CodedRefusal, refusal_detail
 from app.processing.ingest.validation import (
@@ -211,8 +218,10 @@ async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
 
 
 async def _refuse_upload(db: AsyncSession, filename: str, kind: str | None) -> None:
-    """Refuse a standalone VRT, a disallowed extension, or a mismatched tileset kind."""
+    """Refuse a standalone VRT, a disallowed extension, or a mismatched upload kind."""
     _reject_standalone_vrt(filename)
+    # Ahead of the allowed list, so a .las sent as a point cloud gets the hint.
+    require_pointcloud_file(kind, filename)
     allowed_list = await _get_allowed_extensions_safely(db)
     try:
         validate_file_extension(filename, allowed_list)
@@ -363,7 +372,7 @@ async def request_presigned_upload(
             "upload_id": upload_id,
             "multipart": True,
             "expected_size": request.file_size,
-            **tileset_job_metadata(request.kind),
+            **({"file_type": request.kind} if request.kind else {}),
         }
         try:
             await db.commit()
@@ -409,7 +418,7 @@ async def request_presigned_upload(
             "s3_key": s3_key,
             "multipart": False,
             "expected_size": request.file_size,
-            **tileset_job_metadata(request.kind),
+            **({"file_type": request.kind} if request.kind else {}),
         }
         await db.commit()
         return PresignedUploadResponse(
@@ -523,6 +532,8 @@ async def complete_presigned_upload(
             user_id=user.id,
             request=http_request,
         )
+    if um.get("file_type") == POINTCLOUD_FILE_TYPE:
+        await admit_presigned_pointcloud(storage, job, frozen_key=frozen_key)
 
     job.file_path = frozen_key
     # fix(#1186): the presigned path never stamped file_type — on S3 every
@@ -596,7 +607,7 @@ async def upload_file(
     # A pattern, not a Literal: the generated Python SDK cannot put a nullable
     # Literal into a multipart body.
     kind: str | None = Form(
-        None, pattern="^tiles3d$", description=TILESET_KIND_DESCRIPTION
+        None, pattern="^(tiles3d|pointcloud)$", description=UPLOAD_KIND_DESCRIPTION
     ),
 ) -> UploadResponse:
     """Upload a geospatial file for staging.
@@ -641,7 +652,8 @@ async def upload_file(
             # Inline content validation for immediate feedback.
             try:
                 validate_file_content(validation_path, file.filename)
-                tileset_metadata = await staged_tileset_metadata(validation_path, kind)
+                kind_metadata = await staged_tileset_metadata(validation_path, kind)
+                kind_metadata |= await staged_pointcloud_metadata(validation_path, kind)
             except ValueError as exc:
                 # Fenced like the bind below, so a row the sweep already
                 # reclaimed keeps its terminal status and message.
@@ -651,9 +663,9 @@ async def upload_file(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=refusal_detail(exc),
                 ) from exc
-            if TILESET_UNPACKED_BYTES_FIELD in tileset_metadata:
+            if TILESET_UNPACKED_BYTES_FIELD in kind_metadata:
                 await check_upload_quota(
-                    db, user.id, tileset_metadata[TILESET_UNPACKED_BYTES_FIELD], request
+                    db, user.id, kind_metadata[TILESET_UNPACKED_BYTES_FIELD], request
                 )
 
             # fix(#1848): bind only while the row is still pending, stamping
@@ -664,7 +676,7 @@ async def upload_file(
                     file_path=str(saved_path),
                     user_metadata={
                         **(raster_stamped_metadata(job_metadata, file.filename) or {}),
-                        **tileset_metadata,
+                        **kind_metadata,
                         "staged_at": datetime.now(timezone.utc).isoformat(),
                     },
                 )
@@ -774,7 +786,7 @@ async def _preview_raster(
 
 @router.post(
     "/preview/{job_id}",
-    response_model=PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse,
+    response_model=StagedPreviewResponse,
 )
 async def preview_file(
     job_id: uuid.UUID,
@@ -783,7 +795,7 @@ async def preview_file(
     ),
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
-) -> PreviewResponse | RasterPreviewResponse | TilesetPreviewResponse:
+) -> StagedPreviewResponse:
     """Run preview on a staged file and return preview data.
 
     For vector files: returns columns, CRS, geometry type, feature count, sample rows.
@@ -791,6 +803,8 @@ async def preview_file(
     For a 3D Tiles tileset: returns its version, root geometric error, bounding
     volume kind, extent and unpacked size, read from the archive's directory
     and tileset.json without unpacking it.
+    For a COPC point cloud: returns its point count and format, CRS, extent,
+    elevation range and size, read from its header and hierarchy.
     Only callable on jobs with status 'pending'.
     """
     # fix(#823): layer_name reaches ogrinfo argv; 422 option-like values.
@@ -820,6 +834,10 @@ async def preview_file(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=refusal_detail(exc),
             ) from exc
+    if (job.user_metadata or {}).get("file_type") == POINTCLOUD_FILE_TYPE:
+        return await preview_staged_pointcloud(
+            job.id, job.source_filename, job.file_path
+        )
     file_path: str = job.file_path
     downloaded_preview_path: Path | None = None
     resolved_file_path = await resolve_file_path(file_path, str(job.id))
@@ -901,6 +919,7 @@ def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
       - ``job.source_url`` set (no ``file_path``) -> service
       - ``job.user_metadata['file_type'] == 'raster'`` -> raster
       - ``job.user_metadata['file_type'] == 'tiles3d'`` -> tileset
+      - ``job.user_metadata['file_type'] == 'pointcloud'`` -> point cloud
       - otherwise -> vector (default)
 
     Service jobs are discriminated by ``source_url``, NOT by
@@ -913,6 +932,8 @@ def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
         return RasterCommitRequest
     if (job.user_metadata or {}).get("file_type") == TILESET_FILE_TYPE:
         return TilesetCommitRequest
+    if (job.user_metadata or {}).get("file_type") == POINTCLOUD_FILE_TYPE:
+        return PointCloudCommitRequest
     return VectorCommitRequest
 
 
