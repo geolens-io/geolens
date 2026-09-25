@@ -23,8 +23,9 @@ from app.processing.ingest.tasks_common import _emit_billing_event, cleanup_step
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-# The job-row record of follow-ups a landed terminal commit still owes: a
-# complete job's first-ingest task, or a failed job's replacement task.
+# The job-row record of follow-ups a landed terminal commit still owes: the
+# task (a complete job's first ingest, or a failed job's replacement) and the
+# attempt that wrote it, since a retry keeps the row and its metadata.
 PUBLISH_FOLLOWUPS_FIELD = "publish_followups"
 
 # Each first ingest's completion-notice label, or None when it sends no notice
@@ -41,8 +42,11 @@ _SWEEP_BATCH = 50
 async def note_publish_followups(
     session: AsyncSession, job_uuid: uuid.UUID, attempt_uuid: uuid.UUID, task: str
 ) -> None:
-    """Record, in the terminal transaction, that ``task``'s follow-ups are owed."""
-    owed = func.jsonb_build_object(PUBLISH_FOLLOWUPS_FIELD, task)
+    """Record, in the terminal transaction, that this attempt's ``task`` follow-ups are owed."""
+    owed = func.jsonb_build_object(
+        PUBLISH_FOLLOWUPS_FIELD,
+        func.jsonb_build_object("task", task, "attempt_id", str(attempt_uuid)),
+    )
     await session.execute(
         update(IngestJob)
         .where(IngestJob.id == job_uuid, IngestJob.attempt_id == attempt_uuid)
@@ -60,8 +64,9 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
 
     Claims the job's record. The job's status chooses what runs: a complete
     first ingest's follow-ups, or a failed job's ``ingest_failed`` notice. A job
-    in neither status, or a row another caller has locked, runs nothing, and
-    a deleted dataset runs nothing either. Returns whether this call claimed.
+    in neither status, or a row another caller has locked, runs nothing. A
+    record an earlier attempt wrote, or a deleted dataset, is cleared and runs
+    nothing. Returns whether this call claimed.
     """
     import app.core.db as db_module
     from app.core.db.tenant_session import current_tenant_var
@@ -81,7 +86,9 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
                     IngestJob.status,
                     IngestJob.dataset_id,
                     IngestJob.error_message,
-                    owed.astext,
+                    IngestJob.attempt_id,
+                    owed["task"].astext,
+                    owed["attempt_id"].astext,
                 )
                 .where(
                     IngestJob.id == job_uuid,
@@ -105,9 +112,12 @@ async def run_publish_followups(job_uuid: uuid.UUID) -> bool:
         )
         await session.commit()
 
-    status, dataset_id, error_message, task = claim
+    status, dataset_id, error_message, attempt_id, task, owed_attempt = claim
     job_id = str(job_uuid)
     log = structlog.get_logger().bind(job_id=job_id, task=task)
+    if owed_attempt != str(attempt_id):
+        log.info("publish_followups_from_an_earlier_attempt")
+        return True
     if status == "failed":
         async with cleanup_step("failure notice", job_id=job_id):
             await notify_ingest_failed(job_uuid, task=task, reason=error_message or "")

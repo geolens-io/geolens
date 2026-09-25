@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -929,6 +929,53 @@ async def test_a_rejection_the_task_cannot_settle_is_sent_once_by_the_sweep(
     assert _events(notifications) == ["ingest_failed"]
     await run_owed_publish_followups()
     assert _events(notifications) == ["ingest_failed"]
+
+
+async def _retry(seed: _Seed) -> _Seed:
+    """Return the seed's failed job to pending under a new attempt, as the retry route does."""
+    from app.platform.jobs.ledger import Outcome, retry
+
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, seed.job_id)
+        assert await retry(session, job) is Outcome.LANDED
+        await session.commit()
+        return replace(seed, attempt_id=job.attempt_id)
+
+
+async def _rejected_with_the_notice_left_owed(seed: _Seed) -> None:
+    unreachable = AsyncMock(side_effect=ConnectionResetError("the database is gone"))
+    with patch("app.processing.ingest.publication.run_publish_followups", unreachable):
+        await _settle(_Fake(seed, verdict=_rejection(seed)))
+    assert await _owes_followups(seed)
+
+
+async def test_a_retry_that_fails_again_mails_only_its_own_failure(
+    seed, notifications
+) -> None:
+    """A notice an earlier attempt still owed is cleared, not sent, once a retry fails."""
+    await _rejected_with_the_notice_left_owed(seed)
+    retried = await _retry(seed)
+    with pytest.raises(RuntimeError, match="fetch failed"):
+        await _settle(_Fake(retried, fail_at="fetch"))
+    assert _events(notifications) == ["ingest_failed"]
+
+    await run_owed_publish_followups()
+    assert _events(notifications) == ["ingest_failed"]
+    assert not await _owes_followups(seed)
+
+
+async def test_a_retry_that_publishes_clears_the_notice_it_superseded(
+    seed, notifications
+) -> None:
+    """A notice an earlier attempt still owed is cleared, not sent, once a retry publishes."""
+    await _rejected_with_the_notice_left_owed(seed)
+    retried = await _retry(seed)
+    await _settle(_Fake(retried))
+    assert (await _state(seed))["job"] == "complete"
+
+    await run_owed_publish_followups()
+    assert _events(notifications) == []
+    assert not await _owes_followups(seed)
 
 
 async def test_a_rejection_whose_commit_never_lands_owes_no_notice(

@@ -91,11 +91,16 @@ async def _owed_job(
         status=status,
         created_by=admin_id,
         error_message=error_message,
-        user_metadata={PUBLISH_FOLLOWUPS_FIELD: task},
     )
     session.add(job)
+    await session.flush()
+    job.user_metadata = _owed(task, job.attempt_id)
     await session.commit()
     return job.id, dataset.id, dataset.record_id
+
+
+def _owed(task: str, attempt_id) -> dict:
+    return {PUBLISH_FOLLOWUPS_FIELD: {"task": task, "attempt_id": str(attempt_id)}}
 
 
 async def _drop(session, job_id, record_id) -> None:
@@ -207,6 +212,29 @@ async def test_a_completed_job_carrying_a_failure_record_sends_nothing(
         await _drop(test_db_session, job_id, record_id)
 
 
+async def test_a_record_an_earlier_attempt_wrote_is_cleared_and_runs_nothing(
+    test_db_session, followups
+) -> None:
+    """A record whose attempt no longer owns the job, as after a retry, sends nothing."""
+    job_id, _, record_id = await _owed_job(test_db_session)
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE catalog.ingest_jobs SET attempt_id = gen_random_uuid() "
+                    "WHERE id = :id"
+                ),
+                {"id": job_id},
+            )
+            await session.commit()
+
+        assert await run_publish_followups(job_id) is True
+        assert followups == []
+        assert not await _owes(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 async def test_a_job_that_has_not_ended_owes_nothing_yet(
     test_db_session, followups
 ) -> None:
@@ -255,7 +283,7 @@ async def test_retention_keeps_a_job_that_still_owes_its_followups(
         created_by=admin_id,
         created_at=long_ago,
         completed_at=long_ago,
-        user_metadata={PUBLISH_FOLLOWUPS_FIELD: "ingest_raster"},
+        user_metadata=_owed("ingest_raster", uuid.uuid4()),
     )
     test_db_session.add(job)
     await test_db_session.commit()
