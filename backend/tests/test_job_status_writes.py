@@ -16,7 +16,8 @@ _LEDGER = "platform/jobs/ledger.py"
 
 # Helpers that write the ``values`` their caller composes. A caller's values are
 # judged at its call; a function that hands a parameter of its own on as those
-# values counts as a write, except the heartbeat bodies below.
+# values counts as a write, except the heartbeat bodies below, which can't write a
+# status because update_ingest_job_for_attempt refuses the ledger's columns.
 _VALUES_HELPERS = frozenset(
     {"update_ingest_job_for_attempt", "require_ingest_job_update"}
 )
