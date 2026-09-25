@@ -34,9 +34,10 @@ class AdminJobResponse:
         error_message (None | str): Error details if the job failed.
         can_retry (bool): Whether the failed job can be retried with its retained source.
         retry_reason (None | str): Why the job cannot be retried, when retry is unavailable.
-        user_metadata (AdminJobResponseUserMetadataType0 | None): User-supplied metadata captured at upload time (title,
-            summary, tags, vrt_type, file_type, warnings, etc.). Heterogeneous shape across ingest paths -- canonical keys:
-            title, summary, visibility, file_type, vrt_type, warnings.
+        user_metadata (AdminJobResponseUserMetadataType0 | None): Metadata captured with the job: the fields supplied at
+            upload and commit (title, summary, tags, visibility, file_type, vrt_type, etc.) and outcomes such as warnings.
+            Heterogeneous shape across ingest paths. Worker bookkeeping, such as staging keys and unpublished artifacts, is
+            left out; null when nothing else is recorded.
         created_by (None | UUID): ID of the user who initiated the job.
         username (None | str): Username of the user who initiated the job.
         started_at (datetime.datetime | None): Timestamp when the worker began processing the job.
