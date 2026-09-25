@@ -976,8 +976,10 @@ def validate_file_content(file_path: str, filename: str) -> None:
     if suffix not in EXTENSION_CONTENT_MAP:
         return
 
+    # puremagic opens any filename that names an existing file; given only the
+    # extension, it judges the uploaded bytes alone.
     try:
-        detected = puremagic.from_string(header, filename=filename)
+        detected = puremagic.from_string(header, filename=suffix)
     except puremagic.PureError:
         detected = ""
 

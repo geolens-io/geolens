@@ -394,6 +394,35 @@ async def test_both_doors_preview_a_stored_or_deflated_archive_member(
     assert zip_member_reads.count("points.geojson") >= 2
 
 
+async def test_the_direct_door_sniffs_only_the_uploaded_bytes(
+    client, admin_auth_header, monkeypatch, tmp_path, zip_member_reads
+) -> None:
+    """A display name naming a file on the server changes nothing and opens nothing."""
+    from app.processing.ingest import router
+
+    monkeypatch.setattr(settings, "storage_provider", "local")
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+    monkeypatch.setattr(
+        router, "_get_allowed_extensions_safely", AsyncMock(return_value=[".zip"])
+    )
+    elsewhere = tmp_path / "elsewhere.zip"
+    with zipfile.ZipFile(elsewhere, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            '<Types><Override ContentType="application/vnd.openxmlformats-'
+            'officedocument.spreadsheetml.sheet.main+xml"/></Types>',
+        )
+    payload = _points_zip(zipfile.ZIP_DEFLATED)
+
+    responses = [
+        await _direct_upload(client, admin_auth_header, name, payload)
+        for name in ("points.zip", str(elsewhere))
+    ]
+
+    assert [r.status_code for r in responses] == [201, 201], [r.text for r in responses]
+    assert zip_member_reads == []
+
+
 async def test_rejected_presigned_upload_removes_both_objects(
     client, admin_auth_header, both_doors
 ) -> None:
