@@ -26,8 +26,6 @@ READ_TIMEOUT_SECONDS = 120
 RENDER_TIMEOUT_SECONDS = 900
 CRS_FACTS_TIMEOUT_SECONDS = 30
 
-QUICKLOOK_SIZES = (256, 512)
-
 _BACKEND_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -68,10 +66,12 @@ def read_raster_metadata(path: str, *, timeout: float | None = None) -> dict:
     return _run("metadata", path, timeout=timeout or READ_TIMEOUT_SECONDS)
 
 
-def render_quicklooks(path: str, *, timeout: float | None = None) -> dict[int, bytes]:
-    """PNG quicklooks of one raster file, keyed by size."""
-    encoded = _run("quicklooks", path, timeout=timeout or RENDER_TIMEOUT_SECONDS)
-    return {int(size): base64.b64decode(png) for size, png in encoded.items()}
+def render_quicklook(path: str, size: int, *, timeout: float | None = None) -> bytes:
+    """A PNG quicklook of one raster file."""
+    encoded = _run(
+        "quicklook", path, str(size), timeout=timeout or RENDER_TIMEOUT_SECONDS
+    )
+    return base64.b64decode(encoded)
 
 
 def crs_facts(wkt: str, *, timeout: float | None = None) -> dict:
@@ -136,13 +136,10 @@ def _metadata(path: str) -> dict:
     return extract_raster_metadata(path)
 
 
-def _quicklooks(path: str) -> dict[str, str]:
+def _quicklook(path: str, size: str) -> str:
     from app.processing.raster.quicklook import generate_quicklook
 
-    return {
-        str(size): base64.b64encode(generate_quicklook(path, size)).decode("ascii")
-        for size in QUICKLOOK_SIZES
-    }
+    return base64.b64encode(generate_quicklook(path, int(size))).decode("ascii")
 
 
 def _crs_facts() -> dict:
@@ -172,8 +169,8 @@ def main(argv: list[str]) -> int:
                 result = _inspect(args[0], args[1])
             elif op == "metadata":
                 result = _metadata(args[0])
-            elif op == "quicklooks":
-                result = _quicklooks(args[0])
+            elif op == "quicklook":
+                result = _quicklook(args[0], args[1])
             elif op == "crs-facts":
                 result = _crs_facts()
             else:

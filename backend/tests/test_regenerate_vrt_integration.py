@@ -117,11 +117,11 @@ def quicklook_stub(monkeypatch: pytest.MonkeyPatch):
     keeps the test deterministic and dependency-light.
     """
 
-    def _stub(vrt_path: str) -> dict[int, bytes]:
-        return {256: b"\x00" * 256, 512: b"\x00" * 256}  # fixed-size fake PNGs
+    def _stub(vrt_path: str, size: int) -> bytes:
+        return b"\x00" * 256  # fixed-size fake PNG bytes
 
     # Patch at tasks_vrt where regenerate_vrt imports it directly
-    monkeypatch.setattr("app.processing.ingest.tasks_vrt.render_quicklooks", _stub)
+    monkeypatch.setattr("app.processing.ingest.tasks_vrt.render_quicklook", _stub)
     return _stub
 
 

@@ -277,7 +277,9 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
 
     It decides from the XML alone and opens no source. The one question it
     can't answer from the XML, whether the SRS is in degrees, goes to the
-    probe child, since PROJ may open files while parsing a CRS.
+    probe child, since PROJ may open files while parsing a CRS. A probe that
+    fails raises ``RasterProbeError``, failing the build, because the frame
+    it would have checked may be wrong.
 
     Returns without writing when the VRT isn't a degree-based geographic
     mosaic, doesn't straddle the seam, or lacks the geometry this needs —
@@ -287,7 +289,7 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     """
     from xml.etree.ElementTree import parse
 
-    from app.processing.raster.probe import RasterProbeError, crs_facts
+    from app.processing.raster.probe import crs_facts
 
     try:
         tree = parse(vrt_path)
@@ -311,15 +313,11 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
         return
 
     # The degree-based gate rejects grads (EPSG:4807, which turns at 400) and
-    # every projected CRS. An SRS the probe can't answer for isn't re-framed.
+    # every projected CRS.
     srs_node = root.find("SRS")
     if srs_node is None or not srs_node.text:
         return
-    try:
-        facts = crs_facts(srs_node.text)
-    except RasterProbeError:
-        return
-    if not _is_degree_based(facts):
+    if not _is_degree_based(crs_facts(srs_node.text)):
         return
 
     sources = [

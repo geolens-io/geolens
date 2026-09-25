@@ -46,7 +46,7 @@ from app.processing.raster.cog import (
 from app.processing.raster.probe import (
     RasterProbeError,
     read_raster_metadata,
-    render_quicklooks,
+    render_quicklook,
 )
 
 from app.processing.ingest.tasks_common import (
@@ -347,8 +347,8 @@ class _RasterReplace:
             )
 
         await self._progress("quicklook", 0.6)
-        quicklooks = await asyncio.to_thread(render_quicklooks, self.local_cog_path)
-        self.ql256, self.ql512 = quicklooks[256], quicklooks[512]
+        self.ql256 = await asyncio.to_thread(render_quicklook, self.local_cog_path, 256)
+        self.ql512 = await asyncio.to_thread(render_quicklook, self.local_cog_path, 512)
 
     async def stage(self, session, job, dataset) -> Verdict:
         self.job = job

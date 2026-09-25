@@ -987,8 +987,8 @@ class TestRegenerateVrtTask:
                     return_value="newhash",
                 ),
                 patch(
-                    "app.processing.ingest.tasks_vrt.render_quicklooks",
-                    return_value={256: b"\x89PNG", 512: b"\x89PNG"},
+                    "app.processing.ingest.tasks_vrt.render_quicklook",
+                    return_value=b"\x89PNG",
                 ),
                 patch(
                     "app.processing.ingest.tasks_vrt.invalidate_catalog_cache",
@@ -1150,8 +1150,8 @@ class TestRegenerateVrtTask:
                     return_value="newhash",
                 ),
                 patch(
-                    "app.processing.ingest.tasks_vrt.render_quicklooks",
-                    return_value={256: b"\x89PNG", 512: b"\x89PNG"},
+                    "app.processing.ingest.tasks_vrt.render_quicklook",
+                    return_value=b"\x89PNG",
                 ),
                 patch(
                     "app.processing.ingest.tasks_vrt.invalidate_catalog_cache",

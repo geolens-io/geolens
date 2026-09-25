@@ -131,7 +131,8 @@ class TestVrtSourceReadTimeouts:
         assert "extract_raster_metadata" not in source
         assert "generate_quicklook" not in source
         assert source.count("asyncio.to_thread(read_vrt_metadata, vrt_path)") == 2
-        assert source.count("asyncio.to_thread(render_quicklooks, vrt_path)") == 2
+        assert source.count("asyncio.to_thread(render_quicklook, vrt_path, 256)") == 2
+        assert source.count("asyncio.to_thread(render_quicklook, vrt_path, 512)") == 2
         assert (
             "read_raster_metadata(vrt_path, timeout=RENDER_TIMEOUT_SECONDS)" in source
         )

@@ -259,10 +259,8 @@ class TestTheChildAnswersAsTheInProcessReadDid:
     def test_quicklooks_match_the_in_process_render(self, tmp_path) -> None:
         path = _geotiff(tmp_path / "ql.tif", epsg=32618, bounds=_FIXTURES[1][2])
 
-        assert probe.render_quicklooks(path) == {
-            256: generate_quicklook(path, 256),
-            512: generate_quicklook(path, 512),
-        }
+        for size in (256, 512):
+            assert probe.render_quicklook(path, size) == generate_quicklook(path, size)
 
     @pytest.mark.parametrize("epsg", [4326, 32618, 2263, 4807])
     def test_crs_facts_match_the_wkt_helpers(self, epsg) -> None:

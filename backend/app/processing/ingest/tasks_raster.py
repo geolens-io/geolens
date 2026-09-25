@@ -22,7 +22,7 @@ from app.processing.raster.cog import (
     resolve_crs_assignment,
     sha256_file,
 )
-from app.processing.raster.probe import read_raster_metadata, render_quicklooks
+from app.processing.raster.probe import read_raster_metadata, render_quicklook
 
 from app.platform.jobs.models import owned_presigned_staging_key
 from app.processing.ingest.tasks_raster_swap import (
@@ -414,8 +414,8 @@ async def ingest_raster(
                 await _progress_session.commit()
 
         # 8. Generate quicklooks
-        quicklooks = await asyncio.to_thread(render_quicklooks, local_cog_path)
-        ql256, ql512 = quicklooks[256], quicklooks[512]
+        ql256 = await asyncio.to_thread(render_quicklook, local_cog_path, 256)
+        ql512 = await asyncio.to_thread(render_quicklook, local_cog_path, 512)
 
         # Phase 2 (short-lived session via _job_phase_session — REMED-03/
         # P2-05): create DB records, store assets, commit job. Re-loads

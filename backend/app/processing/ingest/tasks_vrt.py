@@ -39,7 +39,7 @@ from app.processing.raster.cog import sha256_file
 from app.processing.raster.probe import (
     RENDER_TIMEOUT_SECONDS,
     read_raster_metadata,
-    render_quicklooks,
+    render_quicklook,
 )
 from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
@@ -654,8 +654,8 @@ async def ingest_vrt(
         ql256: bytes | None = None
         ql512: bytes | None = None
         try:
-            quicklooks = await asyncio.to_thread(render_quicklooks, vrt_path)
-            ql256, ql512 = quicklooks[256], quicklooks[512]
+            ql256 = await asyncio.to_thread(render_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(render_quicklook, vrt_path, 512)
         except Exception:  # broad: quicklook generation is non-fatal
             logger_vrt.warning(
                 "Quicklook generation failed for VRT %s", job_id, exc_info=True
@@ -1181,8 +1181,8 @@ async def regenerate_vrt(
         ql256: bytes | None = None
         ql512: bytes | None = None
         try:
-            quicklooks = await asyncio.to_thread(render_quicklooks, vrt_path)
-            ql256, ql512 = quicklooks[256], quicklooks[512]
+            ql256 = await asyncio.to_thread(render_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(render_quicklook, vrt_path, 512)
         except Exception:  # broad: quicklook generation is non-fatal
             logger_regen.warning(
                 "Quicklook regeneration failed for VRT %s",
