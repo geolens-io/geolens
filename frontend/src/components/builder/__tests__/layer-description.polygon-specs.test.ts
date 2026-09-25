@@ -553,15 +553,18 @@ describe("the polygon adapters' own methods", () => {
     expect(recording.layerIds()).toEqual([]);
   });
 
-  it('fill syncPaint removes the extrusion once the layer has no height column, and leaves adding it back to addLayers', () => {
+  it('fill syncPaint removes the extrusion once the layer has no height column, and adds it back when the column returns', () => {
     const { recording, adapter, adapterInput } = setUp(buildings);
     adapter.addLayers(recording.map, adapterInput);
+    const extrusion = recording.layer('layer-layer-buildings-extrusion');
 
     adapter.syncPaint(recording.map, setUp(withBuilder(buildings, { heightColumn: undefined })).adapterInput);
     expect(recording.layerIds()).toEqual(['layer-layer-buildings', 'layer-layer-buildings-outline']);
 
     adapter.syncPaint(recording.map, adapterInput);
-    expect(recording.layerIds()).toEqual(['layer-layer-buildings', 'layer-layer-buildings-outline']);
+    expect(recording.layerIds()).toEqual(['layer-layer-buildings', 'layer-layer-buildings-outline', 'layer-layer-buildings-extrusion']);
+    expect(recording.layer('layer-layer-buildings-extrusion')).toEqual(extrusion);
+    expect(recording.errors).toEqual([]);
   });
 
   it('fill syncPaint clears the pattern when the layer goes back to a solid fill', () => {

@@ -17,14 +17,15 @@ Object.defineProperty(window, 'location', {
 });
 
 function createMockMap() {
-  const layerIds = new Set<string>();
+  // A layer keeps the type and source MapLibre reports for it.
+  const layers = new Map<string, { id: string; type?: string; source?: string }>();
   return {
     getSource: vi.fn(() => null),
     addSource: vi.fn(),
-    addLayer: vi.fn((layer: { id: string }) => {
-      layerIds.add(layer.id);
+    addLayer: vi.fn((layer: { id: string; type?: string; source?: string }) => {
+      layers.set(layer.id, { id: layer.id, type: layer.type, source: layer.source });
     }),
-    getLayer: vi.fn((id: string) => layerIds.has(id) ? { id } : null),
+    getLayer: vi.fn((id: string) => layers.get(id) ?? null),
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
     getPaintProperty: vi.fn(),
@@ -354,7 +355,7 @@ describe('syncLayersToMap', () => {
     const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
     managedSourcesRef.current = new Set(['source-dem-terrain']);
     (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => (
-      id === 'layer-dem-terrain' ? { id } : null
+      id === 'layer-dem-terrain' ? { id, type: 'raster', source: 'source-dem-terrain' } : null
     ));
     (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => (
       id === 'source-dem-terrain' ? { type: 'raster' } : null
@@ -438,7 +439,7 @@ describe('syncLayersToMap', () => {
     // Mock getLayer to return truthy for old layers so removeLayer works
     (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
       if (id === 'layer-old' || id === 'layer-old-outline' || id === 'layer-old-label') {
-        return { id };
+        return { id, source: 'source-old' };
       }
       return null;
     });
@@ -677,7 +678,7 @@ describe('syncLayersToMap', () => {
     // Simulate a prior state where source-dem-wr01 and layer-dem-wr01-colorrelief are on the map.
     managedSourcesRef.current = new Set(['source-dem-wr01']);
     (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
-      if (id === 'layer-dem-wr01' || id === 'layer-dem-wr01-colorrelief') return { id };
+      if (id === 'layer-dem-wr01' || id === 'layer-dem-wr01-colorrelief') return { id, source: 'source-dem-wr01' };
       return null;
     });
     (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {

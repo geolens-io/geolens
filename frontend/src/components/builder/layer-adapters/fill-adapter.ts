@@ -253,17 +253,12 @@ export const fillAdapter: LayerAdapter = {
     addDescribedLayer(map, describeFill(input));
   },
 
-  // The extrusion never auto-adds through this path (removed once the layer has
-  // no height column); every other spec, including the label, adds or updates
-  // normally.
   syncPaint(map, input) {
     if (!map.getLayer(input.layerId)) return;
     const drawing = describeFill(input);
+    writeDescribedLayer(map, drawing);
+    // The writer removes no layer, so an extrusion the layer no longer describes goes here.
     const extrusionId = `${input.layerId}-extrusion`;
-    writeDescribedLayer(map, {
-      ...drawing,
-      specs: drawing.specs.filter(({ layer }) => layer.id !== extrusionId || map.getLayer(layer.id)),
-    });
     if (!map.getLayer(extrusionId)) return;
     if (!drawing.specs.some(({ layer }) => layer.id === extrusionId)) {
       map.removeLayer(extrusionId);

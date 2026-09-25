@@ -950,8 +950,20 @@ function syncVectorLayer(
   prefix: string | undefined,
 ) {
   desiredSources.add(adapterInput.sourceId);
+  removeReplacedLayer(map, layer, described, prefix);
   const mode = resolveVectorSourceMode(layer, adapterInput, described.drawsAs, source);
   ensureVectorSource(map, layer, adapterInput, mode, source, prefix);
+}
+
+/**
+ * Remove a layer's map layers when the map draws its primary as another type, or
+ * from another source, than the description does, so the source step adds them afresh.
+ */
+function removeReplacedLayer(map: MaplibreMap, layer: SyncLayerInput, described: DescribedLayer, prefix: string | undefined) {
+  const drawn = map.getLayer(described.id);
+  const primary = described.specs.find((spec) => spec.layer.id === described.id)?.layer;
+  if (!drawn || !primary || (drawn.type === primary.type && drawn.source === primary.source)) return;
+  removeKnownVectorLayers(map, described.id, layer.id, prefix);
 }
 
 /** Set the zoom range and visibility of each map layer a described layer draws,
@@ -1021,7 +1033,8 @@ function removeStaleSourcesAndLayers(
     // be removed explicitly here.
     removeColorReliefCompanionLayer(map, ids.layer);
     for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.mixedLines, ids.mixedPoints, ids.layer]) {
-      if (map.getLayer(candidate)) map.removeLayer(candidate);
+      // A layer redrawn on another source this pass keeps its id, and stays.
+      if (map.getLayer(candidate)?.source === sourceId) map.removeLayer(candidate);
     }
     // builder-audit #338 SYNC-06: enumerate any remaining layers still referencing
     // this source (the deduped case where the derived ids above never matched)
@@ -1082,13 +1095,15 @@ function removeOrphanManagedLayers(
 const drawnContexts = new WeakMap<MaplibreMap, RenderContext>();
 
 /** Write one saved layer to the map layers a sync pass drew for it, as the pass would.
- *  It adds no source or whole layer, and skips a layer the map draws as another type. */
+ *  It adds no source or whole layer, and leaves a layer the map draws as another type,
+ *  or from another source, for the next pass to replace. */
 export function writeLayerToMap(map: MaplibreMap, layer: SyncLayerInput): void {
   const context = drawnContexts.get(map);
   if (!context) return;
   const { layers: [described], sources } = describeLayers([layer], context);
-  const primary = described?.specs.find((spec) => spec.layer.id === described.id);
-  if (!primary || map.getLayer(described.id)?.type !== primary.layer.type) return;
+  const primary = described?.specs.find((spec) => spec.layer.id === described.id)?.layer;
+  const drawn = primary ? map.getLayer(primary.id) : undefined;
+  if (!primary || !drawn || drawn.type !== primary.type || drawn.source !== primary.source) return;
   const adapterInput: AdapterLayerInput = {
     ...adapterInputFor(layer, described),
     sourceType: sources.get(described.sourceId)?.type === 'geojson' ? 'geojson' : 'vector',
@@ -1189,16 +1204,14 @@ export function syncLayersToMap(
     if (import.meta.env.DEV) console.warn('[map-sync] removeStaleSourcesAndLayers failed', err);
   }
 
-  // Only reorder when layer order actually changed (not on every paint/visibility sync).
-  // Include total style layer count so basemap switches invalidate the key.
-  // UX-03 (Phase 1051 Plan 06): include basemap_position so dragging basemap
-  // top↔bottom invalidates the orderKey and re-runs the reorder pipeline.
-  const orderKey = renderableLayers.map((l) => l.id).join(',')
+  // Reorder only when the stack may be out of order: a new saved order or basemap
+  // setting, or a style layer added, removed or replaced since. The key is read again
+  // after the reorder, so the next pass over an unchanged map matches it.
+  const orderKey = () => renderableLayers.map((l) => l.id).join(',')
     + (options?.showBasemapLabels !== undefined ? `|${String(options.showBasemapLabels)}` : '')
     + (options?.basemapPosition !== undefined ? `|bp:${options.basemapPosition}` : '')
-    + `|${map.getStyle()?.layers?.length ?? 0}`;
-  if (orderKey !== lastOrderKeyRef.current) {
-    lastOrderKeyRef.current = orderKey;
+    + `|${map.getStyle()?.layers?.map(({ id }) => id).join(',') ?? ''}`;
+  if (orderKey() !== lastOrderKeyRef.current) {
     // Target z-order: data geometries → basemap labels → data labels
     reorderDataGeometry(map, renderableLayers, prefix);
     if (options?.showBasemapLabels !== undefined) {
@@ -1208,6 +1221,7 @@ export function syncLayersToMap(
     // UX-03: basemap-above-data inversion runs LAST so it overrides the
     // standard data-above-basemap stack ordering when position='top'.
     reorderBasemapAboveData(map, options?.basemapPosition, sourcePrefix);
+    lastOrderKeyRef.current = orderKey();
   }
 }
 
