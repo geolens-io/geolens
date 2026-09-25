@@ -212,6 +212,11 @@ async def cleanup_stale_jobs(
             # sweeper runs; the fleet helper (multi-tenant) already
             # reconciles per tenant.
             await reconcile_orphaned_staging_objects(db)
+            from app.processing.ingest.publish_followups import (
+                run_owed_publish_followups,
+            )
+
+            await run_owed_publish_followups()
             details = outcome.as_dict()
     except Exception as exc:  # broad: cleanup spans DB and artifact deletion
         await db.rollback()

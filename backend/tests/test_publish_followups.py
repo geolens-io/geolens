@@ -239,6 +239,20 @@ async def test_worker_recovery_runs_owed_followups(test_db_session, followups) -
         await _drop(test_db_session, job_id, record_id)
 
 
+async def test_an_admin_cleanup_runs_owed_followups(
+    client, admin_auth_header, test_db_session, followups
+) -> None:
+    """The admin cleanup, which commits the sweep itself, still runs the owed follow-ups once."""
+    job_id, _, record_id = await _owed_job(test_db_session)
+    try:
+        response = await client.post("/jobs/cleanup/stale/", headers=admin_auth_header)
+        assert response.status_code == 200, response.text
+        assert followups == _RASTER
+        assert not await _owes(job_id)
+    finally:
+        await _drop(test_db_session, job_id, record_id)
+
+
 async def test_the_job_status_response_never_shows_the_record(
     client, admin_auth_header, test_db_session
 ) -> None:
