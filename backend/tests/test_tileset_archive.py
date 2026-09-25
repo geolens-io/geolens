@@ -503,6 +503,16 @@ def _with_content(uri: str, *, where: str = "root") -> dict:
         return {"contents": [{"uri": "0/0.glb"}, {"uri": uri}]}
     if where == "legacy-url":
         return {"content": {"url": uri}}
+    if where == "contents-object":
+        return {"contents": {"0": {"uri": uri}}}
+    if where == "children-object":
+        return {"children": {"length": 1, "0": {**tile, "content": {"uri": uri}}}}
+    if where == "multiple-contents-extension":
+        return {
+            "extensions": {"3DTILES_multiple_contents": {"contents": [{"uri": uri}]}}
+        }
+    if where == "implicit-tiling-extension":
+        return {"extensions": {"3DTILES_implicit_tiling": {"subtrees": {"uri": uri}}}}
     return {"implicitTiling": {"subtrees": {"uri": uri}}}
 
 
@@ -524,6 +534,12 @@ def _tileset_with_root(root_extra: dict) -> bytes:
         "0/../../0.glb",
         "%2e%2e/0.glb",
         "0/%2E%2E/%2e%2e/0.glb",
+        ":example.com/0.glb",
+        " //example.com/0.glb",
+        "\u3000../0.glb",
+        ".\t./0.glb",
+        ".. ",
+        "0%2F0.glb",
     ],
     ids=[
         "http",
@@ -535,10 +551,27 @@ def _tileset_with_root(root_extra: dict) -> bytes:
         "climbs-out-later",
         "encoded-dotdot",
         "encoded-dotdot-later",
+        "empty-scheme",
+        "leading-blank",
+        "leading-unicode-blank",
+        "tab-in-dotdot",
+        "trailing-blank",
+        "encoded-slash",
     ],
 )
 @pytest.mark.parametrize(
-    "where", ["root", "child", "contents", "legacy-url", "implicit-subtrees"]
+    "where",
+    [
+        "root",
+        "child",
+        "contents",
+        "legacy-url",
+        "implicit-subtrees",
+        "contents-object",
+        "children-object",
+        "multiple-contents-extension",
+        "implicit-tiling-extension",
+    ],
 )
 def test_content_outside_the_tileset_is_refused(
     tmp_path: Path, uri: str, where: str
@@ -569,141 +602,40 @@ def test_content_inside_the_tileset_is_accepted(tmp_path: Path, uri: str) -> Non
     assert inspect_tileset(path).facts.version == "1.1"
 
 
-def _external(*uris: str) -> bytes:
-    """A tileset whose child tiles name ``uris``."""
-    document = json.loads(tileset_json())
-    document["root"]["children"] = [{"content": {"uri": uri}} for uri in uris]
-    return json.dumps(document).encode()
-
-
-def _nested_zip(path: Path, *files: tuple[str, bytes]) -> str:
-    """tileset.json naming the external tileset sub/tileset.json, plus ``files``."""
-    return build_zip(path, [("tileset.json", _external("sub/tileset.json")), *files])
-
-
 @pytest.mark.parametrize(
-    "uri",
-    ["https://example.com/0.glb", "../../0.glb", "/srv/0.glb", "..%2F..%2F0.glb"],
-    ids=["absolute", "climbs-out", "absolute-path", "encoded-climb"],
+    "uri", [{"hostname": "example.com", "path": "/0.glb"}, ["0/0.glb"], 7]
 )
-def test_an_external_tileset_is_held_to_the_same_rules(
-    tmp_path: Path, uri: str
+def test_content_named_by_anything_but_a_string_is_refused(
+    tmp_path: Path, uri: object
 ) -> None:
-    """Content an external tileset names must stay inside the tileset too."""
-    path = _nested_zip(tmp_path / "t.zip", ("sub/tileset.json", _external(uri)))
-
-    message = refused(path, external=True)
-
-    assert "sub/tileset.json names content outside the tileset" in message
-    assert uri not in message
-
-
-def test_an_external_tileset_named_in_another_case_is_checked(tmp_path: Path) -> None:
-    """A case-insensitive disk would serve it under that name, so it is read."""
+    """urijs builds a URI from an object's hostname and path, so only strings pass."""
     path = build_zip(
         tmp_path / "t.zip",
-        [
-            ("tileset.json", _external("SUB/TileSet.json")),
-            ("sub/tileset.json", _external("https://example.com/0.glb")),
-        ],
+        [("tileset.json", _tileset_with_root({"content": {"uri": uri}}))],
     )
 
-    message = refused(path, external=True)
-
-    assert "sub/tileset.json names content outside" in message
-
-
-def test_an_external_tileset_two_levels_down_is_checked(tmp_path: Path) -> None:
-    """The walk follows the external tilesets an external tileset names."""
-    path = _nested_zip(
-        tmp_path / "t.zip",
-        ("sub/tileset.json", _external("deeper/tileset.json")),
-        ("sub/deeper/tileset.json", _external("../../../0.glb")),
-    )
-
-    message = refused(path, external=True)
-
-    assert "sub/deeper/tileset.json names content outside" in message
-
-
-def test_an_external_tileset_may_name_content_anywhere_inside(tmp_path: Path) -> None:
-    """'..' from an external tileset's folder is fine while it stays inside."""
-    path = _nested_zip(
-        tmp_path / "t.zip",
-        ("sub/tileset.json", _external("../0/0.glb", "deeper/t.json", "gone.json")),
-        ("sub/deeper/t.json", _external("../../0/0.glb")),
-        ("0/0.glb", b"glb"),
-    )
-
-    assert inspect_tileset(path, external=True).facts.version == "1.1"
-
-
-def test_external_tilesets_that_cycle_are_read_once_each(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """Tilesets that name each other end the walk, each read a single time."""
-    reads: list[str] = []
-    read = tileset_module._read_tileset_json
-
-    def _counted(archive, info, name):
-        reads.append(name)
-        return read(archive, info, name)
-
-    monkeypatch.setattr(tileset_module, "_read_tileset_json", _counted)
-    path = _nested_zip(
-        tmp_path / "t.zip",
-        ("sub/tileset.json", _external("../other.json", "../tileset.json")),
-        ("other.json", _external("sub/tileset.json")),
-    )
-
-    inspect_tileset(path, external=True)
-
-    assert sorted(reads) == ["other.json", "sub/tileset.json", "tileset.json"]
+    assert "names content outside the tileset" in refused(path)
 
 
 @pytest.mark.parametrize(
-    ("bound", "value"),
-    [("MAX_EXTERNAL_TILESETS", 1), ("MAX_EXTERNAL_TILESET_BYTES", 100)],
-    ids=["count", "bytes"],
-)
-def test_external_tilesets_past_a_cap_are_refused(
-    tmp_path: Path, monkeypatch, bound: str, value: int
-) -> None:
-    """The walk reads a bounded number of files and bytes of JSON."""
-    monkeypatch.setattr(tileset_module, bound, value)
-    path = build_zip(
-        tmp_path / "t.zip",
-        [
-            ("tileset.json", _external("a.json", "b.json")),
-            ("a.json", _external()),
-            ("b.json", _external()),
-        ],
-    )
-
-    assert "more external tilesets than this server reads" in refused(
-        path, external=True
-    )
-
-
-@pytest.mark.parametrize(
-    ("extra", "message"),
+    "extra",
     [
-        ({"pad": "x" * 2048}, "is larger than"),
-        (_nested(MAX_TILESET_JSON_DEPTH + 1), "nests deeper"),
+        lambda uri: {"schemaUri": uri},
+        lambda uri: {"extensions": {"3DTILES_metadata": {"schemaUri": uri}}},
     ],
-    ids=["size", "depth"],
+    ids=["schema-uri", "metadata-extension"],
 )
-def test_an_external_tileset_is_held_to_the_json_bounds(
-    tmp_path: Path, monkeypatch, extra: dict, message: str
+def test_the_metadata_schema_uri_must_stay_inside_the_tileset(
+    tmp_path: Path, extra
 ) -> None:
-    """An external tileset is read within tileset.json's size and depth bounds."""
-    monkeypatch.setattr(tileset_module, "MAX_TILESET_JSON_BYTES", 1024)
-    nested = {**json.loads(_external()), **extra}
-    path = _nested_zip(
-        tmp_path / "t.zip", ("sub/tileset.json", json.dumps(nested).encode())
-    )
+    """tileset.json's schemaUri may be a relative path or a data: URI only."""
+    outside = tileset_zip(tmp_path / "out.zip", extra=extra("https://example.com/s"))
+    relative = tileset_zip(tmp_path / "rel.zip", extra=extra("schema.json"))
+    inline = tileset_zip(tmp_path / "data.zip", extra=extra("data:,{}"))
 
-    assert f"sub/tileset.json {message}" in refused(path, external=True)
+    assert "names content outside the tileset" in refused(outside)
+    assert inspect_tileset(relative).facts.version == "1.1"
+    assert inspect_tileset(inline).facts.version == "1.1"
 
 
 # --- 10. Extent ----------------------------------------------------------

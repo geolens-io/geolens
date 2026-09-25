@@ -59,11 +59,6 @@ TILESET_UNPACKED_BYTES_FIELD = "tileset_unpacked_bytes"
 MAX_TILESET_JSON_BYTES = 16 * 1024 * 1024
 MAX_TILESET_JSON_DEPTH = 128
 
-# The worker reads external tilesets one at a time, each within the bounds
-# above; these cap how many it reads and how much JSON that is in all.
-MAX_EXTERNAL_TILESETS = 10_000
-MAX_EXTERNAL_TILESET_BYTES = 1024**3
-
 # Every name becomes a storage key under a tenant and attempt prefix, which S3
 # caps at 1024 bytes, and the local adapter writes a temporary file named
 # after each segment plus 37 bytes, which a filesystem caps at 255.
@@ -95,8 +90,23 @@ _UNICODE_PATH_EXTRA_FIELD = 0x7075
 # The closing quote is optional: an unclosed string then runs to the end instead
 # of failing and rescanning from every later quote. json.loads refuses it anyway.
 _JSON_STRING = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"?')
-_URI_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 _NOT_A_BRACKET = re.compile(r"[^\[\]{}]+")
+
+# urijs, which CesiumJS resolves URIs with, and browsers drop these blanks from
+# a URI's ends, and tabs and newlines from anywhere in it. Dropping more than
+# they do only refuses more.
+_URI_BLANKS = (
+    "".join(map(chr, [*range(0x21), 0x85, 0xA0, 0x1680, *range(0x2000, 0x200B)]))
+    + "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
+_URI_DROPPED = dict.fromkeys(map(ord, "\t\n\r"))
+
+# glTF and tileset extensions whose schemaUri names a metadata schema.
+_SCHEMA_EXTENSIONS = (
+    "3DTILES_metadata",
+    "EXT_structural_metadata",
+    "EXT_feature_metadata",
+)
 
 # The end-of-central-directory record, its longest comment, and the ZIP64
 # locator right before it.
@@ -377,98 +387,108 @@ def _read_tileset_json(
     return document
 
 
-def _content_uris(root: object) -> Iterator[str]:
+def _object(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _members(value: object) -> list:
+    """A JSON array's entries, or an object's values: a client indexes both alike."""
+    if isinstance(value, dict):
+        return list(value.values())
+    return value if isinstance(value, list) else []
+
+
+def _tile_uris(root: object) -> Iterator[object]:
     """Every content and subtree URI the tile tree under ``root`` names."""
     tiles: list[object] = [root]
     while tiles:
         tile = tiles.pop()
         if not isinstance(tile, dict):
             continue
-        contents = tile.get("contents")
-        for content in [
+        extensions = _object(tile.get("extensions"))
+        multiple = _object(extensions.get("3DTILES_multiple_contents"))
+        for content in (
             tile.get("content"),
-            *(contents if isinstance(contents, list) else []),
-        ]:
-            if isinstance(content, dict):
-                # "url" is the pre-1.0 spelling some exporters still write.
-                yield from (
-                    content[k]
-                    for k in ("uri", "url")
-                    if isinstance(content.get(k), str)
-                )
-        implicit = tile.get("implicitTiling")
-        subtrees = implicit.get("subtrees") if isinstance(implicit, dict) else None
-        if isinstance(subtrees, dict) and isinstance(subtrees.get("uri"), str):
-            yield subtrees["uri"]
-        children = tile.get("children")
-        if isinstance(children, list):
-            tiles.extend(children)
+            *_members(tile.get("contents")),
+            *_members(multiple.get("contents")),
+            *_members(multiple.get("content")),
+        ):
+            # "url" is the pre-1.0 spelling some exporters still write.
+            yield from (_object(content).get(k) for k in ("uri", "url"))
+        for implicit in (
+            tile.get("implicitTiling"),
+            extensions.get("3DTILES_implicit_tiling"),
+        ):
+            yield _object(_object(implicit).get("subtrees")).get("uri")
+        tiles.extend(_members(tile.get("children")))
 
 
-def _resolve(folder: str, uri: str) -> str | None:
-    """The key a relative URI names from ``folder``, or None if it leaves the tileset."""
-    path = unquote(uri.split("#", 1)[0].split("?", 1)[0])
-    if _URI_SCHEME.match(path) or path.startswith(("/", "\\")) or "\\" in path:
-        return None
-    parts = folder.split("/") if folder else []
+def _document_uris(document: dict) -> Iterator[tuple[object, bool]]:
+    """Each URI a client resolves from a tileset, glTF or subtree JSON document.
+
+    Paired with whether a data: URI is safe there: a schema, buffer, image or
+    shader names nothing further, but inline content could name anything.
+    """
+    for uri in _tile_uris(document.get("root")):
+        yield uri, False
+    extensions = _object(document.get("extensions"))
+    yield document.get("schemaUri"), True
+    for name in _SCHEMA_EXTENSIONS:
+        yield _object(extensions.get(name)).get("schemaUri"), True
+    for entries in (
+        document.get("buffers"),
+        document.get("images"),
+        document.get("shaders"),
+        _object(extensions.get("KHR_techniques_webgl")).get("shaders"),
+    ):
+        for entry in _members(entries):
+            yield _object(entry).get("uri"), True
+
+
+def _leaves_tileset(folder: str, uri: str, *, inline_ok: bool) -> bool:
+    """Whether ``uri``, read in ``folder``, names anything outside the tileset."""
+    uri = uri.translate(_URI_DROPPED).strip(_URI_BLANKS)
+    if inline_ok and uri[:5].lower() == "data:":
+        return False
+    path = uri.split("#", 1)[0].split("?", 1)[0]
+    # The server decodes an encoded slash into a separator the client never saw,
+    # so the file it serves would resolve its own URIs from a shallower folder.
+    if "%2f" in path.lower():
+        return True
+    path = unquote(path)
+    if ":" in path or "\\" in path or path.startswith("/"):
+        return True
+    depth = len(folder.split("/")) if folder else 0
     for segment in path.split("/"):
         if segment == "..":
-            if not parts:
-                return None
-            parts.pop()
+            depth -= 1
+            if depth < 0:
+                return True
         elif segment not in ("", "."):
-            parts.append(segment)
-    return "/".join(parts)
+            depth += 1
+    return False
 
 
-def check_content(
-    archive: zipfile.ZipFile,
-    layout: TilesetLayout,
-    document: dict,
-    *,
-    external: bool,
-) -> None:
-    """Refuse content named outside the tileset by tileset.json.
+def check_uri(key: str, uri: object, *, inline_ok: bool) -> None:
+    """Refuse a URI in the file at ``key`` that names something outside the tileset."""
+    folder = key.rpartition("/")[0]
+    # urijs builds a URI from an object's hostname and path fields, so only a
+    # string can be checked.
+    if uri is not None and (
+        not isinstance(uri, str) or _leaves_tileset(folder, uri, inline_ok=inline_ok)
+    ):
+        _refuse(
+            f"{key} names content outside the tileset: an absolute URI, "
+            "or a path that climbs out of it with '..'. Content must be "
+            "a relative path to a file in the archive.",
+            reason="tileset_content_uri",
+        )
 
-    With ``external``, the same rule reaches the external tilesets it names: the
-    .json files in the archive a content URI points at, each read once however
-    the references cycle.
-    """
-    # Folded, since a case-insensitive disk serves a member under any spelling;
-    # the collision check leaves one member per folded name.
-    members = {_fold(key): (key, info) for info, key in layout.files}
-    seen = {_fold(TILESET_ENTRY_POINT)}
-    pending: list[tuple[str, zipfile.ZipInfo | None]] = [(TILESET_ENTRY_POINT, None)]
-    budget = MAX_EXTERNAL_TILESET_BYTES
-    while pending:
-        key, info = pending.pop()
-        tree = document if info is None else _read_tileset_json(archive, info, key)
-        folder = key.rpartition("/")[0]
-        for uri in _content_uris(tree.get("root")):
-            target = _resolve(folder, uri)
-            if target is None:
-                _refuse(
-                    f"{key} names content outside the tileset: an absolute URI, "
-                    "or a path that climbs out of it with '..'. Content must be "
-                    "a relative path to a file in the archive.",
-                    reason="tileset_content_uri",
-                )
-            folded = _fold(target)
-            member = members.get(folded)
-            if not external or member is None or folded in seen:
-                continue
-            if not folded.endswith(".json"):
-                continue
-            seen.add(folded)
-            budget -= member[1].file_size
-            if len(seen) > MAX_EXTERNAL_TILESETS + 1 or budget < 0:
-                _refuse(
-                    f"{TILESET_ENTRY_POINT} references more external tilesets than "
-                    f"this server reads: {MAX_EXTERNAL_TILESETS} files and "
-                    f"{MAX_EXTERNAL_TILESET_BYTES // 1024**2} MB at most.",
-                    reason="tileset_external_count",
-                )
-            pending.append(member)
+
+def check_uris(document: dict, key: str) -> None:
+    """Refuse any URI in ``document``, the file at ``key``, that leaves the tileset."""
+    for uri, inline_ok in _document_uris(document):
+        check_uri(key, uri, inline_ok=inline_ok)
 
 
 def read_facts(document: dict) -> TilesetFacts:
@@ -538,16 +558,13 @@ def _open_checked(path: str) -> zipfile.ZipFile:
         raise UnsafeUploadError(str(exc)) from exc
 
 
-def inspect_tileset(path: str, *, external: bool = False) -> Tileset:
-    """Check a local tileset archive from its directory and tileset.json.
-
-    With ``external``, the external tilesets tileset.json names are checked too.
-    """
+def inspect_tileset(path: str) -> Tileset:
+    """Check a local tileset archive from its directory and tileset.json."""
     with _open_checked(path) as archive:
         layout = read_layout(archive)
         document = _read_tileset_json(archive, layout.entry_point, TILESET_ENTRY_POINT)
         facts = read_facts(document)
-        check_content(archive, layout, document, external=external)
+        check_uris(document, TILESET_ENTRY_POINT)
         return Tileset(layout=layout, facts=facts)
 
 
@@ -639,8 +656,8 @@ async def inspect_stored_tileset(storage: StorageProvider, key: str) -> Tileset:
                 document = _read_tileset_json(archive, info, TILESET_ENTRY_POINT)
                 facts = read_facts(document)
                 # The probe holds no other member's bytes; the worker, which has
-                # the whole archive, checks external tilesets before its first put.
-                check_content(archive, layout, document, external=False)
+                # the whole archive, checks every file before its first put.
+                check_uris(document, TILESET_ENTRY_POINT)
                 return facts
 
         return Tileset(layout=layout, facts=await asyncio.to_thread(_facts))
