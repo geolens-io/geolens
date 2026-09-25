@@ -18,7 +18,6 @@ than leaving it to the probe's classifier like every other strategy does.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import Iterator
 from datetime import datetime, timezone
@@ -28,40 +27,24 @@ import structlog
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
-from app.core.failure_reason import redact_failure_reason
 from app.core.db.sqlstate import sqlstate
 from app.core.db.tenant_session import tenant_task
-from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.catalog_locks import (
-    bump_tile_cache_version_atomic,
-    bump_tile_cache_version_on,
-    lock_catalog_rows,
-    worker_lock_budget,
-)
-from app.platform.jobs.heartbeat import (
-    claim_job_attempt_and_start_heartbeat,
-    require_ingest_job_update,
-    resolve_ingest_attempt_or_skip,
-    stop_ingest_job_heartbeat,
-    write_job_failure_for_attempt,
-)
-from app.platform.refresh.service import (
-    claim_run_for_job,
-    record_refresh_failure,
-    record_refresh_success,
-)
+from app.platform.catalog_locks import bump_tile_cache_version_atomic
 from app.processing.ingest.catalog_projection import measure, project
 from app.processing.ingest.publication import (
-    commit_publication,
-    hold_publishing_job,
+    PUBLISH,
+    DatasetDeleted,
+    Failure,
+    PublicationCommit,
+    Published,
+    Verdict,
+    settle_replacement,
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
-    cleanup_step,
     _current_tenant_role,
     _current_tenant_schema,
     invalidate_tile_cache_for_table,
-    stamp_failed_origin_health,
     task_app,
 )
 
@@ -332,30 +315,26 @@ async def _relation_exists(session: Any, *, schema: str, table: str) -> bool:
 async def _repair_geom_4326(
     dataset_uuid: uuid.UUID, Dataset: Any, *, schema: str, role: str
 ) -> _RepairReport:
-    """Phase 1.5: re-derive this table's render column before measuring it.
+    """Re-derive this table's render column before it is measured.
 
-    fix(#1738): ``geom_4326`` is derived once at registration and never
-    again, but the owner keeps writing to the table — an ``UPDATE geom``, a
-    delete+re-insert, or ``ogr2ogr -overwrite`` leaves rows silently
-    invisible in tiles, feature reads, extent, and analysis, since none of
-    those writes touch the render column readers filter on.
+    ``geom_4326`` is derived once at registration, but the owner keeps
+    writing to the table: an ``UPDATE geom``, a delete and re-insert, or
+    ``ogr2ogr -overwrite`` leaves rows invisible in tiles, feature reads,
+    extent and analysis, since none of those writes touch the render column
+    readers filter on.
 
-    Refresh is the only place the fix can live and still survive
-    ``-overwrite`` (which drops the table, taking any trigger/generated
-    column/index with it) — a re-applied invariant is the only kind that
-    comes back. Runs before the measurement, in its own session/transaction,
-    so phase 2 measures the repaired table under its own snapshot, and its
-    tile-version bump is already committed before phase 2 reads
-    `content_version` (a later bump would trip phase 3's superseded guard
-    against this task's own write).
+    Refresh is the only place the fix survives ``-overwrite``, which drops the
+    table and any trigger, generated column or index with it. This runs before
+    the measurement, in its own transaction, so the measurement sees the
+    repaired table and the repair's tile-version bump is committed before the
+    content token is read; a later bump would trip the write step's superseded
+    check against this task's own repair.
 
     Bounded twice (``_REPAIR_STATEMENT_TIMEOUT_MS``,
-    ``_REPAIR_LOCK_TIMEOUT_MS``) since holding vs. waiting on a lock are
-    different hazards on a table GeoLens doesn't own.
-
-    The reader GRANT and GiST index are restored regardless of the geometry
-    outcome (fix(#1738)) — the other two things ``-overwrite`` destroys,
-    independent of whether the render column needs a rewrite.
+    ``_REPAIR_LOCK_TIMEOUT_MS``) since holding and waiting on a lock are
+    different hazards on a table GeoLens doesn't own. The reader GRANT and
+    GiST index are restored whatever the geometry outcome: they are the other
+    two things ``-overwrite`` destroys.
 
     Never fatal: a refresh whose repair can't run still takes its
     measurement and reports the repair outcome, leaving the dataset no more
@@ -494,118 +473,41 @@ async def _repair_geom_4326(
     return report
 
 
-@task_app.task(queue="ingest", retry=0)
-@tenant_task
-async def refresh_postgis(
-    job_id: str,
-    dataset_id: str,
-    attempt_id: str | None = None,
-    **kwargs: Any,
-) -> None:
-    """Background task: re-measure the registered table behind this dataset.
+class _PostgisRefresh:
+    """A registered table, re-measured where it lives; nothing is copied or swapped."""
 
-    Recounts features, recomputes the extent and the 3D facts, and rebuilds
-    the column schema snapshot, the sample values, the attribute metadata and
-    the quality score from the live relation. Nothing is copied and nothing is
-    swapped.
+    task = "refresh_postgis"
+    staging = False
+    raster_row = False
+    catalog_event = "postgis_refresh_catalog"
 
-    No ``user_id`` argument, unlike the re-upload tasks — a measurement is
-    not a new version of the data, so it stamps no ``DatasetVersion`` or
-    audit event. The actor is already on the run row as ``triggered_by``.
+    def __init__(self, *, dataset_id: str):
+        self.dataset_uuid = uuid.UUID(dataset_id)
+        # The binding this attempt measured against. None until the
+        # measurement reads it: nothing before that says anything about an origin.
+        self.bound: tuple | None = None
 
-    Invariant 10 holds by construction on every failure path: nothing here
-    writes ``last_refreshed_at`` except the success block, so a failed refresh
-    leaves the dataset serving exactly the data and the freshness it had.
-    """
-    _bind_task_log_context(
-        task_name="refresh_postgis", job_id=job_id, dataset_id=dataset_id
-    )
-    from app.core.db import async_session
-    from app.platform.extensions import get_processing_port
-    from app.platform.jobs.models import IngestJob
-    from sqlalchemy.orm import joinedload
+    def prepare(self, job, dataset, staging_table: str) -> None:
+        return None
 
-    port = get_processing_port()
-    Dataset = port.get_dataset_orm_class()
+    async def fetch(self) -> None:
+        from sqlalchemy.orm import joinedload
 
-    resolved = await resolve_ingest_attempt_or_skip(
-        job_id, attempt_id, task_label="refresh"
-    )
-    if resolved is None:
-        return
-    job_uuid, attempt_uuid = resolved
-    dataset_uuid = uuid.UUID(dataset_id)
-    heartbeat_task: asyncio.Task[None] | None = None
-    # The binding this attempt measured against, for the failure handler's
-    # guarded write. Left None until phase 2 — a failure before that point
-    # established nothing about any origin and must not write a verdict.
-    bound: tuple | None = None
-
-    try:
-        # Phase 1: claim the attempt and the run, and read the binding.
-        async with async_session() as session:
-            job = (
-                await session.execute(
-                    select(IngestJob).where(
-                        IngestJob.id == job_uuid,
-                        IngestJob.attempt_id == attempt_uuid,
-                    )
-                )
-            ).scalar_one_or_none()
-            if job is None:
-                logger.warning("Ingest job not found, skipping", job_id=job_id)
-                return
-
-            dataset = (
-                await session.execute(
-                    select(Dataset)
-                    .options(joinedload(Dataset.record))
-                    .where(Dataset.id == dataset_uuid)
-                )
-            ).scalar_one_or_none()
-            if dataset is None:
-                logger.warning("Dataset not found, skipping", dataset_id=dataset_id)
-                return
-
-            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
-                session, job_uuid, attempt_uuid
-            )
-            if heartbeat_task is None:
-                return
-
-            await claim_run_for_job(session, job_uuid)
-            await session.commit()
-
-        # Phase 2: MEASURE, under one snapshot, writing nothing.
-        #
-        # fix(#1313): the measurement is four separate reads of a table
-        # somebody else is writing to, and the default READ COMMITTED
-        # isolation gives every statement its own snapshot — the count,
-        # extent, samples and validity score could each describe a different
-        # instant. REPEATABLE READ makes the transaction one consistent unit.
-        #
-        # Writes are in phase 3, not here: the heartbeat renews this job's
-        # row from its own session throughout, so finalizing inside a
-        # REPEATABLE READ transaction would collide with it and abort the
-        # run with a serialization failure. READ ONLY makes a future write
-        # from this phase fail loudly instead of silently.
+        from app.core.db import async_session
+        from app.platform.extensions import get_processing_port
         from app.processing.ingest.metadata import get_declared_srid
         from app.processing.ingest.schemas import UNDECLARED_SRID_CODE
 
+        Dataset = get_processing_port().get_dataset_orm_class()
         schema = _current_tenant_schema()
-
-        # Phase 1.5: REPAIR the render column, before anything measures it.
-        #
-        # fix(#1738): the one write this task makes to the registered table,
-        # deliberately ahead of the read-only phase below (which declares
-        # `postgresql_readonly=True` precisely so a write fails loudly).
-        # Non-fatal by design — see `_repair_geom_4326`.
+        # The one write to the registered table, ahead of the read-only
+        # measurement below. Never fatal; see `_repair_geom_4326`.
         repair = await _repair_geom_4326(
-            dataset_uuid, Dataset, schema=schema, role=_current_tenant_role()
+            self.dataset_uuid, Dataset, schema=schema, role=_current_tenant_role()
         )
         logger.info(
             "geom_4326 repair phase finished",
-            dataset_id=dataset_id,
+            dataset_id=str(self.dataset_uuid),
             repair=repair.code,
             rows_rewritten=repair.rows_rewritten,
             column_added=repair.column_added,
@@ -614,17 +516,9 @@ async def refresh_postgis(
         )
 
         async with async_session() as session:
-            # fix(#1313): established on the CONNECTION, before
-            # the transaction opens — not with a SET TRANSACTION statement
-            # inside it.
-            #
-            # PostgreSQL refuses SET TRANSACTION once any query has run
-            # (25001), and `tenant_session._on_begin` runs a query the
-            # instant a multi-tenant transaction starts — so the
-            # in-transaction spelling worked in single-tenant only and would
-            # have failed every registered-table refresh on multi-tenant.
-            # The execution option applies to the BEGIN itself, ahead of any
-            # hook; SQLAlchemy restores the connection's default afterward.
+            # One snapshot for the count, extent, samples and score, set on the
+            # connection before BEGIN: a multi-tenant BEGIN runs a query, and
+            # SET TRANSACTION is refused after one. READ ONLY makes a write fail.
             await session.connection(
                 execution_options={
                     "isolation_level": "REPEATABLE READ",
@@ -635,23 +529,16 @@ async def refresh_postgis(
                 await session.execute(
                     select(Dataset)
                     .options(joinedload(Dataset.record))
-                    .where(Dataset.id == dataset_uuid)
+                    .where(Dataset.id == self.dataset_uuid)
                 )
             ).scalar_one_or_none()
             if dataset is None:
-                logger.warning("Dataset not found, skipping", dataset_id=dataset_id)
-                return
-
-            bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+                raise DatasetDeleted
+            self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
             table_name = _resolve_bound_table(dataset, schema=schema)
-            # fix(#1313): the token phase 3 checks before it writes.
-            # `bump_tile_cache_version`'s contract is to fire in the same
-            # transaction as any change to this dataset's tile content —
-            # exactly the set of changes that would make the measurement
-            # below stale — so it's the codebase's own answer to "did this
-            # dataset's content move", and what the write is guarded on.
-            content_version = dataset.tile_cache_version
-
+            # The fence `write` checks: the tile version moves with every
+            # change to this dataset's content.
+            self.content_version = dataset.tile_cache_version
             try:
                 if not await _relation_exists(session, schema=schema, table=table_name):
                     raise PostgisRefreshError(
@@ -668,184 +555,106 @@ async def refresh_postgis(
                         "column an SRID, then refresh again.",
                         error_code=UNDECLARED_SRID_CODE,
                     )
-                measurement = await measure(
+                self.measurement = await measure(
                     session, dataset, table=table_name, schema=schema
                 )
             except DBAPIError as exc:
-                # The relation can be dropped or its GRANT revoked between
-                # two statements even after the existence check passes; read
-                # the verdict off the driver's SQLSTATE rather than infer it.
+                # The relation can be dropped or its GRANT revoked after the
+                # existence check; the driver's SQLSTATE says which.
                 raise _classify_db_failure(exc) from exc
             await session.rollback()
 
-        feature_count = measurement.metadata.get("feature_count")
+    async def stage(self, session, job, dataset) -> Verdict:
+        return PUBLISH
 
-        # Phase 3: WRITE what phase 2 measured, at the ordinary isolation
-        # level. The dataset is re-loaded rather than carried over — the
-        # phase 2 instance belongs to a transaction that is gone.
-        async with async_session() as session:
-            # Lock the rows, THEN check the token. Feature writes aren't
-            # blocked during measurement, and `refresh_dataset_metadata`
-            # recomputes `feature_count`/extent from the live table on every
-            # one — applying this snapshot over that would roll the catalog
-            # back. The lock makes check-and-write indivisible: a concurrent
-            # write either commits before it (caught by the token check) or
-            # waits behind this transaction. The job row comes first, then the
-            # pair, in the order `app/platform/catalog_locks.py` states.
-            #
-            # This guard does NOT detect the table owner writing directly —
-            # nothing outside GeoLens bumps a catalog field, and being atomic
-            # with an external writer would mean locking a table GeoLens
-            # doesn't own, which "no data movement" forbids. Going stale
-            # again is the ordinary condition this feature corrects on
-            # demand; what the guard closes is GeoLens rolling BACK its own
-            # newer measurement.
-            await hold_publishing_job(session, job_uuid, attempt_uuid)
-            record_id = await session.scalar(
-                select(Dataset.record_id).where(Dataset.id == dataset_uuid)
+    async def install(self, session, dataset) -> None:
+        return None
+
+    async def write(self, session, dataset) -> Published:
+        from sqlalchemy.orm import joinedload
+
+        from app.platform.extensions import get_processing_port
+
+        Dataset = get_processing_port().get_dataset_orm_class()
+        # Re-read under the held rows: a feature write that committed while
+        # the table was measured moved the tile version, and this older
+        # measurement must not roll the catalog back over it.
+        dataset = (
+            await session.execute(
+                select(Dataset)
+                .options(joinedload(Dataset.record))
+                .where(Dataset.id == dataset.id)
+                .execution_options(populate_existing=True)
             )
-            async with worker_lock_budget(session):
-                await lock_catalog_rows(
-                    session,
-                    dataset_cls=Dataset,
-                    record_cls=port.get_record_orm_class(),
-                    dataset_id=dataset_uuid,
-                    record_id=record_id,
-                    lock_timeout=None,
-                )
-            dataset = (
-                await session.execute(
-                    select(Dataset)
-                    .options(joinedload(Dataset.record))
-                    .where(Dataset.id == dataset_uuid)
-                )
-            ).scalar_one_or_none()
-            if dataset is None:
-                logger.warning("Dataset not found, skipping", dataset_id=dataset_id)
-                return
-            if dataset.tile_cache_version != content_version:
-                raise PostgisRefreshError(
-                    "This dataset's data changed while it was being measured, "
-                    "so the older measurement was discarded rather than "
-                    "written over the newer state. Refresh again.",
-                    error_code=_ERROR_CODE_SUPERSEDED,
-                )
-
-            # With no staging copy, the diff is the live table against what
-            # was recorded. Drift is recorded, never refused.
-            schema_diff = await project(session, dataset, measurement)
-
-            now = datetime.now(timezone.utc)
-            # The measurement succeeded, so the relation demonstrably exists
-            # and is readable. This strategy is the only writer of the
-            # verdict for its origin kind (the probe refuses postgis), so
-            # without this a table marked `missing` and restored would carry
-            # that verdict forever.
-            dataset.source_health = _HEALTHY
-            dataset.source_health_detail = None
-            # `last_checked_at` is stamped by the run finalizer below, from contacted_origin.
-            dataset.last_refreshed_at = now
-            # fix(#1313): the half the Valkey purge below can't do — that
-            # purge clears the SERVER cache, while the tile URL's `_v=`
-            # parameter is what busts browser/CDN caches. In the write
-            # transaction beside the content change it describes, per the
-            # contract on this method.
-            await bump_tile_cache_version_on(session, dataset)
-
-            await require_ingest_job_update(
-                session,
-                job_uuid,
-                attempt_uuid,
-                values={"status": "complete", "completed_at": now},
+        ).scalar_one()
+        if dataset.tile_cache_version != self.content_version:
+            raise PostgisRefreshError(
+                "This dataset's data changed while it was being measured, "
+                "so the older measurement was discarded rather than "
+                "written over the newer state. Refresh again.",
+                error_code=_ERROR_CODE_SUPERSEDED,
             )
-            # The run's terminal status commits with the job's, making "job
-            # complete, run still running" unreachable for the stale-run
-            # sweep. dataset_version_id is None: no data moved, so no new
-            # version to point at. contacted_origin=True: this run read the
-            # origin relation, which is what last_checked_at records.
-            await record_refresh_success(
-                session,
-                ingest_job_id=job_uuid,
-                dataset=dataset,
-                dataset_version_id=None,
-                feature_count_after=feature_count,
-                schema_diff=schema_diff,
-                contacted_origin=True,
-            )
-            live_table_name = dataset.table_name
-            await commit_publication(
-                session,
-                job_id=job_uuid,
-                attempt_id=attempt_uuid,
-                task="refresh_postgis",
-            )
-
-        # The measurement is published, so each step below logs its own
-        # failure instead of failing the refresh.
-        async with cleanup_step("refresh_postgis catalog cache", job_id=job_id):
-            await invalidate_catalog_cache()
-        # fix(#1313): unconditional, not only when the recount moved. The MVT
-        # cache key has no content-version dimension, so an owner who edits
-        # geometry or rewrites attributes without changing the row count
-        # would otherwise keep serving stale tiles until they expire.
-        async with cleanup_step("refresh_postgis tile cache", job_id=job_id):
-            await invalidate_tile_cache_for_table(live_table_name)
-
-        # Non-fatal, same reason the reupload paths do it: the embedding is
-        # built from the column names/sample values this run just rewrote.
-        async with cleanup_step("refresh_postgis embedding", job_id=job_id):
-            async with async_session() as embed_session:
-                embed_dataset = (
-                    await embed_session.execute(
-                        select(Dataset)
-                        .options(joinedload(Dataset.record))
-                        .where(Dataset.id == dataset_uuid)
-                    )
-                ).scalar_one_or_none()
-                if embed_dataset is not None:
-                    from app.processing.embeddings.helpers import defer_embedding
-
-                    await defer_embedding(embed_dataset)
-
-    except Exception as exc:  # broad: any step here is a database read that can fail
-        logger.exception(
-            "Registered-table refresh failed", job_id=job_id, task="refresh_postgis"
+        # With no staging copy the diff is the live table against what was
+        # recorded. Drift is recorded, never refused.
+        schema_diff = await project(session, dataset, self.measurement)
+        # The measurement read the relation, so it exists and is readable, and
+        # this strategy is the only writer of its origin kind's verdict.
+        dataset.source_health = _HEALTHY
+        dataset.source_health_detail = None
+        dataset.last_refreshed_at = datetime.now(timezone.utc)
+        # No data moved, so no version; the run dates the contact.
+        return Published(
+            dataset_version_id=None,
+            feature_count=self.measurement.metadata.get("feature_count"),
+            schema_diff=schema_diff,
+            contacted_origin=True,
+            live_table=dataset.table_name,
         )
-        error_code = getattr(exc, "error_code", _ERROR_CODE_GENERIC)
-        async with async_session() as err_session:
-            # fix(#1957): the job row is the one a retry of this refresh
-            # contends for. An expiry leaves it `running` for the stale sweep
-            # and does not stop the refresh-run row below from recording why.
-            await write_job_failure_for_attempt(
-                err_session,
-                job_uuid,
-                attempt_uuid,
-                values={
-                    "status": "failed",
-                    "error_message": redact_failure_reason(exc),
-                    "completed_at": datetime.now(timezone.utc),
-                },
-                task_name="refresh_postgis",
-            )
-            await stamp_failed_origin_health(
-                err_session,
-                Dataset,
-                dataset_uuid,
-                health=getattr(exc, "health", None),
-                detail=getattr(exc, "detail", None),
-                bound=bound,
-            )
-            # contacted_origin=False: the run finalizer would otherwise stamp
-            # last_checked_at for failures that never reached the relation.
-            await record_refresh_failure(
-                err_session,
-                ingest_job_id=job_uuid,
-                error_code=error_code,
-                error_message=exc,
-                contacted_origin=False,
-            )
-            await err_session.commit()
-        raise
-    finally:
-        async with cleanup_step("refresh_postgis heartbeat", job_id=job_id):
-            await stop_ingest_job_heartbeat(heartbeat_task)
+
+    def classify(self, exc: BaseException) -> Failure:
+        health = getattr(exc, "health", None)
+        code = getattr(exc, "error_code", _ERROR_CODE_GENERIC)
+        return Failure(
+            code,
+            contacted=self.bound if health is not None else None,
+            health=(health, getattr(exc, "detail", None))
+            if health is not None
+            else None,
+            # An edit overtook the measurement, and the message says to refresh again.
+            notify=code != _ERROR_CODE_SUPERSEDED,
+        )
+
+    async def release(
+        self, *, publication: PublicationCommit | None, failed: bool
+    ) -> None:
+        return None
+
+
+@task_app.task(queue="ingest", retry=0)
+@tenant_task
+async def refresh_postgis(
+    job_id: str,
+    dataset_id: str,
+    attempt_id: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Background task: re-measure the registered table behind this dataset.
+
+    Recounts features, recomputes the extent and the 3D facts, and rebuilds
+    the column schema snapshot, the sample values, the attribute metadata and
+    the quality score from the live relation. Nothing is copied and nothing is
+    swapped.
+
+    No ``user_id`` argument, unlike the re-upload tasks: a measurement is not
+    a new version of the data, so it stamps no ``DatasetVersion`` or audit
+    event. The actor is already on the run row as ``triggered_by``.
+    """
+    _bind_task_log_context(
+        task_name="refresh_postgis", job_id=job_id, dataset_id=dataset_id
+    )
+    await settle_replacement(
+        _PostgisRefresh(dataset_id=dataset_id),
+        job_id=job_id,
+        dataset_id=dataset_id,
+        attempt_id=attempt_id,
+    )

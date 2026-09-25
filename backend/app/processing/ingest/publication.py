@@ -19,9 +19,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import structlog
 from sqlalchemy import select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import joinedload
 
-from app.core.failure_reason import redact_failure_reason
+from app.core.db.sqlstate import is_lock_conflict
+from app.core.failure_reason import FixedReason, redact_failure_reason
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.catalog_locks import (
     CatalogLockConflict,
@@ -102,6 +104,10 @@ class Published:
     verification: dict[str, Any] | None = None
     # Its cached tiles are purged after the commit.
     live_table: str | None = None
+    # Whether the write changed tile content, which bumps the tile version.
+    tiles_changed: bool = True
+    # Whether it changed what the dataset's search embedding is built from.
+    reembed: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,8 +120,27 @@ class Failure:
     verification: dict[str, Any] | None = None
     # The origin binding the attempt contacted, when it reached the origin.
     contacted: tuple[str | None, dict[str, Any] | None, str | None] | None = None
+    # What the contact established about the origin: (health, detail).
+    health: tuple[str, str | None] | None = None
     # A refused input is recorded like any failure, but the task returns.
     refused: bool = False
+    # A landed failure sends ingest_failed; a benign race need not.
+    notify: bool = True
+    # Stored in place of the exception's own text.
+    reason: str | None = None
+
+
+class DatasetDeleted(Exception):
+    """The attempt's dataset was deleted while the attempt ran."""
+
+
+# The owner ended the attempt, so the job says so and nothing is mailed. The
+# run was deleted with the dataset, so its code is never stored.
+_DATASET_DELETED = Failure(
+    "dataset_deleted",
+    notify=False,
+    reason=FixedReason("The dataset was deleted while this job was running."),
+)
 
 
 class ReplacementStrategy(Protocol):
@@ -286,6 +311,7 @@ class _Attempt:
     # Set as the publishing commit returns, before anything else can raise or
     # be cancelled, so cleanup never reaps what the commit published.
     publication: PublicationCommit | None = None
+    reembed: bool = True
 
 
 async def settle_replacement(
@@ -318,7 +344,11 @@ async def settle_replacement(
         failed = await _publish(strategy, attempt)
     except Exception as exc:  # broad: every failure before the commit is recorded once
         failed = True
-        failure = strategy.classify(exc)
+        failure = (
+            _DATASET_DELETED
+            if isinstance(exc, DatasetDeleted)
+            else strategy.classify(exc)
+        )
         logger.exception("Ingest task failed", job_id=job_id, task=strategy.task)
         await _record_failure(strategy, attempt, exc, failure)
         if failure.refused:
@@ -331,7 +361,7 @@ async def settle_replacement(
             await _drop_staging_table(attempt.staging_table)
         await strategy.release(publication=attempt.publication, failed=failed)
 
-    if attempt.publication is not None:
+    if attempt.publication is not None and attempt.reembed:
         async with cleanup_step(f"{strategy.task} embedding", job_id=job_id):
             await _defer_embedding(attempt.dataset_id)
 
@@ -411,16 +441,29 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                     IngestJob.id == job_id, IngestJob.attempt_id == attempt_id
                 )
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if job is None:
+            raise StaleIngestAttempt(
+                f"Ingest attempt {attempt_id} no longer owns job {job_id}"
+            )
         dataset = (
             await session.execute(
                 select(Dataset)
                 .options(joinedload(Dataset.record))
                 .where(Dataset.id == attempt.dataset_id)
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if dataset is None:
+            raise DatasetDeleted
         verdict = await strategy.stage(session, job, dataset)
         await hold_publishing_job(session, job_id, attempt_id)
+        # A delete takes the job rows first: one that beat the hold has removed
+        # the dataset, and one that did not waits for this transaction.
+        present = await session.scalar(
+            select(Dataset.id).where(Dataset.id == dataset.id)
+        )
+        if present is None:
+            raise DatasetDeleted
 
         if not verdict.publish:
             await _take_catalog_rows(session, strategy, dataset)
@@ -449,7 +492,9 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
         published = await strategy.write(session, dataset)
-        await bump_tile_cache_version_on(session, dataset)
+        attempt.reembed = published.reembed
+        if published.tiles_changed:
+            await bump_tile_cache_version_on(session, dataset)
         await _complete(
             session,
             job_id,
@@ -537,10 +582,11 @@ async def _record_failure(
     """End the attempt's job and run as failed in one bounded transaction.
 
     Never raises: the task's own failure is what the caller re-raises. Sends
-    ``ingest_failed`` when the job's end landed.
+    ``ingest_failed`` when the job's end landed and ``failure.notify`` is set.
     """
     from app.core.db import async_session
 
+    reason = failure.reason or exc
     stamped = False
 
     async def _settle(session: AsyncSession) -> None:
@@ -549,15 +595,14 @@ async def _record_failure(
             session,
             ingest_job_id=attempt.job_id,
             error_code=failure.error_code,
-            error_message=exc,
-            contacted_origin=False,
+            error_message=reason,
             feature_count_after=failure.feature_count_after,
             schema_diff=failure.schema_diff,
             verification=failure.verification,
         )
         if failure.contacted is not None:
             stamped = await _stamp_contact(
-                session, attempt.dataset_id, failure.contacted
+                session, attempt.dataset_id, failure.contacted, failure.health
             )
 
     try:
@@ -573,7 +618,7 @@ async def _record_failure(
                 session,
                 attempt.job_id,
                 attempt.attempt_id,
-                reason=exc,
+                reason=reason,
                 linked=_settle,
             )
             await session.commit()
@@ -587,43 +632,70 @@ async def _record_failure(
             f"{strategy.task} catalog cache", job_id=str(attempt.job_id)
         ):
             await invalidate_catalog_cache()
-    if landed:
-        await _notify_failed(attempt.job_id, task=strategy.task, reason=exc)
+    if landed and failure.notify:
+        await _notify_failed(attempt.job_id, task=strategy.task, reason=reason)
+
+
+# How long a failure's origin verdict waits for a dataset row another
+# transaction holds. An edit holds it for moments, and nothing else records
+# the verdict.
+_VERDICT_LOCK_TIMEOUT = "1s"
 
 
 async def _stamp_contact(
     session: AsyncSession,
     dataset_id: uuid.UUID,
     binding: tuple[str | None, dict[str, Any] | None, str | None],
+    health: tuple[str, str | None] | None = None,
 ) -> bool:
     """Date a failed attempt's origin contact, only while the dataset is still bound as it read.
 
-    A rebind that finished first stamped what is true now, so losing the race
-    writes nothing. A row another transaction holds is skipped the same way:
-    the failure is often the wait on that row, and its write must not wait
-    again.
+    ``health`` is written with it when the contact established one. A rebind
+    that finished first stamped what is true now, so losing the race writes
+    nothing. A bare contact skips a row another transaction holds, since the
+    failure is often the wait on that row. A verdict waits for the row up to
+    ``_VERDICT_LOCK_TIMEOUT`` and is skipped only when that wait runs out.
     """
     from app.platform.extensions import get_processing_port
 
     Dataset = get_processing_port().get_dataset_orm_class()
     origin_uri, origin_ref, source_format = binding
-    free = (
-        select(Dataset.id)
-        .where(Dataset.id == dataset_id)
-        .with_for_update(key_share=True, skip_locked=True)
-    )
-    stamped = await session.execute(
+    values: dict[str, Any] = {"last_checked_at": datetime.now(timezone.utc)}
+    if health is not None:
+        values.update(source_health=health[0], source_health_detail=health[1])
+    stamp = (
         update(Dataset)
         .where(
             Dataset.id == dataset_id,
-            Dataset.id.in_(free),
             Dataset.origin_uri.is_not_distinct_from(origin_uri),
             Dataset.origin_ref.is_not_distinct_from(origin_ref),
             Dataset.source_format.is_not_distinct_from(source_format),
         )
-        .values(last_checked_at=datetime.now(timezone.utc))
+        .values(**values)
         .execution_options(synchronize_session=False)
     )
+    if health is None:
+        free = (
+            select(Dataset.id)
+            .where(Dataset.id == dataset_id)
+            .with_for_update(key_share=True, skip_locked=True)
+        )
+        stamped = await session.execute(stamp.where(Dataset.id.in_(free)))
+        return bool(stamped.rowcount)
+    set_lock_timeout = text("SELECT set_config('lock_timeout', :value, true)")
+    try:
+        # A savepoint, so a wait that runs out keeps the job's and run's failure.
+        async with session.begin_nested():
+            budget = await session.scalar(
+                text("SELECT current_setting('lock_timeout')")
+            )
+            await session.execute(set_lock_timeout, {"value": _VERDICT_LOCK_TIMEOUT})
+            stamped = await session.execute(stamp)
+            await session.execute(set_lock_timeout, {"value": budget})
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        return False
     return bool(stamped.rowcount)
 
 

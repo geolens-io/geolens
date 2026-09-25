@@ -545,14 +545,6 @@ class TestRunLifecycle:
             ingest_job_id=job.id,
             error_code="service_refresh_failed",
             error_message="GDAL: https://svc.example/wfs?token=hunter2 returned 500",
-            contacted_origin=True,
-            # feat(#1220): the contact stamp is a guarded write now, and the
-            # binding this attempt read is what guards it.
-            origin_binding=(
-                dataset.origin_uri,
-                dataset.origin_ref,
-                dataset.source_format,
-            ),
         )
         await test_db_session.commit()
         await test_db_session.refresh(run)
@@ -564,7 +556,7 @@ class TestRunLifecycle:
         assert "hunter2" not in run.error_message
         assert run.dataset_version_id is None
         assert dataset.last_refreshed_at == datetime(2026, 1, 1, tzinfo=timezone.utc)
-        assert dataset.last_checked_at is not None
+        assert dataset.last_checked_at is None
 
     async def test_local_failure_does_not_stamp_last_checked_at(
         self, test_db_session
@@ -585,7 +577,6 @@ class TestRunLifecycle:
             ingest_job_id=job.id,
             error_code="validation_failed",
             error_message="Unsupported file",
-            contacted_origin=False,
         )
         await test_db_session.commit()
         await test_db_session.refresh(dataset)
@@ -609,7 +600,6 @@ class TestRunLifecycle:
             ingest_job_id=job.id,
             error_code="file_refresh_failed",
             error_message="boom",
-            contacted_origin=False,
         )
         await test_db_session.commit()
 
@@ -764,7 +754,6 @@ class TestAdmissionControl:
             ingest_job_id=job.id,
             error_code="file_refresh_failed",
             error_message="boom",
-            contacted_origin=False,
         )
         await test_db_session.commit()
 
@@ -987,7 +976,6 @@ class TestCompareAndSetTransitions:
                 ingest_job_id=job.id,
                 error_code="file_refresh_failed",
                 error_message="late arrival",
-                contacted_origin=False,
             )
             is None
         )
@@ -1009,7 +997,6 @@ class TestCompareAndSetTransitions:
                 ingest_job_id=job.id,
                 error_code="service_refresh_failed",
                 error_message="ssrf refusal",
-                contacted_origin=False,
             )
             == run.id
         )
@@ -1412,8 +1399,6 @@ async def _seed_history(session, *, visibility: str = "public"):
         ingest_job_id=job.id,
         error_code="service_refresh_failed",
         error_message="Layer 'parcels' vanished from the service",
-        contacted_origin=True,
-        origin_binding=(dataset.origin_uri, dataset.origin_ref, dataset.source_format),
         schema_diff={
             "columns_added": [],
             "columns_removed": [{"name": "private_column", "type": "text"}],

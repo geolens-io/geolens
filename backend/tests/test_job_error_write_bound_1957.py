@@ -35,14 +35,11 @@ pytestmark = pytest.mark.anyio
 _TEST_BUDGET_MS = 400
 
 # The remaining sites and the routine each reaches its terminal job write
-# through. ``regenerate_vrt`` arms directly: its handler writes two more rows
-# in the same session and the budget belongs to that whole transaction.
+# through. ``regenerate_vrt`` and the settlement seam arm directly: each writes
+# more rows in the same transaction, and the budget belongs to all of it.
 _REMAINING_SITES = {
-    ("app.processing.ingest.tasks_postgis_refresh", "refresh_postgis"): (
-        "write_job_failure_for_attempt"
-    ),
-    ("app.processing.ingest.tasks_stac_refresh", "refresh_stac"): (
-        "write_job_failure_for_attempt"
+    ("app.processing.ingest.publication", "_record_failure"): (
+        "arm_job_error_write_budget"
     ),
     ("app.processing.analysis.tasks", "_fail_cancelled_job"): (
         "write_job_failure_for_attempt"

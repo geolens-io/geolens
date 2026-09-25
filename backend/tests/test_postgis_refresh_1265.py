@@ -779,8 +779,9 @@ class TestPostgisRefreshExecution:
 
         payload = await _dispatch(client, admin_auth_header, dataset.id)
         purge = AsyncMock()
-        with patch.object(
-            tasks_postgis_refresh, "invalidate_tile_cache_for_table", purge
+        with patch(
+            "app.processing.ingest.publication.invalidate_tile_cache_for_table",
+            purge,
         ):
             await _execute(test_db_session, payload)
 

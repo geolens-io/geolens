@@ -1573,9 +1573,18 @@ class TestEveryJobWriterLeadsWithTheJobRow:
     raster row takes the job row first, the order the dataset delete holds.
     """
 
-    _JOB_WRITES = ("require_ingest_job_update(", "update_ingest_job_for_attempt(")
+    _JOB_WRITES = (
+        "require_ingest_job_update(",
+        "update_ingest_job_for_attempt(",
+        "_complete(",
+        "_fail(",
+    )
     _JOB_LOCKS = ("hold_publishing_job",)
-    _ROW_LOCKS = ("lock_catalog_rows", "lock_catalog_rows_for_write")
+    _ROW_LOCKS = (
+        "lock_catalog_rows",
+        "lock_catalog_rows_for_write",
+        "_take_catalog_rows",
+    )
 
     @classmethod
     def _first_locks(cls, body: list[ast.stmt]) -> tuple[int | None, int | None]:
@@ -1634,7 +1643,7 @@ class TestEveryJobWriterLeadsWithTheJobRow:
 
         root = Path(app.__file__).parent / "processing" / "ingest"
         seen = 0
-        for name in ("tasks_vrt.py", "tasks_stac_refresh.py"):
+        for name in ("tasks_vrt.py", "publication.py"):
             for node in ast.walk(ast.parse((root / name).read_text())):
                 if isinstance(node, ast.AsyncWith):
                     job, other = self._first_locks(node.body)
@@ -2409,10 +2418,12 @@ _PAIR_WRITER_EXEMPTIONS = {
     "app.processing.ingest.tasks_common.apply_manifest_record_metadata": "record only",
     "app.processing.ingest.tasks_raster_swap._write_swapped_fields": "sync, no session; the raster strategy's write calls it holding the rows",
     # --- writes both rows under its callers' acquisition -------------------
-    "app.processing.ingest.catalog_projection.project": "the settlement seam and refresh_postgis take the job row and the pair first",
+    "app.processing.ingest.catalog_projection.project": "the settlement seam takes the job row and the pair before a strategy projects",
     "app.processing.ingest.tasks_common._write_reupload_catalog": "the settlement seam takes the job row and the pair before a strategy writes",
     "app.processing.ingest.tasks_reupload.write": "the file and service strategies' write step, which the settlement seam calls holding the job row and the pair",
     "app.processing.ingest.tasks_raster_replace.write": "the raster strategy's write step, which the settlement seam calls holding the job row, the raster row and the pair",
+    "app.processing.ingest.tasks_postgis_refresh.write": "the PostGIS strategy's write step, which the settlement seam calls holding the job row and the pair",
+    "app.processing.ingest.tasks_stac_refresh.write": "the STAC strategy's write step, which the settlement seam calls holding the job row, the raster row and the pair",
 }
 
 

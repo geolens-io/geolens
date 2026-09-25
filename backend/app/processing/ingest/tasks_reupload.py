@@ -157,7 +157,6 @@ async def _settle_keyed_execution_timeout(
                     ingest_job_id=job_id,
                     error_code="scheduled_execution_timeout",
                     error_message=TIMEOUT_ERROR_MESSAGE,
-                    contacted_origin=False,
                 )
             await session.commit()
             return settled_job
@@ -1111,7 +1110,6 @@ class _ServiceReupload:
                 ingest_job_id=self.job_uuid,
                 error_code=error_code,
                 error_message=message,
-                contacted_origin=False,
                 feature_count_after=self.measured_feature_count,
                 schema_diff=self.measured_schema_diff,
                 verification=self.verification,

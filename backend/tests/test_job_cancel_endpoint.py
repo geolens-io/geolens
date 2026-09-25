@@ -827,7 +827,6 @@ class TestCancelMachinery:
             ingest_job_id=job.id,
             error_code="file_refresh_failed",
             error_message="worker unwound after the fence",
-            contacted_origin=False,
         )
         assert result is None
         await test_db_session.refresh(run)

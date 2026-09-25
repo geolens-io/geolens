@@ -267,7 +267,6 @@ async def execute_admitted_refresh(
                 ingest_job_id=job_id,
                 error_code="scheduled_job_missing",
                 error_message="The admitted refresh job no longer exists.",
-                contacted_origin=False,
             )
             await session.commit()
             return RefreshExecutionResult(
@@ -344,7 +343,6 @@ async def execute_admitted_refresh(
                 ingest_job_id=job_id,
                 error_code="scheduled_executor_failed",
                 error_message=exc,
-                contacted_origin=False,
             )
             await session.commit()
         return RefreshExecutionResult(

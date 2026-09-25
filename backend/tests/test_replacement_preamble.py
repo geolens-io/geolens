@@ -492,6 +492,180 @@ async def test_a_raster_progress_stamp_leaves_a_job_that_left_running(
     assert (job.status, job.current_step) == ("cancelled", "queued")
 
 
+async def test_a_stac_failure_lands_while_its_dataset_row_is_held(
+    replace, monkeypatch
+) -> None:
+    """A STAC refresh that reached its catalog fails without waiting on a held dataset row."""
+    from types import SimpleNamespace
+
+    from app.platform.extensions import get_processing_port
+    from app.processing.ingest.tasks_stac_refresh import StacRefreshError
+
+    monkeypatch.setattr("app.platform.jobs.heartbeat.JOB_ERROR_WRITE_TIMEOUT_MS", 1500)
+    replacement = await replace("stac")
+    unresolved = SimpleNamespace(
+        resolved=False, health=None, detail=None, contacted=True
+    )
+    monkeypatch.setattr(
+        type(get_processing_port()),
+        "resolve_stac_binding",
+        AsyncMock(return_value=unresolved),
+    )
+    sent = AsyncMock()
+    async with db_module.async_session() as holder:
+        await holder.execute(
+            select(Dataset.id)
+            .where(Dataset.id == replacement.dataset_id)
+            .with_for_update()
+        )
+        try:
+            with patch("app.platform.notifications.events.emit_event_safe", new=sent):
+                with pytest.raises(StacRefreshError):
+                    await asyncio.wait_for(replacement.run(), timeout=_TIMEOUT)
+        finally:
+            await holder.rollback()
+
+    job = await _fresh_scalar(
+        select(IngestJob).where(IngestJob.id == replacement.job_id)
+    )
+    run = await _fresh_scalar(
+        select(DatasetRefreshRun).where(
+            DatasetRefreshRun.ingest_job_id == replacement.job_id
+        )
+    )
+    assert job.status == "failed"
+    assert job.error_message.startswith("GeoLens could not read the STAC item")
+    assert (run.status, run.error_code) == ("failed", "source_inaccessible")
+    assert [call.kwargs["event_key"] for call in sent.await_args_list] == [
+        "ingest_failed"
+    ]
+
+
+async def _discarded_behind(replacement, edit: str) -> tuple[BaseException, list]:
+    """Run the refresh behind a held dataset row, commit ``edit`` there, and return what the refresh raised and sent."""
+    from tests.test_worker_swap_bump_after_lock_1911 import _overlap
+
+    sent = AsyncMock()
+    async with (
+        db_module.async_session() as holder,
+        db_module.async_session() as probe,
+    ):
+        real_commit = holder.commit
+
+        async def _commit_with_edit():
+            await holder.execute(text(edit), {"d": replacement.dataset_id})
+            await real_commit()
+
+        holder.commit = _commit_with_edit
+        with (
+            _quiet_embedding(),
+            patch("app.platform.notifications.events.emit_event_safe", new=sent),
+            pytest.raises(Exception) as raised,
+        ):
+            await _overlap(holder, probe, replacement.dataset_id, replacement.run())
+    return raised.value, [call.kwargs["event_key"] for call in sent.await_args_list]
+
+
+async def _job_and_run(replacement) -> tuple:
+    job = await _fresh_scalar(
+        select(IngestJob.status).where(IngestJob.id == replacement.job_id)
+    )
+    run = await _fresh_scalar(
+        select(DatasetRefreshRun).where(
+            DatasetRefreshRun.ingest_job_id == replacement.job_id
+        )
+    )
+    return job, (run.status, run.error_code)
+
+
+async def test_a_measurement_older_than_an_edit_it_waited_behind_is_discarded(
+    replace,
+) -> None:
+    """A PostGIS refresh parked on the dataset row reads the edit's version under it, publishes nothing and sends nothing."""
+    from app.processing.ingest.tasks_postgis_refresh import PostgisRefreshError
+
+    replacement = await replace("postgis")
+    before = await _fresh_scalar(
+        select(Dataset.feature_count).where(Dataset.id == replacement.dataset_id)
+    )
+
+    raised, sent = await _discarded_behind(replacement, "SELECT 1")
+
+    assert isinstance(raised, PostgisRefreshError), raised
+    assert await _job_and_run(replacement) == ("failed", ("failed", "superseded"))
+    assert sent == []
+    assert (
+        await _fresh_scalar(
+            select(Dataset.feature_count).where(Dataset.id == replacement.dataset_id)
+        )
+        == before
+    )
+
+
+async def test_a_stac_answer_older_than_a_rebind_it_waited_behind_is_discarded(
+    replace,
+) -> None:
+    """A STAC refresh parked on the dataset row reads the rebind under it, leaves the rebind standing and undated, and sends nothing."""
+    from app.processing.ingest.tasks_stac_refresh import StacRefreshError
+
+    replacement = await replace("stac")
+    rebound = "https://stac.example.com/rebound/scene.tif"
+    origin = select(Dataset.origin_uri, Dataset.last_checked_at).where(
+        Dataset.id == replacement.dataset_id
+    )
+    async with db_module.async_session() as session:
+        checked = (await session.execute(origin)).one().last_checked_at
+
+    raised, sent = await _discarded_behind(
+        replacement,
+        f"UPDATE catalog.datasets SET origin_uri = '{rebound}' WHERE id = :d",
+    )
+
+    assert isinstance(raised, StacRefreshError), raised
+    assert await _job_and_run(replacement) == ("failed", ("failed", "superseded"))
+    assert sent == []
+    async with db_module.async_session() as session:
+        assert tuple((await session.execute(origin)).one()) == (rebound, checked)
+
+
+async def test_a_postgis_dataset_deleted_before_its_measurement_ends_the_job_quietly(
+    replace, monkeypatch
+) -> None:
+    """A registered table's dataset deleted during the refresh fails the job with a fixed reason and sends nothing."""
+    from app.processing.ingest import tasks_postgis_refresh
+    from app.processing.ingest.publication import DatasetDeleted
+
+    replacement = await replace("postgis")
+    repair = tasks_postgis_refresh._repair_geom_4326
+
+    async def _delete_then_repair(*args, **kwargs):
+        async with db_module.async_session() as session:
+            await session.execute(
+                text(
+                    "DELETE FROM catalog.records WHERE id = "
+                    "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+                ),
+                {"id": replacement.dataset_id},
+            )
+            await session.commit()
+        return await repair(*args, **kwargs)
+
+    monkeypatch.setattr(tasks_postgis_refresh, "_repair_geom_4326", _delete_then_repair)
+    sent = AsyncMock()
+    with patch("app.platform.notifications.events.emit_event_safe", new=sent):
+        with pytest.raises(DatasetDeleted):
+            await replacement.run()
+
+    job = await _fresh_scalar(
+        select(IngestJob).where(IngestJob.id == replacement.job_id)
+    )
+    assert (job.status, job.error_message) == (
+        "failed",
+        "The dataset was deleted while this job was running.",
+    )
+    sent.assert_not_awaited()
+
+
 @pytest.mark.parametrize("kind", ["file", "service"])
 async def test_a_job_warning_recorded_before_the_hold_survives_it(
     replace, monkeypatch, kind: str

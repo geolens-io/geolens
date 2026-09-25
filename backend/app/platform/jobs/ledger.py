@@ -532,7 +532,6 @@ async def _end_refresh_run(session: AsyncSession, end: JobEnd) -> uuid.UUID | No
         ingest_job_id=end.job_id,
         error_code=end.code,
         error_message=end.reason,
-        contacted_origin=False,
     )
 
 

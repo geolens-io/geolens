@@ -18,7 +18,7 @@ from app.core.db.sqlstate import sqlstate
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform import catalog_locks
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE
-from app.platform.jobs.heartbeat import attempt_scoped_staging_table
+from app.platform.jobs.heartbeat import StaleIngestAttempt, attempt_scoped_staging_table
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
@@ -28,6 +28,7 @@ from app.platform.refresh.service import (
 )
 from app.processing.ingest.publication import (
     PUBLISH,
+    DatasetDeleted,
     Failure,
     PublicationCommit,
     Published,
@@ -513,7 +514,6 @@ def _rejection(seed: _Seed) -> Verdict:
             ingest_job_id=seed.job_id,
             error_code="refresh_rejected",
             error_message="rejected",
-            contacted_origin=False,
         )
 
     return Verdict(
@@ -632,6 +632,125 @@ async def test_a_lost_catalog_wait_ends_the_job_without_waiting_on_the_held_row(
         assert (await reader.get(Dataset, seed.dataset_id)).last_checked_at == checked
 
 
+async def _missing(seed: _Seed) -> Failure:
+    """A failure that established the origin is missing, contacted as the seed is bound."""
+    async with db_module.async_session() as reader:
+        dataset = await reader.get(Dataset, seed.dataset_id)
+        bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+    return Failure("source_missing", contacted=bound, health=("missing", "not_found"))
+
+
+async def _origin(seed: _Seed) -> tuple:
+    async with db_module.async_session() as reader:
+        dataset = await reader.get(Dataset, seed.dataset_id)
+        return (
+            dataset.source_health,
+            dataset.source_health_detail,
+            dataset.last_checked_at,
+        )
+
+
+async def test_a_failure_verdict_lands_once_a_brief_hold_on_the_dataset_row_ends(
+    seed, notifications
+) -> None:
+    """A failure's origin verdict waits out an edit's short hold on the dataset row."""
+    fake = _Fake(seed, fail_at="fetch", failure=await _missing(seed))
+    async with db_module.async_session() as holder:
+        # The lock an edit's UPDATE of the row takes.
+        await holder.execute(seed.rows()["dataset"].with_for_update(key_share=True))
+        holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
+        task = asyncio.create_task(_settle(fake))
+        try:
+            waited = await _waits_on(holder_pid, task)
+        finally:
+            await holder.rollback()
+        with pytest.raises(RuntimeError, match="fetch failed"):
+            await asyncio.wait_for(task, timeout=20)
+
+    assert waited, "the verdict was stamped or skipped without waiting for the row"
+    state = await _state(seed)
+    assert (state["job"], state["run"]) == ("failed", ("failed", "source_missing"))
+    health, detail, checked = await _origin(seed)
+    assert (health, detail) == ("missing", "not_found")
+    assert checked is not None
+    assert _events(notifications) == ["ingest_failed"]
+
+
+async def test_a_failure_verdict_behind_a_long_hold_is_dropped_and_the_failure_lands(
+    seed, notifications
+) -> None:
+    """A verdict whose dataset row stays held past its short wait is dropped, and the job and run still fail."""
+    before = await _origin(seed)
+    fake = _Fake(seed, fail_at="fetch", failure=await _missing(seed))
+    async with db_module.async_session() as holder:
+        await holder.execute(seed.rows()["dataset"].with_for_update(key_share=True))
+        try:
+            with pytest.raises(RuntimeError, match="fetch failed"):
+                await asyncio.wait_for(_settle(fake), timeout=20)
+        finally:
+            await holder.rollback()
+
+    state = await _state(seed)
+    assert (state["job"], state["run"]) == ("failed", ("failed", "source_missing"))
+    assert await _origin(seed) == before
+    assert _events(notifications) == ["ingest_failed"]
+
+
+async def test_an_attempt_rotated_during_the_fetch_is_stale_and_writes_nothing(
+    seed, notifications
+) -> None:
+    """A job handed to a newer attempt mid-fetch raises StaleIngestAttempt and is left to that attempt."""
+
+    async def _rotate() -> None:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == seed.job_id)
+                .values(attempt_id=uuid.uuid4())
+            )
+            await session.commit()
+
+    fake = _Fake(seed, during={"fetch": _rotate})
+    with pytest.raises(StaleIngestAttempt):
+        await _settle(fake)
+
+    state = await _state(seed)
+    assert state["job"] == "running"
+    assert state["catalog"] == (1, "Test Dataset", 1)
+    assert state["live"] == "before"
+    assert state["staging_left"] == 0
+    assert "stage" not in fake.seen
+    assert _events(notifications) == []
+
+
+@pytest.mark.parametrize("step", ["fetch", "stage"])
+async def test_a_dataset_deleted_during_the_attempt_ends_its_job_quietly(
+    seed, notifications, step: str
+) -> None:
+    """A dataset deleted mid-attempt fails the job with a fixed reason and sends nothing."""
+
+    async def _delete() -> None:
+        async with db_module.async_session() as session:
+            # The record's delete cascades to the dataset, as a dataset delete does.
+            await session.execute(
+                text("DELETE FROM catalog.records WHERE id = :id"),
+                {"id": seed.record_id},
+            )
+            await session.commit()
+
+    fake = _Fake(seed, during={step: _delete})
+    with pytest.raises(DatasetDeleted):
+        await _settle(fake)
+
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, seed.job_id)
+    assert (job.status, job.error_message) == (
+        "failed",
+        "The dataset was deleted while this job was running.",
+    )
+    assert _events(notifications) == []
+
+
 async def test_a_held_back_verdict_without_a_settle_step_is_refused() -> None:
     """A verdict that holds the candidate back must say how its run ends."""
     with pytest.raises(ValueError, match="settle step"):
@@ -686,3 +805,24 @@ async def test_a_lost_claim_drops_the_table_its_attempt_left_behind(seed) -> Non
     assert "fetch" not in fake.seen
     state = await _state(seed)
     assert (state["job"], state["staging_left"]) == ("running", 0)
+
+
+async def test_a_contact_stamp_matches_an_origin_ref_in_another_key_order(seed) -> None:
+    """The stamp's binding guard compares origin_ref as JSON, so key order is no rebind."""
+    from app.platform.dataset_origin import set_dataset_origin
+    from app.processing.ingest.publication import _stamp_contact
+
+    url = "https://services.example.test/wfs"
+    async with db_module.async_session() as session:
+        dataset = await session.get(Dataset, seed.dataset_id)
+        set_dataset_origin(
+            dataset, "service", uri=url, service_type="wfs", url=url, layer_id="roads"
+        )
+        reordered = dict(reversed(list(dataset.origin_ref.items())))
+        binding = (dataset.origin_uri, reordered, dataset.source_format)
+        await session.commit()
+
+        stamped = await _stamp_contact(session, seed.dataset_id, binding)
+        await session.commit()
+
+    assert stamped

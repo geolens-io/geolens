@@ -2526,7 +2526,12 @@ class TestWorker:
         before_ingested = (await _raster_asset(dataset.id)).ingested_at
 
         payload = await _dispatch(client, admin_auth_header, dataset.id)
-        await _execute(test_db_session, payload)
+        embed = AsyncMock()
+        with patch("app.processing.embeddings.helpers.defer_embedding", new=embed):
+            await _execute(test_db_session, payload)
+
+        # The moved asset's bands and CRS are what the raster embedding reads.
+        embed.assert_awaited_once()
 
         refreshed = await _reload(dataset.id)
         assert refreshed.origin_ref["asset_href"] == _MOVED_ASSET
@@ -2859,8 +2864,12 @@ class TestWorker:
         before_refreshed = dataset.last_refreshed_at
 
         payload = await _dispatch(client, admin_auth_header, dataset.id)
-        await _execute(test_db_session, payload)
+        embed = AsyncMock()
+        with patch("app.processing.embeddings.helpers.defer_embedding", new=embed):
+            await _execute(test_db_session, payload)
 
+        # Nothing the embedding reads moved, so none is queued.
+        embed.assert_not_awaited()
         refreshed = await _reload(dataset.id)
         assert refreshed.origin_ref["asset_href"] == _ASSET
         assert refreshed.origin_uri == _ASSET

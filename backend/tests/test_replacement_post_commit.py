@@ -576,19 +576,14 @@ _STEPS = {
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "postgis": {
-        "catalog cache": (
-            "app.processing.ingest.tasks_postgis_refresh.invalidate_catalog_cache"
-        ),
+        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
         "tile cache": (
-            "app.processing.ingest.tasks_postgis_refresh"
-            ".invalidate_tile_cache_for_table"
+            "app.processing.ingest.publication.invalidate_tile_cache_for_table"
         ),
         "embedding": "app.processing.embeddings.helpers.defer_embedding",
     },
     "stac": {
-        "catalog cache": (
-            "app.processing.ingest.tasks_stac_refresh.invalidate_catalog_cache"
-        ),
+        "catalog cache": "app.processing.ingest.publication.invalidate_catalog_cache",
     },
 }
 
@@ -876,7 +871,7 @@ async def test_a_lost_acknowledgement_stands_down_as_published(
         )
 
 
-@pytest.mark.parametrize("kind", ["file", "service", "raster"])
+@pytest.mark.parametrize("kind", sorted(_BUILDERS))
 async def test_a_cancel_after_the_publishing_commit_keeps_the_publication(
     replace, kind: str
 ) -> None:
