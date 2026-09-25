@@ -213,15 +213,7 @@ async def _drive_finalize_verbatim(
         source_format="gpkg",
         original_srid=4326,
     )
-    await require_ingest_job_update(
-        session,
-        job_id,
-        attempt_id,
-        values={
-            "status": "complete",
-            "completed_at": datetime.now(timezone.utc),
-        },
-    )
+    await ledger.complete(session, job_id, attempt_id)
     await record_refresh_success(
         session,
         ingest_job_id=job_id,
@@ -514,12 +506,7 @@ class TestRetry:
 
         assert not await ledger.claim(test_db_session, job_id, old_attempt)
         with pytest.raises(StaleIngestAttempt):
-            await require_ingest_job_update(
-                test_db_session,
-                job_id,
-                old_attempt,
-                values={"status": "complete"},
-            )
+            await ledger.complete(test_db_session, job_id, old_attempt)
         await test_db_session.rollback()
 
         row = await _row(test_db_session, job_id)

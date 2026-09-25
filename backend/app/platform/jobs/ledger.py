@@ -47,9 +47,9 @@ _CANCEL_REASON = FixedReason("Cancelled by user")
 # The job's columns an owner's hook reads when an end lands.
 _END_COLUMNS = ("dataset_id", "source_filename", "user_metadata", "created_by")
 
-# The columns a transition writes itself or fences on, which its caller's
-# ``values`` may not.
-_WRITTEN_BY_THE_LEDGER = frozenset(
+# The columns a transition writes itself or fences on. Neither a transition's
+# ``values`` nor heartbeat's fenced update may name them.
+OWNED_COLUMNS = frozenset(
     {"status", "error_message", "completed_at", "attempt_id", "id"}
 )
 
@@ -160,7 +160,7 @@ def _mirror(job: IngestJob, values: Mapping[str, Any]) -> None:
 def _extra(values: Mapping[str, Any] | None) -> dict[str, Any]:
     """A transition's further columns, refused if they name one it writes itself."""
     extra = dict(values or {})
-    if owned := _WRITTEN_BY_THE_LEDGER & extra.keys():
+    if owned := OWNED_COLUMNS & extra.keys():
         raise ValueError(f"the ledger writes {sorted(owned)} itself")
     return extra
 

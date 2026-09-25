@@ -57,11 +57,10 @@ async def test_expired_attempt_cannot_renew_or_finalize_retried_job(test_db_sess
     # The resumed delivery for A cannot adopt B's token.
     assert not await renew_ingest_job_heartbeat(job.id, attempt_a)
     assert not await update_ingest_job_for_attempt(
-        test_db_session,
-        job.id,
-        attempt_a,
-        values={"status": "complete", "completed_at": datetime.now(timezone.utc)},
+        test_db_session, job.id, attempt_a, values={"progress": 0.5}
     )
+    with pytest.raises(StaleIngestAttempt):
+        await ledger.complete(test_db_session, job.id, attempt_a)
     assert not await ledger.claim(test_db_session, job.id, attempt_a)
     await test_db_session.rollback()
 
@@ -71,14 +70,25 @@ async def test_expired_attempt_cannot_renew_or_finalize_retried_job(test_db_sess
 
     assert await renew_ingest_job_heartbeat(job.id, attempt_b)
     assert await update_ingest_job_for_attempt(
-        test_db_session,
-        job.id,
-        attempt_b,
-        values={"status": "complete", "completed_at": datetime.now(timezone.utc)},
+        test_db_session, job.id, attempt_b, values={"progress": 0.5}
     )
+    await ledger.complete(test_db_session, job.id, attempt_b)
     await test_db_session.commit()
     await test_db_session.refresh(job)
     assert job.status == "complete"
+
+
+@pytest.mark.parametrize(
+    "column", ["status", "error_message", "completed_at", "attempt_id", "id"]
+)
+async def test_the_fenced_update_refuses_a_column_the_ledger_owns(column):
+    """A fenced update naming a status, reason, completion time or fence column raises before any statement."""
+    untouched = object()
+
+    with pytest.raises(ValueError, match="the ledger writes"):
+        await update_ingest_job_for_attempt(
+            untouched, uuid.uuid4(), uuid.uuid4(), values={column: None}
+        )
 
 
 async def test_vrt_generation_heartbeat_fences_stale_recovery(test_db_session):
