@@ -1184,7 +1184,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 281,
         # Shared-map audience decisions stay behind the permission extension seam.
         "backend/app/modules/catalog/maps/service_public.py": 987,
-        "backend/app/modules/catalog/search/service_records.py": 559,
+        "backend/app/modules/catalog/search/service_records.py": 576,
         "backend/app/modules/catalog/search/service_semantic.py": 481,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,

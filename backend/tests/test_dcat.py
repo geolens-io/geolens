@@ -136,6 +136,8 @@ async def _create_dcat_raster_dataset(
     record_type: str = "raster_dataset",
     source_format: str = "geotiff",
     storage_key: str | None = None,
+    visibility: str = "public",
+    record_status: str = "published",
 ) -> Dataset:
     """Insert a raster-family Record + Dataset shaped like the ingest tails.
 
@@ -148,8 +150,8 @@ async def _create_dcat_raster_dataset(
         title=name,
         summary=f"Description for {name}",
         record_type=record_type,
-        visibility="public",
-        record_status="published",
+        visibility=visibility,
+        record_status=record_status,
         created_by=created_by,
         license="CC-BY-4.0",
         spatial_extent=WKTElement(_NYC_EXTENT, srid=4326),
@@ -1037,36 +1039,80 @@ async def test_dcat_raster_advertises_the_tile_template(
     assert "{z}/{x}/{y}.png" in tiles[0]["dcat:accessURL"]
 
 
+def _cog_download_distributions(entry: dict, dataset_id: uuid.UUID) -> list[dict]:
+    return [
+        d
+        for d in entry.get("dcat:distribution", [])
+        if d.get("dcat:accessURL", "").endswith(f"/datasets/{dataset_id}/download/cog")
+    ]
+
+
 @pytest.mark.anyio
-@pytest.mark.parametrize("record_type", ["raster_dataset", "vrt_dataset"])
-async def test_dcat_raster_does_not_advertise_the_cog_download_url(
+async def test_dcat_public_raster_advertises_the_cog_download(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """A public, published raster's COG route serves anonymous callers, so every
+    profile publishes it, as a download URL, next to the tile template."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_raster_dataset(
+        session, created_by=admin_id, name="Public COG", storage_key=_STORAGE_KEY
+    )
+
+    resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
+    assert resp.status_code == 200
+    entry = resp.json()
+    assert len(_raster_tile_distributions(entry, ds.id)) == 1
+    cogs = _cog_download_distributions(entry, ds.id)
+    assert len(cogs) == 1, entry.get("dcat:distribution")
+    assert cogs[0]["dcat:accessURL"].startswith("http")
+    assert cogs[0]["dcat:mediaType"].endswith("profile=cloud-optimized")
+
+    cog_url = cogs[0]["dcat:accessURL"]
+    for path, key in (
+        ("/datasets/dcat-us/3.0/", "downloadURL"),
+        ("/datasets/geodcat-ap/", "dcat:downloadURL"),
+    ):
+        resp = await client.get(path, headers=admin_auth_header)
+        assert resp.status_code == 200, path
+        assert cog_url in _access_urls(resp.json(), key), path
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("record_type", "visibility", "record_status"),
+    [
+        ("vrt_dataset", "public", "published"),
+        ("raster_dataset", "internal", "published"),
+        ("raster_dataset", "public", "draft"),
+    ],
+)
+async def test_dcat_raster_without_anonymous_download_omits_the_cog_url(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     record_type: str,
+    visibility: str,
+    record_status: str,
 ):
-    """DCAT does not advertise ``/download/cog`` as a raster distribution URL.
-
-    fix(#1693): a public+published raster (this fixture's
-    shape) is now directly downloadable by an anonymous caller with no
-    minted token, matching ``/export``'s anonymous-access contract. But a
-    private/restricted/unpublished raster still is not, and DCAT's feed has
-    no per-caller way to express that distinction in a single accessURL —
-    advertising the download link unconditionally would still publish one
-    that 404s for a generic DCAT client crawling a catalog that also lists
-    non-public datasets.
-    """
+    """A feed URL has no per-caller variant, so a raster the route refuses
+    anonymously (non-public, unpublished) or a VRT (no single COG) keeps only
+    the tile template."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_raster_dataset(
         session,
         created_by=admin_id,
-        name=f"Raster {record_type}",
+        name=f"Raster {record_type} {visibility} {record_status}",
         record_type=record_type,
         storage_key=_STORAGE_KEY,
+        visibility=visibility,
+        record_status=record_status,
     )
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
-    dists = resp.json()["dcat:distribution"]
+    assert resp.status_code == 200
     assert len(_raster_tile_distributions(resp.json(), ds.id)) == 1
-    assert not [d for d in dists if "/download/cog" in d["dcat:accessURL"]]
+    assert not _cog_download_distributions(resp.json(), ds.id)

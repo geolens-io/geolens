@@ -31,7 +31,7 @@ from app.modules.catalog.search.record_metadata import (
 )
 from app.modules.catalog.sources.provenance import derive_last_edited
 from app.platform.dataset_origin import classify_origin, project_unknown
-from app.standards.distributions import is_publishable_url
+from app.standards.distributions import cog_download_path, is_publishable_url
 from app.standards.ogc.utils import build_url
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -171,10 +171,34 @@ def build_assets(
         storage_backend=storage_backend,
         public_api_url=public_api_url,
         storage_provider=storage_provider,
+        local_routes=_local_raster_asset_routes(
+            dataset, record_type, record_status, storage_backend
+        ),
     )
     assets.update(stac_built)
 
     return assets
+
+
+def _local_raster_asset_routes(
+    dataset: Dataset, record_type: str, record_status: str, storage_backend: str
+) -> dict[str, str] | None:
+    """API routes serving a published raster's stored files on local storage.
+
+    A local storage key has no URL of its own, but these routes serve the
+    same files behind the dataset's access checks. VRTs have no single COG.
+    """
+    if not (
+        storage_backend == "local"
+        and record_status == "published"
+        and record_type == "raster_dataset"
+    ):
+        return None
+    return {
+        "data": cog_download_path(dataset.id),
+        "thumbnail": f"/datasets/{dataset.id}/quicklook?size=256",
+        "overview": f"/datasets/{dataset.id}/quicklook?size=512",
+    }
 
 
 def _build_stac_assets(
@@ -184,6 +208,7 @@ def _build_stac_assets(
     storage_backend: str = "local",
     public_api_url: str = "",
     storage_provider: "StorageProvider | None" = None,
+    local_routes: dict[str, str] | None = None,
 ) -> dict:
     if not asset_rows:
         return {}
@@ -206,9 +231,10 @@ def _build_stac_assets(
             public_api_url=public_api_url,
             storage_provider=storage_provider,
         )
-        # GAP-031: resolve_asset_url returns None when no safe authorized URL
-        # exists (e.g. local-storage proxy path that has no backend route).
-        # Skip the asset entry rather than publishing a dead/colliding href.
+        if resolved_href is None and local_routes and row["key"] in local_routes:
+            resolved_href = build_url(local_routes[row["key"]], base_url=public_api_url)
+        # No safe authorized URL (e.g. a local key with no serving route):
+        # skip the entry rather than publish a dead /assets/{key} href.
         if resolved_href is None:
             continue
         entry: dict = {"href": resolved_href}
