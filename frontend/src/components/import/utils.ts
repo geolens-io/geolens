@@ -10,6 +10,14 @@ import { kindFromExtension } from './TypeTag';
 
 type AnyPreview = FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse;
 
+// Every upload door checks the deployment's extension list before it requires a tileset archive.
+const TILESET_EXTENSIONS = ['.zip', '.3tz'];
+
+/** The tileset archive extensions the deployment's list allows; all of them while the list is unknown. */
+export function allowedTilesetExtensions(configExtensions: string[] | undefined): string[] {
+  return TILESET_EXTENSIONS.filter((ext) => configExtensions?.includes(ext) ?? true);
+}
+
 export function isRasterPreview(data: AnyPreview): data is RasterPreviewResponse {
   return 'band_count' in data;
 }

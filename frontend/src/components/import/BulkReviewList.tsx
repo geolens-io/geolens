@@ -7,11 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { ImportMetadataForm } from './ImportMetadataForm';
+import { TilesetFacts } from './TilesetFacts';
 import { TypeTag } from './TypeTag';
 import { StatusPill } from './StatusPill';
 import { isRasterPreview, isFilePreview, isTilesetPreview, fileExt, kindFromEntry, isSpreadsheetExt } from './utils';
 import { getBoundingVolumeLabel, getGeometryTypeLabel } from '@/i18n/labels';
-import { formatBbox, formatBytes, formatNumber } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/format';
 import { useReportDialog } from '@/lib/report';
 import type { FileEntry, CommitImportRequest, FilePreviewResponse } from '@/types/api';
 
@@ -48,25 +49,9 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
   if (!preview) return null;
 
   if (isTilesetPreview(preview)) {
-    const facts: [string, string][] = [
-      [t('detect.labels.version'), preview.version],
-      [t('detect.labels.geometricError'), preview.geometric_error != null ? formatNumber(preview.geometric_error) : '—'],
-      [t('detect.labels.volume'), getBoundingVolumeLabel(t, preview.bounding_volume)],
-      [t('detect.labels.extent'), preview.extent_bbox ? formatBbox(preview.extent_bbox, '—') : t('detect.noExtent')],
-      [t('detect.labels.unpacked'), formatBytes(preview.unpacked_bytes)],
-      [t('detect.labels.entries'), formatNumber(preview.entry_count)],
-    ];
     return (
       <div className="col-span-full mt-3 border-t border-dashed border-border pt-4">
-        <h5 className="eyebrow mb-2">{t('detect.tilesetInfo')}</h5>
-        <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
-          {facts.map(([label, value]) => (
-            <div key={label} className="contents">
-              <dt className="font-mono text-mini text-muted-foreground">{label}</dt>
-              <dd className="font-mono text-mini">{value}</dd>
-            </div>
-          ))}
-        </dl>
+        <TilesetFacts preview={preview} />
       </div>
     );
   }
