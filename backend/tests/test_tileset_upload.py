@@ -49,7 +49,15 @@ from app.processing.ingest.tasks_tileset import unpack_tileset
 from app.processing.ingest.tileset import Tileset, TilesetLayout, inspect_tileset
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_user
-from tests.tiles3d_archives import REGION, build_zip, tileset_json, zip_bytes
+from tests.tiles3d_archives import (
+    REGION,
+    b3dm,
+    build_zip,
+    glb,
+    gltf_json,
+    tileset_json,
+    zip_bytes,
+)
 
 _GLB = b"glTF" + bytes(60)
 _B3DM = b"b3dm" + bytes(28)
@@ -362,20 +370,30 @@ async def test_content_outside_the_tileset_is_refused_at_the_door(
     assert await tileset_objects() == []
 
 
-async def test_an_external_tileset_is_checked_before_the_first_put(
-    client: AsyncClient, test_db_session, uploader, queued
-) -> None:
-    """The worker refuses an external tileset naming outside content, writing nothing."""
-    root = json.loads(tileset_json())
-    root["root"]["content"] = {"uri": "sub/tileset.json"}
+def _external_tileset_naming_outside_content() -> bytes:
     nested = json.loads(tileset_json())
     nested["root"]["content"] = {"uri": "https://example.com/0.b3dm"}
-    data = zip_bytes(
-        [
-            ("tileset.json", json.dumps(root).encode()),
-            ("sub/tileset.json", json.dumps(nested).encode()),
-        ]
-    )
+    return json.dumps(nested).encode()
+
+
+@pytest.mark.parametrize(
+    ("name", "member"),
+    [
+        ("sub/tileset.json", _external_tileset_naming_outside_content()),
+        (
+            "0/0.b3dm",
+            b3dm(glb(gltf_json(images=[{"uri": "https://example.com/0.png"}]))),
+        ),
+    ],
+    ids=["external-tileset", "b3dm"],
+)
+async def test_a_file_naming_outside_content_is_refused_before_the_first_put(
+    client: AsyncClient, test_db_session, uploader, queued, name: str, member: bytes
+) -> None:
+    """The worker refuses any file naming outside content, before writing anything."""
+    root = json.loads(tileset_json())
+    root["root"]["content"] = {"uri": name}
+    data = zip_bytes([("tileset.json", json.dumps(root).encode()), (name, member)])
 
     headers, _ = uploader
     uploaded = await upload(client, headers, data)
@@ -388,7 +406,7 @@ async def test_an_external_tileset_is_checked_before_the_first_put(
 
     job = await load_job(test_db_session, job_id)
     assert job.status == "failed"
-    assert "sub/tileset.json names content outside" in job.error_message
+    assert f"{name} names content outside" in job.error_message
     assert await tileset_objects() == []
 
 

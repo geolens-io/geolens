@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import io
 import json
+import struct
 import zipfile
 from pathlib import Path
 
 REGION = [-1.3197, 0.6988, -1.3196, 0.6989, 0.0, 88.0]
+
+GLB_JSON = 0x4E4F534A
+GLB_BIN = 0x004E4942
 
 
 def tileset_json(
@@ -57,3 +61,59 @@ def tileset_zip(path: Path, *more: tuple[str | zipfile.ZipInfo, bytes], **json_k
         path,
         [("tileset.json", tileset_json(**json_kw)), ("0/0.glb", b"glb"), *more],
     )
+
+
+def gltf_json(**fields: object) -> bytes:
+    return json.dumps({"asset": {"version": "2.0"}, **fields}).encode()
+
+
+def _padded(data: bytes, width: int = 8) -> bytes:
+    return data + b" " * (-len(data) % width)
+
+
+def glb(
+    document: bytes,
+    *,
+    version: int = 2,
+    chunks: list[tuple[int, bytes]] | None = None,
+) -> bytes:
+    """A binary glTF with ``document`` as its JSON chunk and a small BIN chunk."""
+    if version == 1:
+        header = struct.pack("<4s4I", b"glTF", 1, 20 + len(document), len(document), 0)
+        return header + document
+    if chunks is None:
+        chunks = [(GLB_JSON, _padded(document, 4)), (GLB_BIN, bytes(4))]
+    body = b"".join(struct.pack("<2I", len(data), kind) + data for kind, data in chunks)
+    return struct.pack("<4s2I", b"glTF", 2, 12 + len(body)) + body
+
+
+def b3dm(gltf: bytes, *, legacy: int = 0) -> bytes:
+    """A Batched 3D Model around ``gltf``, in the current or a legacy header."""
+    if legacy == 1:
+        # [batchLength] [batchTableByteLength]
+        return struct.pack("<4s4I", b"b3dm", 1, 20 + len(gltf), 0, 0) + gltf
+    if legacy == 2:
+        # [batchTableJsonByteLength] [batchTableBinaryByteLength] [batchLength]
+        return struct.pack("<4s5I", b"b3dm", 1, 24 + len(gltf), 0, 0, 0) + gltf
+    table = _padded(b'{"BATCH_LENGTH":0}')
+    length = 28 + len(table) + len(gltf)
+    return struct.pack("<4s6I", b"b3dm", 1, length, len(table), 0, 0, 0) + table + gltf
+
+
+def i3dm(gltf: bytes, *, gltf_format: int = 1) -> bytes:
+    """An Instanced 3D Model embedding ``gltf``, or naming it by URI with format 0."""
+    table = _padded(b'{"INSTANCES_LENGTH":0}')
+    length = 32 + len(table) + len(gltf)
+    header = struct.pack("<4s7I", b"i3dm", 1, length, len(table), 0, 0, 0, gltf_format)
+    return header + table + gltf
+
+
+def cmpt(*tiles: bytes) -> bytes:
+    body = b"".join(tiles)
+    return struct.pack("<4s3I", b"cmpt", 1, 16 + len(body), len(tiles)) + body
+
+
+def subtree(document: bytes) -> bytes:
+    """A binary implicit-tiling subtree with ``document`` as its JSON chunk."""
+    data = _padded(document)
+    return struct.pack("<4sIQQ", b"subt", 1, len(data), 0) + data

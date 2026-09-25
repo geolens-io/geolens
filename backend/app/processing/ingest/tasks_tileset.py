@@ -53,6 +53,7 @@ from app.processing.ingest.tasks_staging import (
     reap_presigned_staging_object,
 )
 from app.processing.ingest.tileset import Tileset, inspect_tileset
+from app.processing.ingest.tileset_content import check_archive_uris
 from app.processing.ingest.validation import _member_read_errors
 
 _TASK = "ingest_tileset"
@@ -281,7 +282,8 @@ async def ingest_tileset(
         from app.processing.ingest.service import resolve_file_path
 
         file_path = await resolve_file_path(file_path, job_id)
-        tileset = await asyncio.to_thread(inspect_tileset, file_path, external=True)
+        tileset = await asyncio.to_thread(inspect_tileset, file_path)
+        await asyncio.to_thread(check_archive_uris, file_path, tileset.layout)
 
         dataset_id = uuid.uuid4()
         attempt_prefix = tileset_attempt_prefix(dataset_id, attempt_uuid)
