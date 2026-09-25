@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Any, Callable, Iterator, TypeVar
+from typing import Any, Callable, Iterator, Mapping, TypeVar
 
 import typer
 
@@ -409,6 +409,22 @@ def make_client(
     return client
 
 
+def _detail_text(detail: Any) -> str:
+    """A ProblemDetail.detail value as printable text.
+
+    A coded refusal's detail is a {"code", "message", ...} object; this
+    prints its message instead of the object's repr.
+    """
+    if isinstance(detail, str):
+        return detail
+    payload = detail if isinstance(detail, Mapping) else None
+    if payload is None:
+        to_dict = getattr(detail, "to_dict", None)
+        payload = to_dict() if callable(to_dict) else None
+    message = payload.get("message") if payload else None
+    return message if isinstance(message, str) else str(detail)
+
+
 def unwrap(resp: Any, *, expected: int = 200) -> Any:
     """Translate an SDK Response into either parsed model or typer.Exit.
 
@@ -423,13 +439,13 @@ def unwrap(resp: Any, *, expected: int = 200) -> Any:
     sc = int(resp.status_code)
     if sc == expected:
         if isinstance(resp.parsed, ProblemDetail):
-            typer.secho(f"Error: {resp.parsed.detail}", fg="red", err=True)
+            typer.secho(f"Error: {_detail_text(resp.parsed.detail)}", fg="red", err=True)
             raise typer.Exit(EXIT_SERVER if sc >= 500 else EXIT_GENERIC)
         return resp.parsed
 
     detail = ""
     if isinstance(resp.parsed, ProblemDetail):
-        detail = f": {resp.parsed.detail}"
+        detail = f": {_detail_text(resp.parsed.detail)}"
 
     if sc == 401:
         typer.secho(f"Authentication required{detail}. Run `geolens login` first.", fg="red", err=True)
