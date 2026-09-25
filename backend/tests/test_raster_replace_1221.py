@@ -820,6 +820,64 @@ class TestSuccessfulReplace:
             await test_db_session.commit()
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
+    async def test_the_publish_writes_the_job_row_once(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The replacement's publish ends its job in one UPDATE, with its step and progress."""
+        import app.core.db as db_module
+        from sqlalchemy import event
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id, record_id = live.dataset.id, live.dataset.record_id
+        source = tmp_path / "replacement.tif"
+        source.write_bytes(_geotiff_bytes(seed=98))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job_id = job.id
+        ending: list[str] = []
+
+        def _record(conn, cursor, statement, parameters, context, executemany):
+            if statement.startswith("UPDATE catalog.ingest_jobs") and "complete" in str(
+                parameters
+            ):
+                ending.append(statement)
+
+        sync_engine = db_module.engine.sync_engine
+        event.listen(sync_engine, "before_cursor_execute", _record)
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+        finally:
+            event.remove(sync_engine, "before_cursor_execute", _record)
+
+        try:
+            assert len(ending) == 1, ending
+            test_db_session.expire_all()
+            ended = await test_db_session.get(IngestJob, job_id)
+            assert (ended.status, ended.current_step, ended.progress) == (
+                "complete",
+                "complete",
+                1.0,
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
 
 class TestFailedReplaceKeepsServing:
     async def test_failed_conversion_leaves_the_old_asset_serving(

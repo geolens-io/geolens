@@ -113,6 +113,8 @@ class Published:
     tiles_changed: bool = True
     # Whether it changed what the dataset's search embedding is built from.
     reembed: bool = True
+    # Further job columns the complete writes, in its one UPDATE of the job row.
+    job_values: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,13 +268,18 @@ async def hold_publishing_job(
 
 
 async def _complete(
-    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID, *, linked: Linked
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    *,
+    linked: Linked,
+    values: dict[str, Any] | None = None,
 ) -> None:
     """Move this attempt's job from running to complete, settling ``linked`` in the same SAVEPOINT.
 
     A miss raises ``StaleIngestAttempt`` and writes nothing. Does not commit.
     """
-    await ledger.complete(session, job_id, attempt_id, linked=linked)
+    await ledger.complete(session, job_id, attempt_id, values=values, linked=linked)
 
 
 async def _fail(
@@ -508,6 +515,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
             session,
             job_id,
             attempt_id,
+            values=published.job_values,
             linked=partial(
                 record_refresh_success,
                 ingest_job_id=job_id,
