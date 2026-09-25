@@ -38,7 +38,7 @@ from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
 
 from app.platform.jobs import ledger
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import MANIFEST_FINGERPRINT_METADATA_KEY, IngestJob
 from app.processing.ingest.manifest_reservation import (
     RESERVATION_LOST_MESSAGE,
     bind_reservation_to_staged_source,
@@ -616,7 +616,7 @@ async def _classify_dataset(
     in_flight = await latest_in_flight_manifest_job(db, dataset.key)
     if in_flight is not None:
         in_flight_fingerprint = (in_flight.user_metadata or {}).get(
-            "manifest_fingerprint"
+            MANIFEST_FINGERPRINT_METADATA_KEY
         )
         if in_flight_fingerprint == fingerprint:
             return "skip_in_flight", prepared, in_flight, None, fingerprint
@@ -626,7 +626,7 @@ async def _classify_dataset(
     if completed is not None:
         completed_job, existing_dataset = completed
         completed_fingerprint = (completed_job.user_metadata or {}).get(
-            "manifest_fingerprint"
+            MANIFEST_FINGERPRINT_METADATA_KEY
         )
         if completed_fingerprint == fingerprint:
             return (

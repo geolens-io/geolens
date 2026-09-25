@@ -3,9 +3,13 @@
 import ast
 import uuid
 from pathlib import Path
+from shutil import copyfile
+from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 from sqlalchemy import delete, select
+
+from app.core.config import settings
 
 from app.platform.jobs import models
 from app.platform.jobs.models import (
@@ -32,6 +36,7 @@ BOOKKEEPING = {
     "s3_key_reaped": True,
     "s3_key_reaped_final": True,
     "manifest_stage": "downloading",
+    "manifest_fingerprint": "sha256:0123",
     "tileset_unpacked_bytes": 4096,
     "presigned": True,
     "s3_key": "staging/job/campus.zip",
@@ -74,12 +79,23 @@ PUBLIC_KEYS = {
     "geometry_type",
     "layer_id",
     "layer_name",
+    "manifest_attribution",
+    "manifest_bbox",
+    "manifest_key",
+    "manifest_license",
+    "manifest_organization",
+    "manifest_publication_intent",
+    "manifest_source_type",
+    "manifest_source_uri",
+    "manifest_tags",
     "object_id_field",
     "origin_kind",
+    "record_status",
     "refresh",
     "reupload",
     "service_type",
     "source_type",
+    "srid_override",
     "summary",
     "temporal_parse_errors",
     "title",
@@ -187,13 +203,25 @@ def _written_metadata_keys() -> dict[str, str]:
     """Each key the code writes into a job's user_metadata, with one place it does.
 
     Reads key-name constants in platform/jobs, the first argument of each
-    ``jsonb_build_object`` call, and the keys of dict literals that are assigned
+    ``jsonb_build_object`` call, the keys of dict literals that are assigned
     to ``user_metadata``, passed as ``user_metadata=``, nested under a
-    ``"user_metadata"`` key, or that spread an existing ``user_metadata``.
+    ``"user_metadata"`` key, or that spread an existing ``user_metadata``, and
+    every key a ``*_job_metadata`` helper builds when a dict spreads its result.
     """
+    trees = {
+        path: ast.parse(path.read_text(encoding="utf-8"))
+        for path in sorted(BACKEND_APP.rglob("*.py"))
+    }
+    producers = {
+        _called_name(value)
+        for tree in trees.values()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Dict)
+        for key, value in zip(node.keys, node.values)
+        if key is None and _called_name(value).endswith("_job_metadata")
+    }
     found: dict[str, str] = {}
-    for path in sorted(BACKEND_APP.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path, tree in trees.items():
         where = str(path.relative_to(BACKEND_APP))
         constants = {
             node.targets[0].id: node.value.value
@@ -224,12 +252,32 @@ def _written_metadata_keys() -> dict[str, str]:
                 and node.func.attr == "jsonb_build_object"
             ):
                 keys = node.args[:1]
+            elif isinstance(node, ast.FunctionDef) and node.name in producers:
+                keys = [
+                    key
+                    for inner in ast.walk(node)
+                    if isinstance(inner, ast.Dict)
+                    for key in inner.keys
+                ] + [
+                    target.slice
+                    for inner in ast.walk(node)
+                    if isinstance(inner, ast.Assign)
+                    for target in inner.targets
+                    if isinstance(target, ast.Subscript)
+                ]
             for key in keys:
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     found.setdefault(key.value, f"{where}:{key.lineno}")
                 elif isinstance(key, ast.Name) and isinstance(names.get(key.id), str):
                     found.setdefault(names[key.id], f"{where}:{key.lineno}")
     return found
+
+
+def _called_name(node: ast.AST) -> str:
+    if not isinstance(node, ast.Call):
+        return ""
+    func = node.func
+    return func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
 
 
 def _is_job_metadata(node: ast.Dict, parent: ast.AST | None) -> bool:
@@ -261,4 +309,91 @@ def test_every_metadata_key_the_code_writes_is_classified() -> None:
         if key not in INTERNAL_METADATA_KEYS | PUBLIC_KEYS
     }
     assert unclassified == {}
-    assert "s3_key_reaped" in found and "s3_key" in found
+    assert {"s3_key_reaped", "s3_key", "manifest_fingerprint", "manifest_tags"} <= set(
+        found
+    )
+
+
+async def test_a_manifest_job_lists_its_author_keys_without_its_fingerprint(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch, tmp_path
+) -> None:
+    """A job the manifest apply creates lists its author's keys, not its fingerprint."""
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+    key = f"jmeta-{uuid.uuid4().hex[:10]}"
+    seed = tmp_path / "manifest" / f"{key}.geojson"
+    seed.parent.mkdir(parents=True)
+    copyfile(Path(__file__).parent / "fixtures/ingest/basic_attrs.geojson", seed)
+    payload = {
+        "manifest_version": "1",
+        "catalog": {"title": "Job metadata catalog"},
+        "datasets": [
+            {
+                "key": key,
+                "title": "Roads",
+                "description": "Road centerlines",
+                "sources": [
+                    {
+                        "type": "vector",
+                        "uri": f"manifest/{key}.geojson",
+                        "format": "geojson",
+                    }
+                ],
+                "metadata": {
+                    "tags": ["roads"],
+                    "organization": "City GIS Office",
+                    "license": "CC-BY-4.0",
+                    "attribution": "City GIS Office",
+                },
+                "publication": {"intent": "draft"},
+            }
+        ],
+    }
+    with (
+        patch(
+            "app.processing.ingest.manifest_service.queue_ingest_job", new=AsyncMock()
+        ),
+        patch(
+            "app.processing.ingest.manifest_service._manifest_source_size_bytes",
+            new=AsyncMock(return_value=1024),
+        ),
+    ):
+        applied = await client.post(
+            "/ingest/manifest/apply", json=payload, headers=admin_auth_header
+        )
+    assert applied.status_code == 200, applied.text
+    (entry,) = applied.json()["results"]
+    job_id = uuid.UUID(entry["job_id"])
+    try:
+        stored = (await test_db_session.get(IngestJob, job_id)).user_metadata
+        listed = await _listed_metadata(client, admin_auth_header, f"{key}.geojson")
+    finally:
+        await test_db_session.execute(delete(IngestJob).where(IngestJob.id == job_id))
+        await test_db_session.commit()
+
+    assert "manifest_fingerprint" in stored
+    assert "manifest_fingerprint" not in listed
+    assert {
+        name: listed[name]
+        for name in (
+            "title",
+            "summary",
+            "manifest_key",
+            "manifest_source_type",
+            "manifest_publication_intent",
+            "manifest_tags",
+            "manifest_organization",
+            "manifest_license",
+            "manifest_attribution",
+        )
+    } == {
+        "title": "Roads",
+        "summary": "Road centerlines",
+        "manifest_key": key,
+        "manifest_source_type": "vector",
+        "manifest_publication_intent": "draft",
+        "manifest_tags": ["roads"],
+        "manifest_organization": "City GIS Office",
+        "manifest_license": "CC-BY-4.0",
+        "manifest_attribution": "City GIS Office",
+    }
+    assert listed["manifest_source_uri"] == stored["manifest_source_uri"]

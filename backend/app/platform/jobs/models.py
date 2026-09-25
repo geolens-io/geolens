@@ -75,6 +75,10 @@ STAGING_REAPED_MARKER = "s3_key_reaped"
 # filters on status.
 MANIFEST_STAGE_METADATA_KEY = "manifest_stage"
 
+# The manifest entry's content fingerprint, which the apply compares to skip an
+# entry it has already imported or is importing.
+MANIFEST_FINGERPRINT_METADATA_KEY = "manifest_fingerprint"
+
 # The unpacked total the tileset upload door measured, which the commit door
 # checks against the quota again.
 TILESET_UNPACKED_BYTES_FIELD = "tileset_unpacked_bytes"
@@ -106,6 +110,7 @@ INTERNAL_METADATA_KEYS = frozenset(
         STAGING_REAPED_MARKER,
         STAGING_REAPED_FINAL_MARKER,
         MANIFEST_STAGE_METADATA_KEY,
+        MANIFEST_FINGERPRINT_METADATA_KEY,
         TILESET_UNPACKED_BYTES_FIELD,
         "presigned",
         "s3_key",
