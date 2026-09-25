@@ -81,8 +81,8 @@
     "kindFiles": "Archivos geoespaciales",
     "kindFilesHint": "Datos vectoriales, ráster o tabulares",
     "kindTileset": "Tileset de 3D Tiles",
-    "kindTilesetHint": "Un archivo .zip con tileset.json en la raíz o en una carpeta",
-    "kindTilesetUnavailable": "No disponible hasta que un administrador permita subir archivos .zip",
+    "kindTilesetHint": "Un archivo .zip o .3tz con tileset.json en la raíz o en una carpeta",
+    "kindTilesetUnavailable": "No disponible hasta que un administrador permita subir archivos .zip o .3tz",
     "kindLocked": "Bloqueado mientras los archivos soltados esperan a que se cargue la configuración de subida"
   },
   "warnings": {

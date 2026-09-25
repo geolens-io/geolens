@@ -81,8 +81,8 @@
     "kindFiles": "Geospatial files",
     "kindFilesHint": "Vector, raster or tabular data",
     "kindTileset": "3D Tiles tileset",
-    "kindTilesetHint": "A .zip archive with tileset.json at its root or in one folder",
-    "kindTilesetUnavailable": "Unavailable until an administrator allows .zip uploads",
+    "kindTilesetHint": "A .zip or .3tz archive with tileset.json at its root or in one folder",
+    "kindTilesetUnavailable": "Unavailable until an administrator allows .zip or .3tz uploads",
     "kindLocked": "Locked while your dropped files wait for the upload settings to load"
   },
   "warnings": {

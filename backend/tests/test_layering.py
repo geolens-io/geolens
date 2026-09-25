@@ -1318,7 +1318,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1237,
     # Central settings and boot-validation debt; split by configuration domain before
     # raising.
-    "backend/app/core/config.py": 1500,
+    "backend/app/core/config.py": 1498,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects.
     "backend/app/core/persistent_config.py": 943,
@@ -1326,7 +1326,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 933,
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1478,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1488,
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1696,
     # The raster strategy: conversion, read-back, object puts and their cleanup.

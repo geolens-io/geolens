@@ -79,6 +79,7 @@ const CONFIG = {
 };
 
 const NO_ZIP_CONFIG = { ...CONFIG, allowed_extensions: '.geojson,.gpkg' };
+const WITH_3TZ_CONFIG = { ...CONFIG, allowed_extensions: '.geojson,.gpkg,.zip,.3tz' };
 
 function tilesetRadio() {
   return within(screen.getByRole('group', { name: 'upload.kindLegend' })).getByRole('radio', {
@@ -189,7 +190,7 @@ describe('UploadForm upload kind', () => {
     expect(screen.getByTestId('bulk-upload-progress')).toHaveAttribute('data-upload-kinds', 'tiles3d');
   });
 
-  it('disables the tileset option and says why when the deployment does not allow .zip', () => {
+  it('disables the tileset option and says why when the deployment allows neither .zip nor .3tz', () => {
     mockConfig = { data: NO_ZIP_CONFIG, isFetching: false };
     render(<UploadForm />);
 
@@ -198,7 +199,7 @@ describe('UploadForm upload kind', () => {
     expect(screen.getByText('upload.kindTilesetUnavailable')).toBeVisible();
   });
 
-  it('checks a queued tileset drop as files when the config that arrives does not allow .zip', async () => {
+  it('checks a queued tileset drop as files when the config that arrives allows no tileset archive', async () => {
     mockConfig = { data: null, isFetching: true };
     const user = userEvent.setup();
     const view = render(<UploadForm />);
@@ -213,6 +214,34 @@ describe('UploadForm upload kind', () => {
     expect(toast.error).toHaveBeenCalledWith('dropzone.fileRejected');
     expect(uploadFile).not.toHaveBeenCalled();
     expect(screen.getByRole('radio', { name: 'upload.kindFiles' })).toBeChecked();
+  });
+
+  it('takes .zip and .3tz in tileset mode when the deployment allows both', async () => {
+    mockConfig = { data: WITH_3TZ_CONFIG, isFetching: false };
+    const user = userEvent.setup();
+    render(<UploadForm />);
+
+    await user.click(tilesetRadio());
+
+    expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-allowed-extensions', '.zip,.3tz');
+  });
+
+  it('leaves .3tz out of the geospatial files choice', () => {
+    mockConfig = { data: WITH_3TZ_CONFIG, isFetching: false };
+    render(<UploadForm />);
+
+    expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-allowed-extensions', '.geojson,.gpkg,.zip');
+  });
+
+  it('offers the tileset choice when the deployment allows only .3tz', async () => {
+    mockConfig = { data: { ...CONFIG, allowed_extensions: '.geojson,.3tz' }, isFetching: false };
+    const user = userEvent.setup();
+    render(<UploadForm />);
+
+    expect(tilesetRadio()).toBeEnabled();
+    await user.click(tilesetRadio());
+
+    expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-allowed-extensions', '.3tz');
   });
 
   it('says why the kind is locked while a drop waits for the config', async () => {

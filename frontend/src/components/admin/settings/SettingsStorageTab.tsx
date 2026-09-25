@@ -24,7 +24,7 @@ const FIELDS = [
     // Client-side fallback for a response that omits the setting. Kept in
     // step with Settings.upload_allowed_extensions so it never shows a
     // narrower list than the server enforces.
-    defaultValue: '.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet,.fgb,.kml,.kmz',
+    defaultValue: '.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet,.fgb,.kml,.kmz,.3tz',
   },
   { key: 'tile_cache_ttl', defaultValue: 300 },
   { key: 'max_storage_bytes_per_user', defaultValue: 0 },

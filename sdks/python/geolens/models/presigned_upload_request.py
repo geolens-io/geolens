@@ -23,8 +23,9 @@ class PresignedUploadRequest:
         file_size (int): Total file size in bytes. Used to decide between single-part and multipart upload.
         content_type (str | Unset): MIME type to associate with the uploaded object. Default: 'application/octet-
             stream'.
-        kind (Literal['tiles3d'] | None | Unset): 'tiles3d' uploads a 3D Tiles tileset as a .zip archive holding
-            tileset.json. Omit it for any other file; a zip without it is read as geospatial data.
+        kind (Literal['tiles3d'] | None | Unset): 'tiles3d' uploads a 3D Tiles tileset as a .zip or .3tz archive holding
+            tileset.json. Omit it for any other file; a .zip without it is read as geospatial data, and a .3tz without it is
+            refused.
     """
 
     filename: str

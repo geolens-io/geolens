@@ -81,8 +81,8 @@
     "kindFiles": "Fichiers géospatiaux",
     "kindFilesHint": "Données vectorielles, raster ou tabulaires",
     "kindTileset": "Tileset 3D Tiles",
-    "kindTilesetHint": "Une archive .zip avec tileset.json à la racine ou dans un dossier",
-    "kindTilesetUnavailable": "Indisponible tant qu'un administrateur n'autorise pas les fichiers .zip",
+    "kindTilesetHint": "Une archive .zip ou .3tz avec tileset.json à la racine ou dans un dossier",
+    "kindTilesetUnavailable": "Indisponible tant qu'un administrateur n'autorise pas les fichiers .zip ou .3tz",
     "kindLocked": "Verrouillé pendant que les fichiers déposés attendent le chargement des paramètres de téléversement"
   },
   "warnings": {

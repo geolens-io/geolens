@@ -64,6 +64,7 @@ from app.platform.refresh.service import DatasetBusyError, create_pending_run
 from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
+from app.core.tiles3d import TILESET_ARCHIVE_SUFFIX
 from app.modules.quota.service import check_replacement_quota
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.schemas import service_credential_from_request
@@ -268,6 +269,15 @@ def _assert_compatible_record_type(
             detail=(
                 "3D Tiles datasets do not support reupload. "
                 "Upload the new tileset as a new dataset instead."
+            ),
+        )
+
+    if ext == TILESET_ARCHIVE_SUFFIX:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "A .3tz archive holds a 3D Tiles tileset, which cannot replace "
+                "this dataset's data. Upload it as a new dataset instead."
             ),
         )
 
