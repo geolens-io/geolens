@@ -14,15 +14,6 @@ import app
 _APP = Path(app.__file__).parent
 _LEDGER = "platform/jobs/ledger.py"
 
-# Status writes the ledger does not own yet, by module or by function. Each
-# entry must still write a status, so the change that moves its last write
-# deletes it.
-_NOT_YET_IN_THE_LEDGER: dict[str, str] = {
-    "processing/ingest/tasks_reupload.py::_settle_keyed_execution_timeout": (
-        "a keyed refresh's timeout"
-    ),
-}
-
 # Helpers that write the ``values`` their caller composes. A caller's values are
 # judged at its call; a function that hands a parameter of its own on as those
 # values counts as a write, except the heartbeat bodies below.
@@ -344,16 +335,11 @@ def _tree_writes() -> dict[str, list[tuple[str, int]]]:
 
 
 def _allowed(module: str, function: str) -> bool:
-    return (
-        module == _LEDGER
-        or module in _NOT_YET_IN_THE_LEDGER
-        or f"{module}::{function}" in _NOT_YET_IN_THE_LEDGER
-        or f"{module}::{function}" in _FORWARDING_BODIES
-    )
+    return module == _LEDGER or f"{module}::{function}" in _FORWARDING_BODIES
 
 
 def test_only_the_ledger_writes_a_job_status() -> None:
-    """Every write of a job's status outside the ledger is one the ledger will take next."""
+    """Nothing outside the ledger writes a job's status, except the heartbeat forwarders."""
     offenders = [
         f"{module}:{line} {function}"
         for module, writes in _tree_writes().items()
@@ -363,16 +349,13 @@ def test_only_the_ledger_writes_a_job_status() -> None:
     assert not offenders, offenders
 
 
-def test_every_entry_still_waiting_writes_a_status() -> None:
-    """An entry for writes the ledger has since taken is removed with them."""
-    writes = _tree_writes()
-    found = {module for module in writes} | {
+def test_both_heartbeat_forwarders_still_forward() -> None:
+    """The two exempt heartbeat bodies still hand their callers' values on."""
+    found = {
         f"{module}::{function}"
-        for module, module_writes in writes.items()
+        for module, module_writes in _tree_writes().items()
         for function, _line in module_writes
     }
-    stale = sorted(set(_NOT_YET_IN_THE_LEDGER) - found)
-    assert not stale, stale
     assert _FORWARDING_BODIES <= found
 
 

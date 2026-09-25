@@ -361,7 +361,7 @@ async def settle_replacement(
             else strategy.classify(exc)
         )
         logger.exception("Ingest task failed", job_id=job_id, task=strategy.task)
-        await _record_failure(strategy, attempt, exc, failure)
+        await _record_failure(strategy.task, attempt, exc, failure)
         if failure.refused:
             return
         raise
@@ -591,7 +591,7 @@ async def _take_catalog_rows(
 
 
 async def _record_failure(
-    strategy: ReplacementStrategy,
+    task: str,
     attempt: _Attempt,
     exc: BaseException,
     failure: Failure,
@@ -639,13 +639,13 @@ async def _record_failure(
                 attempt.attempt_id,
                 reason=reason,
                 linked=_settle,
-                owes=strategy.task if failure.notify else None,
+                owes=task if failure.notify else None,
             )
             owes_notice = landed and failure.notify
             await session.commit()
     except Exception as write_failure:  # broad: must not replace the task's failure
         log_job_error_write_failure(
-            write_failure, job_id=str(attempt.job_id), task=strategy.task
+            write_failure, job_id=str(attempt.job_id), task=task
         )
         return
     finally:
@@ -653,15 +653,38 @@ async def _record_failure(
         # It runs even when the commit raised, since that commit may have landed.
         if stamped:
             async with cleanup_step(
-                f"{strategy.task} catalog cache", job_id=str(attempt.job_id)
+                f"{task} catalog cache", job_id=str(attempt.job_id)
             ):
                 await invalidate_catalog_cache()
         # Whatever the commit raised: the claim sends only an end that landed.
         if owes_notice:
             async with cleanup_step(
-                f"{strategy.task} failure notice", job_id=str(attempt.job_id)
+                f"{task} failure notice", job_id=str(attempt.job_id)
             ):
                 await run_publish_followups(attempt.job_id)
+
+
+# A keyed refresh whose attempt ran past its execution limit.
+_TIMED_OUT = Failure(
+    "scheduled_execution_timeout",
+    reason=FixedReason("The admitted refresh exceeded its execution time limit."),
+)
+
+
+async def settle_timed_out_execution(
+    job_id: uuid.UUID, attempt_id: uuid.UUID, dataset_id: uuid.UUID, *, task: str
+) -> None:
+    """End a keyed refresh attempt that ran past its limit, and its run, as failed.
+
+    The limit cancels the task before its own failure handling runs, so this is
+    the attempt's failure write. Never raises.
+    """
+    await _record_failure(
+        task,
+        _Attempt(job_id, attempt_id, dataset_id=dataset_id),
+        TimeoutError(),
+        _TIMED_OUT,
+    )
 
 
 # How long a failure's origin verdict waits for a dataset row another

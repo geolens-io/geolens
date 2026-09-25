@@ -32,6 +32,19 @@ from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
 
+_TIMED_OUT = "The admitted refresh exceeded its execution time limit."
+
+
+@pytest.fixture
+def notifications():
+    sent = AsyncMock()
+    with patch("app.platform.notifications.events.emit_event_safe", new=sent):
+        yield sent
+
+
+def _events(notifications: AsyncMock) -> list[str]:
+    return [call.kwargs["event_key"] for call in notifications.await_args_list]
+
 
 async def _scheduled_run(session) -> tuple[DatasetRefreshRun, IngestJob]:
     actor_id = await get_user_id(session, "admin")
@@ -147,7 +160,7 @@ async def test_claimed_run_can_finish_after_its_queue_claim_deadline(
 
 
 async def test_keyed_execution_has_a_wall_clock_timeout(
-    test_db_session, monkeypatch
+    test_db_session, monkeypatch, notifications
 ) -> None:
     run, job = await _scheduled_run(test_db_session)
     assert run.execution_key is not None
@@ -187,12 +200,14 @@ async def test_keyed_execution_has_a_wall_clock_timeout(
     persisted_job = await test_db_session.get(IngestJob, job_id)
     assert persisted_job is not None
     assert persisted_job.status == "failed"
+    assert persisted_job.error_message == _TIMED_OUT
     assert persisted_job.completed_at is not None
     assert published is False
+    assert _events(notifications) == ["ingest_failed"]
 
 
 async def test_keyed_timeout_does_not_settle_a_reclaimed_job_attempt(
-    test_db_session, monkeypatch
+    test_db_session, monkeypatch, notifications
 ) -> None:
     run, job = await _scheduled_run(test_db_session)
     assert run.execution_key is not None
@@ -226,6 +241,46 @@ async def test_keyed_timeout_does_not_settle_a_reclaimed_job_attempt(
     assert persisted_run.status == "running"
     assert persisted_job is not None
     assert persisted_job.status == "running"
+    assert _events(notifications) == []
+
+
+async def test_a_timeout_whose_failure_write_loses_its_acknowledgement_mails_once(
+    test_db_session, monkeypatch, notifications
+) -> None:
+    """A timed-out attempt whose failure commit lands unacknowledged still sends ingest_failed once."""
+    from tests.test_settle_replacement import _LostAcknowledgement
+
+    run, job = await _scheduled_run(test_db_session)
+    assert run.execution_key is not None
+    assert await claim_admitted_run_for_job(
+        test_db_session, job.id, execution_key=run.execution_key
+    )
+    assert await ledger.claim(test_db_session, job.id, job.attempt_id)
+    await test_db_session.commit()
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_reupload._KEYED_REFRESH_EXECUTION_TIMEOUT_SECONDS",
+        0.01,
+    )
+
+    @require_scheduled_execution_claim
+    async def execute(**_kwargs) -> None:
+        await anyio.sleep(1)
+
+    lost = _LostAcknowledgement(job.id, "failed", ConnectionResetError("dropped"))
+    with lost.installed(), pytest.raises(TimeoutError):
+        await execute(
+            job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
+            scheduled_execution_key=str(run.execution_key),
+        )
+
+    assert lost.fired == 1
+    job_id = job.id
+    test_db_session.expire_all()
+    persisted_job = await test_db_session.get(IngestJob, job_id)
+    assert persisted_job is not None
+    assert persisted_job.status == "failed"
+    assert _events(notifications) == ["ingest_failed"]
 
 
 async def test_worker_expiry_sweep_commits_expired_ids() -> None:
