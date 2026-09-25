@@ -3047,6 +3047,46 @@ def test_vector_gdal_argv_restricts_input_drivers():
     )
 
 
+def test_every_default_upload_extension_is_clamped_or_scanned():
+    """No default upload extension reaches GDAL on the unscanned driver fallback.
+
+    An extension missing from the driver table falls back to the archive
+    driver union, which includes GPKG and SQLite, so it must be a scanned
+    container or a content-checked database instead.
+    """
+    from app.core.config import Settings
+    from app.processing.ingest.gdal_drivers import (
+        ARCHIVE_MEMBER_DRIVERS,
+        _DRIVERS_BY_EXTENSION,
+    )
+    from app.processing.ingest.ogr import _is_parquet
+    from app.processing.ingest.service import raster_stamped_metadata
+    from app.processing.ingest.validation import (
+        SQLITE_FAMILY_EXTENSIONS,
+        ZIP_CONTAINER_EXTENSIONS,
+    )
+
+    default = Settings.model_fields["upload_allowed_extensions"].default
+    unclamped = []
+    for extension in (part.strip().lower() for part in default.split(",")):
+        name = f"upload{extension}"
+        # Rasters take the raster pipeline and GeoParquet is read in-process,
+        # so neither reaches a vector GDAL subprocess.
+        if raster_stamped_metadata(None, name) or _is_parquet(name):
+            continue
+        clamped = _DRIVERS_BY_EXTENSION.get(extension, ARCHIVE_MEMBER_DRIVERS)
+        if (
+            clamped is ARCHIVE_MEMBER_DRIVERS
+            and extension not in ZIP_CONTAINER_EXTENSIONS
+            and extension not in SQLITE_FAMILY_EXTENSIONS
+        ):
+            unclamped.append(extension)
+    assert not unclamped, (
+        f"{unclamped} would reach GDAL with the archive driver union but no "
+        "member scan; give it its own drivers or add it to ZIP_CONTAINER_EXTENSIONS"
+    )
+
+
 def test_every_sqlite_family_extension_is_content_checked():
     """The two tables that decide "is this a database" must agree.
 
