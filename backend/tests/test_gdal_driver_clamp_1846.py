@@ -1135,7 +1135,7 @@ async def test_preview_maps_a_damaged_archive_to_422(
     response = await client.post(f"/ingest/preview/{job.id}", headers=admin_auth_header)
 
     assert response.status_code == 422, response.text
-    assert "could not be read" in response.json()["detail"]
+    assert "could not be read" in response.json()["detail"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -1431,4 +1431,4 @@ async def test_reupload_preview_maps_a_content_refusal_to_422(
         headers=admin_auth_header,
     )
     assert response.status_code == 422, response.text
-    assert detail in response.json()["detail"]
+    assert detail in response.json()["detail"]["message"]

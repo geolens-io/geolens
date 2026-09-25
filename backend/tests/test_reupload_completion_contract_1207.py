@@ -201,7 +201,7 @@ async def test_both_reupload_doors_reject_a_mislabeled_payload_identically(
     assert direct.status_code == 422, direct.text
     assert presigned.status_code == direct.status_code, presigned.text
     assert presigned.json()["detail"] == direct.json()["detail"]
-    assert "'.gif'" in direct.json()["detail"]
+    assert "'.gif'" in direct.json()["detail"]["message"]
 
 
 async def test_both_reupload_doors_accept_a_legitimate_payload(

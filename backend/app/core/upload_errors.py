@@ -6,7 +6,15 @@ response, including ``modules/catalog/datasets/api/router_reupload.py`` —
 which may not import ``app.processing.*`` (``tests/test_layering.py``). Lives
 in ``core/`` since an exception type is cross-cutting and carries no logic
 from either domain.
+
+fix(#2273): every refusal also carries a stable ``code`` a door can put on
+the wire, plus the ``values`` its message interpolated, so the frontend can
+translate it instead of showing English prose. ``code`` is required —
+``tests/test_upload_refusal_codes.py`` discovers refusals by walking these
+constructions, and one with no code cannot be found.
 """
+
+from collections.abc import Mapping
 
 #: fix(#2031): one wording for the two doors that can see the loss coming.
 _GEOMETRY_LOSS_MESSAGE = (
@@ -48,6 +56,13 @@ class IngestCeilingError(Exception):
     ``app.processing.*``, can still catch it and pass its text through.
     """
 
+    def __init__(
+        self, message: str, *, code: str, values: Mapping[str, str | int] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.values: dict[str, str | int] = dict(values) if values else {}
+
 
 class UnsafeUploadError(ValueError):
     """An upload refused for what its content instructs, not for its shape.
@@ -57,3 +72,31 @@ class UnsafeUploadError(ValueError):
     errors behind a generic message can still let this server-authored text
     through.
     """
+
+    def __init__(
+        self, message: str, *, code: str, values: Mapping[str, str | int] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.values: dict[str, str | int] = dict(values) if values else {}
+
+
+#: The code a door falls back to for a content refusal it still catches
+#: broadly (``except ValueError``) but that never went through
+#: UnsafeUploadError -- some other library `validate_file_content` calls
+#: into (puremagic, defusedxml) raising its own ValueError subclass.
+_UNCODED_REFUSAL_FALLBACK_CODE = "unsafe_upload_content"
+
+
+def refusal_detail(exc: Exception) -> dict[str, str | int]:
+    """The HTTPException ``detail`` a door builds from a content refusal.
+
+    One conversion point so a door forwarding a processing-module refusal
+    never flattens its code and values back down to a bare string. Doors
+    that still catch ``ValueError`` broadly, for a library exception that
+    never went through ``UnsafeUploadError``, get the fallback code above
+    rather than a ``code``-less detail.
+    """
+    code = getattr(exc, "code", None) or _UNCODED_REFUSAL_FALLBACK_CODE
+    values = getattr(exc, "values", None) or {}
+    return {"code": code, "message": str(exc), **values}

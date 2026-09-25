@@ -240,7 +240,7 @@ async def test_both_doors_reject_a_mislabeled_payload_identically(
     assert direct.status_code == 422, direct.text
     assert presigned.status_code == direct.status_code, presigned.text
     assert presigned.json()["detail"] == direct.json()["detail"]
-    assert "'.gif'" in direct.json()["detail"]
+    assert "'.gif'" in direct.json()["detail"]["message"]
 
 
 async def test_both_doors_accept_a_legitimate_payload(
@@ -282,7 +282,7 @@ async def test_both_doors_reject_a_disallowed_extension_identically(
     assert direct.status_code == 400, direct.text
     assert presigned_resp.status_code == direct.status_code, presigned_resp.text
     assert presigned_resp.json()["detail"] == direct.json()["detail"]
-    assert "'.exe'" in direct.json()["detail"]
+    assert "'.exe'" in direct.json()["detail"]["message"]
 
 
 async def test_both_doors_reject_a_truncated_parquet_identically(
@@ -303,7 +303,7 @@ async def test_both_doors_reject_a_truncated_parquet_identically(
     assert direct.status_code == 422, direct.text
     assert presigned.status_code == direct.status_code, presigned.text
     assert presigned.json()["detail"] == direct.json()["detail"]
-    assert "PAR1" in direct.json()["detail"]
+    assert "PAR1" in direct.json()["detail"]["message"]
 
     # The footer can only have come from a read anchored to the end.
     size = len(_TRUNCATED_PARQUET)
@@ -374,7 +374,7 @@ async def test_both_doors_refuse_an_archive_member_by_its_method_unread(
     assert previews[0].json()["detail"] == previews[1].json()["detail"]
     assert (
         f"compressed with {zipfile.compressor_names[method]}"
-        in previews[0].json()["detail"]
+        in previews[0].json()["detail"]["message"]
     )
     assert zip_member_reads == []
 
@@ -627,7 +627,7 @@ async def test_an_oversize_object_is_refused_without_being_copied(
         )
 
     assert completion.status_code == 422, completion.text
-    assert "exceeds the maximum allowed" in completion.json()["detail"]
+    assert "exceeds the maximum allowed" in completion.json()["detail"]["message"]
     assert both_doors.copies == [], both_doors.copies
     assert both_doors.objects == {}, both_doors.objects
 
@@ -995,7 +995,8 @@ class TestFinalizeCleanupContract:
                 )
 
         assert exc.value.status_code == 422
-        assert "exceeds the maximum allowed" in str(exc.value.detail)
+        assert exc.value.detail["code"] == "file_size_exceeded"
+        assert "exceeds the maximum allowed" in exc.value.detail["message"]
         assert staging_key not in storage.objects
         assert frozen_key not in storage.objects, (
             "the frozen copy from the earlier attempt survived a pre-copy "

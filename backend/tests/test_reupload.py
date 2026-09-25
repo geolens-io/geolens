@@ -419,7 +419,9 @@ class TestReuploadUpload:
             headers=admin_auth_header,
         )
         assert resp.status_code == 400
-        assert "not allowed" in resp.json()["detail"].lower()
+        detail = resp.json()["detail"]
+        assert detail["code"] == "disallowed_extension", detail
+        assert "not allowed" in detail["message"].lower()
 
     async def test_reupload_requires_admin_or_editor(
         self,
@@ -605,8 +607,10 @@ class TestReuploadUpload:
             )
 
         assert resp.status_code == 400, resp.text
-        assert "'.exe'" in resp.json()["detail"]
-        assert "not allowed" in resp.json()["detail"]
+        detail = resp.json()["detail"]
+        assert detail["code"] == "disallowed_extension", detail
+        assert "'.exe'" in detail["message"]
+        assert "not allowed" in detail["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -694,7 +698,9 @@ class TestReuploadPreview:
 
         mock_ogrinfo_preview.side_effect = IngestBudgetExceededError(
             "Parquet file has 6 rows, above the 5-row ingest limit. "
-            "Split the file or load a subset."
+            "Split the file or load a subset.",
+            code="ingest_row_limit_exceeded",
+            values={"rows": 6, "limit": 5},
         )
         resp = await client.post(
             f"/datasets/{dataset.id}/reupload/{job_id}/preview",
@@ -703,8 +709,9 @@ class TestReuploadPreview:
 
         assert resp.status_code == 422, resp.text
         detail = resp.json()["detail"]
-        assert "above the 5-row ingest limit" in detail, detail
-        assert "may be malformed or unsupported" not in detail, detail
+        assert detail["code"] == "ingest_row_limit_exceeded", detail
+        assert "above the 5-row ingest limit" in detail["message"], detail
+        assert "may be malformed or unsupported" not in detail["message"], detail
 
     @pytest.mark.parametrize(
         "record_type,expected_status",

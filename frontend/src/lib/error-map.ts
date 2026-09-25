@@ -162,6 +162,89 @@ const SOURCE_VALIDATION_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
 };
 
 /**
+ * fix(#2273): the upload, presigned, URL-import and re-upload doors' stable
+ * refusal codes (`detail.code`), one user-facing key per code rather than
+ * per call site, following the source-validation convention above. `geometry_loss`
+ * keeps its own dedicated branch below (a static key, no interpolated
+ * values) and is listed here only so the backend registry test
+ * (`backend/tests/test_upload_refusal_codes.py`) finds it mapped. Every
+ * other code's `values` come from the detail object's own extra keys — see
+ * the lookup below.
+ *
+ * Checked against the backend's `UPLOAD_REFUSAL_CODES` (discovered by AST,
+ * not a fixed list) by that same test, in both directions: a code minted
+ * with no entry here fails it, and an entry whose key is missing from
+ * `en/common.json` also fails it.
+ */
+const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
+  content_type_mismatch: 'errors.uploadContentTypeMismatch',
+  corrupt_archive_member: 'errors.uploadCorruptArchiveMember',
+  disallowed_extension: 'errors.uploadDisallowedExtension',
+  driver_metadata_member: 'errors.uploadDriverMetadataMember',
+  empty_upload: 'errors.uploadEmpty',
+  file_size_exceeded: 'errors.uploadFileSizeExceeded',
+  filename_control_characters: 'errors.uploadFilenameControlCharacters',
+  filename_missing_extension: 'errors.uploadFilenameMissingExtension',
+  geometry_loss: 'errors.reuploadGeometryLoss',
+  ingest_cell_limit_exceeded: 'errors.uploadIngestCellLimitExceeded',
+  ingest_row_limit_exceeded: 'errors.uploadIngestRowLimitExceeded',
+  invalid_flatgeobuf_file: 'errors.uploadInvalidFlatgeobuf',
+  invalid_import_url: 'errors.uploadInvalidImportUrl',
+  invalid_parquet_file: 'errors.uploadInvalidParquet',
+  invalid_vrt_body: 'errors.uploadInvalidVrtBody',
+  invalid_zip_container: 'errors.uploadInvalidZipContainer',
+  missing_filename: 'errors.uploadMissingFilename',
+  presigned_size_mismatch: 'errors.uploadPresignedSizeMismatch',
+  sqlite_schema_too_large: 'errors.uploadSqliteSchemaTooLarge',
+  sqlite_too_many_schema_objects: 'errors.uploadSqliteTooManySchemaObjects',
+  sqlite_virtual_table: 'errors.uploadSqliteVirtualTable',
+  standalone_vrt_not_supported: 'errors.uploadStandaloneVrtNotSupported',
+  tileset_bounding_volume: 'errors.uploadTilesetBoundingVolume',
+  tileset_content_uri: 'errors.uploadTilesetContentUri',
+  tileset_entry_characters: 'errors.uploadTilesetEntryCharacters',
+  tileset_entry_collision: 'errors.uploadTilesetEntryCollision',
+  tileset_entry_length: 'errors.uploadTilesetEntryLength',
+  tileset_entry_path: 'errors.uploadTilesetEntryPath',
+  tileset_extension_mismatch: 'errors.uploadTilesetExtensionMismatch',
+  tileset_geometric_error: 'errors.uploadTilesetGeometricError',
+  tileset_json: 'errors.uploadTilesetJsonInvalid',
+  tileset_json_depth: 'errors.uploadTilesetJsonTooDeep',
+  tileset_json_size: 'errors.uploadTilesetJsonTooLarge',
+  tileset_kind_required: 'errors.uploadTilesetKindRequired',
+  tileset_layout: 'errors.uploadTilesetLayout',
+  tileset_region: 'errors.uploadTilesetRegion',
+  tileset_special_entry: 'errors.uploadTilesetSpecialEntry',
+  tileset_unpacked_too_large: 'errors.uploadTilesetUnpackedTooLarge',
+  tileset_unreadable_entry: 'errors.uploadTilesetUnreadableEntry',
+  tileset_version: 'errors.uploadTilesetVersion',
+  unreadable_database_file: 'errors.uploadUnreadableDatabase',
+  unsafe_upload_content: 'errors.uploadRefused',
+  unsafe_vrt_source: 'errors.uploadUnsafeVrtSource',
+  unsupported_zip_compression: 'errors.uploadUnsupportedZipCompression',
+  vrt_body_too_large: 'errors.uploadVrtBodyTooLarge',
+  zip_bomb_ratio: 'errors.uploadZipBombRatio',
+  zip_bomb_unpacked_size: 'errors.uploadZipBombUnpackedSize',
+  zip_directory_too_large: 'errors.uploadZipDirectoryTooLarge',
+  zip_entries_overlap: 'errors.uploadZipEntriesOverlap',
+  zip_nested_archive: 'errors.uploadZipNestedArchive',
+  zip_too_many_entries: 'errors.uploadZipTooManyEntries',
+};
+
+/**
+ * A coded upload-refusal detail: `{code, message, ...values}`. `values`
+ * carries whatever the payload interpolated (already-computed strings and
+ * numbers), so it needs no per-code plumbing here — see
+ * `refusal_detail()` in `backend/app/core/upload_errors.py`.
+ */
+function uploadRefusalDescriptor(value: Record<string, unknown>): ApiErrorDescriptor | undefined {
+  if (typeof value.code !== 'string') return undefined;
+  const key = UPLOAD_REFUSAL_CODE_KEYS[value.code];
+  if (!key) return undefined;
+  const { code: _code, message: _message, ...values } = value;
+  return { key, values: values as TranslationValues };
+}
+
+/**
  * Detects a `SourceValidationError` array entry by its `source_id`+`code`
  * signature, which a Pydantic validation-error entry never has (it carries
  * `loc`/`type` instead). An entry that matches the shape but carries a code
@@ -542,6 +625,12 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'service_token_required') {
       return { key: 'errors.refreshServiceTokenRequired' };
     }
+
+    // fix(#2273): checked after the specific codes above (this table never
+    // shadows an already-tested one; `geometry_loss` is also listed in it
+    // for the registry test but its own branch above wins first).
+    const uploadRefusal = uploadRefusalDescriptor(value);
+    if (uploadRefusal) return uploadRefusal;
 
     if (typeof value.message === 'string') {
       return descriptorForMessage(value.message, status);

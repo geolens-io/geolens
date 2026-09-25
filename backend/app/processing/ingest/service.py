@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
+from app.core.upload_errors import UnsafeUploadError
 from app.core.failure_reason import is_composed_exception, redact_failure_reason
 from app.core.tiles3d import TILESET_FILE_TYPE
 from app.core.service_tokens import (
@@ -258,12 +259,17 @@ async def save_upload_file(
                     while chunk := await file.read(65536):
                         total += len(chunk)
                         if total > max_size_bytes:
+                            limit_mb = round(max_size_bytes / (1024 * 1024), 1)
                             raise HTTPException(
                                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                                detail=(
-                                    f"File size exceeds maximum allowed "
-                                    f"({max_size_bytes / (1024 * 1024):.1f} MB)."
-                                ),
+                                detail={
+                                    "code": "file_size_exceeded",
+                                    "message": (
+                                        f"File size exceeds maximum allowed "
+                                        f"({limit_mb} MB)."
+                                    ),
+                                    "limit_mb": limit_mb,
+                                },
                             )
                         spooled.write(chunk)
                     spooled.seek(0)
@@ -305,12 +311,17 @@ async def save_upload_file(
                 if max_size_bytes is not None:
                     total += len(chunk)
                     if total > max_size_bytes:
+                        limit_mb = round(max_size_bytes / (1024 * 1024), 1)
                         raise HTTPException(
                             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                            detail=(
-                                f"File size exceeds maximum allowed "
-                                f"({max_size_bytes / (1024 * 1024):.1f} MB)."
-                            ),
+                            detail={
+                                "code": "file_size_exceeded",
+                                "message": (
+                                    f"File size exceeds maximum allowed "
+                                    f"({limit_mb} MB)."
+                                ),
+                                "limit_mb": limit_mb,
+                            },
                         )
                 # Drain the write before closing/unlinking, since a cancelled
                 # request doesn't stop the worker thread.
@@ -452,7 +463,11 @@ def validate_file_extension(
     )
     suffix = Path(filename).suffix.lower()
     if suffix not in exts:
-        raise ValueError(f"File extension {suffix!r} not allowed. Allowed: {exts}")
+        raise UnsafeUploadError(
+            f"File extension {suffix!r} not allowed. Allowed: {exts}",
+            code="disallowed_extension",
+            values={"extension": suffix, "allowed": ", ".join(exts)},
+        )
 
 
 # PostgreSQL truncates any identifier past NAMEDATALEN-1 = 63 bytes, silently

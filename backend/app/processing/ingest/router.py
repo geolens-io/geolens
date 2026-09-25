@@ -119,6 +119,7 @@ from app.processing.ingest.tileset import (
     staged_unpacked_bytes,
     tileset_job_metadata,
 )
+from app.core.upload_errors import refusal_detail
 from app.processing.ingest.validation import (
     UnsafeUploadError,
     validate_file_content,
@@ -173,10 +174,13 @@ def _reject_standalone_vrt(filename: str) -> None:
     if Path(filename).suffix.lower() == ".vrt":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                "Standalone VRT uploads are not supported. Create a managed "
-                "VRT from existing raster datasets instead."
-            ),
+            detail={
+                "code": "standalone_vrt_not_supported",
+                "message": (
+                    "Standalone VRT uploads are not supported. Create a managed "
+                    "VRT from existing raster datasets instead."
+                ),
+            },
         )
 
 
@@ -212,9 +216,17 @@ async def _refuse_upload(db: AsyncSession, filename: str, kind: str | None) -> N
     allowed_list = await _get_allowed_extensions_safely(db)
     try:
         validate_file_extension(filename, allowed_list)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    require_tileset_archive(kind, filename)
+    except UnsafeUploadError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=refusal_detail(exc)
+        ) from exc
+    try:
+        require_tileset_archive(kind, filename)
+    except UnsafeUploadError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=refusal_detail(exc),
+        ) from exc
 
 
 @router.get(
@@ -586,7 +598,7 @@ async def upload_file(
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Upload missing filename",
+            detail={"code": "missing_filename", "message": "Upload missing filename"},
         )
     try:
         await _refuse_upload(db, file.filename, kind)
@@ -628,7 +640,7 @@ async def upload_file(
                 await db.commit()
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=str(exc),
+                    detail=refusal_detail(exc),
                 ) from exc
             if TILESET_UNPACKED_BYTES_FIELD in tileset_metadata:
                 await check_upload_quota(
@@ -788,7 +800,15 @@ async def preview_file(
             detail="Job has no associated file — upload must complete before preview",
         )
     if (job.user_metadata or {}).get("file_type") == TILESET_FILE_TYPE:
-        return await preview_staged_tileset(job.id, job.source_filename, job.file_path)
+        try:
+            return await preview_staged_tileset(
+                job.id, job.source_filename, job.file_path
+            )
+        except UnsafeUploadError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=refusal_detail(exc),
+            ) from exc
     file_path: str = job.file_path
     downloaded_preview_path: Path | None = None
     resolved_file_path = await resolve_file_path(file_path, str(job.id))
@@ -809,7 +829,7 @@ async def preview_file(
         # file "malformed or unsupported" when it's merely too large.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
+            detail=refusal_detail(exc),
         )
     except UnsafeUploadError as exc:
         # fix(#1846, GHSA-hrf5-v3cq-frx5): server-authored refusal naming
@@ -817,7 +837,7 @@ async def preview_file(
         # first whole-file check, since the presign door only sees a header probe.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
+            detail=refusal_detail(exc),
         )
     except Exception as exc:  # broad: GDAL subprocess can raise various errors on unsupported/malformed files
         logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))

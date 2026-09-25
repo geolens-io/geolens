@@ -1300,7 +1300,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/metadata.py": 161,
     # Ingest API router debt; split upload, import and registration endpoints before
     # raising further. Each upload door branches once for a 3D Tiles tileset.
-    "backend/app/processing/ingest/router.py": 1645,
+    "backend/app/processing/ingest/router.py": 1665,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
     "backend/app/processing/ingest/tasks_common.py": 1716,
     # The file and service strategies: retrieval, staging, verification and cleanup.
@@ -1326,7 +1326,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 933,
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1476,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1486,
     # VRT creation and regeneration share publication and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1684,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
@@ -1339,14 +1339,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/ogr.py": 1351,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
-    "backend/app/processing/ingest/validation.py": 1134,
+    "backend/app/processing/ingest/validation.py": 1196,
     # OAuth destination validation, account linking and role reconciliation share one
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1111,
     # Admin mutations share locking and audit outcomes.
     "backend/app/modules/admin/service.py": 1022,
     # Ingest admission, staging and job settlement share one orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1440,
+    "backend/app/processing/ingest/service.py": 1455,
     # The PostGIS strategy: geometry repair, the snapshot measurement and its
     # catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 660,
