@@ -36,6 +36,11 @@ and releases use semantic versioning.
   builder and AI chat generated ids with `crypto.randomUUID`, which browsers
   expose only on HTTPS or localhost, so dropping a file on the import page did
   nothing there.
+- Rasters uploaded before v1.3.0 now list their COG and quicklooks as STAC and
+  OGC Records assets, as newer rasters do, and their COG counts toward the
+  owner's storage quota. An upgrade migration adds the missing asset rows.
+  Owners of older rasters will see their storage usage rise, and anyone it
+  puts over the cap cannot upload until they free space.
 
 ## [1.20.0] - 2026-09-18
 
