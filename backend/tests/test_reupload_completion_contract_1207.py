@@ -21,6 +21,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.failure_reason import INTERNAL_FAILURE_REASON
 from app.modules.catalog.datasets.api import router_reupload
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs.models import IngestJob
@@ -260,6 +261,96 @@ async def test_a_content_rejection_keeps_this_surface_s_failed_job_trail(
     assert job.status == "failed"
     assert "'.gif'" in (job.error_message or "")
     assert job.completed_at is not None
+
+
+def _refuse_content_with(monkeypatch, refusal: ValueError) -> None:
+    """Make the content check on both re-upload doors raise ``refusal``."""
+
+    def _refuse(file_path: str, filename: str) -> None:
+        raise refusal
+
+    monkeypatch.setattr(
+        "app.processing.ingest.validation.validate_file_content", _refuse
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.presigned.validate_file_content", _refuse
+    )
+
+
+async def _stored_reason(session, job_id: uuid.UUID) -> str | None:
+    session.expire_all()
+    job = (
+        await session.execute(select(IngestJob).where(IngestJob.id == job_id))
+    ).scalar_one()
+    assert job.status == "failed"
+    return job.error_message
+
+
+async def test_a_refusal_is_stored_as_its_redacted_first_line(
+    client, admin_auth_header, test_db_session, both_reupload_doors, monkeypatch
+) -> None:
+    """A refusal naming a credential URL stores its first line with the credential masked."""
+    _refuse_content_with(
+        monkeypatch,
+        ValueError("Refused https://bob:s3cret@svc.example/wfs\nsecond line"),
+    )
+    dataset = await _create_dataset(
+        test_db_session, created_by=await _admin_id(test_db_session)
+    )
+
+    presigned, job_id, _key = await _presigned_reupload(
+        client,
+        admin_auth_header,
+        both_reupload_doors,
+        dataset.id,
+        "update.geojson",
+        _VALID_GEOJSON,
+    )
+
+    assert presigned.status_code == 422, presigned.text
+    reason = await _stored_reason(test_db_session, uuid.UUID(job_id))
+    assert reason is not None and reason.startswith("Refused https://")
+    assert "s3cret" not in reason
+    assert "second line" not in reason
+
+
+async def test_both_doors_store_a_library_refusal_as_the_internal_code(
+    client, admin_auth_header, test_db_session, both_reupload_doors, monkeypatch
+) -> None:
+    """A refusal a library raised is stored as the internal code by both re-upload doors."""
+    _refuse_content_with(
+        monkeypatch,
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+    )
+    dataset = await _create_dataset(
+        test_db_session, created_by=await _admin_id(test_db_session)
+    )
+
+    direct = await _direct_reupload(
+        client, admin_auth_header, dataset.id, "update.geojson", _VALID_GEOJSON
+    )
+    assert direct.status_code == 422, direct.text
+    direct_job_id = (
+        await test_db_session.execute(
+            select(IngestJob.id).where(IngestJob.dataset_id == dataset.id)
+        )
+    ).scalar_one()
+    presigned, job_id, _key = await _presigned_reupload(
+        client,
+        admin_auth_header,
+        both_reupload_doors,
+        dataset.id,
+        "update.geojson",
+        _VALID_GEOJSON,
+    )
+    assert presigned.status_code == 422, presigned.text
+
+    assert await _stored_reason(test_db_session, direct_job_id) == (
+        INTERNAL_FAILURE_REASON
+    )
+    assert await _stored_reason(test_db_session, uuid.UUID(job_id)) == (
+        INTERNAL_FAILURE_REASON
+    )
 
 
 async def test_a_rejected_presigned_reupload_removes_both_objects(
