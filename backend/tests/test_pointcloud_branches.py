@@ -164,10 +164,10 @@ async def test_the_detail_response_carries_the_point_cloud_block(
     assert vector_resp.json()["pointcloud"] is None
 
 
-async def test_the_ogc_record_lists_the_copc_format(
+async def test_the_ogc_record_lists_no_format_until_the_file_is_served(
     client: AsyncClient, admin_auth_header: dict, pointcloud
 ) -> None:
-    """The OGC record lists the COPC media type, and OGC Features has no collection."""
+    """The OGC record names no format no client can fetch, and OGC Features has no collection."""
     record = await client.get(
         f"/collections/datasets/items/{pointcloud.id}", headers=admin_auth_header
     )
@@ -176,7 +176,7 @@ async def test_the_ogc_record_lists_the_copc_format(
     )
 
     assert record.status_code == 200, record.text
-    assert record.json()["properties"]["formats"] == [POINTCLOUD_MEDIA_TYPE]
+    assert record.json()["properties"]["formats"] == []
     assert POINTCLOUD_ASSET_KEY not in record.json()["assets"]
     assert features.status_code == 404
 

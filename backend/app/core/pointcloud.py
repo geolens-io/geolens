@@ -1,7 +1,7 @@
 """Where a COPC point cloud is stored and how the catalog names it.
 
-Delete, quota, the catalog record and the dataset response read these facts,
-so they are defined once in ``core``.
+Delete, quota and the dataset response read these facts, so they are defined
+once in ``core``.
 """
 
 from __future__ import annotations

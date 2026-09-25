@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 import structlog
 
 from app.core.config import settings
-from app.core.pointcloud import POINTCLOUD_MEDIA_TYPE
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import (
@@ -74,8 +73,6 @@ def _record_formats(record_type: str) -> list[str]:
     if record_type == "tiles3d_dataset":
         # Tile content types vary by tileset; its tileset.json is always JSON.
         return [TILESET_MEDIA_TYPE]
-    if record_type == "pointcloud_dataset":
-        return [POINTCLOUD_MEDIA_TYPE]
     if capabilities(record_type).feature_table:
         return list(_FORMAT_MEDIA.values())
     return []
