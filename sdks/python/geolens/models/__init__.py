@@ -552,6 +552,7 @@ from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_featu
 )
 from .permissions_response import PermissionsResponse
 from .permissions_response_permissions import PermissionsResponsePermissions
+from .point_cloud_metadata import PointCloudMetadata
 from .popup_config import PopupConfig
 from .presigned_complete_request import PresignedCompleteRequest
 from .presigned_part_info import PresignedPartInfo
@@ -1188,6 +1189,7 @@ __all__ = (
     "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureProperties",
     "PermissionsResponse",
     "PermissionsResponsePermissions",
+    "PointCloudMetadata",
     "PopupConfig",
     "PresignedCompleteRequest",
     "PresignedPartInfo",

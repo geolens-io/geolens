@@ -21,11 +21,19 @@ from app.core.db.tenant_session import current_tenant_var
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.tenancy import is_multi_tenant
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.pointcloud import pointcloud_prefix
 from app.core.tiles3d import tileset_prefix
 from app.platform.dataset_origin import geolens_owns_table
 from app.platform.storage.reap import delete_prefix
 
 logger = structlog.stdlib.get_logger(__name__)
+
+# The storage prefix under which each file-stored record type keeps every
+# upload attempt.
+_FILE_PREFIXES = {
+    "tiles3d_dataset": tileset_prefix,
+    "pointcloud_dataset": pointcloud_prefix,
+}
 
 
 __all__ = [
@@ -234,12 +242,15 @@ async def delete_dataset(
         await lock_catalog_rows_for_write(session, dataset, with_raster_asset=True)
 
         storage_prefixes = tuple(prefixes)
-    elif record_type == "tiles3d_dataset":
-        # Every unpack attempt, published or interrupted, sits under the one
-        # prefix; the tileset asset row that points at the live one cascades
-        # with the record.
+    elif record_type in _FILE_PREFIXES:
+        # Every attempt of a tileset or a point cloud, published or
+        # interrupted, sits under the one prefix; the asset row that points at
+        # the live one cascades with the record.
         await lock_catalog_rows_for_write(session, dataset)
-        storage_prefixes = (tileset_prefix(dataset_id), f"originals/{dataset_id}/")
+        storage_prefixes = (
+            _FILE_PREFIXES[record_type](dataset_id),
+            f"originals/{dataset_id}/",
+        )
     else:
         # Vector ingest persists originals/{id}/ and
         # vectors/{id}/quicklook_256.png, so deletion removes both objects.

@@ -18,6 +18,7 @@ from sqlalchemy.orm import joinedload
 from app.core.db.sqlstate import TABLE_ABSENT, sqlstate
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.pointcloud import POINTCLOUD_ASSET_KEY
 from app.core.tiles3d import TILESET_ASSET_KEY
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
@@ -58,16 +59,15 @@ async def get_dataset(session: AsyncSession, dataset_id: uuid.UUID) -> Dataset |
     return result.scalar_one_or_none()
 
 
-def _tileset_carrier(rows: list[Any]) -> Any | None:
-    """The tileset's internal pointer row among a dataset's asset rows."""
-    return next((row for row in rows if row.key == TILESET_ASSET_KEY), None)
+def _carrier(rows: list[Any], key: str) -> Any | None:
+    """The internal pointer row with *key* among a dataset's asset rows."""
+    return next((row for row in rows if row.key == key), None)
 
 
 async def get_tileset_href(session: AsyncSession, dataset_id: uuid.UUID) -> str | None:
     """The logical key of a tileset's live tileset.json, or None; never published."""
-    carrier = _tileset_carrier(
-        await get_catalog_port().get_dataset_assets(session, dataset_id)
-    )
+    rows = await get_catalog_port().get_dataset_assets(session, dataset_id)
+    carrier = _carrier(rows, TILESET_ASSET_KEY)
     return None if carrier is None else carrier.href
 
 
@@ -251,7 +251,8 @@ async def get_dataset_detail(
         source_count = sc_result.scalar()
 
     dataset_asset_rows = await get_catalog_port().get_dataset_assets(db, dataset.id)
-    tileset_asset = _tileset_carrier(dataset_asset_rows)
+    tileset_asset = _carrier(dataset_asset_rows, TILESET_ASSET_KEY)
+    pointcloud_asset = _carrier(dataset_asset_rows, POINTCLOUD_ASSET_KEY)
     stac_assets_dict = {}
     for da in dataset_asset_rows:
         # Apply the asset allowlist before exposing href, filename, or size.
@@ -283,6 +284,7 @@ async def get_dataset_detail(
         actors_by_id=actors_by_id,
         raster_asset=raster_asset,
         tileset_asset=tileset_asset,
+        pointcloud_asset=pointcloud_asset,
         is_admin=is_admin,
         source_count=source_count,
         base_url=base_url,

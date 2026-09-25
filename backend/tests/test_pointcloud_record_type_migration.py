@@ -1,4 +1,4 @@
-"""Migration 0070 admits the point cloud values; its downgrade refuses while a row uses one."""
+"""Migrations 0070 and 0071 admit the point cloud values; each downgrade refuses while a row uses one."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 _PREVIOUS = "0069_backfill_raster_dataset_assets"
+_POINTCLOUD_REVISION = "0070_pointcloud_record_type"
 _TITLE_PREFIX = "migration-0070-"
 
 
@@ -41,6 +42,15 @@ async def _insert_dataset(record_id: str, source_format: str) -> None:
             "table_name": f"m0070_{uuid.uuid4().hex[:12]}",
             "source_format": source_format,
         },
+    )
+
+
+async def _insert_pointcloud_asset(record_id: str) -> None:
+    await _fresh_query(
+        "INSERT INTO catalog.dataset_assets (dataset_id, key, href, size_bytes) "
+        "SELECT id, 'pointcloud', 'pointclouds/' || id || '/a1/data.copc.laz', 1 "
+        "FROM catalog.datasets WHERE record_id = CAST(:record_id AS uuid)",
+        {"record_id": record_id},
     )
 
 
@@ -84,6 +94,24 @@ async def test_downgrade_refuses_while_a_row_uses_a_new_value(
         await _remove_rows_and_restore_head()
 
 
+async def test_the_asset_key_downgrade_refuses_while_a_pointcloud_row_exists() -> None:
+    """Removing 'pointcloud' from the asset keys fails while a point cloud points somewhere."""
+    try:
+        record_id = await _insert_record("pointcloud_dataset")
+        await _insert_dataset(record_id, "copc")
+        await _insert_pointcloud_asset(record_id)
+        head = _current_revision()
+        assert head, "alembic current printed no revision"
+
+        refused = _run_alembic("downgrade", _POINTCLOUD_REVISION)
+
+        assert refused.returncode != 0
+        assert "chk_dataset_assets_key" in refused.stderr
+        assert _current_revision() == head
+    finally:
+        await _remove_rows_and_restore_head()
+
+
 async def test_round_trip_closes_and_reopens_the_vocabulary() -> None:
     """With no row using a new value, 0070 downgrades and upgrades cleanly."""
     try:
@@ -98,5 +126,6 @@ async def test_round_trip_closes_and_reopens_the_vocabulary() -> None:
         assert up.returncode == 0, up.stderr
         record_id = await _insert_record("pointcloud_dataset")
         await _insert_dataset(record_id, "copc")
+        await _insert_pointcloud_asset(record_id)
     finally:
         await _remove_rows_and_restore_head()

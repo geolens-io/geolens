@@ -27,6 +27,15 @@ def is_raster_family(record_type: str | None) -> bool:
     return record_type in RASTER_FAMILY_RECORD_TYPES
 
 
+def is_table_or_raster_backed(record_type: str | None) -> bool:
+    """Return True when a feature table or a raster asset holds the dataset's data.
+
+    False for a tileset, a point cloud and any value the table doesn't know:
+    each of those is a stored file served by its own endpoints.
+    """
+    return capabilities(record_type).feature_table or is_raster_family(record_type)
+
+
 @dataclass(frozen=True, slots=True)
 class RecordTypeCapabilities:
     """What the catalog serves for a dataset of one record type."""

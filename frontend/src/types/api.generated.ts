@@ -8225,6 +8225,8 @@ export interface components {
             raster?: components["schemas"]["RasterMetadata"] | null;
             /** @description 3D Tiles metadata on the dataset detail response; null for other record types and before a tileset is published */
             tileset?: components["schemas"]["TilesetMetadata"] | null;
+            /** @description COPC point cloud metadata on the dataset detail response; null for other record types and before a point cloud is published */
+            pointcloud?: components["schemas"]["PointCloudMetadata"] | null;
             /**
              * Stac Assets
              * @description STAC-style asset dictionary
@@ -11108,6 +11110,32 @@ export interface components {
             permissions: {
                 [key: string]: boolean;
             };
+        };
+        /**
+         * PointCloudMetadata
+         * @description A COPC point cloud's published file.
+         */
+        PointCloudMetadata: {
+            /**
+             * Size Bytes
+             * @description Size of the COPC file in bytes
+             */
+            size_bytes?: number | null;
+            /**
+             * Point Count
+             * @description Number of points, from the file's header
+             */
+            point_count?: number | null;
+            /**
+             * Point Format
+             * @description LAS point data record format: 6 (no colour), 7 (RGB) or 8 (RGB and near infrared)
+             */
+            point_format?: number | null;
+            /**
+             * Vertical Crs
+             * @description Name of the file's vertical CRS, when its WKT gives one
+             */
+            vertical_crs?: string | null;
         };
         /**
          * PopupConfig

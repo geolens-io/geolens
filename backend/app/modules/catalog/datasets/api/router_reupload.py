@@ -66,6 +66,7 @@ from app.platform.refresh.service import DatasetBusyError, create_pending_run
 from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
+from app.core.record_types import is_table_or_raster_backed
 from app.core.tiles3d import TILESET_ARCHIVE_SUFFIX
 from app.modules.quota.service import check_replacement_quota
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
@@ -101,6 +102,22 @@ UploadResponse = _catalog_port.upload_response_model()
 # Extension sets used for cross-record-type validation.
 # Do NOT depend on the runtime allowed_extensions config (which merges all types).
 _RASTER_EXTENSIONS: frozenset[str] = frozenset({".tif", ".tiff"})
+
+# Refusals for record types stored as files; any other such type gets the last.
+_NO_REUPLOAD = {
+    "tiles3d_dataset": (
+        "3D Tiles datasets do not support reupload. "
+        "Upload the new tileset as a new dataset instead."
+    ),
+    "pointcloud_dataset": (
+        "Point cloud datasets do not support reupload. "
+        "Upload the new point cloud as a new dataset instead."
+    ),
+}
+_NO_REUPLOAD_DEFAULT = (
+    "Datasets of this type do not support reupload. "
+    "Upload the new data as a new dataset instead."
+)
 
 
 def _service_format(service_label: object) -> str | None:
@@ -236,9 +253,10 @@ def _assert_compatible_record_type(
     after dataset lookup, before pipeline work, so this gives one
     identical error class instead of a deep-pipeline 500.
 
-    VRT is rejected here since it's defined by membership, not a file, and a
-    3D Tiles dataset because v1 has no replace path for a tileset. Raster IS
-    supported (#1221), constrained to raster payloads; file paths
+    VRT is rejected here since it's defined by membership, not a file, and
+    so is any type that neither a feature table nor a raster asset backs (a
+    tileset, a point cloud, an unknown type): none has a replace path.
+    Raster IS supported (#1221), constrained to raster payloads; file paths
     additionally reject raster inputs for vector/table datasets.
 
     Audit action `reupload.commit` is shipped -- see
@@ -265,13 +283,10 @@ def _assert_compatible_record_type(
             ),
         )
 
-    if record_type == "tiles3d_dataset":
+    if not is_table_or_raster_backed(record_type):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "3D Tiles datasets do not support reupload. "
-                "Upload the new tileset as a new dataset instead."
-            ),
+            detail=_NO_REUPLOAD.get(record_type, _NO_REUPLOAD_DEFAULT),
         )
 
     if ext == TILESET_ARCHIVE_SUFFIX:

@@ -6362,6 +6362,17 @@
             ],
             "description": "3D Tiles metadata on the dataset detail response; null for other record types and before a tileset is published"
           },
+          "pointcloud": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PointCloudMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "COPC point cloud metadata on the dataset detail response; null for other record types and before a point cloud is published"
+          },
           "stac_assets": {
             "anyOf": [
               {
@@ -13225,6 +13236,61 @@
           "permissions"
         ],
         "title": "PermissionsResponse",
+        "type": "object"
+      },
+      "PointCloudMetadata": {
+        "description": "A COPC point cloud's published file.",
+        "properties": {
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Size of the COPC file in bytes",
+            "title": "Size Bytes"
+          },
+          "point_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of points, from the file's header",
+            "title": "Point Count"
+          },
+          "point_format": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LAS point data record format: 6 (no colour), 7 (RGB) or 8 (RGB and near infrared)",
+            "title": "Point Format"
+          },
+          "vertical_crs": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of the file's vertical CRS, when its WKT gives one",
+            "title": "Vertical Crs"
+          }
+        },
+        "title": "PointCloudMetadata",
         "type": "object"
       },
       "PopupConfig": {
