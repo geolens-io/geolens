@@ -219,7 +219,8 @@ class UserListResponse(BaseModel):
 class AdminJobResponse(BaseModel):
     id: uuid.UUID = Field(description="Unique ingestion job identifier.")
     status: JobStatus = Field(
-        description="Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'."
+        description="Current job status: 'pending', 'running', 'complete', 'failed', "
+        "'cancelled', or 'fanned_out' (a multi-layer upload split into per-layer child jobs)."
     )
     source_filename: str | None = Field(
         description="Original filename of the uploaded file, if applicable."

@@ -5685,7 +5685,7 @@ export interface components {
             id: string;
             /**
              * Status
-             * @description Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
+             * @description Current job status: 'pending', 'running', 'complete', 'failed', 'cancelled', or 'fanned_out' (a multi-layer upload split into per-layer child jobs).
              * @enum {string}
              */
             status: "pending" | "running" | "complete" | "failed" | "cancelled" | "fanned_out";

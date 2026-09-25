@@ -347,7 +347,7 @@ export type AdminJobResponse = {
     /**
      * Status
      *
-     * Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
+     * Current job status: 'pending', 'running', 'complete', 'failed', 'cancelled', or 'fanned_out' (a multi-layer upload split into per-layer child jobs).
      */
     status: 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'fanned_out';
     /**
