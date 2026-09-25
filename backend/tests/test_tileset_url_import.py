@@ -393,6 +393,35 @@ async def test_a_refused_archive_fails_with_the_upload_doors_reason(
     assert await storage_provider.get_storage().list("tiles3d/") == []
 
 
+async def test_a_refused_archive_is_never_copied_to_object_storage(
+    client: AsyncClient, test_db_session, uploader, deferred, monkeypatch, s3_storage
+) -> None:
+    """On S3 staging the checks run before the staging put, which only a passing archive gets."""
+    headers, _ = uploader
+    puts: list[str] = []
+    real_put = tasks_url_fetch._put_staging_object
+
+    async def _recording_put(s3_key, local_dest):
+        puts.append(s3_key)
+        await real_put(s3_key, local_dest)
+
+    monkeypatch.setattr(tasks_url_fetch, "_put_staging_object", _recording_put)
+
+    Origin(monkeypatch, serve(refused_archive("zip_slip")))
+    refused = await load_job(
+        test_db_session, await import_url(client, headers, deferred)
+    )
+    assert (refused.status, puts) == ("failed", [])
+    assert await s3_storage.list(f"staging/{refused.id}/") == []
+
+    Origin(monkeypatch, serve(campus_zip()))
+    staged = await load_job(
+        test_db_session, await import_url(client, headers, deferred)
+    )
+    assert staged.status == "pending", staged.error_message
+    assert puts == [f"staging/{staged.id}/campus.zip"]
+
+
 @pytest.mark.parametrize(
     ("url", "filename"),
     [
