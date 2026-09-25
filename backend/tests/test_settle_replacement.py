@@ -502,6 +502,62 @@ async def test_a_failure_before_the_commit_leaves_live_data_as_it_was(
     assert state["staging_left"] == 0
     assert fake.released == (None, True)
     assert _events(notifications) == ["ingest_failed"]
+    assert not await _owes_followups(seed)
+
+
+@pytest.mark.parametrize("failure", [ConnectionResetError, asyncio.CancelledError])
+async def test_a_failure_write_that_loses_its_acknowledgement_still_notifies(
+    seed, notifications, failure
+) -> None:
+    """A failure write that lands but loses its acknowledgement still mails ingest_failed once."""
+    lost = _LostAcknowledgement(seed.job_id, "failed", failure("dropped"))
+    with lost.installed(), pytest.raises((RuntimeError, asyncio.CancelledError)):
+        await _settle(_Fake(seed, fail_at="fetch"))
+
+    assert lost.fired == 1
+    state = await _state(seed)
+    assert state["job"] == "failed"
+    assert state["run"] == ("failed", "fake_failed")
+    assert _events(notifications) == ["ingest_failed"]
+    assert not await _owes_followups(seed)
+
+
+async def test_a_failure_the_task_cannot_settle_is_mailed_once_by_the_sweep(
+    seed, notifications
+) -> None:
+    """A landed failure whose own claim fails leaves the record, and the sweep mails it once."""
+    unreachable = AsyncMock(side_effect=ConnectionResetError("the database is gone"))
+    lost = _LostAcknowledgement(seed.job_id, "failed", ConnectionResetError("dropped"))
+    with (
+        lost.installed(),
+        patch("app.processing.ingest.publication.run_publish_followups", unreachable),
+        pytest.raises(RuntimeError, match="fetch failed"),
+    ):
+        await _settle(_Fake(seed, fail_at="fetch"))
+
+    assert (await _state(seed))["job"] == "failed"
+    assert _events(notifications) == []
+    assert await _owes_followups(seed)
+
+    await run_owed_publish_followups()
+    assert _events(notifications) == ["ingest_failed"]
+    await run_owed_publish_followups()
+    assert _events(notifications) == ["ingest_failed"]
+
+
+async def test_a_failure_write_that_never_lands_mails_nothing(
+    seed, notifications
+) -> None:
+    """A failure write the server rolls back leaves no record and mails nothing."""
+    commit = _FailingCommit(seed.job_id, ended="failed")
+    with commit.installed(), pytest.raises(RuntimeError, match="fetch failed"):
+        await _settle(_Fake(seed, fail_at="fetch"))
+
+    assert commit.failed
+    assert (await _state(seed))["job"] == "running"
+    assert not await _owes_followups(seed)
+    await run_owed_publish_followups()
+    assert _events(notifications) == []
 
 
 async def test_a_commit_still_in_progress_keeps_the_publication_and_records_no_failure(
