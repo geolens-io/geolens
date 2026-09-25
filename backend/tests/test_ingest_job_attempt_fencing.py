@@ -227,8 +227,8 @@ async def test_attempt_owned_publish_rejects_stale_external_writer(test_db_sessi
     await test_db_session.commit()
 
 
-async def test_a_failure_write_with_no_reason_or_values_is_refused():
-    """A failure write given neither a reason nor values raises before it touches the session."""
+async def test_a_failure_write_without_a_reason_is_refused():
+    """A failure write given no reason raises before it touches the session."""
     untouched = object()
 
     with pytest.raises(TypeError):

@@ -175,14 +175,12 @@ class TestEveryRemainingSiteIsArmed:
             "leaves the UPDATE in a transaction carrying no SET LOCAL"
         )
 
-    def test_the_shared_helper_arms_before_either_write(self) -> None:
-        """The budget is armed before the helper's failure write, on both of its paths."""
+    def test_the_shared_helper_arms_before_its_write(self) -> None:
+        """The budget is armed before the helper's failure write."""
         tree = ast.parse(inspect.getsource(write_job_failure_for_attempt))
         arms = _call_lines(tree, "arm_job_error_write_budget")
-        writes = _call_lines(tree, "fail") + _call_lines(
-            tree, "update_ingest_job_for_attempt"
-        )
-        assert len(arms) == 1 and len(writes) == 2, (arms, writes)
+        writes = _call_lines(tree, "fail")
+        assert len(arms) == 1 and len(writes) == 1, (arms, writes)
         assert arms[0] < min(writes), (
             "the helper writes the failure before arming the budget, so a held "
             "row parks the worker on that write"
@@ -320,7 +318,7 @@ class TestAHeldJobRowEndsTheRemainingWrites:
                             err_session,
                             job_id,
                             attempt_id,
-                            values={"status": "failed", "error_message": "boom"},
+                            reason="boom",
                             task_name="refresh_postgis",
                         ),
                         timeout=30,

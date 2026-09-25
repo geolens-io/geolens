@@ -28,11 +28,7 @@ _NOT_YET_IN_THE_LEDGER: dict[str, str] = {
 # Helpers that write the ``values`` their caller composes: a caller's values are
 # judged at its call, and a helper passing its own parameter on is not.
 _VALUES_HELPERS = frozenset(
-    {
-        "update_ingest_job_for_attempt",
-        "require_ingest_job_update",
-        "write_job_failure_for_attempt",
-    }
+    {"update_ingest_job_for_attempt", "require_ingest_job_update"}
 )
 _FORWARDING_BODY = "platform/jobs/heartbeat.py::update_ingest_job_for_attempt"
 

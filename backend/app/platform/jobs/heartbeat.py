@@ -168,22 +168,18 @@ async def write_job_failure_for_attempt(
     attempt_id: uuid.UUID,
     *,
     task_name: str,
-    reason: str | BaseException | None = None,
-    values: dict[str, object] | None = None,
+    reason: str | BaseException,
     budget_ms: int | None = None,
 ) -> bool | None:
-    """Commit a fenced terminal job write under the error-write budget.
+    """Fail the running job through the ledger and commit, under the error-write budget.
 
-    The ledger fails the running job with ``reason``, stored redacted.
-    ``values`` writes the given columns instead, for the PostGIS and STAC
-    refreshes that still compose their own failed status.
+    ``reason`` is stored redacted.
 
     Returns whether the fence matched, or ``None`` when the write did not
     happen at all and the transaction was ended: the budget expired or the
     connection went. A write error never raises, because every caller reaches
     it from a failure path where a raise would replace the cause with a lock
-    timeout. Given neither ``reason`` nor ``values``, it raises TypeError
-    before it touches the session.
+    timeout.
 
     fix(#1957): ``None`` is not a fence miss. A caller that treats it as one
     drops cleanup that belongs to an attempt still owning the job row. On
@@ -197,8 +193,6 @@ async def write_job_failure_for_attempt(
     """
     from sqlalchemy.exc import SQLAlchemyError
 
-    if reason is None and values is None:
-        raise TypeError("a failure write needs a reason or values")
     budget_ms = JOB_ERROR_WRITE_TIMEOUT_MS if budget_ms is None else budget_ms
     try:
         # The connection first, on its own deadline: `SET LOCAL` cannot bound a
@@ -207,12 +201,7 @@ async def write_job_failure_for_attempt(
         # the one point in the write that is safe to cancel.
         await asyncio.wait_for(session.connection(), timeout=budget_ms / 1000)
         await arm_job_error_write_budget(session, budget_ms=budget_ms)
-        if values is None:
-            fenced = await ledger.fail(session, job_id, attempt_id, reason=reason)
-        else:
-            fenced = await update_ingest_job_for_attempt(
-                session, job_id, attempt_id, values=values
-            )
+        fenced = await ledger.fail(session, job_id, attempt_id, reason=reason)
         await session.commit()
         return fenced
     except (SQLAlchemyError, TimeoutError) as write_failure:
