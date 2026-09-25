@@ -205,11 +205,8 @@ class PointCloudPreviewResponse(BaseModel):
     point_format: Literal[6, 7, 8] = Field(
         description="The file's LAS point data record format."
     )
-    srid: int | None = Field(
-        description=(
-            "EPSG code of the horizontal coordinate reference system, or null "
-            "when it has none."
-        )
+    srid: int = Field(
+        description="EPSG code of the horizontal coordinate reference system."
     )
     vertical_crs: str | None = Field(
         description="Name of the vertical coordinate reference system, if any."

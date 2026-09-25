@@ -13360,16 +13360,9 @@
             "type": "integer"
           },
           "srid": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "EPSG code of the horizontal coordinate reference system, or null when it has none.",
-            "title": "Srid"
+            "description": "EPSG code of the horizontal coordinate reference system.",
+            "title": "Srid",
+            "type": "integer"
           },
           "vertical_crs": {
             "anyOf": [

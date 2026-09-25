@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 import os
 import struct
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -87,6 +89,15 @@ def test_a_horizontal_crs_alone_has_no_vertical_name(tmp_path) -> None:
     assert (cloud.srid, cloud.vertical_crs) == (26912, None)
 
 
+def test_a_wkt2_compound_crs_is_read(tmp_path) -> None:
+    """The EPSG code and vertical name come from WKT2 nodes as from WKT1 ones."""
+    wkt = CRS.from_user_input("EPSG:26912+5703").to_wkt(version="WKT2_2019")
+
+    cloud = inspect_pointcloud(write(tmp_path, copc(wkt=wkt.encode())))
+
+    assert (cloud.srid, cloud.vertical_crs) == (26912, "NAVD88 height")
+
+
 def test_a_node_with_no_points_is_skipped(tmp_path) -> None:
     """The spec allows an empty node; it holds no data range to check."""
     data = copc(pages=lambda layout: child_page(layout, [(1, 0, 0, 0, 0, 0, 0)]))
@@ -121,14 +132,87 @@ def test_a_point_cloud_that_is_not_copc_is_refused_with_the_conversion_hint(
     }
 
 
+_CUSTOM = CRS.from_epsg(26912).to_wkt().rsplit(',AUTHORITY["EPSG","26912"]', 1)[0]
+
+
+def _bound_crs(grid: str) -> bytes:
+    """A WKT2 BOUNDCRS whose transformation names ``grid`` as its shift file."""
+    return (
+        f"BOUNDCRS[SOURCECRS[{CRS.from_epsg(26912).to_wkt(version='WKT2_2019')}],"
+        f"TARGETCRS[{CRS.from_epsg(4326).to_wkt(version='WKT2_2019')}],"
+        'ABRIDGEDTRANSFORMATION["shift",METHOD["NTv2",ID["EPSG",9615]],'
+        f'PARAMETERFILE["Latitude and longitude difference file","{grid}"]]]'
+    ).encode()
+
+
 @pytest.mark.parametrize(
     "wkt",
-    [None, b"not a coordinate system", b'LOCAL_CS["site grid",UNIT["metre",1]]'],
-    ids=["none", "unparseable", "local"],
+    [
+        None,
+        b"not a coordinate system",
+        b'LOCAL_CS["site grid",UNIT["metre",1]]',
+        (_CUSTOM + "]").encode(),
+        _bound_crs("/nonexistent/shift.gsb"),
+        b'PROJCS["x",AUTHORITY["EPSG","26912"]',
+        b'PROJCS["x",AUTHORITY["EPSG","999999999"]]',
+    ],
+    ids=[
+        "none",
+        "unparseable",
+        "local",
+        "no-epsg-code",
+        "bound",
+        "unbalanced",
+        "unknown-code",
+    ],
 )
 def test_a_point_cloud_without_a_usable_crs_is_refused(tmp_path, wkt) -> None:
-    """No WKT, WKT PROJ cannot read, or a CRS that cannot be placed on the map."""
+    """A CRS with no EPSG code GeoLens can read is refused."""
     assert refused(tmp_path, copc(wkt=wkt)).code == "pointcloud_no_crs"
+
+
+_CHECK_IN_A_CHILD = """
+import sys
+from app.core.upload_errors import CodedUploadError
+from app.processing.ingest.pointcloud import inspect_pointcloud
+try:
+    print(inspect_pointcloud(sys.argv[1]).srid)
+except CodedUploadError as exc:
+    print(exc.code)
+"""
+
+
+def _inspect_in_a_child(path: str) -> str:
+    """Inspect ``path`` in a child process, since PROJ blocks holding the GIL."""
+    try:
+        done = subprocess.run(
+            [sys.executable, "-c", _CHECK_IN_A_CHILD, path],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=Path(__file__).resolve().parents[1],
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail("the check opened the file the WKT names")
+    return done.stdout.strip().splitlines()[-1]
+
+
+@pytest.mark.parametrize("form", ["bound-crs", "proj4-extension"])
+def test_a_crs_that_names_a_file_never_opens_it(tmp_path, form) -> None:
+    """A grid file named in the WKT is never opened, so a FIFO cannot hang the check."""
+    fifo = tmp_path / "shift.gsb"
+    os.mkfifo(fifo)
+    if form == "bound-crs":
+        wkt = _bound_crs(str(fifo))
+    else:
+        wkt = CRS.from_epsg(26912).to_wkt()[:-1] + (
+            f',EXTENSION["PROJ4","+proj=utm +zone=12 +ellps=GRS80 +nadgrids={fifo}"]]'
+        )
+        wkt = wkt.encode()
+
+    outcome = _inspect_in_a_child(write(tmp_path, copc(wkt=wkt)))
+
+    assert outcome == ("pointcloud_no_crs" if form == "bound-crs" else "26912")
 
 
 def _pages(*entries):

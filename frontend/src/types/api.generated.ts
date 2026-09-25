@@ -11183,9 +11183,9 @@ export interface components {
             point_format: 6 | 7 | 8;
             /**
              * Srid
-             * @description EPSG code of the horizontal coordinate reference system, or null when it has none.
+             * @description EPSG code of the horizontal coordinate reference system.
              */
-            srid: number | null;
+            srid: number;
             /**
              * Vertical Crs
              * @description Name of the vertical coordinate reference system, if any.

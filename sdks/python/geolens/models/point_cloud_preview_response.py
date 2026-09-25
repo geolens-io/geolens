@@ -29,7 +29,7 @@ class PointCloudPreviewResponse:
         source_filename (None | str): Original filename of the uploaded point cloud.
         point_count (int): Number of points in the file.
         point_format (PointCloudPreviewResponsePointFormat): The file's LAS point data record format.
-        srid (int | None): EPSG code of the horizontal coordinate reference system, or null when it has none.
+        srid (int): EPSG code of the horizontal coordinate reference system.
         vertical_crs (None | str): Name of the vertical coordinate reference system, if any.
         extent_bbox (list[float]): The extent as [west, south, east, north] in degrees; west > east when it crosses the
             antimeridian.
@@ -42,7 +42,7 @@ class PointCloudPreviewResponse:
     source_filename: None | str
     point_count: int
     point_format: PointCloudPreviewResponsePointFormat
-    srid: int | None
+    srid: int
     vertical_crs: None | str
     extent_bbox: list[float]
     z_min: float
@@ -60,7 +60,6 @@ class PointCloudPreviewResponse:
 
         point_format: int = self.point_format
 
-        srid: int | None
         srid = self.srid
 
         vertical_crs: None | str
@@ -111,12 +110,7 @@ class PointCloudPreviewResponse:
             d.pop("point_format")
         )
 
-        def _parse_srid(data: object) -> int | None:
-            if data is None:
-                return data
-            return cast(int | None, data)
-
-        srid = _parse_srid(d.pop("srid"))
+        srid = d.pop("srid")
 
         def _parse_vertical_crs(data: object) -> None | str:
             if data is None:

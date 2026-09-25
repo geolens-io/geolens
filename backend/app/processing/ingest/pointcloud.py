@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import re
 import struct
 import tempfile
 import uuid
@@ -63,12 +64,33 @@ _COPC_HIERARCHY = (b"copc", 1000)
 _LASZIP = (b"laszip encoded", 22204)
 _WKT = (b"LASF_Projection", 2112)
 
+# The WKT nodes read for the CRS. PROJ never parses the uploaded WKT, since a
+# WKT can name a grid file (PARAMETERFILE, a PROJ4 extension) PROJ would open.
+_WKT_TOKEN = re.compile(r'\s*(?:("(?:[^"]|"")*")|([\[(])|([\])])|(,)|([^\s\[\](),"]+))')
+_COMPOUND_CRS = frozenset({"COMPD_CS", "COMPOUNDCRS"})
+_HORIZONTAL_CRS = frozenset(
+    {
+        "GEOGCS",
+        "PROJCS",
+        "GEODCRS",
+        "GEODETICCRS",
+        "GEOGCRS",
+        "GEOGRAPHICCRS",
+        "PROJCRS",
+        "PROJECTEDCRS",
+    }
+)
+_VERTICAL_CRS = frozenset({"VERT_CS", "VERTCRS", "VERTICALCRS"})
+
 _NOT_COPC = (
     "This point cloud is not a COPC file. Convert it with PDAL's writers.copc "
     "or untwine; GeoLens doesn't convert point clouds yet."
 )
 _TRUNCATED = "The point cloud file is truncated or its header is damaged."
-_NO_CRS = "The point cloud has no coordinate reference system GeoLens can read."
+_NO_CRS = (
+    "The point cloud has no coordinate reference system with an EPSG code "
+    "GeoLens can read."
+)
 _DECODE_FAILED = "The point cloud's points don't decode as its header describes."
 
 Read = Callable[[int, int], bytes]
@@ -80,7 +102,7 @@ class PointCloud:
 
     point_count: int
     point_format: int
-    srid: int | None
+    srid: int
     vertical_crs: str | None
     extent_bbox: tuple[float, float, float, float]
     z_min: float
@@ -385,9 +407,67 @@ def _decode(read: Read, layout: _Layout) -> None:
         )
 
 
+def _parse_wkt(text: str) -> list:
+    """WKT as nested ``[KEYWORD, *values]`` lists, read without interpreting it."""
+    stack: list[list] = [[]]
+    word: str | None = None
+    text = text.strip()
+    position = 0
+    while position < len(text):
+        match = _WKT_TOKEN.match(text, position)
+        if match is None:
+            raise ValueError("unreadable WKT")
+        position = match.end()
+        quoted, opening, closing, _, bare = match.groups()
+        if bare is not None:
+            word = bare
+        elif opening is not None:
+            if word is None:
+                raise ValueError("unreadable WKT")
+            stack.append([word.upper()])
+            word = None
+        elif quoted is not None:
+            stack[-1].append(quoted[1:-1].replace('""', '"'))
+        else:
+            if word is not None:
+                stack[-1].append(word)
+                word = None
+            if closing is not None:
+                if len(stack) < 2:
+                    raise ValueError("unreadable WKT")
+                node = stack.pop()
+                stack[-1].append(node)
+    if word is not None or len(stack) != 1 or len(stack[0]) != 1:
+        raise ValueError("unreadable WKT")
+    return stack[0][0]
+
+
+def _declared_crs(wkt: bytes) -> tuple[int, str]:
+    """The horizontal CRS's EPSG code and the vertical CRS's name, as the WKT states them."""
+    root = _parse_wkt(wkt.split(b"\0", 1)[0].decode())
+    nodes = [item for item in root[1:] if isinstance(item, list)]
+    horizontal = root if root[0] in _HORIZONTAL_CRS else None
+    vertical = None
+    if root[0] in _COMPOUND_CRS:
+        horizontal = next((n for n in nodes if n[0] in _HORIZONTAL_CRS), None)
+        vertical = next((n for n in nodes if n[0] in _VERTICAL_CRS), None)
+    codes = [
+        item[2]
+        for item in (horizontal or [])[1:]
+        if isinstance(item, list)
+        and item[0] in {"AUTHORITY", "ID"}
+        and len(item) > 2
+        and str(item[1]).upper() == "EPSG"
+    ]
+    if not codes:
+        raise ValueError("no EPSG code")
+    name = vertical[1] if vertical and len(vertical) > 1 else ""
+    return int(str(codes[-1])), name if isinstance(name, str) else ""
+
+
 def _crs_facts(
     wkt: bytes, header: _Header
-) -> tuple[int | None, str | None, tuple[float, float, float, float]]:
+) -> tuple[int, str | None, tuple[float, float, float, float]]:
     """The horizontal EPSG code, the vertical CRS name and the WGS84 extent."""
     from rasterio.coords import BoundingBox
     from rasterio.crs import CRS
@@ -395,18 +475,15 @@ def _crs_facts(
     from app.processing.raster.cog import _wgs84_bbox
 
     try:
-        crs = CRS.from_wkt(wkt.split(b"\0", 1)[0].decode())
-        projjson = crs.to_dict(projjson=True)
-        parts = projjson.get("components") or [projjson]
-        horizontal = CRS.from_dict(parts[0]) if len(parts) > 1 else crs
+        srid, name = _declared_crs(wkt)
         bounds = BoundingBox(*header.mins[:2], *header.maxs[:2])
-        bbox = _wgs84_bbox(SimpleNamespace(crs=horizontal, bounds=bounds))
-        srid = horizontal.to_epsg()
-    except Exception as exc:  # broad: PROJ reports an unusable CRS through several rasterio error types
+        bbox = _wgs84_bbox(SimpleNamespace(crs=CRS.from_epsg(srid), bounds=bounds))
+    except (
+        Exception
+    ) as exc:  # broad: an unreadable WKT or an EPSG code PROJ can't use is one refusal
         raise _refusal("pointcloud_no_crs", _NO_CRS, reason="crs") from exc
     if not all(map(math.isfinite, bbox)):
         raise _refusal("pointcloud_no_crs", _NO_CRS, reason="extent")
-    name = str(parts[1].get("name") or "") if len(parts) > 1 else ""
     vertical = "".join(c for c in name if c.isprintable())[:255] or None
     return srid, vertical, tuple(bbox)
 

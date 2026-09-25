@@ -7756,9 +7756,9 @@ export type PointCloudPreviewResponse = {
     /**
      * Srid
      *
-     * EPSG code of the horizontal coordinate reference system, or null when it has none.
+     * EPSG code of the horizontal coordinate reference system.
      */
-    srid: number | null;
+    srid: number;
     /**
      * Vertical Crs
      *
