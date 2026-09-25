@@ -422,7 +422,11 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
                     IngestJob.id == job_id, IngestJob.attempt_id == attempt_id
                 )
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if job is None:
+            raise StaleIngestAttempt(
+                f"Ingest attempt {attempt_id} no longer owns job {job_id}"
+            )
         dataset = (
             await session.execute(
                 select(Dataset)

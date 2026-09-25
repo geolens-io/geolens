@@ -18,7 +18,7 @@ from app.core.db.sqlstate import sqlstate
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform import catalog_locks
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE
-from app.platform.jobs.heartbeat import attempt_scoped_staging_table
+from app.platform.jobs.heartbeat import StaleIngestAttempt, attempt_scoped_staging_table
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
@@ -693,6 +693,33 @@ async def test_a_failure_verdict_behind_a_long_hold_is_dropped_and_the_failure_l
     assert (state["job"], state["run"]) == ("failed", ("failed", "source_missing"))
     assert await _origin(seed) == before
     assert _events(notifications) == ["ingest_failed"]
+
+
+async def test_an_attempt_rotated_during_the_fetch_is_stale_and_writes_nothing(
+    seed, notifications
+) -> None:
+    """A job handed to a newer attempt mid-fetch raises StaleIngestAttempt and is left to that attempt."""
+
+    async def _rotate() -> None:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == seed.job_id)
+                .values(attempt_id=uuid.uuid4())
+            )
+            await session.commit()
+
+    fake = _Fake(seed, during={"fetch": _rotate})
+    with pytest.raises(StaleIngestAttempt):
+        await _settle(fake)
+
+    state = await _state(seed)
+    assert state["job"] == "running"
+    assert state["catalog"] == (1, "Test Dataset", 1)
+    assert state["live"] == "before"
+    assert state["staging_left"] == 0
+    assert "stage" not in fake.seen
+    assert _events(notifications) == []
 
 
 async def test_a_held_back_verdict_without_a_settle_step_is_refused() -> None:
