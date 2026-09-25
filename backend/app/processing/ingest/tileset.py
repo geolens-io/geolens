@@ -132,6 +132,17 @@ class TilesetFacts:
 
 
 @dataclass(frozen=True)
+class TilesetContents:
+    """What reading every file of the tileset finds, sorted."""
+
+    # b3dm, i3dm, pnts, cmpt, glb, gltf, subtree, and the vctr and geom formats
+    # CesiumJS still reads, inner composite tiles included.
+    content_types: tuple[str, ...]
+    # extensionsRequired of every tileset JSON and glTF in the archive.
+    extensions_required: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class TilesetLayout:
     """The archive's files, keyed relative to the folder holding tileset.json."""
 
@@ -145,6 +156,8 @@ class TilesetLayout:
 class Tileset:
     layout: TilesetLayout
     facts: TilesetFacts
+    # Only the worker reads every file, so the doors leave this unset.
+    contents: TilesetContents | None = None
 
 
 def _refuse(message: str, *, reason: str) -> NoReturn:

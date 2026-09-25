@@ -40,4 +40,35 @@ describe('TilesetCard', () => {
 
     expect(screen.getAllByText('N/A')).toHaveLength(5);
   });
+
+  it('lists the content types and required extensions', () => {
+    render(
+      <TilesetCard
+        tileset={{ ...TILESET, content_types: ['b3dm', 'pnts'], extensions_required: ['3DTILES_implicit_tiling'] }}
+        extentBbox={null}
+      />,
+    );
+
+    expect(screen.getByText('Content types')).toBeInTheDocument();
+    expect(screen.getByText('b3dm, pnts')).toBeInTheDocument();
+    expect(screen.getByText('Required extensions')).toBeInTheDocument();
+    expect(screen.getByText('3DTILES_implicit_tiling')).toBeInTheDocument();
+  });
+
+  it('says none when the tileset requires no extension', () => {
+    render(
+      <TilesetCard tileset={{ ...TILESET, content_types: ['glb'], extensions_required: [] }} extentBbox={null} />,
+    );
+
+    expect(screen.getByText('None')).toBeInTheDocument();
+  });
+
+  it('leaves both lists out for a tileset published before they were recorded', () => {
+    render(
+      <TilesetCard tileset={{ ...TILESET, content_types: null, extensions_required: null }} extentBbox={null} />,
+    );
+
+    expect(screen.queryByText('Content types')).not.toBeInTheDocument();
+    expect(screen.queryByText('Required extensions')).not.toBeInTheDocument();
+  });
 });

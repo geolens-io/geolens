@@ -1169,6 +1169,8 @@
     "size": "Entpackte Größe",
     "extent": "Ausdehnung",
     "noExtent": "Nicht verfügbar. GeoLens liest die Ausdehnung nur aus einem Hüllvolumen vom Typ Region.",
+    "contentTypes": "Inhaltstypen",
+    "extensionsRequired": "Erforderliche Erweiterungen",
     "accessTitle": "In einem 3D-Tiles-Client laden",
     "urlLabel": "Tileset-URL",
     "headerHint": "Interne, eingeschränkte und private Tilesets brauchen alle einen API-Schlüssel im Header X-Api-Key. Verwenden Sie einen Schlüssel mit Nur-Lesen-Zugriff, da CesiumJS ihn bei jeder Anfrage mitsendet, die es beim Laden des Tilesets stellt.",

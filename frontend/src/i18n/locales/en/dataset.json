@@ -1169,6 +1169,8 @@
     "size": "Unpacked size",
     "extent": "Extent",
     "noExtent": "Not available. GeoLens reads the extent only from a region bounding volume.",
+    "contentTypes": "Content types",
+    "extensionsRequired": "Required extensions",
     "accessTitle": "Load in a 3D Tiles client",
     "urlLabel": "Tileset URL",
     "headerHint": "Internal, restricted and private tilesets all need an API key in the X-Api-Key header. Use a read-only key, since CesiumJS sends it with every request it makes while loading the tileset.",

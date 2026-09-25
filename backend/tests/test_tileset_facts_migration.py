@@ -26,7 +26,8 @@ async def _tileset_columns() -> list[tuple]:
     rows = await fresh_query(
         "SELECT column_name, data_type, character_maximum_length, is_nullable "
         "FROM information_schema.columns WHERE table_schema = 'catalog' "
-        "AND table_name = 'datasets' AND column_name LIKE 'tileset\\_%' "
+        "AND table_name = 'datasets' AND column_name IN "
+        "('tileset_bounding_volume', 'tileset_geometric_error', 'tileset_version') "
         "ORDER BY column_name"
     )
     return [tuple(row) for row in rows]

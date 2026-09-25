@@ -9,7 +9,7 @@ interface TilesetCardProps {
   extentBbox: number[] | null;
 }
 
-/** A 3D Tiles dataset's tileset: its version, detail, volume, size and extent. */
+/** A 3D Tiles dataset's tileset: its version, detail, volume, size, extent and contents. */
 export function TilesetCard({ tileset, extentBbox }: TilesetCardProps) {
   const { t } = useTranslation('dataset');
   const notAvailable = t('common:notAvailable', { defaultValue: 'Not available' });
@@ -29,6 +29,11 @@ export function TilesetCard({ tileset, extentBbox }: TilesetCardProps) {
   const extent = tileset.bounding_volume === 'box' || tileset.bounding_volume === 'sphere'
     ? t('tileset.noExtent')
     : formatBbox(extentBbox, notAvailable);
+  // Null for a tileset published before its contents were recorded, so the row is left out.
+  const lists = [
+    { label: t('tileset.contentTypes'), values: tileset.content_types },
+    { label: t('tileset.extensionsRequired'), values: tileset.extensions_required },
+  ].flatMap(({ label, values }) => (values ? [{ label, values }] : []));
 
   return (
     <Card density="compact">
@@ -47,6 +52,14 @@ export function TilesetCard({ tileset, extentBbox }: TilesetCardProps) {
             <dt className="text-muted-foreground">{t('tileset.extent')}</dt>
             <dd className="font-mono">{extent}</dd>
           </div>
+          {lists.map(({ label, values }) => (
+            <div key={label} className="col-span-full">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="font-mono break-words">
+                {values.length ? values.join(', ') : t('common:none')}
+              </dd>
+            </div>
+          ))}
         </dl>
       </CardContent>
     </Card>

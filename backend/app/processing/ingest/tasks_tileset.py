@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 import zipfile
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,7 +55,7 @@ from app.processing.ingest.tasks_staging import (
     reap_presigned_staging_object,
 )
 from app.processing.ingest.tileset import Tileset, inspect_tileset
-from app.processing.ingest.tileset_content import check_archive_uris
+from app.processing.ingest.tileset_content import scan_tileset_archive
 from app.processing.ingest.validation import _member_read_errors
 
 _TASK = "ingest_tileset"
@@ -117,7 +118,7 @@ async def create_tileset_dataset(
     Record = port.get_record_orm_class()
     Dataset = port.get_dataset_orm_class()
     DatasetAsset = get_catalog_port().dataset_asset_orm_class()
-    layout, facts = tileset.layout, tileset.facts
+    layout, facts, contents = tileset.layout, tileset.facts, tileset.contents
 
     await reserve_dataset_slot(session, created_by)
     await reserve_storage_bytes(session, created_by, layout.unpacked_bytes)
@@ -148,6 +149,10 @@ async def create_tileset_dataset(
         tileset_version=facts.version,
         tileset_geometric_error=facts.geometric_error,
         tileset_bounding_volume=facts.bounding_volume,
+        tileset_content_types=list(contents.content_types) if contents else None,
+        tileset_extensions_required=(
+            list(contents.extensions_required) if contents else None
+        ),
     )
     set_dataset_origin(dataset, "upload", filename=source_filename)
     session.add(dataset)
@@ -284,7 +289,10 @@ async def ingest_tileset(
 
         file_path = await resolve_file_path(file_path, job_id)
         tileset = await asyncio.to_thread(inspect_tileset, file_path)
-        await asyncio.to_thread(check_archive_uris, file_path, tileset.layout)
+        contents = await asyncio.to_thread(
+            scan_tileset_archive, file_path, tileset.layout
+        )
+        tileset = replace(tileset, contents=contents)
 
         dataset_id = uuid.uuid4()
         attempt_prefix = tileset_attempt_prefix(dataset_id, attempt_uuid)

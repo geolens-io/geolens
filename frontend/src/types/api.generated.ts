@@ -13547,6 +13547,16 @@ export interface components {
              * @description The kind of the root tile's bounding volume. Only a region yields the dataset's extent; a box or sphere leaves it null.
              */
             bounding_volume?: ("region" | "box" | "sphere") | null;
+            /**
+             * Content Types
+             * @description The tile formats in the tileset, sorted: b3dm, i3dm, pnts, cmpt, glb, gltf, subtree, vctr or geom, including the tiles inside a cmpt. Null for a tileset published before GeoLens recorded them.
+             */
+            content_types?: string[] | null;
+            /**
+             * Extensions Required
+             * @description Every extension a client must support to load the tileset, sorted: the extensionsRequired of its tileset JSON, external tilesets included, and of its glTF content. Null for a tileset published before GeoLens recorded them.
+             */
+            extensions_required?: string[] | null;
         };
         /**
          * TilesetPreviewResponse

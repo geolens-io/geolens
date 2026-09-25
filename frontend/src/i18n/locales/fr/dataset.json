@@ -1169,6 +1169,8 @@
     "size": "Taille décompressée",
     "extent": "Emprise",
     "noExtent": "Non disponible. GeoLens ne lit l'emprise que depuis un volume englobant de type région.",
+    "contentTypes": "Types de contenu",
+    "extensionsRequired": "Extensions requises",
     "accessTitle": "Charger dans un client 3D Tiles",
     "urlLabel": "URL du tileset",
     "headerHint": "Les tilesets internes, restreints et privés nécessitent tous une clé API dans l'en-tête X-Api-Key. Utilisez une clé en lecture seule, car CesiumJS l'envoie avec chaque requête qu'il fait en chargeant le tileset.",

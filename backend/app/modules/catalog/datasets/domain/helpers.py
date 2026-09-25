@@ -184,6 +184,8 @@ def dataset_to_response(
             version=dataset.tileset_version,
             geometric_error=dataset.tileset_geometric_error,
             bounding_volume=dataset.tileset_bounding_volume,
+            content_types=dataset.tileset_content_types,
+            extensions_required=dataset.tileset_extensions_required,
         )
         if record_type == "tiles3d_dataset" and tileset_asset is not None
         else None

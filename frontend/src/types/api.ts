@@ -127,6 +127,10 @@ export interface TilesetMetadata {
   version: string | null;
   geometric_error: number | null;
   bounding_volume: 'region' | 'box' | 'sphere' | null;
+  /** Tile formats in the tileset, sorted; null for a tileset published before they were recorded. */
+  content_types?: string[] | null;
+  /** Extensions a client must support to load it, sorted; null before they were recorded. */
+  extensions_required?: string[] | null;
 }
 
 export interface RasterMetadata {

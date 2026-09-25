@@ -32,6 +32,12 @@ class TilesetMetadata:
         geometric_error (float | None | Unset): The root tile's geometricError, when tileset.json gives one
         bounding_volume (None | TilesetMetadataBoundingVolumeType0 | Unset): The kind of the root tile's bounding
             volume. Only a region yields the dataset's extent; a box or sphere leaves it null.
+        content_types (list[str] | None | Unset): The tile formats in the tileset, sorted: b3dm, i3dm, pnts, cmpt, glb,
+            gltf, subtree, vctr or geom, including the tiles inside a cmpt. Null for a tileset published before GeoLens
+            recorded them.
+        extensions_required (list[str] | None | Unset): Every extension a client must support to load the tileset,
+            sorted: the extensionsRequired of its tileset JSON, external tilesets included, and of its glTF content. Null
+            for a tileset published before GeoLens recorded them.
     """
 
     url: str
@@ -39,6 +45,8 @@ class TilesetMetadata:
     version: None | str | Unset = UNSET
     geometric_error: float | None | Unset = UNSET
     bounding_volume: None | TilesetMetadataBoundingVolumeType0 | Unset = UNSET
+    content_types: list[str] | None | Unset = UNSET
+    extensions_required: list[str] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -70,6 +78,24 @@ class TilesetMetadata:
         else:
             bounding_volume = self.bounding_volume
 
+        content_types: list[str] | None | Unset
+        if isinstance(self.content_types, Unset):
+            content_types = UNSET
+        elif isinstance(self.content_types, list):
+            content_types = self.content_types
+
+        else:
+            content_types = self.content_types
+
+        extensions_required: list[str] | None | Unset
+        if isinstance(self.extensions_required, Unset):
+            extensions_required = UNSET
+        elif isinstance(self.extensions_required, list):
+            extensions_required = self.extensions_required
+
+        else:
+            extensions_required = self.extensions_required
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -85,6 +111,10 @@ class TilesetMetadata:
             field_dict["geometric_error"] = geometric_error
         if bounding_volume is not UNSET:
             field_dict["bounding_volume"] = bounding_volume
+        if content_types is not UNSET:
+            field_dict["content_types"] = content_types
+        if extensions_required is not UNSET:
+            field_dict["extensions_required"] = extensions_required
 
         return field_dict
 
@@ -141,12 +171,50 @@ class TilesetMetadata:
 
         bounding_volume = _parse_bounding_volume(d.pop("bounding_volume", UNSET))
 
+        def _parse_content_types(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                content_types_type_0 = cast(list[str], data)
+
+                return content_types_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        content_types = _parse_content_types(d.pop("content_types", UNSET))
+
+        def _parse_extensions_required(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                extensions_required_type_0 = cast(list[str], data)
+
+                return extensions_required_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        extensions_required = _parse_extensions_required(
+            d.pop("extensions_required", UNSET)
+        )
+
         tileset_metadata = cls(
             url=url,
             size_bytes=size_bytes,
             version=version,
             geometric_error=geometric_error,
             bounding_volume=bounding_volume,
+            content_types=content_types,
+            extensions_required=extensions_required,
         )
 
         tileset_metadata.additional_properties = d
