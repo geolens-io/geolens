@@ -11,15 +11,16 @@ from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.processing.ai.chat_validation import _validate_actions
 from app.processing.ai.router import _validate_chat_layers
-from app.processing.ai.schemas import ChatMapLayer
+from app.processing.ai.schemas import ChatAction, ChatMapLayer
 from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.maps.models import Map
 from app.platform.extensions.defaults import DefaultProcessingPort
 
-from tests.factories import create_dataset
+from tests.factories import create_dataset, create_raster_dataset
 
 _default_port = DefaultProcessingPort()
 
@@ -213,6 +214,54 @@ async def test_validate_filters_inaccessible_dataset(
     )
 
     assert len(validated) == 0
+
+
+@pytest.mark.anyio
+async def test_validate_keeps_a_raster_layer(
+    client: AsyncClient,
+    test_db_session,
+):
+    """A raster dataset has no data.<table>, but chat still keeps its layer."""
+    session = test_db_session
+    admin = await _get_user(session, settings.geolens_admin_username)
+
+    map_obj = await _create_map(session, created_by=admin.id)
+    raster = await create_raster_dataset(
+        session,
+        created_by=admin.id,
+        table_name=f"raster_{uuid.uuid4().hex[:8]}",
+    )
+
+    layer = _make_chat_layer(raster)
+    validated, _basemap, _can_edit = await _validate_chat_layers(
+        session, admin, str(map_obj.id), [layer], port=_default_port
+    )
+
+    assert len(validated) == 1
+    assert validated[0].dataset_table_name == raster.table_name
+
+
+@pytest.mark.anyio
+async def test_add_layer_of_a_raster_is_not_refused(
+    client: AsyncClient,
+    test_db_session,
+):
+    """A raster has no data.<table>, but the add_layer RBAC gate still allows it."""
+    session = test_db_session
+    admin = await _get_user(session, settings.geolens_admin_username)
+    raster = await create_raster_dataset(
+        session,
+        created_by=admin.id,
+        table_name=f"raster_{uuid.uuid4().hex[:8]}",
+    )
+
+    action = ChatAction(type="add_layer", dataset_id=str(raster.id))
+    validated, dropped = await _validate_actions(
+        [action], [], session=session, user=admin, port=_default_port
+    )
+
+    assert dropped == []
+    assert len(validated) == 1
 
 
 # ---------------------------------------------------------------------------

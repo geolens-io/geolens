@@ -103,4 +103,11 @@ describe('ExportButton', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
+  it('offers no export for a 3D Tiles dataset', () => {
+    render(<ExportButton datasetId="ds-1" datasetName="test" recordType="tiles3d_dataset" />);
+
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
 });

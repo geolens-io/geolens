@@ -323,6 +323,18 @@ describe('ReuploadDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('renders nothing for a 3D Tiles dataset', () => {
+    render(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), record_type: 'tiles3d_dataset' }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   // fix(#1746): this is a request-only service token, not a login credential,
   // so it must opt every password manager out explicitly.
   it('opts every password manager out of the service token field', async () => {
