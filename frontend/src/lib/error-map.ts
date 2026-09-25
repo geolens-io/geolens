@@ -561,7 +561,8 @@ export function translateApiErrorDetail(detail: unknown, status = 0): string {
   }) as string;
 }
 
-const UPLOAD_REFUSAL_FALLBACK_KEYS: Record<number, ApiErrorDescriptor['key']> = {
+/** The statuses describeUploadRefusal treats as a real refusal, each mapped to its generic fallback key. */
+export const UPLOAD_REFUSAL_FALLBACK_KEYS: Record<number, ApiErrorDescriptor['key']> = {
   400: 'errors.badRequest',
   422: 'errors.validationFailed',
 };

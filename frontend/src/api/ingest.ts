@@ -1,7 +1,7 @@
 import { apiFetch, ApiError, attemptRefresh, notifySessionExpired, tryRefresh, type RefreshOutcome } from './client';
 import { uploadChunks } from './_presignedUpload';
 import { API_BASE } from '@/lib/constants';
-import { describeUploadRefusal } from '@/lib/error-map';
+import { describeUploadRefusal, UPLOAD_REFUSAL_FALLBACK_KEYS } from '@/lib/error-map';
 import i18n from '@/i18n/i18n';
 import { useAuthStore } from '@/stores/auth-store';
 import { reportNetworkError } from '@/lib/report';
@@ -31,9 +31,17 @@ import type {
 /** Byte-transfer progress callback (0–1). */
 export type UploadProgress = (fraction: number) => void;
 
-/** Rethrows err, with an ApiError's message rebuilt through describeUploadRefusal. */
+/**
+ * Rethrows err, rebuilding an ApiError's message through describeUploadRefusal
+ * only when its status is a key of UPLOAD_REFUSAL_FALLBACK_KEYS and its body
+ * is a string. A transport failure (no body) rethrows unchanged.
+ */
 export function rethrowAsUploadRefusal(err: unknown): never {
-  if (err instanceof ApiError) {
+  if (
+    err instanceof ApiError &&
+    typeof err.body === 'string' &&
+    UPLOAD_REFUSAL_FALLBACK_KEYS[err.status] !== undefined
+  ) {
     const message = describeUploadRefusal(err.body, err.status);
     if (message !== err.message) {
       const rebuilt = new ApiError(message, err.status, err.body);

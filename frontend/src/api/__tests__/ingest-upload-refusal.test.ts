@@ -112,3 +112,43 @@ describe('the doors show a 400 extension refusal verbatim', () => {
     await expect(uploadFromUrl('https://example.test/malware.exe')).rejects.toThrow(detail);
   });
 });
+
+describe('a transport failure keeps its own message rather than a refusal one', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('a status-0 network failure on the presigned upload door keeps "network unavailable"', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    }));
+
+    await expect(requestPresignedUpload('campus.zip', 10)).rejects.toThrow(
+      'Network unavailable. Check your connection.',
+    );
+  });
+
+  it('a timeout on the presigned upload door keeps its own message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new DOMException('The operation was aborted', 'TimeoutError');
+    }));
+
+    await expect(requestPresignedUpload('campus.zip', 10)).rejects.toThrow(
+      'The request took too long. Try again.',
+    );
+  });
+
+  it('the multipart upload door (xhrUpload) keeps its own message on a network failure', async () => {
+    class NetworkFailureXHR extends CapturingXHR {
+      open() {}
+      send() {
+        queueMicrotask(() => this.onerror?.());
+      }
+    }
+    vi.stubGlobal('XMLHttpRequest', NetworkFailureXHR);
+
+    await expect(uploadFile(new File(['PK'], 'campus.zip'))).rejects.toThrow(
+      'Network unavailable. Check your connection.',
+    );
+  });
+});
