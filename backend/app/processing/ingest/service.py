@@ -263,7 +263,10 @@ async def save_upload_file(
                             raise HTTPException(
                                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                                 detail={
-                                    "code": "file_size_exceeded",
+                                    # Aborted mid-stream, so there's no true
+                                    # size to report: a distinct code from
+                                    # file_size_exceeded, whose key needs one.
+                                    "code": "file_size_limit_exceeded",
                                     "message": (
                                         f"File size exceeds maximum allowed "
                                         f"({limit_mb} MB)."
@@ -315,7 +318,7 @@ async def save_upload_file(
                         raise HTTPException(
                             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                             detail={
-                                "code": "file_size_exceeded",
+                                "code": "file_size_limit_exceeded",
                                 "message": (
                                     f"File size exceeds maximum allowed "
                                     f"({limit_mb} MB)."

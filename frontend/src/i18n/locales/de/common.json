@@ -198,6 +198,7 @@
     "uploadDriverMetadataMember": "Der Eintrag „{{entry}}“ ist ein GDAL-VRT, das innerhalb eines Uploads nicht akzeptiert wird.",
     "uploadEmpty": "Die hochgeladene Datei ist leer.",
     "uploadFileSizeExceeded": "Die Datei ({{size_mb}} MB) überschreitet das zulässige Maximum ({{limit_mb}} MB).",
+    "uploadFileSizeLimitExceeded": "Die Datei überschreitet die zulässige Höchstgröße ({{limit_mb}} MB).",
     "uploadFilenameControlCharacters": "Der Dateiname enthält nicht zulässige Steuerzeichen.",
     "uploadFilenameMissingExtension": "Aus der URL konnte kein Dateiname mit Erweiterung ermittelt werden. Geben Sie einen Dateinamen explizit an.",
     "uploadIngestCellLimitExceeded": "Die Datei hat {{cells}} Zellen, mehr als das Limit von {{limit}} Zellen. Teilen Sie die Datei auf oder entfernen Sie nicht benötigte Spalten.",

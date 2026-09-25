@@ -326,6 +326,7 @@
     "uploadDriverMetadataMember": "条目“{{entry}}”是 GDAL VRT，上传内容中不接受此类文件。",
     "uploadEmpty": "上传的文件为空。",
     "uploadFileSizeExceeded": "文件（{{size_mb}} MB）超出了允许的最大值（{{limit_mb}} MB）。",
+    "uploadFileSizeLimitExceeded": "文件超过了允许的最大大小（{{limit_mb}} MB）。",
     "uploadFilenameControlCharacters": "文件名包含不允许的控制字符。",
     "uploadFilenameMissingExtension": "无法从该网址确定带扩展名的文件名。请显式提供文件名。",
     "uploadIngestCellLimitExceeded": "文件有 {{cells}} 个单元格，超过 {{limit}} 个单元格的导入上限。请拆分文件或删除不需要的列。",

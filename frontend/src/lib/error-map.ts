@@ -175,6 +175,7 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   driver_metadata_member: 'errors.uploadDriverMetadataMember',
   empty_upload: 'errors.uploadEmpty',
   file_size_exceeded: 'errors.uploadFileSizeExceeded',
+  file_size_limit_exceeded: 'errors.uploadFileSizeLimitExceeded',
   filename_control_characters: 'errors.uploadFilenameControlCharacters',
   filename_missing_extension: 'errors.uploadFilenameMissingExtension',
   geometry_loss: 'errors.reuploadGeometryLoss',

@@ -198,6 +198,7 @@
     "uploadDriverMetadataMember": "L'entrée « {{entry}} » est un VRT GDAL, qui n'est pas accepté dans un téléversement.",
     "uploadEmpty": "Le fichier téléversé est vide.",
     "uploadFileSizeExceeded": "Le fichier ({{size_mb}} Mo) dépasse le maximum autorisé ({{limit_mb}} Mo).",
+    "uploadFileSizeLimitExceeded": "Le fichier dépasse la taille maximale autorisée ({{limit_mb}} Mo).",
     "uploadFilenameControlCharacters": "Le nom du fichier contient des caractères de contrôle non autorisés.",
     "uploadFilenameMissingExtension": "Impossible de déterminer un nom de fichier avec extension à partir de l'URL. Indiquez un nom de fichier explicitement.",
     "uploadIngestCellLimitExceeded": "Le fichier contient {{cells}} cellules, au-delà de la limite de {{limit}} cellules. Scindez le fichier ou supprimez des colonnes inutiles.",

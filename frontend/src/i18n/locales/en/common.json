@@ -326,6 +326,7 @@
     "uploadDriverMetadataMember": "The entry '{{entry}}' is a GDAL VRT, which isn't accepted inside an upload.",
     "uploadEmpty": "The uploaded file is empty.",
     "uploadFileSizeExceeded": "The file ({{size_mb}} MB) exceeds the maximum allowed ({{limit_mb}} MB).",
+    "uploadFileSizeLimitExceeded": "The file exceeds the maximum allowed size ({{limit_mb}} MB).",
     "uploadFilenameControlCharacters": "The filename contains control characters that aren't allowed.",
     "uploadFilenameMissingExtension": "Could not determine a filename with an extension from the URL. Provide a filename explicitly.",
     "uploadIngestCellLimitExceeded": "The file has {{cells}} cells, above the {{limit}}-cell ingest limit. Split the file or drop columns you don't need.",
