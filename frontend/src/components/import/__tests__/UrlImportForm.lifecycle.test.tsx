@@ -49,6 +49,7 @@ vi.mock('@/api/ingest', () => ({
 
 vi.mock('@/components/import/hooks/use-ingest', () => ({
   useJobStatus: (...a: unknown[]) => mockUseJobStatus(...a),
+  useUploadConfig: () => ({ data: undefined }),
 }));
 
 vi.mock('react-i18next', () => ({

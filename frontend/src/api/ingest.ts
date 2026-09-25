@@ -176,11 +176,12 @@ const URL_SUBMIT_TIMEOUT_MS = 90_000;
 export async function uploadFromUrl(
   url: string,
   filename?: string,
+  kind?: UploadKind | null,
 ): Promise<UploadResponse> {
   try {
     return await apiFetch<UploadResponse>('/ingest/upload/url', {
       method: 'POST',
-      body: JSON.stringify({ url, ...(filename && { filename }) }),
+      body: JSON.stringify({ url, ...(filename && { filename }), ...(kind && { kind }) }),
       timeoutMs: URL_SUBMIT_TIMEOUT_MS,
     });
   } catch (err) {

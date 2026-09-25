@@ -1,4 +1,4 @@
-import { useState, useCallback, useId, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { commitImport } from '@/api/ingest';
@@ -32,83 +32,16 @@ import {
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import { FileDropzone, effectiveBatchLimit } from './FileDropzone';
 import { BulkUploadProgress } from './BulkUploadProgress';
-import { inferImportedKind, isFilePreview, stripExtension } from './utils';
+import { allowedTilesetExtensions, inferImportedKind, isFilePreview, stripExtension } from './utils';
+import { UploadKindChoice } from './UploadKindChoice';
 import { BulkReviewList } from './BulkReviewList';
 import { BulkTrackingList } from './BulkTrackingList';
 import type { FileEntry, BatchPhase, CommitImportRequest, UploadKind } from '@/types/api';
 import { ApiError } from '@/api/client';
 import { randomId } from '@/lib/random-id';
-import { cn } from '@/lib/utils';
 
-// Both doors check the deployment's extension list before they require a tileset archive.
-const TILESET_EXTENSIONS = ['.zip', '.3tz'];
 // A .3tz holds only a tileset, so the files choice never takes one.
 const TILESET_ONLY_EXTENSION = '.3tz';
-
-/** Chooses, before the drop, whether the files are geospatial data or 3D Tiles tilesets. */
-function UploadKindChoice({
-  value,
-  onChange,
-  disabled,
-  tilesetAvailable,
-}: {
-  value: UploadKind | null;
-  onChange: (kind: UploadKind | null) => void;
-  disabled: boolean;
-  tilesetAvailable: boolean;
-}) {
-  const { t } = useTranslation('import');
-  const id = useId();
-  const options = [
-    { kind: null, key: 'files', label: t('upload.kindFiles'), hint: t('upload.kindFilesHint'), available: true },
-    {
-      kind: 'tiles3d' as const,
-      key: 'tiles3d',
-      label: t('upload.kindTileset'),
-      hint: tilesetAvailable ? t('upload.kindTilesetHint') : t('upload.kindTilesetUnavailable'),
-      available: tilesetAvailable,
-    },
-  ];
-
-  return (
-    <fieldset disabled={disabled} aria-describedby={disabled ? `${id}-locked` : undefined} className="space-y-2">
-      <legend className="text-sm font-medium">{t('upload.kindLegend')}</legend>
-      {disabled && (
-        <p id={`${id}-locked`} className="text-xs text-muted-foreground">
-          {t('upload.kindLocked')}
-        </p>
-      )}
-      <div className="grid gap-2 sm:grid-cols-2">
-        {options.map((option) => (
-          <div
-            key={option.key}
-            className={cn(
-              'rounded-lg border px-3 py-2.5',
-              value === option.kind ? 'border-primary bg-primary/5' : 'border-border',
-            )}
-          >
-            <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium">
-              <input
-                type="radio"
-                name={`${id}-upload-kind`}
-                value={option.key}
-                checked={value === option.kind}
-                onChange={() => onChange(option.kind)}
-                disabled={!option.available}
-                aria-describedby={`${id}-${option.key}-hint`}
-              />
-              {option.label}
-            </label>
-            <p id={`${id}-${option.key}-hint`} className="ms-6 mt-0.5 text-xs text-muted-foreground">
-              {option.hint}
-            </p>
-          </div>
-        ))}
-      </div>
-    </fieldset>
-  );
-}
-
 
 function getErrorHint(errorMsg: string, t: (key: string) => string): string | null {
   const lower = errorMsg.toLowerCase();
@@ -221,10 +154,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     () => uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean),
     [uploadConfig?.allowed_extensions],
   );
-  const tilesetExtensions = useMemo(
-    () => TILESET_EXTENSIONS.filter((ext) => configExtensions?.includes(ext) ?? true),
-    [configExtensions],
-  );
+  const tilesetExtensions = useMemo(() => allowedTilesetExtensions(configExtensions), [configExtensions]);
   const tilesetAvailable = tilesetExtensions.length > 0;
   // A tileset choice the config rules out falls back to files, queued drops included.
   const uploadKind = tilesetAvailable ? chosenKind : null;
@@ -838,6 +768,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
         value={uploadKind}
         onChange={setChosenKind}
         disabled={pendingFiles !== null}
+        lockedHint={t('upload.kindLocked')}
         tilesetAvailable={tilesetAvailable}
       />
       <FileDropzone

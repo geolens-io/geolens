@@ -1,5 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import type { FilePreviewResponse, RasterPreviewResponse, ServicePreviewResponse } from '@/types/api';
+import type {
+  FilePreviewResponse,
+  RasterPreviewResponse,
+  ServicePreviewResponse,
+  TilesetPreviewResponse,
+} from '@/types/api';
 import { formatNumber } from '@/lib/format';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,16 +18,32 @@ import {
 } from '@/components/ui/table';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { semanticBadgeColors } from '@/lib/status-colors';
-import { isRasterPreview } from './utils';
+import { TilesetFacts } from './TilesetFacts';
+import { isRasterPreview, isTilesetPreview } from './utils';
 
 interface ImportPreviewProps {
-  preview: FilePreviewResponse | RasterPreviewResponse | ServicePreviewResponse;
+  preview:
+    | FilePreviewResponse
+    | RasterPreviewResponse
+    | ServicePreviewResponse
+    | TilesetPreviewResponse;
 }
 
 const MAX_VISIBLE_COLUMNS = 8;
 
 export function ImportPreview({ preview }: ImportPreviewProps) {
   const { t } = useTranslation('import');
+
+  if (isTilesetPreview(preview)) {
+    return (
+      <Card density="compact" className="px-4">
+        <span className="text-sm font-medium">{preview.source_filename}</span>
+        <div>
+          <TilesetFacts preview={preview} />
+        </div>
+      </Card>
+    );
+  }
 
   // Raster preview
   if (isRasterPreview(preview)) {

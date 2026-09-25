@@ -1,5 +1,5 @@
-/** Both upload doors carry the tileset `kind`, and neither sends one for ordinary files. */
-import { requestPresignedUpload, uploadFile } from '@/api/ingest';
+/** Every upload door carries the tileset `kind`, and none sends one for ordinary files. */
+import { requestPresignedUpload, uploadFile, uploadFromUrl } from '@/api/ingest';
 
 class CapturingXHR {
   static sent: FormData[] = [];
@@ -53,5 +53,19 @@ describe('upload kind', () => {
     );
     expect(bodies[0]).toMatchObject({ filename: 'campus.zip', kind: 'tiles3d' });
     expect(bodies[1]).not.toHaveProperty('kind');
+  });
+
+  it('adds kind to the URL import request body', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ job_id: 'job-1', status: 'running' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await uploadFromUrl('https://files.example.test/campus.3tz', undefined, 'tiles3d');
+    await uploadFromUrl('https://files.example.test/parks.geojson', undefined, null);
+
+    const bodies = fetchMock.mock.calls.map(
+      (call) => JSON.parse((call as unknown as [string, RequestInit])[1].body as string),
+    );
+    expect(bodies[0]).toEqual({ url: 'https://files.example.test/campus.3tz', kind: 'tiles3d' });
+    expect(bodies[1]).toEqual({ url: 'https://files.example.test/parks.geojson' });
   });
 });
