@@ -149,7 +149,13 @@ async def update_ingest_job_for_attempt(
     values: dict[str, object],
     expected_status: str = "running",
 ) -> bool:
-    """Apply a job mutation only while the caller owns the active attempt."""
+    """Apply a job mutation only while the caller owns the active attempt.
+
+    Refuses, before any statement, ``values`` that name a column the ledger
+    owns: a job's status, reason, completion time and fence change only there.
+    """
+    if owned := ledger.OWNED_COLUMNS & values.keys():
+        raise ValueError(f"the ledger writes {sorted(owned)} itself")
     result = await session.execute(
         update(IngestJob)
         .where(
