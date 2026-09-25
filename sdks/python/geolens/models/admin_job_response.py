@@ -28,7 +28,8 @@ class AdminJobResponse:
     """
     Attributes:
         id (UUID): Unique ingestion job identifier.
-        status (AdminJobResponseStatus): Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
+        status (AdminJobResponseStatus): Current job status: 'pending', 'running', 'complete', 'failed', 'cancelled', or
+            'fanned_out' (a multi-layer upload split into per-layer child jobs).
         source_filename (None | str): Original filename of the uploaded file, if applicable.
         dataset_id (None | UUID): ID of the dataset created by this job, if completed successfully.
         error_message (None | str): Error details if the job failed.
