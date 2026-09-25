@@ -4,6 +4,7 @@ CesiumJS resolves every URI a tileset's files name from the resource that
 loaded the tileset, credentials included, so a URI naming another origin
 would send them there. Each file is typed as CesiumJS types it, by its magic
 or else as JSON, and only the parts a client parses as JSON are parsed here.
+The same read records the tileset's content types and required extensions.
 """
 
 from __future__ import annotations
@@ -12,11 +13,18 @@ import json
 import re
 import struct
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import IO, NoReturn
 
 from app.processing.ingest import tileset
-from app.processing.ingest.tileset import TilesetLayout, _refuse, check_uri, check_uris
+from app.processing.ingest.tileset import (
+    TilesetContents,
+    TilesetLayout,
+    _object,
+    _refuse,
+    check_uri,
+    check_uris,
+)
 from app.processing.ingest.validation import _member_read_errors
 
 # What the scan reads in all, across every file: the JSON it parses, and the
@@ -24,6 +32,8 @@ from app.processing.ingest.validation import _member_read_errors
 MAX_SCANNED_JSON_BYTES = 1024**3
 MAX_CONTENT_HEADERS = 10_000_000
 MAX_COMPOSITE_DEPTH = 16
+# Far more than any tileset lists; the names are stored on the dataset row.
+MAX_REQUIRED_EXTENSIONS = 256
 
 # b3dm's two legacy headers put a JSON quote or the "glTF" magic where a
 # length would be, which reads as at least this.
@@ -34,6 +44,18 @@ _TILES_WITHOUT_URIS = frozenset({b"pnts", b"vctr", b"geom", b"voxl"})
 # CesiumJS hands a composite's gltf-typed tile the whole composite, which its
 # glTF loader can't read, and then goes on to the tiles after it.
 _GLTF_TILE = b"gltf"
+_CONTENT_TYPES = {
+    b"b3dm": "b3dm",
+    b"i3dm": "i3dm",
+    b"cmpt": "cmpt",
+    b"subt": "subtree",
+    b"pnts": "pnts",
+    b"vctr": "vctr",
+    b"geom": "geom",
+    b"glTF": "glb",
+}
+# How extensions are named; anything else is no extension a client knows.
+_EXTENSION_NAME = re.compile(r"[A-Za-z0-9_]{1,64}")
 
 _UTF8_BOM = b"\xef\xbb\xbf"
 _JSON_BLANKS = b" \t\n\r"
@@ -50,18 +72,34 @@ def _refuse_overlap(key: str) -> NoReturn:
 
 
 @dataclass
-class _Budget:
+class _Scan:
+    """The budgets every file shares, and what the files hold."""
+
     json_bytes: int
     headers: int
+    content_types: set[str] = field(default_factory=set)
+    extensions_required: set[str] = field(default_factory=set)
+
+    def require(self, names: object) -> None:
+        """Keep the extensions an extensionsRequired array names."""
+        for name in names if isinstance(names, list) else []:
+            if isinstance(name, str) and _EXTENSION_NAME.fullmatch(name):
+                self.extensions_required.add(name)
+        if len(self.extensions_required) > MAX_REQUIRED_EXTENSIONS:
+            _refuse(
+                "The tileset's files require more than "
+                f"{MAX_REQUIRED_EXTENSIONS} extensions, more than this server reads.",
+                reason="tileset_content_bounds",
+            )
 
 
 class _Member:
     """One file of the archive, read forward only; the last read can be reread."""
 
-    def __init__(self, handle: IO[bytes], key: str, size: int, budget: _Budget):
+    def __init__(self, handle: IO[bytes], key: str, size: int, scan: _Scan):
         self.key = key
         self.size = size
-        self.budget = budget
+        self.scan = scan
         self._handle = handle
         self._start = 0
         self._last = b""
@@ -86,8 +124,8 @@ class _Member:
         return data
 
     def count_header(self) -> None:
-        self.budget.headers -= 1
-        if self.budget.headers < 0:
+        self.scan.headers -= 1
+        if self.scan.headers < 0:
             _refuse(
                 "The tileset's files hold more than "
                 f"{MAX_CONTENT_HEADERS:,} tile and chunk headers, more than this "
@@ -103,8 +141,8 @@ class _Member:
                 f"{tileset.MAX_TILESET_JSON_BYTES // 1024**2} MB this server reads.",
                 reason="tileset_json_size",
             )
-        self.budget.json_bytes -= end - start
-        if self.budget.json_bytes < 0:
+        self.scan.json_bytes -= end - start
+        if self.scan.json_bytes < 0:
             _refuse(
                 "The tileset's files hold more JSON than the "
                 f"{MAX_SCANNED_JSON_BYTES // 1024**2} MB this server reads in all.",
@@ -123,14 +161,15 @@ def _may_be_json_object(head: bytes) -> bool:
     return text[1:].lstrip(_JSON_BLANKS)[:1] in (b"", b'"', b"}")
 
 
-def _check_json(member: _Member, start: int, end: int) -> None:
+def _check_json(member: _Member, start: int, end: int) -> dict | None:
+    """The JSON object a client would parse from [start, end), once its URIs pass."""
     if start >= end or not _may_be_json_object(
         member.read(start, min(end - start, _JSON_HEAD_BYTES))
     ):
-        return
+        return None
     raw = member.read_part(start, end)
     if _CONTROL_BYTE.search(raw):
-        return
+        return None
     try:
         # Numbers as floats, as JSON.parse reads them: Python refuses an
         # integer past 4300 digits, which would skip a document CesiumJS reads.
@@ -143,9 +182,17 @@ def _check_json(member: _Member, start: int, end: int) -> None:
             reason="tileset_json_depth",
         )
     except ValueError:
-        return
-    if isinstance(document, dict):
-        check_uris(document, member.key)
+        return None
+    if not isinstance(document, dict):
+        return None
+    check_uris(document, member.key)
+    return document
+
+
+def _check_gltf_json(member: _Member, start: int, end: int) -> None:
+    document = _check_json(member, start, end)
+    if document is not None:
+        member.scan.require(document.get("extensionsRequired"))
 
 
 def _check_glb(member: _Member, start: int, end: int) -> None:
@@ -156,7 +203,7 @@ def _check_glb(member: _Member, start: int, end: int) -> None:
     if version == 1 and len(header) == 20:
         content_length, content_format = struct.unpack_from("<2I", header, 12)
         if content_format == 0:
-            _check_json(member, start + 20, min(start + 20 + content_length, end))
+            _check_gltf_json(member, start + 20, min(start + 20 + content_length, end))
     elif version == 2:
         # Every chunk is walked: CesiumJS keeps the last JSON chunk, and a
         # chunk starting past the end holds nothing.
@@ -166,7 +213,7 @@ def _check_glb(member: _Member, start: int, end: int) -> None:
             chunk_length, chunk_type = struct.unpack("<2I", member.read(offset, 8))
             offset += 8
             if chunk_type == _GLB_JSON_CHUNK:
-                _check_json(member, offset, min(offset + chunk_length, end))
+                _check_gltf_json(member, offset, min(offset + chunk_length, end))
             offset += chunk_length
 
 
@@ -177,7 +224,7 @@ def _check_gltf(member: _Member, start: int, end: int) -> None:
     if member.read(start, 4) == b"glTF":
         _check_glb(member, start, end)
     else:
-        _check_json(member, start, end)
+        _check_gltf_json(member, start, end)
 
 
 def _table_end(
@@ -256,6 +303,7 @@ def _check_composite(member: _Member, start: int, depth: int) -> None:
         if length < 12:
             # The next tile would start inside this one's header.
             _refuse_overlap(member.key)
+        _record_type(member.scan, magic)
         if magic in _TILES:
             _check_tile(member, inner, magic, depth + 1)
         elif magic == _GLTF_TILE:
@@ -281,20 +329,47 @@ def _check_tile(member: _Member, start: int, magic: bytes, depth: int) -> None:
         _check_subtree(member, start)
 
 
+def _record_type(scan: _Scan, magic: bytes) -> None:
+    content_type = _CONTENT_TYPES.get(magic)
+    if content_type is not None:
+        scan.content_types.add(content_type)
+
+
+def _record_json_file(scan: _Scan, document: dict) -> None:
+    """Type a JSON file the way CesiumJS does, and keep what it requires."""
+    if document.get("root") is not None:
+        scan.require(document.get("extensionsRequired"))
+        # 1.0 tilesets list the glTF extensions their content requires here.
+        content_gltf = _object(document.get("extensions")).get("3DTILES_content_gltf")
+        scan.require(_object(content_gltf).get("extensionsRequired"))
+    elif document.get("asset") is not None:
+        scan.content_types.add("gltf")
+        scan.require(document.get("extensionsRequired"))
+    elif document.get("tileAvailability") is not None:
+        scan.content_types.add("subtree")
+
+
 def _check_file(member: _Member) -> None:
     magic = member.read(0, 4)
+    _record_type(member.scan, magic)
     if magic == b"glTF":
         _check_glb(member, 0, member.size)
     elif magic in _TILES:
         _check_tile(member, 0, magic, 1)
     elif magic not in _TILES_WITHOUT_URIS:
-        _check_json(member, 0, member.size)
+        document = _check_json(member, 0, member.size)
+        if document is not None:
+            _record_json_file(member.scan, document)
 
 
-def check_archive_uris(path: str, layout: TilesetLayout) -> None:
-    """Refuse a file in the checked archive that names a URI outside the tileset."""
-    budget = _Budget(json_bytes=MAX_SCANNED_JSON_BYTES, headers=MAX_CONTENT_HEADERS)
+def scan_tileset_archive(path: str, layout: TilesetLayout) -> TilesetContents:
+    """Refuse a file that names a URI outside the tileset; report what the files hold."""
+    scan = _Scan(json_bytes=MAX_SCANNED_JSON_BYTES, headers=MAX_CONTENT_HEADERS)
     with zipfile.ZipFile(path) as archive:
         for info, key in layout.files:
             with _member_read_errors(key), archive.open(info) as handle:
-                _check_file(_Member(handle, key, info.file_size, budget))
+                _check_file(_Member(handle, key, info.file_size, scan))
+    return TilesetContents(
+        content_types=tuple(sorted(scan.content_types)),
+        extensions_required=tuple(sorted(scan.extensions_required)),
+    )

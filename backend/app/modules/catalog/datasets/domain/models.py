@@ -475,6 +475,14 @@ class Dataset(Base):
     tileset_bounding_volume: Mapped[str | None] = mapped_column(
         String(10), nullable=True
     )
+    # Its tile formats and required extensions, found by reading every file at
+    # upload; null for a tileset published before the upload recorded them.
+    tileset_content_types: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text), nullable=True
+    )
+    tileset_extensions_required: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text), nullable=True
+    )
     quicklook_256_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Source info

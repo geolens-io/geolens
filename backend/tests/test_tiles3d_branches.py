@@ -145,6 +145,8 @@ async def test_the_detail_response_carries_the_tileset_block(
         "version": None,
         "geometric_error": None,
         "bounding_volume": None,
+        "content_types": None,
+        "extensions_required": None,
     }
     assert vector_resp.status_code == 200, vector_resp.text
     assert vector_resp.json()["tileset"] is None

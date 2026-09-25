@@ -224,6 +224,23 @@ class TilesetMetadata(BaseModel):
             "the dataset's extent; a box or sphere leaves it null."
         ),
     )
+    content_types: list[str] | None = Field(
+        default=None,
+        description=(
+            "The tile formats in the tileset, sorted: b3dm, i3dm, pnts, cmpt, "
+            "glb, gltf, subtree, vctr or geom, including the tiles inside a "
+            "cmpt. Null for a tileset published before GeoLens recorded them."
+        ),
+    )
+    extensions_required: list[str] | None = Field(
+        default=None,
+        description=(
+            "Every extension a client must support to load the tileset, sorted: "
+            "the extensionsRequired of its tileset JSON, external tilesets "
+            "included, and of its glTF content. Null for a tileset published "
+            "before GeoLens recorded them."
+        ),
+    )
 
 
 class StacAsset(BaseModel):

@@ -310,6 +310,20 @@ async def test_a_box_or_sphere_tileset_has_no_extent(
     assert body["tileset"]["bounding_volume"] == kind
 
 
+async def test_the_dataset_lists_the_tileset_contents(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """The worker records the content types and required extensions it read."""
+    headers, _ = uploader
+    data = campus_zip(extra={"extensionsRequired": ["3DTILES_implicit_tiling"]})
+
+    job = await load_job(test_db_session, await publish(client, headers, queued, data))
+    body = (await client.get(f"/datasets/{job.dataset_id}", headers=headers)).json()
+
+    assert body["tileset"]["content_types"] == ["b3dm", "glb"]
+    assert body["tileset"]["extensions_required"] == ["3DTILES_implicit_tiling"]
+
+
 async def test_a_finder_zip_publishes_without_its_metadata(
     client: AsyncClient, test_db_session, uploader, queued
 ) -> None:

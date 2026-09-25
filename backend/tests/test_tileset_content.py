@@ -13,8 +13,8 @@ import pytest
 from app.core.upload_errors import UnsafeUploadError
 from app.processing.ingest import tileset as tileset_module
 from app.processing.ingest import tileset_content
-from app.processing.ingest.tileset import inspect_tileset
-from app.processing.ingest.tileset_content import check_archive_uris
+from app.processing.ingest.tileset import TilesetContents, inspect_tileset
+from app.processing.ingest.tileset_content import scan_tileset_archive
 from tests.tiles3d_archives import (
     GLB_BIN,
     GLB_JSON,
@@ -24,6 +24,7 @@ from tests.tiles3d_archives import (
     glb,
     gltf_json,
     i3dm,
+    pnts,
     subtree,
     tileset_json,
 )
@@ -31,8 +32,8 @@ from tests.tiles3d_archives import (
 DATA_URI = "data:application/octet-stream;base64,AAAA"
 
 
-def scan(path: str) -> None:
-    check_archive_uris(path, inspect_tileset(path).layout)
+def scan(path: str) -> TilesetContents:
+    return scan_tileset_archive(path, inspect_tileset(path).layout)
 
 
 def refused(path: str) -> str:
@@ -428,3 +429,123 @@ def test_json_past_the_scan_budget_is_refused(tmp_path: Path, monkeypatch) -> No
     path = archive(tmp_path, ("0/a.gltf", document), ("0/b.gltf", document))
 
     assert "more JSON than the" in refused(path)
+
+
+# --- What the files hold --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("name", "data", "types"),
+    [
+        ("0/0.b3dm", b3dm(glb(gltf_json())), ("b3dm",)),
+        ("0/0.i3dm", i3dm(glb(gltf_json())), ("i3dm",)),
+        ("0/0.pnts", pnts(), ("pnts",)),
+        ("0/0.cmpt", cmpt(i3dm(glb(gltf_json())), pnts()), ("cmpt", "i3dm", "pnts")),
+        ("0/0.glb", glb(gltf_json()), ("glb",)),
+        ("0/0.gltf", gltf_json(), ("gltf",)),
+        ("subtrees/0.subtree", subtree(b"{}"), ("subtree",)),
+        ("subtrees/0.json", b'{"tileAvailability": {"constant": 1}}', ("subtree",)),
+        ("0/model.bin", b3dm(glb(gltf_json())), ("b3dm",)),
+    ],
+    ids=[
+        "b3dm",
+        "i3dm",
+        "pnts",
+        "cmpt-and-its-tiles",
+        "glb",
+        "gltf",
+        "subtree",
+        "subtree-json",
+        "named-otherwise",
+    ],
+)
+def test_each_file_is_typed_as_a_client_types_it(
+    tmp_path: Path, name: str, data: bytes, types: tuple[str, ...]
+) -> None:
+    """Content types come from magic or JSON keys, a composite's tiles included."""
+    assert scan(archive(tmp_path, (name, data))).content_types == types
+
+
+def test_files_that_are_not_content_have_no_type(tmp_path: Path) -> None:
+    """Tilesets, schemas, buffers and images add no content type."""
+    path = archive(
+        tmp_path,
+        ("sub/tileset.json", tileset_json()),
+        ("schema.json", b'{"id": "schema", "classes": {}}'),
+        ("0/buffer.bin", bytes(64)),
+        ("0/texture.png", b"\x89PNG\r\n\x1a\n" + bytes(32)),
+    )
+
+    assert scan(path).content_types == ()
+
+
+def test_required_extensions_are_merged_across_the_files(tmp_path: Path) -> None:
+    """Every tileset JSON and glTF adds its extensionsRequired to one sorted list."""
+    content_gltf = {
+        "3DTILES_content_gltf": {"extensionsRequired": ["KHR_draco_mesh_compression"]}
+    }
+    path = build_zip(
+        tmp_path / "t.zip",
+        [
+            (
+                "tileset.json",
+                tileset_json(extra={"extensionsRequired": ["3DTILES_implicit_tiling"]}),
+            ),
+            (
+                "sub/tileset.json",
+                tileset_json(
+                    extra={
+                        "extensionsRequired": ["3DTILES_metadata"],
+                        "extensions": content_gltf,
+                    }
+                ),
+            ),
+            (
+                "0/0.b3dm",
+                b3dm(
+                    glb(
+                        gltf_json(
+                            extensionsRequired=[
+                                "KHR_mesh_quantization",
+                                "EXT_meshopt_compression",
+                            ]
+                        )
+                    )
+                ),
+            ),
+            (
+                "0/1.gltf",
+                gltf_json(
+                    extensionsRequired=["KHR_texture_basisu", "EXT_meshopt_compression"]
+                ),
+            ),
+        ],
+    )
+
+    assert scan(path).extensions_required == (
+        "3DTILES_implicit_tiling",
+        "3DTILES_metadata",
+        "EXT_meshopt_compression",
+        "KHR_draco_mesh_compression",
+        "KHR_mesh_quantization",
+        "KHR_texture_basisu",
+    )
+
+
+def test_only_well_formed_extension_names_are_kept(tmp_path: Path) -> None:
+    """A name that is not a string of letters, digits and underscores is no extension."""
+    names = ["KHR_ok", 7, "bad name", "x" * 65, "", "KHR_\u0000"]
+    path = archive(tmp_path, ("0/0.gltf", gltf_json(extensionsRequired=names)))
+
+    assert scan(path).extensions_required == ("KHR_ok",)
+
+
+def test_required_extensions_past_the_bound_are_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The names are stored on the dataset, so their number is bounded."""
+    monkeypatch.setattr(tileset_content, "MAX_REQUIRED_EXTENSIONS", 2)
+    names = ["EXT_a", "EXT_b", "EXT_c"]
+    path = archive(tmp_path, ("0/0.gltf", gltf_json(extensionsRequired=names)))
+
+    assert "require more than 2 extensions" in refused(path)
