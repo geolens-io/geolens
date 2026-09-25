@@ -159,13 +159,15 @@ CANCEL_WRITE_BUDGET_MS = int(
 )
 
 
-def _user_error_message(exc: Exception, *, registered: bool = False) -> str:
-    """Map a failure onto text safe to return from ``GET /jobs/{job_id}``.
+def _user_error_message(exc: Exception, *, registered: bool = False) -> str | Exception:
+    """The reason to store for a failure: a sentence for a database error, else the error.
 
     SQLAlchemy stringifies DB errors with the full statement appended
     (``[SQL: CREATE TABLE "data"."…" AS …]``), which would hand internal schema
     and table names to the client. Mirrors the sandbox's
-    ``_handle_execution_error`` categories; raw text stays in server logs.
+    ``_handle_execution_error`` categories; raw text stays in server logs. Any
+    other failure is returned as it is, for the ledger's redaction to judge by
+    where it came from.
     """
     if isinstance(exc, SQLAlchemyError):
         exc_text = str(exc).lower()
@@ -191,7 +193,7 @@ def _user_error_message(exc: Exception, *, registered: bool = False) -> str:
                 "operation. Try a different column."
             )
         return "The analysis failed due to a database error"
-    return str(exc)[:2000]
+    return exc
 
 
 async def _fail_cancelled_job(
@@ -888,7 +890,7 @@ async def _mark_job_failed(
         session,
         uuid.UUID(job_id),
         attempt_id,
-        # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
+        # Raw DB errors embed the generated SQL.
         reason=_user_error_message(exc, registered=registered),
         task_name="analysis_materialize",
     )

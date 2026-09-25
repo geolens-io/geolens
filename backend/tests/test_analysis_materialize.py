@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.pool import NullPool
 
 import app.core.db as core_db
+from app.core.failure_reason import INTERNAL_FAILURE_REASON
 from app.core.geo import extent_to_bbox
 from app.modules.catalog.datasets.api import router_analysis
 from app.platform.analysis_sql import MAX_BUFFER_METERS
@@ -1380,6 +1381,43 @@ class TestMaterializeWorker:
             )
         ).scalar_one()
         assert left is None
+
+    @pytest.mark.parametrize(
+        ("exc", "stored"),
+        [
+            (
+                ValueError("Analysis produced no features to save"),
+                "Analysis produced no features to save",
+            ),
+            (
+                RuntimeError("osgeo raised on /srv/data/private.tif"),
+                INTERNAL_FAILURE_REASON,
+            ),
+        ],
+    )
+    async def test_a_failure_is_stored_by_where_it_came_from(
+        self, test_db_session: AsyncSession, exc, stored
+    ):
+        """A refusal this tree wrote is stored as its text, and a library's error as the internal code."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, admin_id)
+        job.status = "running"
+        await test_db_session.commit()
+
+        async with core_db.async_session() as session:
+            await _mark_job_failed(
+                session,
+                job_id=str(job.id),
+                attempt_id=job.attempt_id,
+                exc=exc,
+                schema="data",
+                out_table=None,
+                operation="centroid",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == stored
 
     async def test_fence_missed_failure_keeps_adopted_table(
         self,
@@ -4228,9 +4266,10 @@ class TestUserErrorMessage:
         assert materialize_timeout() in msg
         assert "big_output" not in msg
 
-    def test_domain_errors_pass_through(self):
-        msg = _user_error_message(ValueError("Analysis produced no features to save"))
-        assert "no features" in msg
+    def test_other_errors_pass_through_for_the_ledger_to_judge(self):
+        """A failure that is not a database error is handed on as the error itself."""
+        exc = ValueError("Analysis produced no features to save")
+        assert _user_error_message(exc) is exc
 
     def test_timeout_message_names_the_budget_that_fired(self, monkeypatch):
         """fix(#1013 review): the two budgets are independently configurable
