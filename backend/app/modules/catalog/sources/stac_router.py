@@ -90,6 +90,11 @@ _OFF_ORIGIN_ITEM_HREF_MESSAGE = (
     "imported from, so GeoLens will not record it as the item's address."
 )
 
+_UNIDENTIFIED_CRS_MESSAGE = (
+    "This item's asset has a coordinate reference system GeoLens can't "
+    "identify by an EPSG or OGC CRS84 code, so it was not imported."
+)
+
 _STAC_TOKEN_DESCRIPTION = (
     "Optional auth token for a protected STAC catalog." + DEPRECATED_TOKEN_SUFFIX
 )
@@ -619,6 +624,15 @@ async def stac_import(
     from app.modules.quota.service import reserve_dataset_slot
 
     for item in importable:
+        probed = cog_info_map.get(item.data_asset_href)
+        if probed is not None and probed.get("crs_unidentified"):
+            results.append(
+                StacImportResult(
+                    item_id=item.id, status="error", error=_UNIDENTIFIED_CRS_MESSAGE
+                )
+            )
+            errors += 1
+            continue
         try:
             # Savepoint per item so a failure doesn't corrupt the session
             async with db.begin_nested():

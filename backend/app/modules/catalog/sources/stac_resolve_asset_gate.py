@@ -42,6 +42,7 @@ from app.modules.catalog.sources.stac_resolve_identity import (
 from app.modules.catalog.sources.stac_resolve_taxonomy import (
     StacResolution,
     _ASSET_BLOCKED,
+    _ASSET_CRS_UNIDENTIFIED,
     _ASSET_GONE,
     _ASSET_UNADDRESSABLE,
     _ASSET_UNIDENTIFIED,
@@ -274,6 +275,8 @@ async def _resolve_from_item(
             # inconclusive, so the stored binding is unchanged and a retry
             # can succeed.
             return _ASSET_UNREADABLE
+        if metadata.get("crs_unidentified"):
+            return _ASSET_CRS_UNIDENTIFIED
 
     # fix(#1266): properties/bbox read from the same document as the asset —
     # a canonical document that supersedes the representation supersedes its

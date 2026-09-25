@@ -20,19 +20,16 @@ absence.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 import rasterio.crs
 
+from app.modules.catalog.sources import cog_info
 from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 
 pytestmark = pytest.mark.anyio
-
-# Captured before any monkeypatching so the factory below can build a real
-# client: it replaces the module's `httpx.AsyncClient` attribute, so a
-# factory that referenced `httpx.AsyncClient` itself would recurse into its
-# own replacement.
-_RealAsyncClient = httpx.AsyncClient
 
 # A Titiler 2.2.1 /cog/info reply, captured live against a real COG: `crs` is
 # an OGC CRS URI, and `bounds` is in the dataset's OWN projection (UTM 21N
@@ -99,8 +96,9 @@ def _install(
 
     fetch_cog_info builds its own ``httpx.AsyncClient`` directly rather than
     through a factory seam (Titiler is an internal trusted service, not a
-    caller-controlled origin), so the client class itself is the thing to
-    replace.
+    caller-controlled origin), so the module's ``httpx`` is swapped for one
+    whose client answers from this table. Every other client, such as the
+    origin probe's, stays real.
     """
 
     def _handler(request: httpx.Request) -> httpx.Response:
@@ -114,11 +112,11 @@ def _install(
         return httpx.Response(200, json=info)
 
     def _factory(*args, **kwargs) -> httpx.AsyncClient:
-        kwargs.pop("timeout", None)
-        return _RealAsyncClient(transport=httpx.MockTransport(_handler))
+        return httpx.AsyncClient(transport=httpx.MockTransport(_handler))
 
     monkeypatch.setattr(
-        "app.modules.catalog.sources.cog_info.httpx.AsyncClient", _factory
+        "app.modules.catalog.sources.cog_info.httpx",
+        SimpleNamespace(AsyncClient=_factory, Timeout=httpx.Timeout),
     )
 
 
@@ -185,15 +183,25 @@ class TestGeoreferencing:
 # Valid WKT, as Titiler reports a CRS PROJ cannot match to an authority code.
 _UTM_21N_WKT = rasterio.crs.CRS.from_epsg(32621).to_wkt()
 
+_CRS84_URI = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+_CRS84_URN = "urn:ogc:def:crs:OGC:1.3:CRS84"
+# What main published for a CRS84 probe: PROJ's own CRS84, longitude first.
+_CRS84_WKT = rasterio.crs.CRS.from_user_input(_CRS84_URI).to_wkt(version="WKT2_2019")
+
 
 @pytest.fixture
 def crs_text_parses(monkeypatch) -> list[str]:
-    """Swap rasterio's CRS for one that refuses CRS text, recording each attempt."""
+    """Swap rasterio's CRS for one that refuses CRS text, recording each attempt.
+
+    The one text it accepts is the probe's own CRS84 constant.
+    """
     real = rasterio.crs.CRS
     attempts: list[str] = []
 
     def _refuse(name: str):
         def _parse(*args, **kwargs):
+            if name == "from_user_input" and args == (cog_info._CRS84_URI,):
+                return real.from_user_input(*args)
             attempts.append(name)
             raise AssertionError(f"CRS text parsed through {name}")
 
@@ -216,13 +224,12 @@ class TestAuthorityCrsOnly:
             ("EPSG:32621", 32621),
             ("http://www.opengis.net/def/crs/EPSG/0/32621", 32621),
             ("urn:ogc:def:crs:EPSG::32621", 32621),
-            ("http://www.opengis.net/def/crs/OGC/1.3/CRS84", 4326),
         ],
     )
     async def test_an_epsg_reference_builds_the_wkt_from_the_registry(
         self, monkeypatch, crs_text_parses, crs, epsg
     ) -> None:
-        """An EPSG or OGC reference yields its code and the registry's WKT2."""
+        """An EPSG reference yields its code and the registry's WKT2."""
         _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
         result = await fetch_cog_info("https://origin.test/scene.tif")
 
@@ -242,16 +249,43 @@ class TestAuthorityCrsOnly:
         ],
         ids=["wkt", "esri-uri", "unknown-code"],
     )
-    async def test_any_other_crs_stores_none_without_parsing_it(
+    async def test_any_other_crs_is_unidentified_without_parsing_it(
         self, monkeypatch, crs_text_parses, crs
     ) -> None:
-        """WKT, another authority or a code PROJ lacks stores no CRS and parses no text."""
+        """WKT, another authority or a code PROJ lacks is reported, not dropped."""
         _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
         result = await fetch_cog_info("https://origin.test/scene.tif")
 
         assert result is not None
         assert (result["crs_wkt"], result["epsg"]) == (None, None)
+        assert result["crs_unidentified"] is True
+        assert reconcile_epsg(result, 32621) is None
         assert crs_text_parses == []
+
+    @pytest.mark.parametrize("crs", [_CRS84_URI, _CRS84_URN])
+    async def test_crs84_stays_crs84(self, monkeypatch, crs_text_parses, crs) -> None:
+        """CRS84 is not EPSG:4326: it is longitude first, and has no EPSG code."""
+        _install(monkeypatch, {**_TITILER_INFO, "crs": crs})
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+
+        assert result is not None
+        assert result["crs_wkt"] == _CRS84_WKT
+        assert result["epsg"] is None
+        assert "crs_unidentified" not in result
+        assert reconcile_epsg(result, 4326) is None
+        assert crs_text_parses == []
+
+    async def test_no_reported_crs_still_takes_the_declared_code(
+        self, monkeypatch
+    ) -> None:
+        """Titiler naming no CRS is the one case the declaration may fill."""
+        info = {k: v for k, v in _TITILER_INFO.items() if k != "crs"}
+        _install(monkeypatch, info)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+
+        assert result is not None
+        assert "crs_unidentified" not in result
+        assert reconcile_epsg(result, 32621) == 32621
 
 
 class TestGeotransform:

@@ -68,6 +68,9 @@ class StacResolution:
     # carried from the same document as the asset so the two describe the
     # same object. None when the item states none — not a claim it changed.
     bbox: list[float] | None = None
+    # Why GeoLens declined an asset it could read, for a refusal that has
+    # its own message. None for every verdict about the origin.
+    refusal: str | None = None
 
     @property
     def resolved(self) -> bool:
@@ -89,6 +92,14 @@ _WITHDRAWN = StacResolution(MISSING, ITEM_WITHDRAWN)
 # "The item publishes assets and none is provably this dataset's." Reached
 # when a keyless binding's recorded href has moved — GeoLens won't guess.
 _ASSET_UNIDENTIFIED = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS)
+
+# "The publisher moved the asset to one whose CRS GeoLens can't identify."
+# Adopting it would store either no CRS or the item's declared one, which may
+# name a different projection, so nothing is adopted.
+CRS_UNIDENTIFIED = "crs_unidentified"
+_ASSET_CRS_UNIDENTIFIED = StacResolution(
+    INACCESSIBLE, UNEXPECTED_STATUS, refusal=CRS_UNIDENTIFIED
+)
 
 # "The item is there and no longer publishes an asset this dataset can use."
 # Distinct from withdrawal — the item itself is still on the catalog.
