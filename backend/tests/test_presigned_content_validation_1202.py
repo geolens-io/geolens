@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
 import uuid
+import zipfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -323,6 +325,73 @@ async def test_both_doors_accept_a_valid_parquet_larger_than_the_header_window(
 
     assert direct.status_code == 201, direct.text
     assert presigned.status_code == 200, presigned.text
+
+
+_POINTS_GEOJSON = (
+    b'{"type":"FeatureCollection","features":[{"type":"Feature",'
+    b'"properties":{"name":"a"},"geometry":{"type":"Point","coordinates":[1,2]}}]}'
+)
+
+
+def _points_zip(method: int) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", method) as archive:
+        archive.writestr("points.geojson", _POINTS_GEOJSON)
+    return buffer.getvalue()
+
+
+async def _preview_from_both_doors(client, headers, storage, payload: bytes) -> list:
+    """Upload ``payload`` as a .zip through each door, then preview each job."""
+    from app.processing.ingest import router
+
+    with patch.object(
+        router, "_get_allowed_extensions_safely", AsyncMock(return_value=[".zip"])
+    ):
+        direct = await _direct_upload(client, headers, "points.zip", payload)
+        presigned, presigned_job, _ = await _presigned_upload(
+            client, headers, storage, "points.zip", payload
+        )
+    assert direct.status_code == 201, direct.text
+    assert presigned.status_code == 200, presigned.text
+    return [
+        await client.post(f"/ingest/preview/{job_id}", headers=headers)
+        for job_id in (direct.json()["job_id"], presigned_job)
+    ]
+
+
+@pytest.mark.parametrize(
+    "method", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA], ids=["bzip2", "lzma"]
+)
+async def test_both_doors_refuse_an_archive_member_by_its_method_unread(
+    client, admin_auth_header, both_doors, zip_member_reads, method
+) -> None:
+    """Preview refuses a bzip2 or LZMA member from either door without reading it."""
+    previews = await _preview_from_both_doors(
+        client, admin_auth_header, both_doors, _points_zip(method)
+    )
+
+    assert [p.status_code for p in previews] == [422, 422], [p.text for p in previews]
+    assert previews[0].json()["detail"] == previews[1].json()["detail"]
+    assert (
+        f"compressed with {zipfile.compressor_names[method]}"
+        in previews[0].json()["detail"]
+    )
+    assert zip_member_reads == []
+
+
+@pytest.mark.parametrize(
+    "method", [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED], ids=["stored", "deflated"]
+)
+async def test_both_doors_preview_a_stored_or_deflated_archive_member(
+    client, admin_auth_header, both_doors, zip_member_reads, method
+) -> None:
+    """A stored or deflated member is read and previewed from either door."""
+    previews = await _preview_from_both_doors(
+        client, admin_auth_header, both_doors, _points_zip(method)
+    )
+
+    assert [p.status_code for p in previews] == [200, 200], [p.text for p in previews]
+    assert zip_member_reads.count("points.geojson") >= 2
 
 
 async def test_rejected_presigned_upload_removes_both_objects(

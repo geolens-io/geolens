@@ -56,10 +56,16 @@ def build_zip(
     return str(path)
 
 
-def tileset_zip(path: Path, *more: tuple[str | zipfile.ZipInfo, bytes], **json_kw):
+def tileset_zip(
+    path: Path,
+    *more: tuple[str | zipfile.ZipInfo, bytes],
+    compression: int = zipfile.ZIP_DEFLATED,
+    **json_kw,
+):
     return build_zip(
         path,
         [("tileset.json", tileset_json(**json_kw)), ("0/0.glb", b"glb"), *more],
+        compression=compression,
     )
 
 

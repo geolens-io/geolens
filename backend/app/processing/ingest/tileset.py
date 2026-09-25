@@ -43,6 +43,7 @@ from app.processing.ingest.validation import (
     _member_read_errors,
     _validate_zip_directory_cardinality,
     _zip_directory_metadata,
+    compression_refusal,
 )
 
 if TYPE_CHECKING:
@@ -74,10 +75,6 @@ _BOUNDING_VOLUMES = (("region", 6), ("box", 12), ("sphere", 4))
 # How far a region may stray past a pole or the antimeridian and still be read
 # as reaching it; writers round pi, sometimes upward.
 _REGION_TOLERANCE_RADIANS = 1e-6
-
-_READABLE_METHODS = frozenset(
-    {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED, zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA}
-)
 
 # Control characters, and the separators and escapes that let a name mean a
 # different path to storage, to a filesystem or to the tileset route.
@@ -195,12 +192,13 @@ def _check_entry_contents(info: zipfile.ZipInfo) -> None:
             "archive may hold only folders and regular files.",
             reason="tileset_special_entry",
         )
-    if info.flag_bits & 0x1 or info.compress_type not in _READABLE_METHODS:
+    if info.flag_bits & 0x1:
         _refuse(
-            "The archive contains an encrypted entry or one compressed with a "
-            "method this server cannot read.",
+            "The archive contains an encrypted entry.",
             reason="tileset_unreadable_entry",
         )
+    if refusal := compression_refusal(info):
+        _refuse(refusal, reason="tileset_unreadable_entry")
     if info.file_size and (
         info.compress_size == 0
         or info.file_size > MAX_COMPRESSION_RATIO * info.compress_size

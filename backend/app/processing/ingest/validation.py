@@ -4,7 +4,7 @@ Validates uploaded files beyond extension checks:
 - Content-type verification via magic byte detection (puremagic), plus
   direct header sniffs for formats puremagic has no signature for (Parquet,
   FlatGeobuf)
-- ZIP archive safety (compression ratio, nested archives, decompressed size)
+- ZIP archive safety (compression method and ratio, nested archives, size)
 - File size enforcement against configured limits
 - VRT XML sniff + path-traversal guard on `<SourceFilename>` body (IA-P1-03)
 """
@@ -95,6 +95,10 @@ MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 MAX_ARCHIVE_ENTRIES = 10_000
 MAX_CENTRAL_DIRECTORY_BYTES = 32 * 1024 * 1024
 ZIP_CONTAINER_EXTENSIONS = frozenset({".zip", ".xlsx", ".kmz"})
+
+# zipfile bounds a member read's output only for deflate. A bzip2, LZMA or
+# Zstandard read expands a whole compressed chunk before any budget sees it.
+_READABLE_ZIP_METHODS = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
 
 _EOCD_SIGNATURE = b"PK\x05\x06"
 _ZIP64_EOCD_SIGNATURE = b"PK\x06\x06"
@@ -424,8 +428,8 @@ def _scan_sqlite_schema(db_path: str, source: str | None) -> None:
 # `validate_zip_safety` never reads member DATA (central directory only), so
 # it can't have caught this on the way past; the conversion lives at the reads.
 # RuntimeError (password-protected member) and NotImplementedError
-# (unsupported compression method) are ordinary things to find in an upload
-# rather than bugs, so they join the corruption cases here. The tuple is
+# (strongly encrypted or patched member) are ordinary things to find in an
+# upload rather than bugs, so they join the corruption cases here. The tuple is
 # narrow and only wraps the member reads, so a genuine RuntimeError from
 # elsewhere is untouched.
 _CORRUPT_MEMBER_ERRORS = (
@@ -1007,11 +1011,25 @@ def validate_file_content(file_path: str, filename: str) -> None:
     )
 
 
+def compression_refusal(info: zipfile.ZipInfo) -> str | None:
+    """The refusal for an entry that is neither stored nor deflated, else None."""
+    kind = info.compress_type
+    if kind in _READABLE_ZIP_METHODS:
+        return None
+    method = zipfile.compressor_names.get(kind, f"method {kind}")
+    return (
+        f"The archive has an entry compressed with {method}. Only stored and "
+        "deflate-compressed entries are read; re-create the archive with "
+        "standard ZIP compression."
+    )
+
+
 def validate_zip_safety(file_path: str) -> None:
     """Check ZIP archive for bomb indicators without extracting.
 
     Raises ValueError if:
     - File is not a valid ZIP
+    - Any entry is compressed with anything but store or deflate
     - Any entry has compression ratio > MAX_COMPRESSION_RATIO
     - Any entry is a GDAL driver-metadata document (see
       DRIVER_METADATA_EXTENSIONS)
@@ -1025,6 +1043,9 @@ def validate_zip_safety(file_path: str) -> None:
 
             for info in zf.infolist():
                 total_uncompressed += info.file_size
+
+                if refusal := compression_refusal(info):
+                    raise ValueError(refusal)
 
                 if info.compress_size > 0:
                     ratio = info.file_size / info.compress_size

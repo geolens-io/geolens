@@ -1262,18 +1262,19 @@ def test_comment_stripping_leaves_quoted_text_alone():
     assert "USING VirtualText" in stripped
 
 
-def _archive_with_unsupported_compression(tmp_path, name="upload.zip") -> Path:
-    """A ZIP whose member declares a compression method zipfile cannot inflate.
+def _archive_with_unsupported_compression(
+    tmp_path, name="upload.zip", method=99
+) -> Path:
+    """A ZIP whose deflated member declares ``method`` in both headers.
 
-    Built by rewriting the method field in both the local header and the
-    central directory, because `zipfile` will not write one it cannot read.
+    Rewritten in place because `zipfile` will not write most of these methods.
     """
     path = tmp_path / name
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("layer.geojson", '{"type":"FeatureCollection"}' * 20)
 
     raw = bytearray(path.read_bytes())
-    unsupported = (99).to_bytes(2, "little")  # 99 = AE-x encryption marker
+    unsupported = method.to_bytes(2, "little")
     # Local file header: method at offset 8. Central directory: method at 10.
     for signature, offset in ((b"PK\x03\x04", 8), (b"PK\x01\x02", 10)):
         at = raw.find(signature)
@@ -1283,11 +1284,11 @@ def _archive_with_unsupported_compression(tmp_path, name="upload.zip") -> Path:
     return path
 
 
-def _archive_with_encrypted_member(tmp_path, name="upload.zip") -> Path:
-    """A ZIP whose member sets the encryption bit in its general-purpose flags.
+def _archive_with_encrypted_member(tmp_path, name="upload.zip", flag=0x1) -> Path:
+    """A ZIP whose member sets ``flag`` in its general-purpose flags.
 
-    `zipfile` raises RuntimeError for these when no password is supplied, which
-    is an ordinary thing to receive from a user and not a bug on our side.
+    `zipfile` raises RuntimeError for the encryption bit when no password is
+    supplied and NotImplementedError for strong encryption (0x40).
     """
     path = tmp_path / name
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -1299,7 +1300,7 @@ def _archive_with_encrypted_member(tmp_path, name="upload.zip") -> Path:
         at = raw.find(signature)
         assert at >= 0, signature
         flags = int.from_bytes(raw[at + offset : at + offset + 2], "little")
-        raw[at + offset : at + offset + 2] = (flags | 0x1).to_bytes(2, "little")
+        raw[at + offset : at + offset + 2] = (flags | flag).to_bytes(2, "little")
     path.write_bytes(bytes(raw))
     return path
 
@@ -1308,8 +1309,12 @@ def _archive_with_encrypted_member(tmp_path, name="upload.zip") -> Path:
     ("build", "raises"),
     [
         (_archive_with_encrypted_member, RuntimeError),
-        (_archive_with_unsupported_compression, NotImplementedError),
+        (
+            functools.partial(_archive_with_encrypted_member, flag=0x40),
+            NotImplementedError,
+        ),
     ],
+    ids=["encrypted", "strongly-encrypted"],
 )
 def test_a_member_zipfile_will_not_decode_is_refused_not_raised(
     tmp_path, build, raises
@@ -1336,9 +1341,47 @@ def test_a_member_zipfile_will_not_decode_is_refused_not_raised(
     assert isinstance(refused.value, ValueError)
 
 
+@pytest.mark.parametrize(
+    ("method", "named"),
+    [
+        (zipfile.ZIP_BZIP2, "bzip2"),
+        (zipfile.ZIP_LZMA, "lzma"),
+        (zipfile.ZIP_ZSTANDARD, "zstd"),
+        (9, "deflate64"),
+        (99, "method 99"),
+    ],
+)
+def test_a_member_neither_stored_nor_deflated_is_refused_unread(
+    tmp_path, zip_member_reads, method, named
+):
+    """The ingest task's check and the content scan refuse by method, reading nothing."""
+    from app.processing.ingest import validation
+
+    archive = str(_archive_with_unsupported_compression(tmp_path, method=method))
+
+    with pytest.raises(ValueError, match=f"compressed with {named}\\."):
+        validation.validate_archive_safety(archive, "upload.zip")
+    with pytest.raises(UnsafeUploadError, match=f"compressed with {named}\\."):
+        validation.validate_content_directives(archive, "upload.zip")
+    assert zip_member_reads == []
+
+
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("build", "detail"),
+    [
+        (_archive_with_a_damaged_member, "could not be read"),
+        (
+            functools.partial(
+                _archive_with_unsupported_compression, method=zipfile.ZIP_BZIP2
+            ),
+            "compressed with bzip2",
+        ),
+    ],
+    ids=["damaged", "bzip2"],
+)
 async def test_reupload_preview_maps_a_content_refusal_to_422(
-    client, admin_auth_header, test_db_session, tmp_path
+    client, admin_auth_header, test_db_session, tmp_path, build, detail
 ):
     """The sibling endpoint's mapping, which it did not have.
 
@@ -1352,7 +1395,7 @@ async def test_reupload_preview_maps_a_content_refusal_to_422(
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
-    archive = _archive_with_a_damaged_member(tmp_path)
+    archive = build(tmp_path)
     uploaded = await client.post(
         f"/datasets/{dataset.id}/reupload",
         files={"file": ("update.zip", archive.read_bytes(), "application/zip")},
@@ -1365,4 +1408,4 @@ async def test_reupload_preview_maps_a_content_refusal_to_422(
         headers=admin_auth_header,
     )
     assert response.status_code == 422, response.text
-    assert "could not be read" in response.json()["detail"]
+    assert detail in response.json()["detail"]
