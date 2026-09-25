@@ -723,43 +723,51 @@ _FAILURES = {
 
 
 class _IndeterminatePublish:
-    """Fail the publishing commit before it lands, then the probe that follows."""
+    """Fail the publishing commit before it lands, leaving its transaction open.
 
-    def __init__(self, job_id: uuid.UUID) -> None:
+    The probe, asking once, then reads the transaction in progress, or, with
+    ``probe_fails``, cannot read it at all.
+    """
+
+    def __init__(self, job_id: uuid.UUID, *, probe_fails: bool = False) -> None:
         self.job_id = job_id
+        self.probe_fails = probe_fails
         self.commit_failed = False
         self.probe_failed = False
 
     @contextmanager
     def installed(self) -> Iterator[None]:
         real_commit = AsyncSession.commit
-        real_execute = AsyncSession.execute
+        real_scalar = AsyncSession.scalar
         own_status = select(IngestJob.status).where(IngestJob.id == self.job_id)
 
         async def _commit(session, *args, **kwargs):
             if not self.commit_failed:
                 # The publishing transaction is the one that already shows
                 # the job complete from inside itself.
-                status = (await real_execute(session, own_status)).scalar()
+                status = (await session.execute(own_status)).scalar()
                 if status == "complete":
                     self.commit_failed = True
                     raise ConnectionResetError("the connection dropped before COMMIT")
             return await real_commit(session, *args, **kwargs)
 
-        async def _execute(session, statement, *args, **kwargs):
-            reads_attempt = "ingest_jobs.attempt_id" in str(statement)
-            if self.commit_failed and not self.probe_failed and reads_attempt:
+        async def _scalar(session, statement, *args, **kwargs):
+            asks_outcome = "pg_xact_status" in str(statement)
+            if self.probe_fails and self.commit_failed and asks_outcome:
                 self.probe_failed = True
                 raise ConnectionResetError("the probe could not reach the database")
-            return await real_execute(session, statement, *args, **kwargs)
+            return await real_scalar(session, statement, *args, **kwargs)
 
         AsyncSession.commit = _commit
-        AsyncSession.execute = _execute
+        AsyncSession.scalar = _scalar
         try:
-            yield
+            with patch(
+                "app.processing.ingest.tasks_raster_common.PUBLISH_PROBE_RETRIES", 0
+            ):
+                yield
         finally:
             AsyncSession.commit = real_commit
-            AsyncSession.execute = real_execute
+            AsyncSession.scalar = real_scalar
 
 
 def _stored_keys(storage: LocalStorageProvider, dataset_id: uuid.UUID) -> set[str]:
@@ -793,12 +801,13 @@ async def test_a_confirmed_publish_reaps_the_superseded_raster(
 
 
 @pytest.mark.parametrize("purge", ["failing", "working"])
+@pytest.mark.parametrize("probe_fails", [False, True], ids=["in-progress", "no-probe"])
 async def test_an_indeterminate_publish_keeps_every_raster_object(
-    replace, storage, purge: str
+    replace, storage, purge: str, probe_fails: bool
 ) -> None:
     """A commit that may not have landed deletes neither the old raster nor the new one."""
     replacement = await replace("raster")
-    indeterminate = _IndeterminatePublish(replacement.job_id)
+    indeterminate = _IndeterminatePublish(replacement.job_id, probe_fails=probe_fails)
     purge_step = (
         AsyncMock(side_effect=RuntimeError("valkey unavailable"))
         if purge == "failing"
@@ -811,7 +820,8 @@ async def test_an_indeterminate_publish_keeps_every_raster_object(
     ):
         await replacement.run()
 
-    assert indeterminate.commit_failed and indeterminate.probe_failed
+    assert indeterminate.commit_failed
+    assert indeterminate.probe_failed is probe_fails
     live_uri = await _fresh_scalar(
         select(RasterAsset.asset_uri).where(
             RasterAsset.dataset_id == replacement.dataset_id
@@ -825,10 +835,13 @@ async def test_an_indeterminate_publish_keeps_every_raster_object(
     )
 
 
-async def test_an_indeterminate_publish_skips_the_file_archive(replace) -> None:
+@pytest.mark.parametrize("probe_fails", [False, True], ids=["in-progress", "no-probe"])
+async def test_an_indeterminate_publish_skips_the_file_archive(
+    replace, probe_fails: bool
+) -> None:
     """A commit that may not have landed neither archives the upload nor deletes it."""
     replacement = await replace("file")
-    indeterminate = _IndeterminatePublish(replacement.job_id)
+    indeterminate = _IndeterminatePublish(replacement.job_id, probe_fails=probe_fails)
     archive = AsyncMock()
     with (
         _quiet_embedding(),
@@ -837,7 +850,8 @@ async def test_an_indeterminate_publish_skips_the_file_archive(replace) -> None:
     ):
         await replacement.run()
 
-    assert indeterminate.commit_failed and indeterminate.probe_failed
+    assert indeterminate.commit_failed
+    assert indeterminate.probe_failed is probe_fails
     archive.assert_not_awaited()
     await _assert_live_row(replacement.live_table, "before")
     assert replacement.upload.exists()

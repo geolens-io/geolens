@@ -50,6 +50,7 @@ from app.processing.ingest.tasks_tileset import unpack_tileset
 from app.processing.ingest.tileset import Tileset, TilesetLayout, inspect_tileset
 from app.processing.raster.models import DatasetAsset
 from tests.factories import create_user
+from tests.test_raster_replace_1221 import _publish_commit_lost
 from tests.tiles3d_archives import (
     REGION,
     b3dm,
@@ -755,6 +756,46 @@ async def test_a_failed_publish_commits_no_tiles3d_record(
     assert records.all() == []
     assert (await load_job(test_db_session, job_id)).status == "failed"
     assert await tileset_objects() == []
+
+
+async def test_a_lost_publish_commit_still_in_progress_keeps_the_unpacked_tileset(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """A publishing commit still in progress when its acknowledgement is lost reaps nothing."""
+    headers, _ = uploader
+    job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
+    assert (await commit(client, headers, job_id)).status_code == 202
+
+    with _publish_commit_lost(job_id) as fired:
+        await run_queued(queued)
+
+    assert fired["count"] == 1, "the publishing commit never fired"
+    assert await tileset_objects() != [], (
+        "the unpacked tileset was reaped while the commit that decides whether "
+        "it is live was still in progress"
+    )
+    job = await load_job(test_db_session, job_id)
+    assert (job.status, job.dataset_id) == ("running", None)
+
+
+async def test_a_lost_publish_commit_that_aborted_reaps_the_unpacked_tileset(
+    client: AsyncClient, test_db_session, uploader, queued
+) -> None:
+    """A publishing commit that aborted published nothing, so the unpacked tileset is reaped."""
+    headers, _ = uploader
+    job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
+    assert (await commit(client, headers, job_id)).status_code == 202
+
+    with (
+        _publish_commit_lost(job_id, aborted=True) as fired,
+        pytest.raises(ConnectionResetError),
+    ):
+        await run_queued(queued)
+
+    assert fired["count"] == 1, "the publishing commit never fired"
+    assert await tileset_objects() == []
+    job = await load_job(test_db_session, job_id)
+    assert (job.status, job.dataset_id) == ("failed", None)
 
 
 # --- Tenancy -------------------------------------------------------------

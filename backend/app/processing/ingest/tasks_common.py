@@ -540,6 +540,11 @@ async def _job_phase_session(
             await session.execute(
                 text(f"SET LOCAL statement_timeout = {lock_and_statement_timeout_ms}")
             )
+        if require_status is not None:
+            from app.processing.ingest.tasks_raster_common import note_publishing_xid
+
+            # Read before the row lock; a phase whose commit publishes probes by it.
+            await note_publishing_xid(session)
         filters = [IngestJob.id == job_uuid]
         if attempt_id is not None:
             filters.append(IngestJob.attempt_id == attempt_id)

@@ -1302,7 +1302,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # raising further. Each upload door branches once for a 3D Tiles tileset.
     "backend/app/processing/ingest/router.py": 1860,
     # Shared ingest finalization carries verification, bounded ArcGIS requests and lifecycle context.
-    "backend/app/processing/ingest/tasks_common.py": 1713,
+    "backend/app/processing/ingest/tasks_common.py": 1718,
     # The file and service strategies: retrieval, staging, verification and cleanup.
     "backend/app/processing/ingest/tasks_reupload.py": 1263,
     # Refresh strategies share access, admission and dispatch rules at this API
@@ -1328,7 +1328,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Reupload preview, compatibility and staged commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1488,
     # VRT creation and regeneration share publication and superseded-object cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1696,
+    "backend/app/processing/ingest/tasks_vrt.py": 1712,
     # The raster strategy: conversion, read-back, object puts and their cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 616,
     # File/service tasks share publication fencing, heartbeat phases and failure

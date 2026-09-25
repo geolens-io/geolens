@@ -46,6 +46,7 @@ from app.processing.ingest.tasks_common import (
 from app.processing.ingest.tasks_raster_common import (
     absorb_cancellation,
     publish_commit_landed,
+    publishing_xid,
     record_unpublished_storage_keys,
 )
 from app.processing.ingest.tasks_staging import (
@@ -347,13 +348,19 @@ async def ingest_tileset(
                     "progress": 1.0,
                 },
             )
+            xid = publishing_xid(session)
             try:
                 await session.commit()
             except BaseException as exc:
-                # A lost acknowledgement may still have committed; the job row
-                # decides, so a durable tileset is never reaped.
+                # A lost acknowledgement may still have committed, so only an
+                # aborted transaction lets the tileset be reaped.
                 if not await publish_commit_landed(
-                    job_uuid, attempt_uuid, job_id=job_id, task=_TASK
+                    job_uuid,
+                    attempt_uuid,
+                    xid=xid,
+                    error=exc,
+                    job_id=job_id,
+                    task=_TASK,
                 ):
                     raise
                 published = True

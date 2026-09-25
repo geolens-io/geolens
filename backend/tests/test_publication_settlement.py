@@ -482,6 +482,8 @@ async def test_commit_failure_rolls_back_swap_and_records_durable_failure(
     async def _commit(session, *args, **kwargs):
         if not failed and (await session.execute(status)).scalar() == "complete":
             failed.append(True)
+            # The server aborts the commit, so the probe reads it as not landed.
+            await session.rollback()
             raise ConnectionResetError("commit unavailable")
         return await real_commit(session, *args, **kwargs)
 

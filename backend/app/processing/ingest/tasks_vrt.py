@@ -55,8 +55,10 @@ from app.processing.ingest.tasks_common import (
 from app.processing.ingest.tasks_staging import _cleanup_staging_on_failure
 from app.processing.ingest.tasks_raster_common import (
     absorb_cancellation,
+    note_publishing_xid,
     observe_publish_commit,
     publish_commit_landed,
+    publishing_xid,
     PublishObservation,
     record_unpublished_storage_keys,
 )
@@ -689,6 +691,7 @@ async def ingest_vrt(
         # adds `.with_for_update(key_share=True)` to close the SELECT-is-
         # not-a-lock window between this read and the puts completing.
         async with async_session() as session:
+            await note_publishing_xid(session)
             result = await session.execute(
                 select(IngestJob)
                 .where(
@@ -820,11 +823,17 @@ async def ingest_vrt(
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
+                xid = publishing_xid(session)
                 try:
                     await session.commit()
                 except BaseException as exc:
                     if not await publish_commit_landed(
-                        job_uuid, attempt_uuid, job_id=job_id, task="ingest_vrt"
+                        job_uuid,
+                        attempt_uuid,
+                        xid=xid,
+                        error=exc,
+                        job_id=job_id,
+                        task="ingest_vrt",
                     ):
                         raise
                     # fix(#1778): stand down rather than re-raise
@@ -1302,6 +1311,7 @@ async def regenerate_vrt(
         # fix(#1847): job row first, then asset — the order every worker
         # phase, `cancel_job`, and the dataset delete hold.
         async with async_session() as session:
+            await note_publishing_xid(session)
             result = await session.execute(
                 select(IngestJob)
                 .where(
@@ -1520,11 +1530,17 @@ async def regenerate_vrt(
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
+                xid = publishing_xid(session)
                 try:
                     await session.commit()
                 except BaseException as exc:
                     observation = await observe_publish_commit(
-                        job_uuid, attempt_uuid, job_id=job_id, task="regenerate_vrt"
+                        job_uuid,
+                        attempt_uuid,
+                        xid=xid,
+                        error=exc,
+                        job_id=job_id,
+                        task="regenerate_vrt",
                     )
                     if observation is PublishObservation.NOT_LANDED:
                         raise
@@ -1545,8 +1561,8 @@ async def regenerate_vrt(
                             job_id=job_id,
                         )
                     else:
-                        # The probe failed, so the prior generation may still be
-                        # live. A leaked object is recoverable; a deleted one isn't.
+                        # The outcome is unknown, so the prior generation may still
+                        # be live. A leaked object is recoverable; a deleted one isn't.
                         structlog.get_logger().warning(
                             "vrt_regenerate_reap_skipped_unknown_publish",
                             job_id=job_id,
