@@ -17,16 +17,11 @@ from sqlalchemy.orm import joinedload
 
 from app.core.failure_reason import redact_failure_reason
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import PUBLISH_FOLLOWUPS_FIELD, IngestJob
 from app.processing.ingest.tasks_common import _emit_billing_event, cleanup_step
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
-
-# The job-row record of follow-ups a landed terminal commit still owes: the
-# task (a complete job's first ingest, or a failed job's replacement) and the
-# attempt that wrote it, since a retry keeps the row and its metadata.
-PUBLISH_FOLLOWUPS_FIELD = "publish_followups"
 
 # Each first ingest's completion-notice label, or None when it sends no notice
 # and bills nothing.

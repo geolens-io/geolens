@@ -35,6 +35,7 @@ from app.core.tiles3d import (
     TILESET_UPLOAD_SUFFIXES,
 )
 from app.core.upload_errors import UnsafeUploadError
+from app.platform.jobs.models import TILESET_UNPACKED_BYTES_FIELD
 from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.ingest.schemas import TilesetPreviewResponse
@@ -55,10 +56,6 @@ if TYPE_CHECKING:
     from app.platform.jobs.models import IngestJob
 
 logger = structlog.get_logger(__name__)
-
-# The job-row field holding the unpacked total the upload door measured, which
-# the commit door checks against the quota again.
-TILESET_UNPACKED_BYTES_FIELD = "tileset_unpacked_bytes"
 
 # tileset.json is parsed whole, so it has its own bounds. A tile tree nests two
 # JSON levels per tile level, so 128 still allows a tree 60 tiles deep.
